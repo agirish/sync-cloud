@@ -18,12 +18,12 @@ import Foundation
         try Data(repeating: fill, count: bytes).write(to: url)
     }
 
-    /// The key `FileContentVerifier` builds for a real file: resolved path, mtime, size.
+    /// The key `FileContentVerifier` builds for a real file — through its own spelling of it, which
+    /// since FR59 also carries the file number and status-change time.
     private func key(for url: URL) throws -> ContentHashKey {
         let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
         let size = try #require((attrs[.size] as? NSNumber)?.intValue)
-        let mtime = try #require(attrs[.modificationDate] as? Date)
-        return ContentHashKey(path: url.path, mtime: mtime.timeIntervalSince1970, size: size)
+        return try #require(FileContentVerifier.cacheKey(statPath: url.path, attributes: attrs, size: size))
     }
 
     /// Two byte-identical files group as duplicates. Plant a different digest for one of them and
@@ -147,5 +147,43 @@ import Foundation
         let warm = await FileSyncManager.planMerge(from: copy, into: keeper,
                                                    fileManager: FileManager.default, cache: cache)
         #expect(warm.steps.isEmpty, "the planted match must have been served from the cache")
+    }
+
+    /// **A document copied over under its old dates is fingerprinted again (FR59).** The
+    /// fingerprint index persists thirty days, and a copy takes the source's dates (FR32): replace
+    /// a document with a same-size one carrying the old modification date and its path, mtime and
+    /// size are all unchanged, so a key of those three served the replaced document's fingerprint,
+    /// and Duplicates could call a different file "same text" and offer to trash a copy. The key
+    /// now carries the file number and status-change time, as the byte-hash key does.
+    @Test func aDocumentReplacedUnderItsOldDatesIsFingerprintedAgain() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FingerprintKey")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let doc = root.appendingPathComponent("letter.pdf")
+        let fm = FileManager.default
+        let stamp = Date(timeIntervalSince1970: 1_700_000_000)
+        try write(doc, bytes: 4096, fill: 0x41)
+        try fm.setAttributes([.modificationDate: stamp], ofItemAtPath: doc.path)
+        func triple() throws -> ContentHashKey {
+            let attrs = try fm.attributesOfItem(atPath: doc.path)
+            return ContentHashKey(path: doc.path,
+                                  mtime: try #require(attrs[.modificationDate] as? Date).timeIntervalSince1970,
+                                  size: try #require((attrs[.size] as? NSNumber)?.intValue))
+        }
+        let before = try triple()
+        let cache = ContentHashCache()
+        let first = await FileSyncManager.fingerprintDocuments([doc.path], fileManager: fm, cache: cache,
+                                                               extract: { _ in "fingerprint-of-the-first" })
+        #expect(first[doc.path] == "fingerprint-of-the-first")
+
+        // A copy over it: a different document, the same size, the old date.
+        try fm.removeItem(at: doc)
+        try write(doc, bytes: 4096, fill: 0x42)
+        try fm.setAttributes([.modificationDate: stamp], ofItemAtPath: doc.path)
+        #expect(try triple() == before, "the fixture must leave path, mtime and size exactly as they were")
+
+        let second = await FileSyncManager.fingerprintDocuments([doc.path], fileManager: fm, cache: cache,
+                                                                extract: { _ in "fingerprint-of-the-second" })
+        #expect(second[doc.path] == "fingerprint-of-the-second",
+                "the replaced document's fingerprint was served from the cache")
     }
 }

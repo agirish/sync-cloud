@@ -78,12 +78,13 @@ public enum ContentFingerprint {
     /// digest computed under an older rule can never COLLIDE with one computed under this one.
     ///
     /// **That is not the same as being safe to bump, and the difference is the cache.** The
-    /// persisted index is keyed on (path, mtime, size) — the scheme is nowhere in the key — so
-    /// after a bump every unchanged file keeps being served the digest it was given under the old
-    /// rule, while anything new or edited gets one under the new rule. The two never collide; they
-    /// simply never match, so a re-stamped pair straddling the bump goes unreported until the old
-    /// entries age out under ``ContentHashCache/maxEntryAge`` (30 days). One-way toward a missed
-    /// group rather than a false one, and self-healing — but silent, and up to a month long.
+    /// persisted index is keyed on (path, mtime, size, file number, ctime) — the scheme is nowhere
+    /// in the key — so after a bump every unchanged file keeps being served the digest it was given
+    /// under the old rule, while anything new or edited gets one under the new rule. The two never
+    /// collide; they simply never match, so a re-stamped pair straddling the bump goes unreported
+    /// until the old entries age out under ``ContentHashCache/maxEntryAge`` (30 days). One-way
+    /// toward a missed group rather than a false one, and self-healing — but silent, and up to a
+    /// month long.
     ///
     /// So bumping this means deleting the fingerprint index with it. It has its own file precisely
     /// so that costs nothing else: Settings ▸ Saved scan data already clears it, or delete

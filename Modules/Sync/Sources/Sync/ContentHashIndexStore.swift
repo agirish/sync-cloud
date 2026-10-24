@@ -16,13 +16,20 @@ public struct ContentHashRecord: Codable, Sendable, Equatable {
     public let size: Int
     public let hex: String
     public let storedAt: Date
+    /// ``ContentHashKey/fileNumber`` and ``ContentHashKey/statusChanged`` (FR59); absent for a
+    /// key the disk could not answer them for, and in a record written before they existed.
+    public let fileNumber: UInt64?
+    public let statusChanged: TimeInterval?
 
-    public init(path: String, mtime: TimeInterval, size: Int, hex: String, storedAt: Date) {
+    public init(path: String, mtime: TimeInterval, size: Int, hex: String, storedAt: Date,
+                fileNumber: UInt64? = nil, statusChanged: TimeInterval? = nil) {
         self.path = path
         self.mtime = mtime
         self.size = size
         self.hex = hex
         self.storedAt = storedAt
+        self.fileNumber = fileNumber
+        self.statusChanged = statusChanged
     }
 }
 
@@ -37,6 +44,14 @@ public enum ContentHashIndexStore {
     /// Bumped when the record shape changes. A file from another schema is discarded rather than
     /// migrated — every entry is reconstructible by re-hashing, so a migration would be permanent
     /// code in exchange for one avoided re-scan.
+    ///
+    /// **Not bumped for FR59's two new fields, deliberately.** They decode as absent from an older
+    /// file, and an entry keyed without them can never match the key a real file is now looked up
+    /// by (its `stat` always answers them), so an old byte-hash entry is never served — it simply
+    /// ages out under ``ContentHashCache/maxEntryAge``, as an edited file's old record always has
+    /// (readers already take the newest record per path). The fingerprint index's keys carry the
+    /// two fields as well (`fingerprintCacheKey`), so its old entries age out the same way, one
+    /// PDF parse per document on the first scan after.
     public static let currentSchema = 1
 
     /// `~/Library/Application Support/SyncCloud/content-hash-index.json`. Alongside the verdict

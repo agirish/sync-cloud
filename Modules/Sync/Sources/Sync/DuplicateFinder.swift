@@ -441,8 +441,8 @@ public struct DuplicateFinderOptions: Sendable {
     public var detectVersions: Bool
     /// Whether to read documents and group those whose *text* matches although their bytes do not
     /// — the re-stamped-download case. Costs one PDF parse per document on a COLD scan and nothing
-    /// on a rescan, because the digests are cached by the same (path, mtime, size) key the content
-    /// hashes use.
+    /// on a rescan, because the digests are cached by the same (path, mtime, size, file number,
+    /// ctime) key the content hashes use.
     ///
     /// **~5.5 minutes for this tree's 10,569 PDFs, not the 46 s this once said.** That figure was
     /// measured with six parses running at a time, which is the arrangement

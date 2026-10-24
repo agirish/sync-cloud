@@ -63,14 +63,14 @@ public struct DocumentIdentityIndex: Sendable {
 
     /// The newest record for each path under `prefix`.
     ///
-    /// **A content index is an append-only log, not a map from path to digest.** Its key is
-    /// (path, mtime, size), so editing a file adds a SECOND record for the same path and the old
-    /// one survives until it ages out — 30 days, per ``ContentHashCache/maxEntryAge``. Reading the
-    /// records straight into a dictionary therefore let the last one in array order win, and that
-    /// order is `ContentHashCache.save`'s `entries.map` over a Swift `Dictionary`: arbitrary, and
-    /// reseeded every launch. Measured on the real index, 13 paths under the provider root carry
-    /// two records with DIFFERENT digests — so which identity those files had was decided by the
-    /// hash seed, and could differ between two launches over an unchanged tree.
+    /// **A content index is an append-only log, not a map from path to digest.** Its key is (path,
+    /// mtime, size, file number, ctime), so editing a file adds a SECOND record for the same path
+    /// and the old one survives until it ages out — 30 days, per ``ContentHashCache/maxEntryAge``.
+    /// Reading the records straight into a dictionary therefore let the last one in array order
+    /// win, and that order is `ContentHashCache.save`'s `entries.map` over a Swift `Dictionary`:
+    /// arbitrary, and reseeded every launch. Measured on the real index, 13 paths under the
+    /// provider root carry two records with DIFFERENT digests — so which identity those files had
+    /// was decided by the hash seed, and could differ between two launches over an unchanged tree.
     ///
     /// Today all 13 are `.DS_Store`, which changes no relation this feeds (checked: removing every
     /// dotfile from the index leaves the satellite set identical, 19 folders either way). The shape

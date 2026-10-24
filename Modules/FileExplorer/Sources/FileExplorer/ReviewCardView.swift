@@ -418,7 +418,8 @@ struct ReviewCardView: View {
                 // The same session cache Verify All and the lens scans use. Without it this path
                 // only *said* it reused the bulk hashing: stepping back to an item, or verifying
                 // one Verify All had already hashed, re-read and re-hashed both sides from disk.
-                // Keyed on (path, mtime, size), so an edited file is bypassed rather than served.
+                // Keyed on (path, mtime, size, file number, ctime), so an edited file is bypassed
+                // rather than served.
                 cache: ContentHashCache.shared
             )
             // `verifyToken` here is a live @State read (the closure's captured struct reads

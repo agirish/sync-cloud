@@ -224,7 +224,7 @@ import Foundation
 
     // MARK: - Behavioral proof: a hit serves the stored hash without re-reading bytes
 
-    @Test func testCachedHashServedEvenAfterBytesChangeUnderUnchangedKey() async throws {
+    @Test func testAHitIsServedUnreadAndASameSizeEditUnderARestoredMtimeIsAMiss() async throws {
         let dir = try makeCanonicalTempRoot(prefix: "ContentHashCacheTest")
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -239,18 +239,29 @@ import Foundation
         let first = await FileContentVerifier.sha256Hex(filePath: file.path, cache: cache)
         #expect(first != nil)
 
-        // Overwrite the bytes with a different payload of the SAME length, then restore the same
-        // mtime so (path, mtime, size) is unchanged. A cache hit must ignore the new bytes.
+        // A hit is served without reading the file: a digest planted under the file's own key —
+        // the verifier's one spelling of it — comes back instead of the file's real one. (This
+        // used to be shown by rewriting the bytes under a restored mtime; since FR59 that write
+        // moves the key's status-change time, and is a miss — see the case below.)
+        let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+        let key = try #require(FileContentVerifier.cacheKey(statPath: file.path, attributes: attributes, size: 6))
+        await cache.store("planted", for: key)
+        let served = await FileContentVerifier.sha256Hex(filePath: file.path, cache: cache)
+        #expect(served == "planted")  // served from cache, NOT re-read
+        await cache.store(try #require(first), for: key)
+
+        // FR59. Overwrite the bytes with a different payload of the SAME length, then restore the
+        // same mtime — what `exiftool -P` or `touch -r` leaves. (path, mtime, size) is unchanged,
+        // so the old key served the stale digest; the write moved the status-change time, so this
+        // is a miss and a real re-hash of the new bytes.
         try Data("BBBBBB".utf8).write(to: file)
         try FileManager.default.setAttributes([.modificationDate: fixedDate], ofItemAtPath: file.path)
 
         let second = await FileContentVerifier.sha256Hex(filePath: file.path, cache: cache)
-        #expect(second == first)  // served from cache, NOT re-read
-
-        // Prove the bytes genuinely changed on disk: an uncached hash sees the new content.
         let uncached = await FileContentVerifier.sha256Hex(filePath: file.path)
         #expect(uncached != nil)
-        #expect(uncached != first)
+        #expect(uncached != first)  // the bytes genuinely changed on disk
+        #expect(second == uncached, "a same-size edit under a restored mtime was served the old digest")
 
         // Grow the file by one byte: size changes -> new key -> a real re-hash of new content.
         try Data("BBBBBBB".utf8).write(to: file)  // 7 bytes now

@@ -307,7 +307,8 @@ extension FileSyncManager {
         //     total, and re-stating 119 against a total it was not measured with would be an
         //     invented number.) The reason is that
         //     a re-stamp routinely changes the byte count too (a compressed re-save changes it by
-        //     an order of magnitude). Cached by (path, mtime, size), so this is paid once.
+        //     an order of magnitude). Cached by (path, mtime, size, file number, ctime), so this is
+        //     paid once.
         var textFingerprints: [String: String] = [:]
         var textUnreadable = 0
         if options.detectSameText {
@@ -392,21 +393,27 @@ extension FileSyncManager {
         }
     }
 
-    /// The (path, mtime, size) triple a fingerprint is cached under — ``ContentHashKey``'s own
-    /// invalidation contract, reused verbatim: any edit to a document moves its mtime, so a stale
-    /// digest is bypassed rather than served. nil when the file has no readable mtime, which means
-    /// this document is fingerprinted every scan rather than cached under an unstable key.
+    /// The key a fingerprint is cached under — ``ContentHashKey``'s own invalidation contract,
+    /// reused verbatim: path, mtime and size, plus the file number and status-change time
+    /// (``ContentHashKey/diskIdentity(atPath:)``, FR59). The triple alone could not see a document
+    /// replaced by a same-size one carrying its dates — what a copy over it leaves, since copies
+    /// take the source's dates — and this index persists thirty days, so the old fingerprint was
+    /// served and Duplicates could call a different file "same text". nil when the file has no
+    /// readable mtime, which means this document is fingerprinted every scan rather than cached
+    /// under an unstable key.
     nonisolated static func fingerprintCacheKey(forPath path: String,
                                                 fileManager: FileManaging) -> ContentHashKey? {
         guard let attributes = try? fileManager.attributesOfItem(atPath: path),
               let modified = attributes[.modificationDate] as? Date else { return nil }
         let size = (attributes[.size] as? NSNumber)?.intValue ?? (attributes[.size] as? Int) ?? 0
-        return ContentHashKey(path: path, mtime: modified.timeIntervalSince1970, size: size)
+        let identity = ContentHashKey.diskIdentity(atPath: path)
+        return ContentHashKey(path: path, mtime: modified.timeIntervalSince1970, size: size,
+                              fileNumber: identity?.fileNumber, statusChanged: identity?.statusChanged)
     }
 
     /// Fingerprints documents with bounded concurrency, returning path → digest for the ones that
-    /// produced one. Cached by the (path, mtime, size) key the content hashes use, so a rescan of
-    /// an unchanged tree re-parses nothing.
+    /// produced one. Cached by the key the content hashes use (``fingerprintCacheKey``), so a
+    /// rescan of an unchanged tree re-parses nothing.
     ///
     /// A cache MISS and a document that legitimately has no fingerprint look the same to the
     /// cache — both are "no entry" — so an image-only scan is re-parsed on every scan. That is a

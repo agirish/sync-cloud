@@ -27,7 +27,7 @@ import PDFKit
 /// next scan compute another, so groups would appear and vanish between scans, and two copies of
 /// one document read in the same batch could be handed different digests and missed. The price is
 /// bounded — ~5.5 minutes for the full tree on a COLD scan against ~46 s, and nothing afterwards,
-/// because every digest is cached by (path, mtime, size).
+/// because every digest is cached by (path, mtime, size, file number, ctime).
 ///
 /// **Serialization removed the large effect, not every trace of it, and the residue is worth
 /// knowing.** Two full replays of the same 10,569 documents now agree exactly (248 groups and 248),

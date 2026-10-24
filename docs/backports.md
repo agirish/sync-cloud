@@ -10107,3 +10107,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s journal=%s kept=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No landing journal (`journal=0`) | CLOSED — does not apply |
+
+---
+
+## The content-hash cache keys on the file number and status-change time (FR59) — main only
+
+Verify trusted a persisted, 30-day digest keyed by path, mtime and size, so an edit that restores
+the date and keeps the size (`exiftool -P`, `touch -r`, `rsync -t`) read as identical, and Duplicates'
+persisted document fingerprints had the same key, so a same-size copy over a document under its dates
+was called "same text". `main` adds `st_ino` and `st_ctime` — which no tool can restore — to both
+keys; an entry stored without them can never match a real file's key again and ages out.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s persist=%s ctime=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/ContentHashCache.swift 2>/dev/null | grep -cF 'func enablePersistence')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/ContentHashCache.swift 2>/dev/null | grep -cF 'statusChanged')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads ctime=6):
+# main, v5.x, v4.x, v3.x   persist=1 ctime=0
+# v2.x                     persist=0 ctime=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` | The same persisted (path, mtime, size) key (`ctime=0`) | RECORDED — not owed |
+| `v2.x` | An in-memory cache only (`persist=0`): the same blind spot, for one session | RECORDED — not owed |

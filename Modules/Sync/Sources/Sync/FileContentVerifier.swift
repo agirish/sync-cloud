@@ -38,10 +38,10 @@ public enum FileContentVerifier {
     /// - Parameters:
     ///   - path: Absolute file path.
     ///   - fileManager: File manager (for testability).
-    ///   - cache: Optional session cache keyed by `(resolved path, mtime, size)`. On a hit the
-    ///     stored digest is returned without touching the file; on a miss the freshly computed
-    ///     digest is stored before returning. Passing `nil` reproduces the pre-cache behavior
-    ///     exactly (always reads and hashes).
+    ///   - cache: Optional session cache keyed by `(resolved path, mtime, size, file number,
+    ///     ctime)`. On a hit the stored digest is returned without touching the file; on a miss the
+    ///     freshly computed digest is stored before returning. Passing `nil` reproduces the
+    ///     pre-cache behavior exactly (always reads and hashes).
     /// - Returns: Hex string of the hash, or `nil` if the path is a directory, missing, over size limit, or read fails.
     public static func sha256Hex(
         filePath path: String,
@@ -97,12 +97,9 @@ public enum FileContentVerifier {
                   let size = (attributes[.size] as? NSNumber)?.intValue else {
                 return .unverifiable
             }
-            // Build the cache key from the same resolved stat. mtime comes from the attributes we
-            // already read, so this adds a dictionary lookup, not a syscall. When mtime is
-            // unavailable the file is hashed normally but never cached (no stable key).
-            let cacheKey = (attributes[.modificationDate] as? Date).map {
-                ContentHashKey(path: statPath, mtime: $0.timeIntervalSince1970, size: size)
-            }
+            // Build the cache key from the same resolved path. When mtime is unavailable the file
+            // is hashed normally but never cached (no stable key).
+            let cacheKey = Self.cacheKey(statPath: statPath, attributes: attributes, size: size)
             if let cache, let cacheKey, let hit = await cache.hash(for: cacheKey) {
                 return .hashed(hit)
             }
@@ -198,6 +195,18 @@ public enum FileContentVerifier {
         return opened.st_mtimespec.tv_sec == closing.st_mtimespec.tv_sec
             && opened.st_mtimespec.tv_nsec == closing.st_mtimespec.tv_nsec
             && opened.st_size == closing.st_size
+    }
+
+    /// The key a file's digest is cached under: path, mtime and size from the attributes already
+    /// read, and the file number and status-change time from one more path `stat` (FR59 — see
+    /// ``ContentHashKey``). The one spelling of it, so a test can store under exactly the key a
+    /// hash will look up. nil when the attributes carry no mtime.
+    static func cacheKey(statPath: String, attributes: [FileAttributeKey: Any],
+                         size: Int) -> ContentHashKey? {
+        guard let modified = attributes[.modificationDate] as? Date else { return nil }
+        let identity = ContentHashKey.diskIdentity(atPath: statPath)
+        return ContentHashKey(path: statPath, mtime: modified.timeIntervalSince1970, size: size,
+                              fileNumber: identity?.fileNumber, statusChanged: identity?.statusChanged)
     }
 
     /// `fstat` of an open handle's descriptor, or nil if it fails.

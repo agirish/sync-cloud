@@ -1,24 +1,52 @@
 import Foundation
 
-/// Identity of a hashed file for cache lookup. Two files with the same absolute path, the same
-/// modification time, and the same byte count are treated as identical content — the same
-/// (path, mtime, size) triple that the sync engine already uses to decide a file is unchanged.
-/// A byte-level edit that keeps the size but touches the file bumps the mtime, so a stale entry
-/// is bypassed rather than served; the pathological "same size, same mtime, different bytes" case
-/// (deliberate mtime reset) is out of scope for a session cache, exactly as it is for the scan.
+/// Identity of a hashed file for cache lookup: its absolute path, modification time and byte count
+/// — the triple the sync engine uses to decide a file is unchanged — and, where the disk answers,
+/// its file number and status-change time.
+///
+/// **The last two are what make a digest safe to keep for thirty days (FR59).** The cache persists
+/// (`enablePersistence`, opted into at launch) and trusts an entry for ``ContentHashCache/maxEntryAge``,
+/// and the triple alone cannot see an edit that restores the date — `exiftool -P`, `touch -r`,
+/// `rsync -t`, any tool that preserves mtime — and keeps the size. Such a file read as identical,
+/// and Verify could offer to copy over the side that really differed. The status-change time
+/// (`st_ctime`) moves on every write and every metadata change, and nothing but the kernel can set
+/// it, so a restored mtime cannot restore it; the file number catches a file REPLACED at the same
+/// path by one carrying the old dates. Both come from one path `stat`, never from the descriptor,
+/// so a hit still never opens the file (a cloud-only placeholder would be downloaded).
+///
+/// nil for both where the disk cannot answer — a test double's paths — which keys exactly as the
+/// triple always did. The cost of the extra fields is misses, never wrong answers: a metadata change
+/// that leaves the bytes alone (a tag, a permission) re-hashes the file once.
 public struct ContentHashKey: Hashable, Sendable {
     public let path: String
     public let mtime: TimeInterval
     public let size: Int
+    /// `st_ino` — the file, not the name.
+    public let fileNumber: UInt64?
+    /// `st_ctime`, as seconds since 1970 from the raw `timespec`.
+    public let statusChanged: TimeInterval?
 
-    public init(path: String, mtime: TimeInterval, size: Int) {
+    public init(path: String, mtime: TimeInterval, size: Int,
+                fileNumber: UInt64? = nil, statusChanged: TimeInterval? = nil) {
         self.path = path
         self.mtime = mtime
         self.size = size
+        self.fileNumber = fileNumber
+        self.statusChanged = statusChanged
+    }
+
+    /// The file number and status-change time of `path`, by one `stat` (which follows a link, as
+    /// the read does). nil for both when the stat fails.
+    public static func diskIdentity(atPath path: String) -> (fileNumber: UInt64, statusChanged: TimeInterval)? {
+        var info = stat()
+        guard stat(path, &info) == 0 else { return nil }
+        let changed = TimeInterval(info.st_ctimespec.tv_sec) + TimeInterval(info.st_ctimespec.tv_nsec) / 1_000_000_000
+        return (UInt64(info.st_ino), changed)
     }
 }
 
-/// Session-scoped, in-memory SHA-256 cache keyed by ``ContentHashKey``.
+/// SHA-256 cache keyed by ``ContentHashKey`` — in memory, and persisted to disk when the app opts in
+/// (``enablePersistence(at:now:)``; the shared instances do at launch).
 ///
 /// Verify re-reads and re-hashes both sides of every same-size pair on every run; on a re-run
 /// within a session nothing has changed, yet the engine still hashed gigabytes. This cache lets an
@@ -26,8 +54,9 @@ public struct ContentHashKey: Hashable, Sendable {
 ///
 /// Hashing runs off the main actor in `Task.detached(priority: .utility)` with several concurrent
 /// hashers, so the cache must serialize its own mutable state: it is an `actor`, matching the house
-/// style of `VerifyResultsCollector`. Entries live only for the process — mtime+size keying means a
-/// changed file is naturally bypassed, so there is nothing worth persisting to disk.
+/// style of `VerifyResultsCollector`. Entries live for the process, and — once persistence is on —
+/// across launches for up to ``maxEntryAge``; the key's status-change time is what keeps an entry
+/// that old from being believed about a file edited under a restored date (FR59).
 public actor ContentHashCache {
 
     /// A single shared cache for the whole session. Kept here (not as a stored property on the
@@ -73,12 +102,13 @@ public actor ContentHashCache {
 
     /// The same store, holding ``ContentFingerprint`` digests instead of SHA-256 content hashes.
     ///
-    /// **A second instance, not a second namespace inside the first.** The key shape is identical
-    /// — (path, mtime, size), with identical invalidation semantics — but the values answer
-    /// different questions, and mixing them would make one lookup able to return the other's
-    /// answer if a prefix were ever dropped or mistyped. Two instances make that unwriteable, and
-    /// they cost only a second dictionary; they also persist to separate files, so the
-    /// fingerprint index can be thrown away (or its scheme bumped) without re-hashing gigabytes.
+    /// **A second instance, not a second namespace inside the first.** The key shape is identical —
+    /// (path, mtime, size, file number, ctime), with identical invalidation semantics — but the
+    /// values answer different questions, and mixing them would make one lookup able to return the
+    /// other's answer if a prefix were ever dropped or mistyped. Two instances make that
+    /// unwriteable, and they cost only a second dictionary; they also persist to separate files, so
+    /// the fingerprint index can be thrown away (or its scheme bumped) without re-hashing
+    /// gigabytes.
     public static let sharedFingerprints = ContentHashCache()
 
     /// Upper bound on retained entries; oldest are evicted first once exceeded.
@@ -197,13 +227,12 @@ public actor ContentHashCache {
 
     /// How stale a reloaded entry may be before it is dropped on load.
     ///
-    /// The key — (path, mtime, size) — handles invalidation correctly for every ordinary edit,
-    /// because writing a file moves its mtime. The one case it cannot see is a *deliberate* mtime
-    /// reset that also preserves the byte count, and persistence is what turns that from a
-    /// session-lived confusion into a durable one. Thirty days bounds how long a resurrected entry
-    /// can be believed. It is not a correctness argument — nothing here can distinguish that case —
-    /// it is a blast-radius one, and it is the reason `DEFERRED_ENHANCEMENTS.md` #9 asked for an
-    /// age cap alongside the schema version.
+    /// The key handles invalidation for every ordinary edit, because writing a file moves its
+    /// mtime — and, since FR59, for a *deliberate* mtime reset that preserves the byte count too,
+    /// because the write still moved the status-change time the key now carries. Thirty days is
+    /// the blast-radius bound it always was, for whatever the key still cannot see (a disk whose
+    /// stat answers no status-change time keys as the old triple), and the reason
+    /// `DEFERRED_ENHANCEMENTS.md` #9 asked for an age cap alongside the schema version.
     public static let maxEntryAge: TimeInterval = 30 * 24 * 60 * 60
 
     /// Where this cache persists, or nil for a purely in-memory session cache.
@@ -255,7 +284,8 @@ public actor ContentHashCache {
         var adoptedKeys: [ContentHashKey] = []
         for record in records {
             guard now.timeIntervalSince(record.storedAt) <= Self.maxEntryAge else { continue }
-            let key = ContentHashKey(path: record.path, mtime: record.mtime, size: record.size)
+            let key = ContentHashKey(path: record.path, mtime: record.mtime, size: record.size,
+                                     fileNumber: record.fileNumber, statusChanged: record.statusChanged)
             guard entries[key] == nil else { continue }
             entries[key] = Entry(hex: record.hex, storedAt: record.storedAt)
             adoptedKeys.append(key)
@@ -292,7 +322,8 @@ public actor ContentHashCache {
         guard let persistenceURL, unsavedInsertions > 0 else { return }
         let records = entries.map { key, entry in
             ContentHashRecord(path: key.path, mtime: key.mtime, size: key.size,
-                              hex: entry.hex, storedAt: entry.storedAt)
+                              hex: entry.hex, storedAt: entry.storedAt,
+                              fileNumber: key.fileNumber, statusChanged: key.statusChanged)
         }
         unsavedInsertions = 0
         ContentHashIndexStore.saveInBackground(records, to: persistenceURL)

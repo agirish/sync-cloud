@@ -17,8 +17,8 @@ extension FileSyncManager {
     ///
     /// Costs are bounded by the QUEUE, not by the tree: only the loose files being offered are
     /// read, against indexes that are already on disk. A PDF is parsed once and cached under the
-    /// same `(path, mtime, size)` key the duplicate scan uses, so a rescan of an inbox nobody
-    /// touched re-parses nothing.
+    /// same `(path, mtime, size, file number, ctime)` key the duplicate scan uses, so a rescan of
+    /// an inbox nobody touched re-parses nothing.
     func markingAlreadyFiled(_ suggestions: [FilingSuggestion],
                              providerRoot: String) async -> [FilingSuggestion] {
         guard !suggestions.isEmpty, filingReadsContents else { return suggestions }
