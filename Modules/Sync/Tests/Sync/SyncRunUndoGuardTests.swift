@@ -307,4 +307,25 @@ import Events
         #expect(detail.contains("old.txt"))
         #expect(detail.contains("from the Trash"))
     }
+
+    /// FR29: the closing note says what THIS run's undo does. A copy-only run used to be told
+    /// "Files move back to where they were; deleted items are restored from the Trash" — and its
+    /// undo moves nothing back: the copies go to the Trash.
+    @Test func confirmationDetailDescribesACopyRunsUndoAsTrashingTheCopies() {
+        let run = UUID()
+        let copy = SyncHistoryRecord(runId: run, action: .copy, sourcePath: "/a/new.txt", destPath: "/dest/dir/new.txt")
+        let copyOnly = SyncRunUndoPreview(actionName: "Sync run", records: [copy]).confirmationDetail()
+        let note = copyOnly.components(separatedBy: "\n").last ?? ""
+        #expect(note == "The copies it made go to the Trash, and any file a copy replaced is put back. You can redo this afterward.")
+        #expect(!copyOnly.contains("move back"))
+        #expect(!copyOnly.contains("go back to where they were"))
+
+        let move = SyncHistoryRecord(runId: run, action: .move, sourcePath: "/a/m.txt", destPath: "/dest/dir/m.txt")
+        let delete = SyncHistoryRecord(runId: run, action: .delete, sourcePath: "/a/old.txt")
+        let mixed = SyncRunUndoPreview(actionName: "Sync run", records: [delete, move, copy]).confirmationDetail()
+        #expect(mixed.components(separatedBy: "\n").last == "The copies it made go to the Trash, and any file a copy replaced is put back; moved files go back to where they were; deleted items are restored from the Trash. You can redo this afterward.")
+
+        let moveOnly = SyncRunUndoPreview(actionName: "Sync run", records: [move]).confirmationDetail()
+        #expect(moveOnly.components(separatedBy: "\n").last == "Moved files go back to where they were. You can redo this afterward.")
+    }
 }

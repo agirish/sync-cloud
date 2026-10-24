@@ -67,7 +67,32 @@ public struct SyncRunUndoPreview: Sendable {
         }
         if n > maxLines { lines.append("  …  and \(n - maxLines) more") }
         lines.append("")
-        lines.append("Files move back to where they were; deleted items are restored from the Trash. You can redo this afterward.")
+        lines.append(reversalNote + " You can redo this afterward.")
         return lines.joined(separator: "\n")
+    }
+
+    /// How the reversal behaves, said only for the kinds of operation this run holds (FR29).
+    ///
+    /// **One fixed sentence was wrong for the commonest run there is.** It always read "Files move
+    /// back to where they were; deleted items are restored from the Trash", and undoing a COPY run
+    /// moves nothing back and restores nothing from the Trash: the copies it made go TO the Trash,
+    /// and a file a copy replaced is put back in its place. Someone who pressed Undo on a sync that
+    /// had only copied was told their files would be moved. Each kind now says what its own undo
+    /// does, in the order the summary lists them.
+    var reversalNote: String {
+        let present = Set(records.map(\.action))
+        var clauses: [String] = []
+        if present.contains(.copy) {
+            clauses.append("the copies it made go to the Trash, and any file a copy replaced is put back")
+        }
+        if present.contains(.move) {
+            clauses.append("moved files go back to where they were")
+        }
+        if present.contains(.delete) {
+            clauses.append("deleted items are restored from the Trash")
+        }
+        guard let first = clauses.first else { return "" }
+        clauses[0] = first.prefix(1).uppercased() + first.dropFirst()
+        return clauses.joined(separator: "; ") + "."
     }
 }

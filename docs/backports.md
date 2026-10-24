@@ -10131,3 +10131,23 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s persist=%s ctime=%s\n' $l \
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` | The same persisted (path, mtime, size) key (`ctime=0`) | RECORDED — not owed |
 | `v2.x` | An in-memory cache only (`persist=0`): the same blind spot, for one session | RECORDED — not owed |
+
+---
+
+## "Undo Last Run" says what this run's undo does (FR29) — main only
+
+The confirmation always ended "Files move back to where they were; deleted items are restored from
+the Trash", which misdescribes undoing a copy run: the copies go to the Trash. `main` builds the
+sentence from the run's own actions (`SyncRunUndoPreview.reversalNote`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s sentence=%s note=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/SyncRunUndoPreview.swift 2>/dev/null | grep -cF 'Files move back to where they were')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/SyncRunUndoPreview.swift 2>/dev/null | grep -cF 'var reversalNote')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads sentence=0 note=1):
+# main, v5.x, v4.x, v3.x, v2.x   sentence=1 note=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same fixed sentence (`sentence=1`) | RECORDED — not owed |
