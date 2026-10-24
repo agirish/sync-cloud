@@ -36,7 +36,10 @@ struct EditorAutosaveDriver: ViewModifier {
     let write: () -> Void
 
     func body(content: Content) -> some View {
-        content.task(id: EditorAutosave.Key(version: buffer.textVersion, path: document.path)) {
+        // The stamp too, so a write that commits with typing still unsaved starts the wait again
+        // (FR51) — see ``EditorAutosave/Key``.
+        content.task(id: EditorAutosave.Key(version: buffer.textVersion, path: document.path,
+                                            stamp: document.stamp)) {
             // Nothing to schedule for a document that cannot be written — a read-only decode, a
             // refusal, or nothing open. The flushes at every route out ask the same question again.
             guard document.canSave else { return }

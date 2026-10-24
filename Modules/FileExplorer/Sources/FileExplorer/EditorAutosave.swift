@@ -29,12 +29,22 @@ public enum EditorAutosave {
     /// could not tell them apart would leave a pending write aimed at a file that is no longer
     /// open. Keyed on the counter rather than on the text for the reason
     /// ``EditorDocument/textVersion`` exists at all.
+    ///
+    /// **And the stamp, so a write that commits re-arms the wait** (FR51). The host writes one
+    /// snapshot at a time and turns the debounce away while one is out; typing that paused while a
+    /// slow write was still out — an iCloud volume, an external disk — had its debounce fire into
+    /// that refusal, and with the version and the path unchanged nothing restarted it: the rest sat
+    /// unsaved, the dot lit, until the next keystroke or a flush. Every commit moves the stamp, so
+    /// the wait starts again; a document the commit left clean schedules nothing, and one still
+    /// dirty is written a quiet interval later.
     public struct Key: Equatable, Sendable {
         public var version: Int
         public var path: String?
-        public init(version: Int, path: String?) {
+        public var stamp: EditorFileStore.Stamp?
+        public init(version: Int, path: String?, stamp: EditorFileStore.Stamp? = nil) {
             self.version = version
             self.path = path
+            self.stamp = stamp
         }
     }
 

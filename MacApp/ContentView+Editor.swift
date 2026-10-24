@@ -1647,7 +1647,8 @@ extension ContentView {
         guard editorAutosaveStop == nil else { return }
         // One background write at a time. Two overlapping ones would both spin up an `F_FULLFSYNC`
         // against the same file to no purpose; the store's write order makes them *safe*, and this
-        // makes them not happen.
+        // makes them not happen. The typing turned away here is not dropped: the write's commit
+        // moves the stamp the debounce is keyed on, which starts the wait again (FR51).
         guard !editorIsWritingInBackground else { return }
         guard let snapshot = EditorAutosave.snapshot(of: editorDocument) else { return }
         editorIsWritingInBackground = true

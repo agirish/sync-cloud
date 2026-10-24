@@ -152,6 +152,15 @@ import Design
         #expect(a != EditorAutosave.Key(version: 5, path: "/a/one.md"))
     }
 
+    /// **A write that commits moves the key** (FR51), so typing whose debounce was turned away
+    /// while that write was out is waited for again rather than left with nothing scheduled.
+    @Test func theDebounceKeyMovesWhenAWriteCommits() {
+        let before = EditorFileStore.Stamp(modifiedAt: Date(timeIntervalSince1970: 1), size: 4, fileID: 7)
+        let after = EditorFileStore.Stamp(modifiedAt: Date(timeIntervalSince1970: 2), size: 9, fileID: 8)
+        #expect(EditorAutosave.Key(version: 4, path: "/a/one.md", stamp: before)
+                != EditorAutosave.Key(version: 4, path: "/a/one.md", stamp: after))
+    }
+
     // MARK: A save that landed and could not be checked (TE114)
 
     /// **The store says when the bytes are on disk**, and the outcome keeps that apart from a write

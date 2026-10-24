@@ -37,11 +37,13 @@ import FileExplorer
         let document: EditorDocument
         let quiet: Duration
         let writes: Writes
+        /// What the host's write does besides being counted — nothing, unless a test models it.
+        var also: @MainActor () -> Void = {}
         var body: some View {
             Color.clear
                 .frame(width: 1, height: 1)
                 .modifier(EditorAutosaveDriver(document: document, buffer: document.buffer,
-                                               quiet: quiet) { writes.count += 1 })
+                                               quiet: quiet) { writes.count += 1; also() })
         }
     }
 
@@ -62,9 +64,10 @@ import FileExplorer
         return document
     }
 
-    private func mount(_ document: EditorDocument, quiet: Duration, writes: Writes) -> NSWindow {
+    private func mount(_ document: EditorDocument, quiet: Duration, writes: Writes,
+                       also: @escaping @MainActor () -> Void = {}) -> NSWindow {
         let host = NSHostingView(rootView: AnyView(
-            Host(document: document, quiet: quiet, writes: writes)))
+            Host(document: document, quiet: quiet, writes: writes, also: also)))
         host.frame = NSRect(x: 0, y: 0, width: 40, height: 40)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -192,6 +195,62 @@ import FileExplorer
         // keystroke lands on six here whatever the machine is doing.
         await wait(window, upTo: 15) { writes.count >= 1 }
         #expect(writes.count == 1, "a burst of typing produced \(writes.count) writes, not one")
+        withExtendedLifetime(window) {}
+    }
+
+    /// The host's background write, modelled: one out at a time and the rest turned away — what
+    /// `ContentView.runAutosave` does — with the disk held until the test lets it answer.
+    @MainActor
+    final class SlowLane {
+        var writing = false
+        var dispatched = 0
+        var turnedAway = 0
+        var diskAnswers = false
+
+        func run(_ document: EditorDocument) {
+            guard !writing else { turnedAway += 1; return }
+            guard let snapshot = EditorAutosave.snapshot(of: document) else { return }
+            writing = true
+            dispatched += 1
+            Task { @MainActor in
+                // A slow volume: the write is out until the test says the disk has answered.
+                let deadline = Date().addingTimeInterval(30)
+                while !self.diskAnswers, Date() < deadline { try? await Task.sleep(for: .milliseconds(5)) }
+                _ = await EditorAutosave.write(snapshot, into: document)
+                self.writing = false
+            }
+        }
+    }
+
+    /// **Typing whose debounce fired while a write was still out is written once that write
+    /// commits** (FR51). The host turns the debounce away while a write is out, and with the
+    /// version and the path unchanged nothing started the wait again: the last sentence sat unsaved
+    /// with nothing scheduled, and a crash took it. The commit moves the stamp, which the debounce
+    /// is now keyed on.
+    @Test func typingTurnedAwayWhileAWriteWasOutIsWrittenWhenItCommits() async throws {
+        let folder = try scratch()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let document = try openedDocument(in: folder)
+        let file = try #require(document.path)
+        let writes = Writes()
+        let lane = SlowLane()
+        let window = mount(document, quiet: .milliseconds(30), writes: writes) { lane.run(document) }
+        await pump(window, seconds: 0.2)
+
+        document.text = "one\ntwo\n"
+        try #require(await wait(window) { lane.dispatched == 1 }, "the first pause never dispatched a write")
+        // More typing, and a pause, while the first write is still out: its debounce is turned away.
+        document.text = "one\ntwo\nthree\n"
+        try #require(await wait(window) { lane.turnedAway >= 1 }, "the second pause never reached the host")
+
+        lane.diskAnswers = true
+        await wait(window, upTo: 15) {
+            !document.isDirty && (try? String(contentsOfFile: file, encoding: .utf8)) == "one\ntwo\nthree\n"
+        }
+        #expect(try String(contentsOfFile: file, encoding: .utf8) == "one\ntwo\nthree\n",
+                "the typing turned away while a write was out was never written")
+        #expect(!document.isDirty)
+        #expect(lane.dispatched == 2, "\(lane.dispatched) writes dispatched, not the one per pause expected")
         withExtendedLifetime(window) {}
     }
 }

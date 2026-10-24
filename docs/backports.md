@@ -9323,3 +9323,60 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s secondLook=%s emptyPath=%s fi
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF in Edit at all, so no Fill & Sign work to drop | CLOSED — does not apply |
+
+---
+
+## A save made while autosave's write is out takes that write as the editor's own (FR50) — main only
+
+Between autosave's swap and its main-actor commit, the file on disk is newer than the document's
+stamp, and it is the editor's own. ⌘S, the flush before another file opens and the flush at ⌘Q
+compared against the old stamp, raised "changed on disk", and Use Disk Version or Don't Save then
+dropped what was typed after the snapshot, with its undo history. `main` has a synchronous save
+that finds the file diverged while a write is out wait for that write to be done with the disk,
+commit what it installed (`EditorAutosave.settleLandedWrite`), and compare again — so only a real
+change is asked about. `EditorAutosave.attempt` carries it for the leave and quit flushes;
+`saveEditorDocument` for ⌘S.
+
+```sh
+A=Modules/FileExplorer/Sources/FileExplorer/EditorAutosave.swift
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s settles=%s background=%s cmdS=%s\n' $l \
+  "$(git show origin/$l:$A 2>/dev/null | grep -cF 'settleLandedWrite')" \
+  "$(git show origin/$l:$A 2>/dev/null | grep -cF 'Task.detached(priority: .utility)')" \
+  "$(git show origin/$l:MacApp/ContentView+Editor.swift 2>/dev/null | grep -cF 'if EditorAutosave.settleLandedWrite(into: editorDocument) {')"; done
+# measured 2026-10-23; main read from the p2-edit worktree before landing:
+# main  settles=4 background=1 cmdS=1      (origin/main before this: settles=0 cmdS=0)
+# v5.x  settles=0 background=1 cmdS=0
+# v4.x, v3.x, v2.x  settles=0 background=0 cmdS=0 — no EditorAutosave.swift
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The background write and the same window, unsettled | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No autosave at all, so no background write to meet | CLOSED — does not apply |
+
+---
+
+## Typing turned away while an autosave write was out is written when it commits (FR51) — main only
+
+The host writes one snapshot at a time and turns the debounce away while one is out. Typing that
+paused while a slow write (iCloud, an external disk) was still out had its debounce fire into that
+refusal, and with the version and the path unchanged nothing restarted the wait: the last sentence
+sat unsaved with nothing scheduled, so a crash lost it (quit and switching files still flushed).
+`main` keys the debounce on the document's stamp as well (`EditorAutosave.Key`), so every commit
+starts the wait again; a document the commit left clean schedules nothing.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s stampKeyed=%s oldKey=%s turnsAway=%s\n' $l \
+  "$(git show origin/$l:MacApp/EditorAutosaveDriver.swift 2>/dev/null | grep -cF 'stamp: document.stamp)) {')" \
+  "$(git show origin/$l:MacApp/EditorAutosaveDriver.swift 2>/dev/null | grep -cF 'EditorAutosave.Key(version: buffer.textVersion, path: document.path))')" \
+  "$(git show origin/$l:MacApp/ContentView+Editor.swift 2>/dev/null | grep -cF 'guard !editorIsWritingInBackground else { return }')"; done
+# measured 2026-10-23; main read from the p2-edit worktree before landing:
+# main  stampKeyed=1 oldKey=0 turnsAway=1      (origin/main before this: stampKeyed=0 oldKey=1)
+# v5.x  stampKeyed=0 oldKey=1 turnsAway=1
+# v4.x, v3.x, v2.x  stampKeyed=0 oldKey=0 turnsAway=0 — no autosave
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The same driver key and the same turned-away debounce | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No autosave at all | CLOSED — does not apply |

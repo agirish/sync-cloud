@@ -414,7 +414,8 @@ public final class EditorDocument: ObservableObject {
     /// dispatched; a keystroke landing while those bytes are in flight is *not* on disk, so marking
     /// the buffer's current text as saved would leave a dirty document reading clean and no further
     /// write scheduled for it. Marking the snapshot instead leaves the document correctly dirty and
-    /// the next debounce writes the rest.
+    /// the next debounce writes the rest — scheduled by the stamp this moves, which the debounce is
+    /// keyed on, even when the typing's own debounce fired while this write was out (FR51).
     public func markSaved(text: String, stamp: EditorFileStore.Stamp) {
         uncheckedWrite = nil
         savedText = text
