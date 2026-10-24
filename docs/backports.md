@@ -9946,3 +9946,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s save=%s deleteThenAdd=%s upda
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same delete-then-add and cleared field (`deleteThenAdd=1`) | RECORDED — not owed |
+
+---
+
+## A link under a Cover and Retype patch is said to stay live (FR56) — main only
+
+The toolkit puts a page's links back on every page Fill & Sign redraws, so a correction typed over
+a web address or an email still opened the old one, and the note card said only that the covered
+words stay searchable. Removing the link would mean rewriting the copy with PDFKit, which drops the
+catalog parts the toolkit carries, so `main` says it instead: a pick records whether a link reaches
+under its patch (`overLink`), and that page's note adds "A link under the patch still opens where
+it did." A page made a picture loses its links, and its note does not say it.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s correction=%s linkNote=%s\n' $l \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorPDFReplace.swift 2>/dev/null | grep -cF 'public struct EditorPDFCorrection:')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorPDFFillSign.swift 2>/dev/null | grep -cF 'linkUnderPatchNote')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads correction=1 linkNote=2):
+# main                    correction=1 linkNote=0
+# v5.x, v4.x, v3.x, v2.x  correction=0 linkNote=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Cover and Retype (`correction=0`) | CLOSED — does not apply |

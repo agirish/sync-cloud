@@ -751,6 +751,46 @@ enum ReplaceFixtures {
         #expect(try ink(copy, in: CGRect(x: 260, y: 600, width: 30, height: 10)) > 10, "the picture lost the new words")
     }
 
+    /// **A correction over a link says the link still opens where it did (FR56)** — the toolkit puts
+    /// the page's links back on the copy, so the old address stays live under the new words. Both
+    /// halves measured: the copy keeps the link when the page stays text, and loses it when the page
+    /// is made a picture, whose note therefore doesn't say it.
+    @Test func aCorrectionOverALinkSaysTheLinkStillOpens() async throws {
+        let file = invoice("Linked.pdf")
+        let document = try #require(PDFDocument(url: URL(fileURLWithPath: file)))
+        let link = PDFAnnotation(bounds: CGRect(x: 258, y: 598, width: 100, height: 12), forType: .link, withProperties: nil)
+        link.url = URL(string: "https://example.com/old")
+        try #require(document.page(at: 0)).addAnnotation(link)
+        try #require(document.write(to: URL(fileURLWithPath: file)))
+        func links(_ copy: String) -> [String] {
+            (PDFDocument(url: URL(fileURLWithPath: copy))?.page(at: 0)?.annotations ?? [])
+                .filter { $0.type == "Link" }.compactMap { $0.url?.absoluteString }
+        }
+        try #require(links(file) == ["https://example.com/old"], "the fixture has no link — this tests nothing")
+        // The line under it has no link under its patch.
+        guard case .success(let clear) = try pick(file, at: CGPoint(x: 100, y: 584)) else { Issue.record("refused"); return }
+        #expect(!clear.overLink, "a patch with no link under it said it has one")
+
+        let (pdf, id, pick) = try await correcting(file)
+        #expect(pick.overLink, "the link under the words was not seen")
+        let fill = pdf.fill
+        fill.type("21 Apr", into: id)
+        fill.endEditing()
+        #expect(fill.correctionNotes.first?.line == "“14 March 2026” is still in the copy, under the patch. "
+                + "Search and copy will find it. " + EditorPDFFillSign.linkUnderPatchNote)
+        fill.setPicture(0, true)
+        #expect(fill.correctionNotes.first?.line.contains(EditorPDFFillSign.linkUnderPatchNote) == false,
+                "a page made a picture loses its links, yet its note says one stays")
+        guard case .wrote(let pictured) = await fill.save() else { Issue.record("the pictured copy was not written"); return }
+        #expect(links(pictured).isEmpty, "the picture kept the link — its note should say so")
+
+        let (again, againID, _) = try await correcting(file)
+        again.fill.type("21 Apr", into: againID)
+        again.fill.endEditing()
+        guard case .wrote(let copy) = await again.fill.save() else { Issue.record("the copy was not written"); return }
+        #expect(links(copy) == ["https://example.com/old"], "the copy dropped the link — the note says it stays")
+    }
+
     /// **A picture chosen for a page whose correction is gone is not made.**
     @Test func aPictureGoesWithItsPagesLastCorrection() async throws {
         let (pdf, id, _) = try await correcting(invoice())

@@ -1339,19 +1339,25 @@ public final class EditorPDFFillSign: ObservableObject {
                     button: "Keep Page \(number) as Text", pictured: true)
             }
             let corrections = unsaved.compactMap { $0.page == page ? $0.correction : nil }
+            // A link under a patch is kept and still opens where it did (FR56) — said, since the
+            // words over it now read otherwise. A picture drops it, so the pictured line above doesn't.
+            let link = corrections.contains(where: \.overLink) ? " " + Self.linkUnderPatchNote : ""
             if corrections.count == 1 {
                 return EditorPDFCorrectionNote(
                     page: page,
-                    line: "“\(Self.quoted(corrections[0].covered))” is still in the copy, under the patch. Search and copy will find it.",
+                    line: "“\(Self.quoted(corrections[0].covered))” is still in the copy, under the patch. Search and copy will find it."
+                        + link,
                     button: "Remove It: Make Page \(number) a Picture", pictured: false)
             }
             return EditorPDFCorrectionNote(
                 page: page,
                 line: "The \(corrections.count) passages you covered on page \(number) are still in the copy, under their patches. "
-                    + "Search and copy will find them.",
+                    + "Search and copy will find them." + link,
                 button: "Remove Them: Make Page \(number) a Picture", pictured: false)
         }
     }
+
+    static let linkUnderPatchNote = "A link under the patch still opens where it did."
 
     /// Words quoted in a note: a long passage is cut.
     static func quoted(_ words: String) -> String { words.count > 40 ? String(words.prefix(40)) + "…" : words }

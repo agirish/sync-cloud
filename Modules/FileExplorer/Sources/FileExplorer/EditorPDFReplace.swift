@@ -86,6 +86,8 @@ public struct EditorPDFReplacePick: Equatable, Sendable {
     public var patch: EditorPDFRGB
     /// Whether the ground around the words is one flat colour — the patch shows on any other.
     public var plainBackground: Bool
+    /// Whether a link's hotspot reaches under the patch — see ``EditorPDFCorrection/overLink``.
+    public var overLink = false
 }
 
 /// **Why Replace says no** (TE87), each in words the reader is told — the tool's tooltip, the
@@ -237,6 +239,11 @@ enum EditorPDFReplace {
         page.annotations.filter { $0.type == "Widget" }.map(\.bounds)
     }
 
+    /// The page's link hotspots, page space.
+    static func links(on page: PDFPage) -> [CGRect] {
+        page.annotations.filter { $0.type == "Link" }.map(\.bounds)
+    }
+
     // MARK: Measuring them
 
     /// More characters than a line across the widest page holds at a size anyone reads.
@@ -305,7 +312,8 @@ enum EditorPDFReplace {
         return .success(EditorPDFReplacePick(
             page: index, words: words, wordsRect: shown, cover: cover, baseline: baseline,
             left: shown.minX, fontSize: max(size, 1), fontName: fontName, installedFont: installed, standIn: standIn,
-            ink: ink, patch: ground.color, plainBackground: ground.isPlain))
+            ink: ink, patch: ground.color, plainBackground: ground.isPlain,
+            overLink: links(on: page).contains { box.displayRect(page: $0).intersects(cover) }))
     }
 
     /// **The run that draws the glyph at `glyph`** (display space): of the upright runs whose line
@@ -477,6 +485,13 @@ public struct EditorPDFCorrection: Equatable, Sendable {
     public var left: CGFloat
     public var patch: EditorPDFRGB
     public var plainBackground: Bool
+    /// **Whether a link's hotspot reaches under the patch (FR56).** The copy keeps every link the
+    /// page had — the toolkit puts them back on each page it redraws — so a correction typed over
+    /// a web address or an email still opens the OLD one. Removing the link would mean rewriting the
+    /// copy with PDFKit, which drops the page labels and attached files the toolkit carries; the
+    /// note card says so instead (``EditorPDFFillSign/correctionNotes``). A page made a picture
+    /// loses its links, so its note does not say it.
+    public var overLink: Bool
     /// The original font's name, for the line under the retype box — `nil` when none was found.
     public var fontName: String?
     /// The PostScript name of the original's face on this Mac, or `nil` when it hasn't it.
@@ -496,6 +511,7 @@ public struct EditorPDFCorrection: Equatable, Sendable {
         left = pick.left
         patch = pick.patch
         plainBackground = pick.plainBackground
+        overLink = pick.overLink
         fontName = pick.fontName
         installedFont = pick.installedFont
         keepsOriginalFont = pick.installedFont != nil
