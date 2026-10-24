@@ -675,6 +675,7 @@ extension FileSyncManager {
     /// back on the installed item (``restoreLock(_:on:fileManager:)``), so the copy is locked like
     /// its original.
     private nonisolated static func stage(_ sourceURL: URL, to tempURL: URL, fileManager: FileManaging, observer: CopyObserver?) throws -> StagedLock {
+        try requireContentsOnThisMac(sourceURL, fileManager: fileManager, observer: observer)
         if let observer {
             try fileManager.copyItem(at: sourceURL, to: tempURL, observer: observer)
         } else {
@@ -685,6 +686,42 @@ extension FileSyncManager {
             try? fileManager.setAttributes([.immutable: false, .appendOnly: false], ofItemAtPath: tempURL.path)
         }
         return lock
+    }
+
+    /// **A folder is copied only once every folder in it is on this Mac** (FR34) — asked of its
+    /// cloud app through `DatalessFolderReads`, off the cooperative pool and for at most their
+    /// deadline, and refused as `folderNotAnswered` at the first folder that does not answer.
+    ///
+    /// The copy's recursive walk (`copyfile`, or `copyItem`) lists every folder it reaches, and
+    /// listing a dataless folder whose provider is not running blocks for good — measured on the
+    /// OneDrive `.Trash` folders `DatalessFolderReads` describes. It has no deadline, and Cancel is
+    /// only heard in the copy's callbacks, which never fire while a listing blocks; the copy runs on
+    /// the serial operation queue, so every later copy, move and Trash in the app queued behind it.
+    ///
+    /// Walked the way `listing(of:)` walks: one recursive enumeration that is not let into a
+    /// dataless folder — `hasDirectoryPath` is the enumerator's own word, so a file costs no `stat`
+    /// and a folder one — with each dataless folder asked for first, which materializes it, and
+    /// then walked in turn. A folder that answers is on disk for the copy that follows. A link is
+    /// not followed (the copy copies the link); a file needs nothing. Cancel is heard per entry.
+    nonisolated static func requireContentsOnThisMac(_ source: URL, fileManager: FileManaging, observer: CopyObserver?) throws {
+        guard entryKind(at: source, fileManager: fileManager) == .typeDirectory else { return }
+        func walk(_ folder: URL) throws {
+            if fileManager.isDataless(at: folder),
+               fileManager.datalessFolderReads.readBlocking(folder.path, { fileManager.listingForARead(of: folder).outcome }) == nil {
+                throw FileOperationError.folderNotAnswered(folderName: folder.lastPathComponent)
+            }
+            guard let entries = fileManager.enumerator(at: folder, includingPropertiesForKeys: nil, options: [],
+                                                       errorHandler: { _, _ in true }) else { return }
+            for case let entry as URL in entries {
+                if let observer, !observer.shouldContinue() {
+                    throw CocoaError(.userCancelled, userInfo: [NSFilePathErrorKey: source.path])
+                }
+                guard entry.hasDirectoryPath, fileManager.isDataless(at: entry) else { continue }
+                entries.skipDescendants()
+                try walk(entry)
+            }
+        }
+        try walk(source)
     }
 
     /// Puts a staged copy's lock back on the item it became. A failure is logged and not thrown:

@@ -9836,3 +9836,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s plainCleanup=%s lockedCase=%s
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same lock-carrying staging (`plainCleanup=2`) | RECORDED — not owed |
+
+---
+
+## A folder copy asks a dataless folder's cloud app first (FR34) — main only
+
+A copy's recursive walk lists every folder it reaches, and listing a dataless folder whose provider
+is not running blocks for good — with no deadline, Cancel unheard, and every later operation queued
+behind it. `main` walks a folder before staging it, asks each dataless folder through
+`DatalessFolderReads` (bounded), and refuses the copy as `folderNotAnswered` when one does not answer.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s check=%s reads=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileOperations+Primitives.swift 2>/dev/null | grep -cF 'func requireContentsOnThisMac')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/DatalessFolderReads.swift 2>/dev/null | grep -cF 'public final class DatalessFolderReads')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads check=1):
+# main, v5.x         check=0 reads=1
+# v4.x, v3.x, v2.x   check=0 reads=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The bounded reads, but an unchecked copy walk (`check=0 reads=1`) | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No dataless-folder handling at all (`reads=0`) | RECORDED — not owed |
