@@ -9380,3 +9380,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s stampKeyed=%s oldKey=%s turns
 |---|---|---|
 | `v5.x` | The same driver key and the same turned-away debounce | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No autosave at all | CLOSED — does not apply |
+
+---
+
+## The CLI resolves `-L`/`-R` by exact id first and shows both roots before it asks (FR42) — main only
+
+`-L Dropbox` took the first provider whose id OR display name matched, so two folder sources with the
+same default name, or a provider renamed to another's id, sent `sync --yes` into the wrong tree — and
+`sync`'s plan never named the roots it was about to write. `main` lets an exact id win, refuses a
+display name more than one provider carries (naming each id), and prints both roots in the plan.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s firstMatch=%s planRoots=%s\n' $l \
+  "$(git show origin/$l:SyncCloudCLI/Sources/SyncCloudCLICore/ProviderResolution.swift 2>/dev/null | grep -cF '$0.id == value || $0.displayName == value')" \
+  "$(git show origin/$l:SyncCloudCLI/Sources/SyncCloudCLICore/CommandRunner.swift 2>/dev/null | grep -cF 'printOut("  Left : \(leftURL.path) [\(leftProvider.displayName)]")')"; done
+# measured 2026-10-23, against origin, before this landed (planRoots=1 is `scan`'s own line):
+# main, v5.x, v4.x, v3.x, v2.x   firstMatch=1 planRoots=1
+# after, in the worktree:        firstMatch=0 planRoots=2
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The first-match resolution and the rootless plan (`firstMatch=1`) | RECORDED — not owed |

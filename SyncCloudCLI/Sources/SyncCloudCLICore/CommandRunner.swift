@@ -269,6 +269,14 @@ public struct CommandRunner {
         }
 
         printOut("Planned operations (\(diffs.count)):")
+        // **Both resolved roots, before the prompt (FR42).** `scan` always named them; `sync`
+        // listed only relative paths, so the [y/N] was asked about a pair of trees the user never
+        // saw — and a `-L`/`-R` value that resolved somewhere unexpected (a provider named like
+        // another, a stale override) read exactly like the intended run. These two lines are the
+        // only place the folders that are about to be written are shown before the write.
+        printOut("  Left : \(leftURL.path) [\(leftProvider.displayName)]")
+        printOut("  Right: \(rightURL.path) [\(rightProvider.displayName)]")
+        printOut("")
         for diff in diffs {
             let arrow = diff.action == .copyToRight ? "→" : "←"
             printOut("- \(diff.relativePath) \(arrow) [\(DifferenceProcessing.typeString(diff.type))]")

@@ -20,10 +20,48 @@ public func expandPath(_ path: String) -> String {
     (path as NSString).expandingTildeInPath
 }
 
-/// Resolves a `-L`/`-R` argument to a provider: first by id or display name among the
-/// discovered providers, else as a filesystem path (tilde-expanded) wrapped in an ad-hoc
-/// provider. Throws `ProviderResolutionError` when neither matches, or when the resolved
-/// root is not an existing directory.
+/// The discovered provider a `-L`/`-R` value names, or nil when it names none.
+///
+/// **An exact id wins, and a display name counts only when exactly one provider carries it
+/// (FR42).** This used to be the first provider whose id OR display name matched, in discovery
+/// order — and neither half of that is unique. Two folder sources whose folders share a last
+/// path component get the same default display name, and a provider renamed to another
+/// provider's id made one value name two trees. `-L Dropbox` then quietly meant whichever came
+/// first, and under `sync --yes` that is the tree it wrote into.
+///
+/// An id is the stable handle (`synccloud providers` lists it), so a value that is some
+/// provider's id means that provider even when another's display name happens to read the
+/// same. A display name shared by several providers is refused rather than guessed, naming every
+/// candidate's id and root so the re-run can say which. Ids are expected to be unique; two
+/// providers claiming one are refused the same way rather than trusted to discovery order.
+func matchingProvider(
+    for value: String,
+    label: String,
+    among providers: [CloudProvider]
+) throws -> CloudProvider? {
+    func refusal(_ candidates: [CloudProvider], by what: String, remedy: String) -> ProviderResolutionError {
+        let listed = candidates.map { "'\($0.id)' (\($0.rootPath))" }.joined(separator: ", ")
+        return ProviderResolutionError(
+            message: "'\(value)' for \(label) matches \(candidates.count) providers by \(what): \(listed). \(remedy)")
+    }
+    let byID = providers.filter { $0.id == value }
+    if byID.count > 1 {
+        throw refusal(byID, by: "id", remedy: "Pass the folder's path instead.")
+    }
+    if let provider = byID.first { return provider }
+    let byName = providers.filter { $0.displayName == value }
+    if byName.count > 1 {
+        throw refusal(byName, by: "name",
+                      remedy: "Pass one of those ids (see `synccloud providers`) or the folder's path to say which.")
+    }
+    return byName.first
+}
+
+/// Resolves a `-L`/`-R` argument to a provider: first among the discovered providers (see
+/// `matchingProvider` — an exact id, else a display name only one provider carries), else as a
+/// filesystem path (tilde-expanded) wrapped in an ad-hoc provider. Throws
+/// `ProviderResolutionError` when neither matches, when a display name is ambiguous, or when the
+/// resolved root is not an existing directory.
 ///
 /// The root check is load-bearing, not cosmetic: `FileDiffEngine.getFilesInDirectory` returns
 /// an empty map for a missing root (a nonexistent root still yields a non-nil enumerator), so
@@ -37,7 +75,7 @@ public func resolveProviderOrPath(
     providers: [CloudProvider],
     fileManager: FileManaging = FileManager.default
 ) throws -> CloudProvider {
-    if let provider = providers.first(where: { $0.id == value || $0.displayName == value }) {
+    if let provider = try matchingProvider(for: value, label: label, among: providers) {
         // **An argument that names BOTH a provider and a real directory is refused, not guessed.**
         // The provider branch wins by position, so `-L Dropbox` run beside a local folder called
         // `Dropbox` silently addressed the provider's root instead of the folder in front of the

@@ -238,6 +238,26 @@ import Sync
         #expect(rec.copies.isEmpty, "a declined prompt must not copy anything")
     }
 
+    /// **The plan names both resolved roots before it asks (FR42).** `sync` listed relative
+    /// paths only, so a `-L`/`-R` value that resolved to an unexpected tree was confirmed blind.
+    /// Asserted on the text BEFORE the prompt, which is the only part that can inform the answer.
+    @Test func syncPlanNamesBothResolvedRootsBeforeThePrompt() async throws {
+        let left = try makeTempRoot(), right = try makeTempRoot()
+        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        try write(left.appendingPathComponent("a.txt"), "abc")
+
+        let rec = Recorder()
+        try await makeRunner(rec, readLine: { "n" }).runSync(
+            left: left.path, right: right.path,
+            direction: .auto, showHidden: false, ignore: [],
+            strategy: .replace, yes: false, failFast: false, verify: false)
+
+        let beforePrompt = try #require(rec.out.components(separatedBy: "Proceed with these operations?").first)
+        #expect(beforePrompt.contains("  Left : \(left.path) [Left]\n"))
+        #expect(beforePrompt.contains("  Right: \(right.path) [Right]\n"))
+        #expect(rec.copies.isEmpty)
+    }
+
     @Test func syncWithoutYesProceedsWhenThePromptIsAccepted() async throws {
         let left = try makeTempRoot(), right = try makeTempRoot()
         defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }

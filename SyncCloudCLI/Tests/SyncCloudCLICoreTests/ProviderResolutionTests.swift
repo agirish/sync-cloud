@@ -339,4 +339,51 @@ private let providers = [
             fileManager: StubFileManager(directories: ["/icloud/docs"]))
         #expect(resolved.id == "iCloud")
     }
+
+    // MARK: Which provider a value names (FR42)
+
+    /// **An exact id outranks another provider's display name.** The first provider here carries
+    /// the display name "Dropbox"; the second's id IS "Dropbox". Matching "first whose id OR name
+    /// equals the value" picked the first — by discovery order, the wrong tree — so the
+    /// name-matching provider is deliberately listed first, where an order-dependent match lands.
+    @Test func anExactIdWinsOverAnEarlierProvidersDisplayName() throws {
+        let renamed = [
+            CloudProvider(id: "folder-1", displayName: "Dropbox", imageName: "folder",
+                          rootPath: "/renamed/folder", type: .iCloud),
+            CloudProvider(id: "Dropbox", displayName: "Dropbox (Personal)", imageName: "dropbox",
+                          rootPath: "/dropbox", type: .dropBox),
+        ]
+        let resolved = try resolveProviderOrPath(
+            value: "Dropbox", label: "Left", providers: renamed,
+            fileManager: StubFileManager(directories: ["/renamed/folder", "/dropbox"]))
+        #expect(resolved.id == "Dropbox")
+        #expect(resolved.landingPath == "/dropbox")
+    }
+
+    /// **A display name two providers share is refused, naming both ids and roots.** Two folder
+    /// sources whose folders end in the same component get the same default display name; the old
+    /// match took whichever was discovered first and `sync --yes` wrote into it.
+    @Test func aDisplayNameTwoProvidersShareIsRefusedNamingEachId() {
+        let twins = [
+            CloudProvider(id: "folder-a", displayName: "Photos", imageName: "folder",
+                          rootPath: "/a/Photos", type: .iCloud),
+            CloudProvider(id: "folder-b", displayName: "Photos", imageName: "folder",
+                          rootPath: "/b/Photos", type: .iCloud),
+        ]
+        let fm = StubFileManager(directories: ["/a/Photos", "/b/Photos"])
+        do {
+            let resolved = try resolveProviderOrPath(value: "Photos", label: "Right",
+                                                     providers: twins, fileManager: fm)
+            Issue.record("an ambiguous display name resolved to \(resolved.id) instead of being refused")
+        } catch let error as ProviderResolutionError {
+            #expect(error.message == "'Photos' for Right matches 2 providers by name: "
+                + "'folder-a' (/a/Photos), 'folder-b' (/b/Photos). "
+                + "Pass one of those ids (see `synccloud providers`) or the folder's path to say which.")
+        } catch {
+            Issue.record("expected ProviderResolutionError, got \(error)")
+        }
+        // And the way out the refusal offers works: each id picks its own tree.
+        #expect((try? resolveProviderOrPath(value: "folder-b", label: "Right",
+                                            providers: twins, fileManager: fm))?.landingPath == "/b/Photos")
+    }
 }
