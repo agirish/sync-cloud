@@ -9859,3 +9859,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s check=%s reads=%s\n' $l \
 |---|---|---|
 | `v5.x` | The bounded reads, but an unchecked copy walk (`check=0 reads=1`) | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No dataless-folder handling at all (`reads=0`) | RECORDED — not owed |
+
+---
+
+## A redo does not replace what it did not put there (FR25) — main only
+
+The copy-redo and move-redo called `safeCopyItem`/`safeMoveItem` straight onto the destination, so a
+file saved there by another app between ⌘Z and ⌘⇧Z went to the Trash unasked (the copy-redo's
+comment claimed the user was asked). `main` records what each undo left at the destination and
+refuses a redo, with a banner, when something else is there now (`redoDestinationVerdict`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s copyRedo=%s guard=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'func registerCopyRedo')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'func redoDestinationVerdict')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads guard=1):
+# main, v5.x, v4.x, v3.x, v2.x   copyRedo=1 guard=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same unguarded redos (`guard=0`) | RECORDED — not owed |

@@ -72,7 +72,14 @@ extension FileSyncManager {
     /// in for an identity question, exactly as `liveLocation` was. Its undo re-snapshots the item
     /// at `to` for the NEXT undo already, so recording the source costs one more stat on a path
     /// that was taking one anyway.
-    typealias MoveRedoParam = (from: URL, to: URL, sourceIdentity: ItemIdentity)
+    ///
+    /// `destinationIdentity` is what the undo left at `to` once it had settled — the original it
+    /// restored there, or `.absent` — so the redo can tell that item, which the original move
+    /// replaced with the user's say-so, from one that has arrived since (FR25).
+    typealias MoveRedoParam = (from: URL, to: URL, sourceIdentity: ItemIdentity, destinationIdentity: ItemIdentity)
+    /// What a copy-REDO needs to re-apply one item: the copy's source and destination, and what the
+    /// undo left at the destination — the original it restored, or `.absent` (FR25).
+    typealias CopyRedoParam = (source: URL, destination: URL, destinationIdentity: ItemIdentity)
     /// A restore the delete-undo actually performed, plus the identity the restored item had the
     /// instant it landed — so the paired redo can refuse to trash something that is no longer it.
     ///
@@ -288,6 +295,52 @@ extension FileSyncManager {
             // decided here rather than quietly reported as a change.
             logMessage = "Redo (\(actionName)): refusal reported for \"\(name)\" with an unchanged verdict — this is a programming error"
             bannerMessage = "Redo left \"\(name)\" in place"
+        }
+        await MainActor.run {
+            Logger.shared.error(logMessage)
+            target.banner = .warning(bannerMessage)
+        }
+    }
+
+    /// **A redo does not replace what it did not put there** (FR25). Whether the destination still
+    /// holds what the undo left there: nothing is there (`.unchanged` — nothing to replace), or the
+    /// item the undo recorded, the original the first operation replaced with the user's say-so.
+    /// Anything else — a file saved there by another app since the undo, over a destination the undo
+    /// left empty or holding a different version — answers `.changed`, and an unreadable one
+    /// `.indeterminate`; the redo refuses both.
+    ///
+    /// Before this the copy-redo and move-redo called `safeCopyItem`/`safeMoveItem` straight onto
+    /// the destination, which asks nobody: copy `report.pdf` to `Shared/`, ⌘Z, save a different
+    /// `Shared/report.pdf` in another app, ⌘⇧Z — the new file went to the Trash without a word.
+    ///
+    /// Shallow, like the move chain's identities: the refusal guards a replace that would send the
+    /// occupant to the Trash, and an occupant the undo left there is the one case let through.
+    nonisolated static func redoDestinationVerdict(recorded: ItemIdentity, at destination: URL,
+                                                   fileManager fm: FileManaging) -> DriftVerdict {
+        let current = ItemIdentity.snapshot(at: destination, fileManager: fm)
+        if current == .absent { return .unchanged }
+        return ItemIdentity.compare(recorded: recorded, current: current)
+    }
+
+    /// Surfaces a redo refused by ``redoDestinationVerdict(recorded:at:fileManager:)``: the item at
+    /// the destination is not the one the undo left there, and replacing it would put work nobody
+    /// asked to touch in the Trash. Both items stay where they are.
+    nonisolated static func reportRedoRefusedOccupiedDestination(
+        of destination: URL,
+        actionName: String,
+        verdict: DriftVerdict,
+        on target: FileSyncManager
+    ) async {
+        let name = destination.lastPathComponent
+        let logMessage: String
+        let bannerMessage: String
+        switch verdict {
+        case .indeterminate:
+            logMessage = "Redo (\(actionName)): REFUSED to re-apply \"\(name)\" — the item at \(destination.path) could not be read, so it cannot be confirmed as the one the undo left there; leaving both in place"
+            bannerMessage = "Redo left \"\(name)\" alone — what is at its destination couldn't be checked"
+        case .changed, .unchanged:
+            logMessage = "Redo (\(actionName)): REFUSED to re-apply \"\(name)\" — a different item is at \(destination.path) now, not the one the undo left there, and the redo would replace it; leaving both in place"
+            bannerMessage = "Redo left \"\(name)\" alone — a different item is at its destination now"
         }
         await MainActor.run {
             Logger.shared.error(logMessage)
@@ -821,7 +874,7 @@ extension FileSyncManager {
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Undo: \(actionName)")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
-            let redoParamResolver = AsyncValueResolver<[(source: URL, destination: URL)]>()
+            let redoParamResolver = AsyncValueResolver<[CopyRedoParam]>()
             target.registerCopyRedo(paramResolver: redoParamResolver, actionName: actionName, fileManager: fm)
 
             let slot = target.claimFileOperationSlot()
@@ -845,6 +898,15 @@ extension FileSyncManager {
                         var leftInPlace = 0
                         var vanished = 0
                         var undoneCopies: [(source: URL, destination: URL)] = []
+                        /// The redo params: each undone copy with what this undo left at its
+                        /// destination, read once the whole run has settled — after every restore
+                        /// — because that is the state the redo will find (FR25).
+                        func redoParams() -> [CopyRedoParam] {
+                            undoneCopies.map { copy in
+                                (source: copy.source, destination: copy.destination,
+                                 destinationIdentity: ItemIdentity.snapshot(at: copy.destination, fileManager: fm))
+                            }
+                        }
                         // Destinations THIS run already put into their pre-batch state. A batch
                         // can register one path twice (the second copy replaced the first): after
                         // item 1's trash, item 2 finds its destination "gone" — but not
@@ -993,7 +1055,7 @@ extension FileSyncManager {
                                 confirmPermanentDelete(promptPaths)
                             }
                             guard confirmed else {
-                                await redoParamResolver.resolve(undoneCopies)
+                                await redoParamResolver.resolve(redoParams())
                                 return
                             }
                             for item in confirmableFailures {
@@ -1025,7 +1087,7 @@ extension FileSyncManager {
                             }
                         }
 
-                        await redoParamResolver.resolve(undoneCopies)
+                        await redoParamResolver.resolve(redoParams())
                         logger.info("Undo (\(actionName)): removed \(removed) of \(items.count) copied item(s), \(vanished) already gone, \(duplicateRegistrations) duplicate registration(s) skipped, restored \(restored) overwritten original(s), \(restoreFailures) restore failure(s), \(leftInPlace) left in place (changed or busy)")
                 }
             }
@@ -1033,7 +1095,7 @@ extension FileSyncManager {
         undoManager?.setActionName(actionName)
     }
     
-    func registerCopyRedo(paramResolver: AsyncValueResolver<[(source: URL, destination: URL)]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
+    func registerCopyRedo(paramResolver: AsyncValueResolver<[CopyRedoParam]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Redo: \(actionName)")
@@ -1047,6 +1109,7 @@ extension FileSyncManager {
                         let params = await paramResolver.get()
                         var nextState: [CopyUndoItemState] = []
                         var redoFailures = 0
+                        var leftInPlace = 0
                         // Collected across the loop and reported once, for the reason
                         // `logIndeterminateRegistrations` states: N lines over an unreadable tree
                         // push the context that explains it out of the 1000-entry buffer.
@@ -1057,14 +1120,25 @@ extension FileSyncManager {
                         // it: the stranger leaves the source path and lands on the destination, and
                         // that is destruction, so it refuses. A copy-redo reads the source and
                         // leaves it exactly where it is. What it can overwrite is the DESTINATION,
-                        // and `safeCopyItem` puts that through the same collision resolver the
-                        // original copy went through — the user is asked, the displaced item comes
-                        // back as `trashed`, and the next undo restores it. There is also no
+                        // and `safeCopyItem` asks nobody about that — it replaces whatever is there
+                        // and sends it to the Trash. (This said the user was asked; nothing in this
+                        // path ever asked.) So the destination gets its own guard, below (FR25):
+                        // only the item the undo left there — the original the first copy replaced
+                        // with the user's say-so — may be replaced again. There is also no
                         // recorded identity to compare against: a copy never touches its source, so
                         // nothing in this chain has ever snapshotted one. Re-copying a source the
                         // user has since edited re-applies the copy to the file that is there now,
                         // which is what "redo the copy" means.
                         for param in params {
+                            // Before the parent is made, so a refusal leaves the disk as it was.
+                            let atDestination = FileSyncManager.redoDestinationVerdict(
+                                recorded: param.destinationIdentity, at: param.destination, fileManager: fm)
+                            guard atDestination == .unchanged else {
+                                leftInPlace += 1
+                                await FileSyncManager.reportRedoRefusedOccupiedDestination(
+                                    of: param.destination, actionName: actionName, verdict: atDestination, on: target)
+                                continue
+                            }
                             try? fm.createDirectory(at: param.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
                             do {
                                 let trashed = try FileSyncManager.safeCopyItem(at: param.source, to: param.destination, fileManager: fm)
@@ -1095,7 +1169,7 @@ extension FileSyncManager {
 
                         FileSyncManager.logIndeterminateRegistrations(unreadable, of: params.count, actionName: actionName)
                         await nextUndoStateResolver.resolve(nextState)
-                        logger.info("Redo (\(actionName)): copied \(nextState.count) of \(params.count) item(s), \(redoFailures) redo failure(s)")
+                        logger.info("Redo (\(actionName)): copied \(nextState.count) of \(params.count) item(s), \(redoFailures) redo failure(s), \(leftInPlace) left in place (a different item at the destination)")
                 }
             }
         }
@@ -1363,9 +1437,14 @@ extension FileSyncManager {
                         // any folder edited inside since the undo — and the redo's own deepest-first
                         // replay moves children out of the very directories it is about to compare,
                         // which a recursive digest would read as drift this loop itself caused.
+                        //
+                        // The destination is read in the same pass, for the same reason: it holds
+                        // what this undo left there — an original it restored, or nothing — and the
+                        // redo may replace only that (FR25).
                         let reversedParams: [MoveRedoParam] = movedBackPairs.map { pair in
                             (from: pair.from, to: pair.to,
-                             sourceIdentity: ItemIdentity.snapshot(at: pair.from, fileManager: fm))
+                             sourceIdentity: ItemIdentity.snapshot(at: pair.from, fileManager: fm),
+                             destinationIdentity: ItemIdentity.snapshot(at: pair.to, fileManager: fm))
                         }
                         await redoParamResolver.resolve(reversedParams)
                         logger.info("Undo (\(actionName)): moved \(movedBack) of \(items.count) item(s) back to source, \(restoreFailures) restore failure(s), \(leftInPlace) left in place (changed or unverifiable)"
@@ -1506,6 +1585,18 @@ extension FileSyncManager {
                                         continue
                                     }
                                 }
+                            }
+                            // And the DESTINATION is still what the undo left there (FR25):
+                            // `safeMoveItem` replaces whatever it finds, so a file saved there by
+                            // another app since the undo would go to the Trash unasked. Checked at
+                            // the item's own move, after the source, so a refusal says which.
+                            let atDestination = FileSyncManager.redoDestinationVerdict(
+                                recorded: param.destinationIdentity, at: param.to, fileManager: fm)
+                            guard atDestination == .unchanged else {
+                                leftInPlace += 1
+                                await FileSyncManager.reportRedoRefusedOccupiedDestination(
+                                    of: param.to, actionName: actionName, verdict: atDestination, on: target)
+                                continue
                             }
                             // Only manufacture the destination's parent for a move that can
                             // actually happen. Unconditionally, this created the ancestor a
