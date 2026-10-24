@@ -740,12 +740,19 @@ public final class EditorPDFTools: ObservableObject {
 
     /// The leave question, in the words of what would be lost — and of the leave: ⌘Q's says
     /// Quit where every other route says Leave (TE158). Discard is the same word for both.
+    /// `placed` is the save pill's count of what is placed — "2 items", "1 correction" — so a
+    /// correction is not called an item here when the pill calls it a correction.
     static func leaveQuestion(running: Running?, hasArrangement: Bool, sheet: String? = nil,
-                              placedItems: Int = 0, filledFields: Int = 0,
+                              placed placedParts: [String] = [], filledFields: Int = 0,
                               quitting: Bool = false) -> (title: String, detail: String, go: String) {
         let (leave, leaving) = quitting ? ("Quit", "Quitting") : ("Leave", "Leaving")
-        var placed = placedItems == 0 ? ""
-            : " The \(placedItems == 1 ? "item" : "\(placedItems) items") placed with Fill & Sign \(placedItems == 1 ? "is" : "are") discarded too."
+        var placed = ""
+        if !placedParts.isEmpty {
+            // "The item", not "The 1 item"; one of anything is the only singular.
+            let one = placedParts.count == 1 && placedParts[0].hasPrefix("1 ")
+            let what = one ? String(placedParts[0].dropFirst(2)) : placedParts.joined(separator: " and ")
+            placed = " The \(what) placed with Fill & Sign \(one ? "is" : "are") discarded too."
+        }
         if filledFields > 0 {
             placed += " The \(filledFields == 1 ? "field" : "\(filledFields) fields") filled with Fill & Sign "
                 + "\(filledFields == 1 ? "is" : "are") cleared too."
@@ -770,7 +777,7 @@ public final class EditorPDFTools: ObservableObject {
 
     func confirmDiscardWithAlert(quitting: Bool) -> Bool {
         let question = Self.leaveQuestion(running: running, hasArrangement: arrangement != nil, sheet: sheet?.title,
-                                          placedItems: fill?.unsaved.count ?? 0, filledFields: fill?.values.count ?? 0,
+                                          placed: fill?.placedParts ?? [], filledFields: fill?.values.count ?? 0,
                                           quitting: quitting)
         return Self.leaveAlert(question).runModal() == .alertFirstButtonReturn
     }

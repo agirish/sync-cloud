@@ -29,7 +29,7 @@ public enum ComparePrompt {
         switch differenceCount {
         case 0: found = "no differences"
         case 1: found = "1 difference"
-        default: found = "\(differenceCount) differences"
+        default: found = "\(differenceCount.formatted()) differences"
         }
         return "Last scanned \(age) — \(found). Scan again to see what has changed since."
     }

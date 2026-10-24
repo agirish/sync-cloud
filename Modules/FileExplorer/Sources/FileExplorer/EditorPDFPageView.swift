@@ -136,7 +136,8 @@ final class ReaderPDFView: PDFView {
         }
         let reason: String?
         switch (fill.replaceRefusal, outcome) {
-        case (let file?, _): reason = file
+        // The file's refusal, short: this is a menu row, which does not wrap (PD14).
+        case (_?, _): reason = fill.replaceMenuReason
         case (nil, .failure(let refusal)): reason = refusal.reason
         case (nil, .success): reason = nil
         }
@@ -500,6 +501,8 @@ struct EditorPDFPageView: NSViewRepresentable {
     var coveredRects: [CGRect] = []
     /// The app's accent, for Fill & Sign's rings and field washes (``EditorPDFFillOverlay/accent``).
     var accent: Color = LiquidGlassHue.stored().accentColor
+    /// View ▸ Text Size, for the words Fill & Sign draws in AppKit — the retype hint's (PD4).
+    @Environment(\.appFontScale) private var fontScale
 
     final class Coordinator: NSObject {
         let state: EditorPDFViewState
@@ -563,6 +566,7 @@ struct EditorPDFPageView: NSViewRepresentable {
 
     private func update(_ view: ReaderPDFView, coordinator: Coordinator) {
         view.fillOverlay.accent = NSColor(accent)
+        view.fillOverlay.textScale = fontScale
         view.canvasInsets = canvasInsets
         view.coveredRects = coveredRects
         Self.applyLayout(state.layout, coverSeparately: state.coverSeparately, to: view)

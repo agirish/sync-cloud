@@ -16,6 +16,10 @@ enum EditorLineEnding: String, Equatable, Sendable, CaseIterable {
     /// over it — nor over one Edit made, which would be a bug in the LF-only rule.
     case mixed = "Mixed"
 
+    /// The status line's word: the kind, or for a mixed file what is mixed — a bare "Mixed" at the
+    /// line's end, after the encoding, said nothing about what (ED12).
+    var statusCaption: String { self == .mixed ? "Mixed endings" : rawValue }
+
     /// What terminates the lines in `text`, or `nil` when it has no line break at all.
     ///
     /// `nil` rather than a default, for the same reason ``MarkdownBlock/line`` is optional: a

@@ -189,13 +189,13 @@ enum EditorAlerts {
     ///
     /// **Two different sentences, because they are two different situations.** A changed file is
     /// said in the banner's words (TE150) — "since you opened it" was wrong once autosave had run. A
-    /// gone one is said as gone: a move is followed (TE59), so what is left was deleted, or went with
-    /// its folder.
+    /// gone one is said as gone, in the banner's words: a move is followed (TE59), so what is left
+    /// was deleted, or went with its folder — "no longer where you opened it" read as a move.
     nonisolated static func divergenceMessage(name: String,
                                               divergence: EditorFileStore.Divergence) -> String {
         switch divergence {
         case .changed: return "“\(name)” changed on disk while you were typing."
-        case .missing: return "“\(name)” is no longer where you opened it."
+        case .missing: return goneMessage(name: name) + "."
         }
     }
 
@@ -207,7 +207,7 @@ enum EditorAlerts {
         // What Save Again does (TE151): the banner's write, which looks first and puts back a folder
         // that went too.
         case .missing:
-            return "It writes it back where it was, making its folder again if that went too."
+            return "Save Again writes it back where it was, making its folder again if that went too."
         }
     }
 

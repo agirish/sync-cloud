@@ -595,7 +595,7 @@ struct EditorFileRailView: View {
             return "The one file in this folder isn’t one Edit opens. "
                 + "The + button makes a text file."
         }
-        return "None of the \(otherFiles) files in this folder are ones Edit opens. "
+        return "None of the \(otherFiles.formatted()) files in this folder are ones Edit opens. "
             + "The + button makes a text file."
     }
 

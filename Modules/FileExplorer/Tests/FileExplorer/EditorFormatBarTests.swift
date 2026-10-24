@@ -1252,8 +1252,11 @@ import EventsTestSupport
     @Test func theBodyMenuDrawsEachStyleAsItLooks() throws {
         let sizes = EditorFormatBar.headingVerbs.map { EditorStylePicker.font($0).size }
         #expect(sizes == sizes.sorted(by: >) && Set(sizes).count == sizes.count, "the styles' sizes read \(sizes)")
-        #expect(EditorFormatBar.headingVerbs.dropLast().allSatisfy { EditorStylePicker.font($0).weight == .bold })
+        #expect(EditorFormatBar.headingVerbs.dropLast().allSatisfy { EditorStylePicker.font($0).weight == .semibold })
         #expect(EditorStylePicker.font(.heading(0)) == (13, .regular))
+        // Preview's sizes, not a ramp of the picker's own (ED13).
+        #expect([1, 2, 3].map { EditorStylePicker.font(.heading($0)).size } == [22, 18, 15.5])
+        #expect([1, 2, 3].map { EditorStylePicker.font(.heading($0)).size } == [1, 2, 3].map(MarkdownBlockView.headingSize))
         // Drawn: the picker is taller than four rows of body text would be.
         let height = NSHostingView(rootView: AnyView(EditorStylePicker(current: .body, onPick: { _ in })
             .environment(\.appFontScale, 1))).fittingSize.height

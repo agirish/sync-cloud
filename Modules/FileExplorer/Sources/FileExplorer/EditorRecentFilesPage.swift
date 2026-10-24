@@ -30,9 +30,10 @@ struct EditorRecentFilesPage<Fallback: View>: View {
 
     /// **What the page says under its buttons** — where New Note's file goes, then ⌘O. Its own
     /// words rather than `emptyCaption`'s: the list above is how to open a file again, so this says
-    /// how to open one that is not in it.
+    /// how to open one that is not in it. It names no file: New Note opens a naming row filled with
+    /// the first free name (`Untitled 2.md` when `Untitled.md` is taken), not a file made outright.
     static func caption(folderName: String) -> String {
-        "New Note creates Untitled.md in \(folder(folderName)). To open a different file, select a text file "
+        "New Note asks for a name, then makes the file in \(folder(folderName)). To open a different file, select a text file "
             + "or a PDF file in Browse, Compare or Organize and press \(AppChord.openInEditor.display)."
     }
 

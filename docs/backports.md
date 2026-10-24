@@ -9252,3 +9252,48 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s treeEmpty=%s sortTick=%s rowC
 | `v4.x` | All but the stamps: its Restructure has no Applied/Undone ledger (`fixedClock=0`) | RECORDED — not owed |
 | `v3.x` | The Browse five and the walkthrough keys; no Restructure lens | RECORDED — not owed |
 | `v2.x` | As `v3.x`; its tree is an `OutlineGroup` (no `PaneOutlineRows.swift`), with the same empty expansion | RECORDED — not owed |
+
+---
+
+## Edit's retype hint follows Text Size, Compress says why Save is greyed, and four smaller fixes — main only
+
+Five Edit behaviour and layout defects from the v6.1 review (PD4, PD5, PD9, PD14, ED13); the copy
+fixes landed with them (ED6, ED7, ED9, ED11, ED12, ED14, ED15, PD1, PD7, PD8, PD11) are not tracked.
+
+- **Replace's retype hint** drew in fixed 10 and 11 points whatever View ▸ Text Size said, and its
+  "Same font" / "Stand-in" chip in bare system green and orange on their own wash — about 1.7:1 in
+  light. `main` resolves its fonts through `ScaledFont.nsFont(scale:)`, the text size handed down
+  from `EditorPDFPageView`, and draws the chip's words through `ChromeInk.bodyText`.
+- **Compress ▸ To a size** greyed Save with nothing said for 0, a word or an empty field. `main`
+  says why in red under the field (`EditorPDFCompression.targetCaption`), from the rule the button
+  greys by, in one file's sheet and a batch's.
+- **Right-click ▸ Replace Text…** on a form showed the two-sentence refusal as one wide menu row.
+  `main` shows a short one (`EditorPDFFillSign.replaceMenuReason`); the palette keeps the long one.
+- **VoiceOver** offered "Edit Text" on a correction the right-click menu calls Retype. `main` names
+  it Retype.
+- **The Body menu's styles** were drawn on a ramp of their own (21, 17, 14.5 bold). `main` reads
+  Preview's (`MarkdownBlockView.headingSize`, semibold).
+
+```sh
+F=Modules/FileExplorer/Sources/FileExplorer
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s hintFixed=%s chipInk=%s compressSilent=%s replaceRow=%s voEditText=%s pickerRamp=%s replace=%s\n' $l \
+  "$(git show origin/$l:$F/EditorPDFReplace.swift 2>/dev/null | grep -c 'NSFont.systemFont(ofSize: 10, weight: .semibold)')" \
+  "$(git show origin/$l:$F/EditorPDFReplace.swift 2>/dev/null | grep -c 'foregroundColor: lines.sameFont ? NSColor.systemGreen')" \
+  "$(git show origin/$l:$F/EditorPDFToolSheets.swift 2>/dev/null | grep -c 'Text("Tries lower quality until the file fits.")')" \
+  "$(git show origin/$l:$F/EditorPDFPageView.swift 2>/dev/null | grep -c 'case (let file?, _): reason = file')" \
+  "$(git show origin/$l:$F/EditorPDFFillOverlay.swift 2>/dev/null | grep -c 'NSAccessibilityCustomAction(name: "Edit Text")')" \
+  "$(git show origin/$l:$F/EditorFormatBar.swift 2>/dev/null | grep -c 'case .heading(1): return (21, .bold)')" \
+  "$(git ls-tree -r --name-only origin/$l -- $F/EditorPDFReplace.swift | wc -l | tr -d ' ')"; done
+# The first six are the defects; replace says whether a line has Replace at all.
+# measured 2026-10-23, against origin, before this landed (main 29c9b0d60):
+# main               hintFixed=1 chipInk=1 compressSilent=1 replaceRow=1 voEditText=1 pickerRamp=1 replace=1
+# v5.x               hintFixed=0 chipInk=0 compressSilent=0 replaceRow=0 voEditText=0 pickerRamp=1 replace=0
+# v4.x, v3.x, v2.x   all 0 — no Edit workspace
+# measured 2026-10-23, against this change's tree:
+# main               hintFixed=0 chipInk=0 compressSilent=0 replaceRow=0 voEditText=0 pickerRamp=0 replace=1
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The Body menu's own ramp only (`pickerRamp=1`); no Replace, Compress sheet or Fill & Sign overlay | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Edit workspace | CLOSED — does not apply |

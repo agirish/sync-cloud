@@ -914,12 +914,11 @@ struct EditorStylePicker: View {
     var accent: Color = LiquidGlassHue.stored().accentColor
     let onPick: (MarkupVerb) -> Void
 
-    /// Each style's size and weight in the list — the headings in steps above the body's 13 points.
+    /// Each style's size and weight in the list — Preview's own, read from its ramp, so a heading
+    /// is drawn here as the document draws it (ED13); the body at Preview's 13 points.
     static func font(_ verb: MarkupVerb) -> (size: CGFloat, weight: Font.Weight) {
         switch verb {
-        case .heading(1): return (21, .bold)
-        case .heading(2): return (17, .bold)
-        case .heading(3): return (14.5, .bold)
+        case .heading(let level) where level > 0: return (MarkdownBlockView.headingSize(level), .semibold)
         default: return (13, .regular)
         }
     }

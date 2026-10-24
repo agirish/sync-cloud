@@ -26,6 +26,9 @@ import Foundation
     @Test func genuinelyMixedIsReportedAsMixed() {
         #expect(EditorLineEnding.detect(in: "one\r\ntwo\nthree\n") == .mixed)
         #expect(EditorLineEnding.detect(in: "one\rtwo\nthree") == .mixed)
+        // The status line says what is mixed; a single kind is its own short name (ED12).
+        #expect(EditorLineEnding.mixed.statusCaption == "Mixed endings")
+        #expect(EditorLineEnding.crlf.statusCaption == "CRLF")
     }
 
     /// A single line with no terminator has no line ending, and the status line omits the segment

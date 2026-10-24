@@ -679,9 +679,11 @@ struct EditorPDFFillSaveStack: View {
                 .frame(width: 1, height: 14)
                 .accessibilityHidden(true)
             // **A way out from where the work is** (TE98) — the header's button's own toggle, which
-            // asks about what isn't saved.
+            // asks about what isn't saved. The tooltip says Esc's order (TE98): Fill & Sign opens
+            // with a tool chosen, and the first Esc lets go of that, not of Fill & Sign.
             Button(Self.doneTitle) { fill.toggle() }
-                .help("Put Fill & Sign away — asks first about what isn’t saved. Esc does it too")
+                .help("Put Fill & Sign away — asks first about what isn’t saved. "
+                      + "Esc does it too, once nothing is selected and no tool is chosen")
         }
         .controlSize(.small)
         .scaledFont(.system(size: 11))

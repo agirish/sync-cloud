@@ -61,6 +61,16 @@ public enum EditorPDFCompression: Equatable, Sendable {
         megabytes == megabytes.rounded() ? String(Int(megabytes)) : String(format: "%.1f", megabytes)
     }
 
+    /// **The line under the size field: what the size does, or why Save is greyed** (PD9) — read
+    /// from ``megabytes(_:)``, the rule the button greys by, so the two cannot disagree. Typing 0 or
+    /// clearing the field greyed Save with nothing said; the page-range sheet says why in red.
+    static func targetCaption(_ typed: String) -> (text: String, isError: Bool) {
+        if megabytes(typed) != nil { return ("Tries lower quality until the file fits.", false) }
+        let trimmed = typed.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return ("Type a size in MB to come in under, like 2.", true) }
+        return ("“\(trimmed)” isn’t a size — type a number of MB above 0, like 2.", true)
+    }
+
     /// A typed figure — "1.5", "2,5", "1,000", " 2 " — or `nil` for one that is not a positive
     /// number. A comma is a decimal point only where it can be one: alone, with at most two digits
     /// after it. "1,000" is a thousand, not one.
@@ -179,7 +189,8 @@ public enum EditorPDFTool: Equatable, Sendable {
     public var suffix: String {
         switch self {
         case .rotate: return "rotated"
-        case .deletePages: return "pages removed"
+        // "page removed" for one page, as Extract says "page 3" for one.
+        case .deletePages(let pages): return pages.count == 1 ? "page removed" : "pages removed"
         case .reorder: return "reordered"
         case .extract(let pages): return EditorPDFCopyName.extractSuffix(pages)
         case .compress: return "compressed"

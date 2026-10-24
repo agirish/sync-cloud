@@ -202,10 +202,10 @@ import FileExplorerTestSupport
     @Test func theCaptionSaysWhereNewNoteGoesThenHowToOpenAnother() {
         let open = AppChord.openInEditor.display
         #expect(EditorRecentFilesPage<EmptyView>.caption(folderName: "Recipes")
-                == "New Note creates Untitled.md in Recipes. To open a different file, select a text file "
+                == "New Note asks for a name, then makes the file in Recipes. To open a different file, select a text file "
                 + "or a PDF file in Browse, Compare or Organize and press \(open).")
         // No folder to name: ⌘N goes to Notes, and the sentence says so.
-        #expect(EditorRecentFilesPage<EmptyView>.caption(folderName: "").contains("Untitled.md in Notes."))
+        #expect(EditorRecentFilesPage<EmptyView>.caption(folderName: "").contains("makes the file in Notes."))
     }
 
     // MARK: The page

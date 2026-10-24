@@ -56,6 +56,11 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
     var accent: NSColor = .systemBlue {
         didSet { if accent != oldValue { needsDisplay = true } }
     }
+    /// The app's text size, for the retype hint's words (PD4) — set by ``EditorPDFPageView`` from
+    /// its environment's `appFontScale`.
+    var textScale: CGFloat = 1 {
+        didSet { if textScale != oldValue, field != nil { layoutField() } }
+    }
     /// VoiceOver's elements, by what each stands for — see ``EditorPDFFillAccessibilityElement``.
     var accessibilityElements: [EditorPDFFillAccessibilityElement.Target: EditorPDFFillAccessibilityElement] = [:]
     /// What VoiceOver was last told is on screen, and where the keyboard is.
@@ -557,6 +562,7 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
             retypeHint = made
             return made
         }()
+        hint.scale = textScale
         hint.lines = EditorPDFRetypeHint.lines(for: item, correction: correction)
         let size = hint.fittingSize
         // Below the box — above it when the box is near the bottom of the view.
@@ -1113,9 +1119,11 @@ extension EditorPDFFillOverlay {
                 fill.deleteSelection()
                 return true
             }]
-            // A text box, or a correction — retyped as Return and a double-click retype it.
+            // A text box, or a correction — retyped as Return and a double-click retype it. Named as
+            // the right-click menu names it: Retype for a correction, Edit Text for a text box.
             if item.words != nil, !item.isSignature {
-                actions.insert(NSAccessibilityCustomAction(name: "Edit Text") { [weak self] in
+                let name = item.isCorrection ? EditorPDFFillFlyouts.retypeTitle : EditorPDFFillFlyouts.editTextTitle
+                actions.insert(NSAccessibilityCustomAction(name: name) { [weak self] in
                     guard let self, let fill = self.fill, fill.items.contains(where: { $0.id == id }) else { return false }
                     self.window?.makeFirstResponder(self)
                     fill.beginEditing(id)

@@ -284,9 +284,10 @@ import Sync
     // MARK: TE128 — the page menu names the pages
 
     @Test func thePageMenuNamesThePagesItRotates() {
-        #expect(EditorPDFPageMenu.rotateTitle([1, 2, 3], "Left") == "Rotate 3 Pages Left")
-        #expect(EditorPDFPageMenu.rotateTitle([4], "180°") == "Rotate Page 5 180°")
-        #expect(EditorPDFPageMenu.title("Extract", [1, 2, 3]) == "Extract 3 Pages…")
+        #expect(EditorPDFPageMenu.rotateTitle([1, 2, 3], "Left") == "Rotate 3 Selected Pages Left")
+        #expect(EditorPDFPageMenu.rotateTitle([4], "by 180°") == "Rotate Page 5 by 180°")
+        // The Tools menu's noun for the same selection (PD8).
+        #expect(EditorPDFPageMenu.title("Extract", [1, 2, 3]) == "Extract 3 Selected Pages…")
     }
 
     // MARK: TE137 — the current page's ring sits inside the selected wash

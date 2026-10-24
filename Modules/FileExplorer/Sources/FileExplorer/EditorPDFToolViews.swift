@@ -106,7 +106,8 @@ public struct EditorPDFToolsMenuEntry: Equatable {
         rotations(Array(0..<tools.pageCount), in: "Rotate All Pages")
         let prefill = EditorPDFPageMenu.rangeText(selected)
         // Named for the selection as the rotate submenu is — "Extract 3 Selected Pages…" — and as
-        // the Pages tab's own menu names it; with none, the sheet asks which pages.
+        // the Pages tab's own menu names it (`EditorPDFPageMenu.title`); with none, the sheet asks
+        // which pages.
         func pagesTitle(_ verb: String) -> String {
             switch selected.count {
             case 0: return "\(verb) Pages…"

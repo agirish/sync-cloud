@@ -488,8 +488,16 @@ extension PDFFixtures {
         #expect(EditorPDFFillSign.leaveQuestion(name: "Lease form.pdf", fields: 2, placed: fill.placedParts).detail
                 == "2 fields you filled and 1 item aren’t saved. The original file hasn’t been changed.")
         #expect(EditorPDFFillSign.leaveQuestion(name: "x", fields: 1).detail.hasPrefix("1 field you filled isn’t saved."))
-        #expect(EditorPDFTools.leaveQuestion(running: .init(.compress(.quality(0.6))), hasArrangement: false, placedItems: 1, filledFields: 2)
+        #expect(EditorPDFTools.leaveQuestion(running: .init(.compress(.quality(0.6))), hasArrangement: false, placed: ["1 item"], filledFields: 2)
                 .detail.contains("The 2 fields filled with Fill & Sign are cleared too."))
+        // The pill's words for what is placed: a correction is a correction, one is "the" (PD5).
+        let order = EditorPDFTools.Running(.compress(.quality(0.6)))
+        #expect(EditorPDFTools.leaveQuestion(running: order, hasArrangement: false, placed: ["2 corrections"]).detail
+                .contains(" The 2 corrections placed with Fill & Sign are discarded too."))
+        #expect(EditorPDFTools.leaveQuestion(running: order, hasArrangement: false, placed: ["1 correction"]).detail
+                .contains(" The correction placed with Fill & Sign is discarded too."))
+        #expect(EditorPDFTools.leaveQuestion(running: order, hasArrangement: false, placed: ["2 items", "1 correction"])
+                .detail.contains(" The 2 items and 1 correction placed with Fill & Sign are discarded too."))
     }
 
     // MARK: Saving a form

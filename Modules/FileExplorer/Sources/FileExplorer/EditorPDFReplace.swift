@@ -1,6 +1,8 @@
 import AppKit
+import Design
 import Foundation
 import PDFKit
+import SwiftUI
 
 /// **The font a correction's words are drawn in** (TE83, TE86): the original's own face when this
 /// Mac has it — "Same font" — else the nearest of the Aa tool's fonts — "Stand-in".
@@ -559,6 +561,12 @@ final class EditorPDFRetypeHint: NSView {
         didSet { if lines != oldValue { invalidateIntrinsicContentSize(); needsDisplay = true } }
     }
 
+    /// **The app's text size** (PD4) — View ▸ Text Size, as every other line in Edit follows it,
+    /// handed down from ``EditorPDFPageView``'s environment through the overlay. 1 until it is.
+    var scale: CGFloat = 1 {
+        didSet { if scale != oldValue { invalidateIntrinsicContentSize(); needsDisplay = true } }
+    }
+
     static let sameFontChip = "Same font"
     static let standInChip = "Stand-in"
     static let keysLine = "Return to place · Esc to cancel"
@@ -583,19 +591,42 @@ final class EditorPDFRetypeHint: NSView {
     private static let padding = CGSize(width: 9, height: 6)
     private static let gap: CGFloat = 4
 
+    /// The three lines' fonts at the app's text size, resolved as the rest of Edit's AppKit text is
+    /// (`ScaledFont.nsFont(scale:)`) — fixed 10 and 11 points ignored View ▸ Text Size (PD4).
+    static func fonts(scale: CGFloat) -> (font: NSFont, chip: NSFont, keys: NSFont) {
+        (ScaledFont.system(size: 11).nsFont(scale: scale),
+         ScaledFont.system(size: 10, weight: .semibold).nsFont(scale: scale),
+         ScaledFont.system(size: 10).nsFont(scale: scale))
+    }
+
+    /// The chip's hue: green for the original font, orange for a stand-in. It colours the wash.
+    static func chipHue(sameFont: Bool) -> NSColor { sameFont ? .systemGreen : .systemOrange }
+
+    /// How strongly the hue washes the chip.
+    static let chipWashAlpha: CGFloat = 0.16
+
+    /// **The chip's words, in its hue made readable as text** (PD4, DS13) — the app's one path for a
+    /// semantic colour as body text (`ChromeInk.bodyText`, decision RD46). The bare system green
+    /// and orange on their own wash measured about 1.7:1 in light.
+    static func chipInk(sameFont: Bool, dark: Bool) -> NSColor {
+        NSColor(ChromeInk.bodyText(dark ? .dark : .light, Color(nsColor: chipHue(sameFont: sameFont))))
+    }
+
+    private var isDark: Bool { effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua }
+
     private var fontLine: NSAttributedString {
-        NSAttributedString(string: lines.font, attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.labelColor])
+        NSAttributedString(string: lines.font, attributes: [.font: Self.fonts(scale: scale).font, .foregroundColor: NSColor.labelColor])
     }
 
     private var chipLine: NSAttributedString {
         NSAttributedString(string: lines.chip, attributes: [
-            .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
-            .foregroundColor: lines.sameFont ? NSColor.systemGreen : NSColor.systemOrange,
+            .font: Self.fonts(scale: scale).chip,
+            .foregroundColor: Self.chipInk(sameFont: lines.sameFont, dark: isDark),
         ])
     }
 
     private var keysLine: NSAttributedString {
-        NSAttributedString(string: lines.keys, attributes: [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.secondaryLabelColor])
+        NSAttributedString(string: lines.keys, attributes: [.font: Self.fonts(scale: scale).keys, .foregroundColor: NSColor.secondaryLabelColor])
     }
 
     override var intrinsicContentSize: NSSize {
@@ -621,7 +652,7 @@ final class EditorPDFRetypeHint: NSView {
         let lineHeight = max(firstSize.height, chipSize.height + 2)
         first.draw(at: CGPoint(x: pad.width, y: top - lineHeight + (lineHeight - firstSize.height) / 2))
         let chipRect = CGRect(x: pad.width + firstSize.width + 6, y: top - lineHeight, width: chipSize.width + 12, height: lineHeight)
-        (lines.sameFont ? NSColor.systemGreen : NSColor.systemOrange).withAlphaComponent(0.16).setFill()
+        Self.chipHue(sameFont: lines.sameFont).withAlphaComponent(Self.chipWashAlpha).setFill()
         NSBezierPath(roundedRect: chipRect, xRadius: lineHeight / 2, yRadius: lineHeight / 2).fill()
         chip.draw(at: CGPoint(x: chipRect.minX + 6, y: chipRect.midY - chipSize.height / 2))
         keys.draw(at: CGPoint(x: pad.width, y: pad.height))

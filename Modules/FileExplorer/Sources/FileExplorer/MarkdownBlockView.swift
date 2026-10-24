@@ -223,7 +223,7 @@ struct MarkdownBlockView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(done ? "Done" : "Not done")
                 .accessibilityAddTraits(done ? [.isButton, .isSelected] : .isButton)
-                .accessibilityHint("Ticks this item in the document")
+                .accessibilityHint(done ? "Unticks this item in the document" : "Ticks this item in the document")
                 .help(done ? "Untick this item" : "Tick this item")
             } else {
                 checkbox(done)

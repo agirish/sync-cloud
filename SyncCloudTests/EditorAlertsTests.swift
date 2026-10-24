@@ -106,9 +106,11 @@ import FileExplorer
         let missingWhy = EditorAlerts.divergenceInformativeText(.missing)
         #expect(changedWhy != missingWhy)
         // The missing case names what Save Again does — the banner's write, folder and all (TE151).
-        #expect(missingWhy == "It writes it back where it was, making its folder again if that went too.")
+        #expect(missingWhy == "Save Again writes it back where it was, making its folder again if that went too.")
         // TE150: the banner's words for a changed file, and "your version" in the sentence.
         #expect(changed == "“a.md” changed on disk while you were typing.")
+        // A gone file in the banner's words, not a sentence that reads as a move.
+        #expect(missing == "“a.md” is no longer on disk.")
         #expect(changedWhy == "Keeping your version replaces the one on disk, and the other changes are lost.")
     }
 }

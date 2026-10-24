@@ -308,8 +308,12 @@ struct EditorPDFCompressControls: View {
                     .multilineTextAlignment(.trailing)
                 Text("MB")
             }
-            Text("Tries lower quality until the file fits.")
-                .scaledFont(.system(size: 11)).foregroundStyle(.secondary)
+            // Why Save is greyed, in red as the page-range sheet says it (PD9).
+            let caption = EditorPDFCompression.targetCaption(typedMegabytes)
+            Text(caption.text)
+                .scaledFont(.system(size: 11))
+                .foregroundStyle(caption.isError ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                .fixedSize(horizontal: false, vertical: true)
         } else {
             Picker("", selection: $quality) {
                 ForEach(EditorPDFCompression.strengths, id: \.quality) { strength in

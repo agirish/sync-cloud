@@ -1,5 +1,6 @@
 import Testing
 import AppKit
+import Design
 import SwiftUI
 import PDFKit
 import PDFToolkitCore
@@ -314,6 +315,14 @@ enum ReplaceFixtures {
         let form = try await open(formFile)
         #expect(form.fill.form.hasFields, "the fixture has no form — this tests nothing")
         #expect(form.fill.replaceRefusal == EditorPDFFillSign.formReplaceReason)
+        // Right-click on its words: greyed, with the short reason — a menu row does not wrap (PD14).
+        let formPage = try #require(form.document?.page(at: 0))
+        let all = try #require(formPage.selection(for: formPage.bounds(for: .mediaBox)))
+        try #require(!(all.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, "the form has no words to select")
+        let row = try #require(ReaderPDFView.replaceItems(fill: form.fill, selection: all, document: form.document))
+        #expect(row.map(\.title) == [ReaderPDFView.replaceTitle, EditorPDFFillSign.formReplaceMenuReason])
+        #expect(row.allSatisfy { $0.action == nil })
+        #expect(EditorPDFFillSign.formReplaceMenuReason.count < 40 && !EditorPDFFillSign.formReplaceMenuReason.contains(". "))
         form.fill.toggle()
         let (page, box) = try page(invoice("Any.pdf"))
         let line = try #require(EditorPDFReplace.line(at: CGPoint(x: 300, y: 604), on: page, box: box))
@@ -588,6 +597,75 @@ enum ReplaceFixtures {
         #expect(lines.chip == "Stand-in")
     }
 
+    /// **The line under the box follows View ▸ Text Size, and its chip's words read on their wash**
+    /// (PD4, DS13). Fixed 10 and 11 points ignored the setting; the bare system green and orange
+    /// on their own 16% wash measured about 1.7:1 in light.
+    @Test func theLineUnderTheBoxFollowsTextSizeAndItsChipReads() throws {
+        let one = EditorPDFRetypeHint.fonts(scale: 1), larger = EditorPDFRetypeHint.fonts(scale: 1.5)
+        #expect(one.font.pointSize == 11 && one.chip.pointSize == 10 && one.keys.pointSize == 10)
+        #expect(larger.font.pointSize > 15 && larger.chip.pointSize > 14 && larger.keys.pointSize > 14,
+                "\(larger.font.pointSize), \(larger.chip.pointSize), \(larger.keys.pointSize)")
+        let hint = EditorPDFRetypeHint()
+        hint.lines = .init(font: "Helvetica · 14 pt · red", chip: EditorPDFRetypeHint.sameFontChip, sameFont: true,
+                           keys: EditorPDFRetypeHint.keysLine)
+        let small = hint.fittingSize
+        hint.scale = 1.5
+        // The words grow by half; the card's fixed padding does not. Measured 199×44 → 266×56.
+        #expect(hint.fittingSize.height > small.height * 1.2 && hint.fittingSize.width > small.width * 1.25,
+                "\(small) → \(hint.fittingSize)")
+
+        func srgb(_ color: NSColor) -> NSColor { color.usingColorSpace(.sRGB) ?? color }
+        func luminance(_ c: NSColor) -> CGFloat {
+            let s = srgb(c)
+            return AccentLabel.relativeLuminance(red: s.redComponent, green: s.greenComponent, blue: s.blueComponent)
+        }
+        for dark in [false, true] {
+            let appearance = try #require(NSAppearance(named: dark ? .darkAqua : .aqua))
+            for sameFont in [true, false] {
+                var ratio: CGFloat = 0
+                appearance.performAsCurrentDrawingAppearance {
+                    let ground = srgb(.windowBackgroundColor), hue = srgb(EditorPDFRetypeHint.chipHue(sameFont: sameFont))
+                    let a = EditorPDFRetypeHint.chipWashAlpha
+                    func mix(_ h: CGFloat, _ g: CGFloat) -> CGFloat { h * a + g * (1 - a) }
+                    let wash = NSColor(srgbRed: mix(hue.redComponent, ground.redComponent),
+                                       green: mix(hue.greenComponent, ground.greenComponent),
+                                       blue: mix(hue.blueComponent, ground.blueComponent), alpha: 1)
+                    let ink = EditorPDFRetypeHint.chipInk(sameFont: sameFont, dark: dark)
+                    let (l1, l2) = (luminance(ink), luminance(wash))
+                    ratio = (max(l1, l2) + 0.05) / (min(l1, l2) + 0.05)
+                }
+                #expect(ratio >= 4.5, "\(dark ? "dark" : "light") \(sameFont ? "Same font" : "Stand-in"): \(ratio):1")
+            }
+        }
+    }
+
+    /// **The text size reaches the hint from the card's environment** — the page view hands it to
+    /// the overlay, and the overlay to the hint it lays out.
+    @Test func theTextSizeReachesTheLineUnderTheBox() async throws {
+        let pdf = try await open(invoice())
+        let host = NSHostingView(rootView: EditorPDFPageView(document: pdf.document, state: pdf.view)
+            .environment(\.appFontScale, 1.5).frame(width: 600, height: 500))
+        host.frame = CGRect(x: 0, y: 0, width: 600, height: 500)
+        host.layoutSubtreeIfNeeded()
+        func find(_ view: NSView) -> ReaderPDFView? {
+            (view as? ReaderPDFView) ?? view.subviews.lazy.compactMap(find).first
+        }
+        let mounted = try #require(find(host))
+        #expect(mounted.fillOverlay.textScale == 1.5)
+
+        let (_, reader) = reader(pdf)
+        reader.fillOverlay.textScale = 1.5
+        pdf.fill.toggle()
+        pdf.fill.armed = .replace
+        guard case .success(let pick) = try pick(pdf.path!, at: CGPoint(x: 300, y: 604)) else { Issue.record("refused"); return }
+        _ = try #require(pdf.fill.beginCorrection(pick))
+        for _ in 0..<20 { await Task.yield() }
+        let hint = try #require(reader.fillOverlay.retypeHint, "no line under the box")
+        #expect(hint.scale == 1.5)
+        reader.fillOverlay.textScale = 1
+        #expect(hint.scale == 1, "a change of text size left the open hint at the old size")
+    }
+
     // MARK: Saving (TE84, TE85)
 
     private func render(_ file: String, in rect: CGRect) throws -> EditorPDFReplace.Pixels {
@@ -795,6 +873,11 @@ enum ReplaceFixtures {
         pdf.fill.select(id)
         let menu = EditorPDFFillFlyouts.itemMenu(for: pdf.fill)
         #expect(menu.items.map(\.title).prefix(4) == [EditorPDFFillFlyouts.retypeTitle, "", "Font", "Text Size"], "\(menu.items.map(\.title))")
+        // VoiceOver's action is the menu's word, not the text box's Edit Text (PD5).
+        let spoken = (reader.fillOverlay.accessibilityChildren() ?? []).compactMap { $0 as? EditorPDFFillAccessibilityElement }
+        let element = spoken.first { $0.accessibilityLabel() == "Correction, 21 Apr" }
+        #expect(element?.accessibilityCustomActions()?.first?.name == EditorPDFFillFlyouts.retypeTitle,
+                "\(spoken.map { ($0.accessibilityLabel() ?? "", $0.accessibilityCustomActions()?.map(\.name) ?? []) })")
         #expect(pdf.fill.editing == nil)
         #expect(reader.fillOverlay.returnPressed(), "Return on a selected correction did nothing")
         #expect(pdf.fill.editing == id)

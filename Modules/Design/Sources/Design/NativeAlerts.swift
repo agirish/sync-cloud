@@ -20,7 +20,7 @@ public struct NativeAlerts {
             )
         }
         return confirmAction(
-            messageText: "Move \(itemNames.count) items to the Trash?",
+            messageText: "Move \(itemNames.count.formatted()) items to the Trash?",
             informativeText: "You can put them back with ⌘Z, or from the Trash.",
             confirmTitle: "Move to Trash"
         )

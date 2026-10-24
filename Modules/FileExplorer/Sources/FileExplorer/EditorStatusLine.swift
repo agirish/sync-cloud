@@ -251,7 +251,7 @@ struct EditorStatusLine: View, Equatable {
             if rung != .caret {
                 if let fileSize { Text(fileSize) }
                 if let encoding = counts?.encoding { Text(encoding).opacity(drawn) }
-                if let ending = counts?.lineEnding { Text(ending.rawValue).opacity(drawn) }
+                if let ending = counts?.lineEnding { Text(ending.statusCaption).opacity(drawn) }
             }
         }
         .fixedSize(horizontal: true, vertical: false)
@@ -392,8 +392,8 @@ struct EditorStatusHint: Equatable {
         switch (rung, reason) {
         case (.link, _): return nil
         case (.sentence, .replaceAll(let failed, let of)?):
-            return "\(failed) of \(of) matches need Source — none were replaced."
-        case (.short, .replaceAll(let failed, let of)?): return "\(failed) of \(of) need Source."
+            return "\(failed.formatted()) of \(of.formatted()) matches need Source — none were replaced."
+        case (.short, .replaceAll(let failed, let of)?): return "\(failed.formatted()) of \(of.formatted()) need Source."
         case (.sentence, _): return EditorStatusHint.needsSource
         case (.short, _): return EditorStatusHint.needsSourceShort
         }

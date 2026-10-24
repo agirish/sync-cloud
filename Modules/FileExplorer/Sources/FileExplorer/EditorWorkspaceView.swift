@@ -2475,7 +2475,7 @@ public struct EditorWorkspaceView: View {
                 .buttonStyle(.bordered)
                 .tint(accent)
                 .shortcutKeycap(AppChord.editorTextFiles.display)
-                .help(ShortcutHint.tooltip("Show the folder’s files beside the document",
+                .help(ShortcutHint.tooltip("Show the folder’s text files and PDFs in a list",
                                            AppChord.editorTextFiles.display))
             }
             if !refusalButtons.isEmpty {
@@ -2543,7 +2543,7 @@ public struct EditorWorkspaceView: View {
         var help: String {
             switch self {
             case .download: return EditorWorkspaceView.downloadHelp
-            case .tryAgain: return "Read the file again, now it may have settled"
+            case .tryAgain: return "Read the file again, in case it has stopped changing"
             case .quickLook: return "Look at the file without opening it in Edit"
             case .revealInFinder: return "Show the file in Finder"
             }

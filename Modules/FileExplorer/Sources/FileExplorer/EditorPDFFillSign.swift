@@ -886,7 +886,8 @@ public final class EditorPDFFillSign: ObservableObject {
         + "has no field that can be filled. \(removePasswordStep)"
     /// No password is asked for: Remove Password… lifts an owner's restrictions without one (TE167).
     static let restrictedReason = "Its owner restricted editing, so Fill & Sign is off for it. \(removePasswordStep)"
-    nonisolated static let removePasswordStep = "Tools ▸ Remove Password… writes a copy without the restrictions."
+    /// The engine's sentence, so Fill & Sign and the tools name one path — the menu bar's PDF Tools.
+    nonisolated static let removePasswordStep = EditorPDFToolEngine.liftRestrictionsStep
 
     /// A file locked to open is opened by URL in the lane, where unlocking the reader's copy does
     /// not reach — so it is refused for the tools' reason. One whose owner forbade both comments
@@ -1253,6 +1254,23 @@ public final class EditorPDFFillSign: ObservableObject {
 
     static let formReplaceReason = "This PDF has a fillable form. Corrections would be saved as notes another app "
         + "can delete, so Replace is off here."
+
+    /// **Why Replace is off, as a menu line** (PD14) — a menu row does not wrap, so the right-click
+    /// menu says it short, as the Tools menu keeps its reasons short; the palette and its tooltip
+    /// keep ``replaceRefusal``'s full sentences. Read from ``replaceRefusal`` so the two agree on
+    /// whether Replace is off.
+    var replaceMenuReason: String? {
+        replaceRefusal.map { reason in
+            switch reason {
+            case Self.formReplaceReason: return Self.formReplaceMenuReason
+            case Self.noCommentingReason + ".": return Self.noCommentingMenuReason
+            default: return menuReason ?? reason
+            }
+        }
+    }
+
+    static let formReplaceMenuReason = "Off for a PDF with a fillable form"
+    static let noCommentingMenuReason = "Its owner doesn’t allow adding to its pages"
 
     /// **The words a click or a right-click picked, opened for retyping** (TE83): a box exactly
     /// over them, holding them, in their size and ink — and their font when this Mac has it. Return

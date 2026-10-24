@@ -146,7 +146,7 @@ extension PDFFixtures {
         var suffix: String {
             switch self {
             case .rotate: return "rotated"
-            case .delete: return "pages removed"
+            case .delete: return "page removed"
             case .reorder: return "reordered"
             case .extract: return "pages 2–3"
             case .compress: return "compressed"
@@ -769,7 +769,7 @@ extension PDFFixtures {
         let declinedCopies = files().filter {
             ["Form (compressed).pdf", "Form (pages 2, 1).pdf", "Form (reordered).pdf"].contains($0)
         }
-        #expect(files().contains("Form (rotated).pdf") && files().contains("Form (pages removed).pdf"),
+        #expect(files().contains("Form (rotated).pdf") && files().contains("Form (page removed).pdf"),
                 "the tools that lose nothing did not write: \(files())")
         #expect(declinedCopies.isEmpty, "a declined warning still wrote: \(declinedCopies)")
     }
@@ -836,12 +836,12 @@ extension PDFFixtures {
         try #require(tools.arrangement == [3, 0, 1, 2], "the drag made \(String(describing: tools.arrangement))")
 
         let outcome = await tools.run(.deletePages([0]))
-        let copy = path("Four (reordered, pages removed).pdf")
+        let copy = path("Four (reordered, page removed).pdf")
         #expect(outcome == .wrote(copy), "\(outcome)")
         #expect(texts(copy) == ["Page 4", "Page 2", "Page 3"], "pages: \(texts(copy))")
         #expect(try #require(PDFDocument(url: URL(fileURLWithPath: copy))).pageRotations == [0, 90, 0])
         try expectUntouched(file, original, "delete in the new order")
-        #expect(files() == [".staging-root", "Four (reordered, pages removed).pdf", "Four.pdf"],
+        #expect(files() == [".staging-root", "Four (reordered, page removed).pdf", "Four.pdf"],
                 "not exactly one copy: \(files())")
         #expect(leftIn(root).isEmpty, "the middle bytes were left behind: \(leftIn(root))")
         #expect(tools.arrangement == nil)
@@ -875,8 +875,8 @@ extension PDFFixtures {
         let tools = tools(file)
         tools.move([2], onto: 0)
         let outcome = await tools.run(.deletePages([2]))
-        #expect(outcome == .wrote(path("Three (pages removed).pdf")), "\(outcome)")
-        #expect(texts(path("Three (pages removed).pdf")) == ["Page 1", "Page 2"])
+        #expect(outcome == .wrote(path("Three (page removed).pdf")), "\(outcome)")
+        #expect(texts(path("Three (page removed).pdf")) == ["Page 1", "Page 2"])
         #expect(tools.arrangement == [2, 0, 1], "the order went with a copy that does not carry it")
     }
 
@@ -904,7 +904,7 @@ extension PDFFixtures {
         tools.move([2], onto: 0)
 
         let caption = EditorPDFPageRangeSheet.parse("1", action: .delete, pageCount: 3, arrangement: tools.arrangement).caption
-        #expect(caption.contains("in the new page order") && caption.contains("(reordered, pages removed)"), "\(caption)")
+        #expect(caption.contains("in the new page order") && caption.contains("(reordered, page removed)"), "\(caption)")
 
         let entry = try #require(EditorPDFToolsMenuEntry.entries(tools).first {
             $0.submenu == "Rotate All Pages" && $0.title == "Rotate 180°"
@@ -1133,6 +1133,29 @@ extension PDFFixtures {
         #expect(EditorPDFCompression.bytes(megabytes: 0.01) == 100_000)
         // Past pdf-utils' 500 MB, a target is still a target: a file under it is told so.
         #expect(EditorPDFCompression.bytes(megabytes: 1000) == 1_000_000_000)
+    }
+
+    /// **A greyed Save says why** (PD9): the line under the size field is the reason, in red,
+    /// exactly where the button greys — read from the same rule — and the plain line otherwise.
+    @Test func aTargetThatGreysSaveSaysWhy() throws {
+        for typed in ["2", " 1,5 ", "0.1"] {
+            #expect(EditorPDFCompression.megabytes(typed) != nil)
+            #expect(EditorPDFCompression.targetCaption(typed) == ("Tries lower quality until the file fits.", false))
+        }
+        #expect(EditorPDFCompression.targetCaption("0") == ("“0” isn’t a size — type a number of MB above 0, like 2.", true))
+        #expect(EditorPDFCompression.targetCaption(" lots ").text == "“lots” isn’t a size — type a number of MB above 0, like 2.")
+        #expect(EditorPDFCompression.targetCaption("  ") == ("Type a size in MB to come in under, like 2.", true))
+        for typed in ["", "0", "-1", "lots", "2", "1,000"] {
+            #expect(EditorPDFCompression.targetCaption(typed).isError == (EditorPDFCompression.megabytes(typed) == nil), "\(typed)")
+        }
+        // The controls both sheets draw show it, coloured by it.
+        let sheets = try ChromeGlassWiringTests.source("EditorPDFToolSheets.swift")
+        let controls = try #require(sheets.range(of: "struct EditorPDFCompressControls"))
+        let body = String(sheets[controls.lowerBound...].prefix(3000))
+        #expect(body.contains("let caption = EditorPDFCompression.targetCaption(typedMegabytes)")
+                && body.contains("Text(caption.text)")
+                && body.contains(".foregroundStyle(caption.isError ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))"),
+                "the size field's line isn't the reason Save is greyed")
     }
 
     // MARK: The second review

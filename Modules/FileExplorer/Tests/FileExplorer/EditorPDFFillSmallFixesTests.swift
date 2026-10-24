@@ -101,12 +101,12 @@ import Sync
         #expect(EditorPDFFillSign.refusalAlert(EditorPDFTools.lockedReason, offersRemovePassword: true).messageText
                 == "Fill & Sign isn’t available for this PDF")
         #expect(EditorPDFFillSign.restrictedReason
-                == "Its owner restricted editing, so Fill & Sign is off for it. Tools ▸ Remove Password… writes a copy without the restrictions.")
-        #expect(EditorPDFFillSign.nothingToFillReason.hasSuffix(". Tools ▸ Remove Password… writes a copy without the restrictions."))
+                == "Its owner restricted editing, so Fill & Sign is off for it. PDF Tools ▸ Remove Password… writes a copy without the restrictions.")
+        #expect(EditorPDFFillSign.nothingToFillReason.hasSuffix(". PDF Tools ▸ Remove Password… writes a copy without the restrictions."))
         #expect(EditorPDFTools.lockedReason == "Remove the password first. That writes an unlocked copy.")
         let fillBanner = EditorPDFToolEngine.reason(.permissionsForbidEditing(URL(fileURLWithPath: "/a/Lease.pdf")),
                                                     tool: .fillForm(values: ["name": .text("Ada")], items: []))
-        #expect(fillBanner == "“Lease.pdf”’s owner doesn’t allow filling its form. Tools ▸ Remove Password… writes a copy without the restrictions.")
+        #expect(fillBanner == "“Lease.pdf”’s owner doesn’t allow filling its form. PDF Tools ▸ Remove Password… writes a copy without the restrictions.")
         let pageBanner = EditorPDFToolEngine.reason(.permissionsForbidEditing(URL(fileURLWithPath: "/a/Lease.pdf")),
                                                     tool: .rotate(pages: [0], quarterTurns: 1))
         #expect(!pageBanner.contains("if you know the password"), "\(pageBanner)")

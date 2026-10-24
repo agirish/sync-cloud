@@ -291,7 +291,7 @@ struct EditorPDFPageMenu: View {
         Group {
             Button(Self.rotateTitle(pages, "Left")) { run(.rotate(pages: pages, quarterTurns: -1)) }
             Button(Self.rotateTitle(pages, "Right")) { run(.rotate(pages: pages, quarterTurns: 1)) }
-            Button(Self.rotateTitle(pages, "180°")) { run(.rotate(pages: pages, quarterTurns: 2)) }
+            Button(Self.rotateTitle(pages, "by 180°")) { run(.rotate(pages: pages, quarterTurns: 2)) }
             Divider()
             Button(Self.title("Delete", pages)) {
                 tools.sheet = .pages(.delete, prefill: EditorPDFPageMenu.rangeText(pages))
@@ -308,13 +308,16 @@ struct EditorPDFPageMenu: View {
         Task { await tools.run(tool) }
     }
 
+    /// "Extract 3 Selected Pages…" — the Tools menu's noun for the same pages.
     static func title(_ verb: String, _ pages: [Int]) -> String {
-        pages.count == 1 ? "\(verb) Page \(pages[0] + 1)…" : "\(verb) \(pages.count) Pages…"
+        pages.count == 1 ? "\(verb) Page \(pages[0] + 1)…" : "\(verb) \(pages.count) Selected Pages…"
     }
 
-    /// "Rotate 3 Pages Left" — the pages named as Delete and Extract name them, beside them.
+    /// "Rotate 3 Selected Pages Left" — the pages named as Delete and Extract name them, beside them.
+    /// Flat here, where the Tools menu nests them: this menu has one target, that one two. The half
+    /// turn is passed as "by 180°", so the page number and the angle never sit side by side.
     static func rotateTitle(_ pages: [Int], _ way: String) -> String {
-        pages.count == 1 ? "Rotate Page \(pages[0] + 1) \(way)" : "Rotate \(pages.count) Pages \(way)"
+        pages.count == 1 ? "Rotate Page \(pages[0] + 1) \(way)" : "Rotate \(pages.count) Selected Pages \(way)"
     }
 
     /// "2-4, 7" for the field, one-based and in the order given — the copy name's runs, with a
