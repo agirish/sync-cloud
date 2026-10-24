@@ -3,6 +3,7 @@ import Foundation
 import Testing
 import Design
 import Sync
+import SwiftUI
 @testable import FileExplorer
 
 /// Organize's lenses and Compare, ahead of 6.1 (LN4, LN5, LN7, LN13, LN20, LN22, LN23, DS2, DS3).
@@ -211,6 +212,31 @@ import Sync
 
     // MARK: LN23 — no disabled "Keep this instead"
 
+    /// **The side with nothing to offer drew an empty row**, so its preview sat ~22pt higher than
+    /// the kept side's, under its "Keeping this" chip. It now holds the chip's height, invisibly,
+    /// and draws nothing in it.
+    @MainActor
+    @Test func anOverlapGroupsOtherSideKeepsTheChipsHeight() throws {
+        func row(_ control: CompareKeeperControl) -> NSHostingView<AnyView> {
+            let host = NSHostingView(rootView: AnyView(
+                CompareKeeperHeaderRow(control: control, accessibilityLabel: nil, accent: .blue,
+                                       onKeepInstead: {})
+                    .frame(width: 300)))
+            host.layoutSubtreeIfNeeded()
+            return host
+        }
+        let keeping = row(.keeping).fittingSize.height
+        let nothing = row(.nothing).fittingSize.height
+        #expect(keeping > 12, "premise: the chip has a height (\(keeping))")
+        #expect(abs(nothing - keeping) < 0.5,
+                "the two previews start at different heights: \(nothing) vs \(keeping)")
+        // And the placeholder draws nothing — no "Keeping this" on the side that is not kept.
+        let blank = try #require(RestructureRender.raster(
+            CompareKeeperHeaderRow(control: .nothing, accessibilityLabel: nil, accent: .blue,
+                                   onKeepInstead: {}), width: 300, height: 40))
+        #expect(RestructureRender.inkedPixels(blank) == 0, "the hidden chip painted")
+    }
+
     @Test func anOverlapGroupOffersNoKeeperChoiceOnTheOtherSide() throws {
         // An overlap group: it has a keeper, but no choice.
         let inert = DuplicateKeeperMarker.style(allowsKeeperChoice: false, isKeeper: false)
@@ -223,7 +249,7 @@ import Sync
         #expect(CompareKeeperControl.control(isKeeper: true, marker: .keeper) == .keeping)
 
         let sheet = try Self.code("CompareCopiesSheet.swift")
-        #expect(sheet.contains("switch CompareKeeperControl.control(isKeeper: isKeeper, marker: marker)"),
+        #expect(sheet.contains("control: CompareKeeperControl.control(isKeeper: isKeeper, marker: marker),"),
                 "the pane header no longer asks CompareKeeperControl what to draw")
         #expect(!sheet.contains(".disabled(marker == .inert)"),
                 "the header draws a disabled “Keep this instead” where there is no choice")

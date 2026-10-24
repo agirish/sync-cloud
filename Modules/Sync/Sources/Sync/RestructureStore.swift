@@ -253,7 +253,17 @@ public final class RestructureStore: ObservableObject {
         save()
     }
 
-    /// Every *Never suggest this again* at once — the lens's "Show Them Again".
+    /// These *Never suggest this again* keys at once, in one write — the lens's *Show them again*
+    /// for the findings in its scope. Keys not in the set, stale ones included, stay.
+    public func unsuppress(_ keys: Set<RestructureKey>) {
+        let present = suppressed.intersection(keys)
+        guard !present.isEmpty else { return }
+        suppressed.subtract(present)
+        Logger.shared.info("Restructure: unsuppressed \(present.count) finding(s)")
+        save()
+    }
+
+    /// Every *Never suggest this again* at once.
     public func unsuppressAll() {
         guard !suppressed.isEmpty else { return }
         Logger.shared.info("Restructure: unsuppressed all \(suppressed.count) finding(s)")

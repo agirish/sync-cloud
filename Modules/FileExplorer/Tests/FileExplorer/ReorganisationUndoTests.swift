@@ -28,6 +28,8 @@ import Testing
         #expect(q.title == "Undo the reorganisation of “Tax”?")
         #expect(q.detail.contains("2 renames · 14 moved"), "the person can't see what is reversed")
         #expect(q.detail.contains("not ⌘Z"))
+        // The engine empties the whole session ⌘Z stack, so the question says so.
+        #expect(q.detail.contains("clears Edit ▸ Undo"), "the question hides that ⌘Z history goes")
     }
 
     @Test func aRootLandingIsNamedAsTheTree() {
@@ -71,6 +73,12 @@ import Testing
         #expect(store.recordApplied(record), "premise: the ledger took the record")
         let manager = FileSyncManager()
         manager.restructureStore = store
+        // A survey that names its folder, so nothing refuses before the question: the engine's
+        // up-front checks pass, and it refuses only past the question, on the missing profiles
+        // directory.
+        manager.filingFolderProfile = FolderProfile(profileId: "p", root: dir.path, folders: [:],
+                                                    personTokens: [])
+        #expect(manager.restructureLandingBlocker == nil, "premise: nothing blocks the undo up front")
         return (manager, dir)
     }
 
@@ -89,8 +97,26 @@ import Testing
         #expect(manager.banner == nil)
     }
 
+    /// **It asked even when the engine would refuse at once.** With a scan running, the question
+    /// went up and a Yes was refused; now the refusal is the answer and nothing is asked.
+    @Test func aBlockedUndoSaysWhyWithoutAsking() async throws {
+        let (manager, dir) = try manager(holding: Self.record())
+        defer { try? FileManager.default.removeItem(at: dir) }
+        manager.isFindingDuplicates = true
+        var asked = 0
+
+        await ReorganisationUndo.run(manifestId: "m1", on: manager) { _, _ in
+            asked += 1; return true
+        }
+
+        #expect(asked == 0, "the question went up over an undo the engine refuses")
+        #expect(manager.banner?.severity == .warning)
+        #expect(manager.banner?.message == "Wait for the duplicate scan to finish first.")
+        #expect(manager.restructureStore?.applied.first?.undoneAt == nil)
+    }
+
     /// Accepting reaches the engine, and whatever it answers lands on the banner — here its refusal,
-    /// since this manager has no folder survey to re-point.
+    /// since this manager has no profiles directory to re-point.
     @Test func acceptedReachesTheEngineAndReports() async throws {
         let (manager, dir) = try manager(holding: Self.record())
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -123,7 +149,9 @@ import Testing
                 .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" } ?? []
             for file in files {
                 let text = try String(contentsOf: file, encoding: .utf8)
-                if text.contains(".undoReorganisation(manifestId:") {
+                // The bare name: a call split across lines (`manager\n    .undoReorganisation(`)
+                // or written without the label still matches.
+                if text.contains("undoReorganisation(") {
                     callers.append(file.lastPathComponent)
                 }
             }

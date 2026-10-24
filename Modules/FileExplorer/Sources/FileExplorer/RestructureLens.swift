@@ -342,12 +342,12 @@ struct RestructureLens: View {
             Text(Self.hiddenSentence(hiddenCount))
                 .scaledFont(.system(size: 11))
                 .foregroundStyle(.secondary)
-            Button("Show Them Again") { onShowHidden?() }
+            Button("Show them again") { onShowHidden?() }
                 .scaledFont(.system(size: 11, weight: .semibold))
                 .buttonStyle(.plain)
                 .foregroundStyle(accent)
                 .chromeHover()
-                .help("Bring back every finding hidden with “Never suggest this again”")
+                .help("Bring back the findings here hidden with “Never suggest this again”")
             Spacer(minLength: 0)
         }
         .padding(.vertical, 6)

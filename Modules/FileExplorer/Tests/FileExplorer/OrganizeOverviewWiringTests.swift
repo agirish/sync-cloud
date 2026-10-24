@@ -433,6 +433,20 @@ import SwiftUI
         #expect(headline == LensWorkspaceView.storageReceiptHeadline(m.storageLensReport!))
     }
 
+    /// **A report saved before 6.1 read "20 files · 20 untouched" again**: decoding filled the
+    /// missing totals in from the capped lists. It now has none, and the headline gives the size
+    /// it knows and asks for a rescan.
+    @Test func aStorageReportFromBeforeTheTotalsAsksForARescan() throws {
+        let entry = "{\"path\":\"/r/a\",\"name\":\"a\",\"bytes\":300}"
+        let twenty = Array(repeating: entry, count: 20).joined(separator: ",")
+        let json = "{\"treemap\":[],\"largest\":[\(twenty)],\"stale\":[\(twenty)],"
+            + "\"reclaimCandidates\":[\(twenty)],\"totalBytes\":900000000000}"
+        let report = try JSONDecoder().decode(StorageLensReport.self, from: Data(json.utf8))
+        let headline = LensWorkspaceView.storageReceiptHeadline(report)
+        #expect(headline == "\(FileSyncManager.formatBytes(900_000_000_000)) total · Rescan for the counts")
+        #expect(!headline.contains("20"), "the headline counted the capped lists: \(headline)")
+    }
+
     /// Before an analysis it says it has not looked, rather than reporting an empty report.
     @Test func storageSaysNotScannedBeforeItHasRun() {
         #expect(storageState(FileSyncManager()) == .notScanned)

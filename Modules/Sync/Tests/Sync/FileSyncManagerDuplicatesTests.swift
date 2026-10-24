@@ -712,6 +712,8 @@ import Combine
         #expect(undo.undoActionName == "Keep Separate")
 
         undo.undo()
+        #expect(manager.banner?.isUndoable != true,
+                "Edit ▸ Undo left the “Kept … separate [Undo]” banner up; its Undo now pops the redo")
         #expect(manager.duplicateGroups.map(\.id) == [group.id], "undo did not put the card back")
         #expect(manager.ignoredDuplicateKeys.isEmpty, "undo left the group hidden from future scans")
 
@@ -720,7 +722,53 @@ import Combine
         #expect(manager.ignoredDuplicateKeys == [group.ignoreKey])
     }
 
-    /// Show Them Again: groups kept in an earlier session come back with the next scan.
+    /// **Undo put the card back into whatever was showing.** Ids are per scan, so after a rescan
+    /// of the same folder (the group back on screen under a new id) undo added a second card, and
+    /// after a scan of another folder it dropped this folder's group into those results.
+    @MainActor
+    @Test func undoingKeepSeparatePutsTheCardBackOnlyWhereItCameFrom() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("A/report.pdf"), bytes: 5000, fill: 0x41)
+        try write(root.appendingPathComponent("B/report.pdf"), bytes: 5000, fill: 0x41)
+        let other = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
+        defer { try? FileManager.default.removeItem(at: other) }
+        try write(other.appendingPathComponent("A/photo.jpg"), bytes: 6000, fill: 0x42)
+        try write(other.appendingPathComponent("B/photo.jpg"), bytes: 6000, fill: 0x42)
+
+        let manager = FileSyncManager()
+        let suite = "DuplicatesIgnoreTest-\(UUID().uuidString)"
+        manager.duplicateIgnoreDefaults = UserDefaults(suiteName: suite)!
+        defer { wipeDefaultsSuite(suite) }
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        manager.undoManager = undo
+
+        // Same folder, rescanned after the key was forgotten: the group is back under a new id.
+        await manager.findDuplicates(root: root)
+        let group = try #require(manager.duplicateGroups.first)
+        undo.beginUndoGrouping()
+        manager.keepDuplicateGroupSeparate(group)
+        undo.endUndoGrouping()
+        manager.forgetKeptSeparateGroups(under: root.path)
+        await manager.findDuplicates(root: root)
+        #expect(manager.duplicateGroups.count == 1, "premise: the rescan shows the group again")
+        undo.undo()
+        #expect(manager.duplicateGroups.count == 1, "undo added a second card for one cluster")
+
+        // Another folder scanned since: undo forgets the key but adds nothing to those results.
+        undo.redo()
+        await manager.findDuplicates(root: other)
+        let otherIds = manager.duplicateGroups.map(\.id)
+        #expect(otherIds.count == 1, "premise: the other folder has its own group")
+        undo.undo()
+        #expect(manager.duplicateGroups.map(\.id) == otherIds,
+                "undo dropped another folder's group into these results")
+        #expect(!manager.ignoredDuplicateKeys.contains(group.ignoreKey),
+                "the key stays hidden from the next scan of its own folder")
+    }
+
+    /// Show them again: groups kept in an earlier session come back with the next scan.
     @MainActor
     @Test func forgettingKeptSeparateGroupsFlagsThemAgain() async throws {
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
@@ -738,9 +786,37 @@ import Combine
         await manager.findDuplicates(root: root)
         #expect(manager.duplicateGroups.isEmpty, "premise: the group stays hidden across a rescan")
 
-        #expect(manager.forgetKeptSeparateGroups() == 1)
+        #expect(manager.forgetKeptSeparateGroups(under: root.path) == 1)
         await manager.findDuplicates(root: root)
         #expect(manager.duplicateGroups.count == 1)
+    }
+
+    /// **Show them again counted and forgot every key, everywhere.** The set is kept for every
+    /// folder and provider at once; only the keys a scan of this folder could flag are this
+    /// lens's to count and forget, and the forgetting says how many.
+    @MainActor
+    @Test func showingKeptGroupsAgainTouchesOnlyThisFolder() {
+        let manager = FileSyncManager()
+        let suite = "DuplicatesIgnoreTest-\(UUID().uuidString)"
+        manager.duplicateIgnoreDefaults = UserDefaults(suiteName: suite)!
+        defer { wipeDefaultsSuite(suite) }
+        let here = "/Users/x/Documents/a.pdf\n/Users/x/Documents/b/a.pdf"
+        let alsoHere = "/Users/x/Documents/c/n.txt\n/Users/x/Documents/d/n.txt"
+        let elsewhere = "/Users/x/Pictures/p.jpg\n/Users/x/Pictures/q/p.jpg"
+        let straddling = "/Users/x/Documents/s.pdf\n/Users/x/Desktop/s.pdf"
+        let prefixSibling = "/Users/x/DocumentsOld/a.pdf\n/Users/x/DocumentsOld/b/a.pdf"
+        manager.ignoredDuplicateKeys = [here, alsoHere, elsewhere, straddling, prefixSibling]
+
+        #expect(manager.keptSeparateKeys(under: "/Users/x/Documents") == [here, alsoHere])
+        #expect(manager.keptSeparateKeys(under: nil).isEmpty)
+
+        #expect(manager.forgetKeptSeparateGroups(under: "/Users/x/Documents") == 2)
+        #expect(manager.ignoredDuplicateKeys == [elsewhere, straddling, prefixSibling],
+                "Show them again forgot groups another folder's scan had kept separate")
+        #expect(manager.banner?.message == "Forgot 2 groups kept separate — they come back with this scan.")
+        #expect(manager.banner?.isUndoable != true)
+        #expect(FileSyncManager.keptSeparateForgottenSentence(1)
+                == "Forgot 1 group kept separate — it comes back with this scan.")
     }
 
     // MARK: Cancellable scan

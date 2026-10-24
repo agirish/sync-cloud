@@ -25,7 +25,8 @@ public enum ReorganisationUndo {
         let did = record.summary.map { " It did: \($0)." } ?? ""
         let detail = "Applied \(RestructureLens.landingPhrase(record.at, now: now)).\(did) "
             + "Undoing moves those files and folders back and points the folder survey at the tree "
-            + "as it was. This is not ⌘Z, and it can’t be redone."
+            + "as it was. This is not ⌘Z: it can’t be redone, and it clears Edit ▸ Undo for "
+            + "everything done before it."
         return (title, detail)
     }
 
@@ -41,7 +42,9 @@ public enum ReorganisationUndo {
     }
 
     /// Asks, then runs the inverse and reports. A record the ledger no longer has is not asked
-    /// about: the engine refuses it and says why, which is the answer worth showing.
+    /// about: the engine refuses it and says why, which is the answer worth showing. Nor is one the
+    /// engine would refuse at once — a scan or Verify All running — which says why instead of
+    /// asking a question whose Yes cannot be acted on.
     public static func run(
         manifestId: String,
         on manager: FileSyncManager,
@@ -50,6 +53,10 @@ public enum ReorganisationUndo {
                                        confirmTitle: "Undo Reorganisation")
         }
     ) async {
+        if let refusal = manager.restructureLandingBlocker {
+            manager.banner = .warning(refusal)
+            return
+        }
         if let record = manager.restructureStore?.applied
             .first(where: { $0.manifest.manifestId == manifestId }) {
             let question = question(for: record)

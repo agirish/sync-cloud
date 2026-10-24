@@ -466,17 +466,21 @@ extension FileSyncManager {
     ///
     /// **And it can be taken back.** One mis-click hid a group for good, across every rescan, with
     /// no undo and nothing anywhere that listed what was hidden. It now registers one ⌘Z step and
-    /// says so in an undoable banner; ``forgetKeptSeparateGroups()`` is the way back for older ones.
+    /// says so in an undoable banner; ``forgetKeptSeparateGroups(under:)`` is the way back for older
+    /// ones.
     public func keepDuplicateGroupSeparate(_ group: DuplicateGroup) {
         var keys = ignoredDuplicateKeys
         keys.insert(group.ignoreKey)
         ignoredDuplicateKeys = keys
-        let index = duplicateGroups.firstIndex { $0.id == group.id }
-        duplicateGroups.removeAll { $0.id == group.id }
+        // By cluster, not by `id`: a redo after a rescan holds the group under its old id, and
+        // the card on screen for the same copies carries the new one.
+        let index = duplicateGroups.firstIndex { $0.ignoreKey == group.ignoreKey }
+        let root = duplicateScanRoot
+        duplicateGroups.removeAll { $0.ignoreKey == group.ignoreKey }
         Logger.shared.info("Duplicates: kept “\(group.name)” separate")
         invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
-            target.restoreKeptSeparateGroup(group, at: index)
+            target.restoreKeptSeparateGroup(group, at: index, scannedFrom: root)
         }
         undoManager?.setActionName("Keep Separate")
         banner = .success("Kept “\(group.name)” separate — it won’t be flagged again.",
@@ -485,29 +489,78 @@ extension FileSyncManager {
 
     /// ⌘Z for ``keepDuplicateGroupSeparate(_:)``: forgets the key and puts the card back where it
     /// was, and registers the redo.
-    func restoreKeptSeparateGroup(_ group: DuplicateGroup, at index: Int?) {
+    ///
+    /// **The card goes back only into the results it came from.** It used to go back unless a
+    /// group with the same `id` was showing — but ids are minted per scan, so after a rescan of the
+    /// same folder (Show them again brings the group back) the undo added a second copy of the
+    /// card, and after a scan of another folder it dropped this folder's group into those results.
+    /// The key is forgotten either way, so the next scan of this folder flags it again.
+    func restoreKeptSeparateGroup(_ group: DuplicateGroup, at index: Int?,
+                                  scannedFrom root: String?) {
         var keys = ignoredDuplicateKeys
         keys.remove(group.ignoreKey)
         ignoredDuplicateKeys = keys
-        if !duplicateGroups.contains(where: { $0.id == group.id }) {
+        if Self.restoresKeptSeparateCard(group, keptFrom: root, currentRoot: duplicateScanRoot,
+                                         showing: duplicateGroups) {
             duplicateGroups.insert(group, at: min(index ?? duplicateGroups.count, duplicateGroups.count))
         }
         Logger.shared.info("Duplicates: “\(group.name)” is flagged again (undo)")
+        // The "Kept … separate [Undo]" banner is stale the moment this runs: its Undo would pop
+        // the redo registered next, or whatever sits below it.
+        invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
             target.keepDuplicateGroupSeparate(group)
         }
         undoManager?.setActionName("Keep Separate")
     }
 
-    /// Forgets every group kept separate, so the next scan flags them again — the lens's
-    /// "Show Them Again". Returns how many were forgotten.
+    /// Whether undoing *Keep separate* puts the card back: only into the scan it was kept from, and
+    /// only when that scan is not already showing the same cluster under a newer id.
+    nonisolated static func restoresKeptSeparateCard(
+        _ group: DuplicateGroup, keptFrom root: String?, currentRoot: String?,
+        showing groups: [DuplicateGroup]) -> Bool {
+        guard root != nil, root == currentRoot else { return false }
+        return !groups.contains { $0.ignoreKey == group.ignoreKey }
+    }
+
+    /// Whether a kept-separate key belongs to the folder at `root`: every copy in it sits below
+    /// the root. Read off the key alone — ``DuplicateGroup/ignoreKey`` is the cluster's sorted
+    /// absolute copy paths — so a sibling sharing a name prefix (`/a/bb` beside `/a/b`) is not
+    /// "under" it.
+    nonisolated static func keptSeparateKey(_ key: String, isUnder root: String) -> Bool {
+        let prefix = root.hasSuffix("/") ? root : root + "/"
+        let paths = key.split(separator: "\n")
+        return !paths.isEmpty && paths.allSatisfy { $0.hasPrefix(prefix) }
+    }
+
+    /// The kept-separate keys a scan of `root` could flag — what the lens's *Show them again*
+    /// counts and forgets. Empty without a root.
+    ///
+    /// **Not every key.** The set is kept for every provider and folder at once, so counting it
+    /// whole put "You’ve kept 12 groups separate" under a scan that could only ever have shown two
+    /// of them, and *Show them again* forgot all twelve, everywhere, with no way back.
+    public func keptSeparateKeys(under root: String?) -> Set<String> {
+        guard let root else { return [] }
+        return ignoredDuplicateKeys.filter { Self.keptSeparateKey($0, isUnder: root) }
+    }
+
+    /// Forgets the groups kept separate below `root`, so the next scan of it flags them again —
+    /// the lens's *Show them again*. Keys for other folders stay. Says how many in a banner, and
+    /// returns the count.
     @discardableResult
-    public func forgetKeptSeparateGroups() -> Int {
-        let count = ignoredDuplicateKeys.count
-        guard count > 0 else { return 0 }
-        ignoredDuplicateKeys = []
-        Logger.shared.info("Duplicates: forgot \(count) group(s) kept separate")
-        return count
+    public func forgetKeptSeparateGroups(under root: String?) -> Int {
+        let forgotten = keptSeparateKeys(under: root)
+        guard !forgotten.isEmpty else { return 0 }
+        ignoredDuplicateKeys = ignoredDuplicateKeys.subtracting(forgotten)
+        Logger.shared.info("Duplicates: forgot \(forgotten.count) group(s) kept separate under "
+                           + "\((root.map { ($0 as NSString).lastPathComponent }) ?? "?")")
+        banner = .success(Self.keptSeparateForgottenSentence(forgotten.count))
+        return forgotten.count
+    }
+
+    nonisolated static func keptSeparateForgottenSentence(_ count: Int) -> String {
+        count == 1 ? "Forgot 1 group kept separate — it comes back with this scan."
+            : "Forgot \(count.formatted()) groups kept separate — they come back with this scan."
     }
 
     /// Clears the current results (called when switching providers, so stale groups from one

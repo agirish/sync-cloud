@@ -50,6 +50,15 @@ struct RestructurePlanSheet: View {
     /// mapped by hand — and any Claude proposals accepted into it — was gone on one Esc, and the
     /// next open started again from the seed.
     var onKeepDraft: ((RestructureManifest, _ vocabulary: [String]) -> Void)?
+    /// Whether a saved draft is what this sheet opens on. Read once, when the sheet seeds — see
+    /// `openedFromDraft`.
+    var hasSavedDraft: Bool = false
+    /// Removes the saved draft: *Discard Plan*, and a close after every row went back to keep.
+    ///
+    /// **Nothing could remove a draft except landing it.** Closing kept a changed plan, and a
+    /// plan set back to all-keep derived nothing, so closing kept nothing — leaving the old draft
+    /// and its *Review N operations* card standing over a plan the person had just undone.
+    var onDiscardDraft: (() -> Void)?
     /// §5.5's landing: runs the eight-step apply and returns its outcome sentence — the summary
     /// on success (prefixed so the sheet can tell), or the refusal. nil while Apply is not
     /// offered, which hides the button rather than promising a landing that cannot run.
@@ -182,6 +191,9 @@ struct RestructurePlanSheet: View {
     /// a sheet opened and closed untouched mints no draft (and no *Planned, not applied* card).
     @State private var seededRows: [RestructureMapping.Row] = []
     @State private var seededVocabulary: [String] = []
+    /// `hasSavedDraft` as the sheet opened. Held rather than read live: an export in this
+    /// session saves a draft too, and that must not turn the sheet into one opened from a draft.
+    @State private var openedFromDraft = false
     @State private var createdAt = ""
     @State private var manifestId = ""
 
@@ -283,19 +295,51 @@ struct RestructurePlanSheet: View {
         manifestId = "plan-\(finding.kind.rawValue)-\(stamp)"
         seededRows = rows
         seededVocabulary = vocabulary
+        openedFromDraft = hasSavedDraft
     }
 
-    /// Whether closing now should keep the plan as a draft: something was changed since the sheet
-    /// opened, the change derives a plan, and neither a landing nor an export already kept it.
-    static func keepsDraftOnClose(
+    /// What closing the sheet does to the saved plan.
+    enum CloseDisposition: Equatable {
+        /// Save the plan as it stands as the draft.
+        case keep(RestructureManifest)
+        /// Remove the saved draft: the sheet opened on one, and every row is back to keep.
+        case discard
+        /// Leave the store as it is.
+        case nothing
+    }
+
+    /// What closing now does to the saved plan.
+    ///
+    /// Nothing when nothing changed since the sheet opened, or a landing or an export already
+    /// kept the plan (a re-save would drop the export's file name). Otherwise a change that
+    /// derives a plan is kept; one that sets every row back to keep removes the draft the sheet
+    /// opened on. Any other refusal leaves the store alone — a half-finished mapping that clashes
+    /// is not a request to throw the saved plan away.
+    static func closeDisposition(
         plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>,
         rows: [RestructureMapping.Row], vocabulary: [String],
         seededRows: [RestructureMapping.Row], seededVocabulary: [String],
-        landedOrExported: Bool) -> RestructureManifest? {
+        landedOrExported: Bool, openedFromDraft: Bool) -> CloseDisposition {
         guard !landedOrExported, rows != seededRows || vocabulary != seededVocabulary else {
-            return nil
+            return .nothing
         }
-        return try? plan.get()
+        switch plan {
+        case .success(let manifest): return .keep(manifest)
+        case .failure(.nothingMapped): return openedFromDraft ? .discard : .nothing
+        case .failure: return .nothing
+        }
+    }
+
+    /// The footer's close button. **Not "Cancel" when closing keeps a plan** — it read as a
+    /// discard over a close that saved the mapping. "Done" after a landing; "Close" whenever a
+    /// plan is or will be kept (opened on a draft, exported or landed in part, or about to be
+    /// kept); "Cancel" only when closing leaves no trace.
+    static func closeTitle(applied: Bool, disposition: CloseDisposition,
+                           openedFromDraft: Bool, landedOrExported: Bool) -> String {
+        if applied { return "Done" }
+        if openedFromDraft || landedOrExported { return "Close" }
+        if case .keep = disposition { return "Close" }
+        return "Cancel"
     }
 
     /// §5.4 step 2's sibling pointer and proposal O17's group table — **after the first frame,
@@ -1293,16 +1337,32 @@ struct RestructurePlanSheet: View {
                 EmptyView()
             }
             Spacer()
-            // "Done" only after a LANDING — an exported plan or a refusal both close as
-            // "Cancel"-shaped acts (nothing on disk moved). Held while an apply or a paid
-            // refine is in flight: a "Cancel" clicked mid-apply reads as *abort*, but the
-            // eight-step landing keeps running, and a refusal (or the paid proposals) would
-            // land in a torn-down view with no banner to catch it.
-            Button(isApplied ? "Done" : "Cancel") {
-                if let manifest = Self.keepsDraftOnClose(
-                    plan: plan, rows: rows, vocabulary: vocabulary, seededRows: seededRows,
-                    seededVocabulary: seededVocabulary, landedOrExported: landedOrExported) {
-                    onKeepDraft?(manifest, vocabulary)
+            // The one way to drop a saved plan without landing it. Destructive, never the
+            // default and with no key: ⏎ stays on Export, the safe act.
+            if openedFromDraft, onDiscardDraft != nil, !isApplied, alreadyLanded.isEmpty {
+                Button("Discard Plan", role: .destructive) {
+                    onDiscardDraft?()
+                    onClose()
+                }
+                    .scaledFont(.system(size: 11))
+                    .disabled(applying || refining)
+                    .help("Removes this saved plan, so its card no longer shows it as planned. "
+                          + "Nothing moves, and an exported file stays where it is.")
+            }
+            // Held while an apply or a paid refine is in flight: a close clicked mid-apply
+            // reads as *abort*, but the eight-step landing keeps running, and a refusal (or the
+            // paid proposals) would land in a torn-down view with no banner to catch it.
+            let disposition = Self.closeDisposition(
+                plan: plan, rows: rows, vocabulary: vocabulary, seededRows: seededRows,
+                seededVocabulary: seededVocabulary, landedOrExported: landedOrExported,
+                openedFromDraft: openedFromDraft)
+            Button(Self.closeTitle(applied: isApplied, disposition: disposition,
+                                   openedFromDraft: openedFromDraft,
+                                   landedOrExported: landedOrExported)) {
+                switch disposition {
+                case .keep(let manifest): onKeepDraft?(manifest, vocabulary)
+                case .discard: onDiscardDraft?()
+                case .nothing: break
                 }
                 onClose()
             }

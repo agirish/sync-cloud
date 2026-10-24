@@ -200,22 +200,29 @@ import Testing
         #expect(report.reclaimCount == 23)
         let everyCandidate = (0..<23).reduce(0) { $0 + 100_000_000 + $1 }
         #expect(report.reclaimableBytes == everyCandidate)
-        #expect(report.reclaimableBytes > report.reclaimCandidates.reduce(0) { $0 + $1.bytes },
+        #expect((report.reclaimableBytes ?? 0) > report.reclaimCandidates.reduce(0) { $0 + $1.bytes },
                 "the reclaimable total is only the shown rows' sum — the cap is still in it")
     }
 
-    /// A snapshot saved before the totals existed (every 6.0 report on disk) still decodes, and
-    /// reads the totals off its lists — exactly what those builds showed. A required key would
-    /// have thrown, and Storage would come up empty after the update.
+    /// A snapshot saved before the totals existed (every 6.0 report on disk) still decodes — a
+    /// required key would have thrown, and Storage would come up empty after the update — **with
+    /// the totals unknown**, not read off its capped lists: that put "20 files · 20 untouched"
+    /// back on every restored report (LN6 again).
     @Test func aReportSavedBeforeTheTotalsStillDecodes() throws {
         let entry = "{\"path\":\"/r/a\",\"name\":\"a\",\"bytes\":300}"
         let json = "{\"treemap\":[],\"largest\":[\(entry)],\"stale\":[\(entry),\(entry)],"
             + "\"reclaimCandidates\":[\(entry)],\"totalBytes\":900}"
         let report = try JSONDecoder().decode(StorageLensReport.self, from: Data(json.utf8))
-        #expect(report.fileCount == 1)
-        #expect(report.staleCount == 2)
-        #expect(report.reclaimCount == 1)
-        #expect(report.reclaimableBytes == 300)
+        #expect(report.largest.count == 1 && report.totalBytes == 900, "premise: the lists decode")
+        #expect(report.fileCount == nil)
+        #expect(report.staleCount == nil)
+        #expect(report.reclaimCount == nil)
+        #expect(report.reclaimableBytes == nil)
+        #expect(!report.hasTreeTotals)
+        // And re-saving it keeps them unknown rather than writing the lists' lengths down.
+        let again = try JSONDecoder().decode(StorageLensReport.self,
+                                             from: JSONEncoder().encode(report))
+        #expect(again.fileCount == nil)
     }
 
     /// And a new report round-trips its totals rather than re-deriving them from the lists.
@@ -226,6 +233,7 @@ import Testing
         let decoded = try JSONDecoder().decode(StorageLensReport.self,
                                                from: JSONEncoder().encode(original))
         #expect(decoded == original)
+        #expect(decoded.hasTreeTotals)
         #expect(decoded.fileCount == 7 && decoded.staleCount == 3)
         #expect(decoded.reclaimCount == 2 && decoded.reclaimableBytes == 4)
     }

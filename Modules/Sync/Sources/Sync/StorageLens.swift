@@ -57,18 +57,29 @@ public struct StorageLensReport: Codable, Sendable, Equatable {
     // and a headline built from them read "20 large · 20 untouched" everywhere, with a
     // "reclaimable" figure summing only the first 20 candidates. These are what the lists were
     // drawn from.
+    //
+    // **nil on a report saved before they existed** (every 6.0 snapshot). Its lists are capped
+    // like any other, so filling these in from them restored the very "20 files · 20 untouched"
+    // headline the totals were added to end; nil lets the headline say it needs a rescan instead.
 
     /// Every leaf file the analysis measured — the pool `largest` is the top of.
-    public let fileCount: Int
+    public let fileCount: Int?
     /// Every file past the stale threshold, not only the `stale` rows shown.
-    public let staleCount: Int
+    public let staleCount: Int?
     /// Every reclaim candidate, not only the `reclaimCandidates` rows shown.
-    public let reclaimCount: Int
+    public let reclaimCount: Int?
     /// The bytes of every reclaim candidate.
-    public let reclaimableBytes: Int
+    public let reclaimableBytes: Int?
+
+    /// Whether this report carries the whole tree's counts — false only for one decoded from a
+    /// snapshot saved before they existed.
+    public var hasTreeTotals: Bool {
+        fileCount != nil && staleCount != nil && reclaimCount != nil && reclaimableBytes != nil
+    }
 
     /// The four totals default to what the lists themselves add up to, which is exact for a report
-    /// whose lists were never capped — the shape every hand-built test report has.
+    /// whose lists were never capped — the shape every hand-built test report has. (The decoder
+    /// does NOT take this default; see ``init(from:)``.)
     public init(
         treemap: [TreemapNode],
         largest: [StorageEntry],
@@ -91,15 +102,30 @@ public struct StorageLensReport: Codable, Sendable, Equatable {
         self.reclaimableBytes = reclaimableBytes ?? reclaimCandidates.reduce(0) { $0 + $1.bytes }
     }
 
+    /// Every field as given, nil totals included — the decoder's door.
+    private init(treemap: [TreemapNode], largest: [StorageEntry], stale: [StorageEntry],
+                 reclaimCandidates: [StorageEntry], totalBytes: Int, decodedFileCount: Int?,
+                 staleCount: Int?, reclaimCount: Int?, reclaimableBytes: Int?) {
+        self.treemap = treemap
+        self.largest = largest
+        self.stale = stale
+        self.reclaimCandidates = reclaimCandidates
+        self.totalBytes = totalBytes
+        self.fileCount = decodedFileCount
+        self.staleCount = staleCount
+        self.reclaimCount = reclaimCount
+        self.reclaimableBytes = reclaimableBytes
+    }
+
     private enum CodingKeys: String, CodingKey {
         case treemap, largest, stale, reclaimCandidates, totalBytes
         case fileCount, staleCount, reclaimCount, reclaimableBytes
     }
 
     /// Reads a report saved before the totals existed — every snapshot written by 6.0 and earlier —
-    /// by falling back to the lists, which is exactly what those builds showed. A required key
-    /// would have thrown, and a snapshot that fails to decode is a Storage page that comes up
-    /// empty after an update.
+    /// with the totals nil. A required key would have thrown, and a snapshot that fails to decode
+    /// is a Storage page that comes up empty after an update; falling back to the lists' lengths
+    /// read the capped lists as the tree's counts again.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         try self.init(
@@ -108,7 +134,7 @@ public struct StorageLensReport: Codable, Sendable, Equatable {
             stale: c.decode([StorageEntry].self, forKey: .stale),
             reclaimCandidates: c.decode([StorageEntry].self, forKey: .reclaimCandidates),
             totalBytes: c.decode(Int.self, forKey: .totalBytes),
-            fileCount: c.decodeIfPresent(Int.self, forKey: .fileCount),
+            decodedFileCount: c.decodeIfPresent(Int.self, forKey: .fileCount),
             staleCount: c.decodeIfPresent(Int.self, forKey: .staleCount),
             reclaimCount: c.decodeIfPresent(Int.self, forKey: .reclaimCount),
             reclaimableBytes: c.decodeIfPresent(Int.self, forKey: .reclaimableBytes))

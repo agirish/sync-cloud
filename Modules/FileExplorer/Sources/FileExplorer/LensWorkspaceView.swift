@@ -2308,11 +2308,19 @@ public struct LensWorkspaceView: View {
     /// candidates. The report now carries the totals counted before the cap, and this reads them.
     /// "Files" where it said "large": the largest-files list has no size threshold — it is the top
     /// of every file — so the only true count behind it is how many files there are.
+    ///
+    /// A report saved before 6.1 has no totals; its lists are capped like any other, so it gives
+    /// the size it does know and asks for a rescan rather than counting the lists again.
     static func storageReceiptHeadline(_ report: StorageLensReport) -> String {
-        "\(FileSyncManager.formatBytes(report.totalBytes)) total · "
-            + "\(report.fileCount.formatted()) file\(report.fileCount == 1 ? "" : "s") · "
-            + "\(report.staleCount.formatted()) untouched · "
-            + "\(FileSyncManager.formatBytes(report.reclaimableBytes)) reclaimable"
+        let total = "\(FileSyncManager.formatBytes(report.totalBytes)) total"
+        guard let files = report.fileCount, let untouched = report.staleCount,
+              let reclaimable = report.reclaimableBytes else {
+            return total + " · Rescan for the counts"
+        }
+        return total + " · "
+            + "\(files.formatted()) file\(files == 1 ? "" : "s") · "
+            + "\(untouched.formatted()) untouched · "
+            + "\(FileSyncManager.formatBytes(reclaimable)) reclaimable"
     }
 
     static func receiptDay(_ date: Date, now: Date = Date()) -> String {
@@ -3578,17 +3586,20 @@ public struct LensWorkspaceView: View {
                         // `visibleStructureFindings` drops the row, and the badge follows because
                         // all three read one accessor. nil before the store exists (no profile
                         // loaded), which withholds the menu item rather than offering a write that
-                        // goes nowhere. `hiddenCount` and Show Them Again are the way back for
+                        // goes nowhere. `hiddenCount` and Show them again are the way back for
                         // findings hidden before this session.
                         onSuppress: syncManager.restructureStore.map { _ in
                             { syncManager.suppressStructureFinding($0) }
                         },
-                        // The hidden findings the detector still produces — not every key ever
-                        // written, which counts findings whose folder is gone and so would promise
-                        // a Show Them Again that brings nothing back.
-                        hiddenCount: syncManager.hiddenStructureFindingCount,
-                        onShowHidden: syncManager.restructureStore.map { store in
-                            { store.unsuppressAll() }
+                        // The hidden findings the detector still produces, within this lens's scope
+                        // — not every key ever written, which counts findings whose folder is gone
+                        // or lies outside the scope, and so would promise a Show them again that
+                        // brings back what this list cannot show.
+                        hiddenCount: syncManager.hiddenStructureFindings(
+                            in: appliedScope(for: .restructure)).count,
+                        onShowHidden: syncManager.restructureStore.map { _ in
+                            { syncManager.showHiddenStructureFindings(
+                                in: appliedScope(for: .restructure)) }
                         },
                         // The scaffold: one guarded, ledgered, ⌘Z-able landing of create-dirs,
                         // then the same hand-off the button below offers on its own. A refusal
@@ -4036,6 +4047,10 @@ public struct LensWorkspaceView: View {
                     store.saveDraft(.init(manifest: manifest, savedAt: manifest.createdAt,
                                           vocabulary: vocabulary), for: key)
                 },
+                // Discard Plan, and a close after every row went back to keep: until these, a
+                // draft could only be removed by landing it.
+                hasSavedDraft: store.draft(for: key) != nil,
+                onDiscardDraft: { store.removeDraft(for: key) },
                 // §5.5: the landing, from the same sheet that derived the plan — the review
                 // above the button IS the review being applied.
                 onApply: { manifest in
@@ -4766,6 +4781,9 @@ public struct LensWorkspaceView: View {
 
     private func groupList(dupGroups: [DuplicateGroup]) -> some View {
         let sections = DuplicateSections.sections(dupGroups)
+        // Read here, once per list, and not in the GeometryReader below: that closure re-runs on
+        // every frame of a window drag, and this is a defaults read and a filter of every key.
+        let kept = keptSeparateCount
         return ScrollViewReader { proxy in
         GeometryReader { geo in
         let chrome = densityMetrics.cardListPadding * 2
@@ -4794,7 +4812,7 @@ public struct LensWorkspaceView: View {
                     duplicateTileRows(section, columns: columns, cardWidth: cardWidth,
                                       fullWidth: geo.size.width - chrome)
                 }
-                keptSeparateRow
+                keptSeparateRow(kept: kept)
             }
             .padding(densityMetrics.cardListPadding)
             // Animate the list settling when a resolved/merged group leaves the array (H4). Keyed on
@@ -5114,7 +5132,7 @@ public struct LensWorkspaceView: View {
     }
 
     private var cleanState: some View {
-        let kept = syncManager.ignoredDuplicateKeys.count
+        let kept = keptSeparateCount
         return EmptyStateView(
             icon: "checkmark.seal.fill",
             tint: SemanticColor.success,
@@ -5126,8 +5144,8 @@ public struct LensWorkspaceView: View {
             // says so — and offers the way back, as the list's own foot does.
             caption: kept > 0 ? Self.keptSeparateSentence(kept) : nil,
             primary: kept > 0
-                ? .init("Show Them Again", systemImage: "eye",
-                        help: "Forget every group kept separate and scan again") { showKeptSeparateAgain() }
+                ? .init("Show them again", systemImage: "eye",
+                        help: Self.keptSeparateHelp) { showKeptSeparateAgain() }
                 : nil,
             secondary: .init("Scan again", systemImage: "arrow.clockwise", handler: onFindDuplicates)
         )
@@ -5136,8 +5154,7 @@ public struct LensWorkspaceView: View {
     /// The way back from Keep separate, at the foot of the list. Nothing listed what had been kept
     /// separate before, so a mis-click hid a group for good, across every rescan.
     @ViewBuilder
-    private var keptSeparateRow: some View {
-        let kept = syncManager.ignoredDuplicateKeys.count
+    private func keptSeparateRow(kept: Int) -> some View {
         if kept > 0 {
             HStack(spacing: 8) {
                 Image(systemName: "eye.slash")
@@ -5146,29 +5163,36 @@ public struct LensWorkspaceView: View {
                 Text(Self.keptSeparateSentence(kept))
                     .scaledFont(.system(size: 11))
                     .foregroundStyle(.secondary)
-                Button("Show Them Again") { showKeptSeparateAgain() }
+                Button("Show them again") { showKeptSeparateAgain() }
                     .scaledFont(.system(size: 11, weight: .semibold))
                     .buttonStyle(.plain)
                     .foregroundStyle(glassHue.accentColor)
                     .chromeHover()
-                    .help("Forget every group kept separate and scan again")
+                    .help(Self.keptSeparateHelp)
                 Spacer(minLength: 0)
             }
             .padding(.vertical, 6)
         }
     }
 
-    /// True wherever it is read: the keys are kept for every source at once, so a count of the
-    /// groups *this* scan would have shown is not something the lens can know.
-    static func keptSeparateSentence(_ count: Int) -> String {
-        count == 1 ? "You’ve kept 1 group separate — scans skip it."
-            : "You’ve kept \(count.formatted()) groups separate — scans skip them."
+    /// The groups kept separate that a scan of this folder could flag — the keys are kept for
+    /// every folder and provider at once, and only these are this lens's to count or forget.
+    private var keptSeparateCount: Int {
+        syncManager.keptSeparateKeys(under: syncManager.duplicateScanRoot).count
     }
 
+    /// Counts only this folder's groups (``keptSeparateCount``), so it says "in this folder".
+    static func keptSeparateSentence(_ count: Int) -> String {
+        count == 1 ? "You’ve kept 1 group in this folder separate — scans skip it."
+            : "You’ve kept \(count.formatted()) groups in this folder separate — scans skip them."
+    }
+
+    static let keptSeparateHelp = "Forget the groups kept separate in this folder and scan again"
+
     /// Kept-separate groups leave no trace a scan can restore from, so the way back is to forget
-    /// them and scan again.
+    /// them and scan again — this folder's only.
     private func showKeptSeparateAgain() {
-        syncManager.forgetKeptSeparateGroups()
+        syncManager.forgetKeptSeparateGroups(under: syncManager.duplicateScanRoot)
         onFindDuplicates()
     }
 

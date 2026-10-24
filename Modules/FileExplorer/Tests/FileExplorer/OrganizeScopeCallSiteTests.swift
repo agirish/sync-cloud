@@ -329,6 +329,35 @@ import Sync
         #expect(view.contains("let scopeFolders = scopeFolderCount"))
     }
 
+    /// *Show them again* counts and forgets only what the lens's own scope can show — both lenses.
+    ///
+    /// The manager's scoped accessors are asserted by `showingKeptGroupsAgainTouchesOnlyThisFolder`
+    /// and `showingHiddenFindingsAgainStaysInTheLensScope` (Sync); this pins that the views ask
+    /// them, and with the scope the rows are narrowed by. Duplicates used to count and forget
+    /// `ignoredDuplicateKeys` whole — every folder's, every provider's — and Restructure counted the
+    /// unscoped survey and called `unsuppressAll`.
+    @Test func showThemAgainIsScopedInBothLenses() throws {
+        let view = try Self.source("LensWorkspaceView.swift")
+        #expect(view.contains("syncManager.keptSeparateKeys(under: syncManager.duplicateScanRoot).count"))
+        #expect(view.contains("syncManager.forgetKeptSeparateGroups(under: syncManager.duplicateScanRoot)"))
+        #expect(!Self.codeOnly(view).contains("ignoredDuplicateKeys.count"),
+                "a kept-separate count is reading every key again, not this folder's")
+        #expect(view.contains("hiddenCount: syncManager.hiddenStructureFindings(\n"
+                              + "                            in: appliedScope(for: .restructure)).count"))
+        #expect(view.contains("{ syncManager.showHiddenStructureFindings(\n"
+                              + "                                in: appliedScope(for: .restructure)) }"))
+        #expect(!Self.codeOnly(view).contains("unsuppressAll()"),
+                "Show them again is clearing every hidden key again, in scope or not")
+        // Read once per list, outside the GeometryReader that re-runs on every frame of a drag.
+        let list = try Self.body(of: "private func groupList(dupGroups: [DuplicateGroup]) -> some View",
+                                 in: view)
+        let geometry = try #require(list.range(of: "GeometryReader { geo in"))
+        let read = try #require(list.range(of: "let kept = keptSeparateCount"))
+        #expect(read.lowerBound < geometry.lowerBound,
+                "the kept-separate count is read inside the per-frame GeometryReader closure")
+        #expect(list.contains("keptSeparateRow(kept: kept)"))
+    }
+
     /// The pure count rule is actually *called* with the rail's selection.
     ///
     /// **A rule extracted for testability is one revert away from being unused.**

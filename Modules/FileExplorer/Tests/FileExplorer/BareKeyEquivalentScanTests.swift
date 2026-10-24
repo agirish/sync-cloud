@@ -177,7 +177,7 @@ import Testing
         // §5.4's plan sheet, presented via `.sheet` over the lens — modal, so ⏎ on
         // `Export plan` is the platform convention and cannot eat a key from the lens below.
         "RestructurePlanSheet.swift":
-            "modal sheet: Export plan carries .defaultAction beside Cancel",
+            "modal sheet: Export plan carries .defaultAction beside Close/Cancel",
         // §5.5's removal sheet, the same modal convention: Escape on Cancel cannot eat a key
         // from the lens below a `.sheet`.
         "RestructureRemovalSheet.swift":

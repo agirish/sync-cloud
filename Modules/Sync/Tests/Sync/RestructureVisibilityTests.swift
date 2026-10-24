@@ -49,7 +49,7 @@ import Foundation
     }
 
     /// **Never suggest this again could not be taken back.** It now registers one ⌘Z step with an
-    /// undoable banner, and Show Them Again brings back everything hidden.
+    /// undoable banner, and Show them again brings back everything hidden.
     @Test func neverSuggestCanBeUndoneAndShownAgain() throws {
         let (manager, dir) = try makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -59,26 +59,101 @@ import Foundation
         let finding = try #require(manager.visibleStructureFindings.first { $0.kind == .backlog })
 
         // A key for a folder that no longer produces a finding is not counted as hidden.
-        manager.restructureStore?.suppress(RestructureKey(kind: .backlog, path: "Gone/Folder"))
-        #expect(manager.hiddenStructureFindingCount == 0)
+        let stale = RestructureKey(kind: .backlog, path: "Gone/Folder")
+        manager.restructureStore?.suppress(stale)
+        #expect(manager.hiddenStructureFindings(in: nil).isEmpty)
 
         undo.beginUndoGrouping()
         manager.suppressStructureFinding(finding)
         undo.endUndoGrouping()
         #expect(!manager.visibleStructureFindings.contains { $0.id == finding.id })
-        #expect(manager.hiddenStructureFindingCount == 1)
+        #expect(manager.hiddenStructureFindings(in: nil).map(\.id) == [finding.id])
         #expect(manager.banner?.isUndoable == true, "the banner offered no Undo")
 
         undo.undo()
+        #expect(manager.banner?.isUndoable != true,
+                "Edit ▸ Undo left the “Hidden [Undo]” banner up; its Undo now pops the redo")
         #expect(manager.visibleStructureFindings.contains { $0.id == finding.id },
                 "undo left the finding hidden")
 
         undo.redo()
         #expect(!manager.visibleStructureFindings.contains { $0.id == finding.id })
 
-        manager.restructureStore?.unsuppressAll()
+        #expect(manager.showHiddenStructureFindings(in: nil) == 1)
         #expect(manager.visibleStructureFindings.contains { $0.id == finding.id })
-        #expect(manager.restructureStore?.suppressed.isEmpty == true)
+        #expect(manager.restructureStore?.suppressed == [stale],
+                "Show them again cleared a key it never counted")
+        #expect(manager.banner?.message == "1 hidden finding is back.")
+    }
+
+    /// **Show them again counted the whole survey under a scoped list, and cleared every key.**
+    /// It counts and brings back the hidden findings the scoped lens would show — inside the scope
+    /// or about an ancestor of it — and leaves the ones outside it hidden.
+    @Test func showingHiddenFindingsAgainStaysInTheLensScope() throws {
+        let (manager, dir) = try makeManager()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // A second family, outside the scope below.
+        var folders = try #require(manager.filingFolderProfile).folders
+        for (path, files, subs): (String, Int, Int) in [
+            ("Vision", 0, 3),
+            ("Vision/2023", 0, 1), ("Vision/2023/Claims", 2, 0),
+            ("Vision/2024", 0, 1), ("Vision/2024/Claims", 2, 0),
+            ("Vision/2025", 2, 0),
+        ] {
+            folders[path] = FolderProfileEntry(path: path, role: nil, naming: nil, anchors: [],
+                                               acceptsNewFiles: nil, fileCount: files,
+                                               subfolderCount: subs, axes: [:])
+        }
+        manager.filingFolderProfile = FolderProfile(profileId: "t", root: "/r",
+                                                    folders: folders, personTokens: [])
+        let dental = try #require(manager.structureFindings.first {
+            $0.kind == .backlog && $0.subject.hasPrefix("Dental")
+        })
+        let vision = try #require(manager.structureFindings.first {
+            $0.kind == .backlog && $0.subject.hasPrefix("Vision")
+        })
+        manager.restructureStore?.suppress(RestructureKey(dental))
+        manager.restructureStore?.suppress(RestructureKey(vision))
+        let scope = try #require(OrganizeScope(path: "/r/Dental", providerRoot: "/r"))
+
+        #expect(manager.hiddenStructureFindings(in: scope).map(\.id) == [dental.id],
+                "a finding outside the scope was counted under the scoped list")
+        #expect(manager.hiddenStructureFindings(in: nil).count == 2)
+
+        #expect(manager.showHiddenStructureFindings(in: scope) == 1)
+        #expect(manager.restructureStore?.isSuppressed(RestructureKey(dental)) == false)
+        #expect(manager.restructureStore?.isSuppressed(RestructureKey(vision)) == true,
+                "Show them again brought back a finding outside the scope")
+    }
+
+    /// **⌘Z of Never suggest did nothing after a store swap.** A landing or survey refresh opens
+    /// the new profile's store with the hidden set carried across; the undo cleared the key in the
+    /// old store only, so the finding stayed hidden in the one the lens reads.
+    @Test func undoingNeverSuggestReachesTheStoreThatReplacedTheOne() throws {
+        let (manager, dir) = try makeManager()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        manager.undoManager = undo
+        let finding = try #require(manager.visibleStructureFindings.first { $0.kind == .backlog })
+
+        undo.beginUndoGrouping()
+        manager.suppressStructureFinding(finding)
+        undo.endUndoGrouping()
+
+        // The swap: a new profile's store, carrying the hidden key the way the re-derive does.
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("t2"),
+                                                withIntermediateDirectories: true)
+        let swapped = RestructureStore(directory: dir, profileId: "t2")
+        swapped.suppress(RestructureKey(finding))
+        manager.restructureStore = swapped
+        #expect(!manager.visibleStructureFindings.contains { $0.id == finding.id },
+                "premise: the carried key hides the finding in the new store")
+
+        undo.undo()
+        #expect(manager.visibleStructureFindings.contains { $0.id == finding.id },
+                "undo cleared the old store and left the finding hidden in the new one")
+        #expect(!swapped.isSuppressed(RestructureKey(finding)))
     }
 
     @Test func withNoStoreTheVisibleSetIsTheWholeReport() throws {

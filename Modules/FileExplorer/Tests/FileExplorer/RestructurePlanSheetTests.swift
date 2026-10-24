@@ -350,38 +350,125 @@ import Testing
         actions: [.init(action: .renameDir, src: "Tax/2013/Federal", dst: "Tax/2013/Forms",
                         filesCarried: 3)])
 
-    /// **Esc threw a hand-built mapping away**, because only Export saved the draft. A changed
-    /// mapping that derives a plan is kept when the sheet closes.
-    @Test func closingAChangedMappingKeepsItsPlan() {
+    private static func disposition(
+        plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal> = .success(keptPlan),
+        changed: Bool = true, vocabularyOnly: Bool = false, landedOrExported: Bool = false,
+        openedFromDraft: Bool = false) -> RestructurePlanSheet.CloseDisposition {
         let seeded = [RestructureMapping.Row(source: "Federal")]
         let edited = [RestructureMapping.Row(source: "Federal", target: "Forms")]
-        let kept = RestructurePlanSheet.keepsDraftOnClose(
-            plan: .success(Self.keptPlan), rows: edited, vocabulary: ["Forms"],
-            seededRows: seeded, seededVocabulary: [], landedOrExported: false)
-        #expect(kept == Self.keptPlan)
-
-        // A vocabulary choice alone is part of the draft too.
-        #expect(RestructurePlanSheet.keepsDraftOnClose(
-            plan: .success(Self.keptPlan), rows: seeded, vocabulary: ["Forms"],
-            seededRows: seeded, seededVocabulary: [], landedOrExported: false) != nil)
+        return RestructurePlanSheet.closeDisposition(
+            plan: plan, rows: changed && !vocabularyOnly ? edited : seeded,
+            vocabulary: changed && vocabularyOnly ? ["Forms"] : [],
+            seededRows: seeded, seededVocabulary: [],
+            landedOrExported: landedOrExported, openedFromDraft: openedFromDraft)
     }
 
-    /// And the three closes that must keep nothing: opened and closed untouched (no *Planned, not
-    /// applied* card for a plan nobody made), already landed or exported (a re-save would drop the
-    /// export's file name), and a mapping that derives no plan.
+    /// **Esc threw a hand-built mapping away**, because only Export saved the draft. A changed
+    /// mapping that derives a plan is kept when the sheet closes — fresh or opened on a draft.
+    @Test func closingAChangedMappingKeepsItsPlan() {
+        #expect(Self.disposition() == .keep(Self.keptPlan))
+        #expect(Self.disposition(openedFromDraft: true) == .keep(Self.keptPlan))
+        // A vocabulary choice alone is part of the draft too.
+        #expect(Self.disposition(vocabularyOnly: true) == .keep(Self.keptPlan))
+    }
+
+    /// **Nothing could remove a draft except landing it.** Reopening a saved plan, setting every
+    /// row back to keep and closing left the old draft — and its *Review N operations* card —
+    /// standing. Now that close removes it; on a sheet that opened fresh there is nothing to
+    /// remove.
+    @Test func closingADraftSetBackToAllKeepRemovesIt() {
+        #expect(Self.disposition(plan: .failure(.nothingMapped), openedFromDraft: true) == .discard)
+        #expect(Self.disposition(plan: .failure(.nothingMapped), openedFromDraft: false) == .nothing,
+                "a fresh sheet has no draft to remove")
+    }
+
+    /// And the closes that must leave the store alone: opened and closed untouched (no *Planned,
+    /// not applied* card for a plan nobody made, and a reopened draft stays as it was), already
+    /// landed or exported (a re-save would drop the export's file name), and a mapping that
+    /// refuses for a reason other than all-keep — a half-finished clash is not a discard.
     @Test func closingKeepsNothingElse() {
-        let seeded = [RestructureMapping.Row(source: "Federal")]
-        let edited = [RestructureMapping.Row(source: "Federal", target: "Forms")]
-        #expect(RestructurePlanSheet.keepsDraftOnClose(
-            plan: .success(Self.keptPlan), rows: seeded, vocabulary: [],
-            seededRows: seeded, seededVocabulary: [], landedOrExported: false) == nil,
-            "an untouched sheet minted a draft")
-        #expect(RestructurePlanSheet.keepsDraftOnClose(
-            plan: .success(Self.keptPlan), rows: edited, vocabulary: [],
-            seededRows: seeded, seededVocabulary: [], landedOrExported: true) == nil,
-            "an exported plan was saved over, losing its file name")
-        #expect(RestructurePlanSheet.keepsDraftOnClose(
-            plan: .failure(.nothingMapped), rows: edited, vocabulary: [],
-            seededRows: seeded, seededVocabulary: [], landedOrExported: false) == nil)
+        #expect(Self.disposition(changed: false) == .nothing, "an untouched sheet minted a draft")
+        #expect(Self.disposition(changed: false, openedFromDraft: true) == .nothing)
+        #expect(Self.disposition(plan: .failure(.nothingMapped), changed: false,
+                                 openedFromDraft: true) == .nothing,
+                "an untouched draft was thrown away")
+        #expect(Self.disposition(landedOrExported: true) == .nothing,
+                "an exported plan was saved over, losing its file name")
+        #expect(Self.disposition(plan: .failure(.nothingMapped), landedOrExported: true,
+                                 openedFromDraft: true) == .nothing)
+        #expect(Self.disposition(plan: .failure(.conflictingTargets("Forms", "forms")),
+                                 openedFromDraft: true) == .nothing,
+                "a clashing mapping threw the saved plan away")
+    }
+
+    /// **"Cancel" read as a discard** over a close that keeps the plan. Done after a landing;
+    /// Close whenever a plan is or will be kept; Cancel only when closing leaves no trace.
+    @Test func theCloseButtonSaysWhatClosingDoes() {
+        typealias Sheet = RestructurePlanSheet
+        let keep = Sheet.CloseDisposition.keep(Self.keptPlan)
+        #expect(Sheet.closeTitle(applied: true, disposition: .nothing, openedFromDraft: true,
+                                 landedOrExported: true) == "Done")
+        #expect(Sheet.closeTitle(applied: false, disposition: keep, openedFromDraft: false,
+                                 landedOrExported: false) == "Close")
+        #expect(Sheet.closeTitle(applied: false, disposition: .nothing, openedFromDraft: true,
+                                 landedOrExported: false) == "Close",
+                "closing a reopened draft keeps it")
+        #expect(Sheet.closeTitle(applied: false, disposition: .discard, openedFromDraft: true,
+                                 landedOrExported: false) == "Close")
+        #expect(Sheet.closeTitle(applied: false, disposition: .nothing, openedFromDraft: false,
+                                 landedOrExported: true) == "Close",
+                "an exported plan is kept")
+        #expect(Sheet.closeTitle(applied: false, disposition: .nothing, openedFromDraft: false,
+                                 landedOrExported: false) == "Cancel")
+    }
+
+    /// The rules are the footer's: a rule extracted for testing is one revert away from unused.
+    @Test func theFooterAndTheHostUseTheCloseRules() throws {
+        let sources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/FileExplorer")
+        let sheet = try String(contentsOf: sources.appendingPathComponent(
+            "RestructurePlanSheet.swift"), encoding: .utf8)
+        #expect(sheet.contains("let disposition = Self.closeDisposition("))
+        #expect(sheet.contains("Button(Self.closeTitle(applied: isApplied, disposition: disposition,"))
+        #expect(sheet.contains("case .keep(let manifest): onKeepDraft?(manifest, vocabulary)"))
+        #expect(sheet.contains("case .discard: onDiscardDraft?()"))
+        #expect(sheet.contains("openedFromDraft = hasSavedDraft"))
+        let host = try String(contentsOf: sources.appendingPathComponent(
+            "LensWorkspaceView.swift"), encoding: .utf8)
+        #expect(host.contains("hasSavedDraft: store.draft(for: key) != nil"))
+        #expect(host.contains("onDiscardDraft: { store.removeDraft(for: key) }"))
+    }
+
+    /// *Discard Plan* paints on a sheet opened from a saved draft. The comparison holds the close
+    /// button's title fixed (both read Close) so the difference is the Discard button alone.
+    @Test func discardPlanPaintsOnASheetOpenedFromADraft() throws {
+        func render(discard: Bool) throws -> NSBitmapImageRep {
+            let finding = StructureFinding(
+                family: "F",
+                schemes: [.init(vocabulary: ["forms"], members: ["2013"]),
+                          .init(vocabulary: ["federal tax"], members: ["2014"])])
+            let files: [String: [String]] = [
+                "F/2013/Federal Tax": ["a.pdf"], "F/2014/Forms": ["d.pdf"],
+            ]
+            let folders: [String: [String]] = [
+                "F": ["2013", "2014"], "F/2013": ["Federal Tax"], "F/2014": ["Forms"],
+            ]
+            let tree = RestructureTreeView(
+                childFolders: { folders[$0] ?? (files[$0] != nil ? [] : nil) },
+                files: { files[$0] }, fileCount: { files[$0]?.count })
+            let sheet = RestructurePlanSheet(
+                finding: finding, family: "F", members: ["2013", "2014"], tree: tree,
+                profileId: "p", accent: .blue,
+                initialRows: [.init(source: "Federal Tax", target: "Forms")],
+                onExport: { _, _ in .saved(filename: "f.json") },
+                hasSavedDraft: true, onDiscardDraft: discard ? {} : nil, onClose: {})
+            return try #require(RestructureRender.raster(sheet, width: 620, height: 700))
+        }
+        let with = try render(discard: true)
+        let without = try render(discard: false)
+        #expect(RestructureRender.inkedPixels(with) > 1000)
+        #expect(RestructureRender.differingPixels(with, without) > 100,
+                "Discard Plan drew nothing on a sheet opened from a saved draft")
     }
 }

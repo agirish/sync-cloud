@@ -1451,33 +1451,10 @@ struct FilePairCompareView<Verdict: View>: View {
             // **The keeper control, and nothing else.** The file's name used to sit at the far
             // end of this row — the same string the NAME fact states directly above it, on a
             // surface whose whole complaint was clutter. One statement per fact.
-            HStack(spacing: 6) {
-                switch CompareKeeperControl.control(isKeeper: isKeeper, marker: marker) {
-                case .keeping:
-                    // A state, drawn as a state: the kept side is not a control (clicking it does
-                    // nothing), so it wears a filled chip rather than a disabled button.
-                    Label("Keeping this", systemImage: "checkmark.circle.fill")
-                        .scaledFont(.system(size: 11.5, weight: .semibold))
-                        .foregroundStyle(accent)
-                        .padding(.horizontal, 9).padding(.vertical, 3)
-                        .background { Capsule().fill(accent.opacity(0.13)) }
-                        .accessibilityLabel(marker.accessibilityLabel ?? "Kept copy")
-                case .keepInstead:
-                    Button { chooseKeeper(copy) } label: {
-                        Label("Keep this instead", systemImage: "circle")
-                            .scaledFont(.system(size: 11.5))
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .accessibilityLabel(marker.accessibilityLabel ?? "Keep this copy")
-                    .help(ShortcutHint.tooltip("Keep this copy instead", "←→"))
-                case .nothing:
-                    // An overlap group: it has a keeper, but no choice — see `CompareKeeperControl`.
-                    EmptyView()
-                }
-                Spacer(minLength: 6)
-            }
-            .padding(.horizontal, 2)
+            CompareKeeperHeaderRow(
+                control: CompareKeeperControl.control(isKeeper: isKeeper, marker: marker),
+                accessibilityLabel: marker.accessibilityLabel, accent: accent,
+                onKeepInstead: { chooseKeeper(copy) })
         }
         // With no keeper — the Differences host — the row collapses entirely. The facts block
         // above already names and locates each side, and an empty header row is furniture.
@@ -1964,6 +1941,53 @@ public struct CompareCopiesOverlay: View {
     }
 }
 
+/// One side's keeper row in the Compare sheet's pane header.
+struct CompareKeeperHeaderRow: View {
+    let control: CompareKeeperControl
+    let accessibilityLabel: String?
+    let accent: Color
+    let onKeepInstead: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            switch control {
+            case .keeping:
+                // A state, drawn as a state: the kept side is not a control (clicking it does
+                // nothing), so it wears a filled chip rather than a disabled button.
+                keepingChip
+                    .accessibilityLabel(accessibilityLabel ?? "Kept copy")
+            case .keepInstead:
+                Button(action: onKeepInstead) {
+                    Label("Keep this instead", systemImage: "circle")
+                        .scaledFont(.system(size: 11.5))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityLabel(accessibilityLabel ?? "Keep this copy")
+                .help(ShortcutHint.tooltip("Keep this copy instead", "←→"))
+            case .nothing:
+                // An overlap group: it has a keeper, but no choice — see `CompareKeeperControl`.
+                // **The chip's height, drawn invisibly.** An empty row here sat the preview below
+                // it ~22pt higher than the kept side's, under its "Keeping this" chip, so the two
+                // previews being compared did not line up.
+                keepingChip
+                    .hidden()
+                    .accessibilityHidden(true)
+            }
+            Spacer(minLength: 6)
+        }
+        .padding(.horizontal, 2)
+    }
+
+    private var keepingChip: some View {
+        Label("Keeping this", systemImage: "checkmark.circle.fill")
+            .scaledFont(.system(size: 11.5, weight: .semibold))
+            .foregroundStyle(accent)
+            .padding(.horizontal, 9).padding(.vertical, 3)
+            .background { Capsule().fill(accent.opacity(0.13)) }
+    }
+}
+
 /// What the Compare sheet's pane header offers on one side of a group that has a keeper.
 ///
 /// **A keeper is not the same as a choice.** An overlap group has a keeper — the copy holding
@@ -1971,7 +1995,8 @@ public struct CompareCopiesOverlay: View {
 /// content hashes the scan does not retain (`DuplicateKeeperMarker.style`). The other side used to
 /// draw "Keep this instead" disabled, which advertises a choice that does not exist, and VoiceOver
 /// heard only "Copy" (LN23). The rule the header's own doc states — a keeper picker only where
-/// there is a keeper to pick — now holds on that side too: it draws nothing.
+/// there is a keeper to pick — now holds on that side too: it draws nothing (in the chip's height,
+/// so the two previews still line up — see `CompareKeeperHeaderRow`).
 enum CompareKeeperControl: Equatable {
     /// The kept side: a chip, never a control.
     case keeping

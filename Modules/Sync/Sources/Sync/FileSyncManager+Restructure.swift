@@ -54,6 +54,13 @@ extension FileSyncManager {
     /// and a ledger undo all move things inside subtrees the scans read, and a refusal is a
     /// sentence while a race is a debugging session. Returns the sentence, or nil to proceed.
     func restructureLandingRefusal() -> String? {
+        restructureLandingBlocker
+    }
+
+    /// What would refuse a landing or a ledger undo right now — the sentence, or nil. Read-only,
+    /// so a surface can say so BEFORE it asks: *Undo this reorganisation* used to put its question
+    /// up while a scan ran, and a Yes was refused the moment it was given.
+    public var restructureLandingBlocker: String? {
         // First, because it is the one hazard the counts below cannot see: a landing holds this
         // flag across its whole run, including the re-derive awaits where no file operation is
         // queued and no scan is running.
@@ -424,8 +431,8 @@ extension FileSyncManager {
     ///
     /// **It used to be one store write and nothing else** — no question, no ⌘Z, no banner, and no
     /// screen that listed what had been hidden, so a mis-click hid a finding for good. It now
-    /// registers one ⌘Z step and says so in an undoable banner; the lens's Show Them Again
-    /// (`RestructureStore.unsuppressAll`) is the way back for older ones.
+    /// registers one ⌘Z step and says so in an undoable banner; the lens's *Show them again*
+    /// (``showHiddenStructureFindings(in:)``) is the way back for older ones.
     public func suppressStructureFinding(_ finding: StructureFinding) {
         guard let store = restructureStore else { return }
         let key = RestructureKey(finding)
@@ -440,10 +447,20 @@ extension FileSyncManager {
                           undoable: undoManager != nil)
     }
 
-    /// ⌘Z for ``suppressStructureFinding(_:)``. Against the store it was hidden in: a landing swaps
-    /// the store for the new profile's, and the old key means nothing to the new one.
+    /// ⌘Z for ``suppressStructureFinding(_:)``. **In the store the manager holds NOW**, and in the
+    /// one it was hidden in when that is a different one.
+    ///
+    /// A landing or a survey refresh swaps the store for the new profile's, and the swap carries
+    /// the hidden set across (the artifact copy brings `restructure.json`, and `rekey` moves its
+    /// keys through the renames). Undoing against the captured old store alone cleared a key in a
+    /// store nothing reads any more, and the finding stayed hidden.
     func unsuppressStructureFinding(_ finding: StructureFinding, in store: RestructureStore) {
-        store.unsuppress(RestructureKey(finding))
+        let key = RestructureKey(finding)
+        restructureStore?.unsuppress(key)
+        if store !== restructureStore { store.unsuppress(key) }
+        // The "Hidden … [Undo]" banner is stale the moment this runs (see
+        // `invalidateUndoableBanner`).
+        invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
             target.suppressStructureFinding(finding)
         }
@@ -453,10 +470,35 @@ extension FileSyncManager {
 
 @MainActor
 extension FileSyncManager {
-    /// How many of today's findings *Never suggest this again* is hiding — what the lens's
-    /// Show Them Again would bring back.
-    public var hiddenStructureFindingCount: Int {
-        guard let store = restructureStore, !store.suppressed.isEmpty else { return 0 }
-        return structureFindings.filter { store.isSuppressed(RestructureKey($0)) }.count
+    /// Today's findings *Never suggest this again* is hiding, within `scope` — what the lens's
+    /// *Show them again* counts and brings back.
+    ///
+    /// **Scoped the way the lens's rows are**: a finding the lens would show (inside the scope, or
+    /// about an ancestor of it) counts; one outside it does not. The count used to be the whole
+    /// survey's under a scoped list, and *Show them again* cleared every key — findings in other
+    /// folders, and stale keys for folders that are gone — with no undo and nothing said.
+    public func hiddenStructureFindings(in scope: OrganizeScope?) -> [StructureFinding] {
+        guard let store = restructureStore, !store.suppressed.isEmpty else { return [] }
+        let root = filingFolderProfile?.root ?? ""
+        return structureFindings.filter {
+            store.isSuppressed(RestructureKey($0))
+                && OrganizeScopeFilter.relation(of: $0, profileRoot: root, scope: scope) != .outside
+        }
+    }
+
+    /// *Show them again*: brings back exactly the hidden findings in `scope`, says how many in a
+    /// banner, and returns the count. Out-of-scope and stale keys stay hidden.
+    @discardableResult
+    public func showHiddenStructureFindings(in scope: OrganizeScope?) -> Int {
+        let hidden = hiddenStructureFindings(in: scope)
+        guard let store = restructureStore, !hidden.isEmpty else { return 0 }
+        store.unsuppress(Set(hidden.map { RestructureKey($0) }))
+        banner = .success(Self.shownAgainSentence(hidden.count))
+        return hidden.count
+    }
+
+    nonisolated static func shownAgainSentence(_ count: Int) -> String {
+        count == 1 ? "1 hidden finding is back."
+            : "\(count.formatted()) hidden findings are back."
     }
 }
