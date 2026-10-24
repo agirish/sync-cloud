@@ -145,4 +145,65 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: orphan.path))
         #expect(trash.names == [orphan.lastPathComponent])
     }
+
+    @MainActor
+    private func undoManagerHost() -> FileSyncManager {
+        let m = FileSyncManager()
+        m.undoManager = UndoManager()
+        m.permanentDeleteConfirmer = { _ in false }
+        return m
+    }
+
+    /// ⌘Z of a locked file's copy puts that copy in the Trash. The copy carries the original's
+    /// lock, and the kernel refuses to Trash a locked item, so the undo read the refusal as "busy"
+    /// and asked for a retry that could never work. The lock the copy carried is lifted from the
+    /// copy alone; the original keeps its own.
+    @MainActor
+    @Test(arguments: Self.locks)
+    func undoingALockedFilesCopyTrashesTheCopy(lock: FileAttributeKey) async throws {
+        let base = try scratch()
+        defer { removeUnlocking(base) }
+        let trash = ScratchTrash(in: base)
+        let source = base.appendingPathComponent("src/locked.txt")
+        let destination = base.appendingPathComponent("dst/locked.txt")
+        try Data("locked".utf8).write(to: source)
+        try FileManager.default.setAttributes([lock: true], ofItemAtPath: source.path)
+        try FileSyncManager.safeCopyItem(at: source, to: destination, fileManager: trash)
+        #expect(isLocked(destination, by: lock), "the premise: the copy carries the lock")
+
+        let m = undoManagerHost()
+        await m.registerCopyUndo(items: [(source: source, destination: destination, overwritten: nil)],
+                                 actionName: "Copy 1 Item", fileManager: trash).value
+        m.undoManager?.undo()
+        await waitUntil("the copy undo drains") { m.activeFileOperationsCount == 0 }
+
+        #expect(!FileManager.default.fileExists(atPath: destination.path), "the locked copy is still there")
+        #expect(trash.names == ["locked.txt"])
+        #expect(isLocked(source, by: lock), "the original's lock was lifted")
+    }
+
+    /// A lock the copy did NOT carry — its source is unlocked, so someone locked the copy since —
+    /// is not this undo's to lift. The copy stays, locked, and the banner says why.
+    @MainActor
+    @Test func undoingACopyLockedSinceLeavesItLockedInPlace() async throws {
+        let base = try scratch()
+        defer { removeUnlocking(base) }
+        let trash = ScratchTrash(in: base)
+        let source = base.appendingPathComponent("src/plain.txt")
+        let destination = base.appendingPathComponent("dst/plain.txt")
+        try Data("plain".utf8).write(to: source)
+        try FileSyncManager.safeCopyItem(at: source, to: destination, fileManager: trash)
+
+        let m = undoManagerHost()
+        await m.registerCopyUndo(items: [(source: source, destination: destination, overwritten: nil)],
+                                 actionName: "Copy 1 Item", fileManager: trash).value
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: destination.path)
+        m.undoManager?.undo()
+        await waitUntil("the copy undo drains") { m.activeFileOperationsCount == 0 }
+
+        #expect(FileManager.default.fileExists(atPath: destination.path))
+        #expect(isLocked(destination, by: .immutable), "the undo lifted a lock it did not create")
+        #expect(trash.names.isEmpty)
+        #expect(m.banner?.message.contains("it’s locked") == true, "banner: \(m.banner?.message ?? "nil")")
+    }
 }

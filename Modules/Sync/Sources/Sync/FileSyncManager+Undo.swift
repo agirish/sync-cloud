@@ -28,8 +28,12 @@ extension FileSyncManager {
     /// replaced — when the undo was registered, so the undo restores that item and not a stranger
     /// that has taken its name in the Trash since (FR27, `trashBackupVerdict`). `.absent` when the
     /// copy replaced nothing.
+    ///
+    /// `copiedLock` is true when the copy carries a Finder lock it took from its source (FR31's
+    /// copy keeps the original's `uchg`/`uappnd`) — read at registration, the moment the copy
+    /// landed. The undo may lift THAT lock to put its own copy in the Trash, and no other.
     typealias CopyUndoItemState = (source: URL, destination: URL, overwritten: URL?, destinationIdentity: ItemIdentity,
-                                   overwrittenIdentity: ItemIdentity)
+                                   overwrittenIdentity: ItemIdentity, copiedLock: Bool)
     /// A copied item whose identity walk the CALL SITE already started — the moment the item's
     /// OWN copy landed, inside its batch loop — rather than when the whole batch finished.
     /// `identity` is that walk's task (`startCopyIdentityWalk`); it resolves to exactly what
@@ -396,6 +400,55 @@ extension FileSyncManager {
         await MainActor.run {
             Logger.shared.error(logMessage)
             target.banner = .warning(bannerMessage)
+        }
+    }
+
+    /// Surfaces a copy-undo refused because the copy is locked in Finder by someone other than the
+    /// copy itself — it did not carry that lock from its source, so the user put it there, and
+    /// this undo does not lift a lock it did not create (FR31).
+    nonisolated static func reportUndoRefusedLockedItem(
+        of destination: URL,
+        actionName: String,
+        on target: FileSyncManager
+    ) async {
+        let name = destination.lastPathComponent
+        let logMessage = "Undo (\(actionName)): REFUSED to remove \"\(name)\" at \(destination.path) — it is locked, and the lock was not one the copy carried from its original, so this undo does not lift it; leaving it in place"
+        await MainActor.run {
+            Logger.shared.error(logMessage)
+            target.banner = .warning("Undo left “\(name)” in place — it’s locked. Unlock it in Get Info, then undo again")
+        }
+    }
+
+    /// Whether the copy at `destination` carries the Finder lock of its `source` — the only lock a
+    /// copy-undo may lift (FR31). Both must be locked: a copy locked while its source is not was
+    /// locked by someone else.
+    nonisolated static func copyCarriesItsSourcesLock(_ source: URL, _ destination: URL,
+                                                      fileManager fm: FileManaging) -> Bool {
+        isLocked(destination, fileManager: fm) && isLocked(source, fileManager: fm)
+    }
+
+    /// Lifts the lock a copy carried from its source off THAT copy, for the copy-undo to remove it
+    /// (FR31), and returns exactly what it lifted so a failed removal can put it back. Empty —
+    /// nothing touched — when the item is not locked or its lock is not one the copy carried.
+    nonisolated static func liftCopiedLock(_ item: CopyUndoItemState,
+                                           fileManager fm: FileManaging) -> [FileAttributeKey: Any] {
+        guard item.copiedLock,
+              let attributes = try? fm.attributesOfItem(atPath: item.destination.path) else { return [:] }
+        var lock: [FileAttributeKey: Any] = [:]
+        if (attributes[.immutable] as? Bool) == true { lock[.immutable] = true }
+        if (attributes[.appendOnly] as? Bool) == true { lock[.appendOnly] = true }
+        guard !lock.isEmpty,
+              (try? fm.setAttributes([.immutable: false, .appendOnly: false],
+                                     ofItemAtPath: item.destination.path)) != nil else { return [:] }
+        return lock
+    }
+
+    /// Puts back the lock `liftCopiedLock` lifted, on a copy whose removal then failed. Logged, not
+    /// thrown: the removal failure is the event being reported.
+    nonisolated static func relock(_ url: URL, _ lock: [FileAttributeKey: Any], fileManager fm: FileManaging) {
+        guard !lock.isEmpty else { return }
+        if (try? fm.setAttributes(lock, ofItemAtPath: url.path)) == nil {
+            Logger.shared.warning("Undo: could not lock \(url.path) again after failing to remove it")
         }
     }
 
@@ -799,7 +852,8 @@ extension FileSyncManager {
                 }
                 enriched.append((source: item.source, destination: item.destination,
                                  overwritten: item.overwritten, destinationIdentity: read.identity,
-                                 overwrittenIdentity: FileSyncManager.backupIdentity(item.overwritten, fileManager: fm)))
+                                 overwrittenIdentity: FileSyncManager.backupIdentity(item.overwritten, fileManager: fm),
+                                 copiedLock: FileSyncManager.copyCarriesItsSourcesLock(item.source, item.destination, fileManager: fm)))
             }
             FileSyncManager.logIndeterminateRegistrations(unreadable, of: items.count, actionName: actionName)
             await resolver.resolve(enriched)
@@ -829,7 +883,8 @@ extension FileSyncManager {
                 enriched.append((source: item.source, destination: item.destination,
                                  overwritten: item.overwritten,
                                  destinationIdentity: read.identity,
-                                 overwrittenIdentity: FileSyncManager.backupIdentity(item.overwritten, fileManager: fm)))
+                                 overwrittenIdentity: FileSyncManager.backupIdentity(item.overwritten, fileManager: fm),
+                                 copiedLock: FileSyncManager.copyCarriesItsSourcesLock(item.source, item.destination, fileManager: fm)))
             }
             FileSyncManager.logIndeterminateRegistrations(unreadable, of: pendingItems.count, actionName: actionName)
             await resolver.resolve(enriched)
@@ -1132,9 +1187,24 @@ extension FileSyncManager {
                                 await FileSyncManager.reportUndoRefusedChangedItem(of: item.destination, actionName: actionName, verdict: verdict, intent: .removeTheCopyItProduced, on: target)
                                 continue
                             }
+                            // **A locked copy** (FR31). The copy of a file locked in Finder is
+                            // locked like it, and the kernel refuses to Trash a locked item — so
+                            // this ⌘Z read EPERM as "busy" and asked for a retry that could never
+                            // succeed. A lock the copy CARRIED from its source is lifted from this
+                            // copy, which the identity check above has just confirmed is the item
+                            // the copy produced; a lock nobody recorded — the user locked the copy
+                            // since — is theirs, and refuses with a sentence saying so.
+                            if FileSyncManager.isLocked(item.destination, fileManager: fm), !item.copiedLock {
+                                leftInPlace += 1
+                                await FileSyncManager.reportUndoRefusedLockedItem(of: item.destination, actionName: actionName, on: target)
+                                continue
+                            }
+                            let liftedLock = FileSyncManager.liftCopiedLock(item, fileManager: fm)
                             do {
                                 try fm.trashItem(at: item.destination, resultingItemURL: nil)
                             } catch {
+                                // Left as it was found: the lock goes back on a copy that stays.
+                                FileSyncManager.relock(item.destination, liftedLock, fileManager: fm)
                                 // A transiently busy/locked item stays retryable — never escalate
                                 // it to the permanent-delete prompt (same distinction deleteItems
                                 // applies): a retry may well trash it recoverably.
@@ -1186,9 +1256,13 @@ extension FileSyncManager {
                                     logger.debug("Undo (\(actionName)): \(item.destination.lastPathComponent) already handled — skipping its duplicate permanent-delete")
                                     continue
                                 }
+                                // The same copied lock as the Trash path above, or the confirmed
+                                // delete fails on it exactly as the Trash did (FR31).
+                                let liftedLock = FileSyncManager.liftCopiedLock(item, fileManager: fm)
                                 do {
                                     try fm.removeItem(at: item.destination)
                                 } catch {
+                                    FileSyncManager.relock(item.destination, liftedLock, fileManager: fm)
                                     // The copy survives on disk, so its backup must not be
                                     // restored over it — report and leave everything in place.
                                     await FileSyncManager.reportUndoRemoveFailure(of: item.destination, actionName: actionName, error: error, on: target)
@@ -1276,7 +1350,8 @@ extension FileSyncManager {
                                 }
                                 nextState.append((source: param.source, destination: param.destination, overwritten: trashed,
                                                   destinationIdentity: read.identity,
-                                                  overwrittenIdentity: FileSyncManager.backupIdentity(trashed, fileManager: fm)))
+                                                  overwrittenIdentity: FileSyncManager.backupIdentity(trashed, fileManager: fm),
+                                                  copiedLock: FileSyncManager.copyCarriesItsSourcesLock(param.source, param.destination, fileManager: fm)))
                             } catch {
                                 // A failed re-copy must stay out of the next undo state: undoing
                                 // a phantom copy would prompt to permanently delete a file that

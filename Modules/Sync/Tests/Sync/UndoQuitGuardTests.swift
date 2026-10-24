@@ -64,7 +64,8 @@ import Foundation
             // does that, so the intent has to be stated rather than fallen into.
             destinationIdentity: ItemIdentity.snapshot(at: URL(fileURLWithPath: "/dst/copied.txt"),
                                                        fileManager: mockFM),
-            overwrittenIdentity: .absent
+            overwrittenIdentity: .absent,
+            copiedLock: false
         )])
         manager.registerCopyUndo(stateResolver: resolver, actionName: "Sync copied.txt", fileManager: mockFM)
         #expect(manager.activeFileOperationsCount == 0)

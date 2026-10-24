@@ -10194,3 +10194,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s vanish=%s noFollow=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same link-following checks (`noFollow=0`) | RECORDED — not owed |
+
+---
+
+## ⌘Z of a locked file's copy puts that copy in the Trash — main only
+
+A copy of a file locked in Finder carries the lock, and the kernel refuses to Trash a locked item,
+so the copy-undo read the refusal as "busy" and asked for a retry that could never work. `main`
+lifts the lock the copy carried from its source off that copy alone (`liftCopiedLock`), and refuses
+with its own banner a lock someone put on the copy since.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s lockedCopy=%s lift=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileOperations+Primitives.swift 2>/dev/null | grep -cF 'restoreLock(lock, on: destinationURL')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'func liftCopiedLock')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads lockedCopy=4 lift=1):
+# main, v5.x, v4.x, v3.x, v2.x   lockedCopy=0 lift=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No locked-file copy at all (`lockedCopy=0`), so no locked copy to undo | CLOSED — does not apply |
