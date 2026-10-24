@@ -1174,11 +1174,43 @@ extension PDFFixtures {
         // The controls both sheets draw show it, coloured by it.
         let sheets = try ChromeGlassWiringTests.source("EditorPDFToolSheets.swift")
         let controls = try #require(sheets.range(of: "struct EditorPDFCompressControls"))
-        let body = String(sheets[controls.lowerBound...].prefix(3000))
+        let body = String(sheets[controls.lowerBound...].prefix(4000))
         #expect(body.contains("let caption = EditorPDFCompression.targetCaption(typedMegabytes)")
                 && body.contains("Text(caption.text)")
-                && body.contains(".foregroundStyle(caption.isError ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))"),
-                "the size field's line isn't the reason Save is greyed")
+                && body.contains(".foregroundStyle(caption.isError ? AnyShapeStyle(\(Self.readableRed))"),
+                "the size field's line isn't the reason Save is greyed, in the readable red")
+    }
+
+    static let readableRed = "ChromeInk.bodyText(colorScheme, SemanticColor.error)"
+
+    /// **The sheets' red sentences read at AA** (DS2): an 11- or 10-point line in bare `.red`
+    /// measured under 4.5:1 on the light window ground; the readable red clears it in both
+    /// appearances. Compress's size line, the page range's and the passwords' mismatch — no sheet
+    /// sentence is bare red.
+    @Test func theSheetsRedSentencesTakeTheReadableRed() throws {
+        func srgb(_ c: NSColor) -> NSColor { c.usingColorSpace(.sRGB) ?? c }
+        func luminance(_ c: NSColor) -> CGFloat {
+            let s = srgb(c)
+            return AccentLabel.relativeLuminance(red: s.redComponent, green: s.greenComponent, blue: s.blueComponent)
+        }
+        func contrast(_ x: NSColor, _ y: NSColor) -> CGFloat {
+            let (a, b) = (luminance(x), luminance(y))
+            return (max(a, b) + 0.05) / (min(a, b) + 0.05)
+        }
+        for dark in [false, true] {
+            let appearance = try #require(NSAppearance(named: dark ? .darkAqua : .aqua))
+            var (readable, bare): (CGFloat, CGFloat) = (0, 0)
+            appearance.performAsCurrentDrawingAppearance {
+                let ground = NSColor.windowBackgroundColor
+                readable = contrast(NSColor(ChromeInk.bodyText(dark ? .dark : .light, SemanticColor.error)), ground)
+                bare = contrast(NSColor(SemanticColor.error), ground)
+            }
+            #expect(readable >= 4.5, "\(dark ? "dark" : "light"): \(readable):1")
+            if !dark { #expect(bare < 4.5, "bare red reads \(bare):1 in light — this measures nothing") }
+        }
+        let sheets = try ChromeGlassWiringTests.source("EditorPDFToolSheets.swift")
+        #expect(sheets.components(separatedBy: "AnyShapeStyle(\(Self.readableRed))").count - 1 == 3)
+        #expect(!sheets.contains("AnyShapeStyle(.red)"), "a sheet's sentence is still bare red")
     }
 
     // MARK: The second review

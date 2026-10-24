@@ -305,6 +305,25 @@ enum ReplaceFixtures {
         #expect(EditorPDFFillSign.formReplaceReason.hasPrefix("This PDF has a fillable form."))
     }
 
+    /// **Every refusal has a menu line** (PD14): one clause under 40 characters with no full stop,
+    /// for the right-click menu's row, which does not wrap — the page's reasons and each sentence
+    /// the file's refusal can be. The long sentence stays for the note card and the tooltip.
+    @Test func everyRefusalHasAShortMenuLine() {
+        func isMenuLine(_ line: String) -> Bool { line.count < 40 && !line.contains(".") && !line.isEmpty }
+        for refusal in EditorPDFReplaceRefusal.allCases {
+            #expect(isMenuLine(refusal.menuReason) && refusal.menuReason != refusal.reason,
+                    "\(refusal): “\(refusal.menuReason)” (\(refusal.menuReason.count))")
+        }
+        let fileReasons = [EditorPDFTools.lockedReason, EditorPDFFillSign.restrictedReason,
+                           EditorPDFFillSign.nothingToFillReason, EditorPDFFillSign.formReplaceReason]
+        for reason in fileReasons {
+            let line = EditorPDFFillSign.replaceMenuLine(reason)
+            #expect(isMenuLine(line) && line != reason, "“\(reason)” → “\(line)” (\(line.count))")
+        }
+        #expect(EditorPDFFillSign.replaceMenuLine(EditorPDFTools.lockedReason) == "Remove the password first")
+        #expect(EditorPDFReplaceRefusal.brokenTextLayer.menuReason == "This page’s text doesn’t line up")
+    }
+
     /// **A fillable form turns Replace off, with its reason** (decision AV), and so does Fill & Sign's
     /// own refusal; a flat file has it.
     @Test func aFormTurnsReplaceOff() async throws {
@@ -323,6 +342,18 @@ enum ReplaceFixtures {
         #expect(row.map(\.title) == [ReaderPDFView.replaceTitle, EditorPDFFillSign.formReplaceMenuReason])
         #expect(row.allSatisfy { $0.action == nil })
         #expect(EditorPDFFillSign.formReplaceMenuReason.count < 40 && !EditorPDFFillSign.formReplaceMenuReason.contains(". "))
+        // A file locked to open, and one whose owner restricted editing: short too, not the
+        // refusal's two sentences.
+        let flatPage = try #require(flat.document?.page(at: 0))
+        let words = try #require(flatPage.selection(for: flatPage.bounds(for: .mediaBox)))
+        for (encryption, line) in [(PDFEncryptionState.lockedToOpen, "Remove the password first"),
+                                   (.restrictedOnly, EditorPDFFillSign.restrictedTitle)] {
+            let refused = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
+            refused.attach(path: flat.path!, boxes: flat.fill.boxes, encryption: encryption, allowsFilling: false)
+            try #require(refused.replaceRefusal != nil, "\(encryption) did not refuse Replace")
+            let row = try #require(ReaderPDFView.replaceItems(fill: refused, selection: words, document: flat.document))
+            #expect(row.map(\.title) == [ReaderPDFView.replaceTitle, line], "\(encryption)")
+        }
         form.fill.toggle()
         let (page, box) = try page(invoice("Any.pdf"))
         let line = try #require(EditorPDFReplace.line(at: CGPoint(x: 300, y: 604), on: page, box: box))
@@ -598,8 +629,10 @@ enum ReplaceFixtures {
     }
 
     /// **The line under the box follows View ▸ Text Size, and its chip's words read on their wash**
-    /// (PD4, DS13). Fixed 10 and 11 points ignored the setting; the bare system green and orange
-    /// on their own 16% wash measured about 1.7:1 in light.
+    /// (PD4, DS13). Fixed 10 and 11 points ignored the setting. The chip's words are drawn in the
+    /// label's ink, its hue kept to the wash: the bare system green and orange on their own 16% wash
+    /// measured 1.95:1 and 2.02:1 on the light window ground (white), and the hue made readable
+    /// (`ChromeInk.bodyText`) fell short of AA on a 0.96 sheet.
     @Test func theLineUnderTheBoxFollowsTextSizeAndItsChipReads() throws {
         let one = EditorPDFRetypeHint.fonts(scale: 1), larger = EditorPDFRetypeHint.fonts(scale: 1.5)
         #expect(one.font.pointSize == 11 && one.chip.pointSize == 10 && one.keys.pointSize == 10)
@@ -614,27 +647,44 @@ enum ReplaceFixtures {
         #expect(hint.fittingSize.height > small.height * 1.2 && hint.fittingSize.width > small.width * 1.25,
                 "\(small) → \(hint.fittingSize)")
 
+        // The ink the draw uses, read off the chip's own line.
+        let drawn = try #require(hint.chipLine.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor)
         func srgb(_ color: NSColor) -> NSColor { color.usingColorSpace(.sRGB) ?? color }
+        /// `top` over `ground` at `alpha` times its own alpha — the label's ink carries one.
+        func over(_ top: NSColor, _ alpha: CGFloat, _ ground: NSColor) -> NSColor {
+            let (t, g) = (srgb(top), srgb(ground))
+            let a = alpha * t.alphaComponent
+            func mix(_ h: CGFloat, _ b: CGFloat) -> CGFloat { h * a + b * (1 - a) }
+            return NSColor(srgbRed: mix(t.redComponent, g.redComponent), green: mix(t.greenComponent, g.greenComponent),
+                           blue: mix(t.blueComponent, g.blueComponent), alpha: 1)
+        }
         func luminance(_ c: NSColor) -> CGFloat {
             let s = srgb(c)
             return AccentLabel.relativeLuminance(red: s.redComponent, green: s.greenComponent, blue: s.blueComponent)
         }
+        func contrast(_ x: NSColor, _ y: NSColor) -> CGFloat {
+            let (l1, l2) = (luminance(x), luminance(y))
+            return (max(l1, l2) + 0.05) / (min(l1, l2) + 0.05)
+        }
+        // The card's own ground in each appearance, and in light a 0.96 sheet too.
+        let sheet = NSColor(srgbRed: 0.96, green: 0.96, blue: 0.96, alpha: 1)
         for dark in [false, true] {
             let appearance = try #require(NSAppearance(named: dark ? .darkAqua : .aqua))
             for sameFont in [true, false] {
-                var ratio: CGFloat = 0
+                var ratios: [(String, CGFloat)] = []
                 appearance.performAsCurrentDrawingAppearance {
-                    let ground = srgb(.windowBackgroundColor), hue = srgb(EditorPDFRetypeHint.chipHue(sameFont: sameFont))
-                    let a = EditorPDFRetypeHint.chipWashAlpha
-                    func mix(_ h: CGFloat, _ g: CGFloat) -> CGFloat { h * a + g * (1 - a) }
-                    let wash = NSColor(srgbRed: mix(hue.redComponent, ground.redComponent),
-                                       green: mix(hue.greenComponent, ground.greenComponent),
-                                       blue: mix(hue.blueComponent, ground.blueComponent), alpha: 1)
-                    let ink = EditorPDFRetypeHint.chipInk(sameFont: sameFont, dark: dark)
-                    let (l1, l2) = (luminance(ink), luminance(wash))
-                    ratio = (max(l1, l2) + 0.05) / (min(l1, l2) + 0.05)
+                    let grounds: [(String, NSColor)] = dark ? [("window", .windowBackgroundColor)]
+                        : [("window", .windowBackgroundColor), ("0.96", sheet)]
+                    for (name, ground) in grounds {
+                        let hue = EditorPDFRetypeHint.chipHue(sameFont: sameFont)
+                        let wash = over(hue, EditorPDFRetypeHint.chipWashAlpha, ground)
+                        ratios.append((name, contrast(over(drawn, 1, wash), wash)))
+                    }
                 }
-                #expect(ratio >= 4.5, "\(dark ? "dark" : "light") \(sameFont ? "Same font" : "Stand-in"): \(ratio):1")
+                #expect(ratios.count == (dark ? 1 : 2))
+                for (ground, ratio) in ratios {
+                    #expect(ratio >= 4.5, "\(dark ? "dark" : "light") \(ground) \(sameFont ? "Same font" : "Stand-in"): \(ratio):1")
+                }
             }
         }
     }
@@ -664,6 +714,71 @@ enum ReplaceFixtures {
         #expect(hint.scale == 1.5)
         reader.fillOverlay.textScale = 1
         #expect(hint.scale == 1, "a change of text size left the open hint at the old size")
+    }
+
+    /// **The line under the box wraps inside the reader** — at the largest text size, with a
+    /// stand-in's long line, in a reader 260 points wide, the card stays 4 points in from each edge.
+    /// Pinned at the box's left and never wrapped, it ran past the right edge.
+    @Test func theLineUnderTheBoxWrapsInsideANarrowReader() async throws {
+        let largest = CGFloat(FontSize.maximumPercent) / 100
+        let missing = invoice("Adelle narrow.pdf")
+        try ReplaceFixtures.rename(missing, font: "Helvetica", to: "Adelle-Rg")
+        let pdf = try await open(missing)
+        let (window, reader) = reader(pdf)
+        window.setContentSize(NSSize(width: 260, height: 500))
+        reader.frame = CGRect(x: 0, y: 0, width: 260, height: 500)
+        reader.layoutDocumentView()
+        reader.layoutSubtreeIfNeeded()
+        reader.fillOverlay.textScale = largest
+        pdf.fill.toggle()
+        pdf.fill.armed = .replace
+        guard case .success(let pick) = try pick(missing, at: CGPoint(x: 100, y: 604)) else { Issue.record("refused"); return }
+        _ = try #require(pdf.fill.beginCorrection(pick))
+        for _ in 0..<20 { await Task.yield() }
+        let hint = try #require(reader.fillOverlay.retypeHint, "no line under the box")
+        let overlay = reader.fillOverlay.bounds
+        try #require(overlay.width == 260, "the overlay is \(overlay.width) wide")
+        #expect(hint.lines.font.hasPrefix("Adelle isn’t on this Mac") && hint.scale == largest, "\(hint.lines.font)")
+
+        // Unbounded, the card is wider than the reader — so the bound is what keeps it in.
+        let open = EditorPDFRetypeHint()
+        open.scale = largest
+        open.lines = hint.lines
+        try #require(open.fittingSize.width > overlay.width, "the fixture's line fits unwrapped: \(open.fittingSize)")
+        #expect(hint.frame.minX >= overlay.minX + 4 && hint.frame.maxX <= overlay.maxX - 4,
+                "the card spans \(hint.frame.minX)…\(hint.frame.maxX) in a reader 0…\(overlay.width)")
+        // Wrapped, not squeezed: the font line takes more than one line, and every part sits
+        // inside the card, the chip beside the words and level with their first line.
+        let parts = hint.placement(), oneLine = EditorPDFRetypeHint.measure(
+            NSAttributedString(string: "Ag", attributes: [.font: EditorPDFRetypeHint.fonts(scale: largest).font]),
+            width: .greatestFiniteMagnitude).height
+        #expect(parts.font.height > oneLine * 1.5, "the font line is \(parts.font.height) tall, one line \(oneLine)")
+        #expect(parts.size == hint.frame.size)
+        for (name, rect) in [("font", parts.font), ("chip", parts.chip), ("keys", parts.keys)] {
+            #expect(rect.minX >= 0 && rect.maxX <= parts.size.width && rect.minY >= 0 && rect.maxY <= parts.size.height,
+                    "\(name) \(rect) in a card \(parts.size)")
+        }
+        #expect(parts.chip.minX >= parts.font.maxX && parts.chip.maxY >= parts.font.maxY - 1, "chip \(parts.chip), font \(parts.font)")
+
+        // Drawn as placed: the words reach the font line's last line, under the chip's row.
+        let rep = try #require(hint.bitmapImageRepForCachingDisplay(in: hint.bounds))
+        hint.cacheDisplay(in: hint.bounds, to: rep)
+        let px = CGFloat(rep.pixelsWide) / hint.bounds.width
+        // The card's own ground, inside its border, in whichever appearance the host runs.
+        let ground = try #require(rep.colorAt(x: Int(4 * px), y: rep.pixelsHigh / 2)).brightnessComponent
+        func ink(in rect: CGRect) -> Int {
+            var count = 0
+            for y in Int(rect.minY * px)..<Int(rect.maxY * px) {
+                for x in Int(rect.minX * px)..<Int(rect.maxX * px) {
+                    // Bitmap rows run down from the top; the card's y runs up.
+                    guard let c = rep.colorAt(x: x, y: rep.pixelsHigh - 1 - y) else { continue }
+                    if abs(c.brightnessComponent - ground) > 0.4 { count += 1 }
+                }
+            }
+            return count
+        }
+        let lastLine = CGRect(x: parts.font.minX, y: parts.font.minY, width: parts.font.width, height: oneLine)
+        #expect(ink(in: lastLine) > 20, "no words drawn on the font line's last line, \(lastLine)")
     }
 
     // MARK: Saving (TE84, TE85)
@@ -960,7 +1075,7 @@ enum ReplaceFixtures {
 
         let across = try #require(page.selection(from: CGPoint(x: 280, y: 604), to: CGPoint(x: 120, y: 584)))
         let greyed = try #require(ReaderPDFView.replaceItems(fill: pdf.fill, selection: across, document: pdf.document))
-        #expect(greyed.map(\.title) == [ReaderPDFView.replaceTitle, EditorPDFReplaceRefusal.severalLines.reason])
+        #expect(greyed.map(\.title) == [ReaderPDFView.replaceTitle, "Pick words on one line"])
         #expect(greyed.allSatisfy { $0.action == nil }, "a refused Replace Text… is live")
     }
 }

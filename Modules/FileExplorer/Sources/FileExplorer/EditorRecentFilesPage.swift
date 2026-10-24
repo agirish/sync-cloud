@@ -159,7 +159,7 @@ struct EditorRecentFilesPage<Fallback: View>: View {
                     .buttonStyle(.bordered)
                     .tint(accent)
                     .shortcutKeycap(AppChord.editorTextFiles.display)
-                    .help(ShortcutHint.tooltip("Show the folder’s files beside the document",
+                    .help(ShortcutHint.tooltip(EditorWorkspaceView.showTextFilesHelp,
                                                AppChord.editorTextFiles.display))
                 }
             }

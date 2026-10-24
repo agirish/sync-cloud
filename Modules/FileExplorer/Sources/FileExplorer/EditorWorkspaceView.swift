@@ -1363,6 +1363,8 @@ public struct EditorWorkspaceView: View {
 
     /// The empty page's button while the list is folded (TE77).
     static let showTextFilesTitle = "Show File List"
+    /// Its tooltip — one sentence for the empty page and the Recent page, which both draw the button.
+    static let showTextFilesHelp = "Show the folder’s text files and PDFs in a list"
 
     /// What the empty page's header says in place of a file name.
     static let emptyTitle = "No document open"
@@ -2475,8 +2477,7 @@ public struct EditorWorkspaceView: View {
                 .buttonStyle(.bordered)
                 .tint(accent)
                 .shortcutKeycap(AppChord.editorTextFiles.display)
-                .help(ShortcutHint.tooltip("Show the folder’s text files and PDFs in a list",
-                                           AppChord.editorTextFiles.display))
+                .help(ShortcutHint.tooltip(Self.showTextFilesHelp, AppChord.editorTextFiles.display))
             }
             if !refusalButtons.isEmpty {
                 // Side by side where they fit, stacked in a narrow column.

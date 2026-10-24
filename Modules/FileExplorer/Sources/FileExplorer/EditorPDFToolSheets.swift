@@ -156,6 +156,8 @@ struct EditorPDFPageRangeSheet: View {
     let action: EditorPDFPageAction
     @State var typed: String
     @State private var failure: String?
+    /// For the caption's readable red.
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let parsed = Self.parse(typed, action: action, pageCount: tools.pageCount, arrangement: tools.arrangement)
@@ -172,9 +174,11 @@ struct EditorPDFPageRangeSheet: View {
                           : "Type pages and ranges split by commas, like “1, 4-6” — the order doesn’t matter")
                 Text(parsed.caption)
                     .scaledFont(.system(size: 11))
-                    // Blank is not an error yet — it is where an empty selection starts.
-                    .foregroundStyle(parsed.pages == nil && !parsed.isBlank ? AnyShapeStyle(.red)
-                                                                            : AnyShapeStyle(.secondary))
+                    // Blank is not an error yet — it is where an empty selection starts. The readable
+                    // red, as a sentence takes it (DS2).
+                    .foregroundStyle(parsed.pages == nil && !parsed.isBlank
+                                     ? AnyShapeStyle(ChromeInk.bodyText(colorScheme, SemanticColor.error))
+                                     : AnyShapeStyle(.secondary))
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -288,6 +292,8 @@ struct EditorPDFCompressControls: View {
     var perFile = false
     /// The window's hue, for the segmented picker — `accentedSegments` takes the hue itself.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
+    /// For the size line's readable red.
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Picker("", selection: $byTarget) {
@@ -308,11 +314,13 @@ struct EditorPDFCompressControls: View {
                     .multilineTextAlignment(.trailing)
                 Text("MB")
             }
-            // Why Save is greyed, in red as the page-range sheet says it (PD9).
+            // Why Save is greyed, in red as the page-range sheet says it (PD9) — the readable red: a
+            // sentence at 11 points, where bare `.red` falls short of 4.5:1 (DS2).
             let caption = EditorPDFCompression.targetCaption(typedMegabytes)
             Text(caption.text)
                 .scaledFont(.system(size: 11))
-                .foregroundStyle(caption.isError ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                .foregroundStyle(caption.isError ? AnyShapeStyle(ChromeInk.bodyText(colorScheme, SemanticColor.error))
+                                                 : AnyShapeStyle(.secondary))
                 .fixedSize(horizontal: false, vertical: true)
         } else {
             Picker("", selection: $quality) {
@@ -495,6 +503,8 @@ struct EditorPDFProtectSheet: View {
     @State private var failure: String?
     /// The window's hue, for the segmented picker — `accentedSegments` takes the hue itself.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
+    /// For the mismatch line's readable red.
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let strength = PasswordStrengthEstimator.estimate(password)
@@ -530,7 +540,10 @@ struct EditorPDFProtectSheet: View {
                     EditorPDFStrengthMeter(strength: strength)
                     Text(!confirmation.isEmpty && !matches ? "The passwords don’t match." : strength.label)
                         .scaledFont(.system(size: 10))
-                        .foregroundStyle(!confirmation.isEmpty && !matches ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                        // The readable red, as a sentence takes it (DS2).
+                        .foregroundStyle(!confirmation.isEmpty && !matches
+                                         ? AnyShapeStyle(ChromeInk.bodyText(colorScheme, SemanticColor.error))
+                                         : AnyShapeStyle(.secondary))
                 }
             }
         }

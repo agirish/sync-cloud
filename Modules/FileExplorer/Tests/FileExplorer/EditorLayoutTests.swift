@@ -564,6 +564,17 @@ import FileExplorerTestSupport
                 "one unopenable file reads the same as an empty folder: \(one)")
     }
 
+    /// **A count past a thousand is grouped** (ED15) — "None of the 1,200 files", not "1200".
+    @Test func theEmptyRailGroupsALargeCount() throws {
+        let grouped = 1_200.formatted()
+        try #require(grouped != "1200", "this locale groups no digits — this measures nothing")
+        let many = EditorFileRailView.fileEmptyCaption(folderName: "Scans", anyEntries: false,
+                                                       filter: "", otherFiles: 1_200)
+        #expect(many == "None of the \(grouped) files in this folder are ones Edit opens. The + button makes a text file.",
+                "\(many)")
+        #expect(!many.contains("1200"), "\(many)")
+    }
+
     /// An empty outline is a caption, not a blank card.
     ///
     /// **Asserted as a difference, not as a height floor.** A floor is what this was first written

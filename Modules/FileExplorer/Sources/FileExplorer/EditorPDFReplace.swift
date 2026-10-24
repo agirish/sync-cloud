@@ -92,7 +92,7 @@ public struct EditorPDFReplacePick: Equatable, Sendable {
 
 /// **Why Replace says no** (TE87), each in words the reader is told — the tool's tooltip, the
 /// right-click item's line, the note card after a click.
-public enum EditorPDFReplaceRefusal: Error, Equatable, Sendable {
+public enum EditorPDFReplaceRefusal: Error, Equatable, Sendable, CaseIterable {
     case noText
     case severalLines
     case brokenTextLayer
@@ -107,6 +107,19 @@ public enum EditorPDFReplaceRefusal: Error, Equatable, Sendable {
             return "This page’s text doesn’t line up with what’s printed, so the patch would land in the wrong place."
         case .notAcross: return "These words don’t run across the page, so new words can’t be set over them."
         case .inFormField: return "These words are inside a form field. Fill it with Form Fields instead."
+        }
+    }
+
+    /// **The same, as the right-click menu's line** (PD14) — one clause, no full stop: a menu row
+    /// does not wrap, and the long ones ran as wide rows. The note card and the tooltip keep
+    /// ``reason``.
+    public var menuReason: String {
+        switch self {
+        case .noText: return "No text on this page"
+        case .severalLines: return "Pick words on one line"
+        case .brokenTextLayer: return "This page’s text doesn’t line up"
+        case .notAcross: return "These words don’t run across the page"
+        case .inFormField: return "These words are in a form field"
         }
     }
 }
@@ -583,6 +596,13 @@ final class EditorPDFRetypeHint: NSView {
         didSet { if scale != oldValue { invalidateIntrinsicContentSize(); needsDisplay = true } }
     }
 
+    /// **The widest the card may be** — the reader's width less its margins, set by the overlay. The
+    /// font line and the keys wrap inside it: pinned at the box's left and never wrapped, the card
+    /// ran past the reader's right edge at a large text size or a long font name.
+    var maxWidth: CGFloat = .greatestFiniteMagnitude {
+        didSet { if maxWidth != oldValue { invalidateIntrinsicContentSize(); needsDisplay = true } }
+    }
+
     static let sameFontChip = "Same font"
     static let standInChip = "Stand-in"
     static let keysLine = "Return to place · Esc to cancel"
@@ -615,29 +635,29 @@ final class EditorPDFRetypeHint: NSView {
          ScaledFont.system(size: 10).nsFont(scale: scale))
     }
 
-    /// The chip's hue: green for the original font, orange for a stand-in. It colours the wash.
+    /// The chip's hue: green for the original font, orange for a stand-in. It colours the wash, and
+    /// only the wash.
     static func chipHue(sameFont: Bool) -> NSColor { sameFont ? .systemGreen : .systemOrange }
 
     /// How strongly the hue washes the chip.
     static let chipWashAlpha: CGFloat = 0.16
 
-    /// **The chip's words, in its hue made readable as text** (PD4, DS13) — the app's one path for a
-    /// semantic colour as body text (`ChromeInk.bodyText`, decision RD46). The bare system green
-    /// and orange on their own wash measured about 1.7:1 in light.
-    static func chipInk(sameFont: Bool, dark: Bool) -> NSColor {
-        NSColor(ChromeInk.bodyText(dark ? .dark : .light, Color(nsColor: chipHue(sameFont: sameFont))))
-    }
-
-    private var isDark: Bool { effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua }
+    /// **The chip's words, in the label's ink** (PD4, DS13; RD46 — no new colours): the hue stays in
+    /// the wash. Measured on the light window ground (white) and a 0.96 sheet, green then orange:
+    /// the bare hue on its own wash read 1.95:1 and 2.02:1 on white, 1.80:1 and 1.87:1 on 0.96; the
+    /// hue made readable (`ChromeInk.bodyText`) 4.85:1 and 4.84:1 on white but 4.49:1 and 4.47:1 on
+    /// 0.96. The label's ink reads above 12:1 on both, and above 9:1 on the dark window ground.
+    static let chipInk: NSColor = .labelColor
 
     private var fontLine: NSAttributedString {
         NSAttributedString(string: lines.font, attributes: [.font: Self.fonts(scale: scale).font, .foregroundColor: NSColor.labelColor])
     }
 
-    private var chipLine: NSAttributedString {
+    /// The chip's words as drawn — internal so a test reads the ink the draw uses.
+    var chipLine: NSAttributedString {
         NSAttributedString(string: lines.chip, attributes: [
             .font: Self.fonts(scale: scale).chip,
-            .foregroundColor: Self.chipInk(sameFont: lines.sameFont, dark: isDark),
+            .foregroundColor: Self.chipInk,
         ])
     }
 
@@ -645,12 +665,50 @@ final class EditorPDFRetypeHint: NSView {
         NSAttributedString(string: lines.keys, attributes: [.font: Self.fonts(scale: scale).keys, .foregroundColor: NSColor.secondaryLabelColor])
     }
 
-    override var intrinsicContentSize: NSSize {
-        let first = fontLine.size(), chip = chipLine.size(), keys = keysLine.size()
-        let width = max(first.width + 6 + chip.width + 12, keys.width)
-        return NSSize(width: ceil(width + 2 * Self.padding.width),
-                      height: ceil(max(first.height, chip.height + 2) + Self.gap + keys.height + 2 * Self.padding.height))
+    /// **Where each part of the card goes**, y up as the view draws: the font line, wrapped to the
+    /// room ``maxWidth`` leaves beside the chip; the chip, level with its first line; the keys under
+    /// them, wrapped to the card. `wrap` is the width each wrapped line was measured in.
+    struct Layout {
+        var size: NSSize
+        var font: CGRect
+        var chip: CGRect
+        var keys: CGRect
+        var wrap: (font: CGFloat, keys: CGFloat)
     }
+
+    /// The narrowest the words beside the chip are squeezed to, so a reader narrower than the card
+    /// still gets a word or two a line rather than a letter.
+    static let narrowestFontRoom: CGFloat = 60
+
+    func placement() -> Layout {
+        let pad = Self.padding
+        let chip = chipLine.size(), oneLine = ceil(fontLine.size().height)
+        let chipBox = CGSize(width: ceil(chip.width) + 12, height: ceil(chip.height) + 2)
+        let room = max(maxWidth - 2 * pad.width, chipBox.width + 6 + Self.narrowestFontRoom)
+        let fontRoom = room - 6 - chipBox.width
+        let font = Self.measure(fontLine, width: fontRoom), keys = Self.measure(keysLine, width: room)
+        let firstLine = max(oneLine, chipBox.height)
+        // The font line's first line is centred on the chip, as it was on one line.
+        let inset = (firstLine - oneLine) / 2
+        let row = max(firstLine, inset + font.height)
+        let size = NSSize(width: ceil(max(font.width + 6 + chipBox.width, keys.width) + 2 * pad.width),
+                          height: ceil(row + Self.gap + keys.height + 2 * pad.height))
+        let top = size.height - pad.height
+        return Layout(size: size,
+                      font: CGRect(x: pad.width, y: top - inset - font.height, width: font.width, height: font.height),
+                      chip: CGRect(x: pad.width + font.width + 6, y: top - firstLine, width: chipBox.width, height: firstLine),
+                      keys: CGRect(x: pad.width, y: pad.height, width: keys.width, height: keys.height),
+                      wrap: (fontRoom, room))
+    }
+
+    /// `text`'s size wrapped to `width`, rounded up to whole points.
+    static func measure(_ text: NSAttributedString, width: CGFloat) -> CGSize {
+        let box = text.boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude),
+                                    options: [.usesLineFragmentOrigin, .usesFontLeading])
+        return CGSize(width: ceil(box.width), height: ceil(box.height))
+    }
+
+    override var intrinsicContentSize: NSSize { placement().size }
 
     override var fittingSize: NSSize { intrinsicContentSize }
 
@@ -661,17 +719,14 @@ final class EditorPDFRetypeHint: NSView {
         ground.fill()
         NSColor.separatorColor.setStroke()
         ground.stroke()
-        let first = fontLine, chip = chipLine, keys = keysLine
-        let firstSize = first.size(), chipSize = chip.size()
-        let pad = Self.padding
-        let top = bounds.maxY - pad.height
-        let lineHeight = max(firstSize.height, chipSize.height + 2)
-        first.draw(at: CGPoint(x: pad.width, y: top - lineHeight + (lineHeight - firstSize.height) / 2))
-        let chipRect = CGRect(x: pad.width + firstSize.width + 6, y: top - lineHeight, width: chipSize.width + 12, height: lineHeight)
+        let parts = placement(), chip = chipLine, chipSize = chip.size()
+        // Drawn in the width each was measured in, so it wraps where the size said it would.
+        fontLine.draw(in: CGRect(x: parts.font.minX, y: parts.font.minY, width: parts.wrap.font, height: parts.font.height))
         Self.chipHue(sameFont: lines.sameFont).withAlphaComponent(Self.chipWashAlpha).setFill()
-        NSBezierPath(roundedRect: chipRect, xRadius: lineHeight / 2, yRadius: lineHeight / 2).fill()
-        chip.draw(at: CGPoint(x: chipRect.minX + 6, y: chipRect.midY - chipSize.height / 2))
-        keys.draw(at: CGPoint(x: pad.width, y: pad.height))
+        let radius = parts.chip.height / 2
+        NSBezierPath(roundedRect: parts.chip, xRadius: radius, yRadius: radius).fill()
+        chip.draw(at: CGPoint(x: parts.chip.minX + 6, y: parts.chip.midY - chipSize.height / 2))
+        keysLine.draw(in: CGRect(x: parts.keys.minX, y: parts.keys.minY, width: parts.wrap.keys, height: parts.keys.height))
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }

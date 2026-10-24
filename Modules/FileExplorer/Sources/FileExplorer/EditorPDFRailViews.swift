@@ -314,8 +314,11 @@ struct EditorPDFPageMenu: View {
     }
 
     /// "Rotate 3 Selected Pages Left" — the pages named as Delete and Extract name them, beside them.
-    /// Flat here, where the Tools menu nests them: this menu has one target, that one two. The half
-    /// turn is passed as "by 180°", so the page number and the angle never sit side by side.
+    /// Not the Tools menu's words: there the pages name a submenu ("Rotate Page 5", "Rotate 3
+    /// Selected Pages") holding Rotate Left, Rotate Right and Rotate 180°. Flat here — this menu has
+    /// one target, that one two — so the submenu's name and the turn make one title, and the half
+    /// turn is passed as "by 180°" ("Rotate Page 5 by 180°"), so the page number and the angle never
+    /// sit side by side.
     static func rotateTitle(_ pages: [Int], _ way: String) -> String {
         pages.count == 1 ? "Rotate Page \(pages[0] + 1) \(way)" : "Rotate \(pages.count) Selected Pages \(way)"
     }

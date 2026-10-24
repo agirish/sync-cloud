@@ -548,6 +548,10 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
     /// How far right of its frame a borderless field draws its text.
     static let fieldTextInset: CGFloat = 2
 
+    /// The widest the retype hint may be in a view of `bounds`: the view less 4 points a side, the
+    /// margin its placement keeps.
+    static func retypeHintWidth(in bounds: CGRect) -> CGFloat { max(0, bounds.width - 8) }
+
     /// **The line under the retype box** (TE83): which font the new words use, and whether it is
     /// the original — or gone when no correction is being typed.
     private func layoutRetypeHint(for item: EditorPDFFillItem?, under frame: CGRect) {
@@ -564,6 +568,8 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         }()
         hint.scale = textScale
         hint.lines = EditorPDFRetypeHint.lines(for: item, correction: correction)
+        // Wrapped to the view, 4 points in from each side, so it never runs past the right edge.
+        hint.maxWidth = Self.retypeHintWidth(in: bounds)
         let size = hint.fittingSize
         // Below the box — above it when the box is near the bottom of the view.
         let y = isFlipped ? frame.maxY + 4 : frame.minY - 4 - size.height

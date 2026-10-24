@@ -377,7 +377,7 @@ import EventsTestSupport
     /// **A Replace All that could not make every match says how many** (review V9): the reason was
     /// dropped on the way to the status line, which said the generic sentence over a refusal that
     /// had replaced nothing at all.
-    @Test func aRefusedReplaceAllSaysHowManyMatchesNeedSource() {
+    @Test func aRefusedReplaceAllSaysHowManyMatchesNeedSource() throws {
         let hint = EditorStatusHint(token: 1, onShowInSource: {}, reason: .replaceAll(failed: 2, of: 5))
         #expect(hint.sentence(.sentence) == "2 of 5 matches need Source — none were replaced.")
         #expect(hint.sentence(.short) == "2 of 5 need Source.")
@@ -388,6 +388,13 @@ import EventsTestSupport
         #expect(one.sentence(.short) == "1 of 1 needs Source.")
         let oneOfMany = EditorStatusHint(token: 1, onShowInSource: {}, reason: .replaceAll(failed: 1, of: 1_204))
         #expect(oneOfMany.sentence(.sentence) == "1 of 1,204 matches needs Source — none were replaced.")
+        // Both counts past a thousand are grouped, as the rest of Edit's counts are (ED15).
+        let (many, all) = (1_200.formatted(), 12_500.formatted())
+        try #require(many != "1200", "this locale groups no digits — the case below measures nothing")
+        let large = EditorStatusHint(token: 1, onShowInSource: {}, reason: .replaceAll(failed: 1_200, of: 12_500))
+        #expect(large.sentence(.sentence) == "\(many) of \(all) matches need Source — none were replaced.")
+        #expect(large.sentence(.short) == "\(many) of \(all) need Source.")
+        #expect(large.sentence(.sentence)?.contains("1200") == false)
         let plain = EditorStatusHint(token: 1, onShowInSource: {}, reason: .joinsBlocks)
         #expect(plain.sentence(.sentence) == EditorStatusHint.needsSource)
         #expect(plain.sentence(.short) == EditorStatusHint.needsSourceShort)

@@ -190,7 +190,7 @@ public enum EditorPDFTool: Equatable, Sendable {
         switch self {
         case .rotate: return "rotated"
         // "page removed" for one page, as Extract says "page 3" for one.
-        case .deletePages(let pages): return pages.count == 1 ? "page removed" : "pages removed"
+        case .deletePages(let pages): return pages.count == 1 ? Self.pageRemoved : Self.pagesRemoved
         case .reorder: return "reordered"
         case .extract(let pages): return EditorPDFCopyName.extractSuffix(pages)
         case .compress: return "compressed"
@@ -212,6 +212,10 @@ public enum EditorPDFTool: Equatable, Sendable {
         case .arranged(_, let then): return "\(Self.reorder([]).suffix), \(then.suffix)"
         }
     }
+
+    /// Delete's word, by count — one word to a copy of a copy (``EditorPDFCopyName/withoutSuffix(_:_:)``).
+    static let pageRemoved = "page removed"
+    static let pagesRemoved = "pages removed"
 
     /// **How this tool damages a form — pdf-utils' choice per tool, copied rather than re-derived.**
     /// Its tool views pass `.formFlattened` for Compress and Fill & Sign (`FillSignToolView`, which
@@ -420,16 +424,30 @@ enum EditorPDFCopyName {
     }
 
     /// `base` without a closing " (<suffix>)" or " (<suffix>) N" — the word, and the keep-both
-    /// rule's number after it.
+    /// rule's number after it. Either spelling of Delete's word counts as the word: deleting one page
+    /// from "Lease (pages removed).pdf" wants "Lease (page removed).pdf", not "… (pages removed)
+    /// (page removed).pdf".
     static func withoutSuffix(_ base: String, _ suffix: String) -> String {
         var rest = Substring(base)
         if let space = rest.lastIndex(of: " "), case let number = rest[rest.index(after: space)...],
            !number.isEmpty, number.allSatisfy({ $0.isASCII && $0.isNumber }), rest[..<space].hasSuffix(")") {
             rest = rest[..<space]
         }
-        let word = " (\(suffix))"
-        guard rest.hasSuffix(word), rest.count > word.count else { return base }
-        return String(rest.dropLast(word.count))
+        for spelling in spellings(suffix) {
+            let word = " (\(spelling))"
+            if rest.hasSuffix(word), rest.count > word.count { return String(rest.dropLast(word.count)) }
+        }
+        return base
+    }
+
+    /// The spellings `suffix` goes by: itself, and for Delete's word — alone or after the reorder's
+    /// ("reordered, page removed") — its other count.
+    static func spellings(_ suffix: String) -> [String] {
+        let (one, many) = (EditorPDFTool.pageRemoved, EditorPDFTool.pagesRemoved)
+        for (said, other) in [(one, many), (many, one)] where suffix == said || suffix.hasSuffix(", " + said) {
+            return [suffix, String(suffix.dropLast(said.count)) + other]
+        }
+        return [suffix]
     }
 }
 

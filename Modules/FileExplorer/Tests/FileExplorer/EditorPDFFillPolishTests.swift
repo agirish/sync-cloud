@@ -234,6 +234,9 @@ import Sync
     @Test func aFieldOnAFormThatForbidsCommentingDoesNotSign() throws {
         let fill = fill(fields: [Self.nameField, Self.signatureField], allowsCommenting: false)
         #expect(fill.isOn && !fill.offersPlacing)
+        // Replace is off for the form, and says so in the form's words: no placing implies a form.
+        #expect(fill.replaceRefusal == EditorPDFFillSign.formReplaceReason)
+        #expect(fill.replaceMenuReason == EditorPDFFillSign.formReplaceMenuReason)
         #expect(!fill.signs(Self.signatureField))
         #expect(fill.fieldRefusal(Self.signatureField) == EditorPDFForm.signFieldRefusal)
         let target = try #require(fill.signingTarget(for: Self.signatureField.widgets[0]))

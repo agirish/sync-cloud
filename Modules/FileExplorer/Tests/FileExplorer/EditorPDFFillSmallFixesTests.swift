@@ -161,6 +161,17 @@ import Sync
         #expect(first("(signed).pdf") == "(signed) (signed).pdf")
         #expect(first("Invoice (reordered, rotated).pdf", "reordered, rotated") == "Invoice (reordered, rotated).pdf")
         #expect(first("Lease (pages removed) 3.pdf", "pages removed") == "Lease (pages removed).pdf")
+        // Delete's word by count is one word: either spelling is replaced, not told again (Y6).
+        let one = EditorPDFTool.deletePages([0]).suffix, two = EditorPDFTool.deletePages([0, 1]).suffix
+        #expect((one, two) == ("page removed", "pages removed"))
+        #expect(first("Lease (pages removed).pdf", one) == "Lease (page removed).pdf")
+        #expect(first("Lease (page removed).pdf", two) == "Lease (pages removed).pdf")
+        #expect(first("Lease (pages removed) 2.pdf", one) == "Lease (page removed).pdf")
+        #expect(first("Four (reordered, pages removed).pdf", "reordered, page removed") == "Four (reordered, page removed).pdf")
+        #expect(first("Four (reordered, page removed).pdf", "reordered, pages removed") == "Four (reordered, pages removed).pdf")
+        // Only Delete's word has two spellings, and only as a whole word.
+        #expect(first("Lease (pages removed).pdf", "rotated") == "Lease (pages removed) (rotated).pdf")
+        #expect(first("Lease (unpages removed).pdf", one) == "Lease (unpages removed) (page removed).pdf")
     }
 
     /// **On disk: signing "Lease (signed).pdf" writes "Lease (signed) 2.pdf", then "… 3.pdf"** —

@@ -1247,13 +1247,14 @@ public final class EditorPDFFillSign: ObservableObject {
 
     // MARK: Replace (TE82–TE87)
 
-    /// **Why Replace is off for this file**, or `nil` (TE87): Fill & Sign's own refusal, an owner who
-    /// forbids adding to the pages, or a fillable form — where Fill & Sign keeps what is placed as
-    /// notes another app can delete, so a correction would peel off (decision AV, 2026-10-20).
+    /// **Why Replace is off for this file**, or `nil` (TE87): Fill & Sign's own refusal, or a
+    /// fillable form — where Fill & Sign keeps what is placed as notes another app can delete, so a
+    /// correction would peel off (decision AV, 2026-10-20). An owner who forbids adding to the pages
+    /// needs no line of its own: ``offersPlacing`` is false only on a form, which the form's line
+    /// refuses, and `attach` refuses such an owner's file without one outright (``refusal``).
     public var replaceRefusal: String? {
         if let refusal { return refusal }
         if form.hasFields { return Self.formReplaceReason }
-        if !offersPlacing { return Self.noCommentingReason + "." }
         return nil
     }
 
@@ -1264,18 +1265,21 @@ public final class EditorPDFFillSign: ObservableObject {
     /// menu says it short, as the Tools menu keeps its reasons short; the palette and its tooltip
     /// keep ``replaceRefusal``'s full sentences. Read from ``replaceRefusal`` so the two agree on
     /// whether Replace is off.
-    var replaceMenuReason: String? {
-        replaceRefusal.map { reason in
-            switch reason {
-            case Self.formReplaceReason: return Self.formReplaceMenuReason
-            case Self.noCommentingReason + ".": return Self.noCommentingMenuReason
-            default: return menuReason ?? reason
-            }
+    var replaceMenuReason: String? { replaceRefusal.map(Self.replaceMenuLine) }
+
+    /// Each of ``replaceRefusal``'s sentences as one short clause: the form's, the locked file's —
+    /// whose two sentences ran as a wide row too — and the alert's title for an owner's restriction.
+    static func replaceMenuLine(_ reason: String) -> String {
+        switch reason {
+        case formReplaceReason: return formReplaceMenuReason
+        case EditorPDFTools.lockedReason: return lockedMenuReason
+        case restrictedReason, nothingToFillReason: return restrictedTitle
+        default: return reason
         }
     }
 
     static let formReplaceMenuReason = "Off for a PDF with a fillable form"
-    static let noCommentingMenuReason = "Its owner doesn’t allow adding to its pages"
+    static let lockedMenuReason = "Remove the password first"
 
     /// **The words a click or a right-click picked, opened for retyping** (TE83): a box exactly
     /// over them, holding them, in their size and ink — and their font when this Mac has it. Return

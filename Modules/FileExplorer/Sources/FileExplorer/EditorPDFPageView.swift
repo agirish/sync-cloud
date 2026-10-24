@@ -136,9 +136,10 @@ final class ReaderPDFView: PDFView {
         }
         let reason: String?
         switch (fill.replaceRefusal, outcome) {
-        // The file's refusal, short: this is a menu row, which does not wrap (PD14).
+        // Short, the file's refusal and the page's alike: this is a menu row, which does not wrap
+        // (PD14).
         case (_?, _): reason = fill.replaceMenuReason
-        case (nil, .failure(let refusal)): reason = refusal.reason
+        case (nil, .failure(let refusal)): reason = refusal.menuReason
         case (nil, .success): reason = nil
         }
         guard let reason else {

@@ -9261,9 +9261,11 @@ Five Edit behaviour and layout defects from the v6.1 review (PD4, PD5, PD9, PD14
 fixes landed with them (ED6, ED7, ED9, ED11, ED12, ED14, ED15, PD1, PD7, PD8, PD11) are not tracked.
 
 - **Replace's retype hint** drew in fixed 10 and 11 points whatever View ▸ Text Size said, and its
-  "Same font" / "Stand-in" chip in bare system green and orange on their own wash — about 1.7:1 in
-  light. `main` resolves its fonts through `ScaledFont.nsFont(scale:)`, the text size handed down
-  from `EditorPDFPageView`, and draws the chip's words through `ChromeInk.bodyText`.
+  "Same font" / "Stand-in" chip in bare system green and orange on their own wash — 1.95:1 and
+  2.02:1 on the light window ground (white). `main` resolves its fonts through
+  `ScaledFont.nsFont(scale:)`, the text size handed down from `EditorPDFPageView`, and draws the
+  chip's words in the label's ink, the hue kept to the wash (`ChromeInk.bodyText` read 4.49:1 on a
+  0.96 sheet).
 - **Compress ▸ To a size** greyed Save with nothing said for 0, a word or an empty field. `main`
   says why in red under the field (`EditorPDFCompression.targetCaption`), from the rule the button
   greys by, in one file's sheet and a batch's.
