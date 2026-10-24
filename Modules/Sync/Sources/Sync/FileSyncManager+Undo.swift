@@ -74,8 +74,12 @@ extension FileSyncManager {
     /// when it found `liveLocation` saying "ten".
     ///
     /// `overwrittenIdentity`: the Trash backup's identity at registration, as for the copy (FR27).
+    ///
+    /// `emptiedByMerge`: the item is a source folder a move's merge emptied and put in the Trash
+    /// (FR35), so its redo may trash it again only under the merge's own rule — see
+    /// `MoveRedoParam`.
     typealias MoveUndoItemState = (from: URL, to: URL, overwritten: URL?, movedIdentity: ItemIdentity,
-                                   overwrittenIdentity: ItemIdentity)
+                                   overwrittenIdentity: ItemIdentity, emptiedByMerge: Bool)
     /// What a move-REDO needs to re-apply one item: where its undo put the item back, where the
     /// original move had sent it, and the identity read at `from` the instant the undo landed it
     /// there.
@@ -89,7 +93,13 @@ extension FileSyncManager {
     /// `destinationIdentity` is what the undo left at `to` once it had settled — the original it
     /// restored there, or `.absent` — so the redo can tell that item, which the original move
     /// replaced with the user's say-so, from one that has arrived since (FR25).
-    typealias MoveRedoParam = (from: URL, to: URL, sourceIdentity: ItemIdentity, destinationIdentity: ItemIdentity)
+    ///
+    /// `emptiedByMerge` marks a source folder a merge emptied and trashed (FR35). The merge trashed
+    /// it only once nothing but a `.DS_Store` was left in it, and its redo holds to the same rule
+    /// at its own move: a child whose redo was refused is still inside, and moving the folder to
+    /// the Trash would carry that child with it under a banner saying it was left in place.
+    typealias MoveRedoParam = (from: URL, to: URL, sourceIdentity: ItemIdentity, destinationIdentity: ItemIdentity,
+                               emptiedByMerge: Bool)
     /// What a copy-REDO needs to re-apply one item: the copy's source and destination, and what the
     /// undo left at the destination — the original it restored, or `.absent` (FR25).
     typealias CopyRedoParam = (source: URL, destination: URL, destinationIdentity: ItemIdentity)
@@ -362,6 +372,22 @@ extension FileSyncManager {
         await MainActor.run {
             Logger.shared.error(logMessage)
             target.banner = .warning(bannerMessage)
+        }
+    }
+
+    /// Surfaces a merge-emptied source folder (FR35) whose redo left it in place because it is no
+    /// longer empty: something the redo did not move — a child it refused, or an item put there
+    /// since — is inside, and trashing the folder would take that with it.
+    nonisolated static func reportRedoLeftMergeSourceFolder(
+        _ folder: URL,
+        actionName: String,
+        on target: FileSyncManager
+    ) async {
+        let name = folder.lastPathComponent
+        let logMessage = "Redo (\(actionName)): left \"\(name)\" at \(folder.path) in place rather than move it to the Trash — the merge trashed it only once it was empty, and it still holds items this redo did not move"
+        await MainActor.run {
+            Logger.shared.error(logMessage)
+            target.banner = .warning("Redo left \"\(name)\" in place — it still holds items the redo didn't move")
         }
     }
 
@@ -695,11 +721,25 @@ extension FileSyncManager {
     /// identity is its own date and child count, and Finder writes a `.DS_Store` into a folder the
     /// user merely opens — in the Trash as anywhere — which moves both: a ⌘Z after a look at the
     /// Trash would then refuse the folder it put there. `deepSnapshot` digests the descendants and
-    /// skips `.DS_Store` and the other OS noise, so a stranger folder still differs and a browsed
-    /// one does not. Its cost is a stat-only walk, which is why every registration that reads this
-    /// for a whole batch reads it off the main actor.
+    /// skips `.DS_Store` and the other OS noise, so a browsed folder does not differ and a stranger
+    /// folder with other contents does. A stranger with the SAME contents — two empty folders —
+    /// does not differ by its contents; the one backup that is always empty, a merge's emptied
+    /// source folder, is read by `mergeEmptiedFolderIdentity` instead. Its cost is a stat-only
+    /// walk, which is why every registration that reads this for a whole batch reads it off the
+    /// main actor.
     nonisolated static func backupIdentity(_ backup: URL?, fileManager fm: FileManaging) -> ItemIdentity {
         backup.map { ItemIdentity.deepSnapshot(at: $0, fileManager: fm) } ?? .absent
+    }
+
+    /// What sits at the Trash location of a source folder a merge emptied and trashed (FR35):
+    /// `backupIdentity`'s deep rule plus the folder's own file number
+    /// (`ItemIdentity.directoryTreeAndFileNumber`). The merge trashes the folder only once nothing
+    /// but a `.DS_Store` is left in it, so its contents say nothing about WHICH folder it is: empty
+    /// the Trash, trash some other empty folder of that name, and ⌘Z pulled that one out as the
+    /// source. The number survives the move into the Trash and Finder's `.DS_Store`, so the real
+    /// folder, browsed or not, still comes back.
+    nonisolated static func mergeEmptiedFolderIdentity(_ folder: URL, fileManager fm: FileManaging) -> ItemIdentity {
+        ItemIdentity.deepSnapshotWithFileNumber(at: folder, fileManager: fm)
     }
 
     /// **Is the item at a Trash backup's location still the one this operation put there?** (FR27)
@@ -970,8 +1010,12 @@ extension FileSyncManager {
     ///
     /// The returned task completes when the state is fully recorded, the backups' identities
     /// included; callers may discard it (`registerCopyUndo(items:)` explains the contract).
+    ///
+    /// `mergeEmptiedFolders` names, by their Trash location (`to`), the items that are source
+    /// folders a merge emptied and trashed (FR35); see `MoveRedoParam.emptiedByMerge`.
     @discardableResult
-    func registerMoveUndo(items: [MoveItemState], actionName: String, fileManager fm: FileManaging = FileManager.default) -> Task<Void, Never> {
+    func registerMoveUndo(items: [MoveItemState], mergeEmptiedFolders: Set<URL> = [], actionName: String,
+                          fileManager fm: FileManaging = FileManager.default) -> Task<Void, Never> {
         // Snapshots each moved item's identity HERE, at registration time — the move has already
         // happened, so the item this undo is responsible for is on disk — so the handler can
         // refuse to move back something that is no longer it.
@@ -1004,16 +1048,27 @@ extension FileSyncManager {
              movedIdentity: ItemIdentity.snapshot(
                 at: FileSyncManager.liveLocation(of: item.to, throughRenames: renames, fileManager: fm),
                 fileManager: fm),
-             overwrittenIdentity: ItemIdentity.absent)
+             overwrittenIdentity: ItemIdentity.absent,
+             emptiedByMerge: mergeEmptiedFolders.contains(item.to))
         }
         let resolver = AsyncValueResolver<[MoveUndoItemState]>()
         registerMoveUndo(stateResolver: resolver, actionName: actionName, fileManager: fm)
         // The backups' identities (FR27) are a walk per replaced FOLDER, so they are read off the
         // main actor; the undo is already registered and its handler waits on the resolver.
+        //
+        // A source folder a merge trashed (FR35) is a Trash backup too, and gets the same rule:
+        // DEEP, OS noise ignored (`backupIdentity`). Its shallow identity is the folder's own date
+        // and child count, which the `.DS_Store` Finder writes into a folder the user merely opens
+        // in the Trash moves — and ⌘Z then refused the original folder as "changed since". And
+        // its own file number, because its contents are the same as any other empty folder's
+        // (`mergeEmptiedFolderIdentity`).
         return Task.detached(priority: .userInitiated) {
             let withBackups: [MoveUndoItemState] = enriched.map { item in
-                (from: item.from, to: item.to, overwritten: item.overwritten, movedIdentity: item.movedIdentity,
-                 overwrittenIdentity: FileSyncManager.backupIdentity(item.overwritten, fileManager: fm))
+                (from: item.from, to: item.to, overwritten: item.overwritten,
+                 movedIdentity: item.emptiedByMerge
+                    ? FileSyncManager.mergeEmptiedFolderIdentity(item.to, fileManager: fm) : item.movedIdentity,
+                 overwrittenIdentity: FileSyncManager.backupIdentity(item.overwritten, fileManager: fm),
+                 emptiedByMerge: item.emptiedByMerge)
             }
             await resolver.resolve(withBackups)
         }
@@ -1449,7 +1504,7 @@ extension FileSyncManager {
                         // hides the genuine `safeMoveItem` throws among it. The copy path already
                         // separates the two with its own `leftInPlace`; this is its twin.
                         var leftInPlace = 0
-                        var movedBackPairs: [(from: URL, to: URL)] = []
+                        var movedBackPairs: [(from: URL, to: URL, emptiedByMerge: Bool)] = []
                         // Items the user removed themselves between the move and the ⌘Z. Counted
                         // apart from `leftInPlace` because they are not a refusal: this undo did
                         // not decline to act, there was nothing left to act on.
@@ -1608,7 +1663,7 @@ extension FileSyncManager {
                                     movedBack += 1
                                     movedBackOK = true
                                     // Only a move-back that actually happened is redoable.
-                                    movedBackPairs.append((from: item.from, to: item.to))
+                                    movedBackPairs.append((from: item.from, to: item.to, emptiedByMerge: item.emptiedByMerge))
                                 } catch {
                                     restoreFailures += 1
                                     await FileSyncManager.reportUndoRestoreFailure(of: item.from, from: item.to, actionName: actionName, error: error, on: target)
@@ -1663,7 +1718,8 @@ extension FileSyncManager {
                         let reversedParams: [MoveRedoParam] = movedBackPairs.map { pair in
                             (from: pair.from, to: pair.to,
                              sourceIdentity: ItemIdentity.snapshot(at: pair.from, fileManager: fm),
-                             destinationIdentity: ItemIdentity.snapshot(at: pair.to, fileManager: fm))
+                             destinationIdentity: ItemIdentity.snapshot(at: pair.to, fileManager: fm),
+                             emptiedByMerge: pair.emptiedByMerge)
                         }
                         await redoParamResolver.resolve(reversedParams)
                         logger.info("Undo (\(actionName)): moved \(movedBack) of \(items.count) item(s) back to source, \(restoreFailures) restore failure(s), \(leftInPlace) left in place (changed or unverifiable)"
@@ -1805,6 +1861,19 @@ extension FileSyncManager {
                                     }
                                 }
                             }
+                            // A source folder a merge emptied goes back to the Trash only as the
+                            // merge sent it there: holding nothing but a `.DS_Store` (FR35). The
+                            // replay runs deepest-first, so its children have had their turn; one
+                            // whose redo was refused is still inside, and moving the folder would
+                            // carry it into the Trash. Only for a folder still there — a missing
+                            // one falls to the move's own "may no longer exist" report.
+                            if param.emptiedByMerge, FileSyncManager.entryExists(at: param.from, fileManager: fm),
+                               !FileSyncManager.mergeLeftNothing(in: param.from, fileManager: fm) {
+                                leftInPlace += 1
+                                await FileSyncManager.reportRedoLeftMergeSourceFolder(
+                                    param.from, actionName: actionName, on: target)
+                                continue
+                            }
                             // And the DESTINATION is still what the undo left there (FR25):
                             // `safeMoveItem` replaces whatever it finds, so a file saved there by
                             // another app since the undo would go to the Trash unasked. Checked at
@@ -1831,10 +1900,16 @@ extension FileSyncManager {
                                 // consumed at undo time, and a snapshot taken there would be
                                 // compared against itself. Shallow, like every move-chain
                                 // identity: it feeds the next MOVE-undo's guard, which moves
-                                // rather than destroys (see `registerMoveUndo(items:)`).
+                                // rather than destroys (see `registerMoveUndo(items:)`) — except
+                                // a merge-emptied folder this redo put back in the Trash, which is
+                                // held to the Trash backups' deep rule there too, and to its own
+                                // file number (FR35, `mergeEmptiedFolderIdentity`).
                                 nextState.append((from: param.from, to: param.to, overwritten: trashed,
-                                                  movedIdentity: ItemIdentity.snapshot(at: param.to, fileManager: fm),
-                                                  overwrittenIdentity: FileSyncManager.backupIdentity(trashed, fileManager: fm)))
+                                                  movedIdentity: param.emptiedByMerge
+                                                    ? FileSyncManager.mergeEmptiedFolderIdentity(param.to, fileManager: fm)
+                                                    : ItemIdentity.snapshot(at: param.to, fileManager: fm),
+                                                  overwrittenIdentity: FileSyncManager.backupIdentity(trashed, fileManager: fm),
+                                                  emptiedByMerge: param.emptiedByMerge))
                             } catch {
                                 // A failed re-move must stay out of the next undo state: undoing
                                 // a phantom move would "restore" from a destination that was

@@ -29,6 +29,13 @@ public enum ItemIdentity: Equatable, Sendable {
     /// only instance of the edit"; this case is what that guard records. Produced only by
     /// `deepSnapshot`, and `drift` re-reads at the same depth it was recorded at.
     case directoryTree(contentDigest: String)
+    /// `.directoryTree` plus the folder's OWN file number (`st_ino`), for a folder whose content
+    /// cannot tell it apart: a merge trashes its emptied source folder only once nothing but a
+    /// `.DS_Store` is left in it, so every such folder has one digest, and a stranger empty folder
+    /// trashed under its freed name matched it (FR35). A move into the Trash keeps the number, and
+    /// so does Finder writing a `.DS_Store` into it. Produced only by `deepSnapshotWithFileNumber`,
+    /// and `drift` re-reads it the same way.
+    case directoryTreeAndFileNumber(contentDigest: String, fileNumber: UInt64)
     /// A symbolic link, described by its OWN size and date, not its target's.
     ///
     /// Spelled out rather than folded into `.file` because `attributesOfItem` does not follow
@@ -217,6 +224,23 @@ public extension ItemIdentity {
         deepSnapshotDetailingFailure(at: url, fileManager: fm).identity
     }
 
+    /// `deepSnapshot`, with the folder's own file number when it answers `.directoryTree` — see
+    /// `.directoryTreeAndFileNumber`. A file system that reports no number (a test double) leaves
+    /// the plain `.directoryTree`, recorded and re-read alike.
+    static func deepSnapshotWithFileNumber(at url: URL, fileManager fm: FileManaging) -> ItemIdentity {
+        let deep = deepSnapshot(at: url, fileManager: fm)
+        guard case .directoryTree(let digest) = deep,
+              let number = (try? fm.attributesOfItem(atPath: url.path))?[.systemFileNumber] else { return deep }
+        let fileNumber: UInt64
+        switch number {
+        case let number as NSNumber: fileNumber = number.uint64Value
+        case let number as UInt64: fileNumber = number
+        case let number as Int: fileNumber = UInt64(truncatingIfNeeded: number)
+        default: return deep
+        }
+        return .directoryTreeAndFileNumber(contentDigest: digest, fileNumber: fileNumber)
+    }
+
     /// `deepSnapshot` plus, when the answer is `.indeterminate`, the descendant that made it so —
     /// where one can be named. A partial listing names its first unreadable descendant (the
     /// `unreadableDescendants` array this walk used to discard); a child that vanished or lost
@@ -320,9 +344,12 @@ public extension ItemIdentity {
     /// for every untouched folder — a guard that refuses everything is not a guard).
     func drift(at url: URL, fileManager fm: FileManaging) -> DriftVerdict {
         let current: ItemIdentity
-        if case .directoryTree = self {
+        switch self {
+        case .directoryTree:
             current = ItemIdentity.deepSnapshot(at: url, fileManager: fm)
-        } else {
+        case .directoryTreeAndFileNumber:
+            current = ItemIdentity.deepSnapshotWithFileNumber(at: url, fileManager: fm)
+        default:
             current = ItemIdentity.snapshot(at: url, fileManager: fm)
         }
         return ItemIdentity.compare(recorded: self, current: current)

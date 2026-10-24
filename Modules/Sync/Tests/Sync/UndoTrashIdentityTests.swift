@@ -10,6 +10,8 @@ import Foundation
 /// - **FR28** — the copy-undo and move-undo asked `fileExists` whether their item had vanished.
 ///   It follows links, so a dangling link — what moving a relative link usually leaves — read as
 ///   gone: never moved back, never removed.
+/// - **FR35** — a move's merge put the emptied source folder in the Trash outside the undo record,
+///   so ⌘Z made a NEW folder for the children and the original stayed in the Trash.
 ///
 /// Real disk with a `ScratchTrash` throughout: the claims are about where items end up, and the
 /// mock's flat paths and link-less stat cannot model either.
@@ -240,5 +242,261 @@ import Foundation
         #expect(!entryExists(destination), "the copied link was left behind as \"already gone\"")
         #expect(trash.names.contains("link"))
         #expect(entryExists(source))
+    }
+
+    // MARK: FR35
+
+    /// A move whose merge emptied its source folder: ⌘Z puts THAT folder back — its own extended
+    /// attributes with it — and the children back inside it, rather than a new empty folder while
+    /// the original stays in the Trash.
+    @MainActor
+    @Test func aMergeMoveUndoRestoresTheOriginalSourceFolderFromTheTrash() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "undo-merge-source-folder")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let trash = ScratchTrash(in: root)
+        let src = root.appendingPathComponent("src/Reports")
+        let dst = root.appendingPathComponent("dst/Reports")
+        try write("a", src.appendingPathComponent("a.txt"))
+        try write("c", src.appendingPathComponent("sub/c.txt"))
+        try write("kept", dst.appendingPathComponent("kept.txt"))
+        try write("other c", dst.appendingPathComponent("sub/other.txt"))
+        // Marks on both folders a merge empties, standing in for tags, icon and dates.
+        let mark = "com.synccloud.test.fr35"
+        for folder in [src, src.appendingPathComponent("sub")] {
+            let value = Array(folder.lastPathComponent.utf8)
+            #expect(setxattr(folder.path, mark, value, value.count, 0, 0) == 0)
+        }
+        func markOn(_ folder: URL) -> String? {
+            var buffer = [UInt8](repeating: 0, count: 64)
+            let n = getxattr(folder.path, mark, &buffer, buffer.count, 0, 0)
+            return n > 0 ? String(decoding: buffer.prefix(n), as: UTF8.self) : nil
+        }
+
+        let m = manager()
+        m.collisionResolver = { _ in .merge }
+        _ = await m.moveItems(nodes: [FileNode(id: src.path, name: "Reports", isDirectory: true)],
+                              toPath: dst.deletingLastPathComponent().path, fileManager: trash)
+        // The premise: both emptied folders went to the Trash.
+        #expect(!entryExists(src))
+        #expect(trash.names.contains("Reports") && trash.names.contains("sub"), "trash: \(trash.names)")
+
+        await undoAndDrain(m)
+
+        #expect(read(src.appendingPathComponent("a.txt")) == "a")
+        #expect(read(src.appendingPathComponent("sub/c.txt")) == "c")
+        #expect(markOn(src) == "Reports", "the source folder is a new one, not the original")
+        #expect(markOn(src.appendingPathComponent("sub")) == "sub", "the nested folder is a new one, not the original")
+        #expect(!trash.names.contains("Reports") && !trash.names.contains("sub"),
+                "the original folders are still in the Trash: \(trash.names)")
+        #expect(read(dst.appendingPathComponent("kept.txt")) == "kept")
+        #expect(read(dst.appendingPathComponent("sub/other.txt")) == "other c")
+    }
+
+    /// Moves `src/Reports` (holding `a.txt`) into a `dst` that already has a `Reports`, with Merge,
+    /// and undoes it: the shape every FR35 redo test starts from.
+    @MainActor
+    private func mergeMoveAndUndo(in root: URL, trash: ScratchTrash) async throws -> (m: FileSyncManager, src: URL, dst: URL) {
+        let src = root.appendingPathComponent("src/Reports")
+        let dst = root.appendingPathComponent("dst/Reports")
+        try write("a", src.appendingPathComponent("a.txt"))
+        try write("kept", dst.appendingPathComponent("kept.txt"))
+        let m = manager()
+        m.collisionResolver = { _ in .merge }
+        _ = await m.moveItems(nodes: [FileNode(id: src.path, name: "Reports", isDirectory: true)],
+                              toPath: dst.deletingLastPathComponent().path, fileManager: trash)
+        #expect(read(dst.appendingPathComponent("a.txt")) == "a")
+        #expect(!entryExists(src))
+        await undoAndDrain(m)
+        #expect(read(src.appendingPathComponent("a.txt")) == "a")
+        #expect(!trash.names.contains("Reports"), "trash: \(trash.names)")
+        return (m, src, dst)
+    }
+
+    @MainActor
+    private func redoAndDrain(_ m: FileSyncManager) async {
+        m.undoManager?.redo()
+        await waitUntil("the redo drains") { m.activeFileOperationsCount == 0 }
+    }
+
+    /// The redo of a merge-move trashes the source folder only when the merge's own rule holds at
+    /// that moment — nothing left in it but a `.DS_Store`. A child whose redo was refused (edited
+    /// since the undo) stays inside it, so the folder stays too, and the banner says so; it is not
+    /// carried into the Trash under a banner saying the child was left in place.
+    @MainActor
+    @Test func aMergeMoveRedoLeavesTheSourceFolderHoldingARefusedChild() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "redo-merge-refused-child")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let trash = ScratchTrash(in: root)
+        let (m, src, dst) = try await mergeMoveAndUndo(in: root, trash: trash)
+
+        // Edited in place: the folder's own date and child count do not move, so its identity
+        // passes the redo's up-front check.
+        let handle = try FileHandle(forWritingTo: src.appendingPathComponent("a.txt"))
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(" edited".utf8))
+        try handle.close()
+
+        await redoAndDrain(m)
+
+        #expect(read(src.appendingPathComponent("a.txt")) == "a edited",
+                "the refused child left its folder; trash: \(trash.names)")
+        #expect(!trash.names.contains("Reports"), "the folder went to the Trash: \(trash.names)")
+        #expect(!entryExists(dst.appendingPathComponent("a.txt")))
+        #expect(m.banner?.message.contains("Redo left \"Reports\" in place") == true,
+                "banner: \(m.banner?.message ?? "nil")")
+    }
+
+    /// The control: nothing refused, so the redo empties the folder again and trashes it, as the
+    /// move itself did.
+    @MainActor
+    @Test func aMergeMoveRedoStillTrashesTheSourceFolderItEmptied() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "redo-merge-emptied")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let trash = ScratchTrash(in: root)
+        let (m, src, dst) = try await mergeMoveAndUndo(in: root, trash: trash)
+
+        await redoAndDrain(m)
+
+        #expect(read(dst.appendingPathComponent("a.txt")) == "a")
+        #expect(!entryExists(src), "the emptied folder was left behind")
+        #expect(trash.names.contains("Reports"), "trash: \(trash.names)")
+    }
+
+    /// Writes the `.DS_Store` Finder adds to a folder the user opens, into the `Reports` folder in
+    /// the Trash. The folder is empty there, so its shallow identity's child count moves for
+    /// certain, whatever the clock's resolution does to its date.
+    private func browseTrashedReports(_ trash: ScratchTrash) throws {
+        let slots = try FileManager.default.contentsOfDirectory(at: trash.folder, includingPropertiesForKeys: nil)
+        let trashed = try #require(slots.map { $0.appendingPathComponent("Reports") }.first(where: entryExists),
+                                   "trash: \(trash.names)")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: trashed.path).isEmpty,
+                "the premise: the merge left the folder empty")
+        try write("finder view state", trashed.appendingPathComponent(".DS_Store"))
+    }
+
+    private static let mark = "com.synccloud.test.fr35"
+
+    private func setMark(_ folder: URL) {
+        let value = Array("original".utf8)
+        #expect(setxattr(folder.path, Self.mark, value, value.count, 0, 0) == 0)
+    }
+
+    private func markOn(_ folder: URL) -> String? {
+        var buffer = [UInt8](repeating: 0, count: 64)
+        let n = getxattr(folder.path, Self.mark, &buffer, buffer.count, 0, 0)
+        return n > 0 ? String(decoding: buffer.prefix(n), as: UTF8.self) : nil
+    }
+
+    /// The source folder a merge trashed is held to the identity rule of every other Trash backup
+    /// (FR27): deep, OS noise ignored. Finder writes a `.DS_Store` into a folder the user merely
+    /// opens in the Trash, which moves the folder's own date and child count; a ⌘Z after a look
+    /// must still put THAT folder back.
+    @MainActor
+    @Test func aMergeMoveUndoRestoresTheSourceFolderFinderBrowsedInTheTrash() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "undo-merge-browsed-source")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let trash = ScratchTrash(in: root)
+        let src = root.appendingPathComponent("src/Reports")
+        let dst = root.appendingPathComponent("dst/Reports")
+        try write("a", src.appendingPathComponent("a.txt"))
+        try write("kept", dst.appendingPathComponent("kept.txt"))
+        setMark(src)
+
+        let m = manager()
+        m.collisionResolver = { _ in .merge }
+        _ = await m.moveItems(nodes: [FileNode(id: src.path, name: "Reports", isDirectory: true)],
+                              toPath: dst.deletingLastPathComponent().path, fileManager: trash)
+        try browseTrashedReports(trash)
+        await undoAndDrain(m)
+
+        #expect(markOn(src) == "original", "the folder Finder browsed in the Trash was refused; banner: \(m.banner?.message ?? "nil")")
+        #expect(read(src.appendingPathComponent("a.txt")) == "a")
+        #expect(!trash.names.contains("Reports"), "trash: \(trash.names)")
+    }
+
+    /// **A stranger at the emptied folder's Trash path is not pulled out as the source folder.** The
+    /// merge trashes the folder only once nothing but a `.DS_Store` is left in it, so its contents
+    /// digest is the same for every such folder: empty the Trash, trash some other empty `Reports`
+    /// — macOS hands it the freed name — and ⌘Z moved THAT folder out as `src/Reports`. The
+    /// folder's own file number tells them apart; Finder's `.DS_Store` does not change it, so the
+    /// browsed tests above still restore the real one. The stranger stays in the Trash, its mark
+    /// with it, and the child goes back into a folder made for it, as before FR35.
+    @MainActor
+    @Test func aMergeMoveUndoLeavesAnEmptyStrangerFolderAtTheSourceFoldersTrashPathInTheTrash() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "undo-merge-stranger-source")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let trash = ScratchTrash(in: root)
+        let src = root.appendingPathComponent("src/Reports")
+        let dst = root.appendingPathComponent("dst/Reports")
+        try write("a", src.appendingPathComponent("a.txt"))
+        try write("kept", dst.appendingPathComponent("kept.txt"))
+        setMark(src)
+
+        let m = manager()
+        m.collisionResolver = { _ in .merge }
+        _ = await m.moveItems(nodes: [FileNode(id: src.path, name: "Reports", isDirectory: true)],
+                              toPath: dst.deletingLastPathComponent().path, fileManager: trash)
+        let trashed = try swapTrashedReportsForAnEmptyStranger(trash)
+
+        await undoAndDrain(m)
+
+        #expect(markOn(trashed) == "stranger", "the stranger left the Trash; src mark: \(markOn(src) ?? "nil")")
+        #expect(markOn(src) == nil, "the stranger was put back as the source folder")
+        #expect(read(src.appendingPathComponent("a.txt")) == "a")
+        #expect(read(dst.appendingPathComponent("kept.txt")) == "kept")
+    }
+
+    /// The same after a redo, whose own record of the folder it put back in the Trash is the one
+    /// the next ⌘Z reads.
+    @MainActor
+    @Test func aMergeMoveUndoAfterARedoLeavesAnEmptyStrangerFolderInTheTrash() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "undo-merge-stranger-source-redo")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let trash = ScratchTrash(in: root)
+        let (m, src, _) = try await mergeMoveAndUndo(in: root, trash: trash)
+        setMark(src)
+
+        await redoAndDrain(m)
+        let trashed = try swapTrashedReportsForAnEmptyStranger(trash)
+        await undoAndDrain(m)
+
+        #expect(markOn(trashed) == "stranger", "the stranger left the Trash; src mark: \(markOn(src) ?? "nil")")
+        #expect(markOn(src) == nil, "the stranger was put back as the source folder")
+        #expect(read(src.appendingPathComponent("a.txt")) == "a")
+    }
+
+    /// Empties the `Reports` folder out of the Trash and puts another empty `Reports`, marked
+    /// "stranger", at the path it freed — what trashing some other empty folder of that name does.
+    /// Returns that path.
+    private func swapTrashedReportsForAnEmptyStranger(_ trash: ScratchTrash) throws -> URL {
+        let slots = try FileManager.default.contentsOfDirectory(at: trash.folder, includingPropertiesForKeys: nil)
+        let trashed = try #require(slots.map { $0.appendingPathComponent("Reports") }.first(where: entryExists),
+                                   "trash: \(trash.names)")
+        #expect(markOn(trashed) == "original", "the premise: the source folder itself is in the Trash")
+        try FileManager.default.removeItem(at: trashed)
+        try FileManager.default.createDirectory(at: trashed, withIntermediateDirectories: false)
+        let value = Array("stranger".utf8)
+        #expect(setxattr(trashed.path, Self.mark, value, value.count, 0, 0) == 0)
+        return trashed
+    }
+
+    /// The same after a redo: the redo's own record of the folder it put back in the Trash follows
+    /// the same rule, so the next ⌘Z after a look in the Trash still restores it.
+    @MainActor
+    @Test func aMergeMoveUndoAfterARedoRestoresTheSourceFolderFinderBrowsedInTheTrash() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "undo-merge-browsed-source-redo")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let trash = ScratchTrash(in: root)
+        let (m, src, _) = try await mergeMoveAndUndo(in: root, trash: trash)
+        setMark(src)
+
+        await redoAndDrain(m)
+        #expect(!entryExists(src) && trash.names.contains("Reports"), "the redo did not trash the emptied folder: \(trash.names)")
+        try browseTrashedReports(trash)
+        await undoAndDrain(m)
+
+        #expect(markOn(src) == "original", "the folder Finder browsed in the Trash was refused; banner: \(m.banner?.message ?? "nil")")
+        #expect(read(src.appendingPathComponent("a.txt")) == "a")
+        #expect(!trash.names.contains("Reports"), "trash: \(trash.names)")
     }
 }

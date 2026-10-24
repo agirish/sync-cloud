@@ -10215,3 +10215,30 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s lockedCopy=%s lift=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No locked-file copy at all (`lockedCopy=0`), so no locked copy to undo | CLOSED — does not apply |
+
+---
+
+## A merge-move's ⌘Z puts back the original source folder (FR35) — main only
+
+A move's merge put the emptied source folder in the Trash outside the undo record, so ⌘Z made a new
+empty folder for the children (the original's tags, icon and dates lost, its shell left in the
+Trash). `main` records the trashed folder as a move to its Trash location, ahead of its children,
+so the undo restores it — identity-checked, deep with OS noise ignored like every Trash backup, so a
+look at it in Finder does not refuse it, and by its own file number, so another empty folder trashed
+under its freed name is not taken for it — before moving them back (`undoItems(_:restoringFirst:)`).
+Its redo trashes the folder again only under the merge's own rule, nothing left in it but a
+`.DS_Store` (`mergeLeftNothing`): a child whose redo was refused keeps the folder in place.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s mergeTrash=%s restoreFirst=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileOperations.swift 2>/dev/null | grep -cF 'the emptied folder went to the Trash')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileOperations.swift 2>/dev/null | grep -cF 'restoringFirst folders')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads restoreFirst=1):
+# main, v5.x         mergeTrash=1 restoreFirst=0
+# v4.x, v3.x, v2.x   mergeTrash=0 restoreFirst=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The same merge, trashing its source outside the undo (`mergeTrash=1`) | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No folder merge at all (`mergeTrash=0`) | CLOSED — does not apply |
