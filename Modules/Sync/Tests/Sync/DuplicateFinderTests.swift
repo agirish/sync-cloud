@@ -910,7 +910,13 @@ import Testing
 
     /// FR11. A repository and a ZIP of its working tree hold the same files; only the repository
     /// holds `.git`. The archive penalty makes the repository the copy a folder group would trash.
-    @Test func aRepositoryIsNeverOfferedAsACopyOfItsWorkingTree() {
+    ///
+    /// What this pins is the FOLDER: no folder group forms, so the repository is never offered for
+    /// removal whole. It does not protect the files inside it — the identical-file groups are
+    /// ordinary file groups, and the archive penalty still recommends removing the repository's
+    /// tracked `a.txt` and `b.txt`. The last assertion says so, so a change to either behaviour is
+    /// a deliberate one.
+    @Test func aRepositoryFolderIsNeverOfferedAsAFolderCopyOfItsWorkingTree() {
         let tree = [
             dir("/root/Archive/proj", [
                 dir("/root/Archive/proj/.git", [file("/root/Archive/proj/.git/HEAD", size: 23)]),
@@ -926,6 +932,11 @@ import Testing
         #expect(!groups.isEmpty)   // the files themselves are still duplicates
         #expect(groups.allSatisfy { !$0.isDirectory })
         #expect(groups.allSatisfy { !$0.recommendedRemovalPaths.contains("/root/Archive/proj") })
+        // The file level, stated rather than implied: both file groups still recommend the
+        // repository's own tracked copy.
+        let removals = Set(groups.flatMap(\.recommendedRemovalPaths))
+        #expect(removals == ["/root/Archive/proj/a.txt", "/root/Archive/proj/b.txt"],
+                "removals: \(removals.sorted())")
     }
 
     /// The same pair, but the repository is the one a same-name OVERLAP group would fold away:
