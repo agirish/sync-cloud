@@ -1221,6 +1221,18 @@ public class FileSyncManager: ObservableObject {
     /// refusals, all from a control that looked like it had done nothing.
     @Published public internal(set) var restructureLandingInProgress = false
 
+    /// What ⌘Q's guard counts as in flight: the queued file operations, and a Restructure landing
+    /// as one more while it runs (FR17).
+    ///
+    /// The guard read only `activeFileOperationsCount`, which is zero through a landing's
+    /// re-derive — seconds of corpus replay after `profiles.json` already names the new profile
+    /// folder and before that folder has its corpus and memory. A quit there asked nothing and
+    /// relaunched onto a survey with nothing learned in it. A landing is one operation however
+    /// many moves it queued, so this is the larger of the two, never their sum.
+    public var operationsAQuitWouldInterrupt: Int {
+        max(activeFileOperationsCount, restructureLandingInProgress ? 1 : 0)
+    }
+
     /// Where a landing has got to, while it is running — nil at every other moment.
     ///
     /// **One small struct, published from the main actor, coalesced.** Every write to a published

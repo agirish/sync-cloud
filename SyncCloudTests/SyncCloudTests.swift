@@ -35,6 +35,25 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
             == .warn(activeOperations: 5, hasUnsavedDocument: false))
     }
 
+    /// The quit guard counts a Restructure landing as in flight (FR17). Its re-derive queues no
+    /// file operation, so a guard reading only `activeFileOperationsCount` let ⌘Q through in
+    /// silence while the survey sat on a profile folder with nothing learned in it yet.
+    /// `FileSyncManager.operationsAQuitWouldInterrupt` owns the counting (its own test in Sync);
+    /// this owns that the guard asks it. Read off comment-stripped source.
+    @Test func testTheQuitGuardCountsALandingInProgress() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/SyncCloudApp.swift")
+        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
+                               "cannot read MacApp/SyncCloudApp.swift")
+        let source = Self.strippingComments(raw)
+        #expect(source.contains("func applicationShouldTerminate("),
+                "the quit guard moved — this scan reads nothing")
+        #expect(source.contains("let activeOperations = manager?.operationsAQuitWouldInterrupt ?? 0"))
+        #expect(!source.contains("manager?.activeFileOperationsCount"),
+                "the quit guard counts only queued file operations, and a landing queues none")
+    }
+
     /// SwiftUI may re-run `App.init`, creating a throwaway `FileSyncManager` that `@StateObject`
     /// discards. Adopting that orphan would leave the quit guard watching an operation count
     /// that is always zero, so only the first adopted manager may stick.

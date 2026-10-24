@@ -9680,3 +9680,96 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s undoCall=%s\n' $l \
 |---|---|---|
 | `v5.x` | The same ledger Undo (`undoCall=1`) | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Restructure (`undoCall=0`) | CLOSED — does not apply |
+
+---
+
+## A quit during the re-derive keeps the landing's Undo (FR17) — main only
+
+The re-derive re-pointed `profiles.json` at the new profile folder, then spent seconds replaying the
+corpus before the roster, verdicts and ledger reached that folder and the record named it as
+produced. A quit in that wait relaunched onto a folder offering no Undo, and ⌘Q did not ask: it counted only
+queued file operations. `main` carries them, and the undo chain, before the re-point, and its quit
+guard counts a landing in progress. With no record then naming the folder left behind, the retire
+sweep keeps any folder holding a survey corpus or memory the active one lacks, or a stopped survey's
+progress while the active one has neither progress nor a corpus.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s rederive=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+RestructureApply.swift 2>/dev/null | grep -cF 'private func rederiveProfile(')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x         rederive=1
+# v4.x, v3.x, v2.x   rederive=0
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s quitCount=%s\n' $l \
+  "$(git show origin/$l:MacApp/SyncCloudApp.swift 2>/dev/null | grep -cF 'let activeOperations = manager?.activeFileOperationsCount ?? 0')"; done
+# main, v5.x, v4.x, v3.x, v2.x   quitCount=1 — every line has the guard; only rederive=1 lines land
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The same re-derive (`rederive=1`) and quit guard | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Restructure (`rederive=0`) | CLOSED — does not apply |
+
+---
+
+## People edits during a re-derive land in the folder the app reads (FR5, again) — main only
+
+The re-derive copied the roster, person verdicts and Restructure's answers into the new profile
+folder, then kept the stores open on the old folder through seconds of corpus replay. An edit made in
+that window was written to the old folder and read by nothing afterwards. `main` opens the stores on
+the new folder as soon as it is active.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s rederive=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+RestructureApply.swift 2>/dev/null | grep -cF 'private func rederiveProfile(')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x         rederive=1
+# v4.x, v3.x, v2.x   rederive=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The same re-derive (`rederive=1`) | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Restructure (`rederive=0`) | CLOSED — does not apply |
+
+---
+
+## A stopped document survey keeps its resume point through a landing (FR6) — main only
+
+`survey-progress.json` lives in the profile folder, and neither a landing nor a survey refresh
+carried it to the folder it minted, so a stopped survey restarted from 0 and the retire sweep later
+deleted the old folder holding it. `main` carries it, rekeyed through the landing like the corpus.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s checkpoint=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/DocumentSurveyCheckpoint.swift 2>/dev/null | grep -cF 'public static let filename = "survey-progress.json"')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x         checkpoint=1
+# v4.x, v3.x, v2.x   checkpoint=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The same checkpoint and re-derive (`checkpoint=1`) | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No document survey (`checkpoint=0`) | CLOSED — does not apply |
+
+---
+
+## Edits made after a landing survive its Undo (FR7) — main only
+
+Undo re-pointed the survey at the folder the landing started from and re-opened every store there,
+so people added, verdicts given, findings suppressed, drafts saved and scaffolds landed after the
+landing stayed in the produced folder, read by nothing. `main` carries them back onto that folder,
+Restructure's keys rekeyed through the renames the undo performed.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s ledgerUndo=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+RestructureApply.swift 2>/dev/null | grep -cF 'public func undoReorganisation(')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x         ledgerUndo=1
+# v4.x, v3.x, v2.x   ledgerUndo=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The same ledger Undo (`ledgerUndo=1`) | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Restructure (`ledgerUndo=0`) | CLOSED — does not apply |

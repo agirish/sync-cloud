@@ -1365,7 +1365,9 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
             return .terminateCancel
         }
         let manager = syncManager ?? Self.sharedSyncManager
-        let activeOperations = manager?.activeFileOperationsCount ?? 0
+        // A Restructure landing counts too — its re-derive queues nothing, and a quit there leaves
+        // the survey on a folder with nothing learned in it yet (FR17).
+        let activeOperations = manager?.operationsAQuitWouldInterrupt ?? 0
         // Respect the General setting; default to warning when the key was never written.
         let warnBeforeQuit = UserDefaults.standard.object(forKey: GeneralSettings.warnBeforeQuitKey) as? Bool ?? true
 

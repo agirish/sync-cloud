@@ -187,4 +187,29 @@ public enum RestructureRederive {
         return FilingCorpus(profileId: corpus.profileId, salt: corpus.salt,
                             documents: rekeyed, surveyedAt: corpus.surveyedAt)
     }
+
+    /// An unfinished survey's progress moved the way the manifest moved the tree, under the
+    /// profile that now holds it (FR6) — `read` by the corpus's own replay, the plan by the same
+    /// two rules in the same precedence (a file move names its document exactly; the directory
+    /// renames re-prefix the rest). The index is kept only when the plan kept its length: a
+    /// collapse would slide it onto a document it never reached.
+    public static func rekeyedCheckpoint(_ checkpoint: DocumentSurveyCheckpoint,
+                                         through manifest: RestructureManifest,
+                                         profileId: String) -> DocumentSurveyCheckpoint {
+        let read = rekeyedCorpus(FilingCorpus(profileId: checkpoint.profileId,
+                                              salt: checkpoint.salt,
+                                              documents: checkpoint.read),
+                                 through: manifest).documents
+        let renames = RenameSteps(renameMap(of: manifest))
+        let moves = Dictionary(fileMoves(of: manifest), uniquingKeysWith: { _, second in second })
+        var seen: Set<String> = []
+        let plan = checkpoint.plan.map { moves[$0] ?? renames.mapped($0) }
+            .filter { seen.insert($0).inserted }
+        return DocumentSurveyCheckpoint(
+            profileId: profileId, rootPath: checkpoint.rootPath, salt: checkpoint.salt,
+            plan: plan,
+            nextIndex: plan.count == checkpoint.plan.count ? checkpoint.nextIndex : 0,
+            read: read, documentsUnavailable: checkpoint.documentsUnavailable,
+            startedAt: checkpoint.startedAt, updatedAt: checkpoint.updatedAt)
+    }
 }

@@ -559,6 +559,11 @@ extension FilingProfileStore {
     /// travel with the active profile, and a folder holding the only copy of one is never retired.
     public static let curatedArtifactNames = ["people.json", "person-tags.json", "restructure.json"]
 
+    /// What the document survey learned — ``FilingSurveyStore``'s corpus and memory. Not curated,
+    /// and not carried by a walk, but hours of reading to rebuild: a folder holding one the
+    /// active folder lacks is never retired either (see ``retireSupersededProfiles``).
+    public static let surveyArtifactNames = ["filing-corpus.json", "filing-memory.json"]
+
     /// **Retires derived profiles nothing can reach any more** — the directory and its index row.
     ///
     /// Every re-derivation writes a NEW profile directory and appends a row; `replacing:` above
@@ -635,9 +640,24 @@ extension FilingProfileStore {
             // derivation: the roster, the person verdicts and Restructure's ledger. A re-point that
             // did not carry them (FR4: a Setup re-walk did not) left the active folder without
             // them, and this removal — permanent, not the Trash — then took the only copy.
-            let stranded = curatedArtifactNames.filter { name in
-                fileManager.fileExists(atPath: url.appendingPathComponent(name).path)
-                    && !fileManager.fileExists(atPath: directory.appendingPathComponent("\(active)/\(name)").path)
+            //
+            // **And never the only copy of what the survey learned.** A re-derive re-points the
+            // index before its corpus replay, and the folder it leaves is then named by no ledger
+            // record (FR17): a quit in the replay relaunched onto a folder with no corpus, and the
+            // next sweep took the old one with the corpus and memory in it. An unfinished
+            // survey's progress counts only while the active folder has neither progress nor a
+            // corpus of its own — once it has finished a survey, a stopped one elsewhere is stale.
+            func holds(_ folder: URL, _ name: String) -> Bool {
+                fileManager.fileExists(atPath: folder.appendingPathComponent(name).path)
+            }
+            let activeURL = directory.appendingPathComponent(active)
+            var stranded = (curatedArtifactNames + surveyArtifactNames).filter { name in
+                holds(url, name) && !holds(activeURL, name)
+            }
+            let progress = DocumentSurveyCheckpointStore.filename
+            if holds(url, progress), !holds(activeURL, progress),
+               !fileManager.fileExists(atPath: FilingSurveyStore.corpusURL(id: active, in: directory).path) {
+                stranded.append(progress)
             }
             guard stranded.isEmpty else {
                 Logger.shared.warning("Filing profiles: kept \(id) — it holds "

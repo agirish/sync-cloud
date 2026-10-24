@@ -421,10 +421,72 @@ extension FileSyncManager {
         // expensive half of the step (building `derived`) is off the actor above; moving the
         // index amendment off it too would trade a hitch for a lost-update race on the file that
         // decides which profile the app reads.
+        //
+        // **What the user made reaches the new folder BEFORE `profiles.json` names it (FR17).**
+        // The write below re-points the index, and everything after it is awaited — the corpus
+        // replay is seconds on a real tree. The roster, the verdicts and the ledger used to be
+        // copied inside that wait, and the record's `producedProfileId` written after it, so a
+        // quit there relaunched onto a folder with no `restructure.json` (or one whose record
+        // still said nothing was produced): `undoableReorganisation` keys on
+        // `producedProfileId ?? appliedUnderProfileId` being the active id, neither was, and the
+        // landing's Undo was gone without a word. So the carry and the new ledger's whole tail
+        // run first, synchronously, on this actor — no suspension between them and the write,
+        // so nothing the user does can land in the gap. A cut-off re-derive now relaunches onto a
+        // ledger that already names the folder it is in — and no record names the folder it left,
+        // which holds the only corpus and memory until the replay writes them here; the retire
+        // sweep keeps a folder holding either while the active one lacks it. If the write then
+        // fails, the copies are removed again: the index never named that folder, so they are
+        // only clutter.
+        let fm = fileManager
+        let alreadyThere = Set(FilingProfileStore.curatedArtifactNames.filter {
+            fm.fileExists(atPath: profilesDirectory.appendingPathComponent("\(newId)/\($0)").path)
+        })
+        // The folder the write below would make — made first, or every copy has nowhere to land.
+        try? fm.createDirectory(at: profilesDirectory.appendingPathComponent(newId),
+                                withIntermediateDirectories: true, attributes: nil)
+        FileSyncManager.carryProfileArtifacts(from: oldDirectoryId, to: newId,
+                                              in: profilesDirectory, fm: fm)
+        let newStore = RestructureStore(directory: profilesDirectory, profileId: newId)
+        // **One write for the new store's whole tail, not three.** The rekey, the rescue record
+        // and the produced-id update are three mutations of one file, and each used to rewrite
+        // the entire ledger. `recordApplied` inside is the deliberate exception the batch
+        // documents — it always reaches the disk, because its answer is a safety claim.
+        newStore.batchingSaves {
+            newStore.rekey(renames: RestructureRederive.renameMap(of: landed),
+                           context: ledgerId ?? "survey refresh")
+            // The artifact carry copies best-effort, one file at a time — if restructure.json was
+            // the copy that failed, the fresh store loads empty and the update below would no-op
+            // silently, stranding the finalised record (and its inverse) in a directory nothing
+            // reads. The ledger record is not best-effort: write it into the new store directly.
+            if let ledgerId,
+               !newStore.applied.contains(where: { $0.manifest.manifestId == ledgerId }),
+               let finalised = store.applied.first(where: { $0.manifest.manifestId == ledgerId }) {
+                newStore.recordApplied(finalised)
+                Logger.shared.warning("Restructure re-derive \(ledgerId): restructure.json did not "
+                    + "carry over; the ledger record was written into \(newId) directly")
+            }
+            if let ledgerId {
+                newStore.updateApplied(manifestId: ledgerId) { $0.producedProfileId = newId }
+            } else {
+                // **A survey refresh carries the undo chain across here too**, for the same
+                // reason: `undoableReorganisation` is keyed on a landing's produced profile being
+                // the current one, and this is about to mint a new current one without moving a
+                // file. Done after the refresh returned, a quit in its corpus replay left the
+                // last landing permanently un-undoable.
+                newStore.repointProduced(from: oldDirectoryId, to: newId)
+            }
+        }
         do {
             try FilingProfileStore.writeDerivedProfile(derived, replacing: oldDirectoryId,
                                                        in: profilesDirectory, now: now)
         } catch {
+            for name in FilingProfileStore.curatedArtifactNames where !alreadyThere.contains(name) {
+                try? fm.removeItem(at: profilesDirectory.appendingPathComponent("\(newId)/\(name)"))
+            }
+            let folder = profilesDirectory.appendingPathComponent(newId)
+            if FileSyncManager.directoryNames(at: folder.path, fm: fm).isEmpty {
+                try? fm.removeItem(at: folder)
+            }
             if let ledgerId {
                 store.updateApplied(manifestId: ledgerId) {
                     $0.summary = (summaryForLedger ?? "") + " — survey not refreshed"
@@ -435,10 +497,25 @@ extension FileSyncManager {
             return .failure("the survey could not be refreshed — " + String(describing: error))
         }
 
+        // **The stores the user edits move to the new folder NOW, before the replay's wait
+        // (FR5).** The roster, the person verdicts and Restructure's answers were just copied
+        // there, and `profiles.json` names it; the replay below is awaited for seconds, the
+        // window is live through it, and the People pane is one click away. With the stores
+        // still open on the old folder until after the wait, a person added or a verdict given
+        // in those seconds was written to the OLD folder after its copy had already been taken
+        // — kept on disk, read by nothing once the swap landed. Opened here, every edit made
+        // from this point on is made in the folder the app will read. The profile, the memory
+        // and the id stay where they are until the replay has produced the memory they belong
+        // with — the stores write by their own folder, never by those.
+        restructureStore = newStore
+        filingPeopleStore = PeopleStore(directory: profilesDirectory, profileId: newId,
+                                        profile: derived)
+        filingPersonTagStore = PersonTagStore(directory: profilesDirectory, profileId: newId)
+
         restructureApplyProgress = RestructureApplyProgress(stage: .artifacts)
-        // Step 7: the per-profile artifacts follow the profile into its new directory — copied
-        // as they stand, then the corpus keys replayed and the memory rebuilt from them. No page
-        // is re-read for a file that only moved.
+        // Step 7: the curated artifacts followed the profile into its new directory above, before
+        // the re-point; here the corpus keys are replayed and the memory rebuilt from them. No
+        // page is re-read for a file that only moved.
         // **All of step 7 in ONE detached hop, and every byte of it lands under `newId`.**
         //
         // This ran on the main actor: a `JSONDecoder` pass over ~9,000 corpus documents, the key
@@ -449,15 +526,17 @@ extension FileSyncManager {
         // `FileSyncManager+FilingRefine.swift`.
         //
         // Safe to detach where the profile write above is not, and the reason is the *target*:
-        // every path touched here is inside the freshly minted `\(newId)` directory, which
-        // nothing else in the app knows exists yet, plus read-only reads of the old one. There is
-        // no shared file to lose an update on. The result is awaited, so `filingMemory` is set
-        // before anything below reads it, exactly as it was.
-        let fm = fileManager
+        // every path written here is the corpus and the memory inside the freshly minted
+        // `\(newId)` directory — files nothing else writes while the landing flag is up — plus
+        // read-only reads of the old one. There is no shared file to lose an update on. The
+        // result is awaited, so `filingMemory` is set before anything below reads it, exactly as
+        // it was.
         let replayed: (memory: FilingMemory, failure: String?)? =
             await Task.detached(priority: .userInitiated) { () -> (FilingMemory, String?)? in
-                FileSyncManager.carryProfileArtifacts(from: oldDirectoryId, to: newId,
-                                                      in: profilesDirectory, fm: fm)
+                // Before the corpus guard: a stopped first survey is exactly the profile that has
+                // progress and no corpus yet.
+                FileSyncManager.carrySurveyProgress(from: oldDirectoryId, to: newId,
+                                                    in: profilesDirectory, through: landed)
                 guard let corpus = FilingSurveyStore.corpus(id: oldDirectoryId,
                                                             in: profilesDirectory) else {
                     return nil
@@ -499,33 +578,6 @@ extension FileSyncManager {
         // cached verdict, correctly, because they name paths that just changed.
         filingFolderProfile = derived
         filingProfileDirectoryId = newId
-        let newStore = RestructureStore(directory: profilesDirectory, profileId: newId)
-        // **One write for the new store's whole tail, not three.** The rekey, the rescue record
-        // and the produced-id update are three mutations of one file, and each used to rewrite
-        // the entire ledger. `recordApplied` inside is the deliberate exception the batch
-        // documents — it always reaches the disk, because its answer is a safety claim.
-        newStore.batchingSaves {
-            newStore.rekey(renames: RestructureRederive.renameMap(of: landed),
-                           context: ledgerId ?? "survey refresh")
-            // The artifact carry copies best-effort, one file at a time — if restructure.json was
-            // the copy that failed, the fresh store loads empty and the update below would no-op
-            // silently, stranding the finalised record (and its inverse) in a directory nothing
-            // reads. The ledger record is not best-effort: write it into the new store directly.
-            if let ledgerId,
-               !newStore.applied.contains(where: { $0.manifest.manifestId == ledgerId }),
-               let finalised = store.applied.first(where: { $0.manifest.manifestId == ledgerId }) {
-                newStore.recordApplied(finalised)
-                Logger.shared.warning("Restructure re-derive \(ledgerId): restructure.json did not "
-                    + "carry over; the ledger record was written into \(newId) directly")
-            }
-            if let ledgerId {
-                newStore.updateApplied(manifestId: ledgerId) { $0.producedProfileId = newId }
-            }
-        }
-        restructureStore = newStore
-        filingPeopleStore = PeopleStore(directory: profilesDirectory, profileId: newId,
-                                        profile: derived)
-        filingPersonTagStore = PersonTagStore(directory: profilesDirectory, profileId: newId)
         filingArtifactFingerprint = FilingProfileStore.fingerprint(id: newId,
                                                                    in: profilesDirectory)
         // The OLD store keeps the finalised record too — it is the ledger Undo reads after the
@@ -624,11 +676,10 @@ extension FileSyncManager {
                                      expandedRoot: expandedRoot, ledgerId: nil,
                                      summaryForLedger: nil, now: now) {
         case .success(let newId):
-            // **Carry the undo chain across.** `undoableReorganisation` is keyed on a landing's
-            // produced profile being the current one, and this just minted a new current one
-            // without moving a single file — so without the re-point, a landing that was
-            // undoable a moment ago becomes permanently un-undoable and nothing says why.
-            restructureStore?.repointProduced(from: oldDirectoryId, to: newId)
+            // The undo chain was carried across inside `rederiveProfile` — `repointProduced`,
+            // before `profiles.json` named the new folder (FR17) — so a landing that was undoable
+            // a moment ago still is, even had the app quit in the corpus replay.
+            //
             // The stamp is what the staleness note reads, and a successful refresh must clear
             // the caution even on a profile with no corpus to rewrite (`rederiveProfile` only
             // stamps inside the corpus branch).
@@ -796,6 +847,8 @@ extension FileSyncManager {
             return outcome
         }
 
+        // The folder the landing left the survey in, read before the re-point moves it.
+        let leavingId = filingProfileDirectoryId ?? previousId
         // Re-point back and reload everything from the kept directory — the profile there
         // describes the restored tree, which is why the undo does not re-derive.
         do {
@@ -815,6 +868,11 @@ extension FileSyncManager {
             $0.undoneAt = undoneStamp
             $0.undoSummary = undoSummary
         }
+        // What the user made since the landing comes back with the survey (FR7).
+        var undoLanded = record.inverse
+        undoLanded.actions = execution.performed
+        let ledgerCarried = leavingId != previousId
+            && carryCuratedEditsBack(from: leavingId, to: previousId, in: profilesDirectory)
 
         if let loaded = FilingProfileStore.active(in: profilesDirectory) {
             filingFolderProfile = loaded.profile
@@ -822,6 +880,14 @@ extension FileSyncManager {
             filingProfileDirectoryId = loaded.id
             let restoredStore = RestructureStore(directory: profilesDirectory,
                                                  profileId: loaded.id)
+            // The carried ledger's suppressions, answers and drafts are keyed in the landed
+            // tree's paths; the undo just put those folders back under their old names, so the
+            // keys go back through the renames the undo actually performed — the landing's own
+            // rekey, run the other way.
+            if ledgerCarried, loaded.id == previousId {
+                restoredStore.rekey(renames: RestructureRederive.renameMap(of: undoLanded),
+                                    context: "undo of \(manifestId)")
+            }
             restoredStore.updateApplied(manifestId: manifestId) {
                 $0.undoneAt = undoneStamp
                 $0.undoSummary = undoSummary
@@ -841,6 +907,47 @@ extension FileSyncManager {
                : "MISMATCH (\(outcome.verifierMismatches.count))")
             + "; profile re-pointed to \(previousId)")
         return outcome
+    }
+
+    /// **Carries the user's edits made since a landing back onto the folder its Undo re-points
+    /// to (FR7)** — and answers whether `restructure.json` was among them, so the caller can
+    /// rekey it.
+    ///
+    /// Undo re-points `profiles.json` at the profile the landing was applied under, and every
+    /// store re-opens there. That folder's roster, person verdicts and Restructure state are the
+    /// copies the landing started from — so a person added, a verdict given, a finding
+    /// suppressed, a draft saved or a scaffold landed after the landing was still on disk in the
+    /// produced folder and read by nothing once the undo finished. The produced folder's copies
+    /// began as these very files and took every edit since (FR5 keeps edits from reaching the old
+    /// folder in between), so they are the newer state, and they are written over the old ones
+    /// whenever the bytes differ. The produced folder keeps its own — the ledger pins it, and
+    /// nothing is removed.
+    ///
+    /// `restructure.json` comes too, ledger and all, and that is the correct ledger: the
+    /// produced copy holds this landing's record (already marked undone by the caller) and every
+    /// record written after it. The person verdicts are carried as they stand: the landing never
+    /// rekeyed them either. Best-effort per file, like the landing's own carry; a failure is
+    /// logged and leaves the old copy.
+    func carryCuratedEditsBack(from producedId: String, to previousId: String,
+                               in directory: URL) -> Bool {
+        var ledgerCarried = false
+        for name in FilingProfileStore.curatedArtifactNames {
+            let source = directory.appendingPathComponent("\(producedId)/\(name)")
+            let target = directory.appendingPathComponent("\(previousId)/\(name)")
+            guard let bytes = try? Data(contentsOf: source) else { continue }
+            if let existing = try? Data(contentsOf: target), existing == bytes { continue }
+            do {
+                try bytes.write(to: target, options: .atomic)
+                if name == "restructure.json" { ledgerCarried = true }
+                Logger.shared.info("Restructure undo: \(name) carried back from \(producedId) to "
+                    + "\(previousId) — it held edits made since the landing")
+            } catch {
+                Logger.shared.warning("Restructure undo: could not carry \(name) back to "
+                    + "\(previousId): \(error.localizedDescription) — the edits made since the "
+                    + "landing are still in \(producedId)")
+            }
+        }
+        return ledgerCarried
     }
 
     // MARK: - The renames' own ⌘Z pair
@@ -1430,6 +1537,60 @@ extension FileSyncManager {
             } catch {
                 Logger.shared.warning("Restructure: could not carry \(name) to \(newId): "
                     + error.localizedDescription)
+            }
+        }
+    }
+
+    /// **A stopped document survey keeps its resume point across a re-derive (FR6).**
+    ///
+    /// `survey-progress.json` lives in the profile's folder and the curated carry never took it,
+    /// so a survey stopped at 5,000 of 7,558 and then a landing — or a plain *Update the survey* —
+    /// left the app reading a folder with no progress: the next survey started from 0, and the
+    /// retire sweep then deleted the old folder with the hours of reading inside it.
+    ///
+    /// **Rekeyed, not copied, and that is the point.** The checkpoint's `read` is keyed by path
+    /// relative to the root, exactly as the corpus is, and the landing just moved those paths; it
+    /// also names the profile it belongs to, and `adoptCheckpoint` refuses one naming another.
+    /// A plain copy would therefore be refused outright, and even with the id fixed would hold
+    /// keys at paths that no longer exist — every moved document read again. So `read` goes
+    /// through ``RestructureRederive/rekeyedCorpus(_:through:)``, the same replay the corpus
+    /// gets, and the plan's paths through the same moves and renames. A moved file was not
+    /// changed, so what was read of it still holds. The resume index survives only if the plan
+    /// kept its length; otherwise it restarts at 0, which `adoptCheckpoint` already does for
+    /// any changed plan, skipping every document already read.
+    ///
+    /// A checkpoint that is not this profile's resumable run — unreadable, or naming another
+    /// profile — is carried byte for byte: it was not resumable before and must not become so,
+    /// but it stays where the app looks, so the card still says what is there. Copied, never
+    /// moved: the old folder is what an Undo re-points to.
+    nonisolated static func carrySurveyProgress(from oldId: String, to newId: String,
+                                                in directory: URL,
+                                                through landed: RestructureManifest) {
+        let target = DocumentSurveyCheckpointStore.url(id: newId, in: directory)
+        guard !FileManager.default.fileExists(atPath: target.path) else { return }
+        switch DocumentSurveyCheckpointStore.read(id: oldId, in: directory) {
+        case .absent:
+            return
+        case .loaded(let checkpoint) where checkpoint.profileId == oldId:
+            let carried = RestructureRederive.rekeyedCheckpoint(checkpoint, through: landed,
+                                                               profileId: newId)
+            do {
+                try DocumentSurveyCheckpointStore.write(carried, id: newId, in: directory)
+                Logger.shared.info("Restructure: the unfinished survey's progress "
+                    + "(\(carried.read.count) read, \(carried.progress.done) of "
+                    + "\(carried.progress.total)) was carried to \(newId)")
+            } catch {
+                Logger.shared.warning("Restructure: could not carry the unfinished survey's "
+                    + "progress to \(newId): \(error.localizedDescription) — the next survey "
+                    + "starts over")
+            }
+        case .loaded, .unreadable:
+            do {
+                try FileManager.default.copyItem(
+                    at: DocumentSurveyCheckpointStore.url(id: oldId, in: directory), to: target)
+            } catch {
+                Logger.shared.warning("Restructure: could not carry survey-progress.json to "
+                    + "\(newId): \(error.localizedDescription)")
             }
         }
     }

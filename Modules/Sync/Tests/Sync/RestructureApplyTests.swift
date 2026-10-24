@@ -496,6 +496,316 @@ import Testing
         #expect(again.refusal?.contains("already undone") == true)
     }
 
+    /// What the user made after a landing survives that landing's Undo (FR7). Undo re-points to
+    /// the folder the landing started from and re-opens every store there, so a person added, a
+    /// verdict given or a finding suppressed afterwards stayed in the produced folder and was
+    /// read by nothing. They come back with the survey — the suppression rekeyed through the
+    /// renames the undo performed — and the ledger still says the landing is undone.
+    @Test func editsMadeAfterALandingSurviveItsUndo() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let profiles = world.profiles
+        let manager = world.manager
+        manager.filingPeopleStore = PeopleStore(directory: profiles, profileId: "t",
+                                                profile: manager.filingFolderProfile)
+        manager.filingPersonTagStore = PersonTagStore(directory: profiles, profileId: "t")
+        let applied = await manager.applyPlan(world.manifest)
+        #expect(applied.refusal == nil)
+        let producedId = try #require(applied.producedProfileId)
+
+        // After the landing, in the folder the app now reads.
+        manager.filingPeopleStore?.add(displayName: "After Landing")
+        manager.filingPersonTagStore?.record(personId: "after-landing", key: .path("Tax/Outbound/o.pdf"),
+                                             verdict: .rejected, path: "Tax/Outbound/o.pdf")
+        let suppressedThere = RestructureKey(kind: .shape, path: "Tax/2013/Forms")
+        manager.restructureStore?.suppress(suppressedThere)
+        #expect(manager.restructureStore?.profileId == producedId)
+
+        let undone = await manager.undoReorganisation(manifestId: world.manifest.manifestId)
+        #expect(undone.refusal == nil)
+        #expect(manager.filingProfileDirectoryId == "t")
+        #expect(manager.filingPeopleStore?.people.contains { $0.displayName == "After Landing" }
+                == true, "the person added after the landing was left behind in \(producedId)")
+        #expect(manager.filingPersonTagStore?.tags.contains { $0.personId == "after-landing" }
+                == true)
+        let restored = try #require(manager.restructureStore)
+        #expect(restored.profileId == "t")
+        #expect(restored.isSuppressed(RestructureKey(kind: .shape, path: "Tax/2013/Federal Tax")),
+                "the suppression comes back under the folder's restored name")
+        #expect(!restored.isSuppressed(suppressedThere))
+        #expect(restored.applied.first { $0.manifest.manifestId == world.manifest.manifestId }?
+            .undoneAt != nil, "the ledger must still record the landing as undone")
+        // And from disk, the way the next launch reads it.
+        let relaunched = RestructureStore(directory: profiles, profileId: "t")
+        #expect(relaunched.isSuppressed(RestructureKey(kind: .shape, path: "Tax/2013/Federal Tax")))
+        #expect(relaunched.undoableReorganisation(currentProfileId: "t") == nil)
+        let again = await manager.undoReorganisation(manifestId: world.manifest.manifestId)
+        #expect(again.refusal?.contains("already undone") == true)
+    }
+
+    /// A quit while the survey is re-derived must not take the landing's Undo with it (FR17).
+    /// `profiles.json` names the new folder before the corpus replay's seconds-long wait; the
+    /// ledger used to reach that folder only inside the wait, and its `producedProfileId` after
+    /// it — so the disk at that moment, read the way a relaunch reads it, offered no Undo.
+    @Test func aQuitDuringTheReDeriveStillLeavesTheLandingUndoable() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let profiles = world.profiles
+        let manifestId = world.manifest.manifestId
+        // What a relaunch would find at the instant step 7 begins: the active id from the index
+        // and a ledger opened fresh from that folder. `@Published` delivers in `willSet`, after
+        // the write that re-points the index and before the awaited replay.
+        var atTheCut: (active: String?, undoable: String?)?
+        let watch = world.manager.$restructureApplyProgress.sink { progress in
+            guard progress?.stage == .artifacts, atTheCut == nil else { return }
+            let active = FilingProfileStore.activeProfileId(in: profiles)
+            let undoable = active.flatMap {
+                RestructureStore(directory: profiles, profileId: $0)
+                    .undoableReorganisation(currentProfileId: $0)?.manifest.manifestId
+            }
+            atTheCut = (active, undoable)
+        }
+        defer { watch.cancel() }
+
+        let outcome = await world.manager.applyPlan(world.manifest)
+        #expect(outcome.refusal == nil)
+        let cut = try #require(atTheCut, "the landing never reached step 7")
+        #expect(cut.active == outcome.producedProfileId,
+                "the cut must be after the re-point, or it tests nothing")
+        #expect(cut.undoable == manifestId,
+                "relaunched there, the ledger in the active folder offered no Undo of the landing")
+    }
+
+    /// An edit made in the People pane while the re-derive replays the corpus lands in the folder
+    /// the app goes on reading (FR5). The stores used to stay open on the OLD folder until after
+    /// that wait — so a person added or a verdict given in it was written there, after the copy
+    /// into the new folder had already been taken, and read by nothing afterwards.
+    @Test func anEditDuringTheReDeriveLandsInTheFolderTheAppReads() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let profiles = world.profiles
+        world.manager.filingPeopleStore = PeopleStore(
+            directory: profiles, profileId: "t", profile: world.manager.filingFolderProfile)
+        world.manager.filingPersonTagStore = PersonTagStore(directory: profiles, profileId: "t")
+        let manager = world.manager
+        var edited = false
+        // `.artifacts` is published right before the replay's wait: the copy is taken and the
+        // index re-pointed, and the window is live for the seconds that follow.
+        let watch = manager.$restructureApplyProgress.sink { progress in
+            guard progress?.stage == .artifacts, !edited else { return }
+            edited = true
+            MainActor.assumeIsolated {
+                manager.filingPeopleStore?.add(displayName: "Late Edit")
+                manager.filingPersonTagStore?.record(personId: "late-edit",
+                                                     key: .path("Tax/Outbound/o.pdf"),
+                                                     verdict: .confirmed,
+                                                     path: "Tax/Outbound/o.pdf")
+            }
+        }
+        defer { watch.cancel() }
+
+        let outcome = await manager.applyPlan(world.manifest)
+        #expect(outcome.refusal == nil)
+        #expect(edited, "the landing never reached step 7")
+        let newId = try #require(outcome.producedProfileId)
+        let people = try String(contentsOf: profiles.appendingPathComponent("\(newId)/people.json"),
+                                encoding: .utf8)
+        #expect(people.contains("Late Edit"),
+                "the person was written to a folder nothing reads any more")
+        let tags = try String(
+            contentsOf: profiles.appendingPathComponent("\(newId)/person-tags.json"), encoding: .utf8)
+        #expect(tags.contains("late-edit"))
+        // And the live stores the window keeps editing are the new folder's.
+        #expect(manager.filingPeopleStore?.fileURL.path.contains("/\(newId)/") == true)
+        #expect(manager.filingPeopleStore?.people.contains { $0.displayName == "Late Edit" } == true)
+    }
+
+    /// A stopped document survey can still be carried on after a landing and after a refresh
+    /// (FR6). Its progress lived only in the old profile folder: the app moved to a folder with
+    /// none, the next survey started from 0, and the retire sweep later deleted the old folder.
+    /// A copy would not do either — the checkpoint names its profile and keys what it read by
+    /// paths the landing just moved — so it is rekeyed like the corpus.
+    @Test func aStoppedSurveysProgressFollowsTheProfileThroughALanding() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let profiles = world.profiles
+        let folder = try #require(world.manager.documentSurveyFolder)
+        func doc(_ size: Int) -> FilingCorpusDocument {
+            FilingCorpusDocument(size: size, modified: 1_700_000_000, anchors: ["a"], idHashes: [])
+        }
+        let stopped = DocumentSurveyCheckpoint(
+            profileId: "t", rootPath: folder.path, salt: "s",
+            plan: ["Tax/2013/State Tax/ca-540.pdf", "Tax/2013/Transcripts/t.pdf",
+                   "Tax/Outbound/o.pdf"],
+            nextIndex: 2,
+            read: ["Tax/2013/State Tax/ca-540.pdf": doc(6), "Tax/2013/Transcripts/t.pdf": doc(10)],
+            documentsUnavailable: 1,
+            startedAt: Date(timeIntervalSince1970: 1_760_000_000),
+            updatedAt: Date(timeIntervalSince1970: 1_760_000_100))
+        try DocumentSurveyCheckpointStore.write(stopped, id: "t", in: profiles)
+        #expect(world.manager.resumableDocumentSurvey(root: folder)?.done == 2)
+
+        let outcome = await world.manager.applyPlan(world.manifest)
+        #expect(outcome.refusal == nil)
+        let newId = try #require(outcome.producedProfileId)
+        #expect(world.manager.resumableDocumentSurvey(root: folder)?.done == 2,
+                "the landing left the app on a folder with no survey progress")
+        let carried = try #require(DocumentSurveyCheckpointStore.read(id: newId, in: profiles)
+            .checkpoint)
+        #expect(carried.resumes(profileId: newId, rootPath: folder.path, salt: "s"),
+                "a checkpoint naming the old profile is refused as another run's")
+        #expect(Set(carried.read.keys) == ["Tax/2013/Forms/ca-540.pdf",
+                                           "Tax/2013/Transcripts/t.pdf"],
+                "what was read must sit where the landing put it")
+        #expect(carried.plan.first == "Tax/2013/Forms/ca-540.pdf")
+        #expect(carried.documentsUnavailable == 1)
+        #expect(DocumentSurveyCheckpointStore.read(id: "t", in: profiles).checkpoint == stopped,
+                "copied, never moved — the old folder is what Undo re-points to")
+
+        // A plain refresh mints a folder too, and retires the one it replaced — progress and all.
+        let refreshed = await world.manager.refreshDerivedProfile(
+            now: Date().addingTimeInterval(5))
+        #expect(refreshed.refusal == nil)
+        #expect(world.manager.filingProfileDirectoryId != newId)
+        #expect(world.manager.resumableDocumentSurvey(root: folder)?.done == 2,
+                "a survey refresh dropped the unfinished survey's progress")
+    }
+
+    /// ⌘Q's count sees the re-derive (FR17): no file operation is queued through it, so the
+    /// guard's old count read zero and let a quit through in silence.
+    @Test func theQuitGuardsCountSeesALandingsReDerive() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let manager = world.manager
+        var during: (queued: Int, counted: Int)?
+        let watch = manager.$restructureApplyProgress.sink { progress in
+            guard progress?.stage == .artifacts, during == nil else { return }
+            MainActor.assumeIsolated {
+                during = (manager.activeFileOperationsCount, manager.operationsAQuitWouldInterrupt)
+            }
+        }
+        defer { watch.cancel() }
+        #expect(manager.operationsAQuitWouldInterrupt == 0)
+        let outcome = await manager.applyPlan(world.manifest)
+        #expect(outcome.refusal == nil)
+        let seen = try #require(during, "the landing never reached step 7")
+        #expect(seen.queued == 0, "the premise: the re-derive queues nothing")
+        #expect(seen.counted == 1)
+        #expect(manager.operationsAQuitWouldInterrupt == 0, "and nothing once it has finished")
+    }
+
+    /// The same cut on a survey refresh: it mints a folder too, and the undo chain must already
+    /// be carried across when the index names it.
+    @Test func aQuitDuringASurveyRefreshKeepsTheLastLandingUndoable() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let profiles = world.profiles
+        let landed = await world.manager.applyPlan(world.manifest)
+        #expect(landed.refusal == nil)
+
+        var atTheCut: String??
+        let watch = world.manager.$restructureApplyProgress.sink { progress in
+            guard progress?.stage == .artifacts, atTheCut == nil else { return }
+            let active = FilingProfileStore.activeProfileId(in: profiles)
+            atTheCut = .some(active.flatMap {
+                RestructureStore(directory: profiles, profileId: $0)
+                    .undoableReorganisation(currentProfileId: $0)?.manifest.manifestId
+            })
+        }
+        defer { watch.cancel() }
+        let refreshed = await world.manager.refreshDerivedProfile(
+            now: Date().addingTimeInterval(5))
+        #expect(refreshed.refusal == nil)
+        let cut = try #require(atTheCut, "the refresh never reached step 7")
+        #expect(cut == world.manifest.manifestId)
+    }
+
+    /// The disk at the instant a survey refresh's replay begins — copied aside, so the test can
+    /// read it the way a relaunch after a quit there would — and the folder the refresh left.
+    /// `left` is the landing's produced folder: derived, so the sweep may take it, and holding
+    /// the corpus that landing replayed. `prepare` runs on it before the refresh.
+    private func cutASurveyRefreshBeforeItsReplay(
+        _ world: World, prepare: (String) throws -> Void = { _ in }
+    ) async throws -> (disk: URL, left: String) {
+        let landed = await world.manager.applyPlan(world.manifest)
+        #expect(landed.refusal == nil)
+        let left = try #require(landed.producedProfileId)
+        try prepare(left)
+        let disk = world.root.deletingLastPathComponent().appendingPathComponent("at-the-cut")
+        var copied = false
+        let watch = world.manager.$restructureApplyProgress.sink { progress in
+            guard progress?.stage == .artifacts, !copied else { return }
+            copied = (try? FileManager.default.copyItem(at: world.profiles, to: disk)) != nil
+        }
+        defer { watch.cancel() }
+        let refreshed = await world.manager.refreshDerivedProfile(now: Date().addingTimeInterval(5))
+        #expect(refreshed.refusal == nil)
+        try #require(copied, "the refresh never reached its replay")
+        let active = try #require(FilingProfileStore.activeProfileId(in: disk))
+        try #require(active != left, "the cut must be after the re-point, or it tests nothing")
+        return (disk, left)
+    }
+
+    /// The sweep the next refresh or landing runs on that disk, protecting exactly what
+    /// `rederiveProfile` protects: every id a record in the active ledger names.
+    private func sweepAsTheNextReDeriveWould(_ disk: URL, sparing left: String) throws {
+        let active = try #require(FilingProfileStore.activeProfileId(in: disk))
+        var protected: Set<String> = []
+        for record in RestructureStore(directory: disk, profileId: active).applied {
+            if let applied = record.appliedUnderProfileId { protected.insert(applied) }
+            if let produced = record.producedProfileId { protected.insert(produced) }
+        }
+        try #require(!protected.contains(left), "premise: no record names the folder left behind")
+        _ = try FilingProfileStore.retireSupersededProfiles(protecting: protected, in: disk)
+    }
+
+    /// FR17's reorder, followed up: a quit during a survey refresh's corpus replay must not cost
+    /// the survey. The index names the new folder before the replay, and the refresh re-points
+    /// the undo chain there too, so the folder left behind — the only one holding the corpus and
+    /// the memory — is named by no record; its curated files were carried, so the old "only copy"
+    /// guard no longer kept it, and the next sweep deleted it, permanently.
+    @Test func aQuitDuringASurveyRefreshsReplayKeepsTheOnlyCorpus() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let (disk, left) = try await cutASurveyRefreshBeforeItsReplay(world)
+        let active = try #require(FilingProfileStore.activeProfileId(in: disk))
+        try #require(FilingSurveyStore.corpus(id: active, in: disk) == nil,
+                     "the cut must be before the replay wrote the corpus")
+        try #require(FilingSurveyStore.corpus(id: left, in: disk) != nil)
+
+        try sweepAsTheNextReDeriveWould(disk, sparing: left)
+        let kept = try #require(FilingSurveyStore.corpus(id: left, in: disk),
+                                "the sweep deleted the only copy of the survey corpus")
+        #expect(kept.documents["Tax/2013/Forms/w2.pdf"] != nil)
+        #expect(FileManager.default.fileExists(
+            atPath: FilingSurveyStore.memoryURL(id: left, in: disk).path))
+    }
+
+    /// The same cut for a stopped first survey (FR6): its progress is carried inside the replay,
+    /// so at the cut the only copy is in the folder left behind.
+    @Test func aQuitDuringASurveyRefreshsReplayKeepsAStoppedSurveysProgress() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let folder = try #require(world.manager.documentSurveyFolder)
+        let (disk, left) = try await cutASurveyRefreshBeforeItsReplay(world) { left in
+            // A first survey stopped part-way: progress, and no corpus or memory yet.
+            try FileManager.default.removeItem(at: FilingSurveyStore.corpusURL(id: left, in: world.profiles))
+            try FileManager.default.removeItem(at: FilingSurveyStore.memoryURL(id: left, in: world.profiles))
+            try DocumentSurveyCheckpointStore.write(DocumentSurveyCheckpoint(
+                profileId: left, rootPath: folder.path, salt: "s",
+                plan: ["Tax/Outbound/o.pdf"], nextIndex: 0, read: [:], documentsUnavailable: 0,
+                startedAt: Date(timeIntervalSince1970: 1_760_000_000),
+                updatedAt: Date(timeIntervalSince1970: 1_760_000_100)), id: left, in: world.profiles)
+        }
+        let active = try #require(FilingProfileStore.activeProfileId(in: disk))
+        try #require(DocumentSurveyCheckpointStore.read(id: active, in: disk).checkpoint == nil,
+                     "the cut must be before the progress was carried")
+
+        try sweepAsTheNextReDeriveWould(disk, sparing: left)
+        #expect(DocumentSurveyCheckpointStore.read(id: left, in: disk).checkpoint?.profileId == left,
+                "the sweep deleted the only copy of the stopped survey's progress")
+    }
+
     /// Undo runs newest-first, the way ⌘Z would: a later landing on top of an earlier one blocks
     /// the earlier one's undo with a sentence — its inverse describes a tree the later landing
     /// reshaped — and undoing the later one first unblocks nothing silently.
