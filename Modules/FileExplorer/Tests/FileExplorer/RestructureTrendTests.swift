@@ -101,6 +101,8 @@ import Testing
     @Test func anUnchangedTrendSaysUnchanged() throws {
         let caption = try #require(RestructureTrendChart.caption(for: Self.points([19, 19, 19])))
         #expect(caption == "19 findings, unchanged across 3 surveys")
+        // ST15: one finding is one, not "1 findings".
+        #expect(RestructureTrendChart.caption(for: Self.points([1, 1])) == "1 finding, unchanged across 2 surveys")
     }
 
     // MARK: It is drawn

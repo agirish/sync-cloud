@@ -392,8 +392,10 @@ struct EditorStatusHint: Equatable {
         switch (rung, reason) {
         case (.link, _): return nil
         case (.sentence, .replaceAll(let failed, let of)?):
-            return "\(failed.formatted()) of \(of.formatted()) matches need Source — none were replaced."
-        case (.short, .replaceAll(let failed, let of)?): return "\(failed.formatted()) of \(of.formatted()) need Source."
+            return "\(failed.formatted()) of \(of.formatted()) \(of == 1 ? "match" : "matches") "
+                + "\(failed == 1 ? "needs" : "need") Source — none \(of == 1 ? "was" : "were") replaced."
+        case (.short, .replaceAll(let failed, let of)?):
+            return "\(failed.formatted()) of \(of.formatted()) \(failed == 1 ? "needs" : "need") Source."
         case (.sentence, _): return EditorStatusHint.needsSource
         case (.short, _): return EditorStatusHint.needsSourceShort
         }

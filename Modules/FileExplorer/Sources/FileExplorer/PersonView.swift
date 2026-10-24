@@ -62,6 +62,11 @@ public struct PersonView: View {
     /// answer.
     private static let folderLimit = 8
 
+    /// The line under the list for the folders past ``folderLimit``. No "…": nothing opens from it.
+    static func moreFolders(_ count: Int) -> String {
+        count == 1 ? "1 more folder" : "\(count.formatted()) more folders"
+    }
+
     /// How many review rows are shown before the rest collapse into a count.
     ///
     /// **Measured, not guessed.** Over the live tree the queue is 870 rows across the household —
@@ -180,7 +185,7 @@ public struct PersonView: View {
                 .background(RoundedRectangle(cornerRadius: Radius.chip).fill(.quaternary.opacity(0.30)))
             }
             if files.folderCount > Self.folderLimit {
-                Text("\(files.folderCount - Self.folderLimit) more folders…")
+                Text(Self.moreFolders(files.folderCount - Self.folderLimit))
                     .scaledFont(.system(size: 11))
                     .foregroundStyle(.tertiary)
                     .padding(.leading, 9)

@@ -1136,7 +1136,7 @@ struct RestructureLens: View {
         case (_, .mirroredInbox(let destination)):
             return "mirrors \(destination)"
         case (_, .looseAboveSeries(let looseFiles, let seriesFolders)):
-            return "\(looseFiles) files above \(seriesFolders) year folders"
+            return "\(looseFiles == 1 ? "1 file" : "\(looseFiles.formatted()) files") above \(seriesFolders) year folders"
         case (_, .looseBesideContainer(let container)):
             return "belongs in \((container as NSString).lastPathComponent)/"
         case (_, .duplicatedTaxonomy(let counterpart, let matched)):

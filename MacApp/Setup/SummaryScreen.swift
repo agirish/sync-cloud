@@ -155,7 +155,8 @@ struct SummaryScreen: View {
         guard let walk = model.walkState.walk else {
             return "You have not learned a folder tree yet"
         }
-        return "Learned: \(walk.root.lastPathComponent), \(walk.folderCount.formatted()) folders"
+        return "Learned: \(walk.root.lastPathComponent), "
+            + (walk.folderCount == 1 ? "1 folder" : "\(walk.folderCount.formatted()) folders")
     }
 
     private var youSummary: String {

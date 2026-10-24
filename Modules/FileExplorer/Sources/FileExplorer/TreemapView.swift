@@ -221,7 +221,7 @@ struct TreemapView: View {
             }
             .help("\(fold.folded.count) more area\(fold.folded.count == 1 ? "" : "s") — \(bytes): \(names)")
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(fold.folded.count) more areas, \(bytes): \(names)")
+            .accessibilityLabel("\(fold.folded.count) more area\(fold.folded.count == 1 ? "" : "s"), \(bytes): \(names)")
     }
 
     @ViewBuilder

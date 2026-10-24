@@ -493,7 +493,7 @@ public struct DifferencesView: View {
             }
         } message: {
             // FR41: the run sets dates; it no longer copies a byte-identical file over its twin.
-            Text("\(verifiedIdenticalCount) files verified identical. One permission — each file on \(paneNames.right) takes the date of its twin on \(paneNames.left). Nothing is copied: the contents already match. No per-file confirmation.")
+            Text("\(verifiedIdenticalCount == 1 ? "1 file" : "\(verifiedIdenticalCount.formatted()) files") verified identical. One permission — each file on \(paneNames.right) takes the date of its twin on \(paneNames.left). Nothing is copied: the contents already match. No per-file confirmation.")
         }
     }
 

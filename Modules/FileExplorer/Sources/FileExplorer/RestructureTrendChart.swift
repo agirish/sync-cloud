@@ -42,7 +42,7 @@ struct RestructureTrendChart: View {
         let landings = points.filter(\.landing).count
         let head: String
         if first.total == last.total {
-            head = "\(last.total) findings, unchanged across \(points.count) surveys"
+            head = "\(last.total == 1 ? "1 finding" : "\(last.total.formatted()) findings"), unchanged across \(points.count) surveys"
         } else {
             head = "\(first.total) → \(last.total) findings"
         }

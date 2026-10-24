@@ -108,7 +108,7 @@ public enum DocumentSurveyCardText {
             return pause == nil ? "Reading documents · \(counted)"
                                 : "Reading documents · paused at \(counted)"
         case .finishing(let done):
-            return "Read \(done.formatted()) documents · learning from them"
+            return "Read \(done == 1 ? "1 document" : "\(done.formatted()) documents") · learning from them"
         case .interrupted(let done, let total):
             guard done < total else { return "Documents read — not saved yet" }
             return "Reading documents — paused at \(done.formatted()) of \(total.formatted())"
@@ -179,8 +179,10 @@ public enum DocumentSurveyCardText {
             // managed reads as complete when it was not, and these are the largest single gap in a
             // derived survey — 816 of 11,835 on the reference tree, leaving 143 folders with no
             // content at all.
-            return summary + " \(unreadableTypes.formatted()) Word, PowerPoint and Excel documents "
-                + "were not read — this app cannot open them."
+            return summary + (unreadableTypes == 1
+                ? " 1 Word, PowerPoint or Excel document was not read — this app cannot open it."
+                : " \(unreadableTypes.formatted()) Word, PowerPoint and Excel documents "
+                    + "were not read — this app cannot open them.")
         }
     }
 

@@ -230,7 +230,7 @@ extension FileSyncManager {
             banner = .warning("\(result.successes.count) copied; \(result.failures.count) failed")
         } else if !result.successes.isEmpty {
             // The whole run's per-file undos are wrapped in one group above, so ⌘Z reverses it all.
-            banner = .success("\(result.successes.count) files copied — dates matched", undoable: true)
+            banner = .success("\(CountedNoun.phrase(result.successes.count, "file")) copied — dates matched", undoable: true)
         }
         // Summary breadcrumb for the bulk path: a single-file copy already logs its "Copied …"
         // line, but a "Copy All" of hundreds of files otherwise leaves no successful-outcome

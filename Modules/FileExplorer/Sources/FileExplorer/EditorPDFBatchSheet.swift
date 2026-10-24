@@ -62,7 +62,7 @@ struct EditorPDFBatchSheet: View {
     }
 
     private var title: String {
-        let files = "\(batch.count) files"
+        let files = batch.count == 1 ? "1 file" : "\(batch.count.formatted()) files"
         switch batch.kind {
         case .rotate(let turns): return "Rotate \(files) \(EditorPDFCopyName.degrees(turns))"
         case .compress: return "Compress \(files)"

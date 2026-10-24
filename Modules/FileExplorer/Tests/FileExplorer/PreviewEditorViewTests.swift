@@ -382,6 +382,12 @@ import EventsTestSupport
         #expect(hint.sentence(.sentence) == "2 of 5 matches need Source — none were replaced.")
         #expect(hint.sentence(.short) == "2 of 5 need Source.")
         #expect(hint.sentence(.link) == nil)
+        // ST15: one of one is a match that needs Source, not "1 of 1 matches need Source".
+        let one = EditorStatusHint(token: 1, onShowInSource: {}, reason: .replaceAll(failed: 1, of: 1))
+        #expect(one.sentence(.sentence) == "1 of 1 match needs Source — none was replaced.")
+        #expect(one.sentence(.short) == "1 of 1 needs Source.")
+        let oneOfMany = EditorStatusHint(token: 1, onShowInSource: {}, reason: .replaceAll(failed: 1, of: 1_204))
+        #expect(oneOfMany.sentence(.sentence) == "1 of 1,204 matches needs Source — none were replaced.")
         let plain = EditorStatusHint(token: 1, onShowInSource: {}, reason: .joinsBlocks)
         #expect(plain.sentence(.sentence) == EditorStatusHint.needsSource)
         #expect(plain.sentence(.short) == EditorStatusHint.needsSourceShort)

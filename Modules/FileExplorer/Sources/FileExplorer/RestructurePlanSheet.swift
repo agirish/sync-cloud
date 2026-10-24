@@ -625,7 +625,8 @@ struct RestructurePlanSheet: View {
     /// answer is the sentence, and the table below it would only confirm it row by row.
     static func groupHeaderText(disagreements: Int, families: Int) -> String {
         guard disagreements > 0 else {
-            return "These \(families) families already agree on every name"
+            return families == 1 ? "This family already agrees on every name"
+                : "These \(families.formatted()) families already agree on every name"
         }
         return "\(disagreements) name\(disagreements == 1 ? "" : "s") "
             + "\(disagreements == 1 ? "is" : "are") not shared by all \(families)"

@@ -13,11 +13,15 @@ public enum DocumentSurveyCost {
 
     /// `"About 3 h for 6,140 documents."`
     public static func phrase(documents: Int) -> String {
-        "About 3 h for \(documents.formatted()) documents."
+        "About 3 h for \(documentCount(documents))."
+    }
+
+    private static func documentCount(_ n: Int) -> String {
+        n == 1 ? "1 document" : "\(n.formatted()) documents"
     }
 
     /// The same figure as the survey card's offer draws it, in the middle of its sentence.
     public static func offerClause(documents: Int) -> String {
-        "About 3 h for \(documents.formatted()) documents, in the background."
+        "About 3 h for \(documentCount(documents)), in the background."
     }
 }

@@ -68,7 +68,8 @@ struct StructureScreen: View {
                                   rootName: model.walkRootName,
                                   rootSubtitle: lens == .folders
                                       ? "the folder SyncCloud learned"
-                                      : "\(model.looseRoutes.count) files sitting loose here",
+                                      : model.looseRoutes.count == 1 ? "1 file sitting loose here"
+                                          : "\(model.looseRoutes.count.formatted()) files sitting loose here",
                                   routes: lens == .loose && !model.structureIsReadOnly
                                       ? model.looseRoutes : [],
                                   hue: hue)
@@ -192,20 +193,22 @@ struct StructureScreen: View {
         // "loose at the top" is two words longer than the rest, so the row reads as five unrelated
         // figures rather than as one strip of counts.
         HStack(alignment: .top, spacing: 0) {
-            stat(folderCount, "folders")
-            stat(fileCount, "files")
+            stat(folderCount, "folder", "folders")
+            stat(fileCount, "file", "files")
             // The walk's own count, not the routing's: "loose at the top" is a fact about the
             // folder, and it must not change because routing was capped or has not run.
             stat(model.walkState.walk?.looseFileNames.count ?? model.looseRoutes.count,
-                 "loose at the top")
-            stat(model.rosterNames.count, "people")
-            stat(model.confirmedCountries.count, "countries")
+                 "loose at the top", "loose at the top")
+            stat(model.rosterNames.count, "person", "people")
+            stat(model.confirmedCountries.count, "country", "countries")
             Spacer(minLength: 0)
         }
     }
 
-    private func stat(_ value: Int, _ label: String) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+    /// One count and its label — `one` for exactly one, `many` for any other number.
+    private func stat(_ value: Int, _ one: String, _ many: String) -> some View {
+        let label = value == 1 ? one : many
+        return VStack(alignment: .leading, spacing: 0) {
             Text(value.formatted())
                 .scaledFont(.title3.weight(.semibold))
                 .monospacedDigit()
@@ -216,7 +219,7 @@ struct StructureScreen: View {
         }
         .frame(width: Self.statColumn, alignment: .leading)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(value) \(label)")
+        .accessibilityLabel("\(value.formatted()) \(label)")
     }
 
     /// Folders below the root — the walk's own count where there is one, the profile's otherwise.

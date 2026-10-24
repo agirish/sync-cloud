@@ -92,7 +92,8 @@ struct SetupTreeView: View {
                 }
                 let unplaced = routes.filter { !$0.isReady }
                 if !unplaced.isEmpty {
-                    Text("\(unplaced.count) more need your pick — Organize ▸ To File asks about each")
+                    Text(unplaced.count == 1 ? "1 more needs your pick — Organize ▸ To File asks about it"
+                         : "\(unplaced.count.formatted()) more need your pick — Organize ▸ To File asks about each")
                         .scaledFont(.caption)
                         .foregroundStyle(.secondary)
                         .padding(.top, 6)
@@ -206,7 +207,11 @@ struct SetupTreeView: View {
     private func count(_ entry: FolderProfileEntry?, hasChildren: Bool) -> String {
         guard let entry else { return "" }
         if hasChildren { return "\(entry.subfolderCount)" }
-        return entry.fileCount == 0 ? "" : "\(entry.fileCount) files"
+        switch entry.fileCount {
+        case 0: return ""
+        case 1: return "1 file"
+        default: return "\(entry.fileCount.formatted()) files"
+        }
     }
 
     private func toggle(_ path: String) {
