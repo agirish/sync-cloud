@@ -729,7 +729,8 @@ extension FileSyncManager {
         let actions = record.inverse.actions
         let execution: RestructureExecution = await enqueueFileOperation {
             FileSyncManager.executeRestructureActions(actions, root: expandedRoot, fm: fm,
-                                                      vetoUnlistedSourceFolders: false)
+                                                      vetoUnlistedSourceFolders: false,
+                                                      restoringMissingParents: true)
         }
         outcome.renamed = execution.renamed
         outcome.filesMoved = execution.filesMoved
@@ -1013,6 +1014,7 @@ extension FileSyncManager {
     nonisolated static func executeRestructureActions(
         _ actions: [RestructureManifest.Action], root: String, fm: FileManaging,
         vetoUnlistedSourceFolders: Bool = true,
+        restoringMissingParents: Bool = false,
         journal: RestructureLandingJournal? = nil,
         onProgress: (@Sendable (Int) -> Void)? = nil)
         -> RestructureExecution {
@@ -1107,6 +1109,31 @@ extension FileSyncManager {
         func refusedRenameSentence(_ item: String, _ covering: String) -> String {
             "\(item) was planned against \(covering)/ as the rename would have made it, and that "
                 + "rename was refused — left where it stands"
+        }
+        // **An undo puts an item back in the folder it came from, even when that folder is gone
+        // (FR20).** A merge empties its source folder, and an emptied folder is exactly what a
+        // person tidies away by hand. The inverse's move-back into it then failed for want of a
+        // parent, the rename-back after it succeeded — and carried every merged file into a
+        // folder they had never lived in, under a record marked undone. The missing parent is not
+        // a guess: it is the folder the landing moved the item OUT of, recorded in the action
+        // itself, so recreating it restores the tree rather than reshaping it. Stopping as drift
+        // before the rename-back was the other choice, and it is the worse one: it leaves a half
+        // undone tree with no record that can finish it. Only the inverse does this — a forward
+        // plan names the folders it creates, and a missing destination there is drift.
+        func restoreParent(of relative: String) {
+            guard restoringMissingParents else { return }
+            let parent = (absolute(relative) as NSString).deletingLastPathComponent
+            guard !fm.fileExists(atPath: parent) else { return }
+            do {
+                try fm.createDirectory(at: URL(fileURLWithPath: parent),
+                                       withIntermediateDirectories: true, attributes: nil)
+                Logger.shared.info("Restructure undo: \((relative as NSString).deletingLastPathComponent)/ "
+                    + "was gone, so it was recreated to take \((relative as NSString).lastPathComponent) back")
+            } catch {
+                // The move below then fails and says so; nothing is moved anywhere else.
+                Logger.shared.warning("Restructure undo: could not recreate the folder "
+                    + "\(relative) came from: \(error.localizedDescription)")
+            }
         }
 
         for action in actions {
@@ -1208,6 +1235,7 @@ extension FileSyncManager {
                     out.skipped.append("\(src) was deleted between plan and apply — skipped")
                     continue
                 }
+                restoreParent(of: dst)
                 var destination = URL(fileURLWithPath: absolute(dst))
                 var performed = action
                 if fm.fileExists(atPath: destination.path) {
@@ -1286,6 +1314,7 @@ extension FileSyncManager {
                         + "rather than merged unreviewed")
                     continue
                 }
+                restoreParent(of: dst)
                 do {
                     try FileSyncManager.safeMoveItem(at: URL(fileURLWithPath: srcPath),
                                                     to: URL(fileURLWithPath: dstPath),

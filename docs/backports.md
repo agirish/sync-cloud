@@ -9659,3 +9659,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s renameSkip=%s\n' $l \
 |---|---|---|
 | `v5.x` | The same rename skip (`renameSkip=1`) | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Restructure (`renameSkip=0`) | CLOSED — does not apply |
+
+---
+
+## Undo puts a merged file back even after its emptied folder was trashed (FR20) — main only
+
+A merge empties its source folder; a person tidies it away; the ledger Undo's move-back into it then
+failed, the rename-back after it succeeded, and the merged files rode it into a folder they never
+lived in under a record marked undone. `main`'s inverse recreates the folder each item came out of.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s undoCall=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+RestructureApply.swift 2>/dev/null | grep -cF 'vetoUnlistedSourceFolders: false)')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x         undoCall=1
+# v4.x, v3.x, v2.x   undoCall=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The same ledger Undo (`undoCall=1`) | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Restructure (`undoCall=0`) | CLOSED — does not apply |

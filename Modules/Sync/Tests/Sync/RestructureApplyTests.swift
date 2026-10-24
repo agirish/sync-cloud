@@ -654,6 +654,33 @@ import Testing
                 "the record stays applied, retryable once the drift is resolved")
     }
 
+    /// The ledger Undo after the person hand-trashed a folder the merge emptied (FR20). The
+    /// move-back into the missing folder used to fail, the rename-back after it succeeded, and
+    /// every merged file rode it into a folder it never lived in — under a record marked undone.
+    /// The missing folder is the one each file came out of, so it is recreated and the tree
+    /// comes back byte for byte.
+    @Test func anUndoAfterTheEmptiedSourceWasTrashedPutsEachFileBack() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let before = Self.treeHash(world.root)
+        let outcome = await world.manager.applyPlan(world.manifest)
+        #expect(outcome.refusal == nil)
+        let stateTax = world.root.appendingPathComponent("Tax/2013/State Tax")
+        #expect(FileSyncManager.visibleFileCount(atPath: stateTax.path,
+                                                 fm: FileManager.default) == 0,
+                "the fixture must have emptied State Tax for this to be the tidy-up it models")
+        // The tidy-up, by hand — inside the temp root, never the real Trash.
+        try FileManager.default.removeItem(at: stateTax)
+
+        let undo = await world.manager.undoReorganisation(manifestId: world.manifest.manifestId)
+        #expect(undo.refusal == nil)
+        #expect(Self.treeHash(world.root) == before,
+                "every file goes back where it came from — now: \(Self.treeList(world.root))")
+        #expect(!FileManager.default.fileExists(
+            atPath: world.root.appendingPathComponent("Tax/2013/Federal Tax/ca-540.pdf").path),
+                "a merged file rode the rename-back into a folder it never lived in")
+    }
+
     /// The same-name-subfolder merge the planner itself derives must land whole: the subfolder
     /// is never a move src — only its files are — and the first veto called it "unlisted" and
     /// skipped its parent, half-landing every merge of this shape with a false sentence.
