@@ -232,7 +232,7 @@ struct SetupSheet: View {
          /// A tree to start from instead of walking for one — see `SetupModel.init`.
          walk: SetupWalk? = nil,
          /// Whether the user asked for setup by name — Help ▸ Set Up SyncCloud…, or
-         /// Settings ▸ General ▸ Run setup again… — rather than the app offering it on launch.
+         /// Settings ▸ General ▸ Run Setup Again… — rather than the app offering it on launch.
          /// **An explicit ask opens on the welcome card**, because that is what "run setup" means;
          /// the automatic offer follows `SetupFlow.initialScreen`, which skips it on a Mac that is
          /// already set up.
@@ -383,10 +383,9 @@ struct SetupSheet: View {
             // Learn was skipped there is a profile on screen and nothing to write; and after a
             // folder is changed but not read there is neither — a Save in either case is a button
             // whose whole effect is to move to the next screen, so it says Continue instead. So
-            // does a reading Save already wrote: writing it again made a second profile.
-            frame(primary: model.canWriteProfile
-                    ? (model.readDocuments ? "Save and start reading" : "Save")
-                    : "Continue",
+            // does a reading Save already wrote: writing it again made a second profile. The
+            // words are `structurePrimaryTitle`, so a test can read them.
+            frame(primary: model.structurePrimaryTitle,
                   // Moves on only once the profile is written: a failed write stays here and
                   // says what failed (`saveAndContinue`).
                   primaryAction: model.canWriteProfile ? {

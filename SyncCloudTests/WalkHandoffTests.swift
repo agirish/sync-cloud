@@ -135,7 +135,7 @@ import Testing
     /// life of the view.
     @Test func theFormReadsItsRosterLive() throws {
         let source = try Self.setupSheetSource()
-        let body = try #require(source.range(of: "private var draftURL"))
+        let body = try #require(source.range(of: "private let draftURL"))
         // **Comments stripped first.** The first draft of this scan failed on the sentence
         // explaining the defect — a comment naming `peopleStore` is documentation, not a read, and
         // a scan that cannot tell them apart bans writing the explanation down.

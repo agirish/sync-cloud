@@ -349,8 +349,8 @@ open -a SyncCloud && tail -f ~/sync-cloud.log
   Check that View ▸ Text Size ▸ Bigger agrees with it afterwards.
 - [ ] **Esc persists nothing.** Press it on any screen, quit, relaunch: setup offers itself again.
   What each screen already committed — preferences, the location list, the draft — stays.
-- [ ] **Settings ▸ General ▸ Run setup again…** opens the sheet at Locations.
-  **Settings ▸ Advanced ▸ Reset setup…** asks first, then opens it at Welcome and makes it offer
+- [ ] **Settings ▸ General ▸ Run Setup Again…** opens the sheet at Locations.
+  **Settings ▸ Advanced ▸ Reset Setup…** asks first, then opens it at Welcome and makes it offer
   itself on the next launch.
 - [ ] **Do not time it.** Setup claims no duration anywhere, by decision, so there is no number to
   confirm and none to add. The reading offer's "About 3 h for N documents" is a different claim and

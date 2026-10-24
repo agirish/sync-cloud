@@ -139,8 +139,17 @@ struct SetupFooter: View {
     var primaryTitle: String
     var onPrimary: () -> Void
     var isPrimaryDisabled = false
+    /// Forces the lock line on or off — for a test's reference render. Nil follows
+    /// ``showsPrivacyLine``.
+    var privacyLine: Bool? = nil
 
     @Environment(\.appFontScale) private var fontScale
+
+    /// Whether the centred lock line is drawn: **not beside a secondary button.** Structure after
+    /// a failed Save carries Back, "Continue without saving" and "Save and start reading", and the
+    /// buttons then reach under the centre — the line, an overlay that reserves no width, sat on
+    /// top of them.
+    var showsPrivacyLine: Bool { privacyLine ?? (secondaryTitle == nil) }
 
     private var scale: CGFloat { SetupSheetMetrics.chromeScale(fontScale) }
 
@@ -171,12 +180,14 @@ struct SetupFooter: View {
         // something different on each. An overlay reserves no width, so it cannot push the buttons
         // around; `theFooterPiecesDoNotCollide` is what holds them apart.
         .overlay {
-            Label(SetupFlow.privacyFooter, systemImage: "lock")
-                .scaledFont(.caption)
-                .foregroundStyle(.tertiary)
-                .labelStyle(.titleAndIcon)
-                .accessibilityLabel("Everything on this screen stays on this Mac")
-                .allowsHitTesting(false)
+            if showsPrivacyLine {
+                Label(SetupFlow.privacyFooter, systemImage: "lock")
+                    .scaledFont(.caption)
+                    .foregroundStyle(.tertiary)
+                    .labelStyle(.titleAndIcon)
+                    .accessibilityLabel("Everything on this screen stays on this Mac")
+                    .allowsHitTesting(false)
+            }
         }
         .padding(.horizontal, SetupSheetMetrics.inset(scale: scale))
         .frame(height: SetupSheetMetrics.footerHeight * scale)

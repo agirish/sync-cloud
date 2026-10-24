@@ -314,13 +314,53 @@ import Testing
                 "Learn offered \(model.learnPrimaryTitle) over a folder nobody has read")
     }
 
+    /// **Skip during a reading stays skipped when the reading lands**, and of two readings of one
+    /// folder only the later one lands.
+    ///
+    /// The landing guard checked the folder alone, so a Skip was overridden — Countries and
+    /// Structure came back into a flow the user had just dropped them from — and Back to Learn
+    /// again mid-reading had two walks land, each resetting the Countries ticks.
+    @Test(.timeLimit(.minutes(1)))
+    func onlyTheLatestAwaitedReadingLands() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-gen-\(UUID().uuidString)")
+        let documents = root.appendingPathComponent("Documents")
+        for folder in ["Finance/US", "Family/Mother"] {
+            try FileManager.default.createDirectory(at: documents.appendingPathComponent(folder),
+                                                    withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = root.appendingPathComponent("profiles")
+
+        // The test holds the main actor, so neither reading can land before the next step.
+        let skipped = await self.model(syncManager: engine)
+        skipped.changeWalkRoot(to: documents)
+        skipped.screen = .learn
+        skipped.startWalk()
+        #expect(skipped.skip())
+        await skipped.lastWalk?.value
+        #expect(skipped.walkState == .skipped, "the reading landed over a Skip: \(skipped.walkState)")
+        #expect(!skipped.crumbs.contains(.structure), "Structure came back after Skip")
+
+        let twice = await self.model(syncManager: engine)
+        twice.changeWalkRoot(to: documents)
+        twice.startWalk()
+        let first = try #require(twice.lastWalk)
+        twice.startWalk()
+        await first.value
+        await twice.lastWalk?.value
+        #expect(twice.walkState.isDone, "premise: the later reading landed")
+        #expect(twice.readingNumber == 1, "\(twice.readingNumber) readings landed for one Learn")
+    }
+
     /// And a reading kept in hand is Continue's only for the folder it read.
     @Test func continueIsOfferedOnlyForTheFolderTheReadingRead() async {
         let model = await self.model(walk: Self.walk(folders: ["Finance/US"]))
         model.screen = .learn
         #expect(model.learnPrimaryTitle == "Continue", "premise: a reading of the chosen folder")
 
-        model.walkRoot = URL(fileURLWithPath: "/tmp/Elsewhere")
+        model.changeWalkRoot(to: URL(fileURLWithPath: "/tmp/Elsewhere"))
         #expect(model.learnPrimaryTitle == "Learn",
                 "Continue would keep /tmp/Documents's tree under Elsewhere's name")
         #expect(model.learnAgainTitle == nil)
@@ -382,6 +422,53 @@ import Testing
         model.requestRemovePerson(named: "Ravi")
         #expect(model.personAwaitingRemoval == nil, "a name added a moment ago asked first")
         #expect(store.people.map(\.displayName) == ["Maya"])
+    }
+
+    /// **A person removed on People after a first-run Save stays removed.**
+    ///
+    /// Save lands the draft in the roster it creates, but the draft in memory still named them, so
+    /// leaving People applied it again and the person came back.
+    @Test func aPersonRemovedAfterAFirstRunSaveStaysRemoved() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-unremove-\(UUID().uuidString)")
+        let profiles = root.appendingPathComponent("profiles")
+        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let draftURL = root.appendingPathComponent("setup-draft.json")
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = profiles
+        let model = SetupModel(settings: await settings(), peopleStore: nil, syncManager: engine,
+                               hasFilingProfile: false, defaults: ScratchDefaults("setup-model-d"),
+                               walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
+                               draftURL: draftURL,
+                               onProfileWritten: {
+                                   // What `FilingArtifacts.attach` does, pointed at the scratch folder.
+                                   guard let id = FilingProfileStore.activeProfileId(in: profiles) else { return }
+                                   engine.filingPeopleStore = PeopleStore(directory: profiles,
+                                                                          profileId: id, profile: nil)
+                               })
+        model.screen = .people
+        model.newPersonField = "Maya"
+        model.commitTypedPerson()
+        #expect(model.draft.others.map(\.displayName) == ["Maya"], "premise: Maya is in the draft")
+        #expect(FileManager.default.fileExists(atPath: draftURL.path), "premise: the draft was written")
+
+        #expect(await model.save(), "premise: the Save wrote")
+        let store = try #require(model.roster, "premise: the Save attached a roster")
+        #expect(store.people.map(\.displayName) == ["Maya"], "premise: the draft landed")
+
+        model.screen = .people
+        model.requestRemovePerson(named: "Maya")
+        #expect(model.personAwaitingRemoval == "Maya", "premise: a roster person asks first")
+        model.personAwaitingRemoval = nil
+        model.removePerson(named: "Maya")
+        #expect(store.people.isEmpty, "premise: Maya left the roster")
+
+        _ = model.advance()
+        model.applyDraftIfPossible()   // what finishing does
+        #expect(store.people.isEmpty,
+                "Maya came back: \(store.people.map(\.displayName)) — the draft re-applied her")
+        #expect(model.draft.others.isEmpty)
     }
 
     // MARK: - Saving
@@ -466,6 +553,80 @@ import Testing
         #expect(model.structureSecondaryTitle == nil, "Continue without saving outlived the failure")
     }
 
+    /// A model on Structure whose Save has failed once, against a profiles folder that cannot be
+    /// written — and the blocker to remove when the write should succeed.
+    private func failedSave(_ tag: String) async throws -> (model: SetupModel, root: URL, blocker: URL) {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-\(tag)-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let blocker = root.appendingPathComponent("blocker")
+        try Data("not a folder".utf8).write(to: blocker)
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = blocker.appendingPathComponent("profiles")
+        let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
+                                     syncManager: engine)
+        model.screen = .structure
+        await model.saveAndContinue()
+        #expect(model.saveFailure != nil, "premise: the first Save failed")
+        return (model, root, blocker)
+    }
+
+    /// Starts a Save and returns once it is writing — the state the window shows mid-press.
+    private func startSaving(_ model: SetupModel) async throws -> Task<Void, Never> {
+        let press = Task { await model.saveAndContinue() }
+        for _ in 0..<1000 where !model.isSaving { await Task.yield() }
+        #expect(model.isSaving, "premise: the Save is in flight")
+        return press
+    }
+
+    /// **A retry keeps the last failure on screen while it writes.** It was cleared before the
+    /// write, so Structure jumped and Continue without saving vanished for the length of the press.
+    @Test(.timeLimit(.minutes(1)))
+    func aRetryKeepsTheFailureUpWhileItWrites() async throws {
+        let (model, root, _) = try await failedSave("retry")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let press = try await startSaving(model)
+        #expect(model.saveFailure != nil, "the failure line was cleared before the retry finished")
+        #expect(model.structureSecondaryTitle != nil,
+                "Continue without saving left the footer while the retry wrote")
+        await press.value
+    }
+
+    /// **Back is refused while Save writes, and a Save that lands off Structure moves nothing.**
+    ///
+    /// The press advanced from whatever screen was current when it landed, so Back mid-write left
+    /// for Countries and was carried straight back to Structure.
+    @Test(.timeLimit(.minutes(1)))
+    func backIsRefusedWhileSaveWrites() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-backsave-\(UUID().uuidString)")
+        let profiles = root.appendingPathComponent("profiles")
+        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = profiles
+
+        let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
+                                     syncManager: engine)
+        model.screen = .structure
+        #expect(model.canGoBack, "premise: Back is offered on Structure")
+        var press = try await startSaving(model)
+        #expect(!model.canGoBack, "Back is offered while Save writes")
+        model.retreat()
+        #expect(model.screen == .structure, "Back left Structure mid-write, for \(model.screen)")
+        await press.value
+        #expect(model.screen == .workspaces, "premise: the Save moved on")
+
+        // However the sheet left Structure, a Save that lands elsewhere does not move it.
+        model.toggleCountry("IN")
+        model.screen = .structure
+        press = try await startSaving(model)
+        model.screen = .countries
+        await press.value
+        #expect(model.writtenReport != nil)
+        #expect(model.screen == .countries, "a Save landing on Countries carried it to \(model.screen)")
+    }
+
     /// **Continue without saving moves on and writes nothing** — offered only after a failed Save.
     @Test func continuingWithoutSavingMovesOnAndWritesNothing() async throws {
         let root = FileManager.default.temporaryDirectory
@@ -518,6 +679,51 @@ import Testing
         // A new reading is a new thing to write.
         model.adopt(Self.walk(folders: ["Taxes/2024"]))
         #expect(model.canWriteProfile, "a fresh reading could not be saved")
+    }
+
+    /// **A country changed after Save is written by a second Save** — and the documents are not
+    /// read a second time.
+    ///
+    /// The reading counted as written whatever the ticks said, so going back to Countries after a
+    /// Save left Structure on Continue: Summary listed the new countries and the profile on disk
+    /// held the old ones.
+    @Test func aCountryChangedAfterSaveIsSavedAgain() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-recountry-\(UUID().uuidString)")
+        let profiles = root.appendingPathComponent("profiles")
+        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = profiles
+        var started: [URL] = []
+        let model = SetupModel(settings: await settings(), peopleStore: nil, syncManager: engine,
+                               hasFilingProfile: false, defaults: ScratchDefaults("setup-model-d"),
+                               walk: Self.walk(folders: ["Finance/US/2024", "Finance/IN/2024"]),
+                               onStartSurvey: { started.append($0) })
+        model.confirmedCountries = ["US"]
+        #expect(model.structurePrimaryTitle == "Save and start reading")
+        #expect(await model.save(), "premise: the first Save wrote")
+        let first = try #require(model.writtenReport?.profileId)
+        #expect(started.count == 1, "premise: the first Save started the reading")
+
+        // Unchanged: nothing to write.
+        #expect(!model.canWriteProfile)
+        #expect(model.structurePrimaryTitle == "Continue")
+
+        // A tick changed: Save is offered again, and writes the new countries.
+        model.toggleCountry("IN")
+        #expect(model.canWriteProfile,
+                "a changed country left Structure on Continue over a profile that does not hold it")
+        #expect(model.structurePrimaryTitle == "Save",
+                "the second Save says it starts a reading the first one already started")
+        #expect(await model.save(), "the second Save wrote nothing")
+        let second = try #require(model.writtenReport?.profileId)
+        #expect(second != first, "the changed countries did not write a new profile")
+        let written = try #require(FilingProfileStore.profile(id: second, in: profiles))
+        #expect(written.folders["Finance/IN"]?.axes["jurisdiction"] == "IN",
+                "the profile the second Save wrote does not hold IN")
+        #expect(started.count == 1, "the second Save started reading the same folder again: \(started)")
+        #expect(!model.canWriteProfile, "the second Save's answers are still offered for saving")
     }
 
     // MARK: - Back to Learn
@@ -579,6 +785,45 @@ import Testing
         model.returnToLearn()
         #expect(model.screen == .learn)
         #expect(model.walkState.isDone, "the reading was dropped on the way back")
+    }
+
+    /// **Summary describes what Save wrote, not the reading in hand.**
+    ///
+    /// A reading continued past without saving read "Learned", and a profile written earlier in the
+    /// run read "not learned" once Learn was skipped on the way back.
+    @Test func summarySaysWhatWasWritten() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-summary-\(UUID().uuidString)")
+        let profiles = root.appendingPathComponent("profiles")
+        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = profiles
+        let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
+                                     syncManager: engine)
+        model.confirmedCountries = ["US"]
+
+        #expect(SummaryScreen.folderLine(for: model) == "Read Documents — not saved")
+        #expect(SummaryScreen.countriesLine(for: model) == "Countries: US — not saved")
+
+        #expect(await model.save(), "premise: the Save wrote")
+        let saved = SummaryScreen.folderLine(for: model)
+        #expect(saved.hasPrefix("Learned: Documents, "), "after Save: \(saved)")
+        #expect(SummaryScreen.countriesLine(for: model) == "Countries: US")
+
+        // Back to Learn and Skip: the profile on disk is still learned, with what it holds.
+        model.screen = .learn
+        #expect(model.skip())
+        #expect(SummaryScreen.folderLine(for: model) == saved,
+                "a written profile reads “\(SummaryScreen.folderLine(for: model))” after Skip")
+        #expect(SummaryScreen.countriesLine(for: model) == "Countries: US")
+
+        // And the screen draws these rules, not a copy of them.
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/Setup/SummaryScreen.swift"), encoding: .utf8)
+        #expect(source.contains("row(\"folder\", Self.folderLine(for: model),"))
+        #expect(source.contains("if let countries = Self.countriesLine(for: model) {"))
     }
 
     /// Saves a walk into a fresh profiles folder — holding a hand-built profile first, when asked

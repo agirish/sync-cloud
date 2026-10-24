@@ -519,10 +519,10 @@ enum SettingsSearchIndex {
         // Locations screen. Indexed under their own labels because that is what the row says now:
         // they used to be an unlabelled field in the header and a `Text` above a picker, neither
         // of which the label scan could see.
-        .init(tab: .general, title: "Run setup again",
+        .init(tab: .general, title: "Run Setup Again",
               keywords: ["setup", "guided setup", "first run", "onboarding", "welcome",
                          "run setup", "set up syncCloud"]),
-        .init(tab: .advanced, title: "Reset setup",
+        .init(tab: .advanced, title: "Reset Setup",
               keywords: ["reset setup", "setup", "first run", "onboarding", "forget setup",
                          "run setup again", "start over"]),
         .init(tab: .providers, title: "Display name",
@@ -756,7 +756,7 @@ struct GeneralSettingsTab: View {
                     .help("Reopens each pane with the tabs and folders it had when you last quit. Off, every pane starts with one tab at its source’s opening folder.")
                 if let onRunSetup {
                     SettingsRow("Setup") {
-                        Button("Run setup again…", action: onRunSetup)
+                        Button("Run Setup Again…", action: onRunSetup)
                             .controlSize(.small)
                     }
                     .help("Reopens the guided setup sheet with your current answers filled in. Nothing is reset.")
@@ -2528,7 +2528,7 @@ struct IntelligenceSettingsTab: View {
                     .help("Stops a Refine that would take the estimated Claude spend recorded here, across all time, past this amount.")
                 }
                 HStack {
-                    Button("View history…") { showSpendHistory = true }
+                    Button("View History…") { showSpendHistory = true }
                         .disabled(spendTotals.scans == 0)
                     // Asks first: this resets what both caps count against, the $5 backstop included.
                     Button("Clear", role: .destructive) {
@@ -2983,7 +2983,7 @@ struct PeopleList: View {
     /// What "Look for Names" read off the tree, or the sentence that says it found nothing.
     private var namesFound: some View {
         SettingsSection("Names found in your documents",
-                        caption: "Read from the file names already in each person’s folders. Nothing is added without asking, and “Not a name” is remembered.") {
+                        caption: "Read from the file names already in each person’s folders. Nothing is added without asking, and “Not a Name” is remembered.") {
             if suggestions.isEmpty {
                 Label("No new names — every form your filed documents use is already recorded.",
                       systemImage: "checkmark.circle")
@@ -3475,7 +3475,7 @@ struct PersonSuggestionRow: View {
             Spacer(minLength: 8)
             Button("Add", action: onAccept).controlSize(.small)
                 .help("Adds “\(suggestion.form)” to \(personName)’s full names on documents.")
-            Button("Not a name", action: onDismiss).controlSize(.small)
+            Button("Not a Name", action: onDismiss).controlSize(.small)
                 .help("Dismisses “\(suggestion.form)” — it won’t be suggested again.")
         }
         .padding(.vertical, 2)
@@ -3768,7 +3768,7 @@ struct AdvancedSettingsTab: View {
                     Button("Reset Setup…", role: .destructive) {
                         confirmResetSetup(onResetSetup)
                     }
-                    .help("Forgets that setup has run and opens it now, from the beginning. Asks first.")
+                    .help("Forgets that setup has run and which location it learns from, and opens it now, from the beginning. Asks first.")
                 }
             }
 

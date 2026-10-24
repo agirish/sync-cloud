@@ -224,31 +224,80 @@ import Testing
         return box - CGFloat(bounds.last) / (CGFloat(rep.pixelsWide) / box)
     }
 
-    /// The footer's three pieces do not touch, at the widest primary title and the largest text.
+    /// The footers the test renders: Structure's long primary, which keeps the lock line, and the
+    /// two that carry a secondary button, which drop it.
+    enum FooterCase: CaseIterable, Sendable {
+        /// Structure with a reading to save.
+        case longPrimary
+        /// Learn over a finished reading: Skip, Learn again, Continue.
+        case learnAgain
+        /// Structure after a failed Save: Continue without saving, Save and start reading.
+        case failedSave
+
+        @MainActor
+        func footer(privacyLine: Bool? = nil) -> SetupFooter {
+            switch self {
+            case .longPrimary:
+                SetupFooter(onBack: {}, skipTitle: "Skip", onSkip: {},
+                            primaryTitle: "Save and start reading", onPrimary: {},
+                            privacyLine: privacyLine)
+            case .learnAgain:
+                SetupFooter(onBack: {}, skipTitle: "Skip", onSkip: {},
+                            secondaryTitle: "Learn again", onSecondary: {},
+                            primaryTitle: "Continue", onPrimary: {}, privacyLine: privacyLine)
+            case .failedSave:
+                SetupFooter(onBack: {}, skipTitle: nil, onSkip: nil,
+                            secondaryTitle: "Continue without saving", onSecondary: {},
+                            primaryTitle: "Save and start reading", onPrimary: {},
+                            privacyLine: privacyLine)
+            }
+        }
+    }
+
+    private func renderFooter(_ footer: SetupFooter, scale: CGFloat) throws -> NSBitmapImageRep {
+        let width = SetupSheetMetrics.cardWidth * scale
+        let height = SetupSheetMetrics.footerHeight * scale
+        let host = NSHostingView(rootView: footer
+            .environment(\.appFontScale, scale)
+            .frame(width: width, height: height))
+        host.frame = CGRect(x: 0, y: 0, width: width, height: height)
+        host.layoutSubtreeIfNeeded()
+        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        return rep
+    }
+
+    private func pixels(_ rep: NSBitmapImageRep) -> Data {
+        guard let bytes = rep.bitmapData else { return Data() }
+        return Data(bytes: bytes, count: rep.bytesPerRow * rep.pixelsHigh)
+    }
+
+    /// The footer's pieces do not touch, at the widest titles and the largest text.
     ///
     /// **The lock line is an overlay, so it reserves no width** — which is what keeps it centred on
     /// the card rather than sliding with the buttons, and is also the one way it could come to sit
-    /// under one of them. This renders the two widest footers there are — Structure's long primary,
-    /// and Learn's three buttons over a finished reading — and requires clear air on both sides of
-    /// the centre.
-    @Test(arguments: [false, true])
-    func theFooterPiecesDoNotCollide(threeButtons: Bool) throws {
+    /// under one of them. Structure's long primary keeps it, with clear air required on both sides
+    /// of the centre. A footer with a secondary button drops it: after a failed Save, "Continue
+    /// without saving" beside "Save and start reading" reached under the centre and the line sat
+    /// on top of them.
+    @Test(arguments: FooterCase.allCases)
+    func theFooterPiecesDoNotCollide(_ footerCase: FooterCase) throws {
         for scale in [1.0, 1.35] as [CGFloat] {
+            let rep = try renderFooter(footerCase.footer(), scale: scale)
             let width = SetupSheetMetrics.cardWidth * scale
-            let height = SetupSheetMetrics.footerHeight * scale
-            let footer = (threeButtons
-                ? SetupFooter(onBack: {}, skipTitle: "Skip", onSkip: {},
-                              secondaryTitle: "Learn again", onSecondary: {},
-                              primaryTitle: "Continue", onPrimary: {})
-                : SetupFooter(onBack: {}, skipTitle: "Skip", onSkip: {},
-                              primaryTitle: "Save and start reading", onPrimary: {}))
-                .environment(\.appFontScale, scale)
-                .frame(width: width, height: height)
-            let host = NSHostingView(rootView: footer)
-            host.frame = CGRect(x: 0, y: 0, width: width, height: height)
-            host.layoutSubtreeIfNeeded()
-            let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-            host.cacheDisplay(in: host.bounds, to: rep)
+
+            guard footerCase.footer().showsPrivacyLine else {
+                // Absent, and absent is visible: the render matches one with the line forced off,
+                // and differs from one with it forced on — the control that this can see it.
+                let off = try renderFooter(footerCase.footer(privacyLine: false), scale: scale)
+                let on = try renderFooter(footerCase.footer(privacyLine: true), scale: scale)
+                #expect(pixels(rep) == pixels(off),
+                        "at \(Int(scale * 100))% the \(footerCase) footer drew the lock line beside its secondary button")
+                #expect(pixels(on) != pixels(off),
+                        "at \(Int(scale * 100))% the lock line draws nothing — the comparison above is vacuous")
+                continue
+            }
+
             var ink = Ink(rep: rep)
             // Below the text threshold the other assertions use: the closing line is `.tertiary`,
             // which is about a quarter opacity, so a scan tuned for body text cannot see it at all

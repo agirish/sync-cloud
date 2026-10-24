@@ -159,9 +159,11 @@ final class SetupModel: ObservableObject {
          /// fixture built on the standard defaults opens wherever *this* Mac would open, and every
          /// picture it takes is of the same screen.
          startScreen: SetupFlow.Screen? = nil,
+         draftURL: URL? = SetupDraftStore.defaultURL(),
          onProfileWritten: @escaping () -> Void = {},
          onStartSurvey: @escaping (URL) -> Void = { _ in }) {
         self.settings = settings
+        self.draftURL = draftURL
         self.initialPeopleStore = peopleStore
         self.syncManager = syncManager
         self.defaults = defaults
@@ -192,8 +194,9 @@ final class SetupModel: ObservableObject {
 
     private let hasFilingProfileAtLaunch: Bool
 
-    /// Where the draft lives. One file, one place that names it.
-    private var draftURL: URL? { SetupDraftStore.defaultURL() }
+    /// Where the draft lives. One file, one place that names it — handed in only by a test, which
+    /// must never write the real one.
+    private let draftURL: URL?
 
     // MARK: - Reading through the engine, never from a capture
 
@@ -241,16 +244,18 @@ final class SetupModel: ObservableObject {
         SetupFlow.crumbs(walk: walkOutcome, hasProfile: hasProfile)
     }
 
+    /// Whether Back is offered. **Not while Save writes**: the press moves the sheet on when it
+    /// lands, so Back mid-write left Structure only to be carried one screen past wherever it went.
     var canGoBack: Bool {
-        SetupFlow.previous(before: screen, walk: walkOutcome, hasProfile: hasProfile,
-                           welcomeIsInThisRun: welcomeIsInThisRun) != nil
+        !isSaving && SetupFlow.previous(before: screen, walk: walkOutcome, hasProfile: hasProfile,
+                                        welcomeIsInThisRun: welcomeIsInThisRun) != nil
     }
 
     /// Whether the welcome card belongs to the run in progress.
     ///
     /// **The run opened on it, or it did not.** A first launch resolves to `.welcome` through
     /// `SetupFlow.initialScreen`; asking for setup by name — Help ▸ Set Up SyncCloud…, or
-    /// Settings ▸ General ▸ Run setup again… — opens on it too, because somebody who asked for
+    /// Settings ▸ General ▸ Run Setup Again… — opens on it too, because somebody who asked for
     /// setup asked for setup, not for its second screen. Either way the card is in this run and
     /// Back reaches it. Only the automatic re-presentation on a Mac that is already set up skips
     /// it, which is the case it was written for.
@@ -272,6 +277,7 @@ final class SetupModel: ObservableObject {
     }
 
     func retreat() {
+        guard !isSaving else { return }
         commitCurrentScreen()
         guard let previous = SetupFlow.previous(
             before: screen, walk: walkOutcome, hasProfile: hasProfile,
@@ -296,13 +302,12 @@ final class SetupModel: ObservableObject {
 
     /// Whether the reading in hand is of the folder now chosen.
     ///
-    /// **A reading of another folder is not one to continue with.** Learn's primary keeps the tree
-    /// it has, so if it asked only `walkState.isDone` a reading of one folder could carry on under
-    /// another's name.
-    var hasReadingOfChosenFolder: Bool {
-        guard let walk = walkState.walk else { return false }
-        return walk.root == walkRoot
-    }
+    /// **A finished reading is always of the folder now chosen**, because every way the folder
+    /// changes either adopts a reading of the new one (``adopt(_:)``) or drops the old one
+    /// (``changeWalkRoot(to:thenLearn:)`` and ``seedWalkRoot()`` through
+    /// ``invalidateProposals()``), and a reading that lands for a folder no longer chosen is
+    /// dropped in ``startWalk()``. So asking `walkState.isDone` is the whole answer.
+    var hasReadingOfChosenFolder: Bool { walkState.isDone }
 
     /// Learn's primary press. Reads the folder unless a reading of it is already in hand, and
     /// moves on either way — **Continue never waits** (see ``startWalk()``).
@@ -516,14 +521,20 @@ final class SetupModel: ObservableObject {
     func startWalk() {
         guard let root = walkRoot, let manager = syncManager else { return }
         walkState = .running
+        walkGeneration += 1
+        let generation = walkGeneration
         let known = Set((roster?.people.flatMap(\.nameForms) ?? [])
                         + draft.everyone.map(\.displayName))
         lastWalk = Task { [weak self] in
             let result = await manager.walkForSetup(root: root, known: known)
             guard let self else { return }
-            guard self.walkRoot == root else {
-                Logger.shared.info("Setup walk of \(root.path) landed after the folder changed to "
-                                   + "\(self.walkRoot?.path ?? "none") — dropped")
+            // **Only the latest walk, and only while it is still awaited.** A folder change, a
+            // Skip, or a second Learn each supersede the walk in flight; checking the folder alone
+            // let a Skip be overridden when the walk landed, and let two walks of one folder both
+            // land.
+            guard generation == self.walkGeneration, self.walkState.isRunning else {
+                Logger.shared.info("Setup walk of \(root.path) landed after it was superseded "
+                                   + "(\(self.walkState.isRunning ? "a newer walk is running" : "no longer awaited")) — dropped")
                 return
             }
             switch result {
@@ -548,6 +559,8 @@ final class SetupModel: ObservableObject {
 
     /// The most recent reading's task, so a test can wait for one whose result is dropped.
     private(set) var lastWalk: Task<Void, Never>?
+    /// Bumped by each walk started, so a result can tell whether it is still the one awaited.
+    private var walkGeneration = 0
 
     /// The screens a reading that lands rebuilds the preview for.
     ///
@@ -736,16 +749,24 @@ final class SetupModel: ObservableObject {
         }
     }
 
+    /// Takes a person off the roster where there is one, and out of the draft always.
+    ///
+    /// **The draft too, even with a roster.** Save lands the draft in the roster it creates, but
+    /// the draft in memory still names everyone it held — so a person removed on People after a
+    /// first-run Save came straight back: leaving the screen applies the draft again, and so does
+    /// finishing. `saveDraft` writes nothing once there is a roster, as before.
     func removePerson(named name: String) {
-        if let store = roster {
-            if let person = store.people.first(where: { $0.displayName == name }) {
-                store.remove(id: person.id)
-                objectWillChange.send()
-            }
-        } else {
-            draft.others.removeAll { $0.displayName == name }
-            saveDraft()
+        if let store = roster,
+           let person = store.people.first(where: { $0.displayName == name }) {
+            store.remove(id: person.id)
+            objectWillChange.send()
         }
+        let before = draft.others.count
+        draft.others.removeAll {
+            $0.displayName.compare(name, options: [.caseInsensitive, .diacriticInsensitive])
+                == .orderedSame
+        }
+        if draft.others.count != before { saveDraft() }
     }
 
     /// What the roster records this person as, when it records anything.
@@ -830,20 +851,48 @@ final class SetupModel: ObservableObject {
     /// this Mac already has, and a folder that was changed and not re-read. Both used to offer a
     /// Save that returned at its first guard.
     ///
-    /// **And false once Save has written the reading in hand.** Summary's Learn leads back through
-    /// Structure, where a second "Save and start reading" wrote a second profile from the same tree
-    /// and asked for a second reading of the documents.
+    /// **And false once Save has written the reading in hand, with the answers as they stand.**
+    /// Summary's Learn leads back through Structure, where a second "Save and start reading" wrote a
+    /// second profile from the same tree and asked for a second reading of the documents. A changed
+    /// answer is a different profile, though, so it is offered again — see
+    /// ``currentReadingIsWritten``.
     var canWriteProfile: Bool {
         walkState.walk != nil && syncManager != nil && !currentReadingIsWritten
     }
 
+    /// Structure's primary button.
+    ///
+    /// "Save and start reading" only while the press would start one: a folder whose documents
+    /// this run already started reading is not read twice, so a second Save just saves.
+    var structurePrimaryTitle: String {
+        guard canWriteProfile else { return "Continue" }
+        return savesStartReading ? "Save and start reading" : "Save"
+    }
+
+    /// Whether a Save now would also start reading the documents.
+    private var savesStartReading: Bool {
+        readDocuments && (surveyStartedRoot == nil || surveyStartedRoot != walkState.walk?.root)
+    }
+
     /// Bumped each time a reading lands, so Save can tell the reading it wrote from a newer one.
-    private var readingNumber = 0
+    private(set) var readingNumber = 0
     /// The reading the last successful Save wrote.
     private var writtenReadingNumber: Int?
+    /// The countries the last successful Save wrote.
+    private(set) var writtenCountries: Set<String>?
+    /// The folder whose documents this run's Save started reading.
+    private var surveyStartedRoot: URL?
 
-    /// Whether the reading in hand is the one Save already wrote.
-    var currentReadingIsWritten: Bool { walkState.isDone && writtenReadingNumber == readingNumber }
+    /// Whether the reading in hand, with the countries now ticked, is what Save already wrote.
+    ///
+    /// **The countries are part of it.** Going back after a Save to change a tick left Structure
+    /// on Continue — the reading was written — while Summary listed the new countries and the
+    /// profile on disk still held the old ones. A changed answer offers Save again, and that Save
+    /// writes a profile that supersedes the first.
+    var currentReadingIsWritten: Bool {
+        walkState.isDone && writtenReadingNumber == readingNumber
+            && writtenCountries == confirmedCountries
+    }
 
     /// Structure's secondary button: offered only once a Save has failed.
     ///
@@ -866,6 +915,8 @@ final class SetupModel: ObservableObject {
     /// been read perfectly well.
     func saveAndContinue() async {
         guard await save() else { return }
+        // Only from Structure: a sheet that left it while the write ran is not moved on again.
+        guard screen == .structure else { return }
         _ = advance()
     }
 
@@ -878,15 +929,20 @@ final class SetupModel: ObservableObject {
         guard !isSaving, !currentReadingIsWritten, let walk = walkState.walk,
               let manager = syncManager else { return false }
         isSaving = true
-        saveFailure = nil
+        // **The last failure stays up until a press succeeds.** Cleared here, before the write,
+        // a retry made Structure jump — the failure line went, then came back — and dropped
+        // "Continue without saving" for the length of the write, so its disabled state never showed.
         defer { isSaving = false }
         let reading = readingNumber
+        let countries = confirmedCountries
         let result = await manager.writeWalkProfile(tree: walk.tree, root: walk.root,
-                                                    jurisdictionValues: confirmedCountries,
+                                                    jurisdictionValues: countries,
                                                     registry: walkRegistry)
         switch result {
         case .success(let report):
+            saveFailure = nil
             writtenReadingNumber = reading
+            writtenCountries = countries
             writtenReport = report
             walkNotInUse = !report.becameActive
             // Attach first, so `roster` resolves to the store the write just created; then land
@@ -897,8 +953,13 @@ final class SetupModel: ObservableObject {
             Logger.shared.info("Setup saved profile '\(report.profileId)' — \(report.summary)")
             // **Only a profile in use is read.** A reading covers the profile this Mac uses, and
             // beside a hand-built one the walk's is saved unused — the summary says so — so reading
-            // would spend hours on a folder this setup never pointed at.
-            if readDocuments, report.becameActive { onStartSurvey(walk.root) }
+            // would spend hours on a folder this setup never pointed at. **And once per folder**:
+            // a second Save after a changed answer supersedes the profile, and the reading already
+            // under way covers it.
+            if savesStartReading, report.becameActive {
+                surveyStartedRoot = walk.root
+                onStartSurvey(walk.root)
+            }
             return true
         case .failure(let failure):
             // The reading stays: it was the write that failed, and the tree is what a second

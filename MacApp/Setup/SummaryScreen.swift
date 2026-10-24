@@ -42,22 +42,21 @@ struct SummaryScreen: View {
                 // **Back to Learn, not out to Settings.** This closed setup on Settings ▸
                 // Organize, which has no control that learns a folder — and the Countries row
                 // below relies on this button to change them.
-                row("folder", learnedSummary,
-                    verb: model.walkState.isDone ? "Learn again" : "Learn",
+                row("folder", Self.folderLine(for: model),
+                    verb: model.walkState.isDone || model.writtenReport != nil ? "Learn again" : "Learn",
                     help: "Go back to the Learn screen and read a folder",
                     action: { model.returnToLearn() })
                 Divider()
                 row("person", "You: \(youSummary)", tab: .people, verb: "Change")
                 Divider()
                 row("person.2", "People: \(peopleSummary)", tab: .people, verb: "Change")
-                if !model.confirmedCountries.isEmpty {
+                if let countries = Self.countriesLine(for: model) {
                     Divider()
                     // **No Change link, and its absence is the honest answer.** The confirmed
                     // countries live in the profile's own entries; nothing in Settings edits them,
                     // so a link to a tab would be an offer the tab cannot keep. Learning the folder
                     // again is the way to change them, and the row above says so.
-                    row("globe", "Countries: \(model.confirmedCountries.sorted().joined(separator: ", "))",
-                        tab: nil, verb: nil)
+                    row("globe", countries, tab: nil, verb: nil)
                 }
             }
             .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
@@ -148,15 +147,49 @@ struct SummaryScreen: View {
         return names.isEmpty ? "none turned on" : names.joined(separator: ", ")
     }
 
-    /// **The shipped sentence, kept.** `doneDoesNotDescribeTheWalkAsUnshipped` pins this literal:
-    /// it once described the walk as work that had not been built yet, on a screen whose heading
-    /// says everything below it is already in effect.
-    private var learnedSummary: String {
-        guard let walk = model.walkState.walk else {
-            return "You have not learned a folder tree yet"
+    /// The folder row: what Save wrote, not what is in memory.
+    ///
+    /// **It described the reading in hand**, so a reading continued past without saving — or one
+    /// still running, or landing after Structure — read "Learned", and a profile written earlier
+    /// in the run read "not learned" once Learn was skipped on the way back. A reading that is not
+    /// on disk says so; a profile that is says what it holds.
+    ///
+    /// **The shipped sentence, kept.** `summaryDoesNotDescribeTheWalkAsUnshipped` pins the
+    /// not-learned literal: it once described the walk as work that had not been built yet, on a
+    /// screen whose heading says everything below it is already in effect.
+    static func folderLine(for model: SetupModel) -> String {
+        func folders(_ count: Int) -> String {
+            count == 1 ? "1 folder" : "\(count.formatted()) folders"
         }
-        return "Learned: \(walk.root.lastPathComponent), "
-            + (walk.folderCount == 1 ? "1 folder" : "\(walk.folderCount.formatted()) folders")
+        switch model.walkState {
+        case .done(let walk):
+            return model.currentReadingIsWritten
+                ? "Learned: \(walk.root.lastPathComponent), " + folders(walk.folderCount)
+                : "Read \(walk.root.lastPathComponent) — not saved"
+        case .running:
+            return "Reading \(model.walkRootName) — not saved yet"
+        case .idle, .skipped, .failed:
+            guard let report = model.writtenReport else {
+                return "You have not learned a folder tree yet"
+            }
+            // The builder counts the root itself as one entry.
+            return "Learned: \((report.root as NSString).lastPathComponent), "
+                + folders(max(report.foldersProfiled - 1, 0))
+        }
+    }
+
+    /// The Countries row, or nil when there is nothing to list — the countries Save wrote, or the
+    /// ticks in hand marked as not saved.
+    static func countriesLine(for model: SetupModel) -> String? {
+        func list(_ values: Set<String>) -> String {
+            values.isEmpty ? "none" : values.sorted().joined(separator: ", ")
+        }
+        if model.walkState.isDone, !model.currentReadingIsWritten {
+            if model.confirmedCountries.isEmpty, model.writtenCountries?.isEmpty ?? true { return nil }
+            return "Countries: \(list(model.confirmedCountries)) — not saved"
+        }
+        let shown = model.walkState.isDone ? model.confirmedCountries : (model.writtenCountries ?? [])
+        return shown.isEmpty ? nil : "Countries: \(list(shown))"
     }
 
     private var youSummary: String {
