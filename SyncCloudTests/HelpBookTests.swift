@@ -327,9 +327,9 @@ import Testing
     /// **The lines about Edit that had fallen behind it** (TE172), each against what it described:
     /// Edit autosaves, so it does not save "when you ask it to"; a file that is not Markdown, or no
     /// file, has a Files tab alone (`EditorRailTab.shown`); README's "rail" is the file list, its
-    /// header buttons read New Text File and Close, and a PDF's Outline needs two bookmarks; and ⌘O
-    /// opens a selected PDF as well as a text file. Mutation: put any old line back and its check
-    /// fails.
+    /// header buttons read New Text File and Close, and its PDF line offers the outline only when a
+    /// PDF has two or more bookmarks (`EditorRailTab.minimumPDFBookmarks`); and ⌘O opens a selected
+    /// PDF as well as a text file. Mutation: put any old line back and its check fails.
     @Test func editsLinesSayWhatEditDoes() throws {
         let book = HelpBook.allTopics.flatMap(Self.copy(of:)).joined(separator: " ")
         for stale in ["it saves when you ask it to", "The file list has two tabs: Files and Outline"] {
@@ -348,9 +348,12 @@ import Testing
         for stale in ["a rail lists", "The rail shows", "**＋** makes a new file", "**×** puts the open one away"] {
             #expect(!section.contains(stale), "README's Edit section still says “\(stale)”")
         }
-        // The README's rewrite (ac436d5eb) dropped the old sentence; its PDF line names the outline.
-        #expect(section.contains("page thumbnails, the outline"),
-                "README's Edit section no longer says a PDF shows its outline")
+        // The README's rewrite (ac436d5eb) dropped the old sentence; its PDF line names the outline,
+        // and the condition the app puts on it (`EditorRailTab.pdfOutlineIsWorthATab`).
+        #expect(EditorRailTab.minimumPDFBookmarks == 2,
+                "a PDF's Outline no longer needs two bookmarks — README's PDF line is wrong again")
+        #expect(section.contains("the outline when a PDF has two or more bookmarks"),
+                "README's Edit section no longer says when a PDF shows its outline")
 
         let rows = ShortcutsReference.groups.flatMap(\.items).filter { $0.keys.contains("⌘ O") }
         #expect(rows.map(\.action) == ["New or selected file, in Edit"])

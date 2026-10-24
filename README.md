@@ -83,7 +83,8 @@ budget caps ($5 lifetime by default).
 </p>
 
 ### 📄 Edit — PDFs
-- **Read**: page thumbnails, the outline, single or two-page layouts, and Find (⌘F).
+- **Read**: page thumbnails, the outline when a PDF has two or more bookmarks, single or two-page
+  layouts, and Find (⌘F).
 - **Rework**: rotate, extract, delete and reorder pages; compress; strip metadata; add or remove a
   password. Also on any PDF's right-click menu, for several at once.
 - **Fill & Sign**: text, dates, check marks, and a drawn or typed signature kept on this Mac. Real

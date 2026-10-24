@@ -8,7 +8,7 @@ import AppKit
 /// Middle-truncated names in a narrow column could not be read by hovering: the row's only tooltip
 /// was Edit's refusal. A name tooltip on every row would be worse — tooltips show after 300 ms
 /// here, so one would pop up wherever the pointer rested — so the row measures whether its name is
-/// actually truncated.
+/// actually truncated, and only while the pointer is over it.
 @MainActor
 @Suite(.serialized) struct NameTruncationTooltipTests {
 
@@ -46,14 +46,15 @@ import AppKit
 
     private static let longName = "Statement - Account Ending 4417 - January 2026 (final, signed).pdf"
 
-    /// Hosts a one-line, middle-truncated label at `width`, as the row draws its name, and returns
-    /// every answer the probe reported.
-    private func reports(width: CGFloat, name: String = longName, host existing: NSHostingView<AnyView>? = nil,
-                         into answers: Box) -> NSHostingView<AnyView> {
+    /// Hosts a one-line, middle-truncated label at `width`, as the row draws its name, measuring
+    /// only while `measuring` is true (as the row does under the pointer), and returns every
+    /// answer the probe reported.
+    private func reports(width: CGFloat, measuring: Bool = true, name: String = longName,
+                         host existing: NSHostingView<AnyView>? = nil, into answers: Box) -> NSHostingView<AnyView> {
         let label = Text(name)
             .lineLimit(1)
             .truncationMode(.middle)
-            .reportsTruncation(of: Text(name)) { answers.values.append($0) }
+            .reportsTruncation(of: Text(name), while: measuring) { answers.values.append($0) }
             .frame(width: width, alignment: .leading)
         let host = existing ?? NSHostingView(rootView: AnyView(EmptyView()))
         host.rootView = AnyView(label)
@@ -79,13 +80,38 @@ import AppKit
         #expect(answers.values == [true], "a 90pt label of a 66-character name reported \(answers.values)")
     }
 
-    /// The control: the same name with room to spare reports nothing — no flip from the initial
-    /// "not cut", so no re-render — which is what keeps the rule above from passing on a probe
-    /// that says "cut" about everything.
-    @Test func aNameWithRoomReportsNothing() {
+    /// The control: the same name with room to spare reports whole — which is what keeps the rule
+    /// above from passing on a probe that says "cut" about everything.
+    @Test func aNameWithRoomReportsWhole() {
         let answers = Box()
         _ = reports(width: 680, into: answers)
-        #expect(answers.values.isEmpty, "a 680pt label of the name reported \(answers.values)")
+        #expect(answers.values == [false], "a 680pt label of the name reported \(answers.values)")
+    }
+
+    /// **A row not under the pointer measures nothing**: no answer at all, even for a cut name.
+    @Test func anUnarmedProbeMeasuresNothing() {
+        let answers = Box()
+        _ = reports(width: 90, measuring: false, into: answers)
+        #expect(answers.values.isEmpty, "a probe not measuring reported \(answers.values)")
+    }
+
+    /// The pointer arriving arms it, and the answer comes at once — the row's tooltip is decided
+    /// by the measurement taken on hover.
+    @Test func armingACutNameReportsCut() {
+        let answers = Box()
+        let host = reports(width: 90, measuring: false, into: answers)
+        _ = reports(width: 90, measuring: true, host: host, into: answers)
+        #expect(answers.values == [true], "unarmed then armed reported \(answers.values)")
+    }
+
+    /// A re-arm reports afresh rather than trusting the last hover's answer: a name cut on one
+    /// hover and widened before the next must lose its tooltip.
+    @Test func reArmingAfterAWidenReportsWhole() {
+        let answers = Box()
+        let host = reports(width: 90, into: answers)
+        _ = reports(width: 680, measuring: false, host: host, into: answers)
+        _ = reports(width: 680, measuring: true, host: host, into: answers)
+        #expect(answers.values == [true, false], "cut, widened unarmed, re-armed reported \(answers.values)")
     }
 
     /// Widening a cut name to fit flips it back, so the tooltip goes when the name is whole again.
@@ -104,7 +130,8 @@ import AppKit
 
     // MARK: The call site
 
-    /// The row uses both halves: the probe on its name, and the rule as its tooltip. A source scan,
+    /// The row uses every part: the probe on its name, armed by the pointer, and the rule as its
+    /// tooltip. A source scan,
     /// because a hosted SwiftUI tree exposes no tooltip under `swift test`
     /// (`EditorRefusalDimTests.theRefusalIsTheRowsTooltip` measured it). Sliced to `FileRowView`.
     @Test func theRowMeasuresItsNameAndUsesTheRule() throws {
@@ -118,6 +145,10 @@ import AppKit
         let row = body[..<end.lowerBound]
         #expect(row.contains(".reportsTruncation(of: PaneSearchName(name: node.name"),
                 "FileRowView no longer measures whether its name is cut")
+        #expect(row.contains("while: isPointerOver) { truncated in"),
+                "FileRowView's probe is no longer armed by the pointer — every row measures again")
+        #expect(row.contains(".onHover { isPointerOver = $0 }"),
+                "nothing tells FileRowView the pointer is over it — its name is never measured")
         #expect(row.contains("nameIsTruncated = truncated"),
                 "FileRowView's probe no longer feeds the tooltip's flag")
         #expect(row.contains(".help(Self.rowHelp(name: node.name, nameIsTruncated: nameIsTruncated,"),

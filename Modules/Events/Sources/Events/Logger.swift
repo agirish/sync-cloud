@@ -556,7 +556,7 @@ public class Logger: ObservableObject {
     public static func defaultClearConfirmation() -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Clear the activity log?"
+        alert.messageText = "Clear the Activity Log?"
         alert.informativeText = "Removes every entry from the Activity Log and empties the log file on disk, including earlier sessions. Your files aren’t affected, and this can’t be undone."
         alert.addButton(withTitle: clearLogName)
         alert.addButton(withTitle: "Cancel")

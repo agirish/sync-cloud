@@ -207,14 +207,15 @@ public class FileSyncManager: ObservableObject {
     public var syncHistoryStore: SyncHistoryStore = .shared
 
     /// The `UndoManager` action name captured the moment the last history-recorded run finished
-    /// registering its undo group, plus that run's records. Together they let `undoLastSyncRun`
-    /// verify the stack's top is STILL that run before reversing it — the shared `UndoManager` also
-    /// carries Filing/rename/"New Folder" actions that are not sync runs and are not in the history.
+    /// registering its undo group, plus that run's records. Together they let
+    /// `undoLastSyncRunAskingFirst` verify the stack's top is STILL that run before reversing it —
+    /// the shared `UndoManager` also carries Filing/rename/"New Folder" actions that are not sync
+    /// runs and are not in the history.
     private(set) var lastRecordedRunUndoName: String?
     private(set) var lastRecordedRunRecords: [SyncHistoryRecord] = []
     /// Whether any run armed the pairing this session — distinguishes "the pairing was
     /// invalidated" (a manual ⌘Z, a mixed delete, a manager swap) from "no sync run ever
-    /// happened", so the refusal banner doesn't claim history changed "since the last sync
+    /// happened", so the refusal doesn’t claim history changed "since the last sync
     /// run" on a fresh launch that never had one.
     private(set) var hasArmedRunPairingThisSession = false
 
@@ -242,7 +243,7 @@ public class FileSyncManager: ObservableObject {
     /// `undoManager` didSet wires the notifications): a manual ⌘Z can pop run B and leave run
     /// A's *identically named* group ("Sync run") on top, where the name gate alone would pass —
     /// previewing B's records while reversing A. Identity can't be checked by name, so any
-    /// undo/redo outside `undoLastSyncRun` (which clears the pairing itself) invalidates it.
+    /// undo/redo outside `reverseLastSyncRun` (which clears the pairing itself) invalidates it.
     ///
     /// Also called (internal, from `deleteItems`) when an op registers an undo group WITHOUT
     /// arming the pairing — a mixed delete pushes a "Delete <trashedCount> Items" group whose
@@ -267,29 +268,15 @@ public class FileSyncManager: ObservableObject {
         return SyncRunUndoPreview(actionName: expected, records: lastRecordedRunRecords)
     }
 
-    /// Reverses the most recent sync run by reusing the app's existing, tested `UndoManager`
-    /// reversal stack (safeMove-back, Trash-restore) — no new file-mutating path; bulk runs are one
-    /// grouped step, so a whole run reverses at once. Guarded by `lastSyncRunUndoPreview`: it acts
-    /// ONLY when the recorded run is still the top of the undo stack. If some other action is on top
-    /// (Filing, rename, New Folder…) it refuses and names it, pointing the user at ⌘Z, rather than
-    /// silently reversing something the Sync History window never showed. The app wires an NSAlert
-    /// confirmation (built from the same preview) in front of this.
-    public func undoLastSyncRun() {
-        guard undoManager != nil else { return }
-        guard lastSyncRunUndoPreview != nil else {
-            if let reason = lastSyncRunUndoRefusal { banner = .warning(reason) }
-            return
-        }
-        reverseLastSyncRun()
-    }
-
     /// Why "Undo Last Run" would refuse right now, in the words the user sees — or nil when it
     /// would act (`lastSyncRunUndoPreview` is non-nil).
     ///
-    /// One rule for both places the refusal is shown: the main window's banner
-    /// (`undoLastSyncRun`) and the Sync History window's own alert
-    /// (`undoLastSyncRunAskingFirst`). The History window used to call the banner path, so a click
-    /// there after a relaunch looked like it did nothing — the answer landed in another window.
+    /// Shown only in the Sync History window's own alert (`undoLastSyncRunAskingFirst`). The
+    /// History window used to set the main window's banner instead, so a click there after a
+    /// relaunch looked like it did nothing — the answer landed in another window.
+    ///
+    /// The advice names the main window because ⌘Z pressed in Sync History acts on that window's
+    /// own (empty) undo stack; the file operations' stack is the main window's.
     public var lastSyncRunUndoRefusal: String? {
         guard lastSyncRunUndoPreview == nil else { return nil }
         guard let undoManager, undoManager.canUndo else {
@@ -303,17 +290,21 @@ public class FileSyncManager: ObservableObject {
         // history changed since the last sync run" would invent a run — name the top
         // action instead (the pre-existing text, which is honest there).
         if lastRecordedRunUndoName == nil && hasArmedRunPairingThisSession {
-            return "The undo history changed since the last sync run — use Edit ▸ Undo (⌘Z) to step back."
+            return "The undo history changed since the last sync run — use Edit ▸ Undo (⌘Z) in the main window to step back."
         }
         return top.isEmpty
-            ? "The most recent action isn’t a sync run — use Edit ▸ Undo (⌘Z) to reverse it."
-            : "The most recent action is “\(top)”, not a sync run — use Edit ▸ Undo (⌘Z) to reverse it."
+            ? "The most recent action isn’t a sync run — use Edit ▸ Undo (⌘Z) in the main window to reverse it."
+            : "The most recent action is “\(top)”, not a sync run — use Edit ▸ Undo (⌘Z) in the main window to reverse it."
     }
 
-    /// "Undo Last Run" as the Sync History window drives it: ask `confirm` with the preview, and
-    /// reverse the run only on yes. When there is nothing it may reverse, `confirm` is never asked
-    /// and the reason comes back for the caller to show **where the click happened** — no banner
-    /// is set, because the banner belongs to the main window, not the one the user is looking at.
+    /// Reverses the most recent sync run, as the Sync History window's "Undo Last Run" drives it:
+    /// ask `confirm` with the preview, and reverse the run only on yes. The reversal reuses the
+    /// app's existing, tested `UndoManager` stack (safeMove-back, Trash-restore) — no new
+    /// file-mutating path; bulk runs are one grouped step, so a whole run reverses at once.
+    ///
+    /// When there is nothing it may reverse, `confirm` is never asked and the reason comes back
+    /// for the caller to show **where the click happened** — no banner is set, because the banner
+    /// belongs to the main window, not the one the user is looking at.
     /// - Returns: The refusal, or nil when it asked (whatever the answer was).
     @discardableResult
     public func undoLastSyncRunAskingFirst(confirm: (SyncRunUndoPreview) -> Bool) -> String? {
@@ -325,7 +316,7 @@ public class FileSyncManager: ObservableObject {
         return nil
     }
 
-    /// The reversal itself, behind the gate both entry points check first.
+    /// The reversal itself, behind the gate `undoLastSyncRunAskingFirst` checks first.
     private func reverseLastSyncRun() {
         guard let undoManager, let preview = lastSyncRunUndoPreview else { return }
         Logger.shared.info("Undoing last sync run: \(preview.actionName) — reversing \(preview.operationCount) operation(s)")
@@ -2318,7 +2309,7 @@ public class FileSyncManager: ObservableObject {
                     forName: name, object: undoManager, queue: .main
                 ) { [weak self] _ in
                     // Delivered synchronously on the main queue (undo/redo run on the main
-                    // actor), so hopping is safe. undoLastSyncRun's own undo() also lands
+                    // actor), so hopping is safe. reverseLastSyncRun's own undo() also lands
                     // here — it clears the pairing itself right after, so this is a no-op.
                     MainActor.assumeIsolated { self?.invalidateRunUndoPairing() }
                 })

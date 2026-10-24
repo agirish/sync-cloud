@@ -427,6 +427,7 @@ import Testing
         ("SettingsView.swift", ".fill(hue.accentColor)", "Settings' hue swatch shows the hue itself"),
         ("FolderSidebar.swift", ".fill(accent)", "the 2pt drop caret between rows"),
         ("PaneBarCustomizeSheet.swift", ".fill(glassHue.accentColor)", "the 3pt drop caret between pills"),
+        ("PaneBarCustomizeSheet.swift", ".fill(glassHue.accentColor)", "the same caret at the track's leading edge"),
         ("PaneTabStrip.swift", ".fill(accent)", "the 2pt rule under the active tab"),
         ("DocumentSurveyCard.swift", ".fill(paused ? AnyShapeStyle(.secondary) : AnyShapeStyle(accent))",
          "the survey's 5pt progress bar"),

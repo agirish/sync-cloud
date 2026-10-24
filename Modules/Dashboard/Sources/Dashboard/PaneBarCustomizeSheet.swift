@@ -210,10 +210,11 @@ struct PaneBarCustomizeSheet: View {
     // MARK: The editable bar
 
     /// Every part of the track you can aim at is its own drop target, and none of them overlap (the
-    /// padding ring around the row is the one exception, and a drop there springs back):
+    /// padding ring around the row is the one exception, and a drop there springs back — except on
+    /// its leading side):
     ///
-    /// - the leading-edge zone inserts at the head,
-    /// - each gap inserts at its own slot,
+    /// - the leading-edge zone, laid over the ring's leading side, inserts at the head,
+    /// - each gap between two pills inserts at its own slot,
     /// - **each pill inserts before itself**, which is the whole point of the arrangement below,
     /// - the trailing slot takes the rest of the row and appends.
     ///
@@ -247,6 +248,9 @@ struct PaneBarCustomizeSheet: View {
                               : AnyShapeStyle(glassHue.accentColor.opacity(0.7)),
                               lineWidth: targetedSlot == nil ? 0.5 : 1.5)
         )
+        // Over the padding, not in the row: the head stays aimable without pushing the first pill
+        // in from the edge. Last, so the border drawn above cannot sit over it.
+        .overlay(alignment: .leading) { leadingEdgeZone }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Pane bar arrangement")
     }
@@ -254,9 +258,9 @@ struct PaneBarCustomizeSheet: View {
     private var trackRow: some View {
         let items = arrangement.items
         return HStack(spacing: 0) {
-            leadingEdgeZone
+            // No slot ahead of the first pill: the leading-edge zone is the head's gap.
             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                slot(index)
+                if index > 0 { slot(index) }
                 trackItem(item, at: index)
             }
             // The trailing slot is what you aim at to append, so it takes the whole rest of the row
@@ -284,12 +288,24 @@ struct PaneBarCustomizeSheet: View {
     /// whatever its source — standing for a name the real bar retired in fd068fc49. The bar now
     /// starts at the pane's leading edge, so this is that edge: nothing drawn, still aimable.
     ///
-    /// Its own caret is deliberately absent. `slot(0)` sits right beside it and marks index 0 too,
-    /// so the caret appears there — where the item will land — rather than twice.
+    /// **It takes no width from the row.** It is laid over the track's leading padding, so the
+    /// first pill sits as close to the edge as the default set's does below. In the row it was 18pt,
+    /// plus a 6pt slot after it, and pushed the first pill 33pt in. The head is not thinner to aim
+    /// at for it: the first pill also inserts before itself, so this zone and that pill together
+    /// land at index 0. Index 0's caret is drawn here, against the first pill, since there is no
+    /// slot before it.
     var leadingEdgeZone: some View {
         Rectangle()
             .fill(.clear)
-            .frame(width: Self.leadingEdgeWidth, height: Self.pillHeight + 6)
+            .frame(width: Self.leadingEdgeWidth)
+            .frame(maxHeight: .infinity)
+            .overlay(alignment: .trailing) {
+                if targetedSlot == 0 {
+                    Capsule()
+                        .fill(glassHue.accentColor)
+                        .frame(width: 3, height: Self.pillHeight + 6)
+                }
+            }
             .contentShape(Rectangle())
             .dropDestination(for: String.self) { payloads, _ in
                 drop(payloads, at: 0)
@@ -297,8 +313,8 @@ struct PaneBarCustomizeSheet: View {
             .accessibilityHidden(true)
     }
 
-    /// Wide enough to aim at, and narrow enough not to read as a gap in the bar.
-    static let leadingEdgeWidth: CGFloat = 18
+    /// The track's leading padding, which the zone covers exactly.
+    static let leadingEdgeWidth: CGFloat = trackPadding
 
     /// One item on the track. The pill is what it looks like on the bar; the menu is what makes it
     /// reachable without a drag.

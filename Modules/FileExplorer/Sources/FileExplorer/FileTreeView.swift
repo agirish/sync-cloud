@@ -1891,9 +1891,14 @@ struct FileRowView: View {
     /// and memoized by `CloudOnlyBadgeCache`, so a row scrolling back in does not re-stat.
     @State private var isCloudOnly = false
     /// Whether the name is drawn cut short, which is when — and only when — the row's tooltip
-    /// carries the full name (`rowHelp`). Reported by `reportsTruncation`, which writes it only when
-    /// it flips, so a resize that changes nothing re-renders nothing.
+    /// carries the full name (`rowHelp`). Measured by `reportsTruncation` only while the pointer is
+    /// over the row (`isPointerOver`), the one time a tooltip can show, and written only when it
+    /// differs, so a measurement that changes nothing re-renders nothing.
     @State private var nameIsTruncated = false
+    /// Whether the pointer is over the row. The name is measured only then: a probe on every row
+    /// laid out a hidden copy of every name and re-rendered each row that first appeared cut, which
+    /// in Columns was nearly every row scrolled into view.
+    @State private var isPointerOver = false
     /// List-density setting (H7), injected by `FileTreeView` (which reads the @AppStorage once
     /// for the whole pane): comfortable renders exactly the pre-setting look; compact tightens
     /// the row and drops the secondary size/date detail.
@@ -2101,10 +2106,12 @@ struct FileRowView: View {
                 // that tells them apart is the part that went. Finder's default, for the same reason.
                 // A search hit is cut away from its match instead — see `nameTruncation`.
                 .truncationMode(Self.nameTruncation(match: searchContext.match, in: node.name))
-                // Measured on the drawn name, before its leading gap is added to the frame.
+                // Measured on the drawn name, before its leading gap is added to the frame — and
+                // only under the pointer, which is the only place its tooltip can show.
                 .reportsTruncation(of: PaneSearchName(name: node.name, match: searchContext.match,
-                                                      font: fonts.name)) { truncated in
-                    nameIsTruncated = truncated
+                                                      font: fonts.name),
+                                   while: isPointerOver) { truncated in
+                    if nameIsTruncated != truncated { nameIsTruncated = truncated }
                 }
                 .strikethrough(isIgnored, color: .secondary)
                 .foregroundStyle(isIgnored ? .secondary : .primary)
@@ -2174,6 +2181,9 @@ struct FileRowView: View {
         .help(Self.rowHelp(name: node.name, nameIsTruncated: nameIsTruncated,
                            editorRefusal: editorRefusal))
         .contentShape(Rectangle())
+        // Arms the name's measurement above. After the shape, so the whole row counts, as it does
+        // for the tooltip.
+        .onHover { isPointerOver = $0 }
         // ONE keyed task for the badge, and it consults the memo first — so the syscall happens
         // once per path per republish rather than once per realization. `List` realizes and
         // discards rows continuously while scrolling, which is what made "once per realization"
@@ -2240,31 +2250,30 @@ extension FileRowView {
 
 extension View {
     /// Reports whether this one-line label is drawn narrower than `ideal` — the same content at
-    /// its natural width — which is to say whether it has been truncated. SwiftUI has no such
-    /// query, so it is measured: the drawn width, and a hidden `fixedSize` copy's.
+    /// its natural width — which is to say whether it has been truncated, while `measuring` is
+    /// true. SwiftUI has no such query, so it is measured: the drawn width, and a hidden
+    /// `fixedSize` copy's.
     ///
-    /// Built for the cheapest place it could go, every row of every list: the copy is hidden (laid
-    /// out, never drawn), the widths go into a reference box rather than `@State`, and `onChange` is
-    /// called only when the answer flips — so a scroll or a resize that leaves it alone costs no
-    /// re-render. It is not a `ViewThatFits`: that would put two candidate rows into layout and
-    /// change how the row shares its width, where this changes nothing about the layout at all.
-    func reportsTruncation(of ideal: some View, _ onChange: @escaping (Bool) -> Void) -> some View {
-        modifier(TruncationProbe(ideal: ideal, onChange: onChange))
+    /// **Nothing is measured while `measuring` is false** — no hidden copy, no geometry observer —
+    /// so a list can arm it for the one row under the pointer and leave every other row paying
+    /// nothing. Armed, it reports its first answer at once and then each flip; it keeps no state of
+    /// its own, so a re-arm always reports afresh rather than trusting a stale answer. It is not a
+    /// `ViewThatFits`: that would put two candidate rows into layout and change how the row shares
+    /// its width, where this changes nothing about the layout at all.
+    func reportsTruncation(of ideal: some View, while measuring: Bool,
+                           _ onChange: @escaping (Bool) -> Void) -> some View {
+        modifier(TruncationProbe(ideal: ideal, measuring: measuring, onChange: onChange))
     }
 }
 
 /// The measurement behind `reportsTruncation`.
 struct TruncationProbe<Ideal: View>: ViewModifier {
     let ideal: Ideal
+    let measuring: Bool
     let onChange: (Bool) -> Void
-    /// Not observed, on purpose: a width moving must not re-render the row; only the answer may.
-    @State private var widths = Widths()
 
-    final class Widths {
-        var shown: CGFloat = 0
-        var ideal: CGFloat = 0
-        var reported = false
-    }
+    /// The space the hidden copy reads the drawn width from.
+    private static var drawn: NamedCoordinateSpace { .named("TruncationProbe.drawn") }
 
     /// Cut, by more than layout's sub-point rounding. A truncation drops at least a glyph for an
     /// ellipsis, so half a point cannot hide one. Nothing measured yet is not cut.
@@ -2273,28 +2282,25 @@ struct TruncationProbe<Ideal: View>: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        content
-            .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
-                widths.shown = width
-                report()
-            }
-            .background(alignment: .leading) {
-                ideal
-                    .lineLimit(1)
-                    .fixedSize()
-                    .hidden()
-                    .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
-                        widths.ideal = width
-                        report()
+        content.background(alignment: .leading) {
+            if measuring {
+                // `Color.clear` takes the label's drawn size; the hidden copy over it takes its
+                // natural width, and reads the drawn one off the clear's space — one observer,
+                // whose value is the answer itself, so only a flip calls back.
+                Color.clear
+                    .overlay(alignment: .leading) {
+                        ideal
+                            .lineLimit(1)
+                            .fixedSize()
+                            .hidden()
+                            .onGeometryChange(for: Bool.self, of: { proxy in
+                                Self.isTruncated(shown: proxy.bounds(of: Self.drawn)?.width ?? 0,
+                                                 ideal: proxy.size.width)
+                            }, action: onChange)
                     }
+                    .coordinateSpace(Self.drawn)
             }
-    }
-
-    private func report() {
-        let truncated = Self.isTruncated(shown: widths.shown, ideal: widths.ideal)
-        guard truncated != widths.reported else { return }
-        widths.reported = truncated
-        onChange(truncated)
+        }
     }
 }
 

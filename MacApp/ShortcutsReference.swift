@@ -117,7 +117,7 @@ enum ShortcutsReference {
             Item(keys: "⌘ Z / ⇧⌘ Z", action: "Undo / redo — the last file operation, or your typing in Edit"),
             // The progress window's Cancel. ⌘. and not Esc, which the window under it still owns
             // (`AppChord.cancelOperation`).
-            Item(keys: "⌘ .", action: "Cancel the copy, move or delete in progress"),
+            Item(keys: "⌘ .", action: "Cancel the operation in progress"),
             // The file clipboard, not the text one — though each of these four hands the keystroke
             // back to the caret when a text field has it (`TextEditingChord`).
             Item(keys: "⌘ A", action: "Select everything in the focused pane’s current folder"),

@@ -196,7 +196,8 @@ import Events
     ///
     /// **The whole default arrangement fits the track again.** With the fake "iCloud" capsule at its
     /// head, Delete joining the default pushed the trailing pill past the 600pt track's edge. The
-    /// capsule is now an 18pt blank drop zone (`leadingEdgeZone`), which hands back the room. The
+    /// capsule is now a blank drop zone over the track's padding (`leadingEdgeZone`), which hands
+    /// back the room and puts the first pill at the edge, as in the default set below. The
     /// track is still a horizontal `ScrollView` (built for arrangements up to `maxItems`, 16), so a
     /// longer bar scrolls rather than losing items.
     @Test func paneBarCustomizeSheet() {

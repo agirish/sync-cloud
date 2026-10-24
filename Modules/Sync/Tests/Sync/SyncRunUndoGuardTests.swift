@@ -51,9 +51,8 @@ import Events
         #expect(preview?.actionName == "Sync run")
         #expect(preview?.operationCount == 1)
 
-        manager.undoLastSyncRun()
+        #expect(manager.undoLastSyncRunAskingFirst(confirm: { _ in true }) == nil)
         #expect(marker.undone == true)                       // the recorded run was reversed
-        #expect(manager.banner?.severity != .warning)
         #expect(manager.lastSyncRunUndoPreview == nil)       // consumed — can't reverse it twice
     }
 
@@ -76,12 +75,11 @@ import Events
         #expect(markerB.undone == true)
 
         #expect(manager.lastSyncRunUndoPreview == nil)       // top is run A's group, not run B's
-        manager.undoLastSyncRun()
+        let refusal = manager.undoLastSyncRunAskingFirst(confirm: { _ in true })
         #expect(markerA.undone == false)                     // run A must NOT be reversed
-        #expect(manager.banner?.severity == .warning)
         // Honest refusal: the top IS named "Sync run", so the old "…is “Sync run”, not a sync
         // run" text contradicted itself. A dead pairing reads as history-changed instead.
-        #expect(manager.banner?.message.contains("undo history changed") == true)
+        #expect(refusal == "The undo history changed since the last sync run — use Edit ▸ Undo (⌘Z) in the main window to step back.")
     }
 
     @Test func manualRedoAlsoClosesTheGate() {
@@ -198,34 +196,6 @@ import Events
 
     // MARK: gate — negative (the bug this fixes)
 
-    @Test func refusesAndNamesTheActionWhenANonSyncActionIsOnTop() {
-        let manager = isolatedManager()
-        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        let syncMarker = Marker()
-        registerRun(manager, name: "Sync run", marker: syncMarker)
-        manager.recordSyncHistory([record(run: UUID())])
-
-        // A New Folder (not recorded to history) is created AFTER the sync run — now on top.
-        let folderMarker = Marker()
-        registerRun(manager, name: "New Folder", marker: folderMarker)
-
-        #expect(manager.lastSyncRunUndoPreview == nil)       // gate closed
-
-        manager.undoLastSyncRun()
-        #expect(folderMarker.undone == false)                // the New Folder was NOT reversed
-        #expect(syncMarker.undone == false)                  // nor the sync run
-        #expect(manager.banner?.severity == .warning)
-        #expect(manager.banner?.message.contains("New Folder") == true)
-    }
-
-    @Test func refusesWhenNothingIsUndoable() {
-        let manager = isolatedManager()                      // fresh UndoManager, nothing recorded
-        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        #expect(manager.lastSyncRunUndoPreview == nil)
-        manager.undoLastSyncRun()
-        #expect(manager.banner?.severity == .warning)
-    }
-
     @Test func previewGoneAfterAManualUndoChangesTheTop() {
         // Simulates ⌘Z between the recorded run and pressing the window button: the stack's top no
         // longer matches, so the button won't blindly reverse whatever is now on top.
@@ -241,8 +211,8 @@ import Events
     // MARK: the Sync History window's entry point
 
     /// After a relaunch the undo stack is empty while Sync History still lists records. The
-    /// History window's click used to route through `undoLastSyncRun`, which answers in the MAIN
-    /// window's banner — so the click looked dead. The asking entry point hands the reason back
+    /// History window's click used to answer in the MAIN window's banner — so the click looked
+    /// dead. The asking entry point hands the reason back
     /// for the History window to show, sets no banner, and never asks to confirm a run it can't
     /// reverse.
     @Test func historyClickWithNothingToUndoReturnsTheReasonAndLeavesTheBannerAlone() {
@@ -268,10 +238,21 @@ import Events
 
         let refusal = manager.undoLastSyncRunAskingFirst(confirm: { _ in true })
 
-        #expect(refusal == "The most recent action is “New Folder”, not a sync run — use Edit ▸ Undo (⌘Z) to reverse it.")
+        // "in the main window": ⌘Z pressed in Sync History acts on that window's own empty stack.
+        #expect(refusal == "The most recent action is “New Folder”, not a sync run — use Edit ▸ Undo (⌘Z) in the main window to reverse it.")
         #expect(folderMarker.undone == false)
         #expect(syncMarker.undone == false)
         #expect(manager.banner == nil)
+    }
+
+    @Test func historyClickWithAnUnnamedActionOnTopSendsTheUserToTheMainWindow() {
+        let manager = isolatedManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
+        registerRun(manager, name: "", marker: Marker())
+
+        let refusal = manager.undoLastSyncRunAskingFirst(confirm: { _ in true })
+
+        #expect(refusal == "The most recent action isn’t a sync run — use Edit ▸ Undo (⌘Z) in the main window to reverse it.")
     }
 
     @Test func historyClickAsksAndReversesOnlyOnYes() {
@@ -290,16 +271,6 @@ import Events
         #expect(manager.undoLastSyncRunAskingFirst(confirm: { _ in true }) == nil)
         #expect(marker.undone == true)
         #expect(manager.lastSyncRunUndoPreview == nil)       // consumed
-    }
-
-    /// The banner path and the History path read one rule, so they cannot drift apart.
-    @Test func theBannerSaysWhatTheHistoryWindowWouldSay() {
-        let manager = isolatedManager()
-        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        let reason = manager.lastSyncRunUndoRefusal
-        manager.undoLastSyncRun()
-        #expect(reason != nil)
-        #expect(manager.banner?.message == reason)
     }
 
     // MARK: preview formatting (pure)

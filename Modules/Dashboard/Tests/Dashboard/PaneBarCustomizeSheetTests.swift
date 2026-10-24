@@ -138,14 +138,18 @@ import Testing
     ///
     /// The sheet drew a cloud glyph and "iCloud" at the leading edge for every pane, standing for a
     /// name the real bar retired in fd068fc49. What has to survive is the drop target — "first" has
-    /// to stay aimable — so the zone keeps a width, and paints nothing. The control is a fixed
-    /// space's pill, which is the faintest thing on the track: if the probe can see that, it can
-    /// see a capsule and a word.
+    /// to stay aimable — so the zone keeps a width, and paints nothing. It lies over the track's
+    /// leading padding rather than in the row, so the width it keeps indents nothing (the
+    /// customize-sheet snapshots show the first pill at the edge). The control is a fixed space's
+    /// pill, which is the faintest thing on the track: if the probe can see that, it can see a
+    /// capsule and a word.
     @Test func theHeadOfTheTrackIsABlankDropZone() throws {
         let sheet = PaneBarCustomizeSheet()
         let zone = NSHostingView(rootView: AnyView(sheet.leadingEdgeZone))
-        #expect(zone.fittingSize.width >= 16,
+        #expect(zone.fittingSize.width >= 8,
                 "the leading drop zone is \(zone.fittingSize.width)pt wide — too thin to aim a drop at")
+        #expect(zone.fittingSize.width <= 10,
+                "the leading drop zone is \(zone.fittingSize.width)pt wide — wider than the padding it lies on")
 
         let blank = try #require(Self.inkedPixels(sheet.leadingEdgeZone))
         let control = try #require(Self.inkedPixels(sheet.trackItem(.space, at: 0)))

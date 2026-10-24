@@ -169,7 +169,7 @@ already drives:
 |---|---|
 | Deciding what to copy | `FileDiffEngine` — one-way, missing-or-newer |
 | Copying it | `FileOperations` — atomic, backed-up, collision-aware |
-| Undoing a run | `undoLastSyncRun` |
+| Undoing a run | `undoLastSyncRunAskingFirst` |
 | Recording it | `SyncHistoryStore` |
 | Announcing it | `OperationBanner` |
 | Excluding junk | `IgnoreRules` |
