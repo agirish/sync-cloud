@@ -751,15 +751,22 @@ extension FileSyncManager {
     /// recorded when its undo is registered, moments after the trash, and read again here.
     ///
     /// Re-read at the depth it was recorded at (`drift`): a file by its size and date, a folder by
-    /// its contents (see `backupIdentity`). Two answers let the restore through and are not
-    /// identity claims: nothing was
-    /// readable at the backup when the undo registered (`.absent` — the restore behaves exactly as
-    /// it always did), and nothing is there now — the restore's own move then fails and reports the
-    /// Trash as emptied, which is the truth. Anything present that differs is `.changed`, and an
-    /// unreadable one `.indeterminate`; both refuse.
+    /// its contents (see `backupIdentity`). Three answers let the restore through and are not
+    /// identity claims. Nothing was at the backup when the undo registered (`.absent`), or nothing
+    /// there could be read (`.indeterminate` — a folder with one unreadable descendant, a cloud
+    /// folder that did not answer in time): there is no identity to hold the backup to, and the
+    /// restore behaves exactly as it did before FR27. Holding it to `.indeterminate` refused it
+    /// forever, since every later read of that folder is `.indeterminate` too. And nothing is there
+    /// now — the restore's own move then fails and reports the Trash as emptied, which is the
+    /// truth. Against a known recorded identity, anything present that differs is `.changed` and
+    /// refuses as a stranger; an unreadable one is `.indeterminate` and refuses as unreadable.
+    ///
+    /// **Read before the undo's irreversible step** — trashing the copy, moving the item back —
+    /// so an unreadable backup refuses the whole item and leaves both where they are, rather than
+    /// leaving the destination empty with the original still in the Trash.
     nonisolated static func trashBackupVerdict(recorded: ItemIdentity, at backup: URL,
                                                fileManager fm: FileManaging) -> DriftVerdict {
-        guard recorded != .absent else { return .unchanged }
+        guard recorded != .absent, recorded != .indeterminate else { return .unchanged }
         guard FileSyncManager.entryExists(at: backup, fileManager: fm) else { return .unchanged }
         return recorded.drift(at: backup, fileManager: fm)
     }
@@ -775,13 +782,35 @@ extension FileSyncManager {
         on target: FileSyncManager
     ) async {
         let name = destination.lastPathComponent
-        let why = verdict == .indeterminate
+        let unreadable = verdict == .indeterminate
+        let why = unreadable
             ? "it could not be read, so it cannot be confirmed as the item this operation put there"
             : "it is not the item this operation put there — the Trash may have been emptied and another item of that name put in it since"
         let logMessage = "Undo/Redo (\(actionName)): REFUSED to restore \"\(name)\" to \(destination.path) from \(backup.path) — \(why); leaving it in the Trash"
+        let bannerMessage = unreadable
+            ? "Undo didn’t restore “\(name)” — the item in the Trash under that name couldn’t be read"
+            : "Undo didn’t restore “\(name)” — the item in the Trash under that name isn’t the one SyncCloud put there"
         await MainActor.run {
             Logger.shared.error(logMessage)
-            target.banner = .warning("Undo didn’t restore “\(name)” — the item in the Trash under that name isn’t the one SyncCloud put there")
+            target.banner = .warning(bannerMessage)
+        }
+    }
+
+    /// Surfaces a copy- or move-undo refused BEFORE its irreversible step because the backup it
+    /// would restore cannot be read now (`trashBackupVerdict` answered `.indeterminate` against a
+    /// known recorded identity). Nothing was done: the item stays at `destination` and the backup
+    /// in the Trash, so a later ⌘Z — once the backup can be read — can still put both back.
+    nonisolated static func reportUndoRefusedUnreadableBackup(
+        at backup: URL,
+        leaving destination: URL,
+        actionName: String,
+        on target: FileSyncManager
+    ) async {
+        let name = destination.lastPathComponent
+        let logMessage = "Undo (\(actionName)): REFUSED to undo \"\(name)\" at \(destination.path) — the original it would restore from \(backup.path) could not be read, so it cannot be confirmed as the item this operation put in the Trash; leaving both as they are"
+        await MainActor.run {
+            Logger.shared.error(logMessage)
+            target.banner = .warning("Undo left “\(name)” in place — the original in the Trash couldn’t be read")
         }
     }
 
@@ -791,18 +820,19 @@ extension FileSyncManager {
     /// Restores the backup a copy-undo displaced (`overwritten`) onto `destination`, surfacing any
     /// failure via `reportUndoRestoreFailure`. Shared by `registerCopyUndo`'s two removal paths —
     /// the Trash path and the confirmed permanent-delete fallback — so the restore-and-report logic
-    /// lives in one place. `identity` is the backup's, recorded at registration (FR27): a
-    /// different item at the backup's location is refused, reported, and counted as a failure.
+    /// lives in one place. `verdict` is `trashBackupVerdict`'s answer for the backup (FR27), read
+    /// by the caller BEFORE it removed the copy, so an unreadable backup could refuse the whole
+    /// item first; a different item at the backup's location is refused, reported, and counted as
+    /// a failure.
     nonisolated static func restoreOverwrittenBackup(
         _ overwritten: URL?,
-        identity: ItemIdentity,
+        verdict: DriftVerdict,
         to destination: URL,
         actionName: String,
         fileManager fm: FileManaging,
         on target: FileSyncManager
     ) async -> UndoRestoreOutcome {
         guard let overwritten else { return .nothingToRestore }
-        let verdict = trashBackupVerdict(recorded: identity, at: overwritten, fileManager: fm)
         guard verdict == .unchanged else {
             await reportUndoRefusedTrashStranger(at: overwritten, restoring: destination,
                                                  actionName: actionName, verdict: verdict, on: target)
@@ -1191,6 +1221,12 @@ extension FileSyncManager {
                             handledDestinations.contains(url.path)
                                 || handledFoldedDestinations.contains(foldedKey(url))
                         }
+                        // The backup's verdict (FR27); `.unchanged` when there is none.
+                        func backupVerdict(_ item: CopyUndoItemState) -> DriftVerdict {
+                            item.overwritten.map {
+                                FileSyncManager.trashBackupVerdict(recorded: item.overwrittenIdentity, at: $0, fileManager: fm)
+                            } ?? .unchanged
+                        }
                         for item in items {
                             if alreadyHandled(item.destination) {
                                 duplicateRegistrations += 1
@@ -1213,7 +1249,7 @@ extension FileSyncManager {
                                 markHandled(item.destination)
                                 logger.info("Undo (\(actionName)): \(item.destination.lastPathComponent) is no longer on disk — nothing to remove")
                                 undoneCopies.append((source: item.source, destination: item.destination))
-                                switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, identity: item.overwrittenIdentity, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
+                                switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, verdict: backupVerdict(item), to: item.destination, actionName: actionName, fileManager: fm, on: target) {
                                 case .restored: restored += 1
                                 case .failed: restoreFailures += 1
                                 case .nothingToRestore: break
@@ -1254,6 +1290,19 @@ extension FileSyncManager {
                                 await FileSyncManager.reportUndoRefusedLockedItem(of: item.destination, actionName: actionName, on: target)
                                 continue
                             }
+                            // The backup is read BEFORE the copy goes (FR27): one that cannot be
+                            // read now refuses the whole item, because trashing the copy and then
+                            // declining the restore left the destination empty with the original
+                            // still in the Trash. A stranger (`.changed`) does not hold the copy
+                            // back — the original is gone from the Trash either way — and is
+                            // refused at the restore below.
+                            let itemBackupVerdict = backupVerdict(item)
+                            if let overwritten = item.overwritten, itemBackupVerdict == .indeterminate {
+                                leftInPlace += 1
+                                await FileSyncManager.reportUndoRefusedUnreadableBackup(
+                                    at: overwritten, leaving: item.destination, actionName: actionName, on: target)
+                                continue
+                            }
                             let liftedLock = FileSyncManager.liftCopiedLock(item, fileManager: fm)
                             do {
                                 try fm.trashItem(at: item.destination, resultingItemURL: nil)
@@ -1275,7 +1324,7 @@ extension FileSyncManager {
                             markHandled(item.destination)
                             undoneCopies.append((source: item.source, destination: item.destination))
 
-                            switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, identity: item.overwrittenIdentity, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
+                            switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, verdict: itemBackupVerdict, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
                             case .restored: restored += 1
                             case .failed: restoreFailures += 1
                             case .nothingToRestore: break
@@ -1313,6 +1362,15 @@ extension FileSyncManager {
                                 }
                                 // The same copied lock as the Trash path above, or the confirmed
                                 // delete fails on it exactly as the Trash did (FR31).
+                                // Read again before the delete, as the Trash path reads it before
+                                // the trash: the prompt may have been up for some time (FR27).
+                                let itemBackupVerdict = backupVerdict(item)
+                                if let overwritten = item.overwritten, itemBackupVerdict == .indeterminate {
+                                    leftInPlace += 1
+                                    await FileSyncManager.reportUndoRefusedUnreadableBackup(
+                                        at: overwritten, leaving: item.destination, actionName: actionName, on: target)
+                                    continue
+                                }
                                 let liftedLock = FileSyncManager.liftCopiedLock(item, fileManager: fm)
                                 do {
                                     try fm.removeItem(at: item.destination)
@@ -1326,7 +1384,7 @@ extension FileSyncManager {
                                 removed += 1
                                 markHandled(item.destination)
                                 undoneCopies.append((source: item.source, destination: item.destination))
-                                switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, identity: item.overwrittenIdentity, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
+                                switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, verdict: itemBackupVerdict, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
                                 case .restored: restored += 1
                                 case .failed: restoreFailures += 1
                                 case .nothingToRestore: break
@@ -1642,12 +1700,23 @@ extension FileSyncManager {
                             // for the accurate reason rather than falling through to whichever
                             // branch the source's state happens to select.
                             let moveVerdict = item.movedIdentity.drift(at: item.to, fileManager: fm)
+                            // The backup is read BEFORE the item moves back (FR27), as the
+                            // copy-undo reads it before trashing the copy: an unreadable one
+                            // refuses the whole item, rather than moving the item out and then
+                            // declining to put the original back in its place.
+                            let backupVerdict = item.overwritten.map {
+                                FileSyncManager.trashBackupVerdict(recorded: item.overwrittenIdentity, at: $0, fileManager: fm)
+                            } ?? .unchanged
                             if moveVerdict != .unchanged {
                                 leftInPlace += 1
                                 await FileSyncManager.reportUndoRefusedChangedItem(of: item.to, actionName: actionName, verdict: moveVerdict, intent: .moveItBackToItsSource, on: target)
                             } else if !sameItemAsMoved && fm.fileExists(atPath: item.from.path) {
                                 restoreFailures += 1
                                 await FileSyncManager.reportUndoRestoreFailure(of: item.from, from: item.to, actionName: actionName, error: FileSyncManager.restoreTargetOccupiedError, on: target)
+                            } else if let trashed = item.overwritten, backupVerdict == .indeterminate {
+                                leftInPlace += 1
+                                await FileSyncManager.reportUndoRefusedUnreadableBackup(
+                                    at: trashed, leaving: item.to, actionName: actionName, on: target)
                             } else {
                                 do {
                                     // Recreating the source's parent belongs HERE, in the branch
@@ -1678,8 +1747,6 @@ extension FileSyncManager {
                                 // Only the item this move put in the Trash (FR27): a stranger that
                                 // has taken its name there stays put, and the destination stays
                                 // empty rather than receiving something nobody moved out of it.
-                                let backupVerdict = FileSyncManager.trashBackupVerdict(
-                                    recorded: item.overwrittenIdentity, at: trashed, fileManager: fm)
                                 if backupVerdict != .unchanged {
                                     restoreFailures += 1
                                     await FileSyncManager.reportUndoRefusedTrashStranger(

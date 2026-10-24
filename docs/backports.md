@@ -10160,7 +10160,8 @@ Every undo that restores from the Trash — a delete's, and the backup a copy or
 whatever sat at the recorded Trash path. Empty the Trash, trash a different file of the same name,
 and macOS hands it the freed name: ⌘Z moved that unrelated file into place. `main` records each
 backup's identity when its undo registers and refuses a restore whose Trash item differs, with a
-banner naming it (`trashBackupVerdict`).
+banner naming it (`trashBackupVerdict`). A backup nothing could be read of at registration restores
+as before; one unreadable at ⌘Z refuses before the copy is trashed or the item moved back.
 
 ```sh
 for l in main v5.x v4.x v3.x v2.x; do printf '%-5s restore=%s verdict=%s\n' $l \

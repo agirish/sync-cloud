@@ -191,6 +191,127 @@ import Foundation
                 "banner: \(m.banner?.message ?? "nil")")
     }
 
+    /// Makes `folder` unreadable (mode 000), the way a subfolder another account owns or a cloud
+    /// folder that does not answer leaves a deep walk partial. Returns the undo for a `defer`.
+    private func lock(_ folder: URL) throws -> () -> Void {
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: folder.path)
+        return { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path) }
+    }
+
+    /// A deleted folder holding one unreadable subfolder records `.indeterminate` — nothing could
+    /// be known about it when the undo registered — and ⌘Z restores it, as it did before FR27. A
+    /// recorded `.indeterminate` is the absence of an identity, not a mismatch with one.
+    @MainActor
+    @Test func aDeleteUndoRestoresAFolderWhoseIdentityCouldNotBeRecorded() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-unrecorded")
+        let trash = ScratchTrash(in: root)
+        let original = root.appendingPathComponent("docs/Project")
+        try write("one", original.appendingPathComponent("one.txt"))
+        try write("secret", original.appendingPathComponent("private/s.txt"))
+        let unlockOriginal = try lock(original.appendingPathComponent("private"))
+        var trashedURL: NSURL?
+        try trash.trashItem(at: original, resultingItemURL: &trashedURL)
+        let backup = try #require(trashedURL as URL?)
+        let unlockBackup = { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: backup.appendingPathComponent("private").path) }
+        defer { unlockBackup(); unlockOriginal(); try? FileManager.default.removeItem(at: root) }
+        // The premise: nothing could be recorded.
+        #expect(FileSyncManager.backupIdentity(backup, fileManager: trash) == .indeterminate)
+
+        let m = manager()
+        await m.registerRestoreItems(urls: [original], trashedItems: [backup], actionName: "Delete 1 Item", fileManager: trash).value
+        await undoAndDrain(m)
+
+        #expect(read(original.appendingPathComponent("one.txt")) == "one",
+                "the undo refused the folder this delete put in the Trash: \(m.banner?.message ?? "nil")")
+        #expect(!entryExists(backup))
+    }
+
+    /// Against an identity that WAS recorded, a backup that cannot be read at ⌘Z still refuses —
+    /// and the banner says it couldn't be read, not that it is a stranger.
+    @MainActor
+    @Test func aDeleteUndoOfABackupThatCannotBeReadNowSaysSo() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-unreadable-now")
+        let trash = ScratchTrash(in: root)
+        let original = root.appendingPathComponent("docs/Project")
+        try write("one", original.appendingPathComponent("one.txt"))
+        try write("secret", original.appendingPathComponent("private/s.txt"))
+        var trashedURL: NSURL?
+        try trash.trashItem(at: original, resultingItemURL: &trashedURL)
+        let backup = try #require(trashedURL as URL?)
+        let m = manager()
+        await m.registerRestoreItems(urls: [original], trashedItems: [backup], actionName: "Delete 1 Item", fileManager: trash).value
+        let unlock = try lock(backup.appendingPathComponent("private"))
+        defer { unlock(); try? FileManager.default.removeItem(at: root) }
+
+        await undoAndDrain(m)
+
+        #expect(!entryExists(original))
+        #expect(read(backup.appendingPathComponent("one.txt")) == "one")
+        #expect(m.banner?.message == "Undo didn’t restore “Project” — the item in the Trash under that name couldn’t be read",
+                "banner: \(m.banner?.message ?? "nil")")
+    }
+
+    /// Replaces `dst/Project` with `src/Project` by `transfer` (a copy or a move), so the replaced
+    /// folder — holding a `private` subfolder — goes to the Trash as the backup.
+    private func replaceFolder(in root: URL, trash: ScratchTrash,
+                               by transfer: (URL, URL) throws -> URL?) throws -> (src: URL, dst: URL, backup: URL) {
+        let src = root.appendingPathComponent("src/Project")
+        let dst = root.appendingPathComponent("dst/Project")
+        try write("new", src.appendingPathComponent("new.txt"))
+        try write("old", dst.appendingPathComponent("old.txt"))
+        try write("old private", dst.appendingPathComponent("private/p.txt"))
+        let backup = try #require(try transfer(src, dst))
+        return (src, dst, backup)
+    }
+
+    /// A copy-undo whose backup was recorded but cannot be read at undo time refuses BEFORE it
+    /// trashes the copy: the copy stays at the destination and the original stays in the Trash,
+    /// both recoverable, and the banner says the backup couldn't be read — not that it is a
+    /// stranger. Trashing the copy first left the destination empty with the original stranded.
+    @MainActor
+    @Test func aCopyUndoWhoseBackupCannotBeReadLeavesTheCopyInPlace() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-copy-unreadable")
+        let trash = ScratchTrash(in: root)
+        let (src, dst, backup) = try replaceFolder(in: root, trash: trash) {
+            try FileSyncManager.safeCopyItem(at: $0, to: $1, fileManager: trash)
+        }
+        let m = manager()
+        await m.registerCopyUndo(items: [(source: src, destination: dst, overwritten: backup)],
+                                 actionName: "Copy 1 Item", fileManager: trash).value
+        let unlock = try lock(backup.appendingPathComponent("private"))
+        defer { unlock(); try? FileManager.default.removeItem(at: root) }
+
+        await undoAndDrain(m)
+
+        #expect(read(dst.appendingPathComponent("new.txt")) == "new", "the copy was removed though its backup could not be put back")
+        #expect(read(backup.appendingPathComponent("old.txt")) == "old")
+        #expect(m.banner?.message.contains("couldn’t be read") == true, "banner: \(m.banner?.message ?? "nil")")
+        #expect(m.banner?.message.contains("isn’t the one SyncCloud put there") == false)
+    }
+
+    /// The move-undo's twin: the moved folder is not moved back while the backup it would restore
+    /// in its place cannot be read.
+    @MainActor
+    @Test func aMoveUndoWhoseBackupCannotBeReadLeavesTheMovedItemInPlace() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-move-unreadable")
+        let trash = ScratchTrash(in: root)
+        let (src, dst, backup) = try replaceFolder(in: root, trash: trash) {
+            try FileSyncManager.safeMoveItem(at: $0, to: $1, fileManager: trash)
+        }
+        let m = manager()
+        await m.registerMoveUndo(items: [(from: src, to: dst, overwritten: backup)],
+                                 actionName: "Move 1 Item", fileManager: trash).value
+        let unlock = try lock(backup.appendingPathComponent("private"))
+        defer { unlock(); try? FileManager.default.removeItem(at: root) }
+
+        await undoAndDrain(m)
+
+        #expect(read(dst.appendingPathComponent("new.txt")) == "new", "the moved item went back though its backup could not be put back")
+        #expect(!entryExists(src))
+        #expect(read(backup.appendingPathComponent("old.txt")) == "old")
+        #expect(m.banner?.message.contains("couldn’t be read") == true, "banner: \(m.banner?.message ?? "nil")")
+    }
+
     // MARK: FR28
 
     /// A relative link moved to another folder dangles there — and is still the item the move put
