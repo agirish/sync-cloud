@@ -36,6 +36,9 @@ extension FileSyncManager {
         case destinationContainsSource
         /// The destination is a package — a `.numbers`, `.pages` or `.app` — or inside one.
         case destinationIsADocument(name: String)
+        /// The item is locked in Finder (Get Info ▸ Locked) — `uchg` or `uappnd` — so it cannot be
+        /// renamed or put in the Trash, which a move must do to the original (FR31).
+        case itemIsLocked(name: String)
 
         var errorDescription: String? {
             switch self {
@@ -61,6 +64,8 @@ extension FileSyncManager {
                 return "\"\(name)\" is a document, not a folder, so nothing can be filed inside it. Choose another folder."
             case .destinationContainsSource:
                 return "An item can’t replace the folder it’s inside — that would put the rest of the folder in the Trash. Choose Keep Both instead, or Merge for two folders."
+            case .itemIsLocked(let name):
+                return "\"\(name)\" is locked, so it can’t be moved or renamed. Unlock it in Finder (File ▸ Get Info) and try again."
             }
         }
     }
@@ -353,9 +358,9 @@ extension FileSyncManager {
         let targetDirectory = destinationURL.deletingLastPathComponent()
         let tempURL = targetDirectory.appendingPathComponent(".tmp_\(UUID().uuidString)")
 
-        defer { try? fileManager.removeItem(at: tempURL) }
+        defer { removeStaging(tempURL, fileManager: fileManager) }
 
-        try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer)
+        let lock = try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer)
 
         if destinationExistsForReplacement(source: sourceURL, destination: destinationURL, caseSensitiveVolume: caseSensitiveVolume, fileManager: fileManager) {
             // Atomically swap the staged copy into place, preserving the old destination as a
@@ -369,12 +374,14 @@ extension FileSyncManager {
                 withItemAt: tempURL,
                 backupItemName: ".rollback_\(UUID().uuidString)"
             )
+            restoreLock(lock, on: destinationURL, fileManager: fileManager)
             return finalizeBackup(backupURL, replacing: destinationURL, fileManager: fileManager)
         }
 
         // Brand-new destination (or a case-only rename whose "destination" is the source itself on
         // a case-insensitive volume): a single rename into place, no backup, no replacement window.
         try fileManager.moveItem(at: tempURL, to: destinationURL)
+        restoreLock(lock, on: destinationURL, fileManager: fileManager)
         return nil
     }
     
@@ -411,6 +418,16 @@ extension FileSyncManager {
         // because their doubles throw EXDEV on cue.
         let crossVolume = crossVolume ?? isCrossVolumeMove(from: sourceURL, to: destinationURL)
 
+        // **A locked original is refused before anything is written** (FR31). A move has to rename
+        // the original or put it in the Trash, and the kernel refuses both for an item locked in
+        // Finder (`uchg`, or `uappnd`) — measured: `rename`, `moveItem`, `trashItem` and `removeItem`
+        // all EPERM. Without this the failed rename took the copy fallback, which landed a copy and
+        // then could not clear the original, so it reverted — or, with the copy locked too, left
+        // both. The lock is the user's, and this app never lifts it from their item.
+        if isLocked(sourceURL, fileManager: fileManager) {
+            throw FileOperationError.itemIsLocked(name: sourceURL.lastPathComponent)
+        }
+
         if destinationExistsForReplacement(source: sourceURL, destination: destinationURL, caseSensitiveVolume: caseSensitiveVolume, fileManager: fileManager) {
             return try replaceDestinationByMoving(sourceURL: sourceURL, destinationURL: destinationURL, fileManager: fileManager, observer: observer, crossVolume: crossVolume)
         }
@@ -427,10 +444,11 @@ extension FileSyncManager {
             let targetDirectory = destinationURL.deletingLastPathComponent()
             let tempURL = targetDirectory.appendingPathComponent(".tmp_\(UUID().uuidString)")
 
-            defer { try? fileManager.removeItem(at: tempURL) }
+            defer { removeStaging(tempURL, fileManager: fileManager) }
 
-            try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer)
+            let lock = try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer)
             try fileManager.moveItem(at: tempURL, to: destinationURL)
+            restoreLock(lock, on: destinationURL, fileManager: fileManager)
 
             // Cleanup source: try trash first, fall back to direct remove if the volume has no Trash.
             do {
@@ -485,18 +503,19 @@ extension FileSyncManager {
         // and must survive this scope — sweeping it would permanently destroy the source, not
         // even via the Trash.
         var tempHoldsOnlyCopyOfSource = false
-        defer { if !tempHoldsOnlyCopyOfSource { try? fileManager.removeItem(at: tempURL) } }
+        defer { if !tempHoldsOnlyCopyOfSource { removeStaging(tempURL, fileManager: fileManager) } }
 
         // Stage the source onto the destination's volume. Same-volume: a rename consumes the
         // source. Cross-volume — decided up front (FR33), because `moveItem` onto another volume
         // copies and unlinks by itself rather than throwing — or a rename that failed: copy, and
         // remember the original still needs cleanup.
         var sourceConsumed = true
+        var lock: StagedLock = [:]
         do {
             if crossVolume { throw POSIXError(.EXDEV) }
             try fileManager.moveItem(at: sourceURL, to: tempURL)
         } catch {
-            try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer)
+            lock = try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer)
             sourceConsumed = false
         }
 
@@ -558,6 +577,7 @@ extension FileSyncManager {
             }
             throw replaceError
         }
+        restoreLock(lock, on: destinationURL, fileManager: fileManager)
 
         // Cross-volume: the source was copied, not consumed, so remove the original now that the
         // destination holds its data. Trash first; fall back to a permanent remove.
@@ -639,14 +659,82 @@ extension FileSyncManager {
         }
     }
 
+    /// The Finder lock a staged copy was carrying, lifted so it can be installed — `.immutable`
+    /// and/or `.appendOnly` set to `true`; empty when the source was not locked.
+    typealias StagedLock = [FileAttributeKey: Any]
+
     /// The one staging copy every primitive above makes: observed when there is an observer,
     /// `copyItem` exactly as before when there is not.
-    private nonisolated static func stage(_ sourceURL: URL, to tempURL: URL, fileManager: FileManaging, observer: CopyObserver?) throws {
+    ///
+    /// **A locked source's copy is unlocked in staging, and locked again once installed** (FR31).
+    /// `copyItem` and `copyfile` both carry the source's `uchg`/`uappnd` onto the copy, and a locked
+    /// `.tmp_` can be neither renamed into place nor replaced over the destination nor removed —
+    /// measured: `moveItem`, `removeItem` and `trashItem` EPERM, `replaceItemAt` EACCES. So a locked
+    /// file could never be copied, and every attempt left a hidden full-size copy that nothing could
+    /// clear. Only the STAGED copy's own flags are touched — never the source's — and the lock goes
+    /// back on the installed item (``restoreLock(_:on:fileManager:)``), so the copy is locked like
+    /// its original.
+    private nonisolated static func stage(_ sourceURL: URL, to tempURL: URL, fileManager: FileManaging, observer: CopyObserver?) throws -> StagedLock {
         if let observer {
             try fileManager.copyItem(at: sourceURL, to: tempURL, observer: observer)
         } else {
             try fileManager.copyItem(at: sourceURL, to: tempURL)
         }
+        let lock = lockAttributes(of: tempURL, fileManager: fileManager)
+        if !lock.isEmpty {
+            try? fileManager.setAttributes([.immutable: false, .appendOnly: false], ofItemAtPath: tempURL.path)
+        }
+        return lock
+    }
+
+    /// Puts a staged copy's lock back on the item it became. A failure is logged and not thrown:
+    /// the copy has landed, and an unlocked copy of a locked file is not a reason to call it failed.
+    private nonisolated static func restoreLock(_ lock: StagedLock, on url: URL, fileManager: FileManaging) {
+        guard !lock.isEmpty else { return }
+        do {
+            try fileManager.setAttributes(lock, ofItemAtPath: url.path)
+        } catch {
+            Logger.shared.warning("Copied \(url.path), but could not lock it again like its original: \(error.localizedDescription)")
+        }
+    }
+
+    /// The Finder lock on the item at `url` itself — not a link's target, as `attributesOfItem`
+    /// reads the entry. Empty when it is not locked or cannot be read.
+    private nonisolated static func lockAttributes(of url: URL, fileManager: FileManaging) -> StagedLock {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: url.path) else { return [:] }
+        var lock: StagedLock = [:]
+        if (attributes[.immutable] as? Bool) == true { lock[.immutable] = true }
+        if (attributes[.appendOnly] as? Bool) == true { lock[.appendOnly] = true }
+        return lock
+    }
+
+    nonisolated static func isLocked(_ url: URL, fileManager: FileManaging) -> Bool {
+        !lockAttributes(of: url, fileManager: fileManager).isEmpty
+    }
+
+    /// Removes a `.tmp_` staging item on every exit, locked entries and all (FR31). A folder's copy
+    /// keeps the locks of the files inside it — they install locked, as their originals are — so a
+    /// staged folder abandoned at Cancel or by a failed install could not be removed, and stayed
+    /// beside the destination at full size. When the plain removal leaves anything behind, the
+    /// locks INSIDE the staging item are lifted and it is removed again. Only an exact `.tmp_<UUID>`
+    /// name is ever unlocked, and a symbolic link inside it is skipped, never followed: its target
+    /// is somebody else's item.
+    nonisolated static func removeStaging(_ url: URL, fileManager: FileManaging) {
+        guard (try? fileManager.removeItem(at: url)) == nil,
+              fileManager.fileExists(atPath: url.path),
+              OrphanSweeper.isTempArtifactName(url.lastPathComponent) else { return }
+        var entries = [url]
+        if let walk = fileManager.enumerator(at: url, includingPropertiesForKeys: nil, options: [], errorHandler: nil) {
+            for case let entry as URL in walk { entries.append(entry) }
+        }
+        for entry in entries {
+            guard let attributes = try? fileManager.attributesOfItem(atPath: entry.path),
+                  attributes[.type] as? FileAttributeType != .typeSymbolicLink,
+                  (attributes[.immutable] as? Bool) == true || (attributes[.appendOnly] as? Bool) == true
+            else { continue }
+            try? fileManager.setAttributes([.immutable: false, .appendOnly: false], ofItemAtPath: entry.path)
+        }
+        try? fileManager.removeItem(at: url)
     }
 
     /// Ensures the parent of `destinationURL` can be used as a directory (creates it or throws if it exists as a file).

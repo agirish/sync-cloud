@@ -102,7 +102,18 @@ public enum OrphanSweeper {
             let url = URL(fileURLWithPath: path)
             guard isTempArtifactName(url.lastPathComponent), fileManager.fileExists(atPath: path) else { continue }
             do {
-                try fileManager.trashItem(at: url, resultingItemURL: nil)
+                do {
+                    try fileManager.trashItem(at: url, resultingItemURL: nil)
+                } catch where FileSyncManager.isLocked(url, fileManager: fileManager) {
+                    // **A locked staging copy is unlocked, then Trashed** (FR31). Before staging
+                    // lifted a copied lock, every attempt to copy a locked file left a `.tmp_`
+                    // carrying the lock, which the Trash refuses (EPERM) — so it survived every
+                    // sweep at full size. Lifting it here touches no user item: a `.tmp_` that IS
+                    // a user's original (the double failure above) got there by a rename, and the
+                    // kernel refuses to rename a locked item, so a locked one is always a copy.
+                    try fileManager.setAttributes([.immutable: false, .appendOnly: false], ofItemAtPath: path)
+                    try fileManager.trashItem(at: url, resultingItemURL: nil)
+                }
                 removed += 1
             } catch {
                 Task { @MainActor in

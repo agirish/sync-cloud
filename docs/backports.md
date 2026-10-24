@@ -9814,3 +9814,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s upFront=%s moveFirst=%s\n' $l
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same moveItem-first move (`upFront=0`) | RECORDED — not owed |
+
+---
+
+## A Finder-locked file can be copied, and a failed attempt leaves no staging copy (FR31) — main only
+
+A copy carries the source's `uchg`/`uappnd` onto its `.tmp_` staging copy, which can then be neither
+installed nor removed, so a locked file never copied and each attempt left a hidden full-size copy.
+`main` lifts the lock on the staged copy only, locks the installed copy again, removes a staging
+item's inner locks when it must sweep one, refuses moving a locked item up front
+(`itemIsLocked`), and lets the orphan sweep Trash a locked `.tmp_`.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s plainCleanup=%s lockedCase=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileOperations+Primitives.swift 2>/dev/null | grep -cF 'defer { try? fileManager.removeItem(at: tempURL) }')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileOperations+Primitives.swift 2>/dev/null | grep -cF 'case itemIsLocked')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads plainCleanup=0 lockedCase=1):
+# main, v5.x, v4.x, v3.x, v2.x   plainCleanup=2 lockedCase=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same lock-carrying staging (`plainCleanup=2`) | RECORDED — not owed |
