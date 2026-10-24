@@ -245,7 +245,8 @@ import Foundation
         #expect(diffs.count == 1)
         #expect(diffs.first?.relativePath == "mismatch")
         #expect(diffs.first?.action == .copyToLeft)
-        #expect(diffs.first?.description == "Dest item is newer (type mismatch)")
+        #expect(diffs.first?.description == "Folder in Dest, file in Source — a folder's date is not when its contents changed; choose which to keep")
+        #expect(diffs.first?.heldBack == .folderVersusFile)
     }
 
     @Test func testTypeMismatchDefaultsToFolderWhenDatesTie() async throws {
@@ -279,7 +280,8 @@ import Foundation
         #expect(diffs.count == 1)
         #expect(diffs.first?.relativePath == "mismatch")
         #expect(diffs.first?.action == .copyToRight)
-        #expect(diffs.first?.description == "Type mismatch; defaulting to the folder from Source")
+        #expect(diffs.first?.description == "Folder in Source, file in Dest — a folder's date is not when its contents changed; choose which to keep")
+        #expect(diffs.first?.heldBack == .folderVersusFile)
     }
     
     @Test func testEmptyDirectorySync() async throws {
@@ -339,7 +341,8 @@ import Foundation
         
         #expect(diffs.count == 1)
         #expect(diffs.first?.relativePath == "nometa.txt")
-        #expect(diffs.first?.description == "Sizes differ")
+        #expect(diffs.first?.description == "Sizes differ and neither file has a date — choose which to keep")
+        #expect(diffs.first?.heldBack == .sizesDifferWithoutANewerSide)
         #expect(diffs.first?.action == .copyToRight) // Defaults to source-truth on tie
     }
     
@@ -412,7 +415,8 @@ import Foundation
 
         #expect(diffs.count == 1)
         #expect(diffs.first?.action == .copyToRight)
-        #expect(diffs.first?.description == "Source item is newer (type mismatch)")
+        #expect(diffs.first?.description == "Folder in Dest, file in Source — a folder's date is not when its contents changed; choose which to keep")
+        #expect(diffs.first?.heldBack == .folderVersusFile)
     }
 
     @Test func testSameTypeRightNewerCopiesToLeft() async throws {
@@ -638,7 +642,8 @@ import Foundation
         #expect(diffs.count == 1)
         #expect(diffs.first?.relativePath == "Bundle")
         #expect(diffs.first?.action == .copyToLeft)
-        #expect(diffs.first?.description == "Dest item is newer (type mismatch)")
+        #expect(diffs.first?.description == "Folder in Source, file in Dest — a folder's date is not when its contents changed; choose which to keep")
+        #expect(diffs.first?.heldBack == .folderVersusFile)
         #expect(diffs.first?.enclosedItemCount == 2)
     }
 

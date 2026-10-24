@@ -268,6 +268,35 @@ public struct CommandRunner {
             return
         }
 
+        // **Rows whose direction is a guess are not planned** (`FileDifference.heldBack`: a link
+        // as the source, sizes that differ with no newer side, a folder against a file). `sync`
+        // copies every planned row in its suggested direction on one y/N — under `--yes`, on none
+        // — so a guess in the plan overwrote whichever side it guessed against. They are listed
+        // apart, before the prompt, and counted as skipped in the summary; the app copies one
+        // deliberately, a row at a time.
+        let heldRows = diffs.filter { $0.heldBack != nil }
+        diffs = diffs.filter { $0.heldBack == nil }
+        func printHeldRows() {
+            printOut("Left for you to decide (\(heldRows.count)), not synced:")
+            for diff in heldRows {
+                printOut("- \(diff.relativePath) [\(DifferenceProcessing.typeString(diff.type))] \(diff.description)")
+            }
+        }
+        var tally = SyncTally()
+        for diff in heldRows {
+            tally.recordSkipped(relativePath: diff.relativePath, reason: .needsDecision, detail: diff.description)
+        }
+        if diffs.isEmpty {
+            printOut("Nothing to sync automatically.")
+            printOut("  Left : \(leftURL.path) [\(leftProvider.displayName)]")
+            printOut("  Right: \(rightURL.path) [\(rightProvider.displayName)]")
+            printOut("")
+            printHeldRows()
+            printOut("")
+            for line in syncSummary(tally: tally, strategy: strategy).stdoutLines { printOut(line) }
+            return
+        }
+
         printOut("Planned operations (\(diffs.count)):")
         // **Both resolved roots, before the prompt (FR42).** `scan` always named them; `sync`
         // listed only relative paths, so the [y/N] was asked about a pair of trees the user never
@@ -281,6 +310,10 @@ public struct CommandRunner {
             let arrow = diff.action == .copyToRight ? "→" : "←"
             printOut("- \(diff.relativePath) \(arrow) [\(DifferenceProcessing.typeString(diff.type))]")
         }
+        if !heldRows.isEmpty {
+            printOut("")
+            printHeldRows()
+        }
 
         if !yes {
             printOut("")
@@ -292,7 +325,6 @@ public struct CommandRunner {
         }
 
         let fm = env.fileManager
-        var tally = SyncTally()
 
         for diff in diffs {
             let (sourcePath, targetPath) = DifferenceProcessing.sourceAndTarget(for: diff)

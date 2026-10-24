@@ -38,14 +38,58 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
     public let leftIsDirectory: Bool
     /// Whether the item on the RIGHT is a folder — see `leftIsDirectory`.
     public let rightIsDirectory: Bool
-    
+    /// Why no run may take this row's suggested `action` on the user's behalf, or nil when one may.
+    ///
+    /// **Every row carries a direction, and for some of them the direction is a guess.** The
+    /// engine has to fill `action` in, and for most rows it has a reason — one side is missing, or
+    /// one date is clearly later. For the rows below it has none it can stand behind, and a bulk
+    /// run ("Copy N to →", `synccloud sync`) used to take the guess along with everything else:
+    /// the user approved a count, and a guess inside it overwrote whichever side lost.
+    ///
+    /// A held row stays on the list with its note in `description`, is left out of every bulk run
+    /// (`FileSyncManager.syncAll`, the CLI's `sync`), and is reported there as left out. A single
+    /// row the user picks and copies on its own is their choice and goes ahead — except
+    /// `.sourceIsSymbolicLink`, which no copy does right (`syncFile` refuses it).
+    ///
+    /// Not a `DifferenceType`: a held row is still a missing, differing or name-conflict row, and
+    /// every filter, badge and sort keyed on that type should keep reading it as one.
+    public let heldBack: HeldBack?
+
+    /// The reasons a row's suggested direction cannot be taken unattended — see `heldBack`.
+    public enum HeldBack: Equatable, Sendable {
+        /// (FR39) Two files whose sizes differ while their dates match within the tolerance, or
+        /// where a side has no date at all: nothing says which is newer, and the old default
+        /// ("left as truth") overwrote the right on every bulk run — at the 5 s and 60 s
+        /// tolerances, for any pair edited within that window of each other.
+        case sizesDifferWithoutANewerSide
+        /// (FR40) A folder against a file. A folder's own date is not when its contents last
+        /// changed — a package edited yesterday inside can carry a 2024 folder date — so the two
+        /// dates do not say which side is newer.
+        case folderVersusFile
+        /// (FR8) The side the row copies FROM is a symbolic link. The comparison reads a link as
+        /// what it points to, but the copy writes the link itself (`ObservedCopy` stages with
+        /// `COPYFILE_NOFOLLOW_SRC`): a "Folder missing" row of 300 items "copied" in an instant
+        /// into one small link at the original, the next scan read both sides through it as in
+        /// sync, and edits in "the copy" changed the originals.
+        case sourceIsSymbolicLink
+        /// (FR8) A folder missing on one side holds a symbolic link somewhere inside that points
+        /// OUT of it — `path`, the first such link by relative path. The folder is one row (its
+        /// contents collapse into it) and its copy is recursive, so the link inside is written as a
+        /// link, for the reason `sourceIsSymbolicLink` gives. A link whose relative target stays
+        /// inside the folder (a framework's `Versions/Current -> A`) is right copied as a link and
+        /// holds nothing; an absolute or dangling one is out (`FileDiffEngine.linkLeads`). Unlike
+        /// `sourceIsSymbolicLink`, a single deliberate copy goes ahead: everything else in the
+        /// folder copies right.
+        case enclosesSymbolicLink(path: String)
+    }
+
     /// True when both sides report the same file size (and both are non-nil). Use for optional checksum verification.
     public var sizesMatch: Bool {
         guard let l = leftFileSize, let r = rightFileSize else { return false }
         return l == r
     }
     
-    public init(id: UUID = UUID(), relativePath: String, leftItemPath: String, rightItemPath: String, type: DifferenceType, action: SyncAction, description: String, isSyncing: Bool = false, leftFileSize: Int? = nil, rightFileSize: Int? = nil, enclosedItemCount: Int? = nil, leftIsDirectory: Bool = false, rightIsDirectory: Bool = false) {
+    public init(id: UUID = UUID(), relativePath: String, leftItemPath: String, rightItemPath: String, type: DifferenceType, action: SyncAction, description: String, isSyncing: Bool = false, leftFileSize: Int? = nil, rightFileSize: Int? = nil, enclosedItemCount: Int? = nil, leftIsDirectory: Bool = false, rightIsDirectory: Bool = false, heldBack: HeldBack? = nil) {
         self.id = id
         self.relativePath = relativePath
         self.leftItemPath = leftItemPath
@@ -59,6 +103,7 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
         self.enclosedItemCount = enclosedItemCount
         self.leftIsDirectory = leftIsDirectory
         self.rightIsDirectory = rightIsDirectory
+        self.heldBack = heldBack
     }
     
     /// Describes how the two panes differ for this path.
@@ -128,7 +173,10 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
             rightFileSize: leftFileSize,
             enclosedItemCount: enclosedItemCount,
             leftIsDirectory: rightIsDirectory,
-            rightIsDirectory: leftIsDirectory
+            rightIsDirectory: leftIsDirectory,
+            // Side-neutral: a swap moves the source side and the action together, so a link is
+            // still the side copied from and an undecided pair is still undecided.
+            heldBack: heldBack
         )
     }
 

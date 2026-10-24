@@ -709,4 +709,71 @@ import Sync
         #expect(rec.copies.count == 2)
         #expect(rec.out.contains("Sync complete. Copied: 2, Skipped: 0, Failed: 0."), "\(rec.out)")
     }
+
+    // MARK: sync — rows whose direction is a guess (FileDifference.heldBack)
+
+    /// **A pair whose sizes differ at the same time is left out of the plan, not copied
+    /// left-wins (FR39).** With one y/N — under `--yes`, none — every planned row is copied in its
+    /// suggested direction, so the old "left as truth" default overwrote the right file. The held
+    /// row sorts FIRST (testing law 9): a run that stopped at it would leave `b-missing.txt`
+    /// uncopied too. Asserted on the sections, not the whole stream, because the plan and the
+    /// summary both name the file.
+    @Test func syncLeavesASameTimeDifferentSizePairOutAndCopiesTheRest() async throws {
+        let left = try makeTempRoot(), right = try makeTempRoot()
+        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let t = Date(timeIntervalSince1970: 1_700_000_000)
+        try write(left.appendingPathComponent("a-held.txt"), "left, longer", mtime: t)
+        try write(right.appendingPathComponent("a-held.txt"), "right", mtime: t)
+        try write(left.appendingPathComponent("b-missing.txt"), "only left")
+
+        let rec = Recorder()
+        try await makeRunner(rec).runSync(left: left.path, right: right.path,
+                                          direction: .auto, showHidden: false, ignore: [],
+                                          strategy: .replace, yes: true, failFast: false, verify: false)
+
+        #expect(rec.copies.map(\.source.lastPathComponent) == ["b-missing.txt"])
+        let note = "Sizes differ but the dates match within the 1 s tolerance — choose which to keep"
+        #expect(rec.out.contains("""
+        Planned operations (1):
+          Left : \(left.path) [Left]
+          Right: \(right.path) [Right]
+
+        - b-missing.txt → [missing-on-right]
+
+        Left for you to decide (1), not synced:
+        - a-held.txt [different] \(note)
+
+        """), "\(rec.out)")
+        #expect(rec.out.contains("Sync complete. Copied: 1, Skipped: 1, Failed: 0."), "\(rec.out)")
+        #expect(rec.out.hasSuffix("""
+        Left 1 item(s) for you to decide, each with its reason:
+          a-held.txt — \(note)
+
+        """), "\(rec.out)")
+    }
+
+    /// **A linked folder is never handed to the copy (FR8).** The scan reads it as the folder it
+    /// points to; the copy would write the link. With nothing else to do, the run says so and
+    /// copies nothing — no prompt, since there is nothing to approve.
+    @Test func syncNeverCopiesALinkedFolderAsALink() async throws {
+        let left = try makeTempRoot(), right = try makeTempRoot(), original = try makeTempRoot()
+        defer {
+            for dir in [left, right, original] { try? FileManager.default.removeItem(at: dir) }
+        }
+        try write(original.appendingPathComponent("inside.txt"), "real content")
+        try FileManager.default.createSymbolicLink(at: left.appendingPathComponent("Linked"),
+                                                   withDestinationURL: original)
+
+        let rec = Recorder()
+        try await makeRunner(rec).runSync(left: left.path, right: right.path,
+                                          direction: .auto, showHidden: false, ignore: [],
+                                          strategy: .replace, yes: true, failFast: false, verify: false)
+
+        #expect(rec.copies.isEmpty, "the link was handed to the copy: \(rec.copies)")
+        #expect(rec.out.hasPrefix("Nothing to sync automatically.\n"), "\(rec.out)")
+        #expect(rec.out.contains("""
+        - Linked [missing-on-right] Folder missing on right (Right) — it is a link, so a copy would be a link too, not what it points to
+        """), "\(rec.out)")
+        #expect(rec.out.contains("Sync complete. Copied: 0, Skipped: 1, Failed: 0."), "\(rec.out)")
+    }
 }

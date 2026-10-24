@@ -22,17 +22,42 @@ public struct FileDiffEngine {
         /// never gone). Mirrors `FileNode.isUnexplored` so the warm (tree) and cold (disk walk)
         /// scan branches agree.
         public let isUnexplored: Bool
+        /// True when `url` is itself a symbolic link. The date, size and kind above describe the
+        /// link's TARGET — that is what the comparison compares — but a copy from `url` writes the
+        /// link, so a row copying FROM such an entry is held back (FR8, `FileDifference.HeldBack`).
+        /// Mirrors `FileNode.isSymbolicLink`; a folder the walk substitutes for a link (iCloud
+        /// Drive's `Desktop` and `Documents`) carries the real path and is not one.
+        public let isSymbolicLink: Bool
 
         public init(url: URL, modificationDate: Date?, fileSize: Int?, isDirectory: Bool,
-                    isUnexplored: Bool = false) {
+                    isUnexplored: Bool = false, isSymbolicLink: Bool = false) {
             self.url = url
             self.modificationDate = modificationDate
             self.fileSize = fileSize
             self.isDirectory = isDirectory
             self.isUnexplored = isUnexplored
+            self.isSymbolicLink = isSymbolicLink
         }
     }
 
+    /// The suggested direction and note for a folder on one side against a file on the other.
+    ///
+    /// **The dates cannot say which side is newer, and the note no longer claims they do (FR40).**
+    /// This compares the folder's own modification date with the file's — but a folder's date
+    /// moves only when an entry directly inside it is added, removed or renamed, not when a file in
+    /// it is edited in place and not for anything deeper down. A `Report.pages` package edited
+    /// yesterday, whose folder date is from 2024, read as "older" than a single-file `Report.pages`
+    /// from last month, and the row said so and offered to replace the package with the file. The
+    /// scan carries no content date for a folder to compare instead.
+    ///
+    /// So the row is held out of bulk runs (`FileDifference.HeldBack.folderVersusFile`) and its note
+    /// says the choice is the user's. The suggested direction keeps its old rule — the later date,
+    /// the folder on a tie — only so a single deliberate copy points where it always has; it is no
+    /// longer presented as a reason. Either direction trashes the other side's item, so a single
+    /// copy the wrong way is recoverable; an unattended one was never chosen at all.
+    ///
+    /// The note names providers rather than sides, so a pane swap needs no rewrite of it
+    /// (`FileDifference.mirroredDescription` turns only "on left"/"on right" phrases).
     private static func resolveTypeMismatch(
         left: FileInfo,
         leftProvider: CloudProvider,
@@ -42,19 +67,55 @@ public struct FileDiffEngine {
     ) -> (action: FileDifference.SyncAction, description: String) {
         let leftDate = left.modificationDate ?? Date.distantPast
         let rightDate = right.modificationDate ?? Date.distantPast
-
+        let action: FileDifference.SyncAction
         if abs(leftDate.timeIntervalSince(rightDate)) > dateToleranceSeconds {
-            if leftDate > rightDate {
-                return (.copyToRight, "\(leftProvider.displayName) item is newer (type mismatch)")
-            }
-            return (.copyToLeft, "\(rightProvider.displayName) item is newer (type mismatch)")
+            action = leftDate > rightDate ? .copyToRight : .copyToLeft
+        } else {
+            action = left.isDirectory ? .copyToRight : .copyToLeft
         }
+        let (folderIn, fileIn) = left.isDirectory
+            ? (leftProvider.displayName, rightProvider.displayName)
+            : (rightProvider.displayName, leftProvider.displayName)
+        return (action, "Folder in \(folderIn), file in \(fileIn) — a folder's date is not when its contents changed; choose which to keep")
+    }
 
-        if left.isDirectory {
-            return (.copyToRight, "Type mismatch; defaulting to the folder from \(leftProvider.displayName)")
+    /// The note on a both-files row whose sizes differ with no newer side (FR39): what the dates
+    /// say, and that the choice is the user's. Providers, not sides, for the reason
+    /// `resolveTypeMismatch` gives.
+    private static func sizesDifferWithoutANewerSide(
+        leftDate: Date?, rightDate: Date?,
+        left: CloudProvider, right: CloudProvider,
+        dateToleranceSeconds: TimeInterval
+    ) -> String {
+        let choose = " — choose which to keep"
+        switch (leftDate, rightDate) {
+        case (.some, .some):
+            guard dateToleranceSeconds > 0 else { return "Sizes differ but the dates are the same" + choose }
+            let seconds = dateToleranceSeconds == dateToleranceSeconds.rounded()
+                ? String(Int(dateToleranceSeconds)) : String(dateToleranceSeconds)
+            return "Sizes differ but the dates match within the \(seconds) s tolerance" + choose
+        case (nil, nil):
+            return "Sizes differ and neither file has a date" + choose
+        case (nil, .some):
+            return "Sizes differ and the \(left.displayName) file has no date" + choose
+        case (.some, nil):
+            return "Sizes differ and the \(right.displayName) file has no date" + choose
         }
+    }
 
-        return (.copyToLeft, "Type mismatch; defaulting to the folder from \(rightProvider.displayName)")
+    /// `held` for a row that copies FROM `source`: a link there outranks every other reason (FR8),
+    /// because it is the one a single deliberate copy cannot get right either.
+    private static func held(_ reason: FileDifference.HeldBack?, source: FileInfo) -> FileDifference.HeldBack? {
+        source.isSymbolicLink ? .sourceIsSymbolicLink : reason
+    }
+
+    /// `description` with the link note added when the row copies FROM a link (FR8) — see
+    /// `FileDifference.HeldBack.sourceIsSymbolicLink`. Says nothing about a side, so a pane swap
+    /// leaves it as it is.
+    private static func noted(_ description: String, source: FileInfo) -> String {
+        source.isSymbolicLink
+            ? description + " — it is a link, so a copy would be a link too, not what it points to"
+            : description
     }
     
     /// Builds the same relative-path→`FileInfo` map `getFilesInDirectory` produces by walking
@@ -113,7 +174,10 @@ public struct FileDiffEngine {
                 isDirectory: node.isDirectory,
                 // Carry the walk's "couldn't look inside" marker (permission denied, cycle
                 // cap): computeDifferences must not read the absent children as "missing".
-                isUnexplored: node.isDirectory && node.isUnexplored == true
+                isUnexplored: node.isDirectory && node.isUnexplored == true,
+                // The walk's own link fact, so a warm scan holds back the same link rows a cold
+                // one does (FR8). A substituted folder's node is real and says false, correctly.
+                isSymbolicLink: node.isSymbolicLink == true
             )
             guard let children = node.children, !children.isEmpty else { return }
             // Once per directory rather than once per child: one append per node, not two.
@@ -340,10 +404,12 @@ public struct FileDiffEngine {
                     var size: Int? = nil
                     var isDir = false
                     var isSymlinkedDir = false
+                    var isLink = false
 
                     if let _ = fileManager as? FileManager {
                         let resourceValues = try fileURL.resourceValues(forKeys: keySet)
                         if resourceValues.isSymbolicLink == true {
+                            isLink = true
                             // Align with the tree path (buildNode): symlinked entries participate
                             // with the TARGET's type/size/date — the link's own stat is meaningless
                             // for diffing — and broken links are dropped.
@@ -398,7 +464,8 @@ public struct FileDiffEngine {
                             url: fileURL,
                             modificationDate: modDate,
                             fileSize: size,
-                            isDirectory: isDir
+                            isDirectory: isDir,
+                            isSymbolicLink: isLink
                         )
 
                         // **The enumerator is not let into a dataless folder**: it reads a folder's
@@ -471,7 +538,8 @@ public struct FileDiffEngine {
         for key in unreadableDirKeys {
             if let info = result[key], info.isDirectory, !info.isUnexplored {
                 result[key] = FileInfo(url: info.url, modificationDate: info.modificationDate,
-                                       fileSize: info.fileSize, isDirectory: true, isUnexplored: true)
+                                       fileSize: info.fileSize, isDirectory: true, isUnexplored: true,
+                                       isSymbolicLink: info.isSymbolicLink)
             }
         }
         // The scan root itself has no parent listing to have minted an entry, so an unreadable
@@ -778,20 +846,28 @@ public struct FileDiffEngine {
                         // Newer side wins the suggested direction; ties default left→right.
                         let leftDate = leftFile.modificationDate ?? Date.distantPast
                         let rightDate = rightFile.modificationDate ?? Date.distantPast
+                        let action: FileDifference.SyncAction =
+                            rightDate.timeIntervalSince(leftDate) > dateToleranceSeconds ? .copyToLeft : .copyToRight
+                        let source = action == .copyToRight ? leftFile : rightFile
                         diffs.append(FileDifference(
                             relativePath: relativePath,
                             leftItemPath: leftFile.url.path,
                             rightItemPath: rightFile.url.path,
                             type: .nameConflict,
-                            action: rightDate.timeIntervalSince(leftDate) > dateToleranceSeconds ? .copyToLeft : .copyToRight,
-                            description: ProviderNameRules.nameConflictDescription(
+                            action: action,
+                            description: noted(ProviderNameRules.nameConflictDescription(
                                 leftName: leftLeaf, leftProvider: left.displayName,
                                 rightName: rightLeaf, rightProvider: right.displayName
-                            ),
+                            ), source: source),
                             leftFileSize: leftFile.fileSize,
                             rightFileSize: rightFile.fileSize,
                             leftIsDirectory: leftFile.isDirectory,
-                            rightIsDirectory: rightFile.isDirectory
+                            rightIsDirectory: rightFile.isDirectory,
+                            // A folder against a file is judged by the folder's own date here too,
+                            // which says nothing about its contents (FR40) — held like the plain
+                            // type-mismatch row below.
+                            heldBack: held(leftFile.isDirectory != rightFile.isDirectory ? .folderVersusFile : nil,
+                                           source: source)
                         ))
                         continue
                     }
@@ -809,17 +885,19 @@ public struct FileDiffEngine {
                         rightProvider: right,
                         dateToleranceSeconds: dateToleranceSeconds
                     )
+                    let source = resolution.action == .copyToRight ? leftFile : rightFile
                     diffs.append(FileDifference(
                         relativePath: relativePath,
                         leftItemPath: leftFile.url.path,
                         rightItemPath: rightFile.url.path,
                         type: .differentDates,
                         action: resolution.action,
-                        description: resolution.description + caseNote,
+                        description: noted(resolution.description + caseNote, source: source),
                         leftFileSize: leftFile.fileSize,
                         rightFileSize: rightFile.fileSize,
                         leftIsDirectory: leftFile.isDirectory,
-                        rightIsDirectory: rightFile.isDirectory
+                        rightIsDirectory: rightFile.isDirectory,
+                        heldBack: held(.folderVersusFile, source: source)
                     ))
                     continue
                 }
@@ -842,40 +920,56 @@ public struct FileDiffEngine {
 
                 if dateDiffers || sizeDiffers { // date tolerance exceeded or size mismatch
                     let leftIsNewer = (leftDate ?? Date.distantPast) > (rightDate ?? Date.distantPast)
-                    
-                    if leftIsNewer || (sizeDiffers && !dateDiffers && leftDate == nil && rightDate == nil) {
+
+                    if sizeDiffers && !dateDiffers {
+                        // **Different sizes and no newer side is a question, not a direction
+                        // (FR39).** The dates match within the tolerance, or a side has none, so
+                        // nothing here says which file is current. The row used to default "left
+                        // as truth" with the bare note "Sizes differ" and ride every bulk run
+                        // left → right — which at the 5 s and 60 s tolerances is any pair both
+                        // edited inside that window, the right one silently replaced. It keeps
+                        // the old suggestion for a single deliberate copy, says why it is a guess,
+                        // and is held out of bulk runs (`FileDifference.HeldBack`).
+                        //
+                        // A pair whose dates clearly differ never comes here: `dateDiffers` needs
+                        // both dates, and either one of them past the tolerance picks a side below.
                         diffs.append(FileDifference(
                             relativePath: relativePath,
                             leftItemPath: leftFile.url.path,
                             rightItemPath: rightFile.url.path,
                             type: .differentDates,
                             action: .copyToRight,
-                            description: (sizeDiffers && !dateDiffers ? "Sizes differ" : "\(left.displayName) file is newer") + caseNote,
+                            description: noted(sizesDifferWithoutANewerSide(
+                                leftDate: leftDate, rightDate: rightDate, left: left, right: right,
+                                dateToleranceSeconds: dateToleranceSeconds) + caseNote,
+                                source: leftFile),
                             leftFileSize: leftFile.fileSize,
-                            rightFileSize: rightFile.fileSize
+                            rightFileSize: rightFile.fileSize,
+                            heldBack: held(.sizesDifferWithoutANewerSide, source: leftFile)
                         ))
-                    } else if !leftIsNewer && dateDiffers {
+                    } else if leftIsNewer {
+                        diffs.append(FileDifference(
+                            relativePath: relativePath,
+                            leftItemPath: leftFile.url.path,
+                            rightItemPath: rightFile.url.path,
+                            type: .differentDates,
+                            action: .copyToRight,
+                            description: noted("\(left.displayName) file is newer" + caseNote, source: leftFile),
+                            leftFileSize: leftFile.fileSize,
+                            rightFileSize: rightFile.fileSize,
+                            heldBack: held(nil, source: leftFile)
+                        ))
+                    } else {
                         diffs.append(FileDifference(
                             relativePath: relativePath,
                             leftItemPath: leftFile.url.path,
                             rightItemPath: rightFile.url.path,
                             type: .differentDates,
                             action: .copyToLeft,
-                            description: "\(right.displayName) file is newer" + caseNote,
+                            description: noted("\(right.displayName) file is newer" + caseNote, source: rightFile),
                             leftFileSize: leftFile.fileSize,
-                            rightFileSize: rightFile.fileSize
-                        ))
-                    } else {
-                        // Fallback if dates are identical/missing but sizes differ: default to left as truth
-                        diffs.append(FileDifference(
-                            relativePath: relativePath,
-                            leftItemPath: leftFile.url.path,
-                            rightItemPath: rightFile.url.path,
-                            type: .differentDates,
-                            action: .copyToRight,
-                            description: "Sizes differ" + caseNote,
-                            leftFileSize: leftFile.fileSize,
-                            rightFileSize: rightFile.fileSize
+                            rightFileSize: rightFile.fileSize,
+                            heldBack: held(nil, source: rightFile)
                         ))
                     }
                 } else if namesDifferOnlyByCase {
@@ -888,9 +982,10 @@ public struct FileDiffEngine {
                         rightItemPath: rightFile.url.path,
                         type: .differentDates,
                         action: .copyToRight,
-                        description: "Names differ only by case",
+                        description: noted("Names differ only by case", source: leftFile),
                         leftFileSize: leftFile.fileSize,
-                        rightFileSize: rightFile.fileSize
+                        rightFileSize: rightFile.fileSize,
+                        heldBack: held(nil, source: leftFile)
                     ))
                 }
             } else {
@@ -952,12 +1047,18 @@ public struct FileDiffEngine {
         let collapsibleOnLeft = missingOnLeftDirs.union(typeMismatchDirPaths)
         // Top-most collapsible ancestor folder's row path → number of items collapsed into it.
         var enclosedCounts: [String: Int] = [:]
+        // The same row path → the links among those items (FR8), which its recursive copy would
+        // write as links. Read off the entries already in hand, so it costs no walk of its own;
+        // only these are asked where they point, once the rows are built.
+        var enclosedLinks: [String: [(key: String, url: URL)]] = [:]
         /// Whether `key` is carried by a folder's row, counting it there if so. A type-mismatch dir's
         /// row is keyed by the LEFT path, which can differ — in case, or in its own or an ancestor's
         /// invisible spelling — from the dir-side key the descendants carry; map back to the row.
-        func isCollapsed(_ key: String, into dirs: Set<String>) -> Bool {
+        func isCollapsed(_ key: String, _ file: FileInfo, into dirs: Set<String>) -> Bool {
             guard let ancestor = topMostAncestor(of: key, in: dirs) else { return false }
-            enclosedCounts[typeMismatchDirs[ancestor] ?? ancestor, default: 0] += 1
+            let row = typeMismatchDirs[ancestor] ?? ancestor
+            enclosedCounts[row, default: 0] += 1
+            if file.isSymbolicLink { enclosedLinks[row, default: []].append((key, file.url)) }
             return true
         }
         // Re-aim one-side-only items that live under a name-conflicted folder pair at the
@@ -974,7 +1075,7 @@ public struct FileDiffEngine {
         // Composition stays URL composition: it decomposes precomposed names, and concatenation
         // would not (`OneSidedRowPathTests`).
         for (relativePath, leftFile) in missingOnRight {
-            if isCollapsed(relativePath, into: collapsibleOnRight) { continue }
+            if isCollapsed(relativePath, leftFile, into: collapsibleOnRight) { continue }
             let destination = remappedPath(relativePath, via: nearNameDirPairs) ?? relativePath
             diffs.append(FileDifference(
                 relativePath: relativePath,
@@ -982,15 +1083,19 @@ public struct FileDiffEngine {
                 rightItemPath: rightURL.appendingPathComponent(destination, isDirectory: leftFile.isDirectory).path,
                 type: .missingOnRight,
                 action: .copyToRight,
-                description: leftFile.isDirectory ? "Folder missing on right (\(right.displayName))" : "Missing on right (\(right.displayName))",
+                description: noted(leftFile.isDirectory ? "Folder missing on right (\(right.displayName))" : "Missing on right (\(right.displayName))",
+                                   source: leftFile),
                 // The item exists on the left; carry its size so the Differences list can show it.
                 // Directories report a nil fileSize, so folders stay sizeless (shown as "—").
                 leftFileSize: leftFile.fileSize,
-                leftIsDirectory: leftFile.isDirectory
+                leftIsDirectory: leftFile.isDirectory,
+                // A link's contents are counted into this row like a real folder's, which is what
+                // the row is about; it is the copy that cannot reproduce them (FR8).
+                heldBack: held(nil, source: leftFile)
             ))
         }
         for (relativePath, rightFile) in missingOnLeft {
-            if isCollapsed(relativePath, into: collapsibleOnLeft) { continue }
+            if isCollapsed(relativePath, rightFile, into: collapsibleOnLeft) { continue }
             // Missing-on-left entries carry RIGHT-side relative paths; re-aim right → left.
             let destination = remappedPath(relativePath, via: rightToLeftDirPairs) ?? relativePath
             diffs.append(FileDifference(
@@ -999,16 +1104,38 @@ public struct FileDiffEngine {
                 rightItemPath: rightFile.url.path,
                 type: .missingOnLeft,
                 action: .copyToLeft,
-                description: rightFile.isDirectory ? "Folder missing on left (\(left.displayName))" : "Missing on left (\(left.displayName))",
+                description: noted(rightFile.isDirectory ? "Folder missing on left (\(left.displayName))" : "Missing on left (\(left.displayName))",
+                                   source: rightFile),
                 // The item exists on the right; carry its size so the Differences list can show it.
                 rightFileSize: rightFile.fileSize,
-                rightIsDirectory: rightFile.isDirectory
+                rightIsDirectory: rightFile.isDirectory,
+                heldBack: held(nil, source: rightFile)
             ))
         }
         // The counts are complete only now: a folder's key can come before its contents'.
         if !enclosedCounts.isEmpty {
             diffs = diffs.map { diff in
                 guard let count = enclosedCounts[diff.relativePath] else { return diff }
+                // **A link inside a folder missing on one side that points OUT of it holds the
+                // folder's row (FR8).** Its copy is recursive and writes the link as a link, as a
+                // row copying FROM a link would, so the copy's link would lead back out of the copy.
+                // A link that stays inside — a framework's `Versions/Current -> A`, a venv's
+                // `bin/python -> python3` — is right copied as a link, and holds nothing. Only for
+                // the missing-folder rows, whose action copies the folder side: a folder-versus-file
+                // row is held already and may be resolved by the file.
+                var heldBack = diff.heldBack
+                var description = diff.description
+                if heldBack == nil, diff.type == .missingOnRight || diff.type == .missingOnLeft,
+                   let enclosed = enclosedLinks[diff.relativePath] {
+                    let folder = diff.type == .missingOnRight ? diff.leftItemPath : diff.rightItemPath
+                    let links = enclosed.filter { linkLeads(out: $0.url, of: folder) }.map(\.key).sorted()
+                    if let first = links.first {
+                        heldBack = .enclosesSymbolicLink(path: first)
+                        description += links.count == 1
+                            ? " — “\(first)” inside it is a link, so a copy would carry the link, not what it points to"
+                            : " — “\(first)” and \(links.count - 1) more inside it are links, so a copy would carry the links, not what they point to"
+                    }
+                }
                 return FileDifference(
                     id: diff.id,
                     relativePath: diff.relativePath,
@@ -1016,13 +1143,14 @@ public struct FileDiffEngine {
                     rightItemPath: diff.rightItemPath,
                     type: diff.type,
                     action: diff.action,
-                    description: diff.description,
+                    description: description,
                     isSyncing: diff.isSyncing,
                     leftFileSize: diff.leftFileSize,
                     rightFileSize: diff.rightFileSize,
                     enclosedItemCount: count,
                     leftIsDirectory: diff.leftIsDirectory,
-                    rightIsDirectory: diff.rightIsDirectory
+                    rightIsDirectory: diff.rightIsDirectory,
+                    heldBack: heldBack
                 )
             }
         }
@@ -1030,6 +1158,28 @@ public struct FileDiffEngine {
         let result = diffs.sorted { $0.relativePath < $1.relativePath }
         Logger.shared.debug("Computed differences: \(result.count) item(s) requiring action")
         return result
+    }
+
+    /// Whether the link at `link`, copied as a link inside `folder`, would point outside the copy
+    /// (FR8, `FileDifference.HeldBack.enclosesSymbolicLink`).
+    ///
+    /// - An **absolute** target is out wherever it points: the copy keeps the path, so even one
+    ///   naming a file inside `folder` leads the copy back to the original.
+    /// - A **relative** target is followed from the link's own directory, by the file system
+    ///   (`realpath(3)`, so `..`, chains of links and a linked folder on the way all count), and is
+    ///   in only when it lands at or under `folder`, compared byte for byte.
+    /// - A target that cannot be followed — dangling, a loop, unreadable — is out.
+    static func linkLeads(out link: URL, of folder: String) -> Bool {
+        guard let target = try? FileManager.default.destinationOfSymbolicLink(atPath: link.path),
+              !target.hasPrefix("/"),
+              let resolved = realPath(link.path), let root = realPath(folder) else { return true }
+        return !(resolved.utf8.elementsEqual(root.utf8) || resolved.utf8.starts(with: (root + "/").utf8))
+    }
+
+    private static func realPath(_ path: String) -> String? {
+        guard let resolved = Darwin.realpath(path, nil) else { return nil }
+        defer { free(resolved) }
+        return String(cString: resolved)
     }
 
     /// `path` rewritten from one side's folder spelling into the other's: the DEEPEST folder

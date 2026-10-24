@@ -36,13 +36,15 @@ import Testing
     }
 
     /// One line per row, every consumer-visible field pinned. `sz=l/r` uses `-` for nil;
-    /// `encl=N` appears only when descendants collapsed into the row.
+    /// `encl=N` appears only when descendants collapsed into the row, `held=` only on a row no bulk
+    /// run may take (`FileDifference.heldBack`).
     private func snapshot(_ diffs: [FileDifference]) -> String {
         diffs.map { d in
             var line = "\(d.relativePath) | \(typeLabel(d.type)) | \(actionLabel(d.action))"
             line += " | L=\(d.leftItemPath) | R=\(d.rightItemPath)"
             line += " | sz=\(d.leftFileSize.map(String.init) ?? "-")/\(d.rightFileSize.map(String.init) ?? "-")"
             if let n = d.enclosedItemCount { line += " | encl=\(n)" }
+            if let held = d.heldBack { line += " | held=\(held)" }
             line += " | \(d.description)"
             return line
         }
@@ -104,15 +106,18 @@ import Testing
         //    is `> tolerance`, not `>=`; pasttolerance.txt (2s) does;
         //  · mixdir (dir vs file, dates equal) defaults to the folder side (→R) and collapses the
         //    dir side's child into the row (encl=1); mixnewer (right file newer past tolerance)
-        //    goes ←L — the date outranks the folder default. Both surface as `differs` rows;
+        //    goes ←L — the date outranks the folder default. Both surface as `differs` rows, and
+        //    both are HELD (FR40): a folder's own date says nothing about its contents, so the
+        //    direction is only a suggestion for a single deliberate copy;
+        //  · diffsize.txt (equal dates, different sizes) is held too (FR39) — no newer side;
         //  · lockeddir (unlistable on the right, `isUnexplored`) contributes NO rows at all — not
         //    for itself and not for lockeddir/inside.txt, whose absence on the right is unknowable
         //    (a phantom Missing row would offer to copy into a folder nobody can read).
         // Re-bless only after confirming an intentional change is correct.
         let expected = """
-        diffsize.txt | differs | →R | L=/left/diffsize.txt | R=/right/diffsize.txt | sz=100/200 | Sizes differ
-        mixdir | differs | →R | L=/left/mixdir | R=/right/mixdir | sz=-/60 | encl=1 | Type mismatch; defaulting to the folder from Left
-        mixnewer | differs | ←L | L=/left/mixnewer | R=/right/mixnewer | sz=-/60 | Right item is newer (type mismatch)
+        diffsize.txt | differs | →R | L=/left/diffsize.txt | R=/right/diffsize.txt | sz=100/200 | held=sizesDifferWithoutANewerSide | Sizes differ but the dates match within the 1 s tolerance — choose which to keep
+        mixdir | differs | →R | L=/left/mixdir | R=/right/mixdir | sz=-/60 | encl=1 | held=folderVersusFile | Folder in Left, file in Right — a folder's date is not when its contents changed; choose which to keep
+        mixnewer | differs | ←L | L=/left/mixnewer | R=/right/mixnewer | sz=-/60 | held=folderVersusFile | Folder in Left, file in Right — a folder's date is not when its contents changed; choose which to keep
         newerdate.txt | differs | ←L | L=/left/newerdate.txt | R=/right/newerdate.txt | sz=100/100 | Right file is newer
         note.txt | nameConflict | →R | L=/left/note.txt | R=/right/note.txt  | sz=50/50 | Names differ by a trailing space: "note.txt" (Left) vs "note.txt " (Right)
         onlyleft.txt | missingOnRight | →R | L=/left/onlyleft.txt | R=/right/onlyleft.txt | sz=100/- | Missing on right (Right)

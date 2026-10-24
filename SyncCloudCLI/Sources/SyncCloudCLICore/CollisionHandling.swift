@@ -47,6 +47,10 @@ public enum SkipReason: Equatable, Sendable {
     /// One end of the pair no longer reads as it did when the plan was drawn, so the plan no
     /// longer describes it (pre-write guard; see the re-check in `runSync`).
     case changedSincePlan
+    /// The row's suggested direction is a guess (`FileDifference.heldBack`), so it was never
+    /// planned: a link as the source, different sizes with no newer side, or a folder against a
+    /// file. No flag changes it; the choice is per file.
+    case needsDecision
 }
 
 /// One skipped item: the path, why it was skipped, and — for name-rule skips — the specific
@@ -134,6 +138,15 @@ public func syncSummary(tally: SyncTally, strategy: CollisionStrategy) -> (
     if !staleSkips.isEmpty {
         out.append("Skipped \(staleSkips.count) file(s) that changed after the plan was shown; re-run sync to see the current plan:")
         out.append(contentsOf: staleSkips.map { item in
+            "  \(item.relativePath)\(item.detail.map { " — \($0)" } ?? "")"
+        })
+    }
+    // Apart from the rest because no re-run or flag resolves these: each is a choice only the
+    // user can make, and each row's own note says why it is one.
+    let heldSkips = tally.skippedItems.filter { $0.reason == .needsDecision }
+    if !heldSkips.isEmpty {
+        out.append("Left \(heldSkips.count) item(s) for you to decide, each with its reason:")
+        out.append(contentsOf: heldSkips.map { item in
             "  \(item.relativePath)\(item.detail.map { " — \($0)" } ?? "")"
         })
     }

@@ -9402,3 +9402,74 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s firstMatch=%s planRoots=%s\n'
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The first-match resolution and the rootless plan (`firstMatch=1`) | RECORDED — not owed |
+
+---
+
+## Different sizes with no newer side are held out of bulk runs, not copied left-wins (FR39) — main only
+
+Two files whose dates match within the tolerance (or where a side has no date) but whose sizes
+differ defaulted "left as truth", and "Copy N to →" or `synccloud sync` replaced the right file — at
+the 5 s and 60 s tolerances, any pair edited inside that window. `main` keeps the row, says the
+dates match and the sizes differ, and marks it `FileDifference.heldBack`: `syncAll` and the CLI's
+`sync` leave it out and say so. A single row copied on its own still goes ahead.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s leftTruth=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileDiffEngine.swift 2>/dev/null | grep -cF 'default to left as truth')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x, v4.x, v3.x, v2.x   leftTruth=1
+# after, in the worktree:        leftTruth=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The left-wins default, taken by every bulk run (`leftTruth=1`) | RECORDED — not owed |
+
+---
+
+## A folder against a file is held, and no longer called "newer" by the folder's date (FR40) — main only
+
+A folder-versus-file row judged "newer" by the folder's own date, which does not move when what is
+inside changes: a package edited yesterday with a 2024 folder date read as older than a single file
+from last month, and the row offered to replace the package. `main` keeps the old suggested direction
+for a single deliberate copy, drops the "newer" claim from the note, and holds the row out of bulk
+runs (`FileDifference.HeldBack.folderVersusFile`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s newerMismatch=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileDiffEngine.swift 2>/dev/null | grep -cF 'item is newer (type mismatch)')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x, v4.x, v3.x, v2.x   newerMismatch=2
+# after, in the worktree:        newerMismatch=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The folder-date comparison, taken in bulk (`newerMismatch=2`) | RECORDED — not owed |
+
+---
+
+## A row that copies from a symbolic link is refused, not copied as a link (FR8) — main only
+
+The scan reads a link as what it points to — a linked folder missing on the other side showed as
+"Folder missing" with its item count — but the copy writes the link itself (`COPYFILE_NOFOLLOW_SRC`).
+Copy finished instantly with one link back at the original, the next scan called the pair in sync,
+and edits in "the copy" changed the originals. `main` records the link on `FileDiffEngine.FileInfo`
+(both scan branches), notes it on the row, holds it out of bulk runs, and `syncFile` refuses it. A
+folder missing on one side with a link inside that points out of it (absolute, dangling, or relative
+and landing outside the folder) is held out of bulk runs too, its note naming the link
+(`enclosesSymbolicLink`); copied on its own it goes ahead. A relative link that stays inside the
+folder, as in an app bundle or a venv, holds nothing.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s followsLinks=%s linkFact=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileDiffEngine.swift 2>/dev/null | grep -cF 'symlinked entries participate')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileDiffEngine.swift 2>/dev/null | grep -cF 'public let isSymbolicLink: Bool')"; done
+# measured 2026-10-23, against origin, before this landed:
+# main, v5.x, v4.x, v3.x, v2.x   followsLinks=1 linkFact=0
+# after, in the worktree:        followsLinks=1 linkFact=1
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The link-following scan with a link-writing copy (`followsLinks=1`, `linkFact=0`) | RECORDED — not owed |

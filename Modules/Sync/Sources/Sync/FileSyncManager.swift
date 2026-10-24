@@ -3458,6 +3458,18 @@ public class FileSyncManager: ObservableObject {
         // making the parked sync invisible to Verify All's exclusion guard.
         guard !syncingDifferenceIds.contains(difference.id) else { return false }
 
+        // **A row that copies FROM a link is refused even one at a time (FR8).** The comparison
+        // reads the link as what it points to — a folder of 300 items — but the copy writes the
+        // link itself, so "Copy" finished instantly with one small link at the original, the next
+        // scan read both sides through it as in sync, and edits in "the copy" changed the
+        // originals. No choice of the user's makes that copy right, which is why this one reason,
+        // unlike the other `HeldBack` cases, is refused here too and not only in bulk.
+        if difference.heldBack == .sourceIsSymbolicLink {
+            Logger.shared.info("Sync of \(difference.relativePath) refused: \(fromURL.path) is a symbolic link")
+            banner = .warning("“\(fromURL.lastPathComponent)” is a link, so a copy would be a link too, not what it points to — nothing was \(isMove ? "moved" : "copied")")
+            return false
+        }
+
         // Verify All's exclusion guard, mirrored in the write direction: Verify All refuses
         // to START while anything is writing, but a transfer starting MID-verify could still
         // overwrite a file as it's hashed — the pair can read "identical" against bytes that

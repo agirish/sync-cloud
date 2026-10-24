@@ -277,9 +277,27 @@ extension FileSyncManager {
     ///     count) — the `transferConfirmer` prompt is skipped so one gesture never asks twice.
     public func syncAll(direction: FileDifference.SyncAction, isMove: Bool = false, subset: [FileDifference]? = nil, confirmed: Bool = false, postBanner: Bool = true) async {
         let source = subset ?? differences
-        let toSync = source.filter { $0.action == direction }
+        // **A row whose direction is a guess is not taken in bulk** (`FileDifference.heldBack`:
+        // FR8, FR39, FR40). The user approves a count here, not each row, so a guess inside the
+        // count overwrote whichever side it guessed against. Held rows are left on the list,
+        // logged with their reason, and named in the outcome — never silently dropped.
+        let inDirection = source.filter { $0.action == direction }
+        let toSync = inDirection.filter { $0.heldBack == nil }
+        let heldBack = inDirection.filter { $0.heldBack != nil }
+        for held in heldBack {
+            Logger.shared.info("Bulk \(isMove ? "move" : "sync") left \(held.relativePath) for a decision: \(held.description)")
+        }
+        let heldNote = heldBack.isEmpty ? "" : (heldBack.count == 1
+            ? " — 1 item needs your decision and was left out"
+            : " — \(heldBack.count) items need your decision and were left out")
         let total = toSync.count
-        guard total > 0 else { return }
+        guard total > 0 else {
+            if !heldBack.isEmpty, postBanner {
+                banner = .warning((heldBack.count == 1 ? "1 item needs" : "\(heldBack.count) items need")
+                    + " your decision, so nothing was \(isMove ? "moved" : "copied") — see each row's note")
+            }
+            return
+        }
         // Drop, don't queue, a bulk run started while another is in flight (see the flag's doc).
         guard !isBulkSyncRunning else { return }
         // A Verify All in flight is hashing the very files this run would overwrite; starting
@@ -605,9 +623,9 @@ extension FileSyncManager {
         // speaks, so stay quiet here rather than stacking a second message.
         if postBanner, result.failures.isEmpty, !result.successes.isEmpty {
             let pastTense = isMove ? "Moved" : "Copied"
-            banner = .success(result.successes.count == 1
+            banner = .success((result.successes.count == 1
                 ? "\(pastTense) 1 item"
-                : "\(pastTense) \(result.successes.count) items", undoable: true)
+                : "\(pastTense) \(result.successes.count) items") + heldNote, undoable: true)
         }
 
         // Summary breadcrumb for the bulk path (parity with the single-file "Synced file:" line):
