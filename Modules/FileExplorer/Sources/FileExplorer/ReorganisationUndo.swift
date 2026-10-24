@@ -20,8 +20,8 @@ public enum ReorganisationUndo {
                          now: Date = Date()) -> (title: String, detail: String) {
         let family = record.manifest.family
         let title = family == "." || family.isEmpty
-            ? "Undo the reorganisation across the tree?"
-            : "Undo the reorganisation of “\(family)”?"
+            ? "Undo the reorganization across the tree?"
+            : "Undo the reorganization of “\(family)”?"
         let did = record.summary.map { " It did: \($0)." } ?? ""
         let detail = "Applied \(RestructureLens.landingPhrase(record.at, now: now)).\(did) "
             + "Undoing moves those files and folders back and points the folder survey at the tree "
@@ -35,10 +35,10 @@ public enum ReorganisationUndo {
         if let refusal = outcome.refusal { return .warning(refusal) }
         if let failure = outcome.surveyRefreshFailure { return .warning(failure) }
         if !outcome.skipped.isEmpty || !outcome.verifierMismatches.isEmpty {
-            return .warning("Reorganisation undone — \(outcome.summary). The log names what "
+            return .warning("Reorganization undone — \(outcome.summary). The log names what "
                             + "could not be moved back.")
         }
-        return .success("Reorganisation undone — \(outcome.summary).")
+        return .success("Reorganization undone — \(outcome.summary).")
     }
 
     /// Asks, then runs the inverse and reports. A record the ledger no longer has is not asked
@@ -50,7 +50,7 @@ public enum ReorganisationUndo {
         on manager: FileSyncManager,
         confirm: (_ title: String, _ detail: String) -> Bool = { title, detail in
             NativeAlerts.confirmChange(messageText: title, informativeText: detail,
-                                       confirmTitle: "Undo Reorganisation")
+                                       confirmTitle: "Undo Reorganization")
         }
     ) async {
         if let refusal = manager.restructureLandingBlocker {

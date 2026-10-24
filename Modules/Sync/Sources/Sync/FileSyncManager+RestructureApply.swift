@@ -204,7 +204,7 @@ extension FileSyncManager {
             manifest: manifest, inverse: manifest.inverse, at: stamp, created: 0, skipped: 0,
             appliedUnderProfileId: oldDirectoryId)) else {
             outcome.refusal = "The ledger could not be written, so nothing was moved — a "
-                + "reorganisation only runs once its inverse is safely on disk. Check "
+                + "reorganization only runs once its inverse is safely on disk. Check "
                 + "restructure.json’s folder is writable."
             return outcome
         }
@@ -280,7 +280,7 @@ extension FileSyncManager {
             for url in execution.createdURLs {
                 registerCreateFolderUndo(url: url, fileManager: fm)
             }
-            let actionName = "Reorganise \(RestructurePaths.familyLabel(manifest.family))"
+            let actionName = "Reorganize \(RestructurePaths.familyLabel(manifest.family))"
             if !execution.renameItems.isEmpty {
                 // The renames get their OWN pair, not `registerMoveUndo`: that path records a
                 // shallow identity (child count AND the folder's mtime) at registration, and this
@@ -731,7 +731,7 @@ extension FileSyncManager {
             return outcome
         }
         guard record.undoneAt == nil else {
-            outcome.refusal = "This reorganisation was already undone (\(record.undoneAt ?? ""))."
+            outcome.refusal = "This reorganization was already undone (\(record.undoneAt ?? ""))."
             return outcome
         }
         guard let previousId = record.appliedUnderProfileId else {
@@ -747,7 +747,7 @@ extension FileSyncManager {
            store.applied[(index + 1)...].contains(where: {
                $0.appliedUnderProfileId != nil && $0.undoneAt == nil
            }) {
-            outcome.refusal = "A later reorganisation sits on top of this one — undo that one "
+            outcome.refusal = "A later reorganization sits on top of this one — undo that one "
                 + "first, newest first, the way ⌘Z would."
             return outcome
         }

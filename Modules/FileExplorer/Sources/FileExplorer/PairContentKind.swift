@@ -195,7 +195,7 @@ enum PairContentKind: String, Equatable, CaseIterable {
     var unsyncedCaption: String? {
         switch self {
         case .pdf, .image, .text: return nil
-        case .other: return "These previews scroll on their own — Quick Look has no scroll to synchronise."
+        case .other: return "These previews scroll on their own — Quick Look has no scroll to synchronize."
         }
     }
 }

@@ -25,7 +25,7 @@ import Testing
 
     @Test func theQuestionNamesTheFamilyAndWhatTheLandingDid() {
         let q = ReorganisationUndo.question(for: Self.record())
-        #expect(q.title == "Undo the reorganisation of “Tax”?")
+        #expect(q.title == "Undo the reorganization of “Tax”?")
         #expect(q.detail.contains("2 renames · 14 moved"), "the person can't see what is reversed")
         #expect(q.detail.contains("not ⌘Z"))
         // The engine empties the whole session ⌘Z stack, so the question says so.
@@ -34,7 +34,7 @@ import Testing
 
     @Test func aRootLandingIsNamedAsTheTree() {
         #expect(ReorganisationUndo.question(for: Self.record(family: ".")).title
-                == "Undo the reorganisation across the tree?")
+                == "Undo the reorganization across the tree?")
     }
 
     // MARK: The banner
@@ -45,15 +45,15 @@ import Testing
         outcome.filesMoved = 14
         let banner = ReorganisationUndo.banner(after: outcome)
         #expect(banner.severity == .success)
-        #expect(banner.message == "Reorganisation undone — 2 renames · 14 moved.")
+        #expect(banner.message == "Reorganization undone — 2 renames · 14 moved.")
     }
 
     @Test func aRefusalAndAPartialUndoAreWarnings() {
         var refused = FileSyncManager.RestructureApplyOutcome()
-        refused.refusal = "A later reorganisation sits on top of this one."
+        refused.refusal = "A later reorganization sits on top of this one."
         let refusal = ReorganisationUndo.banner(after: refused)
         #expect(refusal.severity == .warning)
-        #expect(refusal.message == "A later reorganisation sits on top of this one.")
+        #expect(refusal.message == "A later reorganization sits on top of this one.")
 
         var partial = FileSyncManager.RestructureApplyOutcome()
         partial.filesMoved = 3
@@ -92,7 +92,7 @@ import Testing
             asked.append(title); return false
         }
 
-        #expect(asked == ["Undo the reorganisation of “Tax”?"], "the undo ran without asking")
+        #expect(asked == ["Undo the reorganization of “Tax”?"], "the undo ran without asking")
         #expect(manager.restructureStore?.applied.first?.undoneAt == nil)
         #expect(manager.banner == nil)
     }

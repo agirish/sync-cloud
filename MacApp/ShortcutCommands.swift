@@ -2883,7 +2883,7 @@ struct OrganizeVerbCommands: View {
         Divider()
         // Worded as its own sentence and kept out of Edit, so it can never sit beside ⌘Z's Undo
         // and be mistaken for it (ROADMAP v5 §11). Selection-free: the newest ledger landing.
-        Button("Undo This Reorganisation…") { verbs?.undoReorganisation?() }
+        Button("Undo This Reorganization…") { verbs?.undoReorganisation?() }
             .disabled(verbs?.undoReorganisation == nil)
     }
 }

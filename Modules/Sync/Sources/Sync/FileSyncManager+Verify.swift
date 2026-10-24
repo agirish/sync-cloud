@@ -341,7 +341,7 @@ extension FileSyncManager {
         if differed > 0 { parts.append("\(differed) differed") }
         if skipped > 0 { parts.append("\(skipped) skipped") }
         if progress.isCancelled {
-            banner = .warning("Verify All cancelled")
+            banner = .warning("Verify All canceled")
         } else if parts.isEmpty {
             banner = nil
         } else {

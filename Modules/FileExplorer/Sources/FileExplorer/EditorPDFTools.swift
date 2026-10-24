@@ -375,7 +375,7 @@ public final class EditorPDFTools: ObservableObject {
             switch part {
             case .tags: return "tags for screen readers"
             case .layers: return "layers"
-            case .outputIntent: return "colour output intent"
+            case .outputIntent: return "color output intent"
             }
         }
         guard let last = names.last else { return nil }
@@ -384,7 +384,7 @@ public final class EditorPDFTools: ObservableObject {
     }
 
     /// The note for a file whose catalog couldn't be read — one still locked to open.
-    static let droppedPartsUnreadNote = "The copy won’t keep any tags for screen readers, layers or colour output intent."
+    static let droppedPartsUnreadNote = "The copy won’t keep any tags for screen readers, layers or color output intent."
 
     /// Why a tool is greyed out, or `nil` — the first line of the Tools menu.
     public var disabledReason: String? {
@@ -548,7 +548,7 @@ public final class EditorPDFTools: ObservableObject {
                 banner = EditorPDFToolBanner(message: message, kind: .note)
             case .cancelled:
                 Logger.shared.info("\(writer) cancelled \(tool.title.lowercased()) of \(logName) — nothing written")
-                banner = EditorPDFToolBanner(message: "\(Running(tool).sentence) was cancelled — nothing was written.",
+                banner = EditorPDFToolBanner(message: "\(Running(tool).sentence) was canceled — nothing was written.",
                                              kind: .note)
             case .failed(let message):
                 if bannerFailures { banner = EditorPDFToolBanner(message: message, kind: .failure, download: download) }

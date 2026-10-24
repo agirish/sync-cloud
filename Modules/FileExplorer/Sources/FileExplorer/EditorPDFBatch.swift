@@ -82,7 +82,7 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
             case .restrictedByOwner: return "its owner doesn’t allow changing its pages"
             case .noPages: return "no pages"
             case .inTheCloud: return "still in the cloud"
-            case .cancelled: return "cancelled"
+            case .cancelled: return "canceled"
             }
         }
     }
@@ -429,7 +429,7 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         if skipped > 0 { parts.append("\(skipped) skipped") }
         if notDone > 0 { parts.append("\(notDone) not done") }
         if failed > 0 { parts.append("\(failed) failed") }
-        return (cancelled ? "Cancelled. " : "") + parts.joined(separator: " · ")
+        return (cancelled ? "Canceled. " : "") + parts.joined(separator: " · ")
     }
 
     /// The most files ``reasons(_:)`` names before "and N more" — the banner floats over the panes.

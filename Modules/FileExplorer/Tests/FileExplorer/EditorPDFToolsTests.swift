@@ -695,7 +695,7 @@ extension PDFFixtures {
         #expect(outcome == .cancelled, "\(outcome)")
         #expect(reached.withLock { $0 } == 2, "the toolkit went on past the cancel, to page \(reached.withLock { $0 })")
         #expect(files() == ["Scan.pdf"], "a cancelled run left: \(files())")
-        #expect(tools.banner?.message == "Compressing was cancelled — nothing was written.")
+        #expect(tools.banner?.message == "Compressing was canceled — nothing was written.")
         #expect(tools.running == nil)
     }
 

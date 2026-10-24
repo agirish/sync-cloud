@@ -105,10 +105,10 @@ struct EditorPDFBatchSheet: View {
     }
 
     /// What the copies won't keep (decision BW). Not read per file before the run, so said of any.
-    static let compressDroppedNote = "The copies won’t keep any tags for screen readers, layers or colour output intent."
+    static let compressDroppedNote = "The copies won’t keep any tags for screen readers, layers or color output intent."
     /// A PDF with a fillable form is cleaned in place and keeps them.
     static let cleanMetadataDroppedNote = "Copies of PDFs without a fillable form won’t keep any tags for screen readers, "
-        + "layers or colour output intent."
+        + "layers or color output intent."
 
     private var droppedNote: String? {
         switch batch.kind {

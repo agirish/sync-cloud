@@ -142,7 +142,7 @@ struct AppearanceWhy: View {
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("This panel is tinted with your accent, so picking a colour shows here at "
+                Text("This panel is tinted with your accent, so picking a color shows here at "
                      + "once.")
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)

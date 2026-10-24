@@ -485,7 +485,7 @@ import Testing
         // Help says so, as it says where else the items grey.
         let help = try #require(HelpBook.topic(id: "editor-workspace"))
         let said = help.article.blocks.contains { block in
-            if case .bullets(let items) = block { return items.contains { $0.contains("greyed for a file that is not Markdown") } }
+            if case .bullets(let items) = block { return items.contains { $0.contains("grayed for a file that is not Markdown") } }
             return false
         }
         #expect(said, "Help does not say the Markup items grey outside Markdown")

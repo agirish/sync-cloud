@@ -550,7 +550,7 @@ import Testing
         let topic = try #require(HelpBook.topic(id: "restructure-apply"))
         let words = Self.copy(of: topic).joined(separator: " ")
         #expect(words.contains("⌘Z"), "the session undo is no longer taught")
-        #expect(words.lowercased().contains("undo this reorganisation"),
+        #expect(words.lowercased().contains("undo this reorganization"),
                 "the ledger undo is no longer taught by name")
         #expect(words.contains("survives quitting") || words.contains("survives a quit"),
                 "nothing says the ledger undo outlives the session — the whole difference between the two")

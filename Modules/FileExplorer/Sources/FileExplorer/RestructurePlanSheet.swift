@@ -1761,11 +1761,11 @@ extension RestructurePlanSheet {
             return "The mapping loops through a merge in \(member) in a way that cannot be "
                 + "ordered safely. Simplify the circular renames and try again."
         case .conflictingTargets(let first, let second):
-            return "\(first) and \(second) differ only by capitalisation, and this volume "
+            return "\(first) and \(second) differ only by capitalization, and this volume "
                 + "cannot hold both side by side. Pick one spelling."
         case .targetTakenByCase(let target, let standing, let member):
             return "\(member) already holds \(standing), which differs from \(target) only by "
-                + "capitalisation — the volume cannot hold both. Map \(standing) to \(target) "
+                + "capitalization — the volume cannot hold both. Map \(standing) to \(target) "
                 + "to step its case up, reuse its spelling — or, if this plan moves "
                 + "\(standing) elsewhere, land that change on its own first."
         case .duplicateMappingRows(let source):

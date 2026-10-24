@@ -542,7 +542,7 @@ extension EditorPDFRGB {
         if hi - lo < 0.1 {
             switch hi {
             case ..<0.2: return "black"
-            case ..<0.8: return "grey"
+            case ..<0.8: return "gray"
             default: return "white"
             }
         }

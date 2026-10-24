@@ -96,7 +96,7 @@ struct StructureScreen: View {
                     .accessibilityElement(children: .combine)
                 } else {
                     Text(lens == .folders
-                         ? "Grey words are how each folder’s name was read. Nothing inside the files has "
+                         ? "Gray words are how each folder’s name was read. Nothing inside the files has "
                            + "been read — the switch below starts that."
                          : "These placements come from names alone, before any document is read. Nothing "
                            + "moves until you approve it in Organize.")
@@ -123,7 +123,7 @@ struct StructureScreen: View {
 
     /// What each grey word means, behind a disclosure — see ``legend``.
     private var legendDisclosure: some View {
-        SetupMoreOptions(subtitle: "what each grey word means") {
+        SetupMoreOptions(subtitle: "what each gray word means") {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Self.legend, id: \.term) { entry in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -152,7 +152,7 @@ struct StructureScreen: View {
         ("a year · a country · a person",
          "pattern folders, in whatever order your tree uses; files land in the year folder"),
         ("inbox · archive",
-         "left alone: nothing is filed into an inbox, and an archive is never reorganised"),
+         "left alone: nothing is filed into an inbox, and an archive is never reorganized"),
         ("statement, account", "words from the folder’s path and file names, used to match new files"),
         ("the number", "folders inside, or files where files go"),
     ]

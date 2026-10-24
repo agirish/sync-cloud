@@ -60,9 +60,9 @@ import Testing
         let landing = RestructureRemovalSheet.introText(isStanding: false)
         #expect(standing != landing)
         #expect(standing.contains("already empty when the survey looked"))
-        #expect(!standing.contains("this reorganisation itself emptied"),
+        #expect(!standing.contains("this reorganization itself emptied"),
                 "no landing drained these — the provenance sentence must not claim one did")
-        #expect(landing.contains("this reorganisation itself emptied"))
+        #expect(landing.contains("this reorganization itself emptied"))
         for text in [standing, landing] {
             #expect(text.contains("Trash"))
             #expect(text.contains("Date buckets start ticked"))
@@ -198,8 +198,8 @@ import Testing
             .appendingPathComponent("Sync/Sources/Sync/FileSyncManager+RestructureApply.swift")
         let text = try String(contentsOf: engine, encoding: .utf8)
         #expect(text.contains("RestructurePaths.familyLabel(manifest.family)"),
-                "\"Reorganise \" with nothing after it was a real menu item")
-        #expect(!text.contains("\"Reorganise \\((manifest.family as NSString).lastPathComponent)\""))
+                "\"Reorganize \" with nothing after it was a real menu item")
+        #expect(!text.contains("\"Reorganize \\((manifest.family as NSString).lastPathComponent)\""))
     }
 
     /// The state that grew the control: a clean tree whose only remaining work is the crowding

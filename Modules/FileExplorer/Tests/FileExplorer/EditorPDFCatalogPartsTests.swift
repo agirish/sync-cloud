@@ -75,9 +75,9 @@ extension PDFFixtures {
     @Test func theNoteNamesOnlyWhatTheFileHas() {
         #expect(EditorPDFTools.droppedPartsNote([]) == nil)
         #expect(EditorPDFTools.droppedPartsNote([.tags]) == "The copy won’t keep this PDF’s tags for screen readers.")
-        #expect(EditorPDFTools.droppedPartsNote([.layers, .outputIntent]) == "The copy won’t keep this PDF’s layers or colour output intent.")
+        #expect(EditorPDFTools.droppedPartsNote([.layers, .outputIntent]) == "The copy won’t keep this PDF’s layers or color output intent.")
         #expect(EditorPDFTools.droppedPartsNote([.tags, .layers, .outputIntent])
-                == "The copy won’t keep this PDF’s tags for screen readers, layers or colour output intent.")
+                == "The copy won’t keep this PDF’s tags for screen readers, layers or color output intent.")
     }
 
     /// Rotate, Protect and filling a form write in place and keep them from macOS 27; so does Clean
@@ -140,7 +140,7 @@ extension PDFFixtures {
         #expect(await pdf.unlock(password: "pw"))
         #expect(pdf.tools.droppedParts == [.tags, .layers, .outputIntent])
         #expect(EditorPDFToolSheetFrame<EmptyView>.droppedNote(pdf.tools)
-                == "The copy won’t keep this PDF’s tags for screen readers, layers or colour output intent.")
+                == "The copy won’t keep this PDF’s tags for screen readers, layers or color output intent.")
         pdf.close()
     }
 

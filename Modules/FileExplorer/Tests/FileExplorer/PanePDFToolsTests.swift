@@ -504,7 +504,7 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(!files().contains { $0.contains(".tmp_") }, "a staging file was left: \(files())")
         #expect(batch.banner?.kind == .wrote(first))
         let noun = tool.copyNoun.one
-        #expect(batch.banner?.message == "Cancelled. Saved 1 \(noun) · 2 not done")
+        #expect(batch.banner?.message == "Canceled. Saved 1 \(noun) · 2 not done")
         #expect(batch.banner?.detail == nil, "the files Cancel never reached were named: \(String(describing: batch.banner?.detail))")
     }
 

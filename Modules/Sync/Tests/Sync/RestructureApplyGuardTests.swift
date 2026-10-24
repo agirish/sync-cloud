@@ -210,7 +210,7 @@ import Testing
         world.manager.restructureLandingInProgress = true
         defer { world.manager.restructureLandingInProgress = false }
         let outcome = await world.manager.applyPlan(world.manifest)
-        #expect(outcome.refusal?.contains("Another reorganisation is landing") == true)
+        #expect(outcome.refusal?.contains("Another reorganization is landing") == true)
         #expect(world.manager.restructureStore?.applied.isEmpty == true)
     }
 
@@ -349,7 +349,7 @@ import Testing
             actions: [.init(action: .renameDir, src: "Tax/2013/Federal Tax",
                             dst: "Tax/2013/Records", evidence: "e")])
         let refused = await manager.applyPlan(second)
-        #expect(refused.refusal?.contains("Another reorganisation is landing") == true)
+        #expect(refused.refusal?.contains("Another reorganization is landing") == true)
 
         gate.release.signal()
         _ = await first.value

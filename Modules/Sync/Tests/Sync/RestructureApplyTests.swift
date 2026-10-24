@@ -830,7 +830,7 @@ import Testing
 
         let blocked = await world.manager.undoReorganisation(
             manifestId: world.manifest.manifestId)
-        #expect(blocked.refusal?.contains("later reorganisation") == true)
+        #expect(blocked.refusal?.contains("later reorganization") == true)
 
         // Newest first works: the removal undoes (the folder comes back), and then the first
         // landing is undoable again.
@@ -889,7 +889,7 @@ import Testing
 
         let blocked = await world.manager.undoReorganisation(
             manifestId: world.manifest.manifestId)
-        #expect(blocked.refusal?.contains("later reorganisation") == true)
+        #expect(blocked.refusal?.contains("later reorganization") == true)
 
         // A record that never finalised (no summary — the app quit mid-apply) refuses with its
         // own sentence: the stored inverse may not match the disk.

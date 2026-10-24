@@ -131,7 +131,7 @@ import Foundation
         // claiming a merge that did not happen.
         #expect(manager.duplicateGroups.count == 1)
         #expect(manager.banner?.severity == .warning)
-        #expect(manager.banner?.message.contains("cancelled") == true)
+        #expect(manager.banner?.message.contains("canceled") == true)
         #expect(manager.mergingGroupIDs.isEmpty, "the in-flight marker clears on the cancel path too")
     }
 
@@ -243,7 +243,7 @@ import Foundation
         // The banner says what actually happened — nothing was trashed — and carries the flag, so
         // `invalidateUndoableBanner` can retire the ⌘Z offer when the stack moves on.
         let message = manager.banner?.message ?? ""
-        #expect(message.contains("cancelled"), "banner: “\(message)”")
+        #expect(message.contains("canceled"), "banner: “\(message)”")
         #expect(message.contains("nothing was trashed"),
                 "the cancel banner does not say the copies were left alone: “\(message)”")
         #expect(manager.banner?.isUndoable == true,

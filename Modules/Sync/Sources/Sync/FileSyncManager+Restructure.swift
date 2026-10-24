@@ -65,7 +65,7 @@ extension FileSyncManager {
         // flag across its whole run, including the re-derive awaits where no file operation is
         // queued and no scan is running.
         if restructureLandingInProgress {
-            return "Another reorganisation is landing right now — wait for it to finish first."
+            return "Another reorganization is landing right now — wait for it to finish first."
         }
         if isVerifyAllRunning {
             return "Wait for Verify All to finish first."

@@ -2768,7 +2768,7 @@ public enum PersonRemoval {
     /// Says what removal does and — more usefully — what it does not. Nobody should have to guess
     /// whether this touches their files.
     public static let message = "Their folders and files are left exactly as they are. Organize will stop "
-        + "recognising documents that name them, so it will no longer keep those documents "
+        + "recognizing documents that name them, so it will no longer keep those documents "
         + "out of other people’s folders."
 }
 

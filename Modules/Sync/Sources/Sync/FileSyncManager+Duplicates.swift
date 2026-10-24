@@ -2062,8 +2062,8 @@ extension FileSyncManager {
                 // while the prose offered ⌘Z anyway — the exact drift this file's own reasoning at
                 // the partial-batch banner warns about.
                 banner = .warning(totalFolded > 0
-                    ? "Merge of “\(group.name)” cancelled — nothing was trashed, so every copy is still on disk. The \(totalFolded) file\(totalFolded == 1 ? "" : "s") already folded into \(group.keeper.name) can be undone with ⌘Z; the group stays listed and a retry skips what landed."
-                    : "Merge of “\(group.name)” cancelled — nothing was copied or trashed. The group stays listed.",
+                    ? "Merge of “\(group.name)” canceled — nothing was trashed, so every copy is still on disk. The \(totalFolded) file\(totalFolded == 1 ? "" : "s") already folded into \(group.keeper.name) can be undone with ⌘Z; the group stays listed and a retry skips what landed."
+                    : "Merge of “\(group.name)” canceled — nothing was copied or trashed. The group stays listed.",
                                   undoable: totalFolded > 0)
             } else if let drifted = driftedCopies.first {
                 banner = .warning("“\(drifted)” changed since it was scanned — it was left in place. Rescan before merging.")

@@ -419,7 +419,7 @@ import Foundation
         try #require(progress.completedUnitCount == 1,
                      "the verdict must have been collected, or this passes through the empty branch")
 
-        #expect(manager.banner?.message == "Verify All cancelled")
+        #expect(manager.banner?.message == "Verify All canceled")
         #expect(manager.verifiedIdenticalForCopy == nil,
                 "a cancelled pass must not offer the partial set it happened to drain")
         #expect(manager.confirmVerifiedCopy() == nil)

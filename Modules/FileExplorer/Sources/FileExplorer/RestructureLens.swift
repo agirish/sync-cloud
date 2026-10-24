@@ -400,7 +400,7 @@ struct RestructureLens: View {
             if record.undoneAt == nil {
                 HStack(spacing: 14) {
                     if record.canUndo, let onUndoReorganisation {
-                        Button("Undo this reorganisation…") {
+                        Button("Undo this reorganization…") {
                             onUndoReorganisation(record.manifestId)
                         }
                         .scaledFont(.system(size: 11, weight: .semibold))
@@ -441,7 +441,7 @@ struct RestructureLens: View {
     /// Why a landing that is not the newest cannot be undone yet. The ledger unwinds newest
     /// first, and saying so on the card is the difference between a greyed row and a mystery.
     static let blockedByNewerText =
-        "Undo the newer reorganisation first — the ledger unwinds one at a time, newest back."
+        "Undo the newer reorganization first — the ledger unwinds one at a time, newest back."
 
     /// The path a landing's card is headed with. `"."` is the profile's own spelling for the tree
     /// root, and a removal of empties scattered across the tree has no closer family than that —
@@ -970,7 +970,7 @@ struct RestructureLens: View {
                     .foregroundStyle(accent)
                     .chromeHover()
                     .help("Opens To File scoped to this folder — which year each file belongs "
-                          + "to is a per-file judgement.")
+                          + "to is a per-file judgment.")
             }
         default:
             EmptyView()
@@ -1181,7 +1181,7 @@ struct RestructureLens: View {
         case (_, .mirroredInbox):
             return "A plan here merges the mirror into its destination — files would move."
         case (_, .looseAboveSeries):
-            return "Per-file judgement — these hand off to To File, scoped here."
+            return "Per-file judgment — these hand off to To File, scoped here."
         case (_, .looseBesideContainer):
             return "A plan here moves one folder — its files ride along."
         case (_, .duplicatedTaxonomy):

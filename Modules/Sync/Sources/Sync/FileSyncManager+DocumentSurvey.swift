@@ -111,7 +111,7 @@ extension FileSyncManager {
             case .alreadyRunning: return "A survey is already running."
             case .cancelled: return "Stopped before it started."
             case .landingInProgress:
-                return "A reorganisation is landing — run this once the landing finishes."
+                return "A reorganization is landing — run this once the landing finishes."
             case .noProfileDirectory, .noProfile:
                 return "This Mac has no folder survey yet. Run setup’s Folders step first."
             case .noExtractor: return "Nothing on this Mac can read document contents."

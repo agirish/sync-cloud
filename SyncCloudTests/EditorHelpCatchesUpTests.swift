@@ -39,7 +39,7 @@ import Testing
                 "the PDF's article no longer says how to move a placed item")
         for phrase in [
             "Text ▸ Find Previous (⇧⌘G)",
-            "the Markup verbs and the find items are greyed",
+            "the Markup verbs and the find items are grayed",
             "The filter button, beside the ＋ at the end of the folder’s row,",
             "Click the folder’s name for a menu of the folders above it and inside it",
         ] {
