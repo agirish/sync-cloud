@@ -10037,3 +10037,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s stale=%s exits=%s\n' $l \
 |---|---|---|
 | `v5.x` / `v4.x` | The same stale-row skip, exiting `0` (`exits=0`) | RECORDED — not owed |
 | `v3.x` / `v2.x` | No stale-row re-check, so no such skip (`stale=0`) | CLOSED — does not apply |
+
+---
+
+## A case-variant subfolder merges one level down (FR22) — main only
+
+The merge's subfolder occupancy matched by exact case, so `Payment/Receipts/` merging into a
+target holding `receipts/` was planned "Carried whole" and the apply, finding the other spelling
+on a case-insensitive volume, skipped it as "appeared since the plan". `main` folds case there, as
+the member-level test does, and merges one level down into the spelling on disk (`occupant(named:in:)`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s merge=%s folded=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/RestructurePlanner.swift 2>/dev/null | grep -cF 'func emitMerge')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/RestructurePlanner.swift 2>/dev/null | grep -cF 'func occupant(named')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads folded=1):
+# main, v5.x         merge=1 folded=0
+# v4.x, v3.x, v2.x   merge=0 folded=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The same exact-case occupancy (`folded=0`) | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Restructure merge (`merge=0`) | CLOSED — does not apply |

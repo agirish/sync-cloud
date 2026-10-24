@@ -1154,13 +1154,21 @@ public enum RestructurePlanner {
         }
         for subfolder in (view.childFolders(sourcePath) ?? []).sorted() {
             let subSource = (sourcePath as NSString).appendingPathComponent(subfolder)
-            let subTarget = (targetPath as NSString).appendingPathComponent(subfolder)
             let actionsBefore = actions.count
-            if let origin = landed.subfolderOrigins[subfolder] {
+            // **Occupancy folds case, as the member-level test does (FR22).** On the
+            // case-insensitive volumes this app runs against, `Payments/receipts/` occupies the
+            // name `Receipts` as surely as an exact twin would. Looked up by exact case, the
+            // plan carried `Payment/Receipts/` whole onto it, and the apply — finding the other
+            // spelling standing there — skipped it as "appeared since the plan". So the occupant
+            // is found by folded name, and the merge goes one level down into it under the
+            // occupant's own spelling, the folder that is actually on disk.
+            let occupant = Self.occupant(named: subfolder, in: landed.subfolderOrigins.keys)
+            let subTarget = (targetPath as NSString).appendingPathComponent(occupant ?? subfolder)
+            if let occupant, let origin = landed.subfolderOrigins[occupant] {
                 // One level down by the same rules (§5.4's collision policy for subfolders),
                 // against the occupant's contents wherever they stand at plan time, plus
                 // whatever earlier sources already merged into it.
-                var sub = landed.merged[subfolder] ?? LandedSubfolder(
+                var sub = landed.merged[occupant] ?? LandedSubfolder(
                     files: Set(view.files(origin) ?? []),
                     subfolders: Set(view.childFolders(origin) ?? []))
                 guard let subFiles = view.files(subSource) else {
@@ -1173,14 +1181,15 @@ public enum RestructurePlanner {
                         action: .moveFile,
                         src: (subSource as NSString).appendingPathComponent(file),
                         dst: (subTarget as NSString).appendingPathComponent(file),
-                        evidence: "Merging \(subfolder)/ into \(subfolder)/ — the mapping "
+                        evidence: "Merging \(subfolder)/ into \(occupant)/ — the mapping "
                             + "sends both names to one folder.",
                         collisionExpected: collision ? true : nil))
                     sub.files.insert(file)
                 }
                 for deeper in (view.childFolders(subSource) ?? []).sorted() {
                     let deepSource = (subSource as NSString).appendingPathComponent(deeper)
-                    if sub.files.contains(deeper) {
+                    // Folded too, one level down, for the same reason.
+                    if Self.occupant(named: deeper, in: sub.files) != nil {
                         // A FILE wearing the folder's name on the target side — the carry would
                         // fail at apply against a destination the occupancy sets cannot see.
                         actions.append(RestructureManifest.Action(
@@ -1188,7 +1197,7 @@ public enum RestructurePlanner {
                             evidence: "A file named \(deeper) stands where this folder would "
                                 + "land — kept and reported rather than guessed at."))
                         keptDeeper.insert(deeper)
-                    } else if !sub.subfolders.contains(deeper) {
+                    } else if Self.occupant(named: deeper, in: sub.subfolders) == nil {
                         actions.append(RestructureManifest.Action(
                             action: .moveDir, src: deepSource,
                             dst: (subTarget as NSString).appendingPathComponent(deeper),
@@ -1214,13 +1223,13 @@ public enum RestructurePlanner {
                         evidence: "Both sides have \(subfolder)/ and this one is empty — there "
                             + "is nothing to move, so it is kept and reported."))
                 }
-                landed.merged[subfolder] = sub
+                landed.merged[occupant] = sub
                 // The merge moved this subfolder's files but the DIRECTORY remains — a shell
                 // at the source, still occupying its name (a later whole-carry to it would
                 // skip at apply), holding only the deeper folders the merge kept.
                 residue.subfolderOrigins[subfolder] = subSource
                 residue.merged[subfolder] = LandedSubfolder(files: [], subfolders: keptDeeper)
-            } else if landed.files.contains(subfolder) {
+            } else if Self.occupant(named: subfolder, in: landed.files) != nil {
                 // Same rule one level up: a FILE in the target wearing this subfolder's name.
                 // `subfolderOrigins` is folder-shaped and cannot see it; without this check the
                 // plan promised a whole-carry that always skipped at apply as false drift.
@@ -1238,6 +1247,16 @@ public enum RestructurePlanner {
             }
         }
         return nil
+    }
+
+    /// The name in `names` that `name` lands on: itself when it is there, else the one that
+    /// differs only by case (the first, sorted, so the manifest is reproducible), else nil.
+    /// Case-folded unconditionally, as every occupancy test in this planner is — the volumes this
+    /// app runs against are case-insensitive (FR22).
+    private static func occupant(named name: String, in names: some Collection<String>) -> String? {
+        if names.contains(name) { return name }
+        let folded = name.lowercased()
+        return names.filter { $0.lowercased() == folded }.sorted().first
     }
 
     /// A name no child is wearing — deterministic, so the manifest is reproducible.

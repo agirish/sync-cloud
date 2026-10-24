@@ -415,6 +415,37 @@ private struct FakeTree {
         }, "two levels down is kept and reported")
     }
 
+    /// FR22. The same merge when the two subfolders differ only by case: on a case-insensitive
+    /// volume `Payments/receipts/` occupies `Receipts`, so the merge goes one level down into it,
+    /// under the spelling on disk. Read by exact case, the plan carried `Payment/Receipts/` whole
+    /// onto it ("Carried whole") and the apply skipped it as "appeared since the plan". One level
+    /// further down, `OLD` against its twin `old` is kept, as an exact twin is, not carried onto it.
+    @Test func caseVariantSubfoldersMergeOneLevelDownToo() throws {
+        let tree = FakeTree(files: [
+            "F": [], "F/2016": [],
+            "F/2016/Payment": ["p.pdf"],
+            "F/2016/Payment/Receipts": ["r1.pdf"],
+            "F/2016/Payment/Receipts/OLD": ["deep.pdf"],
+            "F/2016/Payments": [],
+            "F/2016/Payments/receipts": ["r2.pdf"],
+            "F/2016/Payments/receipts/old": [],
+        ])
+        let manifest = try Self.derive(
+            family: "F", members: ["2016"],
+            mapping: RestructureMapping(rows: [.init(source: "Payment", target: "Payments")]),
+            in: tree.view)
+        #expect(!manifest.actions.contains {
+            $0.action == .moveDir && $0.src == "F/2016/Payment/Receipts"
+        }, "carried whole onto a folder that is already there: \(manifest.actions.map(\.evidence))")
+        #expect(manifest.actions.contains {
+            $0.action == .moveFile && $0.src == "F/2016/Payment/Receipts/r1.pdf"
+                && $0.dst == "F/2016/Payments/receipts/r1.pdf"
+        }, "one level down, into the spelling on disk")
+        #expect(manifest.actions.contains {
+            $0.action == .keep && $0.src == "F/2016/Payment/Receipts/OLD"
+        }, "two levels down, a case twin is kept, not carried whole onto it")
+    }
+
     // MARK: - Refusals
 
     /// The refusals are sentences for the sheet, and each fires for exactly its own reason.
