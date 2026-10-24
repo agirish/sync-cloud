@@ -10014,3 +10014,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s same=%s resolved=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same link-blind comparison (`resolved=0`) | RECORDED — not owed |
+
+---
+
+## `synccloud sync` exits non-zero when a file changed after the plan (FR43) — main only
+
+A row skipped because one end changed while the prompt waited was reported but exited `0`, so a
+script that deletes sources after a clean exit would delete a file that never copied. `main` exits
+`1` (the partial-failure code) for that skip, with its own stderr line; collision, name-rule and
+needs-decision skips stay at `0`. The README's exit-code line says so.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s stale=%s exits=%s\n' $l \
+  "$(git show origin/$l:SyncCloudCLI/Sources/SyncCloudCLICore/CollisionHandling.swift 2>/dev/null | grep -cF 'case changedSincePlan')" \
+  "$(git show origin/$l:SyncCloudCLI/Sources/SyncCloudCLICore/CollisionHandling.swift 2>/dev/null | grep -cF 'tally.failed > 0 || !staleSkips.isEmpty')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads exits=1):
+# main, v5.x, v4.x   stale=1 exits=0
+# v3.x, v2.x         stale=0 exits=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` | The same stale-row skip, exiting `0` (`exits=0`) | RECORDED — not owed |
+| `v3.x` / `v2.x` | No stale-row re-check, so no such skip (`stale=0`) | CLOSED — does not apply |

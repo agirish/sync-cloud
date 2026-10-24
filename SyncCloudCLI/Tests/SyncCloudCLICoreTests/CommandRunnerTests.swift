@@ -593,9 +593,12 @@ import Sync
             try? Data("landed-while-you-read".utf8).write(to: arrival)
             return "y"
         })
-        try await runner.runSync(left: left.path, right: right.path,
-                                 direction: .auto, showHidden: false, ignore: [],
-                                 strategy: .replace, yes: false, failFast: false, verify: false)
+        // A row skipped as changed since the plan exits non-zero (FR43).
+        await #expect(throws: CLISyncFailuresError()) {
+            try await runner.runSync(left: left.path, right: right.path,
+                                     direction: .auto, showHidden: false, ignore: [],
+                                     strategy: .replace, yes: false, failFast: false, verify: false)
+        }
 
         #expect(rec.copies.isEmpty, "the plan said this destination was empty; it is not any more")
         #expect(try Data(contentsOf: arrival) == Data("landed-while-you-read".utf8))
@@ -622,9 +625,12 @@ import Sync
             try? write(target, "NNNNNNNNN", mtime: base.addingTimeInterval(50))
             return "y"
         })
-        try await runner.runSync(left: left.path, right: right.path,
-                                 direction: .auto, showHidden: false, ignore: [],
-                                 strategy: .replace, yes: false, failFast: false, verify: false)
+        // A row skipped as changed since the plan exits non-zero (FR43).
+        await #expect(throws: CLISyncFailuresError()) {
+            try await runner.runSync(left: left.path, right: right.path,
+                                     direction: .auto, showHidden: false, ignore: [],
+                                     strategy: .replace, yes: false, failFast: false, verify: false)
+        }
 
         #expect(rec.copies.isEmpty, "the destination is no longer the file the plan measured")
         #expect(try Data(contentsOf: target) == Data("NNNNNNNNN".utf8))
@@ -645,9 +651,12 @@ import Sync
             try? Data("rewritten-while-you-read".utf8).write(to: source)
             return "y"
         })
-        try await runner.runSync(left: left.path, right: right.path,
-                                 direction: .auto, showHidden: false, ignore: [],
-                                 strategy: .replace, yes: false, failFast: false, verify: false)
+        // A row skipped as changed since the plan exits non-zero (FR43).
+        await #expect(throws: CLISyncFailuresError()) {
+            try await runner.runSync(left: left.path, right: right.path,
+                                     direction: .auto, showHidden: false, ignore: [],
+                                     strategy: .replace, yes: false, failFast: false, verify: false)
+        }
 
         #expect(rec.copies.isEmpty, "these are not the bytes the plan described")
         #expect(rec.out.contains("Sync complete. Copied: 0, Skipped: 1, Failed: 0."), "\(rec.out)")
@@ -672,9 +681,12 @@ import Sync
             try? Data("arrived".utf8).write(to: arrival)
             return "y"
         })
-        try await runner.runSync(left: left.path, right: right.path,
-                                 direction: .auto, showHidden: false, ignore: [],
-                                 strategy: .replace, yes: false, failFast: false, verify: false)
+        // A row skipped as changed since the plan exits non-zero (FR43).
+        await #expect(throws: CLISyncFailuresError()) {
+            try await runner.runSync(left: left.path, right: right.path,
+                                     direction: .auto, showHidden: false, ignore: [],
+                                     strategy: .replace, yes: false, failFast: false, verify: false)
+        }
 
         #expect(rec.copies.map(\.source.lastPathComponent).sorted() == ["b-keep.txt", "c-keep.txt"],
                 "the rows after the stale one must still be copied")

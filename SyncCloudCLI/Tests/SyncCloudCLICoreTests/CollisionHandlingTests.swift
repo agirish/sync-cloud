@@ -129,6 +129,21 @@ import Testing
         #expect(!s.stdoutLines.joined().contains(" — "))
     }
 
+    /// FR43. A file skipped because it changed after the plan was shown is a file the user asked
+    /// for that did not land, so the run exits non-zero and says why on stderr — a script that
+    /// deletes its sources after a 0 exit would otherwise delete the only copy. The policy skips
+    /// beside it stay at 0 (pinned above); the control here is the same run without the stale row.
+    @Test func testAChangedSincePlanSkipExitsNonzero() {
+        var t = tally(copied: 2, skipped: ["kept.txt"])
+        #expect(!syncSummary(tally: t, strategy: .skip).exitNonzero, "the control: policy skips alone exit 0")
+        t.recordSkipped(relativePath: "a-moved.txt", reason: .changedSincePlan,
+                        detail: "the destination changed after the plan was shown")
+        let s = syncSummary(tally: t, strategy: .skip)
+        #expect(s.exitNonzero)
+        #expect(s.stderrLines == ["1 file(s) changed after the plan was shown and were not synced; exiting with a non-zero status."])
+        #expect(s.stdoutLines.first == "Sync complete. Copied: 2, Skipped: 2, Failed: 0.")
+    }
+
     @Test func testNoSkipExplanationWhenNothingSkipped() {
         let s = syncSummary(tally: tally(copied: 1), strategy: .skip)
         #expect(s.stdoutLines.count == 1)

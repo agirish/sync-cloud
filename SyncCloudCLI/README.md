@@ -118,5 +118,8 @@ synccloud providers --help
 synccloud restructure --help
 ```
 
-Exit codes: `0` success, `64` usage error, `1` partial sync failure.
+Exit codes: `0` success, `64` usage error, `1` partial sync failure — a file failed to copy, or
+was skipped because it changed after the plan was shown (re-run `sync` to see the current plan).
+Files skipped by `--strategy skip`, by a provider's name rule, or left for you to decide exit `0`;
+the summary lists each with its reason.
 

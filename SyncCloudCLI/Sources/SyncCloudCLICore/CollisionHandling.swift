@@ -154,5 +154,16 @@ public func syncSummary(tally: SyncTally, strategy: CollisionStrategy) -> (
     if tally.failed > 0 {
         err.append("\(tally.failed) file(s) failed to sync (errors above); exiting with a non-zero status.")
     }
-    return (out, err, tally.failed > 0)
+    // **A file skipped because it changed after the plan was shown exits non-zero (FR43).** The
+    // other skips are policy the user chose (`--strategy skip`) or a rule no run can satisfy (a
+    // provider's name rule, a row only the user can decide), and a 0 exit with the summary
+    // listing them stays right for those. This one is a file the user asked to have copied that
+    // was NOT copied, for a reason that says nothing about the next run — and a script that
+    // reads 0 as "everything planned landed" and then deletes the sources would delete the one
+    // copy of it. The partial-failure code (1), with its own stderr line, because to such a
+    // script it is exactly a partial failure.
+    if !staleSkips.isEmpty {
+        err.append("\(staleSkips.count) file(s) changed after the plan was shown and were not synced; exiting with a non-zero status.")
+    }
+    return (out, err, tally.failed > 0 || !staleSkips.isEmpty)
 }
