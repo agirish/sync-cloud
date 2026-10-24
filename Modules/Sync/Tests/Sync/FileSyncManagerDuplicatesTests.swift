@@ -819,6 +819,40 @@ import Combine
                 == "Forgot 1 group kept separate — it comes back with this scan.")
     }
 
+    /// **Show them again forgot under the scan's root while the list showed only the scope.** A
+    /// scan of Documents narrowed to Legal counted and forgot Pictures-of-Documents' keys too, and
+    /// the rescan then hashed Legal alone, so those came back nowhere. One folder answers all
+    /// three: the deeper of the scan root and the scope.
+    @MainActor
+    @Test func showingKeptGroupsAgainUsesTheDeeperOfScanAndScope() throws {
+        let root = "/Users/x/Documents"
+        let legal = try #require(OrganizeScope(path: root + "/Legal", providerRoot: root))
+        let deep = root + "/Legal/2024"
+        // Scanned wide, scoped narrow: the scope. Scanned deeper than the scope: the scan root.
+        #expect(OrganizeAim.keptSeparateFolder(scannedRoot: root, scope: legal) == legal.path)
+        #expect(OrganizeAim.keptSeparateFolder(scannedRoot: deep, scope: legal) == deep)
+        #expect(OrganizeAim.keptSeparateFolder(scannedRoot: legal.path, scope: legal) == legal.path)
+        // Unrelated folders: the scope. One side missing: the other.
+        #expect(OrganizeAim.keptSeparateFolder(scannedRoot: root + "/Taxes", scope: legal)
+                == legal.path)
+        #expect(OrganizeAim.keptSeparateFolder(scannedRoot: root, scope: nil) == root)
+        #expect(OrganizeAim.keptSeparateFolder(scannedRoot: nil, scope: legal) == legal.path)
+        #expect(OrganizeAim.keptSeparateFolder(scannedRoot: "", scope: nil) == nil)
+
+        let manager = FileSyncManager()
+        let suite = "DuplicatesIgnoreTest-\(UUID().uuidString)"
+        manager.duplicateIgnoreDefaults = UserDefaults(suiteName: suite)!
+        defer { wipeDefaultsSuite(suite) }
+        let inScope = "\(root)/Legal/a.pdf\n\(root)/Legal/b/a.pdf"
+        let outsideScope = "\(root)/Taxes/t.pdf\n\(root)/Taxes/u/t.pdf"
+        manager.ignoredDuplicateKeys = [inScope, outsideScope]
+        let folder = OrganizeAim.keptSeparateFolder(scannedRoot: root, scope: legal)
+        #expect(manager.keptSeparateKeys(under: folder) == [inScope])
+        #expect(manager.forgetKeptSeparateGroups(under: folder) == 1)
+        #expect(manager.ignoredDuplicateKeys == [outsideScope],
+                "Show them again forgot a group the scoped list never showed")
+    }
+
     // MARK: Cancellable scan
 
     @MainActor

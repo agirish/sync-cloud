@@ -42,12 +42,12 @@ extension FileSyncManager {
     /// replay fired into that window races the landing's own moves and walks. The registration
     /// sites cannot close the window — the group must exist on the early-return paths — so the
     /// HANDLERS consult this at fire time and give up their turn. The group is consumed either
-    /// way; the ledger's Undo This Reorganisation remains the durable way back, and the refusal
+    /// way; the ledger's Undo This Reorganization… remains the durable way back, and the refusal
     /// is logged rather than silent.
     func undoReplayBlockedByLanding(_ actionName: String) -> Bool {
         guard restructureLandingInProgress else { return false }
         Logger.shared.warning("Undo/Redo (\(actionName)) fired while a reorganisation is "
-            + "landing — ignored; the ledger's Undo This Reorganisation is the durable way back")
+            + "landing — ignored; the ledger's Undo This Reorganization… is the durable way back")
         return true
     }
 
@@ -442,29 +442,43 @@ extension FileSyncManager {
         undoManager?.registerUndo(withTarget: self) { target in
             target.unsuppressStructureFinding(finding, in: store)
         }
-        undoManager?.setActionName("Never Suggest Again")
+        undoManager?.setActionName("Never Suggest This Again")
         banner = .success("Hidden — Restructure won’t suggest this again.",
                           undoable: undoManager != nil)
     }
 
-    /// ⌘Z for ``suppressStructureFinding(_:)``. **In the store the manager holds NOW**, and in the
-    /// one it was hidden in when that is a different one.
+    /// ⌘Z for ``suppressStructureFinding(_:)``. **In the store it was hidden in**, and in the store
+    /// the manager holds now only when that one carries on from it.
     ///
     /// A landing or a survey refresh swaps the store for the new profile's, and the swap carries
     /// the hidden set across (the artifact copy brings `restructure.json`, and `rekey` moves its
     /// keys through the renames). Undoing against the captured old store alone cleared a key in a
-    /// store nothing reads any more, and the finding stayed hidden.
+    /// store nothing reads any more, and the finding stayed hidden — so the current store is
+    /// reached too, with the key moved through the same renames (``RestructureStore/carriedKey(_:from:)``).
+    ///
+    /// **Not whatever store is current.** After a provider switch it belongs to another profile,
+    /// and the same kind and path there is a different folder's finding, hidden on its own; after
+    /// a renaming landing the original key names nothing. A store reopened on the same file is
+    /// the captured one's successor outright, and the captured object is stale, so only the
+    /// current one writes.
     func unsuppressStructureFinding(_ finding: StructureFinding, in store: RestructureStore) {
         let key = RestructureKey(finding)
-        restructureStore?.unsuppress(key)
-        if store !== restructureStore { store.unsuppress(key) }
+        if let current = restructureStore, current !== store, current.isSameFile(as: store) {
+            current.unsuppress(key)
+        } else {
+            store.unsuppress(key)
+            if let current = restructureStore, current !== store,
+               let carried = current.carriedKey(key, from: store) {
+                current.unsuppress(carried)
+            }
+        }
         // The "Hidden … [Undo]" banner is stale the moment this runs (see
         // `invalidateUndoableBanner`).
         invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
             target.suppressStructureFinding(finding)
         }
-        undoManager?.setActionName("Never Suggest Again")
+        undoManager?.setActionName("Never Suggest This Again")
     }
 }
 
@@ -477,10 +491,13 @@ extension FileSyncManager {
     /// about an ancestor of it) counts; one outside it does not. The count used to be the whole
     /// survey's under a scoped list, and *Show them again* cleared every key — findings in other
     /// folders, and stale keys for folders that are gone — with no undo and nothing said.
+    ///
+    /// **From the same findings ``visibleStructureFindings`` starts from**, §5.9's duplicated
+    /// taxonomy included: reading the report's alone left a hidden §5.9 finding with no way back.
     public func hiddenStructureFindings(in scope: OrganizeScope?) -> [StructureFinding] {
         guard let store = restructureStore, !store.suppressed.isEmpty else { return [] }
         let root = filingFolderProfile?.root ?? ""
-        return structureFindings.filter {
+        return StructureDetectors.grouped(structureFindings + duplicatedTaxonomyFindings).filter {
             store.isSuppressed(RestructureKey($0))
                 && OrganizeScopeFilter.relation(of: $0, profileRoot: root, scope: scope) != .outside
         }

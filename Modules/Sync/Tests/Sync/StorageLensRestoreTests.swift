@@ -20,7 +20,8 @@ import Testing
             treemap: [TreemapNode(name: "Docs", path: "/root/Docs", bytes: totalBytes)],
             largest: [StorageEntry(path: "/root/Docs/big.bin", name: "big.bin",
                                    bytes: totalBytes, modified: Date(timeIntervalSince1970: 1000))],
-            stale: [], reclaimCandidates: [], totalBytes: totalBytes)
+            stale: [], reclaimCandidates: [], totalBytes: totalBytes,
+            fileCount: 1, staleCount: 0, reclaimCount: 0, reclaimableBytes: 0)
     }
 
     // MARK: The store
@@ -365,7 +366,9 @@ import Testing
             StorageLensStore.saveInBackground(
                 StorageLensSnapshot(root: r,
                                     report: StorageLensReport(treemap: [], largest: [], stale: [],
-                                                              reclaimCandidates: [], totalBytes: 1),
+                                                              reclaimCandidates: [], totalBytes: 1,
+                                                              fileCount: 0, staleCount: 0,
+                                                              reclaimCount: 0, reclaimableBytes: 0),
                                     completedAt: at), to: url)
         }
         StorageLensStore.waitForPendingWrites()

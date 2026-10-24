@@ -359,8 +359,33 @@ import Testing
         return RestructurePlanSheet.closeDisposition(
             plan: plan, rows: changed && !vocabularyOnly ? edited : seeded,
             vocabulary: changed && vocabularyOnly ? ["Forms"] : [],
-            seededRows: seeded, seededVocabulary: [],
-            landedOrExported: landedOrExported, openedFromDraft: openedFromDraft)
+            baseline: .init(rows: seeded, vocabulary: [], hasDraft: openedFromDraft),
+            landedOrExported: landedOrExported)
+    }
+
+    /// **A draft saved by Export earlier in the same sheet could not be dropped from it.** Opened
+    /// fresh, mapped, exported, then set back to all-keep: the rows matched the seed, so closing
+    /// did nothing, and Discard Plan showed only on a sheet opened on a draft — the draft and its
+    /// card stood over a plan just undone. The export moves the baseline and marks a draft saved.
+    @Test func aDraftExportedInThisSheetCanBeDroppedFromIt() {
+        let allKeep = [RestructureMapping.Row(source: "Federal")]
+        let mapped = [RestructureMapping.Row(source: "Federal", target: "Forms")]
+        var baseline = RestructurePlanSheet.Baseline(rows: allKeep, vocabulary: [], hasDraft: false)
+        baseline.exported(rows: mapped, vocabulary: ["Forms"])
+        #expect(baseline == .init(rows: mapped, vocabulary: ["Forms"], hasDraft: true))
+
+        // Back to all-keep after the export: the close removes the draft the export saved.
+        #expect(RestructurePlanSheet.closeDisposition(
+            plan: .failure(.nothingMapped), rows: allKeep, vocabulary: ["Forms"],
+            baseline: baseline, landedOrExported: false) == .discard)
+        // Edited and then put back to exactly what was exported: the draft already is this plan.
+        #expect(RestructurePlanSheet.closeDisposition(
+            plan: .success(Self.keptPlan), rows: mapped, vocabulary: ["Forms"],
+            baseline: baseline, landedOrExported: false) == .nothing,
+                "a close re-saved the plan the export had just saved, dropping its file name")
+        #expect(RestructurePlanSheet.closeTitle(applied: false, disposition: .discard,
+                                                hasDraft: baseline.hasDraft,
+                                                landedOrExported: false) == "Close")
     }
 
     /// **Esc threw a hand-built mapping away**, because only Export saved the draft. A changed
@@ -406,19 +431,19 @@ import Testing
     @Test func theCloseButtonSaysWhatClosingDoes() {
         typealias Sheet = RestructurePlanSheet
         let keep = Sheet.CloseDisposition.keep(Self.keptPlan)
-        #expect(Sheet.closeTitle(applied: true, disposition: .nothing, openedFromDraft: true,
+        #expect(Sheet.closeTitle(applied: true, disposition: .nothing, hasDraft: true,
                                  landedOrExported: true) == "Done")
-        #expect(Sheet.closeTitle(applied: false, disposition: keep, openedFromDraft: false,
+        #expect(Sheet.closeTitle(applied: false, disposition: keep, hasDraft: false,
                                  landedOrExported: false) == "Close")
-        #expect(Sheet.closeTitle(applied: false, disposition: .nothing, openedFromDraft: true,
+        #expect(Sheet.closeTitle(applied: false, disposition: .nothing, hasDraft: true,
                                  landedOrExported: false) == "Close",
                 "closing a reopened draft keeps it")
-        #expect(Sheet.closeTitle(applied: false, disposition: .discard, openedFromDraft: true,
+        #expect(Sheet.closeTitle(applied: false, disposition: .discard, hasDraft: true,
                                  landedOrExported: false) == "Close")
-        #expect(Sheet.closeTitle(applied: false, disposition: .nothing, openedFromDraft: false,
+        #expect(Sheet.closeTitle(applied: false, disposition: .nothing, hasDraft: false,
                                  landedOrExported: true) == "Close",
                 "an exported plan is kept")
-        #expect(Sheet.closeTitle(applied: false, disposition: .nothing, openedFromDraft: false,
+        #expect(Sheet.closeTitle(applied: false, disposition: .nothing, hasDraft: false,
                                  landedOrExported: false) == "Cancel")
     }
 
@@ -433,7 +458,15 @@ import Testing
         #expect(sheet.contains("Button(Self.closeTitle(applied: isApplied, disposition: disposition,"))
         #expect(sheet.contains("case .keep(let manifest): onKeepDraft?(manifest, vocabulary)"))
         #expect(sheet.contains("case .discard: onDiscardDraft?()"))
-        #expect(sheet.contains("openedFromDraft = hasSavedDraft"))
+        #expect(sheet.contains("baseline = Baseline(rows: rows, vocabulary: vocabulary, hasDraft: hasSavedDraft)"))
+        #expect(sheet.contains("if baseline.hasDraft, onDiscardDraft != nil"),
+                "Discard Plan is offered on a different condition from the close's discard")
+        // Both exports move the baseline when they save.
+        let single = try OrganizeScopeCallSiteTests.body(of: "private func exportPlan(", in: sheet)
+        #expect(single.contains("case .saved(let filename):\n"
+                                + "            baseline.exported(rows: rows, vocabulary: vocabulary)"))
+        let group = try OrganizeScopeCallSiteTests.body(of: "private func exportGroup(", in: sheet)
+        #expect(group.contains("if !names.isEmpty { baseline.exported(rows: rows, vocabulary: vocabulary) }"))
         let host = try String(contentsOf: sources.appendingPathComponent(
             "LensWorkspaceView.swift"), encoding: .utf8)
         #expect(host.contains("hasSavedDraft: store.draft(for: key) != nil"))

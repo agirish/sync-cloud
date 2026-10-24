@@ -308,7 +308,7 @@ extension FileSyncManager {
             // trashed folders is not.
             undo.removeAllActions()
             Logger.shared.info("Restructure apply \(manifest.manifestId): removal landing — "
-                + "session ⌘Z cleared; Undo This Reorganisation is the way back")
+                + "session ⌘Z cleared; Undo This Reorganization… is the way back")
         }
 
         // The manifest as it actually landed: performed actions only, with collision names
@@ -460,6 +460,9 @@ extension FileSyncManager {
         FileSyncManager.carryProfileArtifacts(from: oldDirectoryId, to: newId,
                                               in: profilesDirectory, fm: fm)
         let newStore = RestructureStore(directory: profilesDirectory, profileId: newId)
+        // Which store this one carries on from, and through which renames — so an undo
+        // registered against the old one can find its key here (`unsuppressStructureFinding`).
+        newStore.adoptLineage(from: store, renames: RestructureRederive.renameMap(of: landed))
         // **One write for the new store's whole tail, not three.** The rekey, the rescue record
         // and the produced-id update are three mutations of one file, and each used to rewrite
         // the entire ledger. `recordApplied` inside is the deliberate exception the batch

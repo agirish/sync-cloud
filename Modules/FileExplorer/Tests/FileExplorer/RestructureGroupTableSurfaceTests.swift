@@ -49,9 +49,11 @@ import Testing
         #expect(RestructurePlanSheet.groupHeaderText(disagreements: 3, families: 3)
                     == "3 names are not shared by all 3")
         #expect(RestructurePlanSheet.groupHeaderText(disagreements: 1, families: 2)
-                    == "1 name is not shared by all 2")
+                    == "1 name is not shared by both")
         #expect(RestructurePlanSheet.groupHeaderText(disagreements: 0, families: 3)
                     == "These 3 families already agree on every name")
+        #expect(RestructurePlanSheet.groupHeaderText(disagreements: 0, families: 2)
+                    == "Both families already agree on every name")
     }
 
     /// **The grid and its checkbox are actually drawn.** The first version of this test asserted

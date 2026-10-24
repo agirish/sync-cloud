@@ -377,7 +377,9 @@ import SwiftUI
                                  largest: (0..<largest).map { entry("big\($0)", 3_000_000) },
                                  stale: (0..<stale).map { entry("old\($0)", 1_000_000) },
                                  reclaimCandidates: (0..<reclaim).map { entry("r\($0)", 2_000_000) },
-                                 totalBytes: 214_600_000_000)
+                                 totalBytes: 214_600_000_000, fileCount: largest,
+                                 staleCount: stale, reclaimCount: reclaim,
+                                 reclaimableBytes: reclaim * 2_000_000)
     }
 
     /// **Never `.findings`, and that is the whole reason `.receipt` exists.**
@@ -443,7 +445,7 @@ import SwiftUI
             + "\"reclaimCandidates\":[\(twenty)],\"totalBytes\":900000000000}"
         let report = try JSONDecoder().decode(StorageLensReport.self, from: Data(json.utf8))
         let headline = LensWorkspaceView.storageReceiptHeadline(report)
-        #expect(headline == "\(FileSyncManager.formatBytes(900_000_000_000)) total · Rescan for the counts")
+        #expect(headline == "\(FileSyncManager.formatBytes(900_000_000_000)) total · rescan for the counts")
         #expect(!headline.contains("20"), "the headline counted the capped lists: \(headline)")
     }
 

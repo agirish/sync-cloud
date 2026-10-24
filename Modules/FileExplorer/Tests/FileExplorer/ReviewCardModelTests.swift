@@ -203,10 +203,15 @@ import Sync
     }
 
     /// All four keys are named. A hint that silently lost one would still read grammatically.
+    ///
+    /// **And only those.** Compare's card skips on Delete alone — → was taken away because it
+    /// means "to the right pane" there — so a hint naming Right Arrow sends a VoiceOver user to a
+    /// key that does nothing. The Rules walkthrough takes both and keeps its own hint.
     @Test func everyReviewKeyIsNamed() {
         let hint = ReviewCardModel.keyHintSpeech(primaryVerb: "Copy")
-        for key in ["Return", "Delete", "Right Arrow", "Space", "Escape"] {
+        for key in ["Return", "Delete", "Space", "Escape"] {
             #expect(hint.contains(key), "\(key) is missing from: \(hint)")
         }
+        #expect(!hint.contains("Right Arrow"), "the hint names a key that does not skip: \(hint)")
     }
 }

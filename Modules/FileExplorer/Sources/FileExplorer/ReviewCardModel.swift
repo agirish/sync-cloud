@@ -238,7 +238,10 @@ extension ReviewCardModel {
     /// There is no correct `+ "s"` here: "copy" and "move" conjugate differently, and carrying a
     /// second spelling on the model would be a second thing to keep in step with the first. An
     /// infinitive needs neither.
+    ///
+    /// **Delete only — not Right Arrow.** The card skips on ⌫ alone (→ means "to the right pane"
+    /// everywhere else in Compare); the Rules walkthrough takes both and says so in its own hint.
     static func keyHintSpeech(primaryVerb: String) -> String {
-        "Return to \(primaryVerb.lowercased()), Delete or Right Arrow to skip, Space to preview, Escape to end the review"
+        "Return to \(primaryVerb.lowercased()), Delete to skip, Space to preview, Escape to end the review"
     }
 }

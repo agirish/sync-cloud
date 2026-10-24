@@ -496,6 +496,43 @@ public final class RestructureStore: ObservableObject {
         return save()
     }
 
+    // MARK: - Lineage
+
+    /// The stores whose state this one was opened on, oldest first: each hop's file, and the
+    /// renames its keys went through on the way here. In memory only — it answers questions about
+    /// this session's swaps (an undo registered before one), and nothing outlives the session
+    /// that could ask.
+    private(set) var lineage: [(directory: URL, profileId: String,
+                                renames: [(from: String, to: String)])] = []
+
+    /// Records that this store was opened on `predecessor`'s carried state, its keys moved through
+    /// `renames` — what a landing's or a survey refresh's re-derive does when it swaps stores.
+    func adoptLineage(from predecessor: RestructureStore, renames: [(from: String, to: String)]) {
+        lineage = predecessor.lineage
+            + [(predecessor.directory, predecessor.profileId, renames)]
+    }
+
+    /// Whether `other` reads and writes the same `restructure.json` as this store.
+    func isSameFile(as other: RestructureStore) -> Bool {
+        fileURL.standardizedFileURL.path == other.fileURL.standardizedFileURL.path
+    }
+
+    /// `key`, as it was in `ancestor`, spelled the way this store holds it — nil when this store's
+    /// state was not carried from `ancestor`'s (another profile's store, say, after a provider
+    /// switch, which may hold the same kind and path about a different tree).
+    func carriedKey(_ key: RestructureKey, from ancestor: RestructureStore) -> RestructureKey? {
+        let file = ancestor.fileURL.standardizedFileURL.path
+        guard let start = lineage.lastIndex(where: {
+            $0.directory.appendingPathComponent("\($0.profileId)/restructure.json")
+                .standardizedFileURL.path == file
+        }) else { return nil }
+        var carried = key
+        for hop in lineage[start...] {
+            for rename in hop.renames { carried = carried.rekeyed(rename) }
+        }
+        return carried
+    }
+
     // MARK: - Replay
 
     /// Re-keys every section for a landed manifest's renames, in manifest order.

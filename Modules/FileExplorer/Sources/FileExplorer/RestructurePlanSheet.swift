@@ -51,7 +51,7 @@ struct RestructurePlanSheet: View {
     /// next open started again from the seed.
     var onKeepDraft: ((RestructureManifest, _ vocabulary: [String]) -> Void)?
     /// Whether a saved draft is what this sheet opens on. Read once, when the sheet seeds — see
-    /// `openedFromDraft`.
+    /// `Baseline`.
     var hasSavedDraft: Bool = false
     /// Removes the saved draft: *Discard Plan*, and a close after every row went back to keep.
     ///
@@ -187,13 +187,9 @@ struct RestructurePlanSheet: View {
     /// Narrows the mapping's VIEW, never its rows — see `mappingSection`.
     @State private var filterText = ""
     @State private var outcome: Outcome?
-    /// The rows and picker choices as the sheet opened — what "the user changed nothing" means, so
-    /// a sheet opened and closed untouched mints no draft (and no *Planned, not applied* card).
-    @State private var seededRows: [RestructureMapping.Row] = []
-    @State private var seededVocabulary: [String] = []
-    /// `hasSavedDraft` as the sheet opened. Held rather than read live: an export in this
-    /// session saves a draft too, and that must not turn the sheet into one opened from a draft.
-    @State private var openedFromDraft = false
+    /// What the store already holds for this plan — see ``Baseline``. Seeded when the sheet
+    /// opens, and moved by every export that saves a draft.
+    @State private var baseline = Baseline(rows: [], vocabulary: [], hasDraft: false)
     @State private var createdAt = ""
     @State private var manifestId = ""
 
@@ -293,16 +289,38 @@ struct RestructurePlanSheet: View {
         let stamp = Self.stamp(Date())
         createdAt = stamp
         manifestId = "plan-\(finding.kind.rawValue)-\(stamp)"
-        seededRows = rows
-        seededVocabulary = vocabulary
-        openedFromDraft = hasSavedDraft
+        baseline = Baseline(rows: rows, vocabulary: vocabulary, hasDraft: hasSavedDraft)
+    }
+
+    /// What the store already holds for this plan, as far as the sheet knows.
+    ///
+    /// `rows` and `vocabulary` are what "the user changed nothing" is measured against — so a
+    /// sheet opened and closed untouched mints no draft (and no *Planned, not applied* card).
+    /// `hasDraft` is whether a saved draft exists now: the sheet opened on one, or an export here
+    /// saved one.
+    ///
+    /// **An export moves all three.** It writes the draft, so the plan it wrote is the new "no
+    /// change", and the draft is the sheet's to drop. Held as "opened on a draft" alone, a plan
+    /// exported and then set back to all-keep closed with *nothing* — its rows matched the seed —
+    /// and offered no Discard Plan, so the draft and its card stood over a plan just undone.
+    struct Baseline: Equatable {
+        var rows: [RestructureMapping.Row]
+        var vocabulary: [String]
+        var hasDraft: Bool
+
+        /// An export saved the plan as it stands as the draft.
+        mutating func exported(rows: [RestructureMapping.Row], vocabulary: [String]) {
+            self.rows = rows
+            self.vocabulary = vocabulary
+            hasDraft = true
+        }
     }
 
     /// What closing the sheet does to the saved plan.
     enum CloseDisposition: Equatable {
         /// Save the plan as it stands as the draft.
         case keep(RestructureManifest)
-        /// Remove the saved draft: the sheet opened on one, and every row is back to keep.
+        /// Remove the saved draft: one exists, and every row is back to keep.
         case discard
         /// Leave the store as it is.
         case nothing
@@ -310,34 +328,33 @@ struct RestructurePlanSheet: View {
 
     /// What closing now does to the saved plan.
     ///
-    /// Nothing when nothing changed since the sheet opened, or a landing or an export already
-    /// kept the plan (a re-save would drop the export's file name). Otherwise a change that
-    /// derives a plan is kept; one that sets every row back to keep removes the draft the sheet
-    /// opened on. Any other refusal leaves the store alone — a half-finished mapping that clashes
-    /// is not a request to throw the saved plan away.
+    /// Nothing when nothing changed since the store last matched the sheet (it opened, or an
+    /// export saved), or a landing or an export already kept the plan (a re-save would drop the
+    /// export's file name). Otherwise a change that derives a plan is kept; one that sets every
+    /// row back to keep removes the saved draft. Any other refusal leaves the store alone — a
+    /// half-finished mapping that clashes is not a request to throw the saved plan away.
     static func closeDisposition(
         plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>,
-        rows: [RestructureMapping.Row], vocabulary: [String],
-        seededRows: [RestructureMapping.Row], seededVocabulary: [String],
-        landedOrExported: Bool, openedFromDraft: Bool) -> CloseDisposition {
-        guard !landedOrExported, rows != seededRows || vocabulary != seededVocabulary else {
+        rows: [RestructureMapping.Row], vocabulary: [String], baseline: Baseline,
+        landedOrExported: Bool) -> CloseDisposition {
+        guard !landedOrExported, rows != baseline.rows || vocabulary != baseline.vocabulary else {
             return .nothing
         }
         switch plan {
         case .success(let manifest): return .keep(manifest)
-        case .failure(.nothingMapped): return openedFromDraft ? .discard : .nothing
+        case .failure(.nothingMapped): return baseline.hasDraft ? .discard : .nothing
         case .failure: return .nothing
         }
     }
 
     /// The footer's close button. **Not "Cancel" when closing keeps a plan** — it read as a
     /// discard over a close that saved the mapping. "Done" after a landing; "Close" whenever a
-    /// plan is or will be kept (opened on a draft, exported or landed in part, or about to be
+    /// plan is or will be kept (a draft is saved, exported or landed in part, or about to be
     /// kept); "Cancel" only when closing leaves no trace.
     static func closeTitle(applied: Bool, disposition: CloseDisposition,
-                           openedFromDraft: Bool, landedOrExported: Bool) -> String {
+                           hasDraft: Bool, landedOrExported: Bool) -> String {
         if applied { return "Done" }
-        if openedFromDraft || landedOrExported { return "Close" }
+        if hasDraft || landedOrExported { return "Close" }
         if case .keep = disposition { return "Close" }
         return "Cancel"
     }
@@ -623,13 +640,19 @@ struct RestructurePlanSheet: View {
     ///
     /// A group that already agrees says so rather than offering a grid under a count of zero: the
     /// answer is the sentence, and the table below it would only confirm it row by row.
+    ///
+    /// `families` is never below 2: the table is built only when the subject has at least one
+    /// parallel sibling (`seedGroupPointer`), and it lists the subject too — so there is no
+    /// one-family wording to keep.
     static func groupHeaderText(disagreements: Int, families: Int) -> String {
         guard disagreements > 0 else {
-            return families == 1 ? "This family already agrees on every name"
+            return families == 2 ? "Both families already agree on every name"
                 : "These \(families.formatted()) families already agree on every name"
         }
-        return "\(disagreements) name\(disagreements == 1 ? "" : "s") "
-            + "\(disagreements == 1 ? "is" : "are") not shared by all \(families)"
+        // "all 2" reads as a typo; two families are "both".
+        return "\(disagreements.formatted()) name\(disagreements == 1 ? "" : "s") "
+            + "\(disagreements == 1 ? "is" : "are") not shared by "
+            + (families == 2 ? "both" : "all \(families.formatted())")
     }
 
     /// The group as a grid — §5.4 step 2's pointer, opened out (proposal O17).
@@ -1340,7 +1363,7 @@ struct RestructurePlanSheet: View {
             Spacer()
             // The one way to drop a saved plan without landing it. Destructive, never the
             // default and with no key: ⏎ stays on Export, the safe act.
-            if openedFromDraft, onDiscardDraft != nil, !isApplied, alreadyLanded.isEmpty {
+            if baseline.hasDraft, onDiscardDraft != nil, !isApplied, alreadyLanded.isEmpty {
                 Button("Discard Plan", role: .destructive) {
                     onDiscardDraft?()
                     onClose()
@@ -1354,11 +1377,10 @@ struct RestructurePlanSheet: View {
             // reads as *abort*, but the eight-step landing keeps running, and a refusal (or the
             // paid proposals) would land in a torn-down view with no banner to catch it.
             let disposition = Self.closeDisposition(
-                plan: plan, rows: rows, vocabulary: vocabulary, seededRows: seededRows,
-                seededVocabulary: seededVocabulary, landedOrExported: landedOrExported,
-                openedFromDraft: openedFromDraft)
+                plan: plan, rows: rows, vocabulary: vocabulary, baseline: baseline,
+                landedOrExported: landedOrExported)
             Button(Self.closeTitle(applied: isApplied, disposition: disposition,
-                                   openedFromDraft: openedFromDraft,
+                                   hasDraft: baseline.hasDraft,
                                    landedOrExported: landedOrExported)) {
                 switch disposition {
                 case .keep(let manifest): onKeepDraft?(manifest, vocabulary)
@@ -1603,6 +1625,8 @@ extension RestructurePlanSheet {
             }
             if failure != nil { break }
         }
+        // Every file written saved a draft beside it, a partial group included.
+        if !names.isEmpty { baseline.exported(rows: rows, vocabulary: vocabulary) }
         if let failure {
             outcome = .failed(names.isEmpty ? failure
                               : failure + " Written before it: " + names.joined(separator: ", "))
@@ -1615,7 +1639,9 @@ extension RestructurePlanSheet {
         _ plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>) {
         guard let manifest = try? plan.get() else { return }
         switch onExport(manifest, vocabulary) {
-        case .saved(let filename): outcome = .exported(filename)
+        case .saved(let filename):
+            baseline.exported(rows: rows, vocabulary: vocabulary)
+            outcome = .exported(filename)
         case .failed(let failure): outcome = .failed(failure)
         }
     }

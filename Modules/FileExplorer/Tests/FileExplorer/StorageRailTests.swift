@@ -43,7 +43,8 @@ import Design
                           largest: (0..<largest).map { entry("big\($0)", 3_000_000) },
                           stale: (0..<stale).map { entry("old\($0)", 1_000_000) },
                           reclaimCandidates: (0..<reclaim).map { entry("r\($0)", 2_000_000) },
-                          totalBytes: 48_200_000_000)
+                          totalBytes: 48_200_000_000, fileCount: largest, staleCount: stale,
+                          reclaimCount: reclaim, reclaimableBytes: reclaim * 2_000_000)
     }
 
     @Test("Every section the body draws is a place on the rail, and carries its own count")
@@ -289,5 +290,49 @@ import Design
         // which is how it would creep back onto a page with no report.
         #expect(source.components(separatedBy: "sectionBar").count - 1 == 2,
                 "sectionBar is referenced more than the once it is declared and the once it is drawn")
+    }
+
+    @Test("A section pill says how many the tree has when the list is only its top")
+    func aSectionPillCountsTheTreeBeyondTheCappedList() throws {
+        // **The pill counted the 20-row list while the Overview counted the tree**, so "Untouched"
+        // read 20 under a headline of 318 untouched. Each section's total is the tree's own.
+        let r = StorageLensReport(treemap: [],
+                                  largest: (0..<20).map { Self.entry("big\($0)", 3_000_000) },
+                                  stale: (0..<20).map { Self.entry("old\($0)", 1_000_000) },
+                                  reclaimCandidates: (0..<4).map { Self.entry("r\($0)", 2_000_000) },
+                                  totalBytes: 1, fileCount: 1_640, staleCount: 318,
+                                  reclaimCount: 4, reclaimableBytes: 8_000_000)
+        #expect(StorageSection.largest.total(in: r) == 1_640)
+        #expect(StorageSection.stale.total(in: r) == 318)
+        #expect(StorageSection.reclaim.total(in: r) == 4)
+
+        let capped = StorageSection.PillCount(shown: 20, listed: 20, total: 318)
+        #expect(capped.text == "20 of 318")
+        #expect(capped.speech == "20 of 318 files")
+        #expect(StorageSection.PillCount(shown: 20, listed: 20, total: 1_640).text
+                == "20 of \(1_640.formatted())")
+        // Nothing was cut: the bare count.
+        #expect(StorageSection.PillCount(shown: 4, listed: 4, total: 4).text == "4")
+        // A report saved before the totals existed: the bare count, never a guess.
+        #expect(StorageSection.PillCount(shown: 20, listed: 20, total: nil).text == "20")
+        // A search narrows the 20 listed, not the tree: the matches alone.
+        let searching = StorageSection.PillCount(shown: 3, listed: 20, total: 318)
+        #expect(searching.text == "3")
+        #expect(searching.speech == "3 files")
+        #expect(StorageSection.PillCount(shown: 1, listed: 20, total: 318).speech == "1 file")
+
+        // And the header draws it — from the section's own list and total, not the shown rows.
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/StorageLensView.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read StorageLensView.swift — this scan would be vacuous")
+        #expect(source.contains("let count = StorageSection.PillCount(shown: entries.count,\n"
+                                + "                                             listed: section.entries(in: report).count,\n"
+                                + "                                             total: section.total(in: report))"))
+        #expect(source.contains("Pill(.mini, tint: .secondary, text: count.text, isNumeric: true)\n"
+                                + "                .accessibilityLabel(count.speech)"))
+        #expect(!source.contains("text: count.formatted(), isNumeric: true"),
+                "the section pill is counting the list again")
     }
 }

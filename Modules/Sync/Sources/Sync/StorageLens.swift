@@ -71,35 +71,31 @@ public struct StorageLensReport: Codable, Sendable, Equatable {
     /// The bytes of every reclaim candidate.
     public let reclaimableBytes: Int?
 
-    /// Whether this report carries the whole tree's counts — false only for one decoded from a
-    /// snapshot saved before they existed.
-    public var hasTreeTotals: Bool {
-        fileCount != nil && staleCount != nil && reclaimCount != nil && reclaimableBytes != nil
-    }
-
-    /// The four totals default to what the lists themselves add up to, which is exact for a report
-    /// whose lists were never capped — the shape every hand-built test report has. (The decoder
-    /// does NOT take this default; see ``init(from:)``.)
+    /// **The four totals are required.** They used to default to what the lists add up to, which
+    /// is exact only for lists that were never capped — so a caller that forgot them got the
+    /// capped "20 files · 20 untouched" counts back without a word. The analyzer passes the
+    /// tree's own, and a hand-built report says what its tree holds. (Only the decoder can leave
+    /// them unknown; see ``init(from:)``.)
     public init(
         treemap: [TreemapNode],
         largest: [StorageEntry],
         stale: [StorageEntry],
         reclaimCandidates: [StorageEntry],
         totalBytes: Int,
-        fileCount: Int? = nil,
-        staleCount: Int? = nil,
-        reclaimCount: Int? = nil,
-        reclaimableBytes: Int? = nil
+        fileCount: Int,
+        staleCount: Int,
+        reclaimCount: Int,
+        reclaimableBytes: Int
     ) {
         self.treemap = treemap
         self.largest = largest
         self.stale = stale
         self.reclaimCandidates = reclaimCandidates
         self.totalBytes = totalBytes
-        self.fileCount = fileCount ?? largest.count
-        self.staleCount = staleCount ?? stale.count
-        self.reclaimCount = reclaimCount ?? reclaimCandidates.count
-        self.reclaimableBytes = reclaimableBytes ?? reclaimCandidates.reduce(0) { $0 + $1.bytes }
+        self.fileCount = fileCount
+        self.staleCount = staleCount
+        self.reclaimCount = reclaimCount
+        self.reclaimableBytes = reclaimableBytes
     }
 
     /// Every field as given, nil totals included — the decoder's door.

@@ -108,7 +108,8 @@ public enum DocumentSurveyCardText {
             return pause == nil ? "Reading documents · \(counted)"
                                 : "Reading documents · paused at \(counted)"
         case .finishing(let done):
-            return "Read \(done == 1 ? "1 document" : "\(done.formatted()) documents") · learning from them"
+            return done == 1 ? "Read 1 document · learning from it"
+                : "Read \(done.formatted()) documents · learning from them"
         case .interrupted(let done, let total):
             guard done < total else { return "Documents read — not saved yet" }
             return "Reading documents — paused at \(done.formatted()) of \(total.formatted())"

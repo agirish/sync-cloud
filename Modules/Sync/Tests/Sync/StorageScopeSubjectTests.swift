@@ -89,7 +89,8 @@ import Foundation
         }
         func report(_ total: Int) -> StorageLensReport {
             StorageLensReport(treemap: [], largest: [entry("a", total)], stale: [],
-                              reclaimCandidates: [], totalBytes: total)
+                              reclaimCandidates: [], totalBytes: total, fileCount: 1,
+                              staleCount: 0, reclaimCount: 0, reclaimableBytes: 0)
         }
 
         let wide = URL(fileURLWithPath: root)

@@ -91,7 +91,9 @@ import Design
         }
         return StorageLensReport(treemap: [TreemapNode(name: "Files", path: "Files", bytes: 2_000_000_000)],
                                  largest: entries, stale: entries, reclaimCandidates: entries,
-                                 totalBytes: 2_000_000_000)
+                                 totalBytes: 2_000_000_000, fileCount: entries.count,
+                                 staleCount: entries.count, reclaimCount: entries.count,
+                                 reclaimableBytes: entries.reduce(0) { $0 + $1.bytes })
     }
 
     /// The window background is not decoration: without one the content composites against the

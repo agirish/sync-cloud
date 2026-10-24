@@ -48,7 +48,8 @@ import Design
                           largest: (0..<largest).map { entry("big\($0).mov", 3_000_000) },
                           stale: (0..<stale).map { entry("old\($0).zip", 1_000_000) },
                           reclaimCandidates: (0..<reclaim).map { entry("r\($0).dmg", 2_000_000) },
-                          totalBytes: 48_200_000_000)
+                          totalBytes: 48_200_000_000, fileCount: largest, staleCount: stale,
+                          reclaimCount: reclaim, reclaimableBytes: reclaim * 2_000_000)
     }
 
     private static func manager(_ report: StorageLensReport?) -> FileSyncManager {

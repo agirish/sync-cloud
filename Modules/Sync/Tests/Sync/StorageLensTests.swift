@@ -218,7 +218,6 @@ import Testing
         #expect(report.staleCount == nil)
         #expect(report.reclaimCount == nil)
         #expect(report.reclaimableBytes == nil)
-        #expect(!report.hasTreeTotals)
         // And re-saving it keeps them unknown rather than writing the lists' lengths down.
         let again = try JSONDecoder().decode(StorageLensReport.self,
                                              from: JSONEncoder().encode(report))
@@ -233,7 +232,6 @@ import Testing
         let decoded = try JSONDecoder().decode(StorageLensReport.self,
                                                from: JSONEncoder().encode(original))
         #expect(decoded == original)
-        #expect(decoded.hasTreeTotals)
         #expect(decoded.fileCount == 7 && decoded.staleCount == 3)
         #expect(decoded.reclaimCount == 2 && decoded.reclaimableBytes == 4)
     }

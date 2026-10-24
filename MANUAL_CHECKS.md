@@ -43,7 +43,7 @@ Check items off as you verify them, and note anything that misbehaves.
 - [ ] **Tree-row Reveal / Quick Look.** Right-click a pane row → "Reveal in Finder" and
   "Quick Look" work; Quick Look coexists with the spacebar previewer.
 - [ ] **Paste-here dims when empty.** With nothing on the internal clipboard,
-  right-click → "Paste here" is disabled; after Copy/Cut it enables.
+  right-click → "Paste Here" is disabled; after Copy/Cut it enables.
 - [ ] **⌘ decides at click time.** Open a Differences row/bulk context menu, then press
   or release ⌘ before clicking Copy/Move → the action follows the modifier state at
   the click (labels keep their open-time snapshot; that's expected).
@@ -161,8 +161,8 @@ Everything else from the second review pass is pinned by tests (the reveal nonce
 retirement callback, the recovery button's coordinator entry, the landing gates, the spend-change
 signal, the write-queue ordering). One host wiring cannot be:
 
-- [ ] **An answered "Find duplicates of this" does not replay after a trip through Compare.**
-  Right-click a file with copies → *Find duplicates of this* → land on the ringed group. Set a
+- [ ] **An answered "Find Duplicates of This" does not replay after a trip through Compare.**
+  Right-click a file with copies → *Find Duplicates of This* → land on the ringed group. Set a
   match-type filter and type a query. Switch to Compare, then back to Duplicates. The filter and
   query you set must still be there — no re-scroll to the old group, no re-cleared search. (The
   LensWorkspaceView-side callback is tested; what a unit test cannot reach is `ContentView` actually

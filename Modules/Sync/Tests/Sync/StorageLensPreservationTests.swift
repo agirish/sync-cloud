@@ -23,7 +23,8 @@ import Testing
 
     private func report(_ bytes: Int = 1234) -> StorageLensReport {
         StorageLensReport(treemap: [TreemapNode(name: "D", path: "/r/D", bytes: bytes)],
-                          largest: [], stale: [], reclaimCandidates: [], totalBytes: bytes)
+                          largest: [], stale: [], reclaimCandidates: [], totalBytes: bytes,
+                          fileCount: 0, staleCount: 0, reclaimCount: 0, reclaimableBytes: 0)
     }
 
     private func snapshot(_ root: String, at: TimeInterval = 1_800_000_000) -> StorageLensSnapshot {
@@ -467,7 +468,8 @@ import Testing
         let snapshot = StorageLensSnapshot(
             root: "/b",
             report: StorageLensReport(treemap: [], largest: [], stale: [], reclaimCandidates: [],
-                                      totalBytes: 0),
+                                      totalBytes: 0, fileCount: 0, staleCount: 0,
+                                      reclaimCount: 0, reclaimableBytes: 0),
             completedAt: Date(timeIntervalSince1970: 1_800_000_000))
         StorageLensStore.saveInBackground(snapshot, to: url, fileManager: ClaimsPresent(url))
         StorageLensStore.waitForPendingWrites()

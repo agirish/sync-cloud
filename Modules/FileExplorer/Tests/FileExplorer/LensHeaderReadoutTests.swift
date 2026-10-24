@@ -89,7 +89,11 @@ import Design
         }
         m.storageLensReport = StorageLensReport(treemap: [], largest: entries, stale: entries,
                                                 reclaimCandidates: entries,
-                                                totalBytes: 48_200_000_000)
+                                                totalBytes: 48_200_000_000,
+                                                fileCount: entries.count,
+                                                staleCount: entries.count,
+                                                reclaimCount: entries.count,
+                                                reclaimableBytes: entries.reduce(0) { $0 + $1.bytes })
         return m
     }
 

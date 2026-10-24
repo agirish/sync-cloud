@@ -258,12 +258,15 @@ struct StorageLensView: View {
         let largestBytes = StorageMagnitude.showsBar(section)
             ? (section.entries(in: report).map(\.bytes).max() ?? 0) : 0
         let isCollapsed = canCollapse && collapsed.contains(section)
+        let count = StorageSection.PillCount(shown: entries.count,
+                                             listed: section.entries(in: report).count,
+                                             total: section.total(in: report))
         return VStack(alignment: .leading, spacing: 8) {
             if canCollapse {
                 Button {
                     if isCollapsed { collapsed.remove(section) } else { collapsed.insert(section) }
                 } label: {
-                    listSectionHeader(section, count: entries.count,
+                    listSectionHeader(section, count: count,
                                       canCollapse: true, isCollapsed: isCollapsed)
                 }
                 .buttonStyle(.hoverAffordance(.row, tint: glassHue.accentColor))
@@ -274,7 +277,7 @@ struct StorageLensView: View {
                 // to skip it, and the title, caption and count are only reachable through it. On a
                 // page where the fold does not apply there is nothing to announce: the same row,
                 // drawn as the plain header `treemapSection` already uses.
-                listSectionHeader(section, count: entries.count,
+                listSectionHeader(section, count: count,
                                   canCollapse: false, isCollapsed: false)
             }
 
@@ -322,7 +325,7 @@ struct StorageLensView: View {
     /// unlabelled first parameter shadows it: `self.` was load-bearing and invisible, and dropping
     /// it compiles with only a warning while silently taking the chevron off the All page.
     @ViewBuilder
-    private func listSectionHeader(_ section: StorageSection, count: Int,
+    private func listSectionHeader(_ section: StorageSection, count: StorageSection.PillCount,
                                    canCollapse: Bool, isCollapsed: Bool) -> some View {
         HStack(spacing: 8) {
             Image(systemName: section.icon)
@@ -342,7 +345,8 @@ struct StorageLensView: View {
             // The C1 mini pill, not a bare gray numeral floating after the caption — the same
             // dress every other section count in the app wears. Neutral tint: a list size,
             // never urgency.
-            Pill(.mini, tint: .secondary, text: count.formatted(), isNumeric: true)
+            Pill(.mini, tint: .secondary, text: count.text, isNumeric: true)
+                .accessibilityLabel(count.speech)
             Spacer(minLength: 0)
             if canCollapse {
                 Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
@@ -574,6 +578,38 @@ enum StorageSection: String, Hashable, CaseIterable, Identifiable {
         case .largest: return report.largest
         case .stale: return report.stale
         case .reclaim: return report.reclaimCandidates
+        }
+    }
+
+    /// How many files the whole tree has in this section, counted before the list was capped —
+    /// nil on a report saved before the totals existed.
+    func total(in report: StorageLensReport) -> Int? {
+        switch self {
+        case .largest: return report.fileCount
+        case .stale: return report.staleCount
+        case .reclaim: return report.reclaimCount
+        }
+    }
+
+    /// A section header's count pill: "20 of 318" when the list is the top of a longer one.
+    ///
+    /// **The lists are capped at 20 rows; the Overview counts the whole tree.** A pill reading
+    /// "20" under an Overview reading "318 untouched" made the two disagree about one thing. The
+    /// total shows only when it says something: not when it equals the list (nothing was cut), not
+    /// on a report without totals, and not while a search narrows the rows — the search reaches
+    /// the 20 listed, not the 318, so "3 of 318" would claim it searched them all.
+    struct PillCount: Equatable {
+        let text: String
+        let speech: String
+
+        init(shown: Int, listed: Int, total: Int?) {
+            if shown == listed, let total, total > listed {
+                text = "\(listed.formatted()) of \(total.formatted())"
+                speech = "\(listed.formatted()) of \(total.formatted()) files"
+            } else {
+                text = shown.formatted()
+                speech = shown == 1 ? "1 file" : "\(shown.formatted()) files"
+            }
         }
     }
 

@@ -347,15 +347,15 @@ struct RestructureLens: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(accent)
                 .chromeHover()
-                .help("Bring back the findings here hidden with “Never suggest this again”")
+                .help("Bring back the findings here hidden with “Never Suggest This Again”")
             Spacer(minLength: 0)
         }
         .padding(.vertical, 6)
     }
 
     static func hiddenSentence(_ count: Int) -> String {
-        count == 1 ? "1 finding is hidden with “Never suggest this again”."
-            : "\(count.formatted()) findings are hidden with “Never suggest this again”."
+        count == 1 ? "1 finding is hidden with “Never Suggest This Again”."
+            : "\(count.formatted()) findings are hidden with “Never Suggest This Again”."
     }
 
     // MARK: §5.7's Applied and Undone cards

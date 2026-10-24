@@ -250,6 +250,20 @@ public enum OrganizeAim {
         return standardized(paneFolder) != standardized(subject)
     }
 
+    /// The folder Duplicates' *Show them again* counts, forgets and rescans: the deeper of the
+    /// scanned root and the scope, so all three act on the groups the list on screen can show.
+    ///
+    /// The list is the scan's groups narrowed by the scope, so its folder is whichever of the two
+    /// sits inside the other. Counting under the scan root alone forgot groups the scope hides
+    /// from view, and the rescan then walked the scope, so those keys came back nowhere. Unrelated
+    /// folders answer the scope — the subject the user chose; nil only when both are absent.
+    public static func keptSeparateFolder(scannedRoot: String?, scope: OrganizeScope?) -> String? {
+        let root = scannedRoot.flatMap { $0.isEmpty ? nil : $0 }
+        guard let scope else { return root }
+        guard let root, PathBoundary.contains(root, under: scope.path) else { return scope.path }
+        return root
+    }
+
     /// Tilde-expanded, `.`/`..` resolved, trailing slash dropped — so `~/Documents`,
     /// `/Users/you/Documents/` and `/Users/you/Documents` are one folder. The comparison is between
     /// paths from three different sources — a persisted scope, a lens's scanned root, a settings

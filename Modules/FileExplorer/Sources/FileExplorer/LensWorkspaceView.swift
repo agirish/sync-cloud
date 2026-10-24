@@ -2315,7 +2315,7 @@ public struct LensWorkspaceView: View {
         let total = "\(FileSyncManager.formatBytes(report.totalBytes)) total"
         guard let files = report.fileCount, let untouched = report.staleCount,
               let reclaimable = report.reclaimableBytes else {
-            return total + " · Rescan for the counts"
+            return total + " · rescan for the counts"
         }
         return total + " · "
             + "\(files.formatted()) file\(files == 1 ? "" : "s") · "
@@ -3021,7 +3021,7 @@ public struct LensWorkspaceView: View {
                                      : "\(reuse.classified) files were newly classified.")
         return "\(reused) instead of asking the "
             + "model again — with Claude selected, that part of the scan cost nothing. \(classified) "
-            + "Use Rescan ▸ Ignore saved suggestions to ask afresh."
+            + "Use Rescan ▸ Ignore Saved Suggestions to ask afresh."
     }
 
     /// Duplicates' pills. `groups` / `redundant` / `reclaimable` recount over the FILTERED rows, so
@@ -5190,7 +5190,15 @@ public struct LensWorkspaceView: View {
     /// The groups kept separate that a scan of this folder could flag — the keys are kept for
     /// every folder and provider at once, and only these are this lens's to count or forget.
     private var keptSeparateCount: Int {
-        syncManager.keptSeparateKeys(under: syncManager.duplicateScanRoot).count
+        syncManager.keptSeparateKeys(under: keptSeparateFolder).count
+    }
+
+    /// The one folder *Show them again* counts, forgets and rescans — the deeper of the scan's
+    /// root and the scope, the folder the list on screen covers. See
+    /// ``OrganizeAim/keptSeparateFolder(scannedRoot:scope:)``.
+    private var keptSeparateFolder: String? {
+        OrganizeAim.keptSeparateFolder(scannedRoot: syncManager.duplicateScanRoot,
+                                       scope: appliedScope(for: .duplicates))
     }
 
     /// Counts only this folder's groups (``keptSeparateCount``), so it says "in this folder".
@@ -5203,9 +5211,16 @@ public struct LensWorkspaceView: View {
 
     /// Kept-separate groups leave no trace a scan can restore from, so the way back is to forget
     /// them and scan again — this folder's only.
+    ///
+    /// **The rescan is aimed here, not through `onFindDuplicates`**, which hashes the scope or else
+    /// the focused pane's folder: with the pane moved, or a scan deeper than the scope, that is a
+    /// different folder from the one whose keys were just forgotten.
     private func showKeptSeparateAgain() {
-        syncManager.forgetKeptSeparateGroups(under: syncManager.duplicateScanRoot)
-        onFindDuplicates()
+        guard let folder = keptSeparateFolder else { return }
+        syncManager.forgetKeptSeparateGroups(under: folder)
+        Logger.shared.info("User asked to show kept-separate groups again in \(folder)")
+        syncManager.startFindDuplicates(root: URL(fileURLWithPath: folder),
+                                        options: DuplicateFinderOptions.fromDefaults())
     }
 
     // MARK: Filing content

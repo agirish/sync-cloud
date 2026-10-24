@@ -338,8 +338,16 @@ import Sync
     /// unscoped survey and called `unsuppressAll`.
     @Test func showThemAgainIsScopedInBothLenses() throws {
         let view = try Self.source("LensWorkspaceView.swift")
-        #expect(view.contains("syncManager.keptSeparateKeys(under: syncManager.duplicateScanRoot).count"))
-        #expect(view.contains("syncManager.forgetKeptSeparateGroups(under: syncManager.duplicateScanRoot)"))
+        // Count, forget and rescan one folder: the deeper of the scan root and the scope.
+        #expect(view.contains("OrganizeAim.keptSeparateFolder(scannedRoot: syncManager.duplicateScanRoot,\n"
+                              + "                                       scope: appliedScope(for: .duplicates))"))
+        #expect(view.contains("syncManager.keptSeparateKeys(under: keptSeparateFolder).count"))
+        let again = try Self.body(of: "private func showKeptSeparateAgain()", in: view)
+        #expect(again.contains("syncManager.forgetKeptSeparateGroups(under: folder)"))
+        #expect(again.contains("syncManager.startFindDuplicates(root: URL(fileURLWithPath: folder),"),
+                "Show them again rescans a folder other than the one it forgot under")
+        #expect(!Self.codeOnly(again).contains("onFindDuplicates()"),
+                "Show them again hands the rescan to the scope-or-pane scan again")
         #expect(!Self.codeOnly(view).contains("ignoredDuplicateKeys.count"),
                 "a kept-separate count is reading every key again, not this folder's")
         #expect(view.contains("hiddenCount: syncManager.hiddenStructureFindings(\n"

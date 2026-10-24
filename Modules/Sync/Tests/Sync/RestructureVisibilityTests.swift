@@ -126,6 +126,48 @@ import Foundation
                 "Show them again brought back a finding outside the scope")
     }
 
+    /// **A hidden §5.9 finding could not be shown again.** It comes from the duplicate scan, not
+    /// the survey's report, and the hidden set read the report alone — so it was neither counted
+    /// nor brought back, and nothing else lists it.
+    @Test func aHiddenDuplicatedTaxonomyFindingCanBeShownAgain() throws {
+        let (manager, dir) = try makeManager()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var folders = try #require(manager.filingFolderProfile).folders
+        for (path, files, subs): (String, Int, Int) in [
+            ("Papers", 0, 2), ("Papers/One", 4, 0), ("Papers/Two", 4, 0),
+        ] {
+            folders[path] = FolderProfileEntry(path: path, role: nil, naming: nil, anchors: [],
+                                               acceptsNewFiles: nil, fileCount: files,
+                                               subfolderCount: subs, axes: [:])
+        }
+        manager.filingFolderProfile = FolderProfile(profileId: "t", root: "/r",
+                                                    folders: folders, personTokens: [])
+        manager.duplicateGroups = ["a.pdf", "b.pdf", "c.pdf"].map { name in
+            DuplicateGroup(matchType: .sameText, name: name, isDirectory: false,
+                           copies: ["Papers/One", "Papers/Two"].map {
+                               DuplicateCopy(id: "/r/\($0)/\(name)", name: name,
+                                             isDirectory: false, size: 10, itemCount: 1,
+                                             modificationDate: nil, uniqueItemCount: 0, depth: 3,
+                                             isRecommendedKeeper: false)
+                           },
+                           reclaimableBytes: 0)
+        }
+        manager.duplicateScanRoot = "/r"
+        let taxonomy = try #require(manager.visibleStructureFindings.first {
+            $0.kind == .duplicatedTaxonomy
+        })
+
+        manager.suppressStructureFinding(taxonomy)
+        #expect(!manager.visibleStructureFindings.contains { $0.id == taxonomy.id },
+                "premise: the finding is hidden")
+        #expect(manager.hiddenStructureFindings(in: nil).map(\.id) == [taxonomy.id],
+                "a hidden §5.9 finding is not counted by Show them again")
+
+        #expect(manager.showHiddenStructureFindings(in: nil) == 1)
+        #expect(manager.visibleStructureFindings.contains { $0.id == taxonomy.id },
+                "Show them again left the §5.9 finding hidden")
+    }
+
     /// **⌘Z of Never suggest did nothing after a store swap.** A landing or survey refresh opens
     /// the new profile's store with the hidden set carried across; the undo cleared the key in the
     /// old store only, so the finding stayed hidden in the one the lens reads.
@@ -144,8 +186,10 @@ import Foundation
         // The swap: a new profile's store, carrying the hidden key the way the re-derive does.
         try FileManager.default.createDirectory(at: dir.appendingPathComponent("t2"),
                                                 withIntermediateDirectories: true)
+        let original = try #require(manager.restructureStore)
         let swapped = RestructureStore(directory: dir, profileId: "t2")
         swapped.suppress(RestructureKey(finding))
+        swapped.adoptLineage(from: original, renames: [])
         manager.restructureStore = swapped
         #expect(!manager.visibleStructureFindings.contains { $0.id == finding.id },
                 "premise: the carried key hides the finding in the new store")
@@ -154,6 +198,114 @@ import Foundation
         #expect(manager.visibleStructureFindings.contains { $0.id == finding.id },
                 "undo cleared the old store and left the finding hidden in the new one")
         #expect(!swapped.isSuppressed(RestructureKey(finding)))
+        #expect(!original.isSuppressed(RestructureKey(finding)))
+    }
+
+    /// **⌘Z after a provider switch un-hid another profile's finding.** It cleared the key in
+    /// whatever store was current — another profile's, where the same kind and path is a different
+    /// folder's finding, hidden on its own. Only a store carried on from the one it was hidden in
+    /// is reached; the switch carries nothing.
+    @Test func undoingNeverSuggestLeavesAnotherProfilesStoreAlone() throws {
+        let (manager, dir) = try makeManager()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        manager.undoManager = undo
+        let finding = try #require(manager.visibleStructureFindings.first { $0.kind == .backlog })
+        let original = try #require(manager.restructureStore)
+
+        undo.beginUndoGrouping()
+        manager.suppressStructureFinding(finding)
+        undo.endUndoGrouping()
+
+        // The switch: another provider's profile, which hid the same kind and path itself.
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("other"),
+                                                withIntermediateDirectories: true)
+        let other = RestructureStore(directory: dir, profileId: "other")
+        other.suppress(RestructureKey(finding))
+        manager.restructureStore = other
+
+        undo.undo()
+        #expect(other.isSuppressed(RestructureKey(finding)),
+                "undo un-hid a finding another profile had hidden on its own")
+        #expect(!original.isSuppressed(RestructureKey(finding)),
+                "undo did not clear the key in the store it was hidden in")
+    }
+
+    /// **⌘Z after a renaming landing missed the re-keyed entry.** The landing moved the hidden key
+    /// through its renames into the new store; the undo cleared the old spelling, which names
+    /// nothing there. It now follows the same renames.
+    @Test func undoingNeverSuggestFollowsTheLandingsRenames() throws {
+        let (manager, dir) = try makeManager()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        manager.undoManager = undo
+        let finding = try #require(manager.visibleStructureFindings.first { $0.kind == .backlog })
+        let original = try #require(manager.restructureStore)
+        let key = RestructureKey(finding)
+        #expect(key.path.hasPrefix("Dental"), "premise: the rename below moves this key")
+
+        undo.beginUndoGrouping()
+        manager.suppressStructureFinding(finding)
+        undo.endUndoGrouping()
+
+        // The landing's swap: the hidden set carried across and re-keyed through the rename.
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("t2"),
+                                                withIntermediateDirectories: true)
+        let renames = [(from: "Dental", to: "Health/Dental")]
+        let landed = RestructureStore(directory: dir, profileId: "t2")
+        landed.suppress(key)
+        landed.rekey(renames: renames)
+        landed.adoptLineage(from: original, renames: renames)
+        let moved = try #require(landed.suppressed.first)
+        #expect(moved != key && moved.path.hasPrefix("Health/Dental"),
+                "premise: the landing re-keyed the hidden entry")
+        manager.restructureStore = landed
+
+        undo.undo()
+        #expect(landed.suppressed.isEmpty,
+                "undo cleared the old spelling and left the re-keyed entry hidden")
+        #expect(!original.isSuppressed(key))
+    }
+
+    /// A store reopened on the same file — the same profile loaded again — is the one the undo
+    /// reaches, and the stale captured object writes nothing over it.
+    @Test func undoingNeverSuggestReachesTheSameProfileReopened() throws {
+        let (manager, dir) = try makeManager()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        manager.undoManager = undo
+        let finding = try #require(manager.visibleStructureFindings.first { $0.kind == .backlog })
+        let unrelated = RestructureKey(kind: .backlog, path: "Elsewhere/Folder")
+
+        undo.beginUndoGrouping()
+        manager.suppressStructureFinding(finding)
+        undo.endUndoGrouping()
+        let reopened = RestructureStore(directory: dir, profileId: "t")
+        #expect(reopened.isSuppressed(RestructureKey(finding)), "premise: the same file")
+        reopened.suppress(unrelated)
+        manager.restructureStore = reopened
+
+        undo.undo()
+        #expect(!reopened.isSuppressed(RestructureKey(finding)))
+        let onDisk = RestructureStore(directory: dir, profileId: "t")
+        #expect(onDisk.isSuppressed(unrelated),
+                "the stale captured store wrote its old state over the reopened one")
+        #expect(!onDisk.isSuppressed(RestructureKey(finding)))
+    }
+
+    /// The landing's re-derive is what records the lineage the undo follows: a rule nothing calls
+    /// is one revert away from unused.
+    @Test func theReDeriveRecordsTheLineage() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/Sync/FileSyncManager+RestructureApply.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8))
+        #expect(source.contains("let newStore = RestructureStore(directory: profilesDirectory, profileId: newId)"))
+        #expect(source.contains("newStore.adoptLineage(from: store, renames: RestructureRederive.renameMap(of: landed))"),
+                "the re-derive swaps stores without recording which one it carried on from")
     }
 
     @Test func withNoStoreTheVisibleSetIsTheWholeReport() throws {
