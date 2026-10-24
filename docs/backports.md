@@ -9523,3 +9523,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s mmddyyyy=%s delimited=%s refu
 |---|---|---|
 | `v5.x` / `v4.x` | The same month-first reading (`mmddyyyy=1 delimited=1`) | RECORDED — not owed |
 | `v3.x` / `v2.x` | No date mining in names (`mmddyyyy=0`) | CLOSED — does not apply |
+
+---
+
+## To File moves only the file the scan found (FR45) — main only
+
+`performFiling` checked only that something sat at the card's path, so a file re-downloaded or saved
+over that name after the scan was moved into the folder chosen for the original. `main` records each
+card's `ItemIdentity` once the scan's first pass builds it (`FilingSuggestion.sourceIdentity`, carried
+through every rebuild, content reading's re-suggest included) and refuses a file that has drifted since, with "This file changed since the scan…"
+(`sourceChangedSinceScan`), the rule Automations' apply already follows.
+
+```sh
+F=Modules/Sync/Sources/Sync/FileSyncManager+Filing.swift
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s existsOnly=%s identity=%s\n' $l \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF 'guard fm.fileExists(atPath: src.path) else { return .failed(reason: nil) }')" \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF 'throw FileOperationError.sourceChangedSinceScan')"; done
+# measured 2026-10-23, against origin, before this landed (the working tree reads identity=1):
+# main, v5.x, v4.x, v3.x, v2.x   existsOnly=1 identity=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same existence-only check (`existsOnly=1`) | RECORDED — not owed |

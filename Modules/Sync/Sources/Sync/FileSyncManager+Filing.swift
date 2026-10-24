@@ -370,6 +370,23 @@ extension FileSyncManager {
                                                automationSnippets: automationSnippets, now: scanClock,
                                                rejectedByFile: rejectedByFile, options: options)
         if Task.isCancelled { return }
+        // **What each card is about, recorded once phase 1 has built the cards (FR45)** — after
+        // the walk and before any page is read. `performFiling` re-reads it before the move and
+        // refuses a file that has changed since: the path alone says only that something is
+        // there. One stat per loose file, off the main actor — the same read the move makes, so a
+        // file nobody touched compares equal by construction. Kept by path in `scanIdentities`,
+        // because phase 2's re-suggest builds every card afresh and must hand each one back.
+        let identityInput = suggestions
+        let identityDisk = fileManager
+        suggestions = await Task.detached(priority: .userInitiated) {
+            identityInput.map {
+                $0.recordingSource(ItemIdentity.snapshot(at: URL(fileURLWithPath: $0.filePath),
+                                                         fileManager: identityDisk))
+            }
+        }.value
+        if Task.isCancelled { return }
+        let scanIdentities = Dictionary(suggestions.map { ($0.id, $0.sourceIdentity) },
+                                        uniquingKeysWith: { first, _ in first })
 
         // Phase 2 — for the files with no confident home, read their contents on-device and
         // re-suggest with those tokens merged in.
@@ -453,6 +470,9 @@ extension FileSyncManager {
                                                        providerName: providerName,
                                                        automationSnippets: automationSnippets, now: scanClock,
                                                        rejectedByFile: rejectedByFile, options: options)
+                        // The identity too: `suggest` builds cards without one, and a card
+                        // without one is filed with no "changed since the scan" check at all.
+                        .map { $0.recordingSource(scanIdentities[$0.id] ?? nil) }
                 }
             }
         }
@@ -1797,9 +1817,21 @@ extension FileSyncManager {
         let logger = Logger.shared   // captured on the main actor; its methods are nonisolated
         let profile = filingFolderProfile
         let anchor = Self.filingAnchor(for: destination, under: suggestion.providerRoot)
+        let recordedSource = suggestion.sourceIdentity
         let outcome: FilingMoveOutcome = await enqueueFileOperation {
             do {
                 guard fm.fileExists(atPath: src.path) else { return .failed(reason: nil) }
+                // **And it has to still BE the file the card is about (FR45).** The existence check
+                // above says only that the path is occupied. A queue is stepped through minutes
+                // after the scan, and in that time a browser can re-download over the name or an
+                // editor save a different document to it; moving whatever sits there now puts a
+                // stranger in a folder chosen for something else, and — being a move — leaves
+                // nothing behind where the user last saw it. The rule Automations' apply already
+                // follows (`sourceChangedSincePreview`). `.indeterminate` refuses too: a file that
+                // could not be read is not one this can vouch for. nil ⇒ not recorded ⇒ no check.
+                if let recordedSource, recordedSource.drift(at: src, fileManager: fm) != .unchanged {
+                    throw FileOperationError.sourceChangedSinceScan
+                }
                 // One stat, before any I/O — the guard `transferItems` has always had and filing
                 // never did. `createDirectory(withIntermediateDirectories:)` below builds the WHOLE
                 // path, so a destination tree that has gone away since the scan (a provider
@@ -1852,7 +1884,8 @@ extension FileSyncManager {
                 // of being flattened into "couldn't file this item".
                 let reason: String?
                 switch error as? FileOperationError {
-                case .destinationRootUnavailable?, .destinationIsADocument?: reason = error.localizedDescription
+                case .destinationRootUnavailable?, .destinationIsADocument?, .sourceChangedSinceScan?:
+                    reason = error.localizedDescription
                 default: reason = nil
                 }
                 return .failed(reason: reason)

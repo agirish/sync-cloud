@@ -226,6 +226,13 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
     /// Empty is the ordinary case and the default, so a caller that knows nothing about duplicates
     /// builds exactly the suggestion it always did.
     public let alreadyFiledAt: [String]
+    /// The file as the scan found it, read through the same `ItemIdentity.snapshot` the move
+    /// re-reads it with (FR45). The card is an answer about THIS file; by the time it is applied —
+    /// minutes later, in a queue the user steps through — something else may sit at the path: a
+    /// re-download under the same name, an edited copy saved over it. `performFiling` refuses a
+    /// file whose identity has drifted rather than move a stranger into a folder chosen for the
+    /// original. nil ⇒ not recorded ⇒ no check, exactly as before, for a suggestion built by hand.
+    public let sourceIdentity: ItemIdentity?
 
     public var best: FilingDestination? { candidates.first }
     /// Whether this document is already somewhere in the tree.
@@ -249,7 +256,7 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
 
     public init(filePath: String, fileName: String, size: Int, modificationDate: Date?,
                 candidates: [FilingDestination], providerRoot: String? = nil,
-                alreadyFiledAt: [String] = []) {
+                alreadyFiledAt: [String] = [], sourceIdentity: ItemIdentity? = nil) {
         self.id = filePath
         self.fileName = fileName
         self.size = size
@@ -257,13 +264,23 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
         self.candidates = candidates
         self.providerRoot = providerRoot
         self.alreadyFiledAt = alreadyFiledAt
+        self.sourceIdentity = sourceIdentity
     }
 
     /// A copy of this suggestion carrying the folders that already hold the same document.
     public func alreadyFiled(at folders: [String]) -> FilingSuggestion {
         FilingSuggestion(filePath: filePath, fileName: fileName, size: size,
                          modificationDate: modificationDate, candidates: candidates,
-                         providerRoot: providerRoot, alreadyFiledAt: folders)
+                         providerRoot: providerRoot, alreadyFiledAt: folders,
+                         sourceIdentity: sourceIdentity)
+    }
+
+    /// A copy of this suggestion recording what the scan found at its path (FR45).
+    public func recordingSource(_ identity: ItemIdentity?) -> FilingSuggestion {
+        FilingSuggestion(filePath: filePath, fileName: fileName, size: size,
+                         modificationDate: modificationDate, candidates: candidates,
+                         providerRoot: providerRoot, alreadyFiledAt: alreadyFiledAt,
+                         sourceIdentity: identity)
     }
 
     /// The same document with a **new list of homes** — and everything else about it intact.
@@ -287,7 +304,8 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
     public func replacingCandidates(_ candidates: [FilingDestination]) -> FilingSuggestion {
         FilingSuggestion(filePath: filePath, fileName: fileName, size: size,
                          modificationDate: modificationDate, candidates: candidates,
-                         providerRoot: providerRoot, alreadyFiledAt: alreadyFiledAt)
+                         providerRoot: providerRoot, alreadyFiledAt: alreadyFiledAt,
+                         sourceIdentity: sourceIdentity)
     }
 }
 

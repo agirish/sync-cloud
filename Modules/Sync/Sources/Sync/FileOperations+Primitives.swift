@@ -24,6 +24,9 @@ extension FileSyncManager {
         /// apply refusing to move a stranger. Distinct from a failure: nothing went wrong with the
         /// filesystem, and the item is deliberately left where it is.
         case sourceChangedSincePreview
+        /// The file at a To File card's path is no longer the one the scan found there (FR45) —
+        /// replaced, edited or re-downloaded since. Left where it is; a rescan answers for it anew.
+        case sourceChangedSinceScan
         /// A folder whose contents are not on this Mac, and whose cloud app did not hand them over
         /// in time (`DatalessFolderReads`). Not a permission problem, and worded so it does not
         /// send anyone to look at the folder's permissions.
@@ -50,6 +53,8 @@ extension FileSyncManager {
                 return "The destination folder is no longer available. Rescan before copying or moving items."
             case .sourceChangedSincePreview:
                 return "This file changed since the preview, so it is no longer the one that rule matched. Preview again to see what it would do now."
+            case .sourceChangedSinceScan:
+                return "This file changed since the scan, so the folder suggested for it was chosen for a different file. It was left where it is; scan again to see where it goes now."
             case .folderNotAnswered(let folderName):
                 return "\"\(folderName)\" couldn’t be read: its contents aren’t on this Mac, and the app that syncs it didn’t answer. Open that app and try again."
             case .destinationIsADocument(let name):

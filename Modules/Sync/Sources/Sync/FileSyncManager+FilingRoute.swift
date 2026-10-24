@@ -319,7 +319,8 @@ extension FileSyncManager {
         // that the home on it was decided without the document's text.
         let blank = FilingSuggestion(filePath: live.filePath, fileName: live.fileName, size: live.size,
                                      modificationDate: live.modificationDate, candidates: [],
-                                     providerRoot: live.providerRoot)
+                                     providerRoot: live.providerRoot,
+                                     sourceIdentity: live.sourceIdentity)
         // `peerNames:` too, because the scan passes it — without it this pass and the scan can
         // answer differently about the same file in the one case peer names exist for (a folder
         // against its own subfolder, a percent apart), which is two answers to one question.
