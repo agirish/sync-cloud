@@ -2908,8 +2908,20 @@ public class FileSyncManager: ObservableObject {
         let previousTask = claimed.predecessor
         let newTask = Task.detached(priority: .userInitiated) {
             _ = await previousTask.result
-            let res = await operation()
+            // A move whose original was parked and not put back is still a success (FR36): the
+            // sink collects it for this operation, and the leftover is presented below.
+            let leftovers = ParkedSourceLeftovers()
+            let res = await ParkedSourceLeftovers.$current.withValue(leftovers) { await operation() }
+            let parked = leftovers.recorded
             await MainActor.run { [weak self] in
+                if let first = parked.first {
+                    for extra in parked.dropFirst() {
+                        Logger.shared.error("Moved, but the original \(extra.original.path) is still in its folder as \(extra.parked.lastPathComponent)")
+                    }
+                    self?.present(.movedButOriginalParked(originalPath: first.original.path,
+                                                          parkedPath: first.parked.path,
+                                                          additional: parked.count - 1))
+                }
                 // File operations mutate the filesystem; cached prefetched roots are stale after any write.
                 self?.dropPrefetchedTrees()
                 // A refresh already in flight walked mid-operation disk state; the post-op

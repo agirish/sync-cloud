@@ -423,17 +423,19 @@ import Testing
         let fm = MockFileManager()
         let manager = FileSyncManager(fileManager: fm)
         manager.undoManager = UndoManager()
-        fm.virtualDisk["/docs/a.pdf"] = MockFileManager.FileStub(
+        // A name no other test strands: the log is the process's, and the move path's strand
+        // (`MoveParkedLeftoverTests`) writes the same sentence about its own file.
+        fm.virtualDisk["/docs/stranded-log.pdf"] = MockFileManager.FileStub(
             isDirectory: false, attributes: [.size: 100], contents: nil)
         fm.trashRefusedUntilMovedIn = true
-        fm.failMoveToPathsOnce = ["/docs/a.pdf"]
+        fm.failMoveToPathsOnce = ["/docs/stranded-log.pdf"]
         manager.trashViaWorkspace = { _ in [:] }
 
-        _ = await manager.deleteItems(at: ["/docs/a.pdf"], fileManager: fm)
+        _ = await manager.deleteItems(at: ["/docs/stranded-log.pdf"], fileManager: fm)
 
-        let line = await loggedLineOnDisk(containing: "could NOT be moved back")
+        let line = await loggedLineOnDisk(containing: "/docs/stranded-log.pdf was parked as")
         let logged = try #require(line, "the strand left nothing in the log")
-        #expect(logged.contains("/docs/a.pdf"), "the log line does not name the item")
+        #expect(logged.contains("could NOT be moved back"), "the log line does not say the item was left parked")
         #expect(logged.contains("synccloud-trash-retry"), "the log line does not name where it is")
     }
 

@@ -229,6 +229,40 @@ extension SyncError {
     }
 }
 
+extension SyncError {
+    /// A MOVE reached its destination, but its original could not be put in the Trash: it was
+    /// parked under a hidden sibling name to re-register it with the Trash, and could not be moved
+    /// back (FR36). Nothing was deleted — the original is now a hidden second copy beside where it
+    /// was.
+    ///
+    /// The delete path's ``trashParkedAndNotRestored(originalPath:parkedPath:)`` tells the user the
+    /// same strand; the move path reported it only in the log and then showed "Moved", so the
+    /// leftover full-size duplicate stayed in the source folder, hidden by Finder, with nothing on
+    /// screen to say it was there. The path carried is the PARKED one, so Reveal in Finder lands
+    /// on it. `additional` counts further strands in the same operation, which the log names.
+    public static func movedButOriginalParked(originalPath: String, parkedPath: String,
+                                              additional: Int = 0) -> SyncError {
+        let parkedName = (parkedPath as NSString).lastPathComponent
+        let originalName = (originalPath as NSString).lastPathComponent
+        let more = additional > 0
+            ? " \(CountedNoun.phrase(additional, "other moved item")) \(additional == 1 ? "was" : "were") left behind the same way."
+            : ""
+        return SyncError(
+            title: "Moved, Original Left Behind",
+            message: "“\(originalName)” reached its destination, but its original could not be put "
+                + "in the Trash. To get past a Trash refusal, SyncCloud briefly renamed the original "
+                + "inside its own folder — and could not rename it back. Nothing was deleted.\n\n"
+                + "The original is still in that folder, now named “\(parkedName)”. That name starts "
+                + "with a dot, so Finder hides it until you show hidden files. It is a second copy of "
+                + "what was moved: put it in the Trash, or rename it back to “\(originalName)”."
+                + more + " The details are in ~/sync-cloud.log.",
+            path: parkedPath,
+            reason: "was “\(originalName)”",
+            isRetryable: false
+        )
+    }
+}
+
 // MARK: - Which alert actions apply (pure decision, UI renders it)
 
 /// An abstract action an error alert can offer. Presentation (button label, role, side effect)

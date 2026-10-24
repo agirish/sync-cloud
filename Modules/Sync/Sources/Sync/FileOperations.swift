@@ -1010,6 +1010,36 @@ extension FileSyncManager {
         case parkedAndNotRestored(URL)
     }
 
+    /// The originals a move's source cleanup parked and could not put back, collected for the file
+    /// operation that ran the move (FR36).
+    ///
+    /// **Why a task-local, and not a return value.** The strand happens inside `safeMoveItem`, in
+    /// the cleanup AFTER the item has landed, and the move is then a success the caller must record
+    /// and make undoable — so it cannot throw, and its return value is already the replaced item's
+    /// backup, read by every one of its many callers. Before this the only trace was a log line:
+    /// the Moved banner showed while a hidden `.synccloud-trash-retry-<UUID>` full-size duplicate
+    /// sat in the source folder. `enqueueFileOperation` binds one of these around every operation
+    /// and, when it comes back non-empty, presents ``SyncError/movedButOriginalParked(originalPath:parkedPath:additional:)``,
+    /// as the delete path presents its own strand.
+    ///
+    /// Reaches the operation's own task and its child tasks (bulk sync's task group), not a
+    /// `Task.detached` started inside it; a strand there keeps only its log line, as before.
+    final class ParkedSourceLeftovers: @unchecked Sendable {
+        @TaskLocal static var current: ParkedSourceLeftovers?
+        private let lock = NSLock()
+        private var entries: [(original: URL, parked: URL)] = []
+
+        func record(original: URL, parked: URL) {
+            lock.lock(); defer { lock.unlock() }
+            entries.append((original, parked))
+        }
+
+        var recorded: [(original: URL, parked: URL)] {
+            lock.lock(); defer { lock.unlock() }
+            return entries
+        }
+    }
+
     /// Trashes an item that a permission refusal blocked, by first moving it inside its own
     /// directory and putting it straight back.
     ///
@@ -1126,6 +1156,9 @@ extension FileSyncManager {
                 "\(context): the original at \(sourceURL.path) could not be moved to the "
                 + "Trash, was parked as \(parked.lastPathComponent) to retry that, and could "
                 + "not be moved back — it is intact under that name and was NOT deleted")
+            // And told to the user, not only the log (FR36): the move has landed, so it returns
+            // as a success, and the operation that ran it reports the leftover once it ends.
+            ParkedSourceLeftovers.current?.record(original: sourceURL, parked: parked)
             return true
         case .untouched:
             return false

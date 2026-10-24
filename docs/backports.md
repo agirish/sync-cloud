@@ -10242,3 +10242,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s mergeTrash=%s restoreFirst=%s
 |---|---|---|
 | `v5.x` | The same merge, trashing its source outside the undo (`mergeTrash=1`) | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No folder merge at all (`mergeTrash=0`) | CLOSED — does not apply |
+
+---
+
+## A move that leaves its original parked says so (FR36) — main only
+
+A move whose source cleanup parked the original under `.synccloud-trash-retry-<UUID>` and could not
+put it back returned success: the Moved banner showed while the hidden duplicate stayed in the
+source folder, reported only in the log. `main` collects the strand for the operation that ran the
+move (`ParkedSourceLeftovers`) and presents `SyncError.movedButOriginalParked`, naming the leftover.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s retry=%s sink=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileOperations.swift 2>/dev/null | grep -cF 'func retriedSourceCleanupTrash')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileOperations.swift 2>/dev/null | grep -cF 'final class ParkedSourceLeftovers')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads sink=1):
+# main, v5.x         retry=1 sink=0
+# v4.x, v3.x, v2.x   retry=0 sink=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The same silent strand (`retry=1 sink=0`) | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No park-and-retry in the move cleanup (`retry=0`) | CLOSED — does not apply |
