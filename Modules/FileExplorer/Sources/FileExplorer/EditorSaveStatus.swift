@@ -74,7 +74,16 @@ enum EditorSaveStatus: Equatable {
     }
 
     /// **What VoiceOver calls the dot — the header's and the rail's alike (ED10)**: a stop is "Not
-    /// saving", anything else lit is "Not saved yet". The rail said "Unsaved" for both, so a stopped
-    /// autosave read there as the two seconds of an ordinary keystroke.
-    var dotName: String { isWarning ? "Not saving" : "Not saved yet" }
+    /// saving", the ordinary pending write "Not saved yet". The rail said "Unsaved" for both, so a
+    /// stopped autosave read there as the two seconds of an ordinary keystroke.
+    ///
+    /// **A held file says what its header's word says** (EP3) — "unsaved — ⌘S", which is to say
+    /// nothing is coming to write it. "Not saved yet" promised an autosave that is off for it.
+    var dotName: String {
+        switch self {
+        case .stopped: return "Not saving"
+        case .heldUnsaved: return "Unsaved — \(AppChord.saveDocument.display) saves it"
+        case .unsaved, .saved, .readOnly: return "Not saved yet"
+        }
+    }
 }

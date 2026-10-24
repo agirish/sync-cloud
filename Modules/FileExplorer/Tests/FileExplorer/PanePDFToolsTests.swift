@@ -434,7 +434,8 @@ private struct PDFToolDelegate: FileActionDelegate {
 
     /// **A batch's refusal reads in Edit's words** — a restricted file's Rotate said the toolkit's
     /// "Password Protect → Remove password", a PDF Utils menu SyncCloud does not have. It is now
-    /// skipped before the toolkit runs, with a reason of its own (PD3).
+    /// skipped before the toolkit runs, with a reason of its own (PD3), and the way past it: Remove
+    /// Password writes a copy without the restrictions.
     @Test func aBatchRefusalIsInEditsWords() async throws {
         let restricted = path("Statement.pdf")
         PDFFixtures.writeRestricted(restricted)
@@ -443,7 +444,8 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(batch.files[0].status == .skipped(.restrictedByOwner), "\(batch.files[0].status)")
         let detail = batch.banner?.detail ?? ""
         #expect(!detail.contains("Password Protect"), "the batch sent the reader to PDF Utils: \(detail)")
-        #expect(detail == "“Statement.pdf” — its owner doesn’t allow changing its pages", "\(detail)")
+        #expect(detail == "“Statement.pdf” — its owner doesn’t allow changing its pages\n"
+                + "PDF Tools ▸ Remove Password… writes a copy without the restrictions.", "\(detail)")
     }
 
     /// **N copies, N originals untouched, one parse at a time** — each file its own lane turn.

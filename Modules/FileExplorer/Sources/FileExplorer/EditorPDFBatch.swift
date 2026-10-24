@@ -438,6 +438,10 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
     /// **Which files were skipped or failed, and why** — "“Scan 3.pdf” — locked with a password", one
     /// per line, in the batch's order: the rows of the sheet that closed, for what went wrong. The
     /// files Cancel never reached are not named; the summary counts them as "not done".
+    ///
+    /// **A file skipped for its owner's restrictions ends the reasons with the way past them** —
+    /// Remove Password writes a copy without them, the step the single file's refusal names
+    /// (``EditorPDFToolEngine/liftRestrictionsStep``). Once, however many such files there are.
     static func reasons(_ files: [(name: String, status: Status)]) -> String? {
         let lines = files.compactMap { file -> String? in
             switch file.status {
@@ -450,7 +454,9 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         guard !lines.isEmpty else { return nil }
         let shown = lines.prefix(reasonsShown)
         let more = lines.count - shown.count
-        return (shown + (more > 0 ? ["and \(more) more"] : [])).joined(separator: "\n")
+        let restricted = files.contains { $0.status == .skipped(.restrictedByOwner) }
+        return (shown + (more > 0 ? ["and \(more) more"] : [])
+                + (restricted ? [EditorPDFToolEngine.liftRestrictionsStep] : [])).joined(separator: "\n")
     }
 }
 

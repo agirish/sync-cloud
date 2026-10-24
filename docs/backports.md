@@ -9076,23 +9076,29 @@ Seven Edit defects from the v6.1 review (ED2, ED3, ED4, ED5, ED10, PD3, PD6).
 
 ```sh
 F=Modules/FileExplorer/Sources/FileExplorer
-for l in main v5.x v4.x v3.x v2.x; do printf '%-5s statusFacts=%s foldMenu=%s barWords=%s linkColor=%s railUnsaved=%s batch=%s palette=%s\n' $l \
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s statusFacts=%s foldMenu=%s barWords=%s linkColor=%s railUnsaved=%s batch=%s palette=%s spokenNames=%s\n' $l \
   "$(git show origin/$l:$F/EditorStatusLine.swift 2>/dev/null | grep -c 'let facts: EditorDocumentFacts$')" \
   "$(git show origin/$l:$F/EditorFormatBar.swift 2>/dev/null | grep -c 'private func foldMenu')" \
   "$(git show origin/$l:$F/EditorFormatBar.swift 2>/dev/null | grep -c 'static func word(_ verb')" \
-  "$(git show origin/$l:$F/PreviewEditSession.swift 2>/dev/null | grep -c 'NSColor.linkColor')" \
+  "$(git show origin/$l:$F/PreviewEditSession.swift 2>/dev/null | grep -c 'value: NSColor.linkColor')" \
   "$(git show origin/$l:$F/EditorFileRailView.swift 2>/dev/null | grep -c 'accessibilityLabel("Unsaved")')" \
   "$(git ls-tree -r --name-only origin/$l -- $F/EditorPDFBatch.swift | wc -l | tr -d ' ')" \
-  "$(git ls-tree -r --name-only origin/$l -- $F/EditorPDFFillPalette.swift | wc -l | tr -d ' ')"; done
+  "$(git ls-tree -r --name-only origin/$l -- $F/EditorPDFFillPalette.swift | wc -l | tr -d ' ')" \
+  "$(git grep -l 'enum EditorSpokenNames' origin/$l -- $F 2>/dev/null | wc -l | tr -d ' ')"; done
+# statusFacts, linkColor and railUnsaved are the defects; the rest say what a line has to carry them.
+# linkColor reads the code that colours a link, not the doc comment that still names NSColor.linkColor.
 # measured 2026-10-23, against origin, before this landed:
-# main               statusFacts=1 foldMenu=1 barWords=1 linkColor=1 railUnsaved=1 batch=1 palette=1
-# v5.x               statusFacts=1 foldMenu=1 barWords=1 linkColor=1 railUnsaved=1 batch=0 palette=0
+# main               statusFacts=1 foldMenu=1 barWords=1 linkColor=1 railUnsaved=1 batch=1 palette=1 spokenNames=1
+# v5.x               statusFacts=1 foldMenu=1 barWords=1 linkColor=1 railUnsaved=1 batch=0 palette=0 spokenNames=0
 # v4.x, v3.x, v2.x   all 0 — no Edit workspace
+# measured 2026-10-23, against origin, after it landed (main 6bfdee166):
+# main               statusFacts=0 foldMenu=1 barWords=1 linkColor=0 railUnsaved=0 batch=1 palette=1 spokenNames=1
+# v5.x, v4.x, v3.x, v2.x   as before
 ```
 
 | Line | Carries | Status |
 |---|---|---|
-| `v5.x` | The five text and Markdown defects, the same code; no PDF batch or Fill & Sign palette | RECORDED — not owed |
+| `v5.x` | The five text and Markdown defects; the same code for four, but no `EditorSpokenNames` (`spokenNames=0`), so the Voice Control words would bring that type with them. No PDF batch or Fill & Sign palette | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Edit workspace | CLOSED — does not apply |
 
 ---

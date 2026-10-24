@@ -323,6 +323,13 @@ public struct EditorWorkspaceView: View {
     @State private var caretOffset: Int = 0
     /// The caret in the terms the status line shows, derived from ``caretOffset``.
     @State private var caret: EditorCaret = EditorCaret(line: 1, column: 1)
+    /// The file ``caret`` was derived for — the status line draws "Line, Col" only beside that file
+    /// (EP4), as it does the counts beside ``factsPath``.
+    @State private var caretPath: String?
+    /// Which count, and which caret, of a file just opened skip the debounce — see
+    /// ``EditorFirstCountGate``. Held, not observed.
+    @State private var factsGate = EditorFirstCountGate()
+    @State private var caretGate = EditorFirstCountGate()
     /// The open document's headings, re-derived beside the blocks they come from.
     @State private var outline: [MarkdownOutlineEntry] = []
     /// Which parse is on screen — see ``EditorParseLanding``. Held, not observed: counting a parse
@@ -790,7 +797,8 @@ public struct EditorWorkspaceView: View {
             EditorStatusLine(facts: EditorStatusLine.shownFacts(facts, countedFor: factsPath, open: document.path),
                              caret: caret, fileSize: document.sizeCaption,
                              headings: statusHeadings, hint: statusHint,
-                             selection: selectionFacts, goToLine: statusGoToLine, notice: diskNotice)
+                             selection: selectionFacts, goToLine: statusGoToLine, notice: diskNotice,
+                             heldFacts: facts, caretIsCurrent: caretPath == document.path)
                 // Compared on what it draws, the closures left out — see `EditorStatusLine.==`.
                 .equatable()
         }
@@ -806,7 +814,9 @@ public struct EditorWorkspaceView: View {
     /// The status line's door to Go to Line, or `nil` in Preview.
     private var statusGoToLine: EditorStatusGoToLine? {
         guard offersGoToLine else { return nil }
-        return EditorStatusGoToLine(isPresented: $goToLineShown, lineCount: max(facts.lines, 1),
+        // This file's count, or none while the one on hand is the last file's (EP7).
+        let lines = EditorStatusLine.shownFacts(facts, countedFor: factsPath, open: document.path).map { max($0.lines, 1) }
+        return EditorStatusGoToLine(isPresented: $goToLineShown, lineCount: lines,
                                     accent: accent, onGo: goToLine)
     }
 
@@ -1596,9 +1606,17 @@ public struct EditorWorkspaceView: View {
                 // rebuilt on every keystroke, where it is not.
                 caretOffset = EditorCaretAnchors.clamped(
                     document.caretAnchors.offset(for: document.path) ?? 0, in: document.text)
-                // **And Line/Col with it, now** (ED2): the caret's own task waits out its debounce,
-                // and until it landed the line said the last file's caret beside this one's name.
-                caret = EditorCaret.at(utf16Offset: caretOffset, in: document.text)
+                // **The counts and Line/Col go with the file they were taken for** (ED2, EP4). A
+                // move keeps them: the same text under a new path (EP5). Otherwise they are the
+                // last file's, and the line holds their room undrawn until this file's land —
+                // never derived here, where Line/Col alone walks up to the whole new text.
+                if EditorStatusLine.keepsCounts(countedAt: factsVersion, textVersion: document.textVersion) {
+                    factsPath = document.path
+                    if caretPath != nil { caretPath = document.path }
+                } else {
+                    factsPath = nil
+                    caretPath = nil
+                }
                 // A new file arrives with a caret and no selection, and its own formatting: the
                 // last file's lit buttons must not stand over it for the debounce.
                 liveSelection.set(length: 0)
@@ -1727,9 +1745,12 @@ public struct EditorWorkspaceView: View {
             // version counter rather than the text, exactly as the parse above is — and NOT on the
             // caret, which changes far more often and would re-count the words on every arrow key.
             .task(id: EditorParseKey(version: document.textVersion, path: document.path)) {
-                // **Not for a file just opened**, whose counts are not on screen at all (ED2):
-                // nobody is typing, and the debounce would only hold them back.
-                if factsPath == document.path { try? await Task.sleep(for: .milliseconds(150)) }
+                // **Not for a file's first count**, whose counts are not on screen at all (ED2):
+                // nobody is typing, and the debounce would only hold them back. Only the first —
+                // see ``EditorFirstCountGate`` (EP6).
+                if !factsGate.skipsDebounce(open: document.path, countedFor: factsPath) {
+                    try? await Task.sleep(for: .milliseconds(150))
+                }
                 guard !Task.isCancelled else { return }
                 let source = document.text
                 let path = document.path
@@ -1752,15 +1773,20 @@ public struct EditorWorkspaceView: View {
             // changing moves it too, which is why the version is in here as well as the offset.
             .task(id: EditorCaretKey(version: document.textVersion, path: document.path,
                                      offset: caretOffset)) {
-                try? await Task.sleep(for: .milliseconds(120))
+                // A file's first caret starts at once, as its first count does (EP4, EP6).
+                if !caretGate.skipsDebounce(open: document.path, countedFor: caretPath) {
+                    try? await Task.sleep(for: .milliseconds(120))
+                }
                 guard !Task.isCancelled else { return }
                 let source = document.text
+                let path = document.path
                 let offset = caretOffset
                 let position = await Task.detached(priority: .userInitiated) {
                     EditorCaret.at(utf16Offset: offset, in: source)
                 }.value
                 guard !Task.isCancelled else { return }
                 caret = position
+                caretPath = path
             }
             // The selection's counts and the format bar's lit state — derived beside this view
             // rather than in it, so a drag's ticks re-render only what derives them.

@@ -18,8 +18,9 @@ import Design
 struct EditorStatusLine: View, Equatable {
 
     /// The buffer's counts, encoding and line endings — or `nil` while the ones counted are another
-    /// file's (ED2): the counts and the file's facts are left out until this file's arrive, and the
-    /// caret and the size, which are this file's already, stand alone. See ``shownFacts(_:countedFor:open:)``.
+    /// file's (ED2): the counts and the file's facts are not drawn until this file's arrive — their
+    /// room held by ``heldFacts`` — and the size, which is this file's already, stands alone. See
+    /// ``shownFacts(_:countedFor:open:)``.
     let facts: EditorDocumentFacts?
     let caret: EditorCaret
     /// The file's size on disk, already formatted, or `nil` when nothing has been read.
@@ -49,6 +50,14 @@ struct EditorStatusLine: View, Equatable {
     /// **What a change from elsewhere just did (TE59)** — "Reloaded — changed elsewhere" — in the
     /// same leading slot for a few seconds. The hint outranks it: that one has a control in it.
     var notice: String?
+    /// **The counts on hand while ``facts`` is `nil`** — the last file's, between a file switch and
+    /// this file's first count (EP5). Laid out and never drawn, so the segments hold their room and
+    /// the line does not shut and reopen on every switch; never read aloud either.
+    var heldFacts: EditorDocumentFacts?
+    /// **Whether ``caret`` is this file's** — `false` between a file switch and the caret's first
+    /// derivation for it (EP4). "Line, Col" then holds its room undrawn, rather than the main actor
+    /// walking up to the whole new text to fill it at once.
+    var caretIsCurrent = true
 
     @Environment(\.appFontScale) private var scale
     /// The drawn caret button's bounds in the line, for Go to Line's arrow (TE61).
@@ -70,7 +79,7 @@ struct EditorStatusLine: View, Equatable {
             && a.forcedRung == b.forcedRung && a.headings == b.headings && a.hint == b.hint
             && a.selection == b.selection && a.goToLine == b.goToLine
             && a.forcedDropsSelectionLines == b.forcedDropsSelectionLines
-            && a.notice == b.notice
+            && a.notice == b.notice && a.heldFacts == b.heldFacts && a.caretIsCurrent == b.caretIsCurrent
     }
 
     /// **The notice gives way while Go to Line's field is up.** Both want the leading slot, and the
@@ -189,8 +198,8 @@ struct EditorStatusLine: View, Equatable {
             // Combined, the caret's button included: the one element then takes the button's
             // action, so VoiceOver's press is Go to Line wherever the mouse's click is (TE61).
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(Self.accessibilityLabel(facts: facts, caret: caret, fileSize: fileSize,
-                                                        selection: selection))
+            .accessibilityLabel(Self.accessibilityLabel(facts: facts, caret: caretIsCurrent ? caret : nil,
+                                                        fileSize: fileSize, selection: selection))
             .accessibilityHint(goToLine == nil ? "" : "Goes to a line")
     }
 
@@ -229,17 +238,20 @@ struct EditorStatusLine: View, Equatable {
     }
 
     private func strip(_ rung: Rung, lines: Bool) -> some View {
-        HStack(spacing: Self.spacing) {
-            ForEach(Self.countCaptions(facts: facts, selection: selection, rung: rung, lines: lines),
-                    id: \.self) { Text($0) }
+        // This file's counts, or the last file's held undrawn in their place (EP5).
+        let counts = facts ?? heldFacts
+        let drawn: Double = facts == nil ? 0 : 1
+        return HStack(spacing: Self.spacing) {
+            ForEach(Self.countCaptions(facts: counts, selection: selection, rung: rung, lines: lines),
+                    id: \.self) { Text($0).opacity(drawn) }
             caretSegment
             Spacer(minLength: 8)
             // The file's own facts, right-aligned and last: they are true of the file rather than
             // of what you are doing in it, and they change only when a different file is opened.
             if rung != .caret {
                 if let fileSize { Text(fileSize) }
-                if let encoding = facts?.encoding { Text(encoding) }
-                if let ending = facts?.lineEnding { Text(ending.rawValue) }
+                if let encoding = counts?.encoding { Text(encoding).opacity(drawn) }
+                if let ending = counts?.lineEnding { Text(ending.rawValue).opacity(drawn) }
             }
         }
         .fixedSize(horizontal: true, vertical: false)
@@ -277,6 +289,7 @@ struct EditorStatusLine: View, Equatable {
         if let goToLine {
             Button { goToLine.isPresented.wrappedValue = true } label: {
                 Text(Self.caretCaption(caret))
+                    .opacity(caretIsCurrent ? 1 : 0)
                     .padding(.horizontal, 4)
                     .contentShape(Rectangle())
             }
@@ -291,6 +304,7 @@ struct EditorStatusLine: View, Equatable {
             .help(EditorStatusGoToLine.help)
         } else {
             Text(Self.caretCaption(caret))
+                .opacity(caretIsCurrent ? 1 : 0)
         }
     }
 
@@ -303,10 +317,11 @@ struct EditorStatusLine: View, Equatable {
     /// One sentence for VoiceOver, because five separate labels in a row is five stops on the way
     /// to the text — and this strip is beside the thing a person came here to read. A selection is
     /// said whole, with its line count, whatever the rung on screen had room for.
-    static func accessibilityLabel(facts: EditorDocumentFacts?, caret: EditorCaret,
+    /// A `nil` caret is one not yet derived for this file, and is left out (EP4).
+    static func accessibilityLabel(facts: EditorDocumentFacts?, caret: EditorCaret?,
                                    fileSize: String? = nil, selection: EditorSelectionFacts? = nil) -> String {
         var parts = countCaptions(facts: facts, selection: selection, rung: .full, lines: true)
-        parts.append(caretCaption(caret))
+        if let caret { parts.append(caretCaption(caret)) }
         if let fileSize { parts.append(fileSize) }
         if let encoding = facts?.encoding { parts.append(encoding) }
         if let ending = facts?.lineEnding { parts.append("\(ending.rawValue) line endings") }
@@ -321,6 +336,38 @@ struct EditorStatusLine: View, Equatable {
     static func shownFacts(_ facts: EditorDocumentFacts, countedFor counted: String?,
                            open: String?) -> EditorDocumentFacts? {
         counted != nil && counted == open ? facts : nil
+    }
+
+    /// **Whether a change of path keeps the counts and the caret: when the text is the one they were
+    /// taken from** (EP5). A rename, or a move made elsewhere, changes the path over the same buffer
+    /// (`EditorDocument.retarget`), and hiding this file's own counts until a recount landed shut and
+    /// reopened the line for nothing. Opening a file always writes the buffer, which moves its version.
+    static func keepsCounts(countedAt version: Int?, textVersion: Int) -> Bool {
+        version == textVersion
+    }
+}
+
+/// **Which derivation of a file skips the debounce: its first, and only its first** (EP6).
+///
+/// A file just opened has nothing of its own on the status line, and nobody is typing in it, so its
+/// first count starts at once. Every one after waits out the debounce — even while that first one
+/// has not landed: a keystroke in the meantime restarts the task, and the count it started runs on
+/// detached (a detached task does not cancel), so a count per keystroke piled up on a large file.
+///
+/// Held by the workspace as `@State` and **not observed**: asking it is a write, and a write the
+/// view watched would re-render it from inside its own task.
+@MainActor
+final class EditorFirstCountGate {
+    /// The file the undebounced derivation was last started for.
+    private var startedFor: String?
+
+    /// Whether this derivation, for `open`, may skip the debounce — the first started for it since
+    /// another file's, while what is on hand was taken for some other file (`countedFor`). Recorded
+    /// as it is asked, so the next one waits.
+    func skipsDebounce(open: String?, countedFor: String?) -> Bool {
+        guard let open, open != countedFor, open != startedFor else { return false }
+        startedFor = open
+        return true
     }
 }
 

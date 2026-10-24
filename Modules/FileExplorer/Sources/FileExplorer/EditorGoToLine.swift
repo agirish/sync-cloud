@@ -84,8 +84,8 @@ enum EditorGoToLine {
 /// Preview, which has no source lines on screen — and the caret is words again.
 struct EditorStatusGoToLine: Equatable {
     var isPresented: Binding<Bool>
-    /// The document's line count, for the field's hint.
-    var lineCount: Int
+    /// The document's line count, for the field's hint — `nil` until this file's lines are counted.
+    var lineCount: Int?
     var accent: Color
     var onGo: (EditorGoToLine.Target) -> Void
 
@@ -100,7 +100,7 @@ struct EditorStatusGoToLine: Equatable {
 
 /// The popover's field: a line, or `line:column`; Return goes, Escape closes.
 struct EditorGoToLineField: View {
-    let lineCount: Int
+    let lineCount: Int?
     let onGo: (EditorGoToLine.Target) -> Void
     let onCancel: () -> Void
 
@@ -118,13 +118,22 @@ struct EditorGoToLineField: View {
                     .onSubmit(submit)
                     .accessibilityHint("A line number, or a line and a column with a colon between")
             }
-            Text(lineCount == 1 ? "This file has 1 line." : "This file has \(lineCount.formatted(.number)) lines.")
-                .foregroundStyle(.secondary)
+            if let caption = Self.lineCountCaption(lineCount) {
+                Text(caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .scaledFont(.system(size: 11))
         .padding(12)
         .onAppear { isFocused = true }
         .onExitCommand(perform: onCancel)
+    }
+
+    /// "This file has 400 lines." — or nothing while this file's lines are not counted yet (EP7):
+    /// the count on hand then is the last file's.
+    static func lineCountCaption(_ lineCount: Int?) -> String? {
+        guard let lineCount else { return nil }
+        return lineCount == 1 ? "This file has 1 line." : "This file has \(lineCount.formatted(.number)) lines."
     }
 
     private func submit() {

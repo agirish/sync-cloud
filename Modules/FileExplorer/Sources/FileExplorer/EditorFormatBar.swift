@@ -738,6 +738,17 @@ struct EditorFormatBar: View, Equatable {
         }
         .help("Paragraph style")
         .accessibilityLabel("Paragraph style: \(Self.headingTitle(state.heading, worded: true))")
+        .accessibilityInputLabels(Self.headingInputLabels(state.heading, worded: worded))
+    }
+
+    /// **What Voice Control answers to on the Body menu** (EP8): the word on screen — "Body",
+    /// "Heading 2", or "H2" where the bar has no room for words — its spelled-out form, and the menu's
+    /// name. A mark that cannot be said ("¶", "–") is not offered.
+    static func headingInputLabels(_ heading: MarkdownEdits.HeadingLevel, worded: Bool) -> [String] {
+        let shown = headingTitle(heading, worded: worded)
+        var names = EditorSpokenNames.names(word: headingTitle(heading, worded: true), label: "Paragraph style")
+        if shown != names[0], shown.first?.isLetter == true { names.insert(shown, at: 0) }
+        return names
     }
 
     /// **The Table capsule** (TE73): there while the caret is in a table, gone when it leaves. Row
@@ -829,11 +840,7 @@ struct EditorFormatBar: View, Equatable {
         let hidden = marks + parts.flatMap(Self.verbs(of:))
         let lit = hidden.contains { state.lit.contains($0) }
         return Menu {
-            ForEach(marks, id: \.self) { item($0) }
-            if !marks.isEmpty { Divider() }
-            ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
-                Menu(Self.title(part)) { items(of: part) }
-            }
+            mergedItems(rung)
         } label: {
             label(Self.overflowSymbol, word: nil, lit: lit)
         }
@@ -844,6 +851,27 @@ struct EditorFormatBar: View, Equatable {
         .help("More formatting")
         .accessibilityLabel("More formatting")
         .accessibilityValue(Self.appliedValue(hidden, lit: state.lit))
+    }
+
+    /// **The » menu's items**: the marks when they have folded, then a submenu per folded group —
+    /// or, where the folded button's own rule greys it (``isFoldOffered(_:in:)``), the group's name
+    /// as an item nothing can choose, so Lists in a table is not a submenu of greyed items (EP2).
+    ///
+    /// **An item, not a disabled submenu**: `.disabled` on a SwiftUI `Menu` inside a menu greys only
+    /// its items, and AppKit still draws the submenu live (measured 2026-10-23 through `NSHostingMenu`).
+    @ViewBuilder
+    func mergedItems(_ rung: Rung) -> some View {
+        let marks = rung.marksFolded ? (Self.groups.first ?? []) : []
+        ForEach(marks, id: \.self) { item($0) }
+        if !marks.isEmpty { Divider() }
+        ForEach(Array(Self.foldedParts(rung, inTable: state.isInTable).enumerated()), id: \.offset) { _, part in
+            if Self.isFoldOffered(part, in: state) {
+                Menu(Self.title(part)) { items(of: part) }
+            } else {
+                Button(Self.title(part)) {}
+                    .disabled(true)
+            }
+        }
     }
 
     /// A folded part's items, in its order: ticked toggles for what can be lit, plain items for the

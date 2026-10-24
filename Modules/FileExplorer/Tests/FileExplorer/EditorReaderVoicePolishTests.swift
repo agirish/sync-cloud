@@ -46,17 +46,122 @@ import FileExplorerTestSupport
                 == "412 words, 2,301 characters, Line 3, Col 7, 4 KB, UTF-16, CRLF line endings")
     }
 
-    /// **The workspace gates the counts on the file, and seeds Line/Col as the file arrives** — the
-    /// call site of the rule above, the path the count was taken on, and the caret set beside the
-    /// offset it is derived from rather than a debounce later.
-    @Test func theWorkspaceGatesTheCountsOnTheFileAndSeedsTheCaret() throws {
+    /// **The workspace gates the counts and Line/Col on the file** — the call site of the rule
+    /// above, the path each was taken on, and no caret walked on the main actor as a file arrives
+    /// (EP4): a 4 MB file with the caret at its end walked all of it there.
+    @Test func theWorkspaceGatesTheCountsAndTheCaretOnTheFile() throws {
         let code = try Self.code("EditorWorkspaceView.swift")
         #expect(code.contains("EditorStatusLine(facts: EditorStatusLine.shownFacts(facts, countedFor: factsPath, open: document.path),"),
                 "the status line is handed counts without asking whose they are")
+        #expect(code.contains("notice: diskNotice, heldFacts: facts, caretIsCurrent: caretPath == document.path)"),
+                "the status line draws Line/Col without asking whose caret it is")
         #expect(code.contains("let path = document.path let version = document.textVersion"))
         #expect(code.contains("factsVersion = version factsPath = path"), "the count does not record the file it was taken on")
-        #expect(code.contains("in: document.text) caret = EditorCaret.at(utf16Offset: caretOffset, in: document.text)"),
-                "Line/Col is not seeded where the arriving file's caret offset is")
+        #expect(code.contains("caret = position caretPath = path"), "the caret does not record the file it was taken on")
+        let start = try #require(code.range(of: ".onChange(of: document.path, initial: true)"))
+        let end = try #require(code.range(of: "liveSelection.set(length: 0)", range: start.upperBound..<code.endIndex))
+        let arrival = code[start.upperBound..<end.lowerBound]
+        #expect(arrival.contains("caretOffset = EditorCaretAnchors.clamped("), "the premise: this is the arrival")
+        #expect(!arrival.contains("EditorCaret.at("), "a file's arrival walks its text for Line/Col on the main actor")
+    }
+
+    // MARK: EP4–EP7 — the line holds still while a new file is counted
+
+    /// **A move keeps the counts; an open does not** (EP5) — the same text under a new path is the
+    /// same counts, and an open always writes the buffer, moving its version.
+    @Test func aMoveKeepsTheCountsAndAnOpenDoesNot() throws {
+        #expect(EditorStatusLine.keepsCounts(countedAt: 7, textVersion: 7))
+        #expect(!EditorStatusLine.keepsCounts(countedAt: 7, textVersion: 8))
+        #expect(!EditorStatusLine.keepsCounts(countedAt: nil, textVersion: 0))
+        let code = try Self.code("EditorWorkspaceView.swift")
+        #expect(code.contains("if EditorStatusLine.keepsCounts(countedAt: factsVersion, textVersion: document.textVersion) { factsPath = document.path if caretPath != nil { caretPath = document.path } } else { factsPath = nil caretPath = nil }"),
+                "a file's arrival does not keep a moved file's counts, or does not drop another file's")
+        // The premise: an open writes the buffer even with the same text, and a move does not.
+        let document = EditorDocument()
+        document.open(.readOnly(text: "same", reason: "test"), at: "/n/A.md")
+        let opened = document.textVersion
+        document.open(.readOnly(text: "same", reason: "test"), at: "/n/B.md")
+        #expect(document.textVersion != opened, "an open of the same text left the version where it was")
+        let reopened = document.textVersion
+        document.retarget(to: "/n/C.md")
+        #expect(document.textVersion == reopened, "a move rewrote the buffer")
+    }
+
+    /// **Only a file's first count skips the debounce** (EP6) — a keystroke before it lands waits
+    /// its turn, as does every count once it has; the next file's first skips it again, and so does
+    /// a return to a file whose count never landed.
+    @Test func onlyAFilesFirstCountSkipsTheDebounce() throws {
+        let gate = EditorFirstCountGate()
+        #expect(gate.skipsDebounce(open: "/n/A.md", countedFor: nil), "a file's first count waits")
+        #expect(!gate.skipsDebounce(open: "/n/A.md", countedFor: nil), "a keystroke before the first count landed skipped the debounce")
+        #expect(!gate.skipsDebounce(open: "/n/A.md", countedFor: "/n/A.md"))
+        #expect(gate.skipsDebounce(open: "/n/B.md", countedFor: "/n/A.md"))
+        #expect(gate.skipsDebounce(open: "/n/A.md", countedFor: nil), "back to a file counted for nothing")
+        #expect(!gate.skipsDebounce(open: nil, countedFor: nil))
+        let code: String? = try Self.code("EditorWorkspaceView.swift")
+        #expect(code?.contains("if !factsGate.skipsDebounce(open: document.path, countedFor: factsPath) { try? await Task.sleep(for: .milliseconds(150)) }") == true,
+                "the count's debounce is not asked of the gate")
+        #expect(code?.contains("if !caretGate.skipsDebounce(open: document.path, countedFor: caretPath) { try? await Task.sleep(for: .milliseconds(120)) }") == true,
+                "the caret's debounce is not asked of the gate")
+    }
+
+    /// **Go to Line says this file's line count, or none** (EP7) — never the last file's.
+    @Test func goToLineSaysOnlyThisFilesLineCount() throws {
+        #expect(EditorGoToLineField.lineCountCaption(nil) == nil)
+        #expect(EditorGoToLineField.lineCountCaption(1) == "This file has 1 line.")
+        #expect(EditorGoToLineField.lineCountCaption(4_000) == "This file has 4,000 lines.")
+        let code = try Self.code("EditorWorkspaceView.swift")
+        #expect(code.contains("let lines = EditorStatusLine.shownFacts(facts, countedFor: factsPath, open: document.path).map { max($0.lines, 1) } return EditorStatusGoToLine(isPresented: $goToLineShown, lineCount: lines,"),
+                "Go to Line counts the last file's lines")
+    }
+
+    /// **Rendered and read back: while a new file is counted, the line holds still** (EP5). The
+    /// counts and the caret hold their room undrawn, so what IS drawn — the caret once it lands,
+    /// the size — stands exactly where it stood, and nothing of the last file is drawn.
+    @Test func theLineHoldsStillWhileANewFileIsCounted() throws {
+        let caret = EditorCaret(line: 48, column: 12)
+        let counted = try Self.inkColumns(EditorStatusLine(facts: Self.counted, caret: caret, fileSize: "4 KB",
+                                                           forcedRung: .full), name: "counted")
+        let counting = try Self.inkColumns(EditorStatusLine(facts: nil, caret: caret, fileSize: "4 KB", forcedRung: .full,
+                                                            heldFacts: Self.counted), name: "counting")
+        let noCaret = try Self.inkColumns(EditorStatusLine(facts: nil, caret: caret, fileSize: "4 KB", forcedRung: .full,
+                                                           heldFacts: Self.counted, caretIsCurrent: false), name: "no-caret")
+        print("[EP5] ink columns: counted \(counted.count) · counting \(counting.count) · no caret \(noCaret.count)")
+        #expect(!counting.isEmpty && !noCaret.isEmpty, "the size is not drawn")
+        let moved = counting.subtracting(counted).sorted().prefix(8)
+        #expect(counting.isSubset(of: counted), "the caret or the size moved while the file was counted: \(moved)")
+        let firstCount = try #require(counted.min())
+        #expect(!counting.contains(firstCount), "the last file's word count is drawn")
+        #expect(counting.count < counted.count * 3 / 4, "the last file's counts and facts are drawn")
+        #expect(noCaret.isSubset(of: counting) && noCaret.count < counting.count, "the last file's caret is drawn")
+        // Not read aloud either: the caret and the counts said only once they are this file's.
+        #expect(EditorStatusLine.accessibilityLabel(facts: nil, caret: nil, fileSize: "4 KB") == "4 KB")
+    }
+
+    /// The columns of `line` that carry ink, drawn at 1× in a window — saved beside the test's run
+    /// for a look.
+    private static func inkColumns(_ line: EditorStatusLine, name: String) throws -> Set<Int> {
+        let host = NSHostingView(rootView: line.frame(width: 620))
+        host.frame = NSRect(x: 0, y: 0, width: 620, height: 30)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .aqua)
+        window.backgroundColor = .white
+        window.contentView = host
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        let png = NSTemporaryDirectory() + "ep5-status-line-\(name).png"
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: png))
+        print("[EP5] \(name): \(png)")
+        var columns: Set<Int> = []
+        for x in 0..<rep.pixelsWide { for y in 0..<rep.pixelsHigh {
+            guard let c = rep.colorAt(x: x, y: y), c.alphaComponent > 0.1 else { continue }
+            if (c.redComponent + c.greenComponent + c.blueComponent) / 3 < 0.8 { columns.insert(x); break }
+        } }
+        return columns
     }
 
     // MARK: ED3 — a folded group with nothing to offer
@@ -87,6 +192,27 @@ import FileExplorerTestSupport
         #expect(code.contains("ForEach(Self.itemVerbs(of: part), id: \\.self) { item($0) }"))
     }
 
+    /// **Inside the merged », Lists greys in a table too** (EP2) — read off the » menu's own items as
+    /// AppKit builds them. It opened a submenu of greyed items there; the other groups stay live,
+    /// and outside a table Lists is live again.
+    @Test func theMergedMenuGreysAGroupWithNothingToOffer() throws {
+        let rung = EditorFormatBar.Rung(headingWorded: false, folded: Set(EditorFormatBar.foldableGroups),
+                                        merged: true, marksFolded: true)
+        // Each group's line: "Lists ▸" for a submenu AppKit draws live, "(Lists)" for one greyed.
+        func groups(_ state: MarkupFormatState) -> [String] {
+            let bar = EditorFormatBar(state: state, accent: .blue, onVerb: { _ in })
+            let menu = NSHostingMenu(rootView: bar.mergedItems(rung))
+            menu.update()
+            let titles = Set(EditorFormatBar.foldableGroups.map(EditorFormatBar.title))
+            return menu.items.filter { titles.contains($0.title) }.map { item in
+                item.submenu != nil && item.isEnabled ? "\(item.title) ▸" : item.isEnabled ? item.title : "(\(item.title))"
+            }
+        }
+        #expect(groups(EditorFormatBarTests.inTable) == ["(Lists)", "Code and Quote ▸", "Insert ▸"],
+                "folded Lists stays live inside the merged menu in a table: \(groups(EditorFormatBarTests.inTable))")
+        #expect(groups(.none) == ["Lists ▸", "Code and Quote ▸", "Insert ▸"], "\(groups(.none))")
+    }
+
     // MARK: ED4 — Voice Control answers to the bar's words
 
     /// **"Click Bullets" finds Bulleted List** — the word on screen first, the full name kept.
@@ -103,6 +229,19 @@ import FileExplorerTestSupport
                 "the bar's buttons do not answer to their words")
         #expect(code.contains(".accessibilityLabel(verb.title) .accessibilityInputLabels(EditorSpokenNames.names(word: Self.word(Self.tableMenuStandIn), label: verb.title))"),
                 "the Table button does not answer to its word")
+    }
+
+    /// **"Click Body" and "Click Heading 2" find the style menu** (EP8) — the word it shows, and "H2"
+    /// where it shows that; "¶" is no word to say.
+    @Test func theStyleMenuAnswersToItsWord() throws {
+        typealias Bar = EditorFormatBar
+        #expect(Bar.headingInputLabels(.body, worded: true) == ["Body", "Paragraph style"])
+        #expect(Bar.headingInputLabels(.level(2), worded: true) == ["Heading 2", "Paragraph style"])
+        #expect(Bar.headingInputLabels(.level(2), worded: false) == ["H2", "Heading 2", "Paragraph style"])
+        #expect(Bar.headingInputLabels(.body, worded: false) == ["Body", "Paragraph style"])
+        let code = try Self.code("EditorFormatBar.swift")
+        #expect(code.contains(".accessibilityLabel(\"Paragraph style: \\(Self.headingTitle(state.heading, worded: true))\") .accessibilityInputLabels(Self.headingInputLabels(state.heading, worded: worded))"),
+                "the style menu does not answer to its word")
     }
 
     // MARK: ED5 — editable Preview's links wear the window's hue
@@ -175,7 +314,9 @@ import FileExplorerTestSupport
     @Test func theDotsNameTellsAStopFromAPendingWrite() throws {
         #expect(EditorSaveStatus.stopped("couldn’t write").dotName == "Not saving")
         #expect(EditorSaveStatus.unsaved.dotName == "Not saved yet")
-        #expect(EditorSaveStatus.heldUnsaved.dotName == "Not saved yet")
+        // A held file waits for ⌘S, as its header's "unsaved — ⌘S" says (EP3).
+        #expect(EditorSaveStatus.heldUnsaved.word == "unsaved — ⌘S", "the premise: the header's word")
+        #expect(EditorSaveStatus.heldUnsaved.dotName == "Unsaved — ⌘S saves it")
         let rail = try Self.code("EditorFileRailView.swift")
         #expect(rail.contains(".accessibilityHidden(dot == nil) .accessibilityLabel(documentStatus?.dotName ?? \"\")"),
                 "the rail's dot does not use the header's name")
@@ -229,8 +370,23 @@ import FileExplorerTestSupport
         }
         #expect(batch.banner?.message == "Saved 1 rotated copy · 1 skipped", "\(String(describing: batch.banner?.message))")
         let detail = try #require(batch.banner?.detail)
-        #expect(detail == "“Scan.pdf” — its owner doesn’t allow changing its pages", "\(detail)")
+        #expect(detail == "“Scan.pdf” — its owner doesn’t allow changing its pages\n"
+                + EditorPDFToolEngine.liftRestrictionsStep, "\(detail)")
         #expect(detail.components(separatedBy: "Scan.pdf").count == 2, "the reason names the file twice: \(detail)")
+    }
+
+    /// **The way past the restrictions is said once, last** — however many files they stopped, and
+    /// only when they stopped one: a locked file's line carries no such step.
+    @Test func theRemovePasswordStepEndsTheReasonsOnce() throws {
+        let step = EditorPDFToolEngine.liftRestrictionsStep
+        let lines = try #require(EditorPDFBatch.reasons([("A.pdf", .skipped(.restrictedByOwner)),
+                                                         ("B.pdf", .skipped(.lockedToOpen)),
+                                                         ("C.pdf", .skipped(.restrictedByOwner))]))
+            .components(separatedBy: "\n")
+        #expect(lines == ["“A.pdf” — its owner doesn’t allow changing its pages",
+                          "“B.pdf” — locked with a password",
+                          "“C.pdf” — its owner doesn’t allow changing its pages", step], "\(lines)")
+        #expect(EditorPDFBatch.reasons([("B.pdf", .skipped(.lockedToOpen))]) == "“B.pdf” — locked with a password")
     }
 
     /// **Decided in the lane, before the toolkit runs** — and only for the tools that change the
