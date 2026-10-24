@@ -513,6 +513,12 @@ public final class EditorPDFTools: ObservableObject {
             return .failed(busy)
         }
         let generation = self.generation
+        // **The revision this run was asked about, fixed once (FR54).** `tool` and its page numbers
+        // were settled against it, here, before any question. A reload that lands while the
+        // form-loss question is up — or while the lane is awaited — moves ``shownStamp`` on to the
+        // NEW revision, so a re-check against the live value passed the new file, and Extract or a
+        // pending reorder ran on it with the old page numbers. Every check below compares with this.
+        let shownStamp = self.shownStamp
         // **The file itself, through any symlink**: the toolkit reads the source's size with
         // `resourceValues(.fileSizeKey)`, which does not follow one — so Compress on a symlinked
         // PDF measured the LINK and never ran. The copy is still named beside `path`, the folder

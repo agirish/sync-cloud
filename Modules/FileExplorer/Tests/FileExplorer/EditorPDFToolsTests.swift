@@ -299,6 +299,29 @@ extension PDFFixtures {
         #expect(held.tools.shownStamp == EditorFileStore.stamp(ofPath: locked), "the locked load did not set what it read")
     }
 
+    /// **A reload that lands while the form-loss question is up does not let the run through
+    /// (FR54).** The tool and its page numbers were fixed against the revision the run started on;
+    /// the reload moves `shownStamp` on to the new one, so the re-check after the question must
+    /// compare with the stamp the run started from, not the live one — or Extract writes the new
+    /// file's pages by the old numbering.
+    @Test func aReloadDuringTheFormQuestionDoesNotPassTheChangedCheck() async throws {
+        let form = path("Form.pdf")
+        try PDFFixtures.writeAcroForm(form, pages: 3)
+        let tools = tools(form)
+        tools.shownStamp = EditorFileStore.stamp(ofPath: form)
+        var asked = 0
+        tools.confirm = { _, _ in
+            asked += 1
+            // The file changes and the reader's reload lands, all while the question is up.
+            try? PDFFixtures.writeAcroForm(form, pages: 4)
+            tools.shownStamp = EditorFileStore.stamp(ofPath: form)
+            return true
+        }
+        #expect(await tools.run(.extract([2])) == .failed(EditorPDFTools.changedReason("Form.pdf")))
+        #expect(asked == 1, "the form question was not asked — the fixture tests nothing")
+        #expect(!files().contains { $0.hasPrefix("Form (") }, "a copy was written from the reloaded revision: \(files())")
+    }
+
     /// **A file replaced while the run waits for its lane turn writes nothing either.** The checks
     /// above are made before the turn, and a duplicate scan or a pane's Compress can hold the lane
     /// long after them. The file is replaced here as the run's turn begins: Rotate turned the new

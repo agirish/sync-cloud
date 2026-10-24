@@ -9901,3 +9901,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s token=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same late, token-less pairing (`token=0`) | RECORDED — not owed |
+
+---
+
+## A reload during the form question does not pass the changed check (FR54) — main only
+
+A PDF tool's run fixed the tool and its page numbers before the form-loss question, then re-checked
+the file against the live `shownStamp` — which a reload landing while the question was up had
+already moved to the new revision, so Extract or a pending reorder ran on it with the old page
+numbers. `main` captures the stamp once when the run starts and checks against that.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s run=%s captured=%s\n' $l \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorPDFTools.swift 2>/dev/null | grep -cF 'func run(_ asked: EditorPDFTool')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorPDFTools.swift 2>/dev/null | grep -cF 'let shownStamp = self.shownStamp')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads run=1 captured=1):
+# main                    run=1 captured=0
+# v5.x, v4.x, v3.x, v2.x  run=0 captured=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF tools in Edit (`run=0`) | CLOSED — does not apply |
