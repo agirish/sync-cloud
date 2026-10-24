@@ -127,8 +127,39 @@ import Testing
         // YYYYMMDD needs 19/20/21 up front; MMDDYYYY needs 01–12. Disjoint, so no name has two
         // readings — and a DDMMYYYY name matches neither rather than being guessed at.
         #expect(FileNameDate.mine("x20200105y.pdf").map { ($0.month, $0.year) } ?? (0, 0) == (1, 2020))
-        #expect(FileNameDate.mine("x01052020y.pdf").map { ($0.month, $0.year) } ?? (0, 0) == (1, 2020))
+        #expect(FileNameDate.mine("x01152020y.pdf").map { ($0.month, $0.year) } ?? (0, 0) == (1, 2020))
         #expect(FileNameDate.mine("x18072023y.pdf") == nil)   // DDMMYYYY: refused
+        // MMDDYYYY and DDMMYYYY overlap when both pairs are 12 or less (FR46): refused, not guessed.
+        #expect(FileNameDate.mine("x01052020y.pdf") == nil)
+    }
+
+    /// **A stamp day-first could have written is not read month-first (FR46).**
+    /// `Statement_05062023.pdf` is 5 June to anyone who writes day-first, and was renamed into May.
+    /// Both readings are valid dates, so nothing in the name says which one is meant — the compact
+    /// and the delimited form alike refuse it. A stamp whose pairs are equal reads the same either
+    /// way and is kept; one with a day over 12 is unambiguous and is kept; and YYYYMMDD, which no
+    /// day-first convention writes, is untouched.
+    @Test func aStampBothConventionsCouldHaveWrittenIsRefused() {
+        #expect(FileNameDate.mine("Statement_05062023.pdf") == nil)
+        #expect(FileNameDate.mine("Statement 05-06-2023.pdf") == nil)
+        #expect(FileNameDate.mine("Statement 05 06 2023.pdf") == nil)
+        #expect(FileNameDate.mine("bill 12012023.pdf") == nil)
+        // Equal pairs: one date whichever way round.
+        let same = FileNameDate.mine("Statement_05052023.pdf")
+        #expect(same?.month == 5)
+        #expect(same?.day == 5)
+        #expect(FileNameDate.mine("Statement 05-05-2023.pdf")?.month == 5)
+        // A day over 12 can only be month-first.
+        #expect(FileNameDate.mine("Statement_05182023.pdf")?.month == 5)
+        #expect(FileNameDate.mine("Statement 05-18-2023.pdf")?.month == 5)
+        // Year-first is not affected.
+        #expect(FileNameDate.mine("Statement_20230506.pdf")?.month == 5)
+        #expect(FileNameDate.mine("Statement 2023-05-06.pdf")?.day == 6)
+        // A spelled month still answers through its own reading.
+        #expect(FileNameDate.mine("Statement Jun 2023 05062023.pdf")?.month == 6)
+        // And the rename pass gives it no slot rather than putting it in May.
+        let p = plan(["01. Jan 2023.pdf", "Statement_05062023.pdf"], year: "2023")
+        #expect(targets(p).isEmpty, "an ambiguous stamp was renamed: \(targets(p))")
     }
 
     // MARK: The gate — which folders the pass may touch at all

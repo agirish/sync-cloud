@@ -106,11 +106,17 @@ public enum FileNameDate {
 
     /// The month and year from a **delimited 8-digit run**, read as `YYYYMMDD` or `MMDDYYYY`.
     ///
-    /// The two readings can never both be valid, which is what makes this unambiguous rather than a
-    /// coin flip: `YYYYMMDD` requires the first two digits to be `19`, `20` or `21`, and `MMDDYYYY`
-    /// requires them to be a month, `01`–`12`. The ranges are disjoint. A `DDMMYYYY` name like
-    /// `18072023` therefore matches neither and is refused outright — the conservative answer, and
-    /// the right one, because nothing in the surveyed tree writes that form.
+    /// `YYYYMMDD` and `MMDDYYYY` can never both be valid: `YYYYMMDD` requires the first two digits
+    /// to be `19`, `20` or `21`, and `MMDDYYYY` requires them to be a month, `01`–`12`. The ranges
+    /// are disjoint.
+    ///
+    /// **`MMDDYYYY` and `DDMMYYYY` are not disjoint, and a stamp both could be is refused (FR46).**
+    /// A `DDMMYYYY` name with a day over 12, like `18072023`, matches no reading and is refused on
+    /// shape alone. One with a day of 12 or less, like `Statement_05062023.pdf` (5 June, written
+    /// day-first), is a valid `MMDDYYYY` too — and was read as May. Nothing in the name says which
+    /// convention wrote it, so when both leading pairs are 12 or less and differ, this reading
+    /// abstains rather than guess; `05052023` reads the same either way and is kept. A spelled month
+    /// elsewhere in the name still answers through its own reading.
     ///
     /// The run must be **exactly** 8 digits. `8666160540530062020.pdf` and
     /// `16106593108981703151004183789428.pdf` are account references and export ids that happen to
@@ -130,6 +136,8 @@ public enum FileNameDate {
             if isYear(a), isMonth(b), isDay(c) {
                 found.insert(b * 10000 + a); days.insert(c); evidence = String(run)
             } else if isMonth(m1), isDay(d1), isYear(y1) {
+                // Day-first could have written it too — abstain, whatever the other runs say.
+                if isAmbiguousDayMonth(m1, d1) { return nil }
                 found.insert(m1 * 10000 + y1); days.insert(d1); evidence = String(run)
             }
         }
@@ -147,10 +155,11 @@ public enum FileNameDate {
     /// carries no 8-digit stamp and no spelled month, so ``mine`` returned nil for it.
     ///
     /// **Shape-disjoint, exactly as ``datestamp`` is.** A `(4,2,2)` window can only be read
-    /// year-first and a `(2,2,4)` window only year-last, so the two never compete for one window and
-    /// there is no coin flip. `DD MM YYYY` is refused for the same reason it is refused there:
-    /// nothing in the surveyed tree writes it, and `15 06 2026` is indistinguishable from a June
-    /// 15th written the American way.
+    /// year-first and a `(2,2,4)` window only year-last, so those two never compete for one window.
+    /// `DD MM YYYY` is refused as it is there (FR46): `15 06 2026` matches no reading, and
+    /// `05-06-2023` — month-first May 6th or day-first 5 June — is ambiguous, so this reading
+    /// abstains on it rather than read it month-first. Only a stamp whose two leading pairs are
+    /// equal, or one of them over 12, is read.
     ///
     /// Requiring the runs to be *adjacent* and *exactly* those widths is what keeps account numbers
     /// out: `STMTCMB100_20201101_5203` runs as `100 · 20201101 · 5203`, whose widths are 3, 8 and 4.
@@ -167,6 +176,7 @@ public enum FileNameDate {
                 found.insert(b * 10000 + a); days.insert(c)
                 evidence = w.joined(separator: "-")
             } else if widths == [2, 2, 4], isMonth(a), isDay(b), isYear(c) {
+                if isAmbiguousDayMonth(a, b) { return nil }
                 found.insert(a * 10000 + c); days.insert(b)
                 evidence = w.joined(separator: "-")
             }
@@ -179,6 +189,12 @@ public enum FileNameDate {
     static func isYear(_ y: Int) -> Bool { (1900...2199).contains(y) }
     static func isMonth(_ m: Int) -> Bool { (1...12).contains(m) }
     static func isDay(_ d: Int) -> Bool { (1...31).contains(d) }
+
+    /// Whether a year-last stamp's leading pair could be read either way round (FR46): both are
+    /// months, and they differ, so month-first and day-first name two different dates.
+    static func isAmbiguousDayMonth(_ first: Int, _ second: Int) -> Bool {
+        isMonth(first) && isMonth(second) && first != second
+    }
 
     // MARK: Reading 2 — a spelled month beside a year
 

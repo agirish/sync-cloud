@@ -9497,3 +9497,29 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s readScan=%s guarded=%s\n' $l 
 |---|---|---|
 | `v5.x` / `v4.x` | The same unguarded Read scan (`readScan=1`) | RECORDED — not owed |
 | `v3.x` / `v2.x` | No Read scan (`readScan=0`) | CLOSED — does not apply |
+
+---
+
+## A date stamp day-first could have written is not read month-first (FR46) — main only
+
+The rename pass read a year-last stamp whose first two pairs were both 12 or less as month-first, so
+`Statement_05062023.pdf` (5 June, written day-first) was renamed into May; `05-06-2023` the same. Both
+doc comments claimed `DDMMYYYY` was refused outright, true only for a day over 12. `main` refuses a
+stamp both conventions could have written (`isAmbiguousDayMonth`), keeps one whose pairs are equal,
+and leaves `YYYYMMDD` alone; the pass then gives the file no slot.
+
+```sh
+F=Modules/Sync/Sources/Sync/FileNameDate.swift
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s mmddyyyy=%s delimited=%s refused=%s\n' $l \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF '} else if isMonth(m1), isDay(d1), isYear(y1) {')" \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF '} else if widths == [2, 2, 4], isMonth(a), isDay(b), isYear(c) {')" \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF 'static func isAmbiguousDayMonth')"; done
+# measured 2026-10-23, against origin, before this landed (the working tree reads refused=1):
+# main, v5.x, v4.x   mmddyyyy=1 delimited=1 refused=0
+# v3.x, v2.x         mmddyyyy=0 delimited=0 refused=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` | The same month-first reading (`mmddyyyy=1 delimited=1`) | RECORDED — not owed |
+| `v3.x` / `v2.x` | No date mining in names (`mmddyyyy=0`) | CLOSED — does not apply |
