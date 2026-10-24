@@ -9570,3 +9570,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s resolver=%s checked=%s\n' $l 
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same resolver (`resolver=1`) | RECORDED — not owed |
+
+---
+
+## A download counter alone no longer makes a versions group (FR14) — main only
+
+The versions pass took a browser's download counter " (n)" as a version marker, so `invoice.pdf`,
+`invoice (1).pdf` and `invoice (2).pdf` — three months' bills with different bytes — became a "Keep
+newest, Trash older" group. `main` will not stand a versions group up when the only markers in it are
+counters (`hasNonCounterVersionMarker`); a " copy", "-v2" or "final" beside them still does, and a
+counter re-download with the same bytes is still an identical group.
+
+```sh
+F=Modules/Sync/Sources/Sync/DuplicateFinder.swift
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s counterMarker=%s counterOnlyRefused=%s\n' $l \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF '#"\s*\(\d+\)$"#,')" \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF 'static func hasNonCounterVersionMarker')"; done
+# measured 2026-10-23, against origin, before this landed (the working tree reads counterOnlyRefused=1):
+# main, v5.x, v4.x, v3.x, v2.x   counterMarker=1 counterOnlyRefused=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same counter marker (`counterMarker=1`) | RECORDED — not owed |

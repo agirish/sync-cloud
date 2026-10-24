@@ -389,23 +389,86 @@ import Testing
     @Test func driftedVersionsGroupKeepsNewest() {
         let old = Date(timeIntervalSince1970: 1_000_000)
         let new = Date(timeIntervalSince1970: 2_000_000)
+        // A "-v2" rather than the " (1)" this used: a download counter alone no longer stands a
+        // versions group up (FR14, `aDownloadCounterAloneIsNotVersions` below).
         let tree = [
             dir("/root/Docs", [
                 file("/root/Docs/Q3 Report.docx", size: 5000, modified: old),
-                file("/root/Docs/Q3 Report (1).docx", size: 5200, modified: new),
+                file("/root/Docs/Q3 Report-v2.docx", size: 5200, modified: new),
             ])
         ]
         // Different content, so it's drift — not an exact-identical group.
         let hashes = [
             "/root/Docs/Q3 Report.docx": "V1",
-            "/root/Docs/Q3 Report (1).docx": "V2",
+            "/root/Docs/Q3 Report-v2.docx": "V2",
         ]
         let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
         #expect(groups.count == 1)
         let g = groups[0]
         #expect(g.matchType == .versions)
-        #expect(g.keeper.path == "/root/Docs/Q3 Report (1).docx")  // newest
+        #expect(g.keeper.path == "/root/Docs/Q3 Report-v2.docx")  // newest
         #expect(g.reclaimableBytes == 5000)
+    }
+
+    /// **A download counter alone is not evidence of versions (FR14).** A browser appends " (1)",
+    /// " (2)" when the name it is saving already exists, and a site names every bill the same:
+    /// three months of `invoice.pdf` became a "Keep newest, Trash older" group that trashed two
+    /// bills. Different bytes behind a counter are distinct documents as often as revisions, and
+    /// the name cannot say which, so no group — in one folder or pooled across folders. A real
+    /// marker beside the counter still stands one up, and a counter re-download with the SAME
+    /// bytes is still an identical group.
+    @Test func aDownloadCounterAloneIsNotVersions() {
+        let jan = Date(timeIntervalSince1970: 1_000_000)
+        let feb = Date(timeIntervalSince1970: 3_600_000)
+        let mar = Date(timeIntervalSince1970: 6_200_000)
+        let bills = [
+            dir("/root/Downloads", [
+                file("/root/Downloads/invoice.pdf", size: 41_000, modified: jan),
+                file("/root/Downloads/invoice (1).pdf", size: 43_000, modified: feb),
+                file("/root/Downloads/invoice (2).pdf", size: 42_000, modified: mar),
+            ])
+        ]
+        let differ = ["/root/Downloads/invoice.pdf": "JAN", "/root/Downloads/invoice (1).pdf": "FEB",
+                      "/root/Downloads/invoice (2).pdf": "MAR"]
+        #expect(DuplicateFinder.findGroups(tree: bills, fileHashes: differ).isEmpty,
+                "three bills under one counter-suffixed name were grouped")
+
+        // Counters across folders (the lone-bearer pool) — the same answer.
+        let pooled = [
+            dir("/root/A", [file("/root/A/statement (1).pdf", size: 9_000, modified: jan),
+                            file("/root/A/a-notes.txt", size: 8_192)]),
+            dir("/root/B", [file("/root/B/statement (2).pdf", size: 9_500, modified: feb),
+                            file("/root/B/b-notes.txt", size: 8_192)]),
+        ]
+        let pooledHashes = ["/root/A/statement (1).pdf": "S1", "/root/B/statement (2).pdf": "S2",
+                            "/root/A/a-notes.txt": "NA", "/root/B/b-notes.txt": "NB"]
+        #expect(!DuplicateFinder.findGroups(tree: pooled, fileHashes: pooledHashes)
+                    .contains { $0.matchType == .versions })
+
+        // A deliberate marker in the cluster still makes it versions — the rule is about counters
+        // ALONE, not about clusters that happen to include one.
+        let marked = [
+            dir("/root/Docs", [
+                file("/root/Docs/plan.pdf", size: 9_000, modified: jan),
+                file("/root/Docs/plan (1).pdf", size: 9_100, modified: feb),
+                file("/root/Docs/plan-final.pdf", size: 9_200, modified: mar),
+            ])
+        ]
+        let markedHashes = ["/root/Docs/plan.pdf": "P1", "/root/Docs/plan (1).pdf": "P2",
+                            "/root/Docs/plan-final.pdf": "P3"]
+        let versions = DuplicateFinder.findGroups(tree: marked, fileHashes: markedHashes)
+            .filter { $0.matchType == .versions }
+        #expect(versions.count == 1)
+        #expect(versions.first?.copies.count == 3)
+
+        // And the same bytes behind a counter are still found — by the identical pass.
+        let same = ["/root/Downloads/invoice.pdf": "ONE", "/root/Downloads/invoice (1).pdf": "ONE",
+                    "/root/Downloads/invoice (2).pdf": "MAR"]
+        let groups = DuplicateFinder.findGroups(tree: bills, fileHashes: same)
+        #expect(groups.count == 1)
+        if case .identical = groups.first?.matchType {} else {
+            Issue.record("a re-download with identical bytes was not grouped: \(groups.map(\.matchType))")
+        }
     }
 
     @Test func sameNameInDifferentFoldersWithoutMarkersIsNotVersions() {

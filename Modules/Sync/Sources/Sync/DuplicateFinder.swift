@@ -1189,6 +1189,21 @@ public enum DuplicateFinder {
             }
             for members in memberClusters {
                 guard members.count >= 2 else { continue }
+                // **A download counter alone is not evidence of versions (FR14).** " (1)", " (2)"
+                // is what a browser appends when a name it is saving already exists, and a site
+                // hands out the same name for every document of a kind: `invoice.pdf`,
+                // `invoice (1).pdf`, `invoice (2).pdf` are three months' bills, different bytes
+                // because they are different documents, and "Keep newest, Trash older" would trash
+                // two of them. A re-download of the SAME document is caught upstream — identical
+                // bytes by the identical pass, the same text re-stamped by the same-text pass —
+                // so what reaches here with only counters to go on is exactly the case the name
+                // cannot tell apart from distinct documents. A cluster stands up only when some
+                // member carries a marker a person adds on purpose (" copy", "-v2", "final"); one
+                // with no marker at all (same-folder case variants) is unaffected.
+                if members.contains(where: { hasVersionMarker($0.name) }),
+                   !members.contains(where: { hasNonCounterVersionMarker($0.name) }) {
+                    continue
+                }
                 // Only PROVEN drift: at least two distinct REAL contents (identical bytes were
                 // already grouped). Placeholder ("u:" unknown) and missing signatures are not
                 // evidence of difference — two byte-identical files that were merely too large
@@ -1472,23 +1487,39 @@ public enum DuplicateFinder {
     static func versionStem(_ name: String) -> (stem: String, ext: String)? {
         let ns = name as NSString
         let ext = ns.pathExtension.lowercased()
-        var stem = (ns.deletingPathExtension as String).lowercased()
+        let (stripped, _) = strippingVersionMarkers((ns.deletingPathExtension as String).lowercased())
+        let stem = stripped.trimmingCharacters(in: .whitespaces)
+        guard !stem.isEmpty else { return nil }
+        return (stem, ext)
+    }
 
+    /// `stem` with every trailing marker removed, and the indexes into ``versionMarkerPatterns``
+    /// of the ones that fired — index 0 is the download counter, " (1)".
+    private static func strippingVersionMarkers(_ stem: String) -> (String, Set<Int>) {
+        var stem = stem
+        var fired: Set<Int> = []
         var changed = true
         while changed {
             changed = false
-            for r in versionMarkerPatterns {
+            for (i, r) in versionMarkerPatterns.enumerated() {
                 let range = NSRange(stem.startIndex..., in: stem)
                 if let match = r.firstMatch(in: stem, options: [], range: range),
                    let found = Range(match.range, in: stem) {
                     stem.removeSubrange(found)
+                    fired.insert(i)
                     changed = true
                 }
             }
         }
-        stem = stem.trimmingCharacters(in: .whitespaces)
-        guard !stem.isEmpty else { return nil }
-        return (stem, ext)
+        return (stem, fired)
+    }
+
+    /// Whether `name` carries a version marker OTHER than the download counter " (n)" — a
+    /// " copy", a "-v2", a "final" (FR14). See ``versionGroups``, which will not stand a group up
+    /// on counters alone.
+    static func hasNonCounterVersionMarker(_ name: String) -> Bool {
+        let stem = ((name as NSString).deletingPathExtension as String).lowercased()
+        return !strippingVersionMarkers(stem).1.subtracting([0]).isEmpty
     }
 
     /// True when ``versionStem(_:)`` actually stripped a version/copy marker from the name — i.e.
