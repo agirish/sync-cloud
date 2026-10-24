@@ -344,4 +344,51 @@ import Testing
         #expect(await m.readScan(for: s) == false)
         #expect(!m.filingUnreadableScans.contains(s.filePath))
     }
+
+    /// **Read scan routes only against its own provider's index (FR44).** A To File scan of
+    /// another provider replaces the cached router index and root before it walks, and one cancelled
+    /// mid-run never republishes — so this provider's cards stay on screen over the other
+    /// provider's cache. Staged here by scanning two providers and putting the second's cache back
+    /// under the first's cards: without the guard, Read scan routed the card onto the OTHER
+    /// provider's `Leases` folder, and "File here" would have moved it across accounts.
+    @Test func readScanRefusesACacheFromAnotherProvider() async throws {
+        let rootA = try makeCanonicalTempRoot(prefix: "FilingScanReadA")
+        let rootB = try makeCanonicalTempRoot(prefix: "FilingScanReadB")
+        defer {
+            try? FileManager.default.removeItem(at: rootA)
+            try? FileManager.default.removeItem(at: rootB)
+        }
+        let target = "Documents/Home/Leases"
+        for root in [rootA, rootB] {
+            try Self.write(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
+            try Self.write(root.appendingPathComponent("Downloads/scanned.pdf"))
+        }
+        let m = FileSyncManager()
+        m.filingContentExtractor = { _ in [] }
+        m.filingSnippetExtractor = { _ in nil }
+        m.filingTokensFromText = { Set(FilingRouter.tokenize($0)) }
+        m.filingOCRExtractor = { _ in "lease tenancy landlord rent" }
+        m.filingFolderProfile = Self.profile([target])
+        m.filingMemory = Self.memory(target, ["lease", "tenancy", "landlord"])
+        m.filingClassifier = { _, _, _ in [:] }
+
+        // Provider B's cache, captured; then provider A's cards on screen.
+        await m.findFilingSuggestions(folder: rootB.appendingPathComponent("Downloads"), providerRoot: rootB)
+        let otherIndex = try #require(m.filingRouterIndex)
+        await m.findFilingSuggestions(folder: rootA.appendingPathComponent("Downloads"), providerRoot: rootA)
+        let s = try #require(m.filingSuggestions.first)
+        #expect(s.providerRoot == rootA.path)
+        #expect(s.best == nil, "the fixture needs a file with no home before the read")
+        #expect(m.filingUnreadableScans.contains(s.filePath))
+
+        // What a cancelled scan of B leaves behind: B's index and root under A's cards.
+        m.filingRouterIndex = otherIndex
+        m.filingLastProviderRoot = rootB.path
+
+        #expect(await m.readScan(for: s) == false)
+        let after = try #require(m.filingSuggestions.first)
+        #expect(after.best == nil,
+                "Read scan routed provider A's card onto \(after.best?.path ?? "-") from provider B's index")
+        #expect(!(after.best?.path.hasPrefix(rootB.path) ?? false))
+    }
 }

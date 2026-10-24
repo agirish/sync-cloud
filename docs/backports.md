@@ -9473,3 +9473,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s followsLinks=%s linkFact=%s\n
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The link-following scan with a link-writing copy (`followsLinks=1`, `linkFact=0`) | RECORDED — not owed |
+
+---
+
+## Read scan routes only against its own provider (FR44) — main only
+
+Read scan routed a card through the cached router index and provider root without checking they
+belonged to the card's provider. After a To File scan of another provider was cancelled mid-run, the
+old cards stayed on screen over the new provider's cache, so Read scan could put a card on a folder in
+the other account and "File here" would move it there. `main` refuses unless the cached root is the
+card's `providerRoot`, the guard `tryAnotherFolder` already had.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s readScan=%s guarded=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+FilingRoute.swift 2>/dev/null | grep -cF 'public func readScan(for suggestion: FilingSuggestion)')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+FilingRoute.swift 2>/dev/null | grep -cF 'let root = filingLastProviderRoot, root == suggestion.providerRoot else { return false }')"; done
+# measured 2026-10-23, against origin, before this landed (the working tree reads guarded=1):
+# main, v5.x, v4.x   readScan=1 guarded=0
+# v3.x, v2.x         readScan=0 guarded=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` | The same unguarded Read scan (`readScan=1`) | RECORDED — not owed |
+| `v3.x` / `v2.x` | No Read scan (`readScan=0`) | CLOSED — does not apply |

@@ -285,8 +285,13 @@ extension FileSyncManager {
     /// "eOCI Card | Government of India | Bureau of Immigration | OVERSEAS CITIZEN OF INDIA".
     @discardableResult
     public func readScan(for suggestion: FilingSuggestion) async -> Bool {
+        // **The cached router and root must belong to this card's provider (FR44).** A Filing scan
+        // of another provider overwrites both before it walks — and one CANCELLED mid-run never
+        // republishes, so this provider's old cards stay on screen over the other provider's index.
+        // Routing against it would put this file on a folder in the other account's tree, and
+        // "File here" would then move it across accounts. The same guard `tryAnotherFolder` has.
         guard let ocr = filingOCRExtractor, let index = filingRouterIndex,
-              let root = filingLastProviderRoot else { return false }
+              let root = filingLastProviderRoot, root == suggestion.providerRoot else { return false }
         // One render per file at a time — a second click while Vision is out would start a second.
         guard !filingOCRInFlight.contains(suggestion.filePath) else { return false }
         filingOCRInFlight.insert(suggestion.filePath)
