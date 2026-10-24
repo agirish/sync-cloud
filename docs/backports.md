@@ -9993,3 +9993,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s formNotes=%s comments=%s\n' $
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Fill & Sign (`formNotes=0`) | CLOSED — does not apply |
+
+---
+
+## Filing into the file's own folder through a link is a no-op (FR9) — main only
+
+`namesSameDirectory` folds case but resolves no links, so a destination reached through a folder
+link to the file's own folder read as another folder: the move found the file itself through the
+link and renamed it in place to "name 2" under a "Filed" banner. `main` compares the apply step's
+and the automation preview's paths again after resolving links (`resolvesToSameDirectory`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s same=%s resolved=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/PathBoundary.swift 2>/dev/null | grep -cF 'func namesSameDirectory')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/PathBoundary.swift 2>/dev/null | grep -cF 'func resolvesToSameDirectory')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads resolved=1):
+# main, v5.x, v4.x, v3.x, v2.x   same=1 resolved=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same link-blind comparison (`resolved=0`) | RECORDED — not owed |

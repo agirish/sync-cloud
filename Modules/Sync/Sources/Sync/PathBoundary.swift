@@ -308,4 +308,28 @@ public enum PathBoundary {
         if caseSensitive { return sa == sb }
         return sa.caseInsensitiveCompare(sb) == .orderedSame
     }
+
+    /// `namesSameDirectory`, and then the same test again on the paths the disk resolves them to.
+    ///
+    /// **A folder link is a second spelling of the same folder (FR9).** `namesSameDirectory` folds
+    /// case but reads nothing off the disk, so a destination reached through a symbolic link —
+    /// `~/Filing` → `~/Documents/Inbox`, or a link folder the tree walk lists beside its target —
+    /// read as a DIFFERENT folder from the file's parent. The move went ahead, `fileExists` found
+    /// the file itself through the link, the unique-name step stepped around it, and the file was
+    /// renamed in place to "name 2" under a banner saying it had been filed: the case defect above,
+    /// reached by a different road.
+    ///
+    /// The cheap string answer goes first, so the common case touches no disk; only two spellings
+    /// that differ are resolved (`resolvingSymlinksInPath`, one `lstat` per component). A folder
+    /// filing would still create does not exist, so it resolves only as far as its existing
+    /// ancestors — it can never collapse onto the file's own, existing parent. Kept apart from
+    /// `namesSameDirectory` because that one is pure and the engine runs it per candidate off any
+    /// disk; this is for the two places that stand on the real disk: the apply step and the
+    /// automation preview that promises what the apply step will do.
+    public static func resolvesToSameDirectory(_ a: String, _ b: String, caseSensitive: Bool) -> Bool {
+        if namesSameDirectory(a, b, caseSensitive: caseSensitive) { return true }
+        return namesSameDirectory(URL(fileURLWithPath: a).resolvingSymlinksInPath().path,
+                                  URL(fileURLWithPath: b).resolvingSymlinksInPath().path,
+                                  caseSensitive: caseSensitive)
+    }
 }

@@ -426,8 +426,9 @@ extension FileSyncManager {
                                                     : relativeDestination
             // Case-folded per the volume, matching `performFiling`'s no-op test: the preview must
             // not promise a move that the apply path will (correctly) decline, and before this the
-            // apply path did not decline it — it renamed the file in place.
-            if PathBoundary.namesSameDirectory(
+            // apply path did not decline it — it renamed the file in place. Resolved through links
+            // too, for the same reason (FR9).
+            if PathBoundary.resolvesToSameDirectory(
                 destinationDir.path,
                 currentParent.path,
                 caseSensitive: FileSyncManager.volumeSupportsCaseSensitiveNames(for: currentParent)

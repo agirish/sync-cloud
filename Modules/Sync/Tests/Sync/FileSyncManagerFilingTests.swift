@@ -213,6 +213,35 @@ private final class SnippetBox: @unchecked Sendable {
         #expect(manager.filingSuggestions.isEmpty)
     }
 
+    /// The same no-op, reached through a symbolic link to the file's own folder (FR9).
+    ///
+    /// `namesSameDirectory` folds case but resolves no links, so `Filing` → `Downloads` read as a
+    /// different folder: the move went ahead, found the file itself through the link, and renamed
+    /// it in place to "report 2.pdf" under a "Filed" banner.
+    @MainActor
+    @Test func applyingToALinkToTheFilesOwnFolderIsAlsoANoOp() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let srcPath = root.appendingPathComponent("Downloads/report.pdf")
+        try write(srcPath)
+        let link = root.appendingPathComponent("Filing")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: root.appendingPathComponent("Downloads"))
+
+        let manager = FileSyncManager()
+        let s = FilingSuggestion(filePath: srcPath.path, fileName: "report.pdf", size: 5000,
+                                 modificationDate: nil, candidates: [])
+        manager.filingSuggestions = [s]
+        let dest = FilingDestination(path: link.path, confidence: .high, reasons: [], newSegments: [])
+
+        let ok = await manager.applyFilingSuggestion(s, to: dest)
+
+        #expect(ok == .notNeeded)
+        #expect(FileManager.default.fileExists(atPath: srcPath.path))
+        let names = try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("Downloads").path)
+        #expect(names == ["report.pdf"], "the file was renamed in place: \(names)")
+        #expect(manager.filingSuggestions.isEmpty)
+    }
+
     /// The engine side of the same rule: a case-variant of the file's own parent must not even be
     /// OFFERED, or the user is invited to click a suggestion whose apply step declines.
     @Test func theEngineDropsACaseVariantOfTheFilesOwnParent() {

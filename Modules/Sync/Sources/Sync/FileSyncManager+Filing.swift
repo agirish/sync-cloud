@@ -1810,7 +1810,9 @@ extension FileSyncManager {
         // Case-folded per the volume: an exact comparison let a case-variant destination through
         // to the move below, where `fileExists` collapsed the case, found the file itself, and the
         // unique-name step renamed it in place while the banner reported a successful filing.
-        if PathBoundary.namesSameDirectory(
+        // And resolved through links (FR9): the own folder reached through a folder link is the
+        // same folder, and read as another it met the same rename.
+        if PathBoundary.resolvesToSameDirectory(
             destFolder.path,
             src.deletingLastPathComponent().path,
             caseSensitive: FileSyncManager.volumeSupportsCaseSensitiveNames(for: src)
