@@ -23,7 +23,13 @@ extension FileSyncManager {
     /// copy — which leaves the root's own date and child count identical and so slipped past the
     /// shallow `.directory` identity that used to be recorded here. See `registerCopyUndo(items:)`
     /// for the cost, and the move typealiases below for why THEY stay shallow.
-    typealias CopyUndoItemState = (source: URL, destination: URL, overwritten: URL?, destinationIdentity: ItemIdentity)
+    ///
+    /// `overwrittenIdentity` is what sat at `overwritten` — the Trash backup of the item the copy
+    /// replaced — when the undo was registered, so the undo restores that item and not a stranger
+    /// that has taken its name in the Trash since (FR27, `trashBackupVerdict`). `.absent` when the
+    /// copy replaced nothing.
+    typealias CopyUndoItemState = (source: URL, destination: URL, overwritten: URL?, destinationIdentity: ItemIdentity,
+                                   overwrittenIdentity: ItemIdentity)
     /// A copied item whose identity walk the CALL SITE already started — the moment the item's
     /// OWN copy landed, inside its batch loop — rather than when the whole batch finished.
     /// `identity` is that walk's task (`startCopyIdentityWalk`); it resolves to exactly what
@@ -62,7 +68,10 @@ extension FileSyncManager {
     /// `+Filing` ×2, `+Automations`. A grep for the count has to exclude this file's own
     /// declarations and doc mentions, which is exactly the mistake `d650da77` records correcting
     /// when it found `liveLocation` saying "ten".
-    typealias MoveUndoItemState = (from: URL, to: URL, overwritten: URL?, movedIdentity: ItemIdentity)
+    ///
+    /// `overwrittenIdentity`: the Trash backup's identity at registration, as for the copy (FR27).
+    typealias MoveUndoItemState = (from: URL, to: URL, overwritten: URL?, movedIdentity: ItemIdentity,
+                                   overwrittenIdentity: ItemIdentity)
     /// What a move-REDO needs to re-apply one item: where its undo put the item back, where the
     /// original move had sent it, and the identity read at `from` the instant the undo landed it
     /// there.
@@ -89,7 +98,11 @@ extension FileSyncManager {
     /// One deleted item awaiting a possible undo-restore: where it lived, and where the Trash
     /// holds its backup. Only items that actually reached the Trash are represented — a delete
     /// that fell through to a permanent remove has nothing to restore.
-    typealias RestoreItemState = (original: URL, trashedBackup: URL)
+    ///
+    /// `backupIdentity` is what sat at `trashedBackup` when the undo was registered, so the
+    /// restore can tell the item this delete put in the Trash from one that has taken its name
+    /// there since (FR27, `trashBackupVerdict`).
+    typealias RestoreItemState = (original: URL, trashedBackup: URL, backupIdentity: ItemIdentity)
 
     /// Error raised when an undo/restore would land on a location that a different item has taken
     /// since the original operation — reported instead of silently overwriting the occupant.
@@ -607,21 +620,86 @@ extension FileSyncManager {
         return URL(fileURLWithPath: livingParent).appendingPathComponent(url.lastPathComponent).path
     }
 
+    /// What sits at a backup's location as an undo registers — the identity a later restore holds
+    /// that location to (FR27). `.absent` when there is no backup.
+    ///
+    /// **DEEP for a folder, and that is about Finder, not about thoroughness.** A shallow folder
+    /// identity is its own date and child count, and Finder writes a `.DS_Store` into a folder the
+    /// user merely opens — in the Trash as anywhere — which moves both: a ⌘Z after a look at the
+    /// Trash would then refuse the folder it put there. `deepSnapshot` digests the descendants and
+    /// skips `.DS_Store` and the other OS noise, so a stranger folder still differs and a browsed
+    /// one does not. Its cost is a stat-only walk, which is why every registration that reads this
+    /// for a whole batch reads it off the main actor.
+    nonisolated static func backupIdentity(_ backup: URL?, fileManager fm: FileManaging) -> ItemIdentity {
+        backup.map { ItemIdentity.deepSnapshot(at: $0, fileManager: fm) } ?? .absent
+    }
+
+    /// **Is the item at a Trash backup's location still the one this operation put there?** (FR27)
+    ///
+    /// Every undo that restores from the Trash used to move whatever was at the recorded Trash URL,
+    /// and a path is not an identity. Empty the Trash, then trash a different file of the same name
+    /// in Finder — macOS hands the freed name to the newcomer — and ⌘Z moved THAT file, one this
+    /// app never touched, into the folder the undo was restoring. So each backup's identity is now
+    /// recorded when its undo is registered, moments after the trash, and read again here.
+    ///
+    /// Re-read at the depth it was recorded at (`drift`): a file by its size and date, a folder by
+    /// its contents (see `backupIdentity`). Two answers let the restore through and are not
+    /// identity claims: nothing was
+    /// readable at the backup when the undo registered (`.absent` — the restore behaves exactly as
+    /// it always did), and nothing is there now — the restore's own move then fails and reports the
+    /// Trash as emptied, which is the truth. Anything present that differs is `.changed`, and an
+    /// unreadable one `.indeterminate`; both refuse.
+    nonisolated static func trashBackupVerdict(recorded: ItemIdentity, at backup: URL,
+                                               fileManager fm: FileManaging) -> DriftVerdict {
+        guard recorded != .absent else { return .unchanged }
+        guard (try? fm.attributesOfItem(atPath: backup.path)) != nil || fm.fileExists(atPath: backup.path) else { return .unchanged }
+        return recorded.drift(at: backup, fileManager: fm)
+    }
+
+    /// Surfaces a restore refused by ``trashBackupVerdict(recorded:at:fileManager:)``: the item at
+    /// the backup's Trash location is not the one this operation put there, so it stays in the
+    /// Trash and nothing is moved to `destination`.
+    nonisolated static func reportUndoRefusedTrashStranger(
+        at backup: URL,
+        restoring destination: URL,
+        actionName: String,
+        verdict: DriftVerdict,
+        on target: FileSyncManager
+    ) async {
+        let name = destination.lastPathComponent
+        let why = verdict == .indeterminate
+            ? "it could not be read, so it cannot be confirmed as the item this operation put there"
+            : "it is not the item this operation put there — the Trash may have been emptied and another item of that name put in it since"
+        let logMessage = "Undo/Redo (\(actionName)): REFUSED to restore \"\(name)\" to \(destination.path) from \(backup.path) — \(why); leaving it in the Trash"
+        await MainActor.run {
+            Logger.shared.error(logMessage)
+            target.banner = .warning("Undo didn’t restore “\(name)” — the item in the Trash under that name isn’t the one SyncCloud put there")
+        }
+    }
+
     /// Outcome of putting an undo's displaced `.overwritten` backup back at the destination.
     enum UndoRestoreOutcome { case restored, failed, nothingToRestore }
 
     /// Restores the backup a copy-undo displaced (`overwritten`) onto `destination`, surfacing any
     /// failure via `reportUndoRestoreFailure`. Shared by `registerCopyUndo`'s two removal paths —
     /// the Trash path and the confirmed permanent-delete fallback — so the restore-and-report logic
-    /// lives in one place.
+    /// lives in one place. `identity` is the backup's, recorded at registration (FR27): a
+    /// different item at the backup's location is refused, reported, and counted as a failure.
     nonisolated static func restoreOverwrittenBackup(
         _ overwritten: URL?,
+        identity: ItemIdentity,
         to destination: URL,
         actionName: String,
         fileManager fm: FileManaging,
         on target: FileSyncManager
     ) async -> UndoRestoreOutcome {
         guard let overwritten else { return .nothingToRestore }
+        let verdict = trashBackupVerdict(recorded: identity, at: overwritten, fileManager: fm)
+        guard verdict == .unchanged else {
+            await reportUndoRefusedTrashStranger(at: overwritten, restoring: destination,
+                                                 actionName: actionName, verdict: verdict, on: target)
+            return .failed
+        }
         do {
             try fm.moveItem(at: overwritten, to: destination)
             return .restored
@@ -705,7 +783,8 @@ extension FileSyncManager {
                     unreadable.append((item.destination, read.unreadableDescendant))
                 }
                 enriched.append((source: item.source, destination: item.destination,
-                                 overwritten: item.overwritten, destinationIdentity: read.identity))
+                                 overwritten: item.overwritten, destinationIdentity: read.identity,
+                                 overwrittenIdentity: FileSyncManager.backupIdentity(item.overwritten, fileManager: fm)))
             }
             FileSyncManager.logIndeterminateRegistrations(unreadable, of: items.count, actionName: actionName)
             await resolver.resolve(enriched)
@@ -734,7 +813,8 @@ extension FileSyncManager {
                 }
                 enriched.append((source: item.source, destination: item.destination,
                                  overwritten: item.overwritten,
-                                 destinationIdentity: read.identity))
+                                 destinationIdentity: read.identity,
+                                 overwrittenIdentity: FileSyncManager.backupIdentity(item.overwritten, fileManager: fm)))
             }
             FileSyncManager.logIndeterminateRegistrations(unreadable, of: pendingItems.count, actionName: actionName)
             await resolver.resolve(enriched)
@@ -817,7 +897,11 @@ extension FileSyncManager {
     }
 
     /// Pre-resolved convenience; see `registerCopyUndo(items:actionName:fileManager:)`.
-    func registerMoveUndo(items: [MoveItemState], actionName: String, fileManager fm: FileManaging = FileManager.default) {
+    ///
+    /// The returned task completes when the state is fully recorded, the backups' identities
+    /// included; callers may discard it (`registerCopyUndo(items:)` explains the contract).
+    @discardableResult
+    func registerMoveUndo(items: [MoveItemState], actionName: String, fileManager fm: FileManaging = FileManager.default) -> Task<Void, Never> {
         // Snapshots each moved item's identity HERE, at registration time — the move has already
         // happened, so the item this undo is responsible for is on disk — so the handler can
         // refuse to move back something that is no longer it.
@@ -849,23 +933,41 @@ extension FileSyncManager {
             (from: item.from, to: item.to, overwritten: item.overwritten,
              movedIdentity: ItemIdentity.snapshot(
                 at: FileSyncManager.liveLocation(of: item.to, throughRenames: renames, fileManager: fm),
-                fileManager: fm))
+                fileManager: fm),
+             overwrittenIdentity: ItemIdentity.absent)
         }
         let resolver = AsyncValueResolver<[MoveUndoItemState]>()
-        Task { await resolver.resolve(enriched) }
         registerMoveUndo(stateResolver: resolver, actionName: actionName, fileManager: fm)
+        // The backups' identities (FR27) are a walk per replaced FOLDER, so they are read off the
+        // main actor; the undo is already registered and its handler waits on the resolver.
+        return Task.detached(priority: .userInitiated) {
+            let withBackups: [MoveUndoItemState] = enriched.map { item in
+                (from: item.from, to: item.to, overwritten: item.overwritten, movedIdentity: item.movedIdentity,
+                 overwrittenIdentity: FileSyncManager.backupIdentity(item.overwritten, fileManager: fm))
+            }
+            await resolver.resolve(withBackups)
+        }
     }
 
     /// Pre-resolved convenience; see `registerCopyUndo(items:actionName:fileManager:)`.
     /// `trashedItems[i]` is the Trash location of `urls[i]` (nil when it wasn't trashed —
     /// such items have no backup to restore, so they're dropped from the undo state here).
-    func registerRestoreItems(urls: [URL], trashedItems: [URL?], actionName: String, fileManager fm: FileManaging = FileManager.default) {
-        let items: [RestoreItemState] = zip(urls, trashedItems).compactMap { original, trashed in
-            trashed.map { (original: original, trashedBackup: $0) }
+    /// Each backup's identity (FR27) is read off the main actor — a deleted folder costs a walk —
+    /// and the returned task completes once they are all recorded.
+    @discardableResult
+    func registerRestoreItems(urls: [URL], trashedItems: [URL?], actionName: String, fileManager fm: FileManaging = FileManager.default) -> Task<Void, Never> {
+        let pairs: [(original: URL, trashed: URL)] = zip(urls, trashedItems).compactMap { original, trashed in
+            trashed.map { (original: original, trashed: $0) }
         }
         let resolver = AsyncValueResolver<[RestoreItemState]>()
-        Task { await resolver.resolve(items) }
         registerRestoreItems(stateResolver: resolver, actionName: actionName, fileManager: fm)
+        return Task.detached(priority: .userInitiated) {
+            let items: [RestoreItemState] = pairs.map {
+                (original: $0.original, trashedBackup: $0.trashed,
+                 backupIdentity: FileSyncManager.backupIdentity($0.trashed, fileManager: fm))
+            }
+            await resolver.resolve(items)
+        }
     }
 
     func registerCopyUndo(stateResolver: AsyncValueResolver<[CopyUndoItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
@@ -985,7 +1087,7 @@ extension FileSyncManager {
                                 markHandled(item.destination)
                                 logger.info("Undo (\(actionName)): \(item.destination.lastPathComponent) is no longer on disk — nothing to remove")
                                 undoneCopies.append((source: item.source, destination: item.destination))
-                                switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
+                                switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, identity: item.overwrittenIdentity, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
                                 case .restored: restored += 1
                                 case .failed: restoreFailures += 1
                                 case .nothingToRestore: break
@@ -1032,7 +1134,7 @@ extension FileSyncManager {
                             markHandled(item.destination)
                             undoneCopies.append((source: item.source, destination: item.destination))
 
-                            switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
+                            switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, identity: item.overwrittenIdentity, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
                             case .restored: restored += 1
                             case .failed: restoreFailures += 1
                             case .nothingToRestore: break
@@ -1079,7 +1181,7 @@ extension FileSyncManager {
                                 removed += 1
                                 markHandled(item.destination)
                                 undoneCopies.append((source: item.source, destination: item.destination))
-                                switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
+                                switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, identity: item.overwrittenIdentity, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
                                 case .restored: restored += 1
                                 case .failed: restoreFailures += 1
                                 case .nothingToRestore: break
@@ -1157,7 +1259,8 @@ extension FileSyncManager {
                                     unreadable.append((param.destination, read.unreadableDescendant))
                                 }
                                 nextState.append((source: param.source, destination: param.destination, overwritten: trashed,
-                                                  destinationIdentity: read.identity))
+                                                  destinationIdentity: read.identity,
+                                                  overwrittenIdentity: FileSyncManager.backupIdentity(trashed, fileManager: fm)))
                             } catch {
                                 // A failed re-copy must stay out of the next undo state: undoing
                                 // a phantom copy would prompt to permanently delete a file that
@@ -1330,6 +1433,16 @@ extension FileSyncManager {
                                 vanished += 1
                                 logger.info("Undo (\(actionName)): \(item.to.lastPathComponent) is no longer on disk — nothing to move back")
                                 if let trashed = item.overwritten {
+                                    // Only the item this move put in the Trash (FR27).
+                                    let backupVerdict = FileSyncManager.trashBackupVerdict(
+                                        recorded: item.overwrittenIdentity, at: trashed, fileManager: fm)
+                                    if backupVerdict != .unchanged {
+                                        restoreFailures += 1
+                                        await FileSyncManager.reportUndoRefusedTrashStranger(
+                                            at: trashed, restoring: item.to, actionName: actionName,
+                                            verdict: backupVerdict, on: target)
+                                        continue
+                                    }
                                     do {
                                         try fm.moveItem(at: trashed, to: item.to)
                                     } catch {
@@ -1413,11 +1526,23 @@ extension FileSyncManager {
                             // move-back failed, item.to still holds the item and this would just
                             // collide and mis-report a second failure.
                             if movedBackOK, let trashed = item.overwritten {
-                                do {
-                                    try fm.moveItem(at: trashed, to: item.to)
-                                } catch {
+                                // Only the item this move put in the Trash (FR27): a stranger that
+                                // has taken its name there stays put, and the destination stays
+                                // empty rather than receiving something nobody moved out of it.
+                                let backupVerdict = FileSyncManager.trashBackupVerdict(
+                                    recorded: item.overwrittenIdentity, at: trashed, fileManager: fm)
+                                if backupVerdict != .unchanged {
                                     restoreFailures += 1
-                                    await FileSyncManager.reportUndoRestoreFailure(of: item.to, from: trashed, actionName: actionName, error: error, on: target)
+                                    await FileSyncManager.reportUndoRefusedTrashStranger(
+                                        at: trashed, restoring: item.to, actionName: actionName,
+                                        verdict: backupVerdict, on: target)
+                                } else {
+                                    do {
+                                        try fm.moveItem(at: trashed, to: item.to)
+                                    } catch {
+                                        restoreFailures += 1
+                                        await FileSyncManager.reportUndoRestoreFailure(of: item.to, from: trashed, actionName: actionName, error: error, on: target)
+                                    }
                                 }
                             }
                         }
@@ -1614,7 +1739,8 @@ extension FileSyncManager {
                                 // identity: it feeds the next MOVE-undo's guard, which moves
                                 // rather than destroys (see `registerMoveUndo(items:)`).
                                 nextState.append((from: param.from, to: param.to, overwritten: trashed,
-                                                  movedIdentity: ItemIdentity.snapshot(at: param.to, fileManager: fm)))
+                                                  movedIdentity: ItemIdentity.snapshot(at: param.to, fileManager: fm),
+                                                  overwrittenIdentity: FileSyncManager.backupIdentity(trashed, fileManager: fm)))
                             } catch {
                                 // A failed re-move must stay out of the next undo state: undoing
                                 // a phantom move would "restore" from a destination that was
@@ -1797,7 +1923,8 @@ extension FileSyncManager {
                             }
                             var t: NSURL?
                             if (try? fmLocal.trashItem(at: url, resultingItemURL: &t)) != nil, let trashed = t as? URL {
-                                trashedItems.append((original: url, trashedBackup: trashed))
+                                trashedItems.append((original: url, trashedBackup: trashed,
+                                                     backupIdentity: FileSyncManager.backupIdentity(trashed, fileManager: fmLocal)))
                             }
                         }
                         await nextResolver.resolve(trashedItems)
@@ -1832,6 +1959,9 @@ extension FileSyncManager {
                     var restoredItems: [FileSyncManager.TrashRedoItemState] = []
                     for item in items {
                         try? fm.createDirectory(at: item.original.deletingLastPathComponent(), withIntermediateDirectories: true)
+                        // Read once, so the refusal reports the verdict that chose it.
+                        let backupVerdict = FileSyncManager.trashBackupVerdict(
+                            recorded: item.backupIdentity, at: item.trashedBackup, fileManager: fm)
                         if fm.fileExists(atPath: item.original.path) {
                             // A different item now occupies the deleted item's location. Restoring
                             // from Trash here would silently replace-and-Trash it (untracked by
@@ -1839,6 +1969,14 @@ extension FileSyncManager {
                             // and stays OUT of redoURLs, so a redo can't trash the occupant either.
                             restoreFailures += 1
                             await FileSyncManager.reportUndoRestoreFailure(of: item.original, from: item.trashedBackup, actionName: actionName, error: FileSyncManager.restoreTargetOccupiedError, on: target)
+                        } else if backupVerdict != .unchanged {
+                            // The item at the recorded Trash location is not the one this delete
+                            // put there (FR27) — the Trash was emptied and another item took the
+                            // name. It stays in the Trash, and stays OUT of the redo list.
+                            restoreFailures += 1
+                            await FileSyncManager.reportUndoRefusedTrashStranger(
+                                at: item.trashedBackup, restoring: item.original, actionName: actionName,
+                                verdict: backupVerdict, on: target)
                         } else {
                             do {
                                 _ = try FileSyncManager.safeMoveItem(at: item.trashedBackup, to: item.original, fileManager: fm)

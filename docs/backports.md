@@ -10151,3 +10151,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s sentence=%s note=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same fixed sentence (`sentence=1`) | RECORDED — not owed |
+
+---
+
+## An undo restores only what it put in the Trash (FR27) — main only
+
+Every undo that restores from the Trash — a delete's, and the backup a copy or move replaced — moved
+whatever sat at the recorded Trash path. Empty the Trash, trash a different file of the same name,
+and macOS hands it the freed name: ⌘Z moved that unrelated file into place. `main` records each
+backup's identity when its undo registers and refuses a restore whose Trash item differs, with a
+banner naming it (`trashBackupVerdict`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s restore=%s verdict=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'func registerRestoreItems(stateResolver')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'func trashBackupVerdict')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads verdict=1):
+# main, v5.x, v4.x, v3.x, v2.x   restore=1 verdict=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same path-only Trash restores (`verdict=0`) | RECORDED — not owed |

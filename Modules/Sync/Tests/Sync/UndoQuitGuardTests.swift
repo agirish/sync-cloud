@@ -63,7 +63,8 @@ import Foundation
             // the same thing only because nil SKIPPED the guard; there is no longer a value that
             // does that, so the intent has to be stated rather than fallen into.
             destinationIdentity: ItemIdentity.snapshot(at: URL(fileURLWithPath: "/dst/copied.txt"),
-                                                       fileManager: mockFM)
+                                                       fileManager: mockFM),
+            overwrittenIdentity: .absent
         )])
         manager.registerCopyUndo(stateResolver: resolver, actionName: "Sync copied.txt", fileManager: mockFM)
         #expect(manager.activeFileOperationsCount == 0)
