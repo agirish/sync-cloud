@@ -9793,3 +9793,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s mergedMeta=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same merged-metadata Replace (`mergedMeta=1`) | RECORDED — not owed |
+
+---
+
+## A move onto another volume takes the staged, Trash-first path (FR33) — main only
+
+Foundation's `moveItem` copies and unlinks by itself across volumes rather than throwing EXDEV, so
+the staged copy that watches Cancel and puts the original in the Trash never ran for a move to an
+external disk: the original was deleted outright. `main` compares the two volumes before asking
+`moveItem` (`isCrossVolumeMove`) and routes a cross-volume move through the staged path.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s upFront=%s moveFirst=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileOperations+Primitives.swift 2>/dev/null | grep -cF 'func isCrossVolumeMove')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileOperations+Primitives.swift 2>/dev/null | grep -cF 'Fallback for cross-volume moves (EXDEV)')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads upFront=1):
+# main, v5.x, v4.x, v3.x, v2.x   upFront=0 moveFirst=1
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same moveItem-first move (`upFront=0`) | RECORDED — not owed |

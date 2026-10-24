@@ -395,18 +395,30 @@ extension FileSyncManager {
         )
     }
 
-    /// Testable core; production resolves `caseSensitiveVolume` from the source volume.
+    /// Testable core; production resolves `caseSensitiveVolume` from the source volume, and
+    /// `crossVolume` — when it is not given — from the two volumes on disk (FR33).
     @discardableResult
-    nonisolated static func safeMoveItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging, caseSensitiveVolume: Bool, observer: CopyObserver? = nil) throws -> URL? {
+    nonisolated static func safeMoveItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging, caseSensitiveVolume: Bool, observer: CopyObserver? = nil, crossVolume: Bool? = nil) throws -> URL? {
         try validateFileOperation(source: sourceURL, destination: destinationURL, caseSensitiveVolume: caseSensitiveVolume)
 
+        // **Another volume is decided here, before `moveItem` is asked** (FR33). The staged path
+        // below — a copy into `.tmp_` that watches Cancel, a rename into place, the original to the
+        // Trash — used to run only when `moveItem` THREW, on the belief that a cross-volume move
+        // throws EXDEV. Foundation's does not: measured, `moveItem` from the Data volume onto a
+        // disk image succeeded, copying the item and unlinking the original itself. So every move
+        // to an external disk or another volume skipped all three: Cancel could not stop it, and
+        // the original was deleted outright rather than put in the Trash. The tests never saw it
+        // because their doubles throw EXDEV on cue.
+        let crossVolume = crossVolume ?? isCrossVolumeMove(from: sourceURL, to: destinationURL)
+
         if destinationExistsForReplacement(source: sourceURL, destination: destinationURL, caseSensitiveVolume: caseSensitiveVolume, fileManager: fileManager) {
-            return try replaceDestinationByMoving(sourceURL: sourceURL, destinationURL: destinationURL, fileManager: fileManager, observer: observer)
+            return try replaceDestinationByMoving(sourceURL: sourceURL, destinationURL: destinationURL, fileManager: fileManager, observer: observer, crossVolume: crossVolume)
         }
 
         // No existing destination (or a case-only rename whose "destination" is the source itself):
         // a plain single rename. Nothing is backed up, so there is no replacement window.
         do {
+            if crossVolume { throw POSIXError(.EXDEV) }
             try fileManager.moveItem(at: sourceURL, to: destinationURL)
         } catch {
             // Fallback for cross-volume moves (EXDEV) or other similar access issues. Stage into a
@@ -462,7 +474,8 @@ extension FileSyncManager {
         sourceURL: URL,
         destinationURL: URL,
         fileManager: FileManaging,
-        observer: CopyObserver? = nil
+        observer: CopyObserver? = nil,
+        crossVolume: Bool
     ) throws -> URL? {
         let targetDirectory = destinationURL.deletingLastPathComponent()
         let tempURL = targetDirectory.appendingPathComponent(".tmp_\(UUID().uuidString)")
@@ -475,9 +488,12 @@ extension FileSyncManager {
         defer { if !tempHoldsOnlyCopyOfSource { try? fileManager.removeItem(at: tempURL) } }
 
         // Stage the source onto the destination's volume. Same-volume: a rename consumes the
-        // source. Cross-volume (EXDEV): copy, and remember the original still needs cleanup.
+        // source. Cross-volume — decided up front (FR33), because `moveItem` onto another volume
+        // copies and unlinks by itself rather than throwing — or a rename that failed: copy, and
+        // remember the original still needs cleanup.
         var sourceConsumed = true
         do {
+            if crossVolume { throw POSIXError(.EXDEV) }
             try fileManager.moveItem(at: sourceURL, to: tempURL)
         } catch {
             try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer)
@@ -599,6 +615,30 @@ extension FileSyncManager {
         try? fileManager.removeItem(at: staleBackup)
     }
     
+    /// True when `source` and `destination` sit on different volumes, so a move between them is a
+    /// copy and a delete rather than a rename (FR33). Asked of each entry's PARENT — a move
+    /// relocates a directory entry, and a symbolic link lives where its parent is, not where it
+    /// points — walking up to the nearest folder that exists, as the destination's may not yet.
+    /// When either side cannot be asked it answers false: `moveItem` is then tried first, as it
+    /// always was, and a rename that fails still takes the staged path.
+    nonisolated static func isCrossVolumeMove(from source: URL, to destination: URL) -> Bool {
+        guard let from = volumeIdentifier(near: source.deletingLastPathComponent()),
+              let to = volumeIdentifier(near: destination.deletingLastPathComponent()) else { return false }
+        return !from.isEqual(to)
+    }
+
+    private nonisolated static func volumeIdentifier(near url: URL) -> NSObjectProtocol? {
+        var current = url.standardizedFileURL
+        while true {
+            if let id = (try? current.resourceValues(forKeys: [.volumeIdentifierKey]))?.volumeIdentifier {
+                return id
+            }
+            let up = current.deletingLastPathComponent()
+            if up.path == current.path { return nil }
+            current = up
+        }
+    }
+
     /// The one staging copy every primitive above makes: observed when there is an observer,
     /// `copyItem` exactly as before when there is not.
     private nonisolated static func stage(_ sourceURL: URL, to tempURL: URL, fileManager: FileManaging, observer: CopyObserver?) throws {
