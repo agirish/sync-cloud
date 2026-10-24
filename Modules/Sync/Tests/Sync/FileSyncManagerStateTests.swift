@@ -152,7 +152,11 @@ import Combine
         // Undoing the bulk op must remove every copied destination (source stays; it was a copy).
         func remainingDst() -> Int { names.filter { mockFM.virtualDisk["/dst/\($0)"] != nil }.count }
         manager.undoManager?.undo()
-        let deadline = Date().addingTimeInterval(3.0)
+        // A bound, not a pace: the copy-undo's removals run as file-queue operations, and 3 s was
+        // short of them in loaded full-suite runs ("Fixed pumps and fixed sleeps",
+        // docs/flaky-tests.md). The copies are asserted present above, so this waits on a real
+        // transition.
+        let deadline = Date().addingTimeInterval(30.0)
         while remainingDst() > 0 && Date() < deadline {
             try await Task.sleep(nanoseconds: 40_000_000)
             if remainingDst() > 0, manager.undoManager?.canUndo == true {
