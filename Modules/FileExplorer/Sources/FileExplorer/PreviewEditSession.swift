@@ -674,7 +674,7 @@ final class PreviewEditSession {
     // MARK: Drawing
 
     static let linkTip = "⌘-click to open"
-    static let readOnlyTip = "Edit in Source — Preview can't change this part"
+    static let readOnlyTip = "Edit in Source — Preview can’t change this part"
 
     /// The text column's width, which a rule spans and a table must fit to be editable. The view
     /// sets it as the window resizes. **Kept in ``style``, the one place**: held beside it, a scale

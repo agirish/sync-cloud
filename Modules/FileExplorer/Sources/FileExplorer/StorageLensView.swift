@@ -125,7 +125,7 @@ struct StorageLensView: View {
             accent: glassHue.accentColor,
             triggerTitle: "Analyze storage",
             triggerSymbol: "chart.pie.fill",
-            triggerHelp: "Map this folder's biggest areas and rank its largest and longest-untouched files. Read-only.",
+            triggerHelp: "Map this folder’s biggest areas and rank its largest and longest-untouched files. Read-only.",
             samplesTitle: "What the ranked lists look like",
             samplesAccessibility: "Example of the ranked-list format: a file-type glyph, the "
                 + "name, where it sits, and its size. These are samples, not files on your disk.",

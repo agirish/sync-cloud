@@ -549,7 +549,7 @@ struct RestructurePlanSheet: View {
                     }
                     .toggleStyle(.checkbox)
                     .disabled(locked)
-                    .help("Edits ONE mapping over every child name in the group. Each family's "
+                    .help("Edits ONE mapping over every child name in the group. Each family’s "
                           + "plan is still derived against its own folders and reviewed "
                           + "separately below, and they land one after another.")
                 }
@@ -937,7 +937,7 @@ struct RestructurePlanSheet: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .help("Proposes consistent names for this family's folders — billed to your "
+                    .help("Proposes consistent names for this family’s folders — billed to your "
                           + "own API key, set up in Settings ▸ Intelligence. The mapping stays "
                           + "yours: accepting a proposal edits a row, and the plan re-derives.")
                 }
@@ -1407,7 +1407,7 @@ struct RestructurePlanSheet: View {
                         .scaledFont(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.red)
                         .disabled(landable.isEmpty || applying || isApplied)
-                        .help("Lands each family's own plan, one after another — never at once, "
+                        .help("Lands each family’s own plan, one after another — never at once, "
                               + "because each landing re-derives the survey the next one reads. "
                               + "It stops at the first refusal, leaving the rest unrun.")
                 } else {
@@ -1776,7 +1776,7 @@ extension RestructurePlanSheet {
                 + "separator or dot traversal. Rename it to a single name and try again."
         case .targetTakenByFile(let target, let member):
             return "\(member) holds a FILE named \(target), and a folder cannot take a "
-                + "standing file's name. Move or rename the file first."
+                + "standing file’s name. Move or rename the file first."
         }
     }
 

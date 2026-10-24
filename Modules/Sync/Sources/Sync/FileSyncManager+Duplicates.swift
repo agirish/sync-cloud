@@ -1005,7 +1005,7 @@ extension FileSyncManager {
                 // a subtree it could not COVER, and an unreadable descendant is only one way to
                 // get one — the walk's hard depth cap and its symlink-cycle guard leave the same
                 // mark. Naming only the readable half over-claimed.
-                banner = .warning("“\(drifted.name)” couldn't be fully checked against the scan — the scan couldn't read all of it (unreadable, or nested too deep), so there's no baseline to prove it unchanged. Review it manually before removing.")
+                banner = .warning("“\(drifted.name)” couldn’t be fully checked against the scan — the scan couldn’t read all of it (unreadable, or nested too deep), so there’s no baseline to prove it unchanged. Review it manually before removing.")
                 Logger.shared.warning("Duplicates: refused to remove copies of “\(group.keeper.name)” (keeper \(group.keeper.path)) — “\(drifted.name)” (\(drifted.path)) has no scan baseline (its subtree wasn't fully coverable at scan time: unreadable, too deep, or a link cycle)")
             } else {
                 banner = .warning("“\(drifted.name)” changed since it was scanned — it may no longer be a copy. Rescan before removing it.")
@@ -1030,7 +1030,7 @@ extension FileSyncManager {
         // pre-checks above (the gate has already logged the specifics).
         if removed == 0, let kind = refusals.all[group.id] {
             banner = .warning(kind == .missingBaseline
-                ? "A copy of “\(group.keeper.name)” couldn't be fully checked against the scan — review it manually before removing."
+                ? "A copy of “\(group.keeper.name)” couldn’t be fully checked against the scan — review it manually before removing."
                 : "A copy of “\(group.keeper.name)” changed since it was scanned — it may no longer be a copy. Rescan before removing it.")
             return false
         }
@@ -1190,19 +1190,19 @@ extension FileSyncManager {
             banner = .warning("The duplicate scan has moved on since these copies were compared — rescan before trashing “\(copy.name)”.")
             Logger.shared.warning("Duplicates: refused to trash \(copy.path) — no current group holds it together with the keeper \(keeper.path), so the pair could not be re-verified")
         case .keeperDrifted(missingBaseline: true):
-            banner = .warning("“\(keeper.name)” couldn't be fully checked against the scan — the scan couldn't read all of it (unreadable, or nested too deep), so “\(copy.name)” can't be proven redundant. Review them manually.")
+            banner = .warning("“\(keeper.name)” couldn’t be fully checked against the scan — the scan couldn’t read all of it (unreadable, or nested too deep), so “\(copy.name)” can’t be proven redundant. Review them manually.")
             Logger.shared.warning("Duplicates: refused to trash \(copy.path) — the scan recorded no baseline for the keeper \(keeper.path) (subtree unreadable, too deep, or a link cycle), so the copy is not provably redundant")
         case .keeperDrifted(missingBaseline: false):
             banner = .warning("“\(keeper.name)” is no longer what the scan saw — rescan before trashing “\(copy.name)”.")
             Logger.shared.warning("Duplicates: refused to trash \(copy.path) — the keeper \(keeper.path) is no longer what the scan saw, so the copy may be its last intact instance")
         case .copyDrifted(missingBaseline: true):
-            banner = .warning("“\(copy.name)” couldn't be fully checked against the scan — the scan couldn't read all of it (unreadable, or nested too deep), so it can't be proven still a copy. Review it manually.")
+            banner = .warning("“\(copy.name)” couldn’t be fully checked against the scan — the scan couldn’t read all of it (unreadable, or nested too deep), so it can’t be proven still a copy. Review it manually.")
             Logger.shared.warning("Duplicates: refused to trash \(copy.path) — the scan recorded no baseline for it (subtree unreadable, too deep, or a link cycle), so it is not provably still a duplicate")
         case .copyDrifted(missingBaseline: false):
             banner = .warning("“\(copy.name)” changed since it was scanned — it may no longer be a copy. Rescan before trashing it.")
             Logger.shared.warning("Duplicates: refused to trash \(copy.path) — it changed after the scan, so it is no longer provably a duplicate")
         case .keeperNotKept(let groupKeeperName):
-            banner = .warning("This group is keeping “\(groupKeeperName)”, not “\(keeper.name)” — so “\(copy.name)” can't be trashed against it here. Compare against the copy being kept, or resolve the whole group.")
+            banner = .warning("This group is keeping “\(groupKeeperName)”, not “\(keeper.name)” — so “\(copy.name)” can’t be trashed against it here. Compare against the copy being kept, or resolve the whole group.")
             Logger.shared.warning("Duplicates: refused to trash \(copy.path) — the removal named \(keeper.path) as the keeper, but the live group keeps a different copy, so nothing here was verified against the copy this group is actually keeping")
         case .copyProtected:
             banner = .warning("“\(copy.name)” sits inside a folder another duplicate group is keeping — removing it here would undo that. Resolve that group first.")
@@ -1402,7 +1402,7 @@ extension FileSyncManager {
                 // with no baseline, "changed since they were scanned" asserts a change nobody
                 // measured — and a rescan reproduces the nil baseline, not a fresh one.
                 banner = .warning(refused == refusedForMissingBaseline
-                    ? "These groups couldn't be fully checked against the scan — review them individually before removing copies."
+                    ? "These groups couldn’t be fully checked against the scan — review them individually before removing copies."
                     : "These groups changed since they were scanned — rescan before removing copies.")
             } else if !verifiedButEmpty.isEmpty {
                 // **Name the cause only where the cause has been checked.** Protection is the
@@ -1477,7 +1477,7 @@ extension FileSyncManager {
             Logger.shared.info("Duplicates: the batch removed nothing — \(refused) group(s) refused, \(outcome.declined) permanent delete(s) declined")
             if outcome.declined == 0, gateRefused.count == survivors.count, !gateRefused.isEmpty {
                 banner = .warning(refused == refusedForMissingBaseline
-                    ? "These groups couldn't be fully checked against the scan — review them individually before removing copies."
+                    ? "These groups couldn’t be fully checked against the scan — review them individually before removing copies."
                     : "These groups changed since they were scanned — rescan before removing copies.")
             }
             return
@@ -1524,7 +1524,7 @@ extension FileSyncManager {
                     clauses.append("\(drifted) group\(drifted == 1 ? "" : "s") changed since the scan and \(drifted == 1 ? "was" : "were") left alone")
                 }
                 if refusedForMissingBaseline > 0 {
-                    clauses.append("\(refusedForMissingBaseline) group\(refusedForMissingBaseline == 1 ? "" : "s") couldn't be fully checked and \(refusedForMissingBaseline == 1 ? "was" : "were") left alone")
+                    clauses.append("\(refusedForMissingBaseline) group\(refusedForMissingBaseline == 1 ? "" : "s") couldn’t be fully checked and \(refusedForMissingBaseline == 1 ? "was" : "were") left alone")
                 }
                 let refusalClause = clauses.isEmpty ? "" : " " + clauses.joined(separator: "; ") + ";"
                 banner = .warning("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) of \(eligible.count) groups —\(refusalClause) the rest stay listed." + (isUndoable ? " Press ⌘Z to undo" : ""),
@@ -1817,7 +1817,7 @@ extension FileSyncManager {
             guard plan.blockedLinkedDirs.isEmpty else {
                 let dirs = plan.blockedLinkedDirs.map { "“\($0)”" }.joined(separator: ", ")
                 Logger.shared.warning("Duplicates merge: “\(redundant.name)” needs files under \(dirs) in \(keeperURL.lastPathComponent), which \(plan.blockedLinkedDirs.count == 1 ? "is a symlinked folder" : "are symlinked folders") — refusing to write through the link")
-                banner = .warning("Can't merge “\(group.name)”: \(dirs) in “\(keeperURL.lastPathComponent)” \(plan.blockedLinkedDirs.count == 1 ? "is a symbolic link" : "are symbolic links") — the fold would write through it. Resolve the link, then rescan.")
+                banner = .warning("Can’t merge “\(group.name)”: \(dirs) in “\(keeperURL.lastPathComponent)” \(plan.blockedLinkedDirs.count == 1 ? "is a symbolic link" : "are symbolic links") — the fold would write through it. Resolve the link, then rescan.")
                 allTrashed = false
                 continue
             }
@@ -1829,7 +1829,7 @@ extension FileSyncManager {
                 Logger.shared.warning("Duplicates merge: “\(redundant.name)” holds \(plan.unreadDirs.count) folder(s) that could not be read (\(plan.unreadDirs.joined(separator: ", "))) — refusing to merge and trash it")
                 // The copy's own folder unreadable comes back as one entry bearing its name.
                 let what = plan.unreadDirs == [redundant.name] ? "“\(redundant.name)”" : "\(dirs) in “\(redundant.name)”"
-                banner = .warning("Can't merge “\(group.name)”: \(what) couldn’t be read, so its contents can’t be checked. Open it, or make it available offline, then rescan.")
+                banner = .warning("Can’t merge “\(group.name)”: \(what) couldn’t be read, so its contents can’t be checked. Open it, or make it available offline, then rescan.")
                 allTrashed = false
                 continue
             }
@@ -1898,7 +1898,7 @@ extension FileSyncManager {
                 // this run — this fold's and every earlier one's — have no undo registered yet, and
                 // an early return would leave them in the keeper with nothing to reverse them.
                 present(.syncFailed(item: redundant.name, path: redundant.path,
-                                    reason: "Some files couldn't be merged; the folder was left in place."))
+                                    reason: "Some files couldn’t be merged; the folder was left in place."))
                 copyFailed = true
                 allTrashed = false
                 break
@@ -2069,7 +2069,7 @@ extension FileSyncManager {
                 banner = .warning("“\(drifted)” changed since it was scanned — it was left in place. Rescan before merging.")
             } else if declinedCopies > 0 {
                 // The fold itself succeeded; the copies are still here because the user said so.
-                banner = .warning("Merged “\(group.name)” — folded \(totalFolded) file\(totalFolded == 1 ? "" : "s") into \(group.keeper.name), but \(declinedCopies == 1 ? "the redundant copy can't" : "\(declinedCopies) redundant copies can't") be moved to the Trash and you chose not to delete \(declinedCopies == 1 ? "it" : "them") permanently. \(declinedCopies == 1 ? "It stays" : "They stay") on disk and the group stays listed.")
+                banner = .warning("Merged “\(group.name)” — folded \(totalFolded) file\(totalFolded == 1 ? "" : "s") into \(group.keeper.name), but \(declinedCopies == 1 ? "the redundant copy can’t" : "\(declinedCopies) redundant copies can’t") be moved to the Trash and you chose not to delete \(declinedCopies == 1 ? "it" : "them") permanently. \(declinedCopies == 1 ? "It stays" : "They stay") on disk and the group stays listed.")
             } else if totalFolded > 0 {
                 banner = .warning("Merged part of “\(group.name)” — some copies were left in place. Review and retry.")
             }

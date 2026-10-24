@@ -427,8 +427,8 @@ enum SetupFlow {
     /// A promise stated without its exception reads as complete, and the user meets the Refine
     /// button a week later. Four lines here are what make the rest of the claim believable.
     static let surveyThirdPartyNote =
-        "One thing can reach a third party, and setup does not turn it on: Organize's optional "
-        + "Refine pass asks Claude — Anthropic's service, on an API key you supply. It never runs "
+        "One thing can reach a third party, and setup does not turn it on: Organize’s optional "
+        + "Refine pass asks Claude — Anthropic’s service, on an API key you supply. It never runs "
         + "on its own, and it is off unless you turn it on in Settings ▸ Intelligence."
 
     // MARK: - The You screen's pre-fill

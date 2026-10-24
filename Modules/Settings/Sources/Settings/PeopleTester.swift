@@ -141,7 +141,7 @@ struct PeopleTester: View {
             // Counted, not assumed: three household members in one filename is an ordinary
             // scanned document, and "Two people are named" about three of them is simply wrong.
             return ids.count > 1
-                ? "\(ids.count) people are named, so no folder is refused on anyone's behalf."
+                ? "\(ids.count) people are named, so no folder is refused on anyone’s behalf."
                 : nil
         }
         guard facts.folderCount > 0 else {
@@ -151,7 +151,7 @@ struct PeopleTester: View {
         let folders = facts.folderCount == 1 ? "their 1 folder" : "their \(facts.folderCount) folders"
         return others == 0
             ? "Prefers \(folders)."
-            : "Prefers \(folders); refuses the other \(others == 1 ? "person's" : "\(others) people's")."
+            : "Prefers \(folders); refuses the other \(others == 1 ? "person’s" : "\(others) people’s")."
     }
 
     private func absorbedLine(_ absorbed: AbsorbedWord) -> String {

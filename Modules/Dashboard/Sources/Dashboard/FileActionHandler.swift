@@ -99,8 +99,8 @@ public class FileActionHandler {
         // the pane's own tree place it instead.
         guard let relPath = syncManager.paneRelativePath(of: node, isLeft: isLeft, root: expandedRoot) else {
             syncManager.present(SyncError(
-                title: "Can't Focus Folder",
-                message: "\"\(node.name)\" is not inside the \(side) pane's folder. Rescan and try again.",
+                title: "Can’t Focus Folder",
+                message: "“\(node.name)” is not inside the \(side) pane’s folder. Rescan and try again.",
                 path: node.id))
             return
         }
@@ -212,7 +212,7 @@ public class FileActionHandler {
         guard sourceExists else {
             syncManager.present(SyncError(
                 title: "Folder Unavailable",
-                message: "The \(fromLeft ? "left" : "right") pane's folder no longer exists on disk. Rescan before copying or moving items.",
+                message: "The \(fromLeft ? "left" : "right") pane’s folder no longer exists on disk. Rescan before copying or moving items.",
                 path: expandedSource))
             return nil
         }
@@ -222,7 +222,7 @@ public class FileActionHandler {
     private func paneUnavailableError(side: String) -> SyncError {
         SyncError(
             title: "Folder Unavailable",
-            message: "The \(side) pane's folder is no longer available. Rescan before continuing.")
+            message: "The \(side) pane’s folder is no longer available. Rescan before continuing.")
     }
     
     /// Moves the given items into the directory at `destinationPath`.
@@ -400,7 +400,7 @@ public class FileActionHandler {
         guard !path.isEmpty else {
             syncManager.present(SyncError(
                 title: "Folder Unavailable",
-                message: "The pane's folder is no longer available. Rescan before continuing."))
+                message: "The pane’s folder is no longer available. Rescan before continuing."))
             return
         }
         if let folderName = newFolderPrompter(FileSyncManager.validateItemName) {

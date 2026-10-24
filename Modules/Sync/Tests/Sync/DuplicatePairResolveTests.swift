@@ -286,7 +286,7 @@ import Events
 
         #expect(await manager.resolveDuplicateCopy(other, keeper: keeper) == false)
         let message = try #require(manager.banner?.message)
-        #expect(message.contains("couldn't be fully checked"))
+        #expect(message.contains("couldn’t be fully checked"))
         #expect(!message.contains("changed since it was scanned"))
     }
 

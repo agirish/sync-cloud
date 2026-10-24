@@ -465,7 +465,7 @@ import Foundation
         await manager.createFolder(named: "New Folder", in: "", fileManager: mockFM)
 
         #expect(mockFM.virtualDisk.isEmpty)
-        #expect(manager.currentError?.title == "Couldn't Create Folder")
+        #expect(manager.currentError?.title == "Couldn’t Create Folder")
         #expect(manager.currentError?.reason?.contains("no longer available") == true)
     }
 
@@ -479,7 +479,7 @@ import Foundation
         await manager.createFolder(named: "New Folder", in: "/gone", fileManager: mockFM)
 
         #expect(mockFM.virtualDisk.isEmpty)
-        #expect(manager.currentError?.title == "Couldn't Create Folder")
+        #expect(manager.currentError?.title == "Couldn’t Create Folder")
         #expect(manager.currentError?.reason?.contains("no longer available") == true)
     }
 

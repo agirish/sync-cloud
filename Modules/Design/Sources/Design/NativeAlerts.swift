@@ -246,7 +246,7 @@ public struct NativeAlerts {
                     error.messageText = reason
                     error.informativeText = "Type a name, or press Cancel to stop."
                 } else {
-                    error.messageText = "The name \"\(value)\" can't be used."
+                    error.messageText = "The name “\(value)” can’t be used."
                     error.informativeText = "\(reason) Please choose a different name."
                 }
                 error.addButton(withTitle: "OK")

@@ -179,8 +179,8 @@ struct CountriesWhy: View {
                     .foregroundStyle(.secondary)
                 }
                 .accessibilityHidden(true)
-                Text("US is a country, not a topic. Knowing that lets Organize keep \"country, then "
-                     + "year\" as the shape of your folders instead of treating US as a subject.")
+                Text("US is a country, not a topic. Knowing that lets Organize keep “country, then "
+                     + "year” as the shape of your folders instead of treating US as a subject.")
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

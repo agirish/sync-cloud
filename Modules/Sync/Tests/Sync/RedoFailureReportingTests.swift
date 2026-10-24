@@ -82,7 +82,7 @@ import EventsTestSupport
         await waitUntil("copy redo failure raises a warning banner") {
             manager.banner?.severity == .warning
         }
-        #expect(manager.banner?.message.contains("Redo couldn't re-apply") == true)
+        #expect(manager.banner?.message.contains("Redo couldn’t re-apply") == true)
         #expect(manager.banner?.message.contains("f.txt") == true)
         #expect(await loggerHasError(log, containing: "FAILED to redo \"f.txt\""))
 
@@ -126,7 +126,7 @@ import EventsTestSupport
         await waitUntil("move redo failure raises a warning banner") {
             manager.banner?.severity == .warning
         }
-        #expect(manager.banner?.message.contains("Redo couldn't re-apply") == true)
+        #expect(manager.banner?.message.contains("Redo couldn’t re-apply") == true)
         #expect(await loggerHasError(log, containing: "FAILED to redo \"f.txt\""))
 
         // The next undo has nothing registered for the failed item: no phantom move-back, no
@@ -204,7 +204,7 @@ import EventsTestSupport
         await waitUntil("folder redo failure raises a warning banner") {
             manager.banner?.severity == .warning
         }
-        #expect(manager.banner?.message.contains("Redo couldn't re-apply") == true)
+        #expect(manager.banner?.message.contains("Redo couldn’t re-apply") == true)
         #expect(await loggerHasError(log, containing: "FAILED to redo \"New Folder\""))
         #expect(mockFM.virtualDisk["/dst/New Folder"]?.isDirectory == false)
 
@@ -252,7 +252,7 @@ import EventsTestSupport
         await waitUntil("the failed permanent delete raises a warning banner") {
             manager.banner?.severity == .warning
         }
-        #expect(manager.banner?.message.contains("Undo couldn't remove") == true)
+        #expect(manager.banner?.message.contains("Undo couldn’t remove") == true)
         #expect(manager.banner?.message.contains("f.txt") == true)
         #expect(await loggerHasError(log, containing: "FAILED to permanently delete \"f.txt\""))
 

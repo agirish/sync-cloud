@@ -1438,7 +1438,7 @@ public struct LensWorkspaceView: View {
                         .scaledFont(.system(size: 12, weight: .semibold), scale: appFontScale)
                         .contentShape(Rectangle())
                 }
-                .help("Switch which cloud you're organizing")
+                .help("Switch which cloud you’re organizing")
             }
             .pillSurface(.mini, tint: .secondary)
             // Frosted and Clear: glass under the pill's wash, as under the breadcrumb's source pill.
@@ -1845,7 +1845,7 @@ public struct LensWorkspaceView: View {
         .buttonStyle(.plain)
         // The chosen item sits on the rail's lens in Frosted and Clear, and does not lift off it.
         .chromeHover(onLens: isSelected)
-        .help("Every lens's answer for what Organize is pointed at, on one page.")
+        .help("Every lens’s answer for what Organize is pointed at, on one page.")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         // The handle `scrollTo` aims at — see `selectedRailItemID`.
         .id(Self.railItemID(organizeLens: nil))
@@ -2530,8 +2530,8 @@ public struct LensWorkspaceView: View {
         let files = count == 1 ? "1 suggestion" : "\(count) suggestions"
         let scope = isFiltered ? " — the ones your search left showing" : ""
         return "Re-asks Claude (\(model)) about \(files)\(scope). This one is billed to your API "
-            + "key; you'll see an estimate first. Suggestions your own rules steered are left "
-            + "alone, and files already answered by this model aren't sent again."
+            + "key; you’ll see an estimate first. Suggestions your own rules steered are left "
+            + "alone, and files already answered by this model aren’t sent again."
     }
 
     /// Runs the refine pass over `batch`. Unstructured on purpose: this is a user-initiated round
@@ -2973,7 +2973,7 @@ public struct LensWorkspaceView: View {
         case (.declined, _):
             sent = "Nothing was sent — the cloud pass was declined, so nothing was billed."
         case (.downgraded, _):
-            sent = "Nothing was sent to Claude — its saved key couldn't be read, so these answers "
+            sent = "Nothing was sent to Claude — its saved key couldn’t be read, so these answers "
                  + "were worked out on this Mac."
         case (.ran, 0):
             sent = "Nothing needed sending — every answer came from the cache."
@@ -3311,7 +3311,7 @@ public struct LensWorkspaceView: View {
             .controlSize(.small)
             .disabled(syncManager.isApplyingRenames || syncManager.isSuggestingFiles)
             .help("Renames \(files) file\(files == 1 ? "" : "s") across \(plans.count) "
-                  + "folder\(plans.count == 1 ? "" : "s") to match each folder's own convention. "
+                  + "folder\(plans.count == 1 ? "" : "s") to match each folder’s own convention. "
                   + "One undoable change — ⌘Z puts every name back.")
         }
     }
@@ -4478,7 +4478,7 @@ public struct LensWorkspaceView: View {
                     // Not "this provider will not accept": an iCloud or folder source has no naming
                     // rules of its own and still reports here, because the invisible-hazard half of
                     // the check runs on every provider.
-                    : "\(scopedRisky.count) name\(scopedRisky.count == 1 ? "" : "s") that won't store cleanly"
+                    : "\(scopedRisky.count) name\(scopedRisky.count == 1 ? "" : "s") that won’t store cleanly"
                 let renameParts = [riskyClause,
                                    tally.headerBreakdown.isEmpty ? nil : tally.headerBreakdown]
                     .compactMap { $0 }
@@ -4630,7 +4630,7 @@ public struct LensWorkspaceView: View {
                 message: syncManager.duplicateScanRoot.map { root in
                     "Nothing else in “\((root as NSString).lastPathComponent)” has the same content as this file."
                 } ?? "Nothing else in the scanned folder has the same content as this file.",
-                caption: "Copies outside the folder that was scanned aren't detected.",
+                caption: "Copies outside the folder that was scanned aren’t detected.",
                 primary: .init("Clear Search", systemImage: "xmark.circle") { clearRevealAnswer() }
             )
         case .notScanned(let name):
@@ -4638,9 +4638,9 @@ public struct LensWorkspaceView: View {
             // was cancelled), so the only true statement available is that it did not look here.
             EmptyStateView(
                 icon: "questionmark.folder",
-                title: "“\(name)” wasn't in the last scan",
+                title: "“\(name)” wasn’t in the last scan",
                 message: syncManager.duplicateScanRoot.map { root in
-                    "These results were scanned from “\((root as NSString).lastPathComponent)”, which doesn't contain this file — so they say nothing about it either way."
+                    "These results were scanned from “\((root as NSString).lastPathComponent)”, which doesn’t contain this file — so they say nothing about it either way."
                 } ?? "No completed scan covers this file, so there is nothing to say about it yet.",
                 caption: "Scan the folder this file is in to get an answer about it.",
                 primary: .init("Find Duplicates", systemImage: "wand.and.stars",
@@ -5507,7 +5507,7 @@ public struct LensWorkspaceView: View {
             triggerHelp: "One walk of the tree answers To File and this backlog. Free, and on-device.",
             samplesTitle: "What a finding looks like",
             samplesAccessibility: "Example of the rename formats: a provider-hostile name and "
-                + "its safe form, a file renamed to its folder's convention, and a one-digit "
+                + "its safe form, a file renamed to its folder’s convention, and a one-digit "
                 + "ordinal padded to two. These are samples, not files on your disk.",
             onStart: onFindFilingSuggestions
         ) {
@@ -5802,7 +5802,7 @@ public struct LensWorkspaceView: View {
         guard count > 0 else { return }
         let itemWord = DuplicateRemovalPrompt.itemWord(for: group.matchType.kind, count: count)
         let ok = NativeAlerts.confirmDestructive(
-            messageText: "Move \(count) \(itemWord) of \"\(group.name)\" to the Trash?",
+            messageText: "Move \(count) \(itemWord) of “\(group.name)” to the Trash?",
             informativeText: DuplicateRemovalPrompt.informativeText(
                 kind: group.matchType.kind,
                 keeperName: group.keeper.name,
@@ -5874,8 +5874,8 @@ public struct LensWorkspaceView: View {
         // routinely off by a file or two; the safety statement — nothing is trashed until
         // everything landed — is the load-bearing part.
         let ok = NativeAlerts.confirmDestructive(
-            messageText: "Merge \"\(group.name)\" into one folder?",
-            informativeText: "Copies anything \"\(group.keeper.name)\" doesn't already have (about \(unique) item\(unique == 1 ? "" : "s")) into it, then moves the folded cop\(many ? "ies" : "y") to the Trash. Nothing is lost; undo with ⌘Z.",
+            messageText: "Merge “\(group.name)” into one folder?",
+            informativeText: "Copies anything “\(group.keeper.name)” doesn’t already have (about \(unique) item\(unique == 1 ? "" : "s")) into it, then moves the folded cop\(many ? "ies" : "y") to the Trash. Nothing is lost; undo with ⌘Z.",
             confirmTitle: "Merge"
         )
         guard ok else { return }

@@ -112,7 +112,7 @@ import Testing
                 "without a path the alert cannot even offer Reveal in Finder")
         #expect(error.message.contains("Nothing was removed"),
                 "a refusal must say the file is still there")
-        #expect(error.message.contains("system's own Trash service"),
+        #expect(error.message.contains("system’s own Trash service"),
                 "the reader must know the out-of-process fallback was tried too")
         #expect(error.message.contains("re-register"),
                 "the reader must know the third attempt was tried too")
@@ -136,7 +136,7 @@ import Testing
     @Test func theGenericDeleteFailureStillExists() {
         let error = SyncError.deleteFailed(reason: "busy")
         #expect(error.title == "Delete Failed")
-        #expect(error.message == "Some items couldn't be deleted.")
+        #expect(error.message == "Some items couldn’t be deleted.")
     }
 
     // MARK: The out-of-process fallback

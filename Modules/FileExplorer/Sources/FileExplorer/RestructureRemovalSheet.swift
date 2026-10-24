@@ -64,9 +64,9 @@ struct RestructureRemovalSheet: View {
         } else if skippedCount > 0 {
             sentence = "Moved \(removed) folder\(removed == 1 ? "" : "s") to the Trash; "
                 + "\(skippedCount) skipped (named in the log). Undo this reorganisation on "
-                + "the removal's own card puts the moved ones back."
+                + "the removal’s own card puts the moved ones back."
         } else {
-            sentence = "Moved to the Trash — Undo this reorganisation on the removal's own "
+            sentence = "Moved to the Trash — Undo this reorganisation on the removal’s own "
                 + "card puts them back, even after a quit."
         }
         // A survey-refresh failure after a successful trashing composes with the landing,

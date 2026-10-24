@@ -113,10 +113,10 @@ extension FileSyncManager {
             case .landingInProgress:
                 return "A reorganisation is landing — run this once the landing finishes."
             case .noProfileDirectory, .noProfile:
-                return "This Mac has no folder survey yet. Run setup's Folders step first."
+                return "This Mac has no folder survey yet. Run setup’s Folders step first."
             case .noExtractor: return "Nothing on this Mac can read document contents."
             case .noRecordedFolder:
-                return "This Mac's folder survey does not say which folder it describes, so there "
+                return "This Mac’s folder survey does not say which folder it describes, so there "
                     + "is no telling which documents to read. Nothing was surveyed — give "
                     + "folder-profile.json an absolute “root” first."
             case .rootUnreadable:

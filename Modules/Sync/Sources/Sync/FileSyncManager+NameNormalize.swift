@@ -200,7 +200,7 @@ extension FileSyncManager {
 
         guard !result.moves.isEmpty else {
             if result.failed > 0 {
-                banner = .warning("Couldn't normalize \(result.failed) name\(result.failed == 1 ? "" : "s").")
+                banner = .warning("Couldn’t normalize \(result.failed) name\(result.failed == 1 ? "" : "s").")
             }
             return
         }
@@ -227,7 +227,7 @@ extension FileSyncManager {
         // The registration above is unconditional on this path (`result.moves` is non-empty), so
         // the flag is true wherever the sentence is.
         banner = result.failed > 0
-            ? .warning("Normalized \(n) name\(n == 1 ? "" : "s"); \(result.failed) couldn't be fixed. Press ⌘Z to undo",
+            ? .warning("Normalized \(n) name\(n == 1 ? "" : "s"); \(result.failed) couldn’t be fixed. Press ⌘Z to undo",
                        undoable: true)
             : .success("Normalized \(n) name\(n == 1 ? "" : "s"). Press ⌘Z to undo", undoable: true)
     }

@@ -57,7 +57,7 @@ import Testing
         // landing is undoable" promised a post-quit undo the scaffold does not have.
         #expect(LensIntros.restructure(providerName: nil).safety.contains("review"))
         #expect(LensIntros.restructure(providerName: nil).safety
-            .contains("a plan's landing can be undone"))
+            .contains("a plan’s landing can be undone"))
         #expect(!LensIntros.restructure(providerName: nil).safety.contains("Nothing is created"))
         // Rules never moves a file itself — a rule steers a suggestion, and the suggestion is
         // still confirmed. Both halves, because either alone overstates or understates it.

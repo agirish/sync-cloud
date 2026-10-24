@@ -209,7 +209,7 @@ import Testing
 
         #expect(manager.banner?.severity == .warning,
                 "the undo must refuse, not proceed; banner: \(String(describing: manager.banner?.message))")
-        #expect(manager.banner?.message.contains("couldn't be checked") == true,
+        #expect(manager.banner?.message.contains("couldn’t be checked") == true,
                 "an unverifiable tree reports as unverifiable, not as changed; got \(String(describing: manager.banner?.message))")
         #expect(fm.virtualDisk["/deeplock-dst/project"] != nil,
                 "a tree that cannot be checked is not destroyed")

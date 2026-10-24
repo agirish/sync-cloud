@@ -363,7 +363,7 @@ extension FileSyncManager {
         if filingCloudRefineIsDowngraded {
             Logger.shared.warning("Filing: refine ran on-device — Claude is switched on but the "
                 + "saved key could not be read, so nothing was sent or billed")
-            banner = .warning("Couldn't reach Claude — your saved API key couldn't be read. "
+            banner = .warning("Couldn’t reach Claude — your saved API key couldn’t be read. "
                               + "These are the on-device suggestions; check the key in Settings ▸ Intelligence.")
             return summary
         }

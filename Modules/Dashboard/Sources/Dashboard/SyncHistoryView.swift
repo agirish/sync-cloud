@@ -61,7 +61,7 @@ public struct SyncHistoryView: View {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Clear all sync history?"
-        alert.informativeText = "Permanently removes every recorded copy, move, and delete from this window and from the history file on disk. Your files aren't affected, and this can't be undone. Export first if you want to keep a copy."
+        alert.informativeText = "Permanently removes every recorded copy, move, and delete from this window and from the history file on disk. Your files aren’t affected, and this can’t be undone. Export first if you want to keep a copy."
         alert.addButton(withTitle: "Clear History")
         alert.addButton(withTitle: "Cancel")
         if let clearButton = alert.buttons.first {

@@ -40,9 +40,9 @@ import Foundation
         let manager = makeManager()
         // A warning/error banner is not an undo affordance and is often sticky — an unrelated
         // operation must not make it vanish.
-        manager.banner = .warning("Couldn't file 2 files.")
+        manager.banner = .warning("Couldn’t file 2 files.")
         manager.registerCreateFolderUndo(url: URL(fileURLWithPath: "/tmp/does-not-matter/NewFolder"))
-        #expect(manager.banner?.message == "Couldn't file 2 files.")
+        #expect(manager.banner?.message == "Couldn’t file 2 files.")
         #expect(manager.banner?.severity == .warning)
     }
 

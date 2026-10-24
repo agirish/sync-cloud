@@ -56,7 +56,7 @@ import Foundation
     /// The dialog has to say the thing that makes it worth reading: this is not undoable.
     @Test func theDialogSaysItCannotBeUndone() throws {
         let source = try Self.lensSource()
-        #expect(source.contains("can't be undone"),
+        #expect(source.contains("can’t be undone"),
                 "the confirmation does not say the deletion is permanent, which is its whole point")
     }
 }

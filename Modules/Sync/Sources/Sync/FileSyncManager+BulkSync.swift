@@ -205,7 +205,7 @@ extension FileSyncManager {
         // item of this run, and nothing can observe the list before it runs.
         if result.failures.count == 1, let (diff, error) = result.failures.first {
             present(.copyFailed(
-                items: "\"\(diff.relativePath)\"",
+                items: "“\(diff.relativePath)”",
                 path: diff.leftItemPath,
                 reason: error.localizedDescription
             ))
@@ -450,7 +450,7 @@ extension FileSyncManager {
         guard total > 0 else {
             if !heldBack.isEmpty, postBanner {
                 banner = .warning((heldBack.count == 1 ? "1 item needs" : "\(heldBack.count) items need")
-                    + " your decision, so nothing was \(isMove ? "moved" : "copied") — see each row's note")
+                    + " your decision, so nothing was \(isMove ? "moved" : "copied") — see each row’s note")
             }
             return
         }

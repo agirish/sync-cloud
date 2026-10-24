@@ -214,7 +214,7 @@ public struct NotifyInBackgroundRow: View {
             Text("Notifications are disabled in System Settings — allow SyncCloud under Notifications to see these alerts.")
                 .foregroundStyle(.orange)
         } else {
-            Text("Shows a system notification when a copy, sync, or verify finishes while SyncCloud isn't the active app. Requires notification permission.")
+            Text("Shows a system notification when a copy, sync, or verify finishes while SyncCloud isn’t the active app. Requires notification permission.")
         }
     }
         .task { readNotificationAuthorization() }

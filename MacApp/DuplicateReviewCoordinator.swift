@@ -81,7 +81,7 @@ struct DuplicateReviewCoordinator {
             // (`SyncOperationAlerts.confirmPermanentDelete`, critical style, with Return
             // deliberately left unbound), so saying so is both true and the reassurance the ⌘Z
             // sentence was there to give.
-            informativeText: "Trashes \((review.deletePath as NSString).abbreviatingWithTildeInPath). The left copy is kept. Undo with ⌘Z. On a volume with no Trash you'll be asked first, and a permanent delete can't be undone.",
+            informativeText: "Trashes \((review.deletePath as NSString).abbreviatingWithTildeInPath). The left copy is kept. Undo with ⌘Z. On a volume with no Trash you’ll be asked first, and a permanent delete can’t be undone.",
             confirmTitle: "Move to Trash")
     }
 
@@ -176,7 +176,7 @@ struct DuplicateReviewCoordinator {
             VStack(alignment: .leading, spacing: 1) {
                 Text("Reviewing duplicate “\(review.groupName)”")
                     .scaledFont(.system(size: 12, weight: .semibold))
-                Text("Keeping the left copy — the right is the one you're deciding on")
+                Text("Keeping the left copy — the right is the one you’re deciding on")
                     .scaledFont(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -544,7 +544,7 @@ struct DuplicateReviewCoordinator {
         let examples = onlyRight.prefix(2).map { "“\(($0 as NSString).lastPathComponent)”" }
         let named = examples.isEmpty ? "" : " (\(examples.joined(separator: ", "))\(onlyRight.count > 2 ? ", …" : ""))"
         return (
-            banner: "The right copy holds \(items) the left one doesn't\(named), so trashing it would lose them. Use Merge into keeper on the Duplicates card instead — it copies them across first.",
+            banner: "The right copy holds \(items) the left one doesn’t\(named), so trashing it would lose them. Use Merge into keeper on the Duplicates card instead — it copies them across first.",
             log: "Refused to trash \(review.deletePath): it holds \(items) the left copy \(review.keepPath) lacks"
                 + (onlyRight.isEmpty ? "" : " — \(onlyRight.prefix(5).joined(separator: ", "))\(onlyRight.count > 5 ? ", …" : "")")
                 + "; Merge into keeper keeps them")
@@ -566,13 +566,13 @@ struct DuplicateReviewCoordinator {
                                     syncManager: FileSyncManager) {
         switch verdict {
         case .keepDrifted(missingBaseline: true):
-            syncManager.banner = .warning("The left copy couldn't be fully checked against the scan — the scan couldn't read all of it (unreadable, or nested too deep), so the right copy can't be proven redundant. Review them manually.")
+            syncManager.banner = .warning("The left copy couldn’t be fully checked against the scan — the scan couldn’t read all of it (unreadable, or nested too deep), so the right copy can’t be proven redundant. Review them manually.")
             Logger.shared.warning("Refused to trash \(review.deletePath): the scan recorded no baseline for the left copy \(review.keepPath) (subtree unreadable, too deep, or a link cycle), so the right copy is not provably redundant")
         case .keepDrifted(missingBaseline: false):
             syncManager.banner = .warning("The left copy is no longer what the scan saw — rescan before trashing the right copy.")
             Logger.shared.warning("Refused to trash \(review.deletePath): the left copy \(review.keepPath) is no longer what the scan saw, so the right copy may be its last intact instance")
         case .deleteDrifted(missingBaseline: true):
-            syncManager.banner = .warning("The right copy couldn't be fully checked against the scan — the scan couldn't read all of it (unreadable, or nested too deep), so it can't be proven still a copy of the left one. Review it manually.")
+            syncManager.banner = .warning("The right copy couldn’t be fully checked against the scan — the scan couldn’t read all of it (unreadable, or nested too deep), so it can’t be proven still a copy of the left one. Review it manually.")
             Logger.shared.warning("Refused to trash \(review.deletePath): the scan recorded no baseline for it (subtree unreadable, too deep, or a link cycle), so it is not provably still a duplicate")
         case .deleteDrifted(missingBaseline: false):
             syncManager.banner = .warning("The right copy has changed since the scan — it is no longer a copy of the left one. Rescan before trashing it.")

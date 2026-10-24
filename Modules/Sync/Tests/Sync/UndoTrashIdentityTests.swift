@@ -463,7 +463,7 @@ import Foundation
                 "the refused child left its folder; trash: \(trash.names)")
         #expect(!trash.names.contains("Reports"), "the folder went to the Trash: \(trash.names)")
         #expect(!entryExists(dst.appendingPathComponent("a.txt")))
-        #expect(m.banner?.message.contains("Redo left \"Reports\" in place") == true,
+        #expect(m.banner?.message.contains("Redo left “Reports” in place") == true,
                 "banner: \(m.banner?.message ?? "nil")")
     }
 

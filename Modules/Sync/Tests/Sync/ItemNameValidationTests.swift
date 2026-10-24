@@ -43,8 +43,8 @@ import Foundation
     }
 
     @Test func testFailureReasonsAreHumanReadable() {
-        #expect(FileSyncManager.validateItemName("a/b") == "Names can't contain \"/\".")
-        #expect(FileSyncManager.validateItemName("a:b") == "Names can't contain \":\".")
+        #expect(FileSyncManager.validateItemName("a/b") == "Names can’t contain “/”.")
+        #expect(FileSyncManager.validateItemName("a:b") == "Names can’t contain “:”.")
     }
 
     // MARK: - Engine defense
@@ -60,7 +60,7 @@ import Foundation
         await manager.renameItem(at: "/src/report.txt", to: "../report.txt", fileManager: mockFM)
 
         #expect(manager.currentError?.title == "Rename Failed")
-        #expect(manager.currentError?.message == "Names can't contain \"/\".")
+        #expect(manager.currentError?.message == "Names can’t contain “/”.")
         // Nothing moved anywhere — same entries, original still in place.
         #expect(Set(mockFM.virtualDisk.keys) == diskBefore)
     }
@@ -87,7 +87,7 @@ import Foundation
 
         await manager.createFolder(named: "../escape", in: "/src", fileManager: mockFM)
 
-        #expect(manager.currentError?.title == "Couldn't Create Folder")
+        #expect(manager.currentError?.title == "Couldn’t Create Folder")
         #expect(Set(mockFM.virtualDisk.keys) == diskBefore)
     }
 }

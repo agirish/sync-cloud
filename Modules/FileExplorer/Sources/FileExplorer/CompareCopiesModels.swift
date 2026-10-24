@@ -376,7 +376,7 @@ enum ComparePairVerify: Equatable {
         case .running: return "Checking both copies…"
         case .matched: return "Verified: the two files are byte-for-byte identical right now."
         case .differed: return "These are NOT identical any more — the scan is stale. Rescan before removing either."
-        case .couldNotVerify(let reason): return "Couldn't verify: \(reason)."
+        case .couldNotVerify(let reason): return "Couldn’t verify: \(reason)."
         }
     }
 }
@@ -402,7 +402,7 @@ enum ComparePairClaim {
         switch kind {
         case .identical:
             return contentUnverified
-                ? "Grouped as identical, but the scan couldn't hash one of them (too large, or not downloaded) — the claim rests on less than a full check."
+                ? "Grouped as identical, but the scan couldn’t hash one of them (too large, or not downloaded) — the claim rests on less than a full check."
                 : "The scan hashed both: byte-for-byte identical."
         case .sameText:
             return "These read the same; their bytes differ. A signed, redacted or re-saved copy reads the same too."

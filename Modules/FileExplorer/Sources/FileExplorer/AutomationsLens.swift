@@ -209,7 +209,7 @@ public struct AutomationsLens: View {
             }
             Button("Cancel", role: .cancel) { rulePendingDeletion = nil }
         } message: {
-            Text("This can't be undone. The rule's conditions and destination are removed from this Mac.")
+            Text("This can’t be undone. The rule’s conditions and destination are removed from this Mac.")
         }
         .sheet(item: $editingRule) { rule in
             AutomationRuleEditor(
@@ -273,8 +273,8 @@ public struct AutomationsLens: View {
     /// preview over; and a rule from a newer build needs neither.
     nonisolated static func previewHelp(for rule: AutomationRule, hasDestinationRoot: Bool) -> String {
         if rule.hasUnreadableValues {
-            return "This rule was saved by a newer version of SyncCloud. It's kept as-is and left "
-                 + "alone here; editing it will rewrite the part this version can't read."
+            return "This rule was saved by a newer version of SyncCloud. It’s kept as-is and left "
+                 + "alone here; editing it will rewrite the part this version can’t read."
         }
         if !rule.isRunnable { return "Give the rule a condition and destination to preview it" }
         if !hasDestinationRoot {

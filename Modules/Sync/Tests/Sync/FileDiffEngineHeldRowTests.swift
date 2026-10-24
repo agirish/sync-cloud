@@ -96,7 +96,7 @@ import Foundation
 
         let row = try #require(rows["Report.pages"])
         #expect(row.heldBack == .folderVersusFile)
-        #expect(row.description == "Folder in Mac, file in Backup — a folder's date is not when its contents changed; choose which to keep")
+        #expect(row.description == "Folder in Mac, file in Backup — a folder’s date is not when its contents changed; choose which to keep")
         #expect(!row.description.contains("newer"))
         #expect(row.enclosedItemCount == 1, "the package's insides still fold into its one row")
     }
@@ -168,7 +168,7 @@ import Foundation
         manager.banner = nil
         await manager.syncAll(direction: .copyToRight, confirmed: true)
         #expect(destinationIsAbsent(), "a bulk run wrote something at \(destination.path)")
-        #expect(manager.banner?.message == "1 item needs your decision, so nothing was copied — see each row's note")
+        #expect(manager.banner?.message == "1 item needs your decision, so nothing was copied — see each row’s note")
         #expect(manager.differences.map(\.relativePath) == ["Linked"], "the held row must stay on the list")
         #expect(try fm.contentsOfDirectory(atPath: original.path).sorted() == ["one.txt", "two.txt"])
     }

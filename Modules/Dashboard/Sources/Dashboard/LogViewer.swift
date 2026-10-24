@@ -845,7 +845,7 @@ public struct LogViewer: View {
                         history.revealMore(by: Self.historyPageSize)
                     }
                 } else {
-                    historyEndNote("No older entries — you're at the start of the log")
+                    historyEndNote("No older entries — you’re at the start of the log")
                 }
             } else if LogEmptyState.footerNotesNoEarlierActivity(historyIsEmpty: loadedEntries.isEmpty,
                                                                 emptyState: emptyState) {
@@ -864,7 +864,7 @@ public struct LogViewer: View {
             // carrying the same fact (a quiet session); the button is not a telling and always
             // stays. See `footerNotesUnreadableHistory`.
             if LogEmptyState.footerNotesUnreadableHistory(emptyState: emptyState) {
-                historyEndNote("Couldn't read the log file — earlier activity is unavailable")
+                historyEndNote("Couldn’t read the log file — earlier activity is unavailable")
             }
             historyActionButton("Show older history", icon: "clock.arrow.circlepath") { loadHistory() }
         } else {

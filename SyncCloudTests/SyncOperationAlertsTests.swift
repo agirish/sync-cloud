@@ -17,23 +17,23 @@ import Sync
             itemName: "report .pdf",
             sanitizedName: "report.pdf",
             providerName: "OneDrive",
-            reason: "OneDrive doesn't allow names ending with a space.",
+            reason: "OneDrive doesn’t allow names ending with a space.",
             destinationPath: NSHomeDirectory() + "/Library/CloudStorage/OneDrive/Documents/report .pdf",
             isMove: isMove)
     }
 
     @Test func invalidNameMessageNamesTheItemProviderAndVerb() {
         #expect(SyncOperationAlerts.invalidNameMessage(Self.violation())
-                == "\"report .pdf\" can't be copied to OneDrive under this name.")
+                == "“report .pdf” can’t be copied to OneDrive under this name.")
         #expect(SyncOperationAlerts.invalidNameMessage(Self.violation(isMove: true))
-                == "\"report .pdf\" can't be moved to OneDrive under this name.")
+                == "“report .pdf” can’t be moved to OneDrive under this name.")
     }
 
     @Test func invalidNameBodyExplainsTheLocalOnlyHazardAndShowsTheDestination() {
         let body = SyncOperationAlerts.invalidNameInformativeText(Self.violation())
-        #expect(body.hasPrefix("OneDrive doesn't allow names ending with a space."))
+        #expect(body.hasPrefix("OneDrive doesn’t allow names ending with a space."))
         #expect(body.contains("an item OneDrive never uploads"))
-        #expect(body.contains("look identical to \"report.pdf\""))
+        #expect(body.contains("look identical to “report.pdf”"))
         // The destination is home-abbreviated for readability.
         #expect(body.contains("Destination: ~/Library/CloudStorage/OneDrive/Documents/report .pdf"))
         #expect(!body.contains("Destination: /Users"))
@@ -139,13 +139,13 @@ import Sync
     @Test func spendBodySaysTheCallIsBlockedWhenItWouldExceedACap() {
         let monthly = SyncOperationAlerts.filingSpendInformativeText(
             Self.preflight(estCostUSD: 0.50, monthlySpentUSD: 0.80, monthlyCapUSD: 1.00))
-        #expect(monthly.contains("Running this would exceed the monthly cap, so it's blocked"))
+        #expect(monthly.contains("Running this would exceed the monthly cap, so it’s blocked"))
         #expect(monthly.contains("free on-device suggestions instead"))
         #expect(monthly.contains("Settings ▸ Intelligence"))
 
         let total = SyncOperationAlerts.filingSpendInformativeText(
             Self.preflight(estCostUSD: 0.50, totalSpentUSD: 4.80, totalCapUSD: 5.00))
-        #expect(total.contains("Running this would exceed the total cap, so it's blocked"))
+        #expect(total.contains("Running this would exceed the total cap, so it’s blocked"))
     }
 
     @Test func spendBodyStaysUnblockedUnderTheCaps() {
@@ -258,8 +258,8 @@ import Sync
 
     @Test func invalidNameButtonsMapToTheResolutionTheyName() throws {
         let titles = SyncOperationAlerts.invalidNameButtonTitles(Self.violation())
-        #expect(titles.first == "Use \"report.pdf\"")   // Return-key default: the safe, sanitized name
-        #expect(SyncOperationAlerts.invalidNameResolution(for: try response(for: "Use \"report.pdf\"", in: titles))
+        #expect(titles.first == "Use “report.pdf”")   // Return-key default: the safe, sanitized name
+        #expect(SyncOperationAlerts.invalidNameResolution(for: try response(for: "Use “report.pdf”", in: titles))
                 == .useSanitizedName)
         #expect(SyncOperationAlerts.invalidNameResolution(for: try response(for: "Skip", in: titles)) == .skip)
         #expect(SyncOperationAlerts.invalidNameResolution(for: try response(for: "Keep Invalid Name", in: titles))
@@ -300,8 +300,8 @@ import Sync
         let bullets = body.split(separator: "\n").filter { $0.contains("•") }
         #expect(Set(bullets).count == 2,
                 "two same-named copies rendered identically — the alert cannot tell them apart: “\(body)”")
-        #expect(body.contains("can't be moved to the Trash"))
-        #expect(body.contains("You can't undo this action."))
+        #expect(body.contains("can’t be moved to the Trash"))
+        #expect(body.contains("You can’t undo this action."))
     }
 
     /// A single item is named in the message line by basename (the headline reads naturally) and
@@ -309,7 +309,7 @@ import Sync
     @Test func permanentDeleteOfOneItemNamesItAndLocatesIt() {
         let path = NSHomeDirectory() + "/Desktop/Old/IMG_0421.jpg"
         #expect(SyncOperationAlerts.permanentDeleteMessage(itemPaths: [path])
-                == "Are you sure you want to permanently delete \"IMG_0421.jpg\"?")
+                == "Are you sure you want to permanently delete “IMG_0421.jpg”?")
         let body = SyncOperationAlerts.permanentDeleteInformativeText(itemPaths: [path])
         #expect(body.contains(SyncOperationAlerts.displayPath(path)), "“\(body)”")
         #expect(body.contains("This item will be deleted immediately"), "“\(body)”")

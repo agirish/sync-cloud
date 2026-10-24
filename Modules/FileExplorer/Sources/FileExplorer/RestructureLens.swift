@@ -1522,7 +1522,7 @@ struct RestructureLens: View {
     /// Naming a destination that cannot help is the part worth not repeating.
     static let noSurveyNoteText =
         "This tree has no folder survey yet, so there is nothing to compare. "
-        + "Organize's other lenses read the disk directly and work without one."
+        + "Organize’s other lenses read the disk directly and work without one."
 
     /// Restructure with a survey to read, **before the user has asked for the answer this
     /// launch** — the same card, over results that already exist.
@@ -1548,7 +1548,7 @@ struct RestructureLens: View {
             triggerTitle: Self.revealTitle(findingCount: findings.count),
             triggerSymbol: findings.isEmpty ? "checkmark.circle" : "list.bullet.rectangle",
             triggerHelp: findings.isEmpty
-                ? "Show what the survey says about this tree's folder shapes. Already computed — nothing is read from disk."
+                ? "Show what the survey says about this tree’s folder shapes. Already computed — nothing is read from disk."
                 : "Show the families the survey found disagreeing. Already computed — nothing is read from disk.",
             samplesTitle: "What a finding looks like",
             samplesAccessibility: samplesAccessibility,

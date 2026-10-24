@@ -294,9 +294,9 @@ struct RenamePassLens: View {
                 .layoutPriority(1)
                 .fixedSize()
                 .disabled(syncManager.isApplyingRenames || syncManager.isSuggestingFiles)
-                .help("Apply every rename in this section's folders, as one undoable change"
+                .help("Apply every rename in this section’s folders, as one undoable change"
                       + (section.fileCount == section.kindCount ? ""
-                         : " — includes the folders' other pending renames, since a folder is applied whole"))
+                         : " — includes the folders’ other pending renames, since a folder is applied whole"))
             }
             Text(section.category.definition)
                 .scaledFont(.system(size: 11))

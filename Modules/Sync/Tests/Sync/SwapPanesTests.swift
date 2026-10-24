@@ -292,7 +292,7 @@ import Foundation
         manager.isVerifyAllRunning = true
         #expect(!manager.swapPanes())
         // (Field comparison — banner equality includes a per-publish id.)
-        #expect(manager.banner?.message == "Can't swap panes while an operation is running")
+        #expect(manager.banner?.message == "Can’t swap panes while an operation is running")
         #expect(manager.banner?.severity == .warning)
         // Nothing moved during the refusal.
         #expect(manager.leftRelativePath == "docs")

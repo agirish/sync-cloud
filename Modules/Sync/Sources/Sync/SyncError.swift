@@ -54,7 +54,7 @@ extension SyncError {
     ) -> SyncError {
         SyncError(
             title: "Sync Failed",
-            message: "Couldn't sync \"\(item)\".",
+            message: "Couldn’t sync “\(item)”.",
             path: path,
             reason: reason,
             isRetryable: isRetryable
@@ -82,7 +82,7 @@ extension SyncError {
             // text log — sending someone there to work out which 12 of 400 files to retry was the
             // only answer this alert had, and the rows themselves were sitting in the table the
             // whole time.
-            message: "Couldn't \(verb) \(failureCount) items. They are listed under the “Failed to transfer” filter; the reason for each is in the Activity Log.",
+            message: "Couldn’t \(verb) \(failureCount) items. They are listed under the “Failed to transfer” filter; the reason for each is in the Activity Log.",
             path: firstPath,
             reason: firstReason,
             isRetryable: false
@@ -98,7 +98,7 @@ extension SyncError {
     ) -> SyncError {
         SyncError(
             title: "Copy Failed",
-            message: "Couldn't copy \(items).",
+            message: "Couldn’t copy \(items).",
             path: path,
             reason: reason,
             isRetryable: isRetryable
@@ -114,7 +114,7 @@ extension SyncError {
     ) -> SyncError {
         SyncError(
             title: "Move Failed",
-            message: "Couldn't move \(items).",
+            message: "Couldn’t move \(items).",
             path: path,
             reason: reason,
             isRetryable: isRetryable
@@ -126,7 +126,7 @@ extension SyncError {
     public static func renameFailed(reason: String, path: String? = nil) -> SyncError {
         SyncError(
             title: "Rename Failed",
-            message: "Couldn't rename the item.",
+            message: "Couldn’t rename the item.",
             path: path,
             reason: reason
         )
@@ -135,8 +135,8 @@ extension SyncError {
     /// A new folder could not be created.
     public static func createFolderFailed(reason: String, path: String? = nil) -> SyncError {
         SyncError(
-            title: "Couldn't Create Folder",
-            message: "The folder couldn't be created.",
+            title: "Couldn’t Create Folder",
+            message: "The folder couldn’t be created.",
             path: path,
             reason: reason
         )
@@ -146,7 +146,7 @@ extension SyncError {
     public static func deleteFailed(reason: String, path: String? = nil) -> SyncError {
         SyncError(
             title: "Delete Failed",
-            message: "Some items couldn't be deleted.",
+            message: "Some items couldn’t be deleted.",
             path: path,
             reason: reason
         )
@@ -187,7 +187,7 @@ extension SyncError {
         SyncError(
             title: "Not Allowed to Move to the Trash",
             message: "macOS refused to move this item to the Trash every way SyncCloud can ask "
-                + "— directly, through the system's own Trash service, and again after moving the "
+                + "— directly, through the system’s own Trash service, and again after moving the "
                 + "item in place to re-register it. Nothing was removed and the file is "
                 + "untouched.\n\n"
                 + "This refusal has been seen to clear on its own, so trying again in a while may "

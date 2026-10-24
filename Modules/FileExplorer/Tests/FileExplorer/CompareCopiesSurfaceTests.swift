@@ -380,7 +380,7 @@ import Testing
     @Test func aDifferedVerdictSendsTheUserToARescan() {
         #expect(ComparePairVerify.differed.caption.lowercased().contains("rescan"))
         #expect(ComparePairVerify.matched.caption.contains("identical"))
-        #expect(ComparePairVerify.couldNotVerify(reason: "x").caption == "Couldn't verify: x.")
+        #expect(ComparePairVerify.couldNotVerify(reason: "x").caption == "Couldn’t verify: x.")
     }
 
     // MARK: The claim per match kind
@@ -404,7 +404,7 @@ import Testing
     @Test func anUnhashedCopyWeakensTheIdenticalClaimWithoutRemovingIt() throws {
         let text = try #require(ComparePairClaim.headline(kind: .identical, contentUnverified: true))
         #expect(!text.contains("byte-for-byte"))
-        #expect(text.contains("couldn't hash"))
+        #expect(text.contains("couldn’t hash"))
     }
 
     // MARK: Mounted, at the floor

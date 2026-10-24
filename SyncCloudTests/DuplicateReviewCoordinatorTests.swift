@@ -823,7 +823,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
 
         #expect(harness.trashConfirmedFor.isEmpty, "the user was asked to confirm a trash that loses a file")
         let message = harness.syncManager.banner?.message ?? ""
-        #expect(message.contains("holds 1 item the left one doesn't"), "banner: \(message)")
+        #expect(message.contains("holds 1 item the left one doesn’t"), "banner: \(message)")
         #expect(message.contains("only-here.txt"), "banner: \(message)")
         #expect(message.contains("Merge into keeper"), "banner: \(message)")
         #expect(FileManager.default.fileExists(atPath: copy.appendingPathComponent("only-here.txt").path))
@@ -845,7 +845,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(DuplicateReviewCoordinator.uniqueItemsRefusal(review) == nil)
         review.deleteUniqueItemCount = 12
         let refusal = DuplicateReviewCoordinator.uniqueItemsRefusal(review)
-        #expect(refusal?.banner.contains("holds 12 items the left one doesn't") == true)
+        #expect(refusal?.banner.contains("holds 12 items the left one doesn’t") == true)
         #expect(refusal?.log.contains(review.deletePath) == true)
     }
 
@@ -1022,7 +1022,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         }
 
         #expect(FileManager.default.fileExists(atPath: copy.path), "the refusal itself must stand")
-        #expect(harness.syncManager.banner?.message.contains("couldn't be fully checked") == true)
+        #expect(harness.syncManager.banner?.message.contains("couldn’t be fully checked") == true)
         #expect(harness.syncManager.banner?.message.contains("no longer what the scan saw") != true,
                 "no change was measured, so none may be claimed")
         #expect(harness.duplicateReview == review, "the review stays up")
@@ -1208,7 +1208,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         }
 
         let message = try #require(harness.syncManager.banner?.message)
-        #expect(message.contains("right copy couldn't be fully checked"),
+        #expect(message.contains("right copy couldn’t be fully checked"),
                 "the refusal is not the delete-side wording: “\(message)”")
         #expect(message.contains("too deep"),
                 "the wording claims only unreadability, but the depth cap and cycle guard produce nil baselines too: “\(message)”")

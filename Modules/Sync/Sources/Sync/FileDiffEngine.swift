@@ -76,7 +76,7 @@ public struct FileDiffEngine {
         let (folderIn, fileIn) = left.isDirectory
             ? (leftProvider.displayName, rightProvider.displayName)
             : (rightProvider.displayName, leftProvider.displayName)
-        return (action, "Folder in \(folderIn), file in \(fileIn) — a folder's date is not when its contents changed; choose which to keep")
+        return (action, "Folder in \(folderIn), file in \(fileIn) — a folder’s date is not when its contents changed; choose which to keep")
     }
 
     /// The note on a both-files row whose sizes differ with no newer side (FR39): what the dates

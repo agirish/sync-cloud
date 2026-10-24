@@ -1265,8 +1265,8 @@ public struct FolderSidebarView: View {
     static func emptyLine(_ mode: RecentsMode) -> String? {
         switch mode {
         case .recents: return nil
-        case .revisited: return "No repeat visits yet. A folder shows here once you've opened it on two different days."
-        case .frequent: return "Nothing frequent yet. A folder shows here once you've spent time in it a few times."
+        case .revisited: return "No repeat visits yet. A folder shows here once you’ve opened it on two different days."
+        case .frequent: return "Nothing frequent yet. A folder shows here once you’ve spent time in it a few times."
         }
     }
 

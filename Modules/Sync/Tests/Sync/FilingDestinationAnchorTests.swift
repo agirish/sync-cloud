@@ -243,7 +243,7 @@ import Foundation
 
         #expect(result == .failed)
         #expect(FileManager.default.fileExists(atPath: src.path))
-        #expect(manager.currentError?.reason == "Couldn't file this item; it was left in place.")
+        #expect(manager.currentError?.reason == "Couldn’t file this item; it was left in place.")
     }
 
     /// `newSegments` is scan-time data and can be stale. When the whole path has since been created,

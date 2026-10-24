@@ -143,7 +143,7 @@ extension FileSyncManager {
         let logMessage = "Undo/Redo (\(actionName)): FAILED to restore \"\(name)\" at \(destination.path) from backup \(backup.path) — destination may now be empty (\(error.localizedDescription))"
         await MainActor.run {
             Logger.shared.error(logMessage)
-            target.banner = .warning("Undo couldn't restore the original of \"\(name)\" — it may have been removed from the Trash")
+            target.banner = .warning("Undo couldn’t restore the original of “\(name)” — it may have been removed from the Trash")
         }
     }
 
@@ -165,7 +165,7 @@ extension FileSyncManager {
         let logMessage = "Undo/Redo (\(actionName)): FAILED to redo \"\(name)\" at \(destination.path) — item left out of the next undo state (\(error.localizedDescription))"
         await MainActor.run {
             Logger.shared.error(logMessage)
-            target.banner = .warning("Redo couldn't re-apply \"\(name)\" — its source may no longer exist")
+            target.banner = .warning("Redo couldn’t re-apply “\(name)” — its source may no longer exist")
         }
     }
 
@@ -184,7 +184,7 @@ extension FileSyncManager {
         let logMessage = "Undo (\(actionName)): FAILED to permanently delete \"\(name)\" at \(destination.path) — the item remains on disk (\(error.localizedDescription))"
         await MainActor.run {
             Logger.shared.error(logMessage)
-            target.banner = .warning("Undo couldn't remove \"\(name)\" — it is still on disk")
+            target.banner = .warning("Undo couldn’t remove “\(name)” — it is still on disk")
         }
     }
 
@@ -239,15 +239,15 @@ extension FileSyncManager {
         switch verdict {
         case .changed:
             logMessage = "Undo (\(actionName)): REFUSED to \(refusedAction) — it changed since the operation, so it is no longer \(identity); leaving it in place"
-            bannerMessage = "Undo left \"\(name)\" in place — it changed since"
+            bannerMessage = "Undo left “\(name)” in place — it changed since"
         case .indeterminate:
             logMessage = "Undo (\(actionName)): REFUSED to \(refusedAction) — its current state could not be read, so it cannot be confirmed as \(identity); leaving it in place"
-            bannerMessage = "Undo left \"\(name)\" in place — it couldn't be checked"
+            bannerMessage = "Undo left “\(name)” in place — it couldn’t be checked"
         case .unchanged:
             // Not a refusal. Spelled out rather than defaulted so a future verdict has to be
             // decided here rather than quietly reported as a change.
             logMessage = "Undo (\(actionName)): refusal reported for \"\(name)\" with an unchanged verdict — this is a programming error"
-            bannerMessage = "Undo left \"\(name)\" in place"
+            bannerMessage = "Undo left “\(name)” in place"
         }
         await MainActor.run {
             Logger.shared.error(logMessage)
@@ -278,7 +278,7 @@ extension FileSyncManager {
         let logMessage = "Undo (\(actionName)): REFUSED to move \"\(name)\" back to its original location — nothing was recorded at \(destination.path) when this undo was registered, so there is no item to move back; leaving the disk exactly as it is"
         await MainActor.run {
             Logger.shared.error(logMessage)
-            target.banner = .warning("Undo left \"\(name)\" in place — there was nothing to move back")
+            target.banner = .warning("Undo left “\(name)” in place — there was nothing to move back")
         }
     }
 
@@ -313,15 +313,15 @@ extension FileSyncManager {
         switch verdict {
         case .changed:
             logMessage = "Redo (\(actionName)): REFUSED to re-apply \"\(name)\" from \(source.path) — it changed since the undo put it back, so it is no longer the item this redo moves; leaving it in place"
-            bannerMessage = "Redo left \"\(name)\" in place — it changed since"
+            bannerMessage = "Redo left “\(name)” in place — it changed since"
         case .indeterminate:
             logMessage = "Redo (\(actionName)): REFUSED to re-apply \"\(name)\" from \(source.path) — its current state could not be read, so it cannot be confirmed as the item this redo moves; leaving it in place"
-            bannerMessage = "Redo left \"\(name)\" in place — it couldn't be checked"
+            bannerMessage = "Redo left “\(name)” in place — it couldn’t be checked"
         case .unchanged:
             // Not a refusal. Spelled out rather than defaulted so a future verdict has to be
             // decided here rather than quietly reported as a change.
             logMessage = "Redo (\(actionName)): refusal reported for \"\(name)\" with an unchanged verdict — this is a programming error"
-            bannerMessage = "Redo left \"\(name)\" in place"
+            bannerMessage = "Redo left “\(name)” in place"
         }
         await MainActor.run {
             Logger.shared.error(logMessage)
@@ -364,10 +364,10 @@ extension FileSyncManager {
         switch verdict {
         case .indeterminate:
             logMessage = "Redo (\(actionName)): REFUSED to re-apply \"\(name)\" — the item at \(destination.path) could not be read, so it cannot be confirmed as the one the undo left there; leaving both in place"
-            bannerMessage = "Redo left \"\(name)\" alone — what is at its destination couldn't be checked"
+            bannerMessage = "Redo left “\(name)” alone — what is at its destination couldn’t be checked"
         case .changed, .unchanged:
             logMessage = "Redo (\(actionName)): REFUSED to re-apply \"\(name)\" — a different item is at \(destination.path) now, not the one the undo left there, and the redo would replace it; leaving both in place"
-            bannerMessage = "Redo left \"\(name)\" alone — a different item is at its destination now"
+            bannerMessage = "Redo left “\(name)” alone — a different item is at its destination now"
         }
         await MainActor.run {
             Logger.shared.error(logMessage)
@@ -387,7 +387,7 @@ extension FileSyncManager {
         let logMessage = "Redo (\(actionName)): left \"\(name)\" at \(folder.path) in place rather than move it to the Trash — the merge trashed it only once it was empty, and it still holds items this redo did not move"
         await MainActor.run {
             Logger.shared.error(logMessage)
-            target.banner = .warning("Redo left \"\(name)\" in place — it still holds items the redo didn't move")
+            target.banner = .warning("Redo left “\(name)” in place — it still holds items the redo didn’t move")
         }
     }
 
@@ -413,15 +413,15 @@ extension FileSyncManager {
         switch verdict {
         case .changed:
             logMessage = "Redo (\(actionName)): REFUSED to trash \"\(name)\" at \(url.path) — it changed since the undo restored it, so it is no longer the item this redo deletes; leaving it in place"
-            bannerMessage = "Redo left \"\(name)\" in place — it changed since"
+            bannerMessage = "Redo left “\(name)” in place — it changed since"
         case .indeterminate:
             logMessage = "Redo (\(actionName)): REFUSED to trash \"\(name)\" at \(url.path) — its current state could not be read, so it cannot be confirmed as the item this redo deletes; leaving it in place"
-            bannerMessage = "Redo left \"\(name)\" in place — it couldn't be checked"
+            bannerMessage = "Redo left “\(name)” in place — it couldn’t be checked"
         case .unchanged:
             // Not a refusal. Spelled out rather than defaulted for the same reason the move-redo
             // reporter spells it out: a future verdict has to be decided here.
             logMessage = "Redo (\(actionName)): refusal reported for \"\(name)\" with an unchanged verdict — this is a programming error"
-            bannerMessage = "Redo left \"\(name)\" in place"
+            bannerMessage = "Redo left “\(name)” in place"
         }
         await MainActor.run {
             Logger.shared.error(logMessage)
@@ -492,7 +492,7 @@ extension FileSyncManager {
         let logMessage = "Undo (\(actionName)): couldn't move \"\(name)\" at \(destination.path) to the Trash — transient failure, left in place for a retry instead of escalating to a permanent delete (\(error.localizedDescription))"
         await MainActor.run {
             Logger.shared.error(logMessage)
-            target.banner = .warning("Undo couldn't remove \"\(name)\" — it looks busy; try again")
+            target.banner = .warning("Undo couldn’t remove “\(name)” — it looks busy; try again")
         }
     }
 

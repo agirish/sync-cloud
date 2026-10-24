@@ -20,7 +20,7 @@ struct LocationsScreen: View {
             SetupHeading(
                 title: "SyncCloud found \(SetupFlow.spelled(settings.availableProviders.count).lowercased()) "
                     + "location\(settings.availableProviders.count == 1 ? "" : "s") on this Mac",
-                blurb: "Switch off any you don't use.")
+                blurb: "Switch off any you don’t use.")
 
             if settings.availableProviders.isEmpty {
                 SetupNote(text: "No cloud accounts were found in ~/Library/CloudStorage, and iCloud "
@@ -98,7 +98,7 @@ struct LocationsScreen: View {
                     // **The badge appears only when something is wrong.** A list where every row is
                     // decorated has no way left to point at a row.
                     if !isValid {
-                        Text("Can't be found")
+                        Text("Can’t be found")
                             .scaledFont(.caption2.weight(.medium))
                             .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.caution))
                             .padding(.horizontal, 6)
@@ -276,7 +276,7 @@ struct LocationsWhy: View {
                 // logos.
                 MarkStrip(marks: marks)
                 .accessibilityHidden(true)
-                Text("Each provider's own app keeps these folders in sync. SyncCloud reads them in "
+                Text("Each provider’s own app keeps these folders in sync. SyncCloud reads them in "
                      + "place: nothing is copied, moved or deleted until you ask.")
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)

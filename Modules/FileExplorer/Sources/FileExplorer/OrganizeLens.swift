@@ -291,7 +291,7 @@ extension OrganizeLens {
         case .duplicates:  what = "Identical content under different names or folders."
         case .renames:     what = "Names that need changing — to sync, to convention, to order: "
                                 + "names this provider rejects or any cloud would mangle, files "
-                                + "that ignore their folder's convention, and files whose "
+                                + "that ignore their folder’s convention, and files whose "
                                 + "numbering has to shift or pad."
         case .restructure: what = "Where the tree disagrees with its own habits — recurring folders "
                                 + "that were shaped differently in different years."

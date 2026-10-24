@@ -385,7 +385,7 @@ import EventsTestSupport
 
         #expect(copied.isEmpty)
         #expect(manager.currentError?.title == "Copy Failed")
-        #expect(manager.currentError?.reason == "The source pane's folder is no longer available. Rescan before copying or moving items.")
+        #expect(manager.currentError?.reason == "The source pane’s folder is no longer available. Rescan before copying or moving items.")
         #expect(mockFM.calledCopyItem == false)
         #expect(!mockFM.virtualDisk.keys.contains { $0.hasPrefix("/dst/") })
     }
@@ -412,7 +412,7 @@ import EventsTestSupport
         #expect(copied.map(\.name) == ["hardIn.txt"])
         #expect(mockFM.virtualDisk["/dst/hardIn.txt"] != nil)
         #expect(manager.currentError?.title == "Copy Failed")
-        #expect(manager.currentError?.reason == "\"hardOutBB.txt\" is not inside the source pane's folder. Rescan and try again.")
+        #expect(manager.currentError?.reason == "“hardOutBB.txt” is not inside the source pane’s folder. Rescan and try again.")
         // No grafted path: the outside node landed nowhere under /dst, and its original is intact.
         #expect(!mockFM.virtualDisk.keys.contains { $0.hasPrefix("/dst/outside") })
         #expect(mockFM.virtualDisk["/outside/hardOutBB.txt"] != nil)

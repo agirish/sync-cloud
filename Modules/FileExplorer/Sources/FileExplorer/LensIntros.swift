@@ -47,7 +47,7 @@ enum LensIntros {
             // has to stay SHORT: naming both classes explicitly ("rejects or any cloud would
             // mangle") ran this to three lines and put the trigger 15pt below every other lens's
             // — `everyLensTriggerLandsAtTheSameHeight` allows 2, and caught it.
-            message: "Find names worth changing — ones that won't store cleanly, files that ignore their folder's convention, and files whose numbering has drifted.",
+            message: "Find names worth changing — ones that won’t store cleanly, files that ignore their folder’s convention, and files whose numbering has drifted.",
             safety: "Nothing is renamed without your say-so, and every rename is undoable."
         )
     }
@@ -61,12 +61,12 @@ enum LensIntros {
     static func organize(scanTargetName: String, documentsRead: Bool = true) -> LensIntro {
         let extra = documentsRead ? ""
             : " It goes on names and folder shapes for now — reading your documents, offered on "
-                + "Organize's overview, lets it use what a file says too. That reading happens on "
+                + "Organize’s overview, lets it use what a file says too. That reading happens on "
                 + "this Mac and is never sent anywhere."
         return LensIntro(
             icon: FilingGlyph.lens,
             title: "File loose files in \(scanTargetName)",
-            message: "Suggest where the files sitting loose in this folder belong — reusing the folders you already keep, and proposing new ones only when it's sure." + extra,
+            message: "Suggest where the files sitting loose in this folder belong — reusing the folders you already keep, and proposing new ones only when it’s sure." + extra,
             safety: "Nothing moves without your say-so, and every move is undoable."
         )
     }
@@ -102,7 +102,7 @@ enum LensIntros {
             // (`everyLensTriggerLandsAtTheSameHeight`). Scoped to a PLAN's landing on purpose —
             // a scaffold is recorded without a chain anchor, so the ledger undo cannot see it,
             // and the old "every landing is … undoable" promised a post-quit undo it lacks.
-            safety: "Changes go through a plan you review, and a plan's landing can be undone."
+            safety: "Changes go through a plan you review, and a plan’s landing can be undone."
         )
     }
 

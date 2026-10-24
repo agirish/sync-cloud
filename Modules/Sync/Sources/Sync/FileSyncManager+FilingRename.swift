@@ -481,14 +481,14 @@ extension FileSyncManager {
         var tail = ""
         if abandoned > 0 {
             tail = stranded > 0
-                ? " A renumbering of \(files(abandoned)) failed part-way and \(files(stranded)) couldn't be put back — check the folder."
-                : " A renumbering of \(files(abandoned)) couldn't be completed, so the folder was left as it was."
+                ? " A renumbering of \(files(abandoned)) failed part-way and \(files(stranded)) couldn’t be put back — check the folder."
+                : " A renumbering of \(files(abandoned)) couldn’t be completed, so the folder was left as it was."
         }
         guard renamed > 0 else {
             if failed > 0 && stale > 0 {
-                return "Couldn't rename \(files(failed)); \(stale) had already changed." + tail
+                return "Couldn’t rename \(files(failed)); \(stale) had already changed." + tail
             }
-            if failed > 0 { return "Couldn't rename \(files(failed))." + tail }
+            if failed > 0 { return "Couldn’t rename \(files(failed))." + tail }
             if stale > 0 { return "\(files(stale)) had already changed — nothing renamed." + tail }
             // Nothing renamed, nothing stale, nothing independently failed: the abandoned
             // renumbering IS the whole story, and the leading space goes with the joining.
@@ -496,7 +496,7 @@ extension FileSyncManager {
         }
         var s = "Renamed \(files(renamed))"
         if stale > 0 { s += "; \(stale) had already changed" }
-        if failed > 0 { s += "; \(failed) couldn't be renamed" }
+        if failed > 0 { s += "; \(failed) couldn’t be renamed" }
         // The ⌘Z clause is the one sentence here that does not end in a period, so the renumbering
         // clause has to bring one or the two run together into nonsense.
         return s + ". Press ⌘Z to undo" + (tail.isEmpty ? "" : "." + tail)

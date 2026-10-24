@@ -517,7 +517,7 @@ enum PalettePlace: CaseIterable {
         case .browse: return "Your files, with nothing proposed"
         case .compare: return "Two trees, side by side"
         case .editor: return "Write in a text file, or fill and sign a PDF"
-        case .organizeOverview: return "Every lens's answer, on one page"
+        case .organizeOverview: return "Every lens’s answer, on one page"
         case .lens(let lens): return lens.help(state: .configuration)
         }
     }

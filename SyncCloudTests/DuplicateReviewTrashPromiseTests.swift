@@ -30,9 +30,9 @@ import Foundation
 
     @Test func itSaysWhatHappensWhenTheVolumeHasNoTrash() throws {
         let source = try macAppSources()
-        #expect(source.contains("On a volume with no Trash you'll be asked first"),
+        #expect(source.contains("On a volume with no Trash you’ll be asked first"),
                 "the confirmation no longer says what happens where a trash is impossible")
-        #expect(source.contains("a permanent delete can't be undone"),
+        #expect(source.contains("a permanent delete can’t be undone"),
                 "the confirmation does not say the permanent case is unrecoverable")
     }
 

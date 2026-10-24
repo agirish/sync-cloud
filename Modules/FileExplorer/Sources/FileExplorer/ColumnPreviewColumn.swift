@@ -529,7 +529,7 @@ struct ColumnPreviewColumn: View {
             ProgressView().controlSize(.small)
         case .offer:
             Button("Download", action: requestDownload)
-                .help("Fetch this file's content from the provider so it can be previewed")
+                .help("Fetch this file’s content from the provider so it can be previewed")
         case .none:
             EmptyView()
         }

@@ -126,7 +126,7 @@ struct WorkspacesScreen: View {
         case .duplicates:
             return "Copies, even under different names."
         case .renames:
-            return "Names that won't sync or don't match their folder."
+            return "Names that won’t sync or don’t match their folder."
         case .restructure:
             guard let example = restructureExample else {
                 return "Folders whose siblings disagree about their shape."

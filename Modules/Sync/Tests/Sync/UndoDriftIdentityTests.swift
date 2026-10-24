@@ -408,7 +408,7 @@ import Events
         await waitUntil("the unreadable copy is refused") { manager.banner?.severity == .warning }
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
 
-        #expect(manager.banner?.message.contains("couldn't be checked") == true,
+        #expect(manager.banner?.message.contains("couldn’t be checked") == true,
                 "an unverifiable item reports as unverifiable, not as changed")
         #expect(mockFM.virtualDisk["/dst/locked"] != nil, "an item that cannot be checked is not destroyed")
         // The log has to keep the two refusals apart too: "could not be read" is not evidence that
@@ -674,7 +674,7 @@ import Events
         await waitUntil("the redo reports it cannot re-apply") { manager.banner?.severity == .warning }
         await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
 
-        #expect(manager.banner?.message.contains("Redo couldn't re-apply \"report.txt\"") == true,
+        #expect(manager.banner?.message.contains("Redo couldn’t re-apply “report.txt”") == true,
                 "got \(String(describing: manager.banner?.message))")
         #expect(mockFM.virtualDisk["/dst"] == nil,
                 "the redo must not rebuild a destination folder for a move that cannot happen")
@@ -819,7 +819,7 @@ import Events
         await waitUntil("the redo refuses the replaced source") { manager.banner?.severity == .warning }
         await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
 
-        #expect(manager.banner?.message == "Redo left \"stranger.txt\" in place — it changed since",
+        #expect(manager.banner?.message == "Redo left “stranger.txt” in place — it changed since",
                 "got \(String(describing: manager.banner?.message))")
         #expect(mockFM.virtualDisk["/redo-src/stranger.txt"]?.attributes?[FileAttributeKey.size] as? Int == 999,
                 "the file the user had just created must not be relocated by a redo")
@@ -942,7 +942,7 @@ import Events
         let afterRedo = probe(mockFM, ["/tsrc/a.txt", "/tsrc/bb.txt", "/tdst/a.txt", "/tdst/bb.txt"])
         #expect(afterRedo == "/tsrc/a.txt=8888  /tdst/bb.txt=20",
                 "the stranger must stay where the user put it and only bb.txt may be re-applied; got \(afterRedo)")
-        #expect(manager.banner?.message == "Redo left \"a.txt\" in place — it changed since",
+        #expect(manager.banner?.message == "Redo left “a.txt” in place — it changed since",
                 "got \(String(describing: manager.banner?.message))")
 
         let lines = await logLines(since: marker)
@@ -1025,7 +1025,7 @@ import Events
         let afterRedo = probe(mockFM, ["/dsrc/xx.txt", "/dsrc/y.txt", "/ddst/xx.txt", "/ddst/y.txt"])
         #expect(afterRedo == "/dsrc/y.txt=7777  /ddst/xx.txt=10",
                 "the file the user had just created must not be relocated by a redo; got \(afterRedo)")
-        #expect(manager.banner?.message == "Redo left \"y.txt\" in place — it changed since",
+        #expect(manager.banner?.message == "Redo left “y.txt” in place — it changed since",
                 "got \(String(describing: manager.banner?.message))")
 
         let lines = await logLines(since: marker)
@@ -1090,7 +1090,7 @@ import Events
 
         #expect(treeUnder(root) == [],
                 "an undo with nothing to move back may build nothing; tree is \(treeUnder(root))")
-        #expect(manager.banner?.message == "Undo left \"a.txt\" in place — there was nothing to move back",
+        #expect(manager.banner?.message == "Undo left “a.txt” in place — there was nothing to move back",
                 "got \(String(describing: manager.banner?.message))")
 
         let lines = await logLines(since: marker)
@@ -1145,7 +1145,7 @@ import Events
         await waitUntil("the undo reports that it could not act") { manager.banner?.severity == .warning }
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
 
-        #expect(manager.banner?.message == "Undo left \"a.txt\" in place — there was nothing to move back",
+        #expect(manager.banner?.message == "Undo left “a.txt” in place — there was nothing to move back",
                 "got \(String(describing: manager.banner?.message))")
         let lines = await logLines(since: marker)
         #expect(!lines.contains { $0.contains("a.txt is no longer on disk") },

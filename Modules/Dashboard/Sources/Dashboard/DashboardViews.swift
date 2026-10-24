@@ -773,7 +773,7 @@ public struct PaneHeader: View {
                 .paneNavGlass()
                 .shortcutKeycap(AppChord.paneBack.display)
                 .disabled(!canGoBack)
-                .help(ShortcutHint.tooltip("Go back to this pane's previous folder", AppChord.paneBack.display))
+                .help(ShortcutHint.tooltip("Go back to this pane’s previous folder", AppChord.paneBack.display))
                 .accessibilityLabel("Back")
 
                 Button(action: onForward) {
@@ -783,7 +783,7 @@ public struct PaneHeader: View {
                 .paneNavGlass()
                 .shortcutKeycap(AppChord.paneForward.display)
                 .disabled(!canGoForward)
-                .help(ShortcutHint.tooltip("Go forward to this pane's next folder", AppChord.paneForward.display))
+                .help(ShortcutHint.tooltip("Go forward to this pane’s next folder", AppChord.paneForward.display))
                 .accessibilityLabel("Forward")
             }
             // Frosted and Clear: Back and Forward share one glass capsule, as Finder's do.
@@ -837,7 +837,7 @@ public struct PaneHeader: View {
                 .buttonStyle(navButtonStyle)
                 .paneNavGlass()
                 .shortcutKeycap(AppChord.newFolder.display)
-                .help(ShortcutHint.tooltip("New folder in this pane's current folder", AppChord.newFolder.display))
+                .help(ShortcutHint.tooltip("New folder in this pane’s current folder", AppChord.newFolder.display))
                 .accessibilityLabel("New folder")
             }
 
@@ -1348,7 +1348,7 @@ public struct PaneHeader: View {
     /// Internal so a test can read the promise the button makes instead of restating it.
     var deleteHelp: String {
         guard selectionCount > 0 else {
-            return "Move this pane's selected items to the Trash — select something first"
+            return "Move this pane’s selected items to the Trash — select something first"
         }
         let subject = selectionCount == 1 ? "the selected item" : "\(selectionCount) selected items"
         return "Move \(subject) in this pane to the Trash — always asks first, "

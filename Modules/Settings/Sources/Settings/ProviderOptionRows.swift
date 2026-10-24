@@ -112,7 +112,7 @@ public struct ProviderOptionRows: View {
             // hid "your landing folder is gone" until the row was re-mounted.
             if !provider.openAt.isEmpty, settings.isPathValid(for: provider.id),
                !settings.isLandingValid(for: provider.id) {
-                note("That folder isn't there any more, so panes open at the root instead.")
+                note("That folder isn’t there any more, so panes open at the root instead.")
             }
             if let openAtRefusal {
                 note(openAtRefusal)
@@ -170,12 +170,12 @@ public enum OpenAtRefusal {
         case .refusedOutsideRoot:
             return "That folder is outside \(provider). Pick one inside the root shown above."
         case .refusedUnknownSource:
-            return "\(provider) isn't available right now, so its opening folder wasn't changed."
+            return "\(provider) isn’t available right now, so its opening folder wasn’t changed."
         case .refusedDuplicate:
             // Unreachable from this picker — a landing folder is not a source and cannot collide
             // with one — but named rather than defaulted, so adding a case to the enum keeps
             // failing here until someone decides what these rows should say about it.
-            return "That folder couldn't be used as \(provider)'s opening folder."
+            return "That folder couldn’t be used as \(provider)'s opening folder."
         }
     }
 }
@@ -202,7 +202,7 @@ public struct FolderNameRuleRow: View {
             .controlSize(.small)
             .fixedSize()
             .help(
-                "A folder accepts any name, so \"risky name\" has no meaning until you say where the files are headed. Organize and the pane badges check names under a folder source against this."
+                "A folder accepts any name, so “risky name” has no meaning until you say where the files are headed. Organize and the pane badges check names under a folder source against this."
             )
         }
     }
@@ -233,7 +233,7 @@ public struct InboxAndSuggestionRows: View {
                     .frame(width: 160)
                     .multilineTextAlignment(.trailing)
             }
-            .help("The folder (relative to the location's root) where loose files pile up — e.g. “TODO”. Nothing is filed into it.")
+            .help("The folder (relative to the location’s root) where loose files pile up — e.g. “TODO”. Nothing is filed into it.")
             Toggle("Suggest folders with on-device AI (Apple Intelligence)", isOn: $filingUseAI)
                 .toggleStyle(.checkbox)
                 .help("Lets Organize ask the on-device model where files belong. Off, or where it isn’t available, Organize suggests from names and metadata alone.")

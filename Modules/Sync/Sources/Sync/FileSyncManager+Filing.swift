@@ -873,8 +873,8 @@ extension FileSyncManager {
             // A banner is not a conversation: it does not block the card, it does not need an
             // answer, and it is the surface every other refusal in this file already uses. The
             // gate has logged the specifics; this says the sentence the user needs.
-            banner = .warning("Couldn't ask Claude for another folder — the chosen model has no "
-                              + "known price, so the cost can't be checked. Keeping the on-device "
+            banner = .warning("Couldn’t ask Claude for another folder — the chosen model has no "
+                              + "known price, so the cost can’t be checked. Keeping the on-device "
                               + "suggestion; pick one of the offered models in Settings ▸ Intelligence.")
             return false
         case .billable(let preflight):
@@ -885,7 +885,7 @@ extension FileSyncManager {
                 + "\(FilingSpendFormat.cost(preflight.totalSpentUSD))). Using the free on-device "
                 + "suggestion; raise the cap in Settings ▸ Intelligence to keep using Claude.")
             // Same reasoning as `.blocked` above, and the remedy differs, so the sentence does.
-            banner = .warning("Couldn't ask Claude for another folder — it would pass a budget "
+            banner = .warning("Couldn’t ask Claude for another folder — it would pass a budget "
                               + "cap. Keeping the on-device suggestion; raise the cap in "
                               + "Settings ▸ Intelligence to keep using Claude.")
             return false
@@ -1770,7 +1770,7 @@ extension FileSyncManager {
             }
         }
         guard !moves.isEmpty else {
-            if failures > 0 { banner = .warning("Couldn't file \(failures) file\(failures == 1 ? "" : "s").") }
+            if failures > 0 { banner = .warning("Couldn’t file \(failures) file\(failures == 1 ? "" : "s").") }
             return
         }
         // One undo action reverts the whole batch, so ⌘Z is honest.
@@ -1778,7 +1778,7 @@ extension FileSyncManager {
         let n = moves.count
         Logger.shared.info("Filing: filed \(n) file(s)\(failures > 0 ? ", \(failures) couldn't be filed" : "")")
         banner = failures > 0
-            ? .warning("Filed \(n) file\(n == 1 ? "" : "s"); \(failures) couldn't be filed. Press ⌘Z to undo", undoable: true)
+            ? .warning("Filed \(n) file\(n == 1 ? "" : "s"); \(failures) couldn’t be filed. Press ⌘Z to undo", undoable: true)
             : .success("Filed \(n) file\(n == 1 ? "" : "s"). Press ⌘Z to undo", undoable: true)
     }
 
@@ -1902,7 +1902,7 @@ extension FileSyncManager {
         switch outcome {
         case .failed(let reason):
             present(.syncFailed(item: suggestion.fileName, path: suggestion.filePath,
-                                reason: reason ?? "Couldn't file this item; it was left in place."))
+                                reason: reason ?? "Couldn’t file this item; it was left in place."))
             return .failed
         case .moved(let dst, let overwritten):
             filingSuggestions.removeAll { $0.id == suggestion.id }

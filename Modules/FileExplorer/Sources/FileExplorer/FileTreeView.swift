@@ -2389,7 +2389,7 @@ struct FileRowAccessories: View {
     /// The glyph as the user meets it — with its tooltip and VoiceOver label.
     private var cloudBadge: some View {
         cloudGlyph
-            .help("Cloud-only — content isn't downloaded to this Mac")
+            .help("Cloud-only — content isn’t downloaded to this Mac")
             .accessibilityLabel("Cloud-only, not downloaded")
     }
 

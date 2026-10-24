@@ -628,7 +628,7 @@ public enum AutomationRuleProposer {
         if PersonRegistry.words(last) == PersonRegistry.words(person.displayName), let topic {
             let parent = (dest as NSString).deletingLastPathComponent
             let fanned = parent.isEmpty ? "{person}" : parent + "/{person}"
-            out.append(Variant(conditions: [.mentionsAll([topic])], chipLabel: "everyone's “\(topic)”",
+            out.append(Variant(conditions: [.mentionsAll([topic])], chipLabel: "everyone’s “\(topic)”",
                                destinationTemplate: fanned))
         }
         return out

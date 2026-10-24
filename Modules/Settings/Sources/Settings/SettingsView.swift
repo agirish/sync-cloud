@@ -568,7 +568,7 @@ enum SettingsSearchIndex {
               keywords: ["date tolerance", "date", "timestamp", "tolerance", "modified date", "rounding"]),
         .init(tab: .sync, title: "Verify same-size files during scans",
               keywords: ["verify", "checksum", "same size", "scan verification", "hash"]),
-        .init(tab: .sync, title: "Ignore \"newer on Google Drive\" when same size",
+        .init(tab: .sync, title: "Ignore “newer on Google Drive” when same size",
               keywords: ["google drive", "newer", "ignore date", "gdrive"]),
         .init(tab: .sync, title: "Confirm before copying or moving",
               keywords: ["confirm copy", "confirm move", "transfer confirmation", "what goes where", "confirm before copy"]),
@@ -1305,7 +1305,7 @@ struct ProvidersSettingsTab: View {
                     .controlSize(.small)
                     .fixedSize()
                     .help(
-                        "A folder accepts any name, so \"risky name\" has no meaning until you say where the files are headed. Organize and the pane badges check names under a folder source against this."
+                        "A folder accepts any name, so “risky name” has no meaning until you say where the files are headed. Organize and the pane badges check names under a folder source against this."
                     )
                 }
             }
@@ -1366,7 +1366,7 @@ struct FolderNameRuleOption: Identifiable {
     static let all: [FolderNameRuleOption] = [
         .init(value: .oneDrive, label: "OneDrive (strictest)"),
         .init(value: .dropBox, label: "Dropbox"),
-        .init(value: .localFolder, label: "Don't check"),
+        .init(value: .localFolder, label: "Don’t check"),
     ]
 
     let value: CloudProvider.ProviderType
@@ -1596,7 +1596,7 @@ struct ProviderSettingsSection: View {
                 // Says so rather than silently opening somewhere else: the pane WILL open at the
                 // root (`openAtIfReachable`), and a user who set this folder deliberately needs to
                 // know why their tabs stopped landing there.
-                Text("That folder isn't there any more, so panes open at the root instead.")
+                Text("That folder isn’t there any more, so panes open at the root instead.")
                     .scaledFont(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1816,7 +1816,7 @@ struct ProviderSettingsSection: View {
             // place would show a Location this source does not have.
             refusedDuplicateOwner = settings.availableProviders
                 .first { $0.id == existingId }
-                .map { "\($0.displayName)'s folder" } ?? "another source's folder"
+                .map { "\($0.displayName)'s folder" } ?? "another source’s folder"
             pathDraft.adopt(provider.rootPath)
         case .refusedOutsideRoot, .refusedUnknownSource:
             // Neither reaches this field: `setPath`'s folder-source branch refuses only duplicates,
@@ -2088,7 +2088,7 @@ struct SyncSettingsTab: View {
                 }
                 .help("During each scan, checksums same-size files that differ only by date and hides the ones that are identical. Slower on large folders.")
                 Toggle(isOn: $settings.ignoreGoogleDriveNewerDateOnly) {
-                    Text("Ignore \"newer on Google Drive\" when same size")
+                    Text("Ignore “newer on Google Drive” when same size")
                 }
                 .help("When Google Drive is in the right pane, hides differences where only its copy is newer and the sizes match — Drive often rewrites file dates.")
             }
@@ -2769,7 +2769,7 @@ public enum PersonRemoval {
     /// whether this touches their files.
     public static let message = "Their folders and files are left exactly as they are. Organize will stop "
         + "recognising documents that name them, so it will no longer keep those documents "
-        + "out of other people's folders."
+        + "out of other people’s folders."
 }
 
 /// Who Organize files for — one row per person, each editable, each showing what the engine
@@ -2889,7 +2889,7 @@ struct PeopleList: View {
                     }
                     .controlSize(.small)
                     .disabled(isLooking)
-                    .help("Reads the file names already in each person's folders and offers any name "
+                    .help("Reads the file names already in each person’s folders and offers any name "
                           + "form they use that is not recorded yet. Nothing is changed without asking.")
                 }
                 Button {
@@ -3681,7 +3681,7 @@ struct AdvancedSettingsTab: View {
 
             SettingsSection(
                 "Maintenance",
-                caption: "Interrupted copies can leave .tmp_ working files behind; they're moved to the Trash automatically once they're an hour old. Recovery backups (.rollback_) are never touched."
+                caption: "Interrupted copies can leave .tmp_ working files behind; they’re moved to the Trash automatically once they’re an hour old. Recovery backups (.rollback_) are never touched."
             ) {
                 SettingsRow("Orphaned temporary files") {
                     Button("Sweep Now") {
@@ -3702,7 +3702,7 @@ struct AdvancedSettingsTab: View {
             // largest file this app writes — on the main actor, on a tab appearing.
             SettingsSection(
                 "Saved scan data",
-                caption: "Kept so a rescan doesn't repeat work it already did. Clearing costs time on the next scan and nothing else — your files aren't affected, and neither are your saved suggestions (Organize)."
+                caption: "Kept so a rescan doesn’t repeat work it already did. Clearing costs time on the next scan and nothing else — your files aren’t affected, and neither are your saved suggestions (Organize)."
             ) {
                 SettingsRow("File digests") {
                     HStack(spacing: 8) {
@@ -3734,7 +3734,7 @@ struct AdvancedSettingsTab: View {
                     }
                     .controlSize(.small)
                 }
-                .help("Checksums of files Duplicates and Verify have already read, so unchanged files aren't read again. Clearing means the next scan re-reads them.")
+                .help("Checksums of files Duplicates and Verify have already read, so unchanged files aren’t read again. Clearing means the next scan re-reads them.")
 
                 SettingsRow("Saved Storage reports") {
                     HStack(spacing: 8) {
@@ -3774,7 +3774,7 @@ struct AdvancedSettingsTab: View {
 
             if let onResetAllSettings {
                 SettingsSection(
-                    caption: "Restores defaults for appearance, sync behavior, and source names and paths, and clears the folders you added as sources. Your files aren't affected."
+                    caption: "Restores defaults for appearance, sync behavior, and source names and paths, and clears the folders you added as sources. Your files aren’t affected."
                 ) {
                     Button("Reset All Settings…", role: .destructive) {
                         confirmReset(onResetAllSettings)

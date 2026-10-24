@@ -339,7 +339,7 @@ struct PaneBreadcrumb: View {
             // source stays the bare crumb it was in every appearance.
             // The brand hairline is the pill's edge, so Clear adds no rim under it.
             .chromeGlassGround(.capsule, rim: false, when: hue != nil)
-            .help("Go to \(rootPath), or switch this pane's source")
+            .help("Go to \(rootPath), or switch this pane’s source")
             .accessibilityLabel("Source, \(name)")
         } else {
             crumbButton(name: name, relativePath: "", isCurrent: isCurrent,

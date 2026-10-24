@@ -175,7 +175,7 @@ struct PaneBarCustomizeSheet: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             if explainsItemsFromElsewhere {
-                Label("Dimmed items don't apply to this pane. They stay in the arrangement and "
+                Label("Dimmed items don’t apply to this pane. They stay in the arrangement and "
                       + "appear on the panes that use them.",
                       systemImage: "info.circle")
                     .scaledFont(.caption)
@@ -385,7 +385,7 @@ struct PaneBarCustomizeSheet: View {
             return "\(item.displayName) is always shown: a pane that cannot be scanned is a broken pane"
         }
         if !appliesHere(item) {
-            return "\(item.displayName) doesn't apply to this pane — it appears on the panes that use it"
+            return "\(item.displayName) doesn’t apply to this pane — it appears on the panes that use it"
         }
         return "\(item.displayName) — drag to move, or right-click for more"
     }
@@ -639,11 +639,11 @@ struct PaneBarCustomizeSheet: View {
 
     private func paletteHelp(_ item: PaneBarItem, onBar: Bool) -> String {
         if !item.isRemovable {
-            return "Scan is always on the bar — it is the pane's only scan control"
+            return "Scan is always on the bar — it is the pane’s only scan control"
         }
         if onBar { return "\(item.displayName) is already on the bar — drag it on the bar to move it" }
         if !appliesHere(item) {
-            return "Add \(item.displayName) — it doesn't apply to this pane, but the arrangement is "
+            return "Add \(item.displayName) — it doesn’t apply to this pane, but the arrangement is "
                  + "shared, so it will appear on the panes that use it"
         }
         return "Add \(item.displayName)"

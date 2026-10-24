@@ -498,7 +498,7 @@ import EventsTestSupport
                 "March stays where the pass put it rather than overwriting the stranger")
         #expect(manager.banner?.message
                 == "Renamed 1 file. Press ⌘Z to undo. A renumbering of 4 files failed part-way "
-                 + "and 1 file couldn't be put back — check the folder.")
+                 + "and 1 file couldn’t be put back — check the folder.")
         // Still undoable: the stranded file is the whole reason it has to be.
         #expect(undo.canUndo)
         #expect(await log.holds(.error, containing: "is occupied again in /prov/2021"))
@@ -550,7 +550,7 @@ import EventsTestSupport
             .filter { !$0.hasPrefix(".") }.sorted()
         #expect(after == ["01. Mar 2021.pdf", "03. May 2021.pdf", "2. Apr 2021.pdf"])
         // Reported as one failure, and NOT as an abandoned renumbering — there was none.
-        #expect(manager.banner?.message == "Renamed 2 files; 1 couldn't be renamed. Press ⌘Z to undo")
+        #expect(manager.banner?.message == "Renamed 2 files; 1 couldn’t be renamed. Press ⌘Z to undo")
     }
 
 
@@ -569,21 +569,21 @@ import EventsTestSupport
         #expect(FileSyncManager.renameOutcome(renamed: 0, stale: 4, failed: 0)
                 == "4 files had already changed — nothing renamed.")
         #expect(FileSyncManager.renameOutcome(renamed: 0, stale: 0, failed: 2)
-                == "Couldn't rename 2 files.")
+                == "Couldn’t rename 2 files.")
 
         // An abandoned renumbering is a statement about a GROUP, and it is the one the user has to
         // hear even when everything else went fine: the folder they asked to renumber is unchanged.
         // It is not folded into `failed` — one member threw, and calling that four failures is as
         // dishonest as calling it one.
         #expect(FileSyncManager.renameOutcome(renamed: 0, stale: 0, failed: 0, abandoned: 4)
-                == "A renumbering of 4 files couldn't be completed, so the folder was left as it was.")
+                == "A renumbering of 4 files couldn’t be completed, so the folder was left as it was.")
         #expect(FileSyncManager.renameOutcome(renamed: 2, stale: 0, failed: 0, abandoned: 3)
-                == "Renamed 2 files. Press ⌘Z to undo. A renumbering of 3 files couldn't be "
+                == "Renamed 2 files. Press ⌘Z to undo. A renumbering of 3 files couldn’t be "
                  + "completed, so the folder was left as it was.")
         // The loud one. A file the rollback could not put back is the ONLY way a half-applied
         // renumbering survives the pass, so the sentence names it and sends the user to look.
         #expect(FileSyncManager.renameOutcome(renamed: 0, stale: 0, failed: 0, abandoned: 4, stranded: 1)
-                == "A renumbering of 4 files failed part-way and 1 file couldn't be put back — "
+                == "A renumbering of 4 files failed part-way and 1 file couldn’t be put back — "
                  + "check the folder.")
     }
 

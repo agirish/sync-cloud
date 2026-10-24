@@ -15,7 +15,7 @@ import Foundation
     @Test func testSyncFailedIsRetryableByDefaultAndCarriesPathAndReason() {
         let error = SyncError.syncFailed(item: "Docs/report.pdf", path: "/Left/Docs/report.pdf", reason: "disk full")
         #expect(error.title == "Sync Failed")
-        #expect(error.message == "Couldn't sync \"Docs/report.pdf\".")
+        #expect(error.message == "Couldn’t sync “Docs/report.pdf”.")
         #expect(error.path == "/Left/Docs/report.pdf")
         #expect(error.reason == "disk full")
         #expect(error.isRetryable == true)
@@ -30,13 +30,13 @@ import Foundation
     @Test func testCopyAndMoveFailedWording() {
         let copy = SyncError.copyFailed(items: "the selected items", reason: "nope")
         #expect(copy.title == "Copy Failed")
-        #expect(copy.message == "Couldn't copy the selected items.")
+        #expect(copy.message == "Couldn’t copy the selected items.")
         #expect(copy.reason == "nope")
         #expect(copy.isRetryable == false)
 
         let move = SyncError.moveFailed(items: "the selected items", reason: "nope")
         #expect(move.title == "Move Failed")
-        #expect(move.message == "Couldn't move the selected items.")
+        #expect(move.message == "Couldn’t move the selected items.")
     }
 
     @Test func testRenameCreateDeleteFields() {
@@ -46,7 +46,7 @@ import Foundation
         #expect(rename.isRetryable == false)
 
         let folder = SyncError.createFolderFailed(reason: "exists", path: "/parent")
-        #expect(folder.title == "Couldn't Create Folder")
+        #expect(folder.title == "Couldn’t Create Folder")
         #expect(folder.path == "/parent")
 
         let del = SyncError.deleteFailed(reason: "busy")
@@ -57,8 +57,8 @@ import Foundation
     // MARK: - Log rendering
 
     @Test func testLogDescriptionFoldsEveryKnownField() {
-        let error = SyncError(title: "Sync Failed", message: "Couldn't sync \"a.txt\".", path: "/x/a.txt", reason: "disk full")
-        #expect(error.logDescription == "Sync Failed: Couldn't sync \"a.txt\". (disk full) [/x/a.txt]")
+        let error = SyncError(title: "Sync Failed", message: "Couldn’t sync “a.txt”.", path: "/x/a.txt", reason: "disk full")
+        #expect(error.logDescription == "Sync Failed: Couldn’t sync “a.txt”. (disk full) [/x/a.txt]")
     }
 
     @Test func testLogDescriptionOmitsAbsentFields() {

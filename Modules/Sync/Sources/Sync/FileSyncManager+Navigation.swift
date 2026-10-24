@@ -735,7 +735,7 @@ extension FileSyncManager {
             // bulkSyncProgress — so it's the only flag up during the confirm-prompt window, where
             // a swap would mirror the rows out from under a snapshot the running sync still holds.
             Logger.shared.warning("Ignored pane swap while file operations are in flight")
-            banner = .warning("Can't swap panes while an operation is running")
+            banner = .warning("Can’t swap panes while an operation is running")
             return false
         }
         Logger.shared.info("User swapped the left and right panes")

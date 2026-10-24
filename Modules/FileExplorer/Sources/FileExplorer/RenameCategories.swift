@@ -40,7 +40,7 @@ enum RenameCategories {
         /// The section's one-line definition — what this kind of change asks of you.
         var definition: String {
             switch self {
-            case .name: return "Files that don't follow their folder's convention — a judgment about intent."
+            case .name: return "Files that don’t follow their folder’s convention — a judgment about intent."
             case .reshuffle: return "Renumbers files that already have numbers — shifts their neighbours."
             case .pad: return "Leading zeros so one-digit ordinals sort before “10.” — mechanical."
             }

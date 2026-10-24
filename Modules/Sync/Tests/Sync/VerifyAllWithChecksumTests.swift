@@ -772,6 +772,6 @@ import Foundation
         #expect(try Data(contentsOf: rightURL) == before)
         #expect(manager.verifiedIdenticalForCopy == nil)
         #expect(manager.banner?.message
-                == "\"diff.txt\" cannot be re-checked against its verification — run Verify All again")
+                == "“diff.txt” cannot be re-checked against its verification — run Verify All again")
     }
 }

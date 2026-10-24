@@ -55,8 +55,8 @@ import Foundation
             leftName: "Swimming ", leftProvider: "iCloud",
             rightName: "Swimming", rightProvider: "Dropbox"
         )
-        #expect(description.contains("\"Swimming \" (iCloud)"))
-        #expect(description.contains("\"Swimming\" (Dropbox)"))
+        #expect(description.contains("“Swimming ” (iCloud)"))
+        #expect(description.contains("“Swimming” (Dropbox)"))
         #expect(description.contains("trailing space"))
     }
 

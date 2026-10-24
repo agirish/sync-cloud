@@ -31,7 +31,7 @@ import Testing
             onPrimary: {},
             onDismiss: {}) {
                 SetupHeading(title: "SyncCloud found nine locations on this Mac",
-                             blurb: "Switch off any you don't use.")
+                             blurb: "Switch off any you don’t use.")
             }
         let host = NSHostingView(rootView: card.frame(width: width, height: height))
         host.frame = CGRect(x: 0, y: 0, width: width, height: height)

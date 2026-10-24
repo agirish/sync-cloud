@@ -63,7 +63,7 @@ import Foundation
         await waitUntil("move undo raises a warning when the overwritten backup is gone") {
             manager.banner?.severity == .warning
         }
-        #expect(manager.banner?.message.contains("couldn't restore") == true)
+        #expect(manager.banner?.message.contains("couldn’t restore") == true)
         #expect(manager.banner?.message.contains("f.txt") == true)
 
         // The file returned to its source, but the destination is left empty (nothing to restore).
@@ -124,7 +124,7 @@ import Foundation
         await waitUntil("delete undo raises a warning when the trashed item is gone") {
             manager.banner?.severity == .warning
         }
-        #expect(manager.banner?.message.contains("couldn't restore") == true)
+        #expect(manager.banner?.message.contains("couldn’t restore") == true)
         // The item was NOT resurrected (there was nothing left in the Trash to restore).
         #expect(mockFM.virtualDisk["/dst/f.txt"] == nil)
     }
@@ -181,7 +181,7 @@ import Foundation
         await waitUntil("copy undo raises a warning when the in-place backup is gone") {
             manager.banner?.severity == .warning
         }
-        #expect(manager.banner?.message.contains("couldn't restore") == true)
+        #expect(manager.banner?.message.contains("couldn’t restore") == true)
         // The copy was removed and the original could not be restored — destination is empty.
         await waitUntil("the copied file was removed") { mockFM.virtualDisk["/dst/f.txt"] == nil }
     }

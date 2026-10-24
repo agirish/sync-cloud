@@ -128,7 +128,7 @@ import Sync
             facts: facts(source: base, destination: base.addingTimeInterval(3600)),
             paneNames: paneNames, isMove: false)
         #expect(model.sourceIsOlder)
-        #expect(model.warningText == "The iCloud copy is newer than the one you're about to copy over it.")
+        #expect(model.warningText == "The iCloud copy is newer than the one you’re about to copy over it.")
     }
 
     @Test func nearTiedDatesRaiseNoWarning() {

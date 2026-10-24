@@ -23,7 +23,7 @@ struct SyncOperationAlerts {
     /// Pure (no AppKit) so it can be unit-tested and so file vs. folder wording can't drift.
     nonisolated static func collisionInformativeText(_ collision: FileCollision, policy: ConflictPolicy = .ask) -> String {
         if collision.offersMerge { return mergeCollisionInformativeText(collision, policy: policy) }
-        var text = "Do you want to replace it with the one you're \(collision.isMove ? "moving" : "copying")?"
+        var text = "Do you want to replace it with the one you’re \(collision.isMove ? "moving" : "copying")?"
         if collision.isDirectory {
             text += " Replacing a folder replaces its entire contents. "
                 + "Items that exist only in the destination folder will be moved to the Trash."
@@ -42,7 +42,7 @@ struct SyncOperationAlerts {
     /// the sentence names the setting that will answer instead.
     nonisolated static func mergeCollisionInformativeText(_ collision: FileCollision, policy: ConflictPolicy) -> String {
         let verb = collision.isMove ? "moving" : "copying"
-        var text = "Do you want to merge it with the one you're \(verb), or replace it?"
+        var text = "Do you want to merge it with the one you’re \(verb), or replace it?"
         func items(_ n: Int) -> String { n == 1 ? "1 item" : "\(n) items" }
         let answeredBy = policy == .ask ? nil : "your Conflicts setting (\(policy.displayName))"
         if let preview = collision.mergePreview {
@@ -115,7 +115,7 @@ struct SyncOperationAlerts {
     /// so the two can't drift apart.
     private static func runCollisionAlert(_ collision: FileCollision, accessoryView: NSView?) -> CollisionResolution {
         let alert = NSAlert()
-        alert.messageText = "An item named \"\(collision.fileName)\" already exists in this location."
+        alert.messageText = "An item named “\(collision.fileName)” already exists in this location."
         alert.informativeText = collisionInformativeText(collision, policy: ConflictPolicy.persisted())
         alert.accessoryView = accessoryView
 
@@ -169,7 +169,7 @@ struct SyncOperationAlerts {
     /// Message line of the invalid-destination-name alert.
     /// Pure (no AppKit) so the wording is unit-testable.
     nonisolated static func invalidNameMessage(_ prompt: NameViolationPrompt) -> String {
-        "\"\(prompt.itemName)\" can't be \(prompt.isMove ? "moved" : "copied") to \(prompt.providerName) under this name."
+        "“\(prompt.itemName)” can’t be \(prompt.isMove ? "moved" : "copied") to \(prompt.providerName) under this name."
     }
 
     /// Body of the invalid-destination-name alert: the provider rule, what writing anyway
@@ -177,7 +177,7 @@ struct SyncOperationAlerts {
     /// target location.
     nonisolated static func invalidNameInformativeText(_ prompt: NameViolationPrompt) -> String {
         "\(prompt.reason) Writing it anyway would create an item \(prompt.providerName) never uploads — "
-            + "it would exist only on this Mac and look identical to \"\(prompt.sanitizedName)\".\n\n"
+            + "it would exist only on this Mac and look identical to “\(prompt.sanitizedName)”.\n\n"
             + "Destination: \(displayPath(prompt.destinationPath))"
     }
 
@@ -201,7 +201,7 @@ struct SyncOperationAlerts {
     /// The invalid-name alert's button titles in `NSAlert.addButton` order (rightmost first),
     /// paired with `invalidNameResolution(for:)` the same way the collision pair is.
     nonisolated static func invalidNameButtonTitles(_ prompt: NameViolationPrompt) -> [String] {
-        ["Use \"\(prompt.sanitizedName)\"", "Skip", "Keep Invalid Name"]
+        ["Use “\(prompt.sanitizedName)”", "Skip", "Keep Invalid Name"]
     }
 
     /// Maps the invalid-name alert's modal response to the resolution it stands for. Extracted
@@ -234,9 +234,9 @@ struct SyncOperationAlerts {
     /// Pure so the single/plural and copy/move wording is unit-testable.
     nonisolated static func transferConfirmationMessage(_ summary: TransferSummary) -> String {
         let verb = summary.isMove ? "Move" : "Copy"
-        let what = summary.itemCount == 1 ? "\"\(summary.firstItemName)\"" : "\(summary.itemCount) items"
+        let what = summary.itemCount == 1 ? "“\(summary.firstItemName)”" : "\(summary.itemCount) items"
         let destinationName = (summary.destinationDirectory as NSString).lastPathComponent
-        return "\(verb) \(what) to \"\(destinationName)\"?"
+        return "\(verb) \(what) to “\(destinationName)”?"
     }
 
     /// Full From/To body of the transfer confirmation, naming both folders in
@@ -295,7 +295,7 @@ struct SyncOperationAlerts {
             // The fallback sentence is only true of the filing refine — the mapping refine has
             // no on-device model, so promising "free on-device suggestions" over its blocked
             // dialog would be a fallback the click cannot deliver.
-            text += " Running this would exceed the \(which) cap, so it's blocked — "
+            text += " Running this would exceed the \(which) cap, so it’s blocked — "
                 + (p.unit == "file"
                    ? "Organize will use its free on-device suggestions instead. "
                    : "this pass only runs in the cloud, so nothing will be sent. ")
@@ -378,7 +378,7 @@ struct SyncOperationAlerts {
     /// `permanentDeleteInformativeText`. Pure (no AppKit) so the wording is unit-testable.
     nonisolated static func permanentDeleteMessage(itemPaths: [String]) -> String {
         if itemPaths.count == 1, let first = itemPaths.first {
-            return "Are you sure you want to permanently delete \"\((first as NSString).lastPathComponent)\"?"
+            return "Are you sure you want to permanently delete “\((first as NSString).lastPathComponent)”?"
         }
         return "Are you sure you want to permanently delete these \(itemPaths.count) items?"
     }
@@ -401,8 +401,8 @@ struct SyncOperationAlerts {
         if itemPaths.count > maxLines { lines.append("  …  and \(itemPaths.count - maxLines) more") }
         lines.append("")
         lines.append(itemPaths.count == 1
-            ? "This item will be deleted immediately because it can't be moved to the Trash. You can't undo this action."
-            : "These items will be deleted immediately because they can't be moved to the Trash. You can't undo this action.")
+            ? "This item will be deleted immediately because it can’t be moved to the Trash. You can’t undo this action."
+            : "These items will be deleted immediately because they can’t be moved to the Trash. You can’t undo this action.")
         return lines.joined(separator: "\n")
     }
 

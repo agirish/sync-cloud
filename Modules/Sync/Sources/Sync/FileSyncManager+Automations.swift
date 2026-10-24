@@ -294,7 +294,7 @@ extension FileSyncManager {
         // "the conditions match nothing", which is the wrong diagnosis.
         if let only, let rule = automationRules.first(where: { $0.id == only }), isInert(rule) {
             let name = rule.name.isEmpty ? "This rule" : "“\(rule.name)”"
-            banner = .warning("\(name) files into a folder outside \(providerName ?? "this provider"), so it can't act here.")
+            banner = .warning("\(name) files into a folder outside \(providerName ?? "this provider"), so it can’t act here.")
             Logger.shared.info("Rules preview skipped: rule “\(rule.name)” is scoped to \(rule.destinationTemplate), outside \(anchorPath)")
             return
         }
@@ -408,7 +408,7 @@ extension FileSyncManager {
         switch AutomationEvaluator.resolveDestination(rule.destinationTemplate, for: facts,
                                                       providerName: providerName, now: now) {
         case .unresolved(let token):
-            return (.needsAttention("needs \(token), which this file doesn't have"), nil, nil)
+            return (.needsAttention("needs \(token), which this file doesn’t have"), nil, nil)
         case .resolved(let resolvedDestination):
             // An absolute destination (a migrated F3 rule) names its folder directly; a relative one
             // anchors at the provider root. Provider-inert absolute rules were filtered out before
@@ -558,7 +558,7 @@ extension FileSyncManager {
                 // generic count — which is what would otherwise report a whole run that refused to
                 // write anywhere as an ordinary I/O hiccup.
                 let couldnt = failures > 0
-                    ? "Couldn't file \(failures) file\(failures == 1 ? "" : "s")."
+                    ? "Couldn’t file \(failures) file\(failures == 1 ? "" : "s")."
                     : "Nothing was filed."
                 banner = rootUnavailable > 0
                     ? .warning(couldnt + " "
@@ -590,7 +590,7 @@ extension FileSyncManager {
                     + (refusedChanged > 0 ? ", \(refusedChanged) refused as changed since the preview" : ""))
         banner = failures > 0 || refusedChanged > 0
             ? .warning("Filed \(n) file\(n == 1 ? "" : "s")."
-                       + (failures > 0 ? " \(failures) couldn't be filed." : "")
+                       + (failures > 0 ? " \(failures) couldn’t be filed." : "")
                        + (rootUnavailable > 0 ? " " + FileOperationError.destinationRootUnavailable.localizedDescription : "")
                        + changedNote
                        + " Press ⌘Z to undo", undoable: true)

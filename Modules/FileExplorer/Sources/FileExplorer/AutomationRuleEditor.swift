@@ -29,7 +29,7 @@ enum ConditionType: String, CaseIterable, Identifiable {
         case .untouchedForDays: return "Not modified in"
         case .contentContains: return "Text contains"
         case .mentionsAll: return "Mentions the words"
-        case .personIs: return "Is this person's"
+        case .personIs: return "Is this person’s"
         case .unrecognized: return "From a newer version"
         }
     }

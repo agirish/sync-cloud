@@ -78,7 +78,7 @@ import Sync
         let stem = PeopleTester.stem(of: "Father Elder Daughter Father Granny Elder - scan.pdf")
         let ids = registry.detect(in: stem)
         let said = PeopleTester.consequence(of: stem, registry: registry, factsById: [:])
-        #expect(said == "\(ids.count) people are named, so no folder is refused on anyone's behalf.")
+        #expect(said == "\(ids.count) people are named, so no folder is refused on anyone’s behalf.")
         #expect(ids.count >= 2, "the fixture no longer names more than one person")
     }
 
@@ -109,13 +109,13 @@ import Sync
         // Somebody else with folders of their own, and the sentence gains its second half.
         let withOthers = PeopleTester.consequence(of: stem, registry: registry,
                                                   factsById: Self.factsById([("daughter", 2), ("granny", 4)]))
-        #expect(withOthers == "Prefers their 2 folders; refuses the other person's.")
+        #expect(withOthers == "Prefers their 2 folders; refuses the other person’s.")
 
         // …and pluralises on the count of people, not of folders.
         let twoOthers = PeopleTester.consequence(
             of: stem, registry: registry,
             factsById: Self.factsById([("daughter", 2), ("granny", 4), ("father", 9)]))
-        #expect(twoOthers == "Prefers their 2 folders; refuses the other 2 people's.")
+        #expect(twoOthers == "Prefers their 2 folders; refuses the other 2 people’s.")
 
         // A person on the roster with no folders is not somebody to refuse — there is nothing of
         // theirs to keep this document out of.

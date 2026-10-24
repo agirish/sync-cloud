@@ -129,7 +129,7 @@ struct PersonEditor: View {
     private var aliasesSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             eyebrow("Also called")
-            Text("What you call them in a filename when you do not use their name — “Mom”, “Dad”. These resolve to the same person, so `Mom - passport.pdf` belongs in Granny's folder.")
+            Text("What you call them in a filename when you do not use their name — “Mom”, “Dad”. These resolve to the same person, so `Mom - passport.pdf` belongs in Granny’s folder.")
                 .scaledFont(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

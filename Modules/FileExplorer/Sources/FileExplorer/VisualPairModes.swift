@@ -362,7 +362,7 @@ struct PageStrip: View, Equatable {
             let percent = max(0.1, fraction * 100)
             return String(format: "About %.1f%% of the page differs", percent)
         case .oneSided: return "Only one side has this page"
-        case .unrenderable: return "This page couldn't be rendered on one side"
+        case .unrenderable: return "This page couldn’t be rendered on one side"
         }
     }
 }

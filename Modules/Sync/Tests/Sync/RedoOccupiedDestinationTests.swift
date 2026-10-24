@@ -77,7 +77,7 @@ import Testing
         await waitUntil("the redo refuses") { manager.banner?.severity == .warning }
         await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
 
-        #expect(manager.banner?.message == "Redo left \"report.pdf\" alone — a different item is at its destination now",
+        #expect(manager.banner?.message == "Redo left “report.pdf” alone — a different item is at its destination now",
                 "got \(String(describing: manager.banner?.message))")
         #expect(size(fm, "\(root)/Shared/report.pdf") == 555, "the file another app saved was replaced")
         #expect(fm.trashedPaths.count == trashedBefore, "the redo put something in the Trash")

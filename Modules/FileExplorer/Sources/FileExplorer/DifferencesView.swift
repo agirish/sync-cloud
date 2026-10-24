@@ -2397,7 +2397,7 @@ struct DifferenceSectionHeader: View {
         )
         .help(isFullySelected
               ? "\(folder) — click to reselect, ⌘-click to deselect"
-              : "Select this folder's differences · ⌘-click to add to the selection")
+              : "Select this folder’s differences · ⌘-click to add to the selection")
         // One element: VoiceOver reads "Immigration, 6 differences, selected" rather than four
         // fragments, and the tap is announced as what it does.
         //
@@ -2409,7 +2409,7 @@ struct DifferenceSectionHeader: View {
         .accessibilityLabel("\(folder), \(count.formatted()) difference\(count == 1 ? "" : "s")")
         .accessibilityValue([isFullySelected ? "selected" : "",
                              isCollapsed ? "collapsed" : ""].filter { !$0.isEmpty }.joined(separator: ", "))
-        .accessibilityHint("Selects this folder's differences")
+        .accessibilityHint("Selects this folder’s differences")
         .accessibilityAddTraits(isFullySelected ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction(named: isCollapsed ? "Expand" : "Collapse", onToggleCollapse)
     }

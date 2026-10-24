@@ -208,7 +208,7 @@ extension FileSyncManager {
         // The memory records which words a folder's documents use, not how many use each one, so
         // that number cannot be produced honestly — it stays 0 and the sentence stays true.
         let reason = fromContent
-            ? "Matched “\(best.evidenceToken ?? "")” read from the file — a word this folder's documents use"
+            ? "Matched “\(best.evidenceToken ?? "")” read from the file — a word this folder’s documents use"
             : "Fits how this folder is used"
         let dest = FilingDestination(
             // `.measuredContent`, not `.content`: the router's confidence is its calibrated

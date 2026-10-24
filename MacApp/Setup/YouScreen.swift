@@ -62,7 +62,7 @@ struct YouScreen: View {
 
             // At the foot of the column — see the note on Countries' closing line.
             Text("Order matters, so surname-first is its own form. Tick initials only if they "
-                 + "can't mean anyone else.")
+                 + "can’t mean anyone else.")
                 .scaledFont(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -79,9 +79,9 @@ struct YouScreen: View {
         switch (account.isEmpty, model.matchedFolder) {
         case (false, .some(let folder)):
             return "Your Mac account says \(account), and \(model.walkRootName) has a folder named "
-                + "\(folder). Correct either field if it's wrong."
+                + "\(folder). Correct either field if it’s wrong."
         case (false, .none):
-            return "Your Mac account says \(account). Correct either field if it's wrong."
+            return "Your Mac account says \(account). Correct either field if it’s wrong."
         default:
             return "Type the name your documents print."
         }
@@ -124,7 +124,7 @@ struct YouWhy: View {
 
     var body: some View {
         SetupWhyPanel(footnoteLead: "If you skip:",
-                      footnote: "Organize can't tell which documents are yours.",
+                      footnote: "Organize can’t tell which documents are yours.",
                       hue: hue) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {

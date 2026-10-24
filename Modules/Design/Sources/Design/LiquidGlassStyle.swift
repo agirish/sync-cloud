@@ -203,7 +203,7 @@ public enum GlassLevel: String, CaseIterable, Identifiable, Sendable {
     public var detail: String {
         switch self {
         case .clear:
-            return "Glass with no frost — the window's background reads through every surface."
+            return "Glass with no frost — the window’s background reads through every surface."
         case .frosted:
             return "Standard Liquid Glass: translucent and blurred, with content on top staying legible."
         case .solid:

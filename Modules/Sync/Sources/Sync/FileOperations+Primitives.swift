@@ -47,11 +47,11 @@ extension FileSyncManager {
             case .nestingViolation:
                 return "Cannot move or copy a directory into itself or its subdirectories."
             case .parentExistsAsFile(let parentName):
-                return "A file named \"\(parentName)\" already exists on the destination. Sync the parent folder first (use Replace) to replace it with the package, then sync this item."
+                return "A file named “\(parentName)” already exists on the destination. Sync the parent folder first (use Replace) to replace it with the package, then sync this item."
             case .sourceRootUnavailable:
-                return "The source pane's folder is no longer available. Rescan before copying or moving items."
+                return "The source pane’s folder is no longer available. Rescan before copying or moving items."
             case .itemOutsideSourceRoot(let itemName):
-                return "\"\(itemName)\" is not inside the source pane's folder. Rescan and try again."
+                return "“\(itemName)” is not inside the source pane’s folder. Rescan and try again."
             case .destinationRootUnavailable:
                 return "The destination folder is no longer available. Rescan before copying or moving items."
             case .sourceChangedSincePreview:
@@ -59,13 +59,13 @@ extension FileSyncManager {
             case .sourceChangedSinceScan:
                 return "This file changed since the scan, so the folder suggested for it was chosen for a different file. It was left where it is; scan again to see where it goes now."
             case .folderNotAnswered(let folderName):
-                return "\"\(folderName)\" couldn’t be read: its contents aren’t on this Mac, and the app that syncs it didn’t answer. Open that app and try again."
+                return "“\(folderName)” couldn’t be read: its contents aren’t on this Mac, and the app that syncs it didn’t answer. Open that app and try again."
             case .destinationIsADocument(let name):
-                return "\"\(name)\" is a document, not a folder, so nothing can be filed inside it. Choose another folder."
+                return "“\(name)” is a document, not a folder, so nothing can be filed inside it. Choose another folder."
             case .destinationContainsSource:
                 return "An item can’t replace the folder it’s inside — that would put the rest of the folder in the Trash. Choose Keep Both instead, or Merge for two folders."
             case .itemIsLocked(let name):
-                return "\"\(name)\" is locked, so it can’t be moved or renamed. Unlock it in Finder (File ▸ Get Info) and try again."
+                return "“\(name)” is locked, so it can’t be moved or renamed. Unlock it in Finder (File ▸ Get Info) and try again."
             }
         }
     }

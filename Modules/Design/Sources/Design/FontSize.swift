@@ -216,7 +216,7 @@ public struct FontSize: Hashable, Identifiable, Sendable {
         case Self.medium.percent:
             return "The standard text size."
         case Self.maximumPercent:
-            return "The largest text size SyncCloud's chrome can carry."
+            return "The largest text size SyncCloud’s chrome can carry."
         default:
             return "Larger reading text — small print grows the most; titles stay put."
         }

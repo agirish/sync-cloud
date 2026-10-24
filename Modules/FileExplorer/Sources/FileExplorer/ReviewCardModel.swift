@@ -217,7 +217,7 @@ struct ReviewCardModel: Equatable {
         }
         if let source = facts.sourceModified, let destination = facts.destinationModified,
            destination.timeIntervalSince(source) > dateTolerance {
-            return "The \(destinationName) copy is newer than the one you're about to \(isMove ? "move" : "copy") over it."
+            return "The \(destinationName) copy is newer than the one you’re about to \(isMove ? "move" : "copy") over it."
         }
         return nil
     }

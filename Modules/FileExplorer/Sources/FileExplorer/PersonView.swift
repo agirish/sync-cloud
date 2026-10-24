@@ -156,7 +156,7 @@ public struct PersonView: View {
         return VStack(alignment: .leading, spacing: 7) {
             groupHeader(symbol: "house",
                         title: "In \(displayName)’s folders",
-                        subtitle: "The tree's own filing.",
+                        subtitle: "The tree’s own filing.",
                         amount: "\(inFolders) file\(inFolders == 1 ? "" : "s") · \(files.folderCount) folder\(files.folderCount == 1 ? "" : "s")")
             ForEach(files.ownFolders.prefix(Self.folderLimit), id: \.folder) { group in
                 HStack(spacing: 10) {

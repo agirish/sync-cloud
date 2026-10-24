@@ -1183,7 +1183,7 @@ public class SettingsManager: ObservableObject {
         /// than from any one of those surfaces, so removing or adding a picker cannot falsify it
         /// the way naming the sidebar did.
         public static func offer(_ displayName: String) -> String {
-            "Offer \(displayName) in the pane header's source menu, and anywhere else a source is picked."
+            "Offer \(displayName) in the pane header’s source menu, and anywhere else a source is picked."
         }
     }
 

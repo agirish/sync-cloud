@@ -169,7 +169,7 @@ struct SetupWalkStatus: View {
             EmptyView()
         case .failed(let why):
             VStack(alignment: .leading, spacing: 5) {
-                Label("Couldn't read that folder", systemImage: "exclamationmark.triangle")
+                Label("Couldn’t read that folder", systemImage: "exclamationmark.triangle")
                     .scaledFont(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
                 Text(why)
@@ -198,7 +198,7 @@ struct PeopleWhy: View {
                       footnote: "Organize files only for you. Add people any time.",
                       hue: hue) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("A letter to Maya belongs in Maya's folder, not yours. Organize can only do "
+                Text("A letter to Maya belongs in Maya’s folder, not yours. Organize can only do "
                      + "that if it knows who Maya is.")
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)

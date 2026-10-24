@@ -303,7 +303,7 @@ struct ReviewCardView: View {
         case .differed:
             statusRow("Contents differ — this is a real change.", systemImage: "exclamationmark.triangle.fill", tint: SemanticColor.warning)
         case .unverifiable:
-            statusRow("Couldn't verify (a side was unreadable or too large to hash).", systemImage: "questionmark.circle", tint: .secondary)
+            statusRow("Couldn’t verify (a side was unreadable or too large to hash).", systemImage: "questionmark.circle", tint: .secondary)
         }
     }
 

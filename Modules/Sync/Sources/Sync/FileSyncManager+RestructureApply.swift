@@ -48,7 +48,7 @@ public struct RestructureApplyProgress: Equatable, Sendable {
         case .operations: return "Running the operations, re-probing each one"
         case .verify: return "Verifying from a second code path"
         case .rederive: return "Re-reading the tree to rebuild the survey"
-        case .artifacts: return "Carrying the survey's artifacts across"
+        case .artifacts: return "Carrying the survey’s artifacts across"
         }
     }
 
@@ -205,7 +205,7 @@ extension FileSyncManager {
             appliedUnderProfileId: oldDirectoryId)) else {
             outcome.refusal = "The ledger could not be written, so nothing was moved — a "
                 + "reorganisation only runs once its inverse is safely on disk. Check "
-                + "restructure.json's folder is writable."
+                + "restructure.json’s folder is writable."
             return outcome
         }
 

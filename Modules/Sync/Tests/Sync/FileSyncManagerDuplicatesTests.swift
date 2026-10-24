@@ -435,7 +435,7 @@ import Combine
         #expect(await manager.resolveDuplicateGroup(group) == false)
         #expect(mockFM.virtualDisk["/b/Photos"] != nil, "the refusal itself must stand")
         #expect(manager.banner?.severity == .warning)
-        #expect(manager.banner?.message.contains("couldn't be fully checked") == true)
+        #expect(manager.banner?.message.contains("couldn’t be fully checked") == true)
         #expect(manager.banner?.message.contains("changed since") != true,
                 "no change was measured, so none may be claimed")
 
@@ -443,7 +443,7 @@ import Combine
         manager.banner = nil
         await manager.applyRecommendedDuplicates([group])
         #expect(mockFM.virtualDisk["/b/Photos"] != nil)
-        #expect(manager.banner?.message.contains("couldn't be fully checked") == true)
+        #expect(manager.banner?.message.contains("couldn’t be fully checked") == true)
         #expect(manager.banner?.message.contains("changed since") != true)
     }
 

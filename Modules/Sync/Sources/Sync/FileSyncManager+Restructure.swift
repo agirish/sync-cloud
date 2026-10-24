@@ -91,7 +91,7 @@ extension FileSyncManager {
         // unreadable) would swallow that record silently, so the landing refuses for the same
         // reason the store refuses — better nothing than moves with no trace.
         if restructureStore?.isUnreadable == true {
-            return "restructure.json exists but could not be read, so the landing's record "
+            return "restructure.json exists but could not be read, so the landing’s record "
                 + "could not be kept. Fix the file first — the landing refuses rather than "
                 + "running unrecorded."
         }

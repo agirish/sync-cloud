@@ -822,7 +822,7 @@ extension FileSyncManager {
             // so it is not retryable. Reveal points at the item that is in the way.
             present(SyncError(
                 title: "Rename Failed",
-                message: "An item named \"\(newName)\" already exists.",
+                message: "An item named “\(newName)” already exists.",
                 path: newURL.path
             ))
             return
@@ -847,7 +847,7 @@ extension FileSyncManager {
         if result.collision {
             present(SyncError(
                 title: "Rename Failed",
-                message: "An item named \"\(newName)\" already exists.",
+                message: "An item named “\(newName)” already exists.",
                 path: newURL.path
             ))
         } else if let err = result.error {
@@ -861,7 +861,7 @@ extension FileSyncManager {
     /// Creates a new empty directory on disk.
     public func createFolder(named name: String, in path: String, fileManager fm: FileManaging = FileManager.default) async {
         if let reason = Self.validateItemName(name) {
-            present(SyncError(title: "Couldn't Create Folder", message: reason, path: path))
+            present(SyncError(title: "Couldn’t Create Folder", message: reason, path: path))
             return
         }
         // Same guard as transferItems: an empty parent path (a provider that vanished from
@@ -885,7 +885,7 @@ extension FileSyncManager {
                     throw FileOperationError.destinationRootUnavailable
                 }
                 if fm.fileExists(atPath: createdURL.path) {
-                    throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteFileExistsError, userInfo: [NSLocalizedDescriptionKey : "An item named \"\(name)\" already exists."])
+                    throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteFileExistsError, userInfo: [NSLocalizedDescriptionKey : "An item named “\(name)” already exists."])
                 }
                 try fm.createDirectory(at: createdURL, withIntermediateDirectories: false)
                 return nil
@@ -1581,11 +1581,11 @@ extension FileSyncManager {
             // back only the trashed subset, so a mixed batch (some permanently deleted on a
             // Trash-less volume) must not offer an Undo that would silently leave the permanent
             // deletions in place.
-            let deleted = items.count == 1 ? "Deleted \"\(name)\"" : "Deleted \(items.count) items"
+            let deleted = items.count == 1 ? "Deleted “\(name)”" : "Deleted \(items.count) items"
             // A batch can both remove some items and keep others the user declined to destroy.
             // Reporting only the removals would leave them believing the kept ones went too.
             let kept = result.declined == 0 ? "" :
-                " — kept \(result.declined) that can't be moved to the Trash"
+                " — kept \(result.declined) that can’t be moved to the Trash"
             self.banner = .success(deleted + kept, undoable: successfullyTrashed.count == items.count)
         }
         // **One line at THIS level for anything the gate kept.** The two shipped gates log per
@@ -1611,8 +1611,8 @@ extension FileSyncManager {
             // that branch would otherwise claim they were.
             Logger.shared.info("Delete: kept \(result.declined) item(s) that could not be moved to the Trash — the permanent delete was declined")
             banner = .warning(result.declined == 1
-                ? "Kept that item — it can't be moved to the Trash, and you chose not to delete it permanently"
-                : "Kept those \(result.declined) items — they can't be moved to the Trash, and you chose not to delete them permanently")
+                ? "Kept that item — it can’t be moved to the Trash, and you chose not to delete it permanently"
+                : "Kept those \(result.declined) items — they can’t be moved to the Trash, and you chose not to delete them permanently")
         } else if reportsNothingToDo, items.isEmpty, result.refused == 0, !prunedPaths.isEmpty, progress?.isCancelled != true {
             // `result.refused == 0` because a batch the gate refused wholesale is the OPPOSITE of
             // "already gone" — the items are on disk, deliberately kept, and the gate has posted

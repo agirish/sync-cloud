@@ -627,9 +627,9 @@ public struct DestinationPicker: View {
     private var collisionSummary: String {
         let folder = displayName(of: highlighted)
         if collidingNames.count == 1 {
-            return "“\(collidingNames[0])” conflicts in \(folder) — you'll be asked what to do."
+            return "“\(collidingNames[0])” conflicts in \(folder) — you’ll be asked what to do."
         }
-        return "\(collidingNames.count) of \(request.sourcePaths.count) names conflict in \(folder) — you'll be asked about each."
+        return "\(collidingNames.count) of \(request.sourcePaths.count) names conflict in \(folder) — you’ll be asked about each."
     }
 
     /// The chosen folder as a breadcrumb, matching the pane headers rather than a raw path.

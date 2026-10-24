@@ -116,10 +116,10 @@ import Testing
         // Re-bless only after confirming an intentional change is correct.
         let expected = """
         diffsize.txt | differs | →R | L=/left/diffsize.txt | R=/right/diffsize.txt | sz=100/200 | held=sizesDifferWithoutANewerSide | Sizes differ but the dates match within the 1 s tolerance — choose which to keep
-        mixdir | differs | →R | L=/left/mixdir | R=/right/mixdir | sz=-/60 | encl=1 | held=folderVersusFile | Folder in Left, file in Right — a folder's date is not when its contents changed; choose which to keep
-        mixnewer | differs | ←L | L=/left/mixnewer | R=/right/mixnewer | sz=-/60 | held=folderVersusFile | Folder in Left, file in Right — a folder's date is not when its contents changed; choose which to keep
+        mixdir | differs | →R | L=/left/mixdir | R=/right/mixdir | sz=-/60 | encl=1 | held=folderVersusFile | Folder in Left, file in Right — a folder’s date is not when its contents changed; choose which to keep
+        mixnewer | differs | ←L | L=/left/mixnewer | R=/right/mixnewer | sz=-/60 | held=folderVersusFile | Folder in Left, file in Right — a folder’s date is not when its contents changed; choose which to keep
         newerdate.txt | differs | ←L | L=/left/newerdate.txt | R=/right/newerdate.txt | sz=100/100 | Right file is newer
-        note.txt | nameConflict | →R | L=/left/note.txt | R=/right/note.txt  | sz=50/50 | Names differ by a trailing space: "note.txt" (Left) vs "note.txt " (Right)
+        note.txt | nameConflict | →R | L=/left/note.txt | R=/right/note.txt  | sz=50/50 | Names differ by a trailing space: “note.txt” (Left) vs “note.txt ” (Right)
         onlyleft.txt | missingOnRight | →R | L=/left/onlyleft.txt | R=/right/onlyleft.txt | sz=100/- | Missing on right (Right)
         onlyleftdir | missingOnRight | →R | L=/left/onlyleftdir | R=/right/onlyleftdir | sz=-/- | encl=1 | Folder missing on right (Right)
         onlyright.txt | missingOnLeft | ←L | L=/left/onlyright.txt | R=/right/onlyright.txt | sz=-/100 | Missing on left (Left)

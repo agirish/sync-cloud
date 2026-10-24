@@ -531,7 +531,7 @@ private actor AsyncGate {
 
         #expect(probe.count == 0)                  // …nothing was priced or billed…
         #expect(m.banner?.severity == .warning)       // …and the banner names the key rather than
-        #expect(m.banner?.message.contains("couldn't be read") == true)   // claiming a Claude answer
+        #expect(m.banner?.message.contains("couldn’t be read") == true)   // claiming a Claude answer
 
         // **The durable summary carries the downgrade too, and this is the one the pill reads.**
         // `classified` is 0 here because nothing reached Claude — which is right for a billing

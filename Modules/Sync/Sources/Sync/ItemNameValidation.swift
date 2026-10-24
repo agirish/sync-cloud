@@ -17,16 +17,16 @@ extension FileSyncManager {
             return "A name is required."
         }
         if trimmed == "." || trimmed == ".." {
-            return "\"\(trimmed)\" can't be used as a name."
+            return "“\(trimmed)” can’t be used as a name."
         }
         if trimmed.contains("/") {
-            return "Names can't contain \"/\"."
+            return "Names can’t contain “/”."
         }
         if trimmed.contains(":") {
-            return "Names can't contain \":\"."
+            return "Names can’t contain “:”."
         }
         if trimmed.contains("\0") {
-            return "Names can't contain that character."
+            return "Names can’t contain that character."
         }
         return nil
     }

@@ -510,7 +510,7 @@ import Testing
                         "MacApp/SetupFlow.swift": "Stays on this Mac",
                         "MacApp/Setup/SetupChrome.swift": "More options",
                         "MacApp/Setup/WelcomeScreen.swift": "Welcome to SyncCloud",
-                        "MacApp/Setup/LocationsScreen.swift": "Switch off any you don't use.",
+                        "MacApp/Setup/LocationsScreen.swift": "Switch off any you don’t use.",
                         "MacApp/Setup/LearnScreen.swift": "Which folder should SyncCloud learn from?",
                         "MacApp/Setup/YouScreen.swift": "Is this you?",
                         "MacApp/Setup/PeopleScreen.swift": "Who else is in your folders?",
@@ -519,7 +519,7 @@ import Testing
                         "MacApp/Setup/SetupTreeView.swift": "would go here",
                         "MacApp/Setup/WorkspacesScreen.swift": "What you can do now",
                         "MacApp/Setup/AppearanceScreen.swift": "Make it yours",
-                        "MacApp/Setup/SummaryScreen.swift": "You're all set"]
+                        "MacApp/Setup/SummaryScreen.swift": "You’re all set"]
         for (file, canary) in canaries {
             let url = URL(fileURLWithPath: #filePath)
                 .deletingLastPathComponent().deletingLastPathComponent()

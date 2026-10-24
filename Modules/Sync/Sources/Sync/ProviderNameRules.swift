@@ -194,7 +194,7 @@ public enum ProviderNameRules {
         rightName: String, rightProvider: String
     ) -> String {
         "Names differ by \(nameDifferenceDetail(leftName, rightName)): "
-            + "\"\(leftName)\" (\(leftProvider)) vs \"\(rightName)\" (\(rightProvider))"
+            + "“\(leftName)” (\(leftProvider)) vs “\(rightName)” (\(rightProvider))"
     }
 
     // MARK: - Destination validity (pre-write check)
@@ -241,28 +241,28 @@ public enum ProviderNameRules {
             return nil
         case .dropBox:
             if name.hasSuffix(" ") {
-                return make("Dropbox doesn't allow names ending with a space.")
+                return make("Dropbox doesn’t allow names ending with a space.")
             }
             if name.hasSuffix(".") {
-                return make("Dropbox doesn't allow names ending with a period.")
+                return make("Dropbox doesn’t allow names ending with a period.")
             }
             return nil
         case .oneDrive:
             if let forbidden = name.first(where: { oneDriveForbiddenCharacters.contains($0) }) {
-                return make("OneDrive doesn't allow \"\(forbidden)\" in names.")
+                return make("OneDrive doesn’t allow “\(forbidden)” in names.")
             }
             if name.hasPrefix(" ") || name.hasSuffix(" ") {
-                return make("OneDrive doesn't allow names beginning or ending with a space.")
+                return make("OneDrive doesn’t allow names beginning or ending with a space.")
             }
             if name.hasSuffix(".") {
-                return make("OneDrive doesn't allow names ending with a period.")
+                return make("OneDrive doesn’t allow names ending with a period.")
             }
             // Match `sanitized(...)`'s split exactly (omittingEmptySubsequences: false), so a
             // leading-dot name like ".CON" derives an empty base — not "CON" — and isn't
             // flagged as reserved when the sanitizer would leave it unchanged anyway.
             let baseName = name.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? name
             if oneDriveReservedNames.contains(baseName.uppercased()) {
-                return make("\"\(baseName)\" is a reserved name on OneDrive.")
+                return make("“\(baseName)” is a reserved name on OneDrive.")
             }
             return nil
         }

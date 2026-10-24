@@ -243,7 +243,7 @@ import Settings
 
         handler.focusFolder(aliasedNode, isLeft: true, leftProviderId: "p", rightProviderId: "p", suppressLinkedNavigation: false)
 
-        #expect(manager.currentError?.title == "Can't Focus Folder")
+        #expect(manager.currentError?.title == "Can’t Focus Folder")
         #expect(manager.leftRelativePath == "")
     }
 

@@ -434,7 +434,7 @@ import EventsTestSupport
         }
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
 
-        #expect(manager.banner?.message.contains("Undo couldn't remove") == true)
+        #expect(manager.banner?.message.contains("Undo couldn’t remove") == true)
         #expect(manager.banner?.message.contains("New Folder") == true)
         // The folder is still there — which is exactly why silence was wrong.
         #expect(mockFM.virtualDisk["/dst/New Folder"] != nil)

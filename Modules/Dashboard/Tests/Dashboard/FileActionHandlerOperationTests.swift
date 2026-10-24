@@ -491,7 +491,7 @@ import Settings
 
         #expect(!FileManager.default.fileExists(atPath: file.path))
         await waitUntil("the completion banner to publish") { manager.banner != nil }
-        #expect(manager.banner?.message == "Deleted \"trash-me.txt\"")
+        #expect(manager.banner?.message == "Deleted “trash-me.txt”")
         #expect(manager.banner?.isUndoable == true)
         #expect(trash.names == ["trash-me.txt"],
                 "the file left the disk but never reached the test's own Trash")
