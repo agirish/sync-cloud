@@ -9923,3 +9923,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s run=%s captured=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF tools in Edit (`run=0`) | CLOSED — does not apply |
+
+---
+
+## A refused Keychain save keeps the old key and the typed one (FR58) — main only
+
+Saving the Anthropic API key deleted the Keychain item and then added the new one, so a Keychain
+that allowed the delete and refused the add left no key at all — and Settings cleared the field
+the new key was typed in whatever the status, so both were gone. `main` replaces the item in place
+(`SecItemUpdate`, `SecItemAdd` only when there is none) and keeps the typed key in the field when
+the store did not land (`CloudKeyRow.afterSave`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s save=%s deleteThenAdd=%s update=%s\n' $l \
+  "$(git show origin/$l:Modules/Settings/Sources/Settings/CloudKeyRow.swift 2>/dev/null | grep -cF 'private func saveTypedKey')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/AnthropicKeychain.swift 2>/dev/null | grep -cF 'store.delete(query)   // idempotent replace')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/AnthropicKeychain.swift 2>/dev/null | grep -cF 'store.update(baseQuery()')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads deleteThenAdd=0 update=1):
+# main, v5.x, v4.x, v3.x, v2.x   save=1 deleteThenAdd=1 update=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same delete-then-add and cleared field (`deleteThenAdd=1`) | RECORDED — not owed |

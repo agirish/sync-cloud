@@ -8,11 +8,13 @@ import EventsTestSupport
 /// An in-memory ``KeychainStore`` holding the single item slot the helper manages, recording the
 /// operation sequence — tests must NEVER touch the real login keychain.
 private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
-    enum Op: Equatable { case delete, add, copy }
+    enum Op: Equatable { case delete, add, copy, update }
 
     private(set) var ops: [Op] = []
     /// The attribute dictionary of the last `add`, so tests can pin the item's identity.
     private(set) var lastAddedAttributes: [String: Any]?
+    /// The attributes of the last successful `update`.
+    private(set) var lastUpdatedAttributes: [String: Any]?
     /// The query of the last `copyMatching`. What a lookup ASKS FOR is the whole difference
     /// between a silent existence check and one that raises the Keychain password prompt.
     private(set) var lastCopyQuery: [String: Any]?
@@ -24,6 +26,9 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
     /// keychain, a denied prompt or an MDM policy actually does. The slot surviving is the point:
     /// a fake that cleared it anyway could not tell a reported failure from a silent one.
     var forcedDeleteStatus: OSStatus?
+    /// When set, `update` and `add` refuse with this status and write nothing — a locked keychain
+    /// refusing the write, which it can do after allowing a delete.
+    var forcedWriteStatus: OSStatus?
 
     func delete(_ query: [String: Any]) -> OSStatus {
         ops.append(.delete)
@@ -35,7 +40,18 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
 
     func add(_ attributes: [String: Any]) -> OSStatus {
         ops.append(.add)
+        if let forced = forcedWriteStatus { return forced }
+        if itemData != nil { return errSecDuplicateItem }
         lastAddedAttributes = attributes
+        itemData = attributes[kSecValueData as String] as? Data
+        return errSecSuccess
+    }
+
+    func update(_ query: [String: Any], attributes: [String: Any]) -> OSStatus {
+        ops.append(.update)
+        if let forced = forcedWriteStatus { return forced }
+        guard itemData != nil else { return errSecItemNotFound }
+        lastUpdatedAttributes = attributes
         itemData = attributes[kSecValueData as String] as? Data
         return errSecSuccess
     }
@@ -52,12 +68,12 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
 
 @Suite struct AnthropicKeychainTests {
 
-    @Test func storeTrimsTheKeyAndReplacesViaDeleteThenAdd() throws {
+    @Test func storeTrimsTheKeyAndAddsWhenNothingIsStored() throws {
         let store = FakeKeychainStore()
         AnthropicKeychain.store("  sk-ant-test \n", in: store)
 
-        // The idempotent-replace shape: always a delete FIRST, then the add.
-        #expect(store.ops == [.delete, .add])
+        // Nothing to update, so the add — and never a delete (FR58).
+        #expect(store.ops == [.update, .add])
         #expect(AnthropicKeychain.read(from: store) == "sk-ant-test")
 
         // Pin the item's identity + protection class: a drifted service/account string would
@@ -69,13 +85,31 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
         #expect(attrs[kSecAttrAccessible as String] as? String == kSecAttrAccessibleAfterFirstUnlock as String)
     }
 
-    @Test func storeAgainReplacesThePreviousKey() {
+    @Test func storeAgainReplacesThePreviousKey() throws {
         let store = FakeKeychainStore()
         AnthropicKeychain.store("first-key", in: store)
         AnthropicKeychain.store("second-key", in: store)
 
-        #expect(store.ops == [.delete, .add, .delete, .add])
+        // Replaced in place: one update, no delete (FR58).
+        #expect(store.ops == [.update, .add, .update])
         #expect(AnthropicKeychain.read(from: store) == "second-key")
+        let attrs = try #require(store.lastUpdatedAttributes)
+        #expect(attrs[kSecAttrAccessible as String] as? String == kSecAttrAccessibleAfterFirstUnlock as String)
+    }
+
+    /// **A refused write keeps the key that was stored (FR58).** The replace used to delete and
+    /// then add, so a Keychain that allowed the delete and refused the add left no key at all —
+    /// and Settings cleared the field the new one was typed in, so both were gone. The status must
+    /// come back non-success AND the old key must still read back.
+    @Test func aRefusedReplaceLeavesTheOldKeyInPlace() {
+        let store = FakeKeychainStore()
+        AnthropicKeychain.store("old-key", in: store)
+        store.forcedWriteStatus = errSecInteractionNotAllowed
+
+        #expect(AnthropicKeychain.store("new-key", in: store) == errSecInteractionNotAllowed)
+        #expect(!store.ops.contains(.delete), "the replace deleted the stored key: \(store.ops)")
+        store.forcedWriteStatus = nil
+        #expect(AnthropicKeychain.read(from: store) == "old-key", "a refused replace lost the stored key")
     }
 
     @Test func storeEmptyOrWhitespaceStringDeletesTheKey() {

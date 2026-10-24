@@ -16,21 +16,28 @@ public enum AnthropicKeychain {
     }
 
     /// Stores (or replaces) the key. An empty string deletes it.
-    /// - Returns: The `SecItemAdd` status — `errSecSuccess` on a real write. Returned rather than
+    /// - Returns: The status of the write — `SecItemUpdate`'s over an existing item, `SecItemAdd`'s
+    ///   when there was none; `errSecSuccess` on a real write. Returned rather than
     ///   discarded because a keychain write genuinely can fail (locked or denied keychain, an MDM
     ///   policy), and swallowing that left the user believing a key was saved that was not: the
     ///   next scan then found no key and quietly fell back to the on-device model with nothing
     ///   anywhere to explain it. Deleting an existing key by passing "" reports success.
+    ///
+    /// **Replaced in place, never deleted first (FR58).** This used to delete the item and then add
+    /// the new one, so an add the Keychain refused after a delete it allowed left NO key — the old
+    /// one gone and the new one not written — and the Settings row then cleared the field the new
+    /// one was typed in. An update is one write: refused, it leaves the old key exactly as it was.
     @discardableResult
     public static func store(_ key: String, in store: KeychainStore = SecItemKeychainStore()) -> OSStatus {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { delete(from: store); return errSecSuccess }
-        let data = Data(trimmed.utf8)
-        var query = baseQuery()
-        store.delete(query)   // idempotent replace
-        query[kSecValueData as String] = data
-        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        return store.add(query)
+        let attributes: [String: Any] = [
+            kSecValueData as String: Data(trimmed.utf8),
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+        ]
+        let updated = store.update(baseQuery(), attributes: attributes)
+        guard updated == errSecItemNotFound else { return updated }
+        return store.add(baseQuery().merging(attributes) { _, new in new })
     }
 
     /// What a read of the stored key found — the difference `read(from:)`'s `nil` cannot express.

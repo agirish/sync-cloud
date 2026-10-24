@@ -1,8 +1,8 @@
 import Foundation
 import Security
 
-/// Minimal seam over the three SecItem calls ``AnthropicKeychain`` makes, so its
-/// delete-then-add replace, read, and delete semantics are testable without ever touching the
+/// Minimal seam over the four SecItem calls ``AnthropicKeychain`` makes, so its
+/// update-in-place replace, read, and delete semantics are testable without ever touching the
 /// real login keychain. The only conformance outside tests is the SecItem-backed default.
 public protocol KeychainStore {
     /// `SecItemDelete`.
@@ -13,6 +13,9 @@ public protocol KeychainStore {
     func add(_ attributes: [String: Any]) -> OSStatus
     /// `SecItemCopyMatching`.
     func copyMatching(_ query: [String: Any]) -> (status: OSStatus, result: AnyObject?)
+    /// `SecItemUpdate` — `errSecItemNotFound` when nothing matches `query`.
+    @discardableResult
+    func update(_ query: [String: Any], attributes: [String: Any]) -> OSStatus
 }
 
 /// The real macOS Keychain, via the SecItem C API. Stateless — every call is a 1:1 pass-through,
@@ -34,5 +37,10 @@ public struct SecItemKeychainStore: KeychainStore {
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         return (status, result)
+    }
+
+    @discardableResult
+    public func update(_ query: [String: Any], attributes: [String: Any]) -> OSStatus {
+        SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
     }
 }

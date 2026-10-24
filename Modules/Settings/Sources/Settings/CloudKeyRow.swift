@@ -322,20 +322,35 @@ struct CloudKeyRow: View {
 
     private func saveTypedKey() {
         let status = AnthropicKeychain.store(apiKeyField)
-        apiKeyField = ""
         // Confirming the write landed only needs the item to exist — reading it back would
         // prompt for permission immediately after the user typed the key in.
         hasStoredKey = AnthropicKeychain.isConfigured
-        isReplacingKey = false
         revealedKey = nil
-        // A keychain write can fail (locked or denied keychain, an MDM policy). The status line
-        // otherwise fell back to "No key yet", which reads as though nothing had been typed
-        // rather than as a refused write. `.invalid` renders its message verbatim; `.failed`
-        // prefixes "Couldn't reach Anthropic", which would misattribute a local refusal to
-        // the network.
-        keyTestResult = (status == errSecSuccess && hasStoredKey)
-            ? nil
-            : .invalid("The Keychain refused to store the key (status \(status)). Unlock your login keychain and try again.")
+        let after = Self.afterSave(typed: apiKeyField, status: status, stored: hasStoredKey,
+                                   wasReplacing: isReplacingKey)
+        apiKeyField = after.field
+        isReplacingKey = after.isReplacing
+        keyTestResult = after.failure.map { .invalid($0) }
+    }
+
+    /// What the row shows after a Save: on success, the stored key; on a refused write, the entry
+    /// field **still holding what was typed**, with the refusal said under it.
+    ///
+    /// A keychain write can fail (locked or denied keychain, an MDM policy). The status line
+    /// otherwise fell back to "No key yet", which reads as though nothing had been typed rather
+    /// than as a refused write. `.invalid` renders its message verbatim; `.failed` prefixes
+    /// "Couldn't reach Anthropic", which would misattribute a local refusal to the network.
+    ///
+    /// **The typed key survives a refusal (FR58).** The field was cleared whatever the status, so
+    /// a refused Save threw away the only copy of the new key — and, with the old delete-then-add
+    /// replace, the stored one too. Replacing stays in entry mode for the same reason: leaving it
+    /// would swap the field for the stored key's row and hide what was typed. Static, so the
+    /// decision is reachable without mounting the row.
+    static func afterSave(typed: String, status: OSStatus, stored: Bool,
+                          wasReplacing: Bool) -> (field: String, isReplacing: Bool, failure: String?) {
+        if status == errSecSuccess, stored { return ("", false, nil) }
+        return (typed, wasReplacing,
+                "The Keychain refused to store the key (status \(status)). Unlock your login keychain and try again.")
     }
 
     /// Deletes the key — and confirms it actually went, rather than assuming.
