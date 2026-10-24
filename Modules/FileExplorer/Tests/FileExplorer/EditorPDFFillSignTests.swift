@@ -425,6 +425,48 @@ extension PDFFixtures {
         #expect(pdf.path == file, "the original did not stay open")
     }
 
+    /// **The note card says a flat save flattens the file's own comments (FR57)** — and a sticky
+    /// note's text goes with it. Both claims measured on the copy: no comment is left as one, and
+    /// the closed note's words are nowhere in it. A file with a highlight only says the first half;
+    /// a file with none says nothing.
+    @Test func aFlatSaveSaysTheFilesCommentsAreFlattened() async throws {
+        func annotated(_ name: String, _ kinds: [PDFAnnotationSubtype]) throws -> String {
+            let file = path(name)
+            PDFFixtures.write(file, pages: 2)
+            let document = try #require(PDFDocument(url: URL(fileURLWithPath: file)))
+            let page = try #require(document.page(at: 1))
+            for kind in kinds {
+                let note = PDFAnnotation(bounds: CGRect(x: 300, y: 300, width: 24, height: 24), forType: kind, withProperties: nil)
+                note.contents = "WALLABY note text"
+                note.color = .yellow
+                page.addAnnotation(note)
+            }
+            try #require(document.write(to: URL(fileURLWithPath: file)))
+            return file
+        }
+        let noted = try await open(try annotated("Noted.pdf", [.text, .highlight]))
+        #expect(noted.fill.comments == EditorPDFComments(any: true, notes: true))
+        #expect(noted.fill.formNotes.first == EditorPDFComments.notesFlattenedNote)
+        let highlighted = try await open(try annotated("Highlighted.pdf", [.highlight]))
+        #expect(highlighted.fill.formNotes.first == EditorPDFComments.commentsFlattenedNote)
+        let plain = try await open(try annotated("Plain.pdf", []))
+        #expect(!plain.fill.formNotes.contains { $0.contains("comments") }, "a file with no comments was warned")
+
+        // The claims, on the copy.
+        let fill = noted.fill
+        fill.toggle()
+        let id = try #require(fill.place(at: CGPoint(x: 100, y: 500), page: 0))
+        fill.type("QUOKKA4471", into: id)
+        guard case .wrote(let copy) = await fill.save() else { Issue.record("the copy was not written"); return }
+        let page = try #require(PDFDocument(url: URL(fileURLWithPath: copy))?.page(at: 1))
+        #expect(!page.annotations.contains { EditorPDFComments.markupTypes.contains($0.type ?? "") },
+                "a comment is still one in the copy — the note says they are flattened")
+        let original = try #require(PDFDocument(url: URL(fileURLWithPath: path("Noted.pdf")))?.page(at: 1))
+        #expect(original.annotations.contains { $0.contents == "WALLABY note text" }, "the fixture has no note text")
+        #expect(!page.annotations.contains { $0.contents?.contains("WALLABY") == true } && !text(of: copy).contains("WALLABY"),
+                "the note's text is in the copy — the note says it isn't")
+    }
+
     /// **What changes while the copy is being written is kept, not cleared** — it is not in the copy,
     /// and clearing deleted it without a word. The save is held on its lane turn while a second item
     /// goes down, then let finish: the copy has the first words only, and both items are still there.

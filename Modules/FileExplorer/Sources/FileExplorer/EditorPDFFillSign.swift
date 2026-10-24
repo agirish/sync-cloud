@@ -674,6 +674,8 @@ public final class EditorPDFFillSign: ObservableObject {
     /// text and signatures be placed on its pages (``EditorPDFFacts/allowsFormEntry``).
     @Published public private(set) var allowsFormEntry = true
     @Published public private(set) var allowsCommenting = true
+    /// The review comments already on the file's pages, read in the lane with the facts (FR57).
+    @Published public private(set) var comments = EditorPDFComments.none
 
     public let store: EditorPDFSignatureStore
     /// Placing, moving, deleting — undone with ⌘Z while the pages have the keyboard.
@@ -731,7 +733,8 @@ public final class EditorPDFFillSign: ObservableObject {
     /// `allowsFilling` is the file's own permissions — read in the lane with the facts — and `form`,
     /// `allowsFormEntry` and `allowsCommenting` its form and the permissions' two halves (5c).
     func attach(path: String, boxes: [EditorPDFPageBox], encryption: PDFEncryptionState, allowsFilling: Bool,
-                form: EditorPDFForm = .none, allowsFormEntry: Bool = true, allowsCommenting: Bool = true) {
+                form: EditorPDFForm = .none, allowsFormEntry: Bool = true, allowsCommenting: Bool = true,
+                comments: EditorPDFComments = .none) {
         let reloaded = self.path == path
         // **What there was before either drop below**, for the one banner that says it all: a
         // reload that changed both the form and the pages cleared the fields first, and the items'
@@ -794,6 +797,7 @@ public final class EditorPDFFillSign: ObservableObject {
         self.form = form
         self.allowsFormEntry = allowsFormEntry
         self.allowsCommenting = allowsCommenting
+        self.comments = comments
         // An owner who forbids commenting gets no placed items, form or not: a file with no form
         // allowed only "form entry" has nothing that permission covers, and took items flattened
         // into an unrestricted copy — the inconsistency `nothingToFillReason` closed for forms.
@@ -857,6 +861,7 @@ public final class EditorPDFFillSign: ObservableObject {
         form = .none
         allowsFormEntry = true
         allowsCommenting = true
+        comments = .none
     }
 
     private func clear() {
@@ -1419,8 +1424,9 @@ public final class EditorPDFFillSign: ObservableObject {
         if let formProblem, !Self.isNothingYet(formProblem) {
             out.append(EditorPDFToolEngine.reason(formProblem, tool: .fillForm(values: values, items: [])))
         }
-        // Without a form the pages are redrawn, and the copy loses what a redraw can't keep.
-        guard usesFormPath else { return out + [tools?.droppedPartsNote].compactMap { $0 } }
+        // Without a form the pages are redrawn, and the copy loses what a redraw can't keep — the
+        // file's own comments among it (FR57).
+        guard usesFormPath else { return out + [comments.flattenedNote, tools?.droppedPartsNote].compactMap { $0 } }
         if !offersPlacing { out.append(Self.noCommentingReason + ".") }
         if !allowsFormEntry, !form.fillable.isEmpty { out.append(Self.noFormEntryReason + ".") }
         if form.hasXFA { out.append(Self.xfaNote) }

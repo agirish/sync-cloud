@@ -9970,3 +9970,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s correction=%s linkNote=%s\n' 
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Cover and Retype (`correction=0`) | CLOSED — does not apply |
+
+---
+
+## A flat Fill & Sign save says it flattens the file's comments (FR57) — main only
+
+Fill & Sign without a form redraws every page and draws its annotations in, so the file's own
+review comments — sticky notes, highlights, drawings — came out as ink, and a closed sticky note's
+text was not in the copy at all, with nothing said. `main` reads the comments with the facts
+(`EditorPDFComments`) and the flat path's note card says they will be flattened, and, when there is
+a sticky note, that its text won't be kept.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s formNotes=%s comments=%s\n' $l \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorPDFFillSign.swift 2>/dev/null | grep -cF 'public var formNotes')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorPDFDocument.swift 2>/dev/null | grep -cF 'struct EditorPDFComments')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads formNotes=1 comments=1):
+# main                    formNotes=1 comments=0
+# v5.x, v4.x, v3.x, v2.x  formNotes=0 comments=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Fill & Sign (`formNotes=0`) | CLOSED — does not apply |

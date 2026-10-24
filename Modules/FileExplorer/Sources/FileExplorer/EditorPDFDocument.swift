@@ -241,7 +241,8 @@ public final class EditorPDFDocument: ObservableObject {
         // file every tool opens by URL — so the tools keep offering only Remove Password.
         tools.update(pageCount: facts.pageCount, droppedParts: facts.droppedParts)
         // Still locked on disk, so Fill & Sign keeps the tools' refusal — but knows the pages.
-        fill.attach(path: path, boxes: facts.boxes, encryption: .lockedToOpen, allowsFilling: facts.allowsFilling)
+        fill.attach(path: path, boxes: facts.boxes, encryption: .lockedToOpen, allowsFilling: facts.allowsFilling,
+                    comments: facts.comments)
         phase = .open
         log("Editor unlocked \(path) (PDF, \(Self.pages(facts.pageCount)))")
         onLoaded?(.open)
@@ -311,7 +312,7 @@ public final class EditorPDFDocument: ObservableObject {
                 tools.shownStamp = before
                 fill.attach(path: path, boxes: facts.boxes, encryption: encryption, allowsFilling: facts.allowsFilling,
                             form: facts.form, allowsFormEntry: facts.allowsFormEntry,
-                            allowsCommenting: facts.allowsCommenting)
+                            allowsCommenting: facts.allowsCommenting, comments: facts.comments)
                 if let page { view.requestPage(min(page, max(facts.pageCount - 1, 0))) }
                 finish(.open, path: path, reloaded: page != nil)
             }
@@ -777,6 +778,8 @@ public struct EditorPDFFacts: Equatable, Sendable {
     public var form = EditorPDFForm.none
     /// What the file has that a rebuilding tool's copy doesn't keep (``EditorPDFTools/droppedParts``).
     public var droppedParts: [PDFToolkit.DroppedCatalogPart] = []
+    /// The review comments on its pages — see ``EditorPDFComments``.
+    public var comments = EditorPDFComments.none
 
     /// How many pages are asked for text, at the front and again spread through the rest. A
     /// 300-page scan is not walked end to end to say "Image only" — but the front alone was not
@@ -815,7 +818,8 @@ public struct EditorPDFFacts: Equatable, Sendable {
                               allowsFormEntry: document.allowsFormFieldEntry,
                               allowsCommenting: document.allowsCommenting,
                               form: EditorPDFForm.read(document, url: URL(fileURLWithPath: path)),
-                              droppedParts: PDFToolkit.droppedCatalogParts(in: document))
+                              droppedParts: PDFToolkit.droppedCatalogParts(in: document),
+                              comments: EditorPDFComments.read(pages.compactMap { $0 }))
     }
 
     /// "Letter, 8.5 × 11 in" for the page at `index` — or "Letter" alone without its `inches`, the
@@ -874,4 +878,50 @@ extension EditorPDFDocument {
         operation?.jobTitle = name
         return operation
     }
+}
+
+/// **The review comments already on a file's pages** (FR57) — sticky notes, highlights, drawings,
+/// stamps: PDF's markup annotations. Fill & Sign without a form redraws every page and draws each
+/// visible annotation into it (the toolkit's `drawAnnotations`), so in the copy they are ink, no
+/// longer comments — and a sticky note is drawn as its icon only: its text lives in a popup the
+/// redraw never shows, so a closed note's text is not in the copy at all. Links, form widgets and
+/// attached files are not counted: the toolkit puts the first and last back, and a widget means a
+/// form, whose fill keeps every annotation in place.
+public struct EditorPDFComments: Equatable, Sendable {
+    /// Whether any page carries a comment.
+    public var any: Bool
+    /// Whether one of them is a sticky note, whose text the copy loses.
+    public var notes: Bool
+
+    public static let none = EditorPDFComments(any: false, notes: false)
+
+    /// PDF's markup subtypes, as `PDFAnnotation.type` names them — less FileAttachment, which the
+    /// toolkit carries onto the copy whole.
+    static let markupTypes: Set<String> = [
+        "Text", "FreeText", "Line", "Square", "Circle", "Polygon", "PolyLine", "Highlight", "Underline",
+        "Squiggly", "StrikeOut", "Stamp", "Caret", "Ink", "Sound", "Redact",
+    ]
+
+    /// Called inside the lane only, with the facts.
+    nonisolated static func read(_ pages: [PDFPage]) -> EditorPDFComments {
+        var out = EditorPDFComments.none
+        for page in pages {
+            for annotation in page.annotations where markupTypes.contains(annotation.type ?? "") {
+                out.any = true
+                if annotation.type == "Text" { out.notes = true; return out }
+            }
+        }
+        return out
+    }
+
+    /// The note card's line for a flattening save, or `nil` with no comments.
+    var flattenedNote: String? {
+        guard any else { return nil }
+        return notes ? Self.notesFlattenedNote : Self.commentsFlattenedNote
+    }
+
+    static let commentsFlattenedNote = "This PDF’s comments — highlights, drawings and the like — will be drawn into "
+        + "the copy’s pages, where they can’t be edited."
+    static let notesFlattenedNote = "This PDF’s comments will be drawn into the copy’s pages, where they can’t be "
+        + "edited — and a sticky note keeps only its icon: its text won’t be in the copy."
 }
