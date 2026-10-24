@@ -7,7 +7,42 @@ extension FileSyncManager {
     /// Internal (not private) because `confirmVerifiedCopy` in FileSyncManager+Verify.swift starts it.
     /// - Parameter asOf: The `fileOperationsEpoch` the copied-from verdicts were taken under —
     ///   `VerifiedCopyOffer.asOf`. Re-checked here, at the point the write is actually ordered.
-    func bulkCopyDifferencesLeftToRight(_ toCopy: [FileDifference], asOf: Int) async {
+    /// - Parameter stamps: `VerifiedCopyOffer.stamps`. A pair stamped here was PROVEN
+    ///   byte-identical by Verify All, and gets its dates matched rather than a copy (FR41).
+    ///
+    /// **"Copy to match dates" copied every pair over whole, and every pair it is offered is one
+    /// Verify All has just read in full and found byte-identical.** So the copy changed no byte and
+    /// still cost everything a copy costs: each file re-uploaded by its cloud app, a backup of the
+    /// identical original sent to the Trash, and the right side's tags, labels and other metadata
+    /// replaced by the left's. What the user asked for is the one thing the two files do not
+    /// share — the date — so a proven pair now gets just that: the right file's modification date
+    /// set to the left's (`matchDatesOfProvenPairs`). The copy path stays for a pair this run was
+    /// not handed a stamp for, i.e. anything not proven identical.
+    ///
+    /// **A link on either side is never written through** (FR41, FR8). Verify reads a link as the
+    /// file it points to, but a copy writes the LINK — over the real file on the right — and a
+    /// date set on a link path lands on its target. `FileDifference.heldBack` already keeps link
+    /// rows out of bulk runs, but only for the side the row copies FROM, and this run always copies
+    /// left to right whatever the row's suggested direction, so both sides are checked on disk too.
+    /// A held row is left out and said so, as `syncAll` does.
+    func bulkCopyDifferencesLeftToRight(_ allPairs: [FileDifference], asOf: Int,
+                                        stamps: [UUID: FilePairStamp] = [:]) async {
+        let activeFMForHold = fileManager
+        func isLink(_ path: String) -> Bool {
+            (try? activeFMForHold.attributesOfItem(atPath: path))?[.type] as? FileAttributeType == .typeSymbolicLink
+        }
+        let held = allPairs.filter { $0.heldBack != nil || isLink($0.leftItemPath) || isLink($0.rightItemPath) }
+        let heldIDs = Set(held.map(\.id))
+        let toCopy = allPairs.filter { !heldIDs.contains($0.id) }
+        for pair in held {
+            Logger.shared.info("Copy to match dates: left out \(pair.relativePath) — \(pair.heldBack == nil ? "one side is a symbolic link" : "it needs a decision of its own")")
+        }
+        if toCopy.isEmpty, !held.isEmpty {
+            banner = .warning(held.count == 1
+                ? "“\(held[0].relativePath)” was left out — it’s a link or needs your decision; copy it from its own row"
+                : "\(held.count) items were left out — links or rows that need your decision; copy each from its own row")
+            return
+        }
         let total = toCopy.count
         guard total > 0 else { return }
         // Same exclusion as syncAll: this run writes `bulkSyncProgress` and nils it in its
@@ -25,7 +60,9 @@ extension FileSyncManager {
         let toCopyIDs = Set(toCopy.map { $0.id })
 
         let progress = Progress(totalUnitCount: Int64(total))
-        progress.localizedDescription = "Copying \(CountedNoun.phrase(total, "file")) to match dates"
+        progress.localizedDescription = toCopy.allSatisfy({ stamps[$0.id]?.left != nil && stamps[$0.id]?.right != nil })
+            ? "Matching the dates of \(CountedNoun.phrase(total, "file"))"
+            : "Copying \(CountedNoun.phrase(total, "file")) to match dates"
         progress.isCancellable = true
         activeProgress = progress
 
@@ -80,8 +117,20 @@ extension FileSyncManager {
             return
         }
 
+        // Proven = stamped at hash time with a date on both ends: a pair with no date to read
+        // cannot have it matched, and takes the copy it always took.
+        func isProven(_ diff: FileDifference) -> Bool {
+            stamps[diff.id]?.left != nil && stamps[diff.id]?.right != nil
+        }
+        let proven = toCopy.filter(isProven)
+        if !proven.isEmpty {
+            await matchDatesOfProvenPairs(proven, stamps: stamps, heldCount: held.count)
+        }
+        let unproven = toCopy.filter { !isProven($0) }
+        guard !unproven.isEmpty else { return }
+
         let activeFM = fileManager
-        let workList: [(FileDifference, URL, URL, Bool)] = toCopy.map { diff in
+        let workList: [(FileDifference, URL, URL, Bool)] = unproven.map { diff in
             (diff, URL(fileURLWithPath: diff.leftItemPath), URL(fileURLWithPath: diff.rightItemPath), false)
         }
 
@@ -189,6 +238,110 @@ extension FileSyncManager {
         if !result.successes.isEmpty {
             Logger.shared.info("Copied \(result.successes.count) item(s) in bulk\(result.failures.isEmpty ? "" : ", \(result.failures.count) failed")")
         }
+    }
+
+    /// One file whose date `matchDatesOfProvenPairs` set: the date it had, the date it was given
+    /// (as read back from disk, so a later comparison is exact), and its size, so an undo can tell
+    /// the file it touched from one written since.
+    typealias DateMatchState = (url: URL, previous: Date, matched: Date, size: Int64)
+
+    /// FR41's write: for each pair Verify All proved byte-identical, the right file takes the left
+    /// file's modification date, and nothing else about it changes — no bytes, no backup, no tags.
+    ///
+    /// Each pair is re-stamped immediately before its date is set and compared with the stamp
+    /// taken when it was hashed; a pair that moved since is left alone and counted as changed. The
+    /// confirm already checks this, but these readings are an operation-queue wait old by now, and
+    /// matching the dates over a file rewritten since would make two DIFFERENT files read as in
+    /// sync to every later scan — the one thing this must never manufacture.
+    ///
+    /// Undoable as one step: ⌘Z puts each right file's previous date back, but only on a file that
+    /// still reads as this run left it (same size, the date it was given).
+    private func matchDatesOfProvenPairs(_ pairs: [FileDifference], stamps: [UUID: FilePairStamp],
+                                         heldCount: Int) async {
+        let activeFM = fileManager
+        let outcome = await enqueueFileOperation { () -> (matched: [(FileDifference, DateMatchState)], changed: [FileDifference], failures: [(FileDifference, Error)]) in
+            var matched: [(FileDifference, DateMatchState)] = []
+            var changed: [FileDifference] = []
+            var failures: [(FileDifference, Error)] = []
+            for diff in pairs {
+                guard let stamp = stamps[diff.id], FilePairStamp.read(diff, fileManager: activeFM) == stamp,
+                      let leftDate = stamp.left?.modified, let right = stamp.right else {
+                    changed.append(diff)
+                    continue
+                }
+                do {
+                    try activeFM.setAttributes([.modificationDate: leftDate], ofItemAtPath: diff.rightItemPath)
+                } catch {
+                    failures.append((diff, error))
+                    continue
+                }
+                let landed = FileEndpointStamp.read(atPath: diff.rightItemPath, fileManager: activeFM)?.modified ?? leftDate
+                matched.append((diff, (url: URL(fileURLWithPath: diff.rightItemPath), previous: right.modified,
+                                       matched: landed, size: right.size)))
+            }
+            return (matched, changed, failures)
+        }
+
+        if !outcome.matched.isEmpty {
+            registerDateMatchUndo(outcome.matched.map(\.1), restoringPrevious: true,
+                                  actionName: "Match \(CountedNoun.phrase(outcome.matched.count, "Date"))", fileManager: activeFM)
+            removeResolvedDifferences(matching: outcome.matched.map(\.0))
+            Logger.shared.info("Copy to match dates: set the date of \(outcome.matched.count) verified-identical file(s) on the right to the left's — no bytes copied")
+        }
+        for diff in outcome.changed {
+            Logger.shared.warning("Copy to match dates: left \(diff.relativePath) alone — it changed since it was verified")
+        }
+        recordTransferFailures(outcome.failures)
+        for (diff, error) in outcome.failures {
+            Logger.shared.error("Copy to match dates: could not set the date of \(diff.rightItemPath): \(error.localizedDescription)")
+        }
+        let leftOut = outcome.changed.count + outcome.failures.count + heldCount
+        if leftOut > 0 {
+            var parts = ["\(outcome.matched.count) dates matched"]
+            if !outcome.changed.isEmpty { parts.append("\(outcome.changed.count) changed since Verify All and left alone") }
+            if !outcome.failures.isEmpty { parts.append("\(outcome.failures.count) failed") }
+            if heldCount > 0 { parts.append("\(heldCount) left out (links or rows that need your decision)") }
+            banner = .warning(parts.joined(separator: "; "))
+        } else {
+            banner = .success("\(CountedNoun.phrase(outcome.matched.count, "file")) now match — dates set, nothing copied",
+                              undoable: true)
+        }
+    }
+
+    /// Registers one undo step over a date match: it sets each file's date back toward
+    /// `restoringPrevious ? previous : matched`, but only on a file that still reads with the
+    /// other date and the recorded size — a file saved since is not this step's to re-date — and
+    /// registers its own inverse as the redo.
+    func registerDateMatchUndo(_ items: [DateMatchState], restoringPrevious: Bool, actionName: String,
+                               fileManager fm: FileManaging) {
+        invalidateUndoableBanner()
+        undoManager?.registerUndo(withTarget: self) { target in
+            Logger.shared.info("User triggered \(restoringPrevious ? "Undo" : "Redo"): \(actionName)")
+            let slot = target.claimFileOperationSlot()
+            target.registerDateMatchUndo(items, restoringPrevious: !restoringPrevious, actionName: actionName, fileManager: fm)
+            Task {
+                await target.enqueueFileOperation(slot: slot) {
+                    var reset = 0
+                    var leftAlone = 0
+                    for item in items {
+                        let expected = restoringPrevious ? item.matched : item.previous
+                        let goal = restoringPrevious ? item.previous : item.matched
+                        guard let now = FileEndpointStamp.read(atPath: item.url.path, fileManager: fm),
+                              now.size == item.size, now.modified == expected else {
+                            leftAlone += 1
+                            continue
+                        }
+                        if (try? fm.setAttributes([.modificationDate: goal], ofItemAtPath: item.url.path)) != nil {
+                            reset += 1
+                        } else {
+                            leftAlone += 1
+                        }
+                    }
+                    Logger.shared.info("\(restoringPrevious ? "Undo" : "Redo") (\(actionName)): re-dated \(reset) of \(items.count) file(s), \(leftAlone) left alone (changed since or unwritable)")
+                }
+            }
+        }
+        undoManager?.setActionName(actionName)
     }
 
     /// Shared scaffolding for the parallel bulk-sync / verify workers: a work queue drained by

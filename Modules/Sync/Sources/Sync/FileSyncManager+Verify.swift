@@ -471,10 +471,11 @@ extension FileSyncManager {
         }
         verifiedIdenticalForCopy = nil
         // The moment the standing permission is exercised — the counterpart of the offer line.
-        Logger.shared.info("Verified-copy confirmed: bulk-copying \(offer.differences.count) file(s) left→right without per-file prompts")
+        // FR41: a pair stamped at hash time has its date matched, not its bytes copied.
+        Logger.shared.info("Verified-copy confirmed: matching \(offer.differences.count) file(s) left→right without per-file prompts")
         // Hand the stamp on so the run can re-check it at the moment it orders the write; these
         // readings are already several main-actor hops old by the time that happens.
-        return Task { await self.bulkCopyDifferencesLeftToRight(offer.differences, asOf: offer.asOf) }
+        return Task { await self.bulkCopyDifferencesLeftToRight(offer.differences, asOf: offer.asOf, stamps: offer.stamps) }
     }
 
     /// The scan-time checksum pass behind `autoVerifySameSizeDuringScan`: hashes each pair that

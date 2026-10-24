@@ -10265,3 +10265,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s retry=%s sink=%s\n' $l \
 |---|---|---|
 | `v5.x` | The same silent strand (`retry=1 sink=0`) | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No park-and-retry in the move cleanup (`retry=0`) | CLOSED — does not apply |
+
+---
+
+## "Copy to match dates" matches dates (FR41) — main only
+
+The run after Verify All copied each byte-identical pair over whole — a re-upload, a backup of an
+identical file in the Trash, the right side's tags replaced — and could write a left-side link over
+a real file. `main` sets the right file's modification date to the left's for a pair Verify proved
+identical (`matchDatesOfProvenPairs`, undoable), keeps the copy only for an unproven pair, and
+leaves held rows and links on either side out.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s bulk=%s dates=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+BulkSync.swift 2>/dev/null | grep -cF 'func bulkCopyDifferencesLeftToRight')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+BulkSync.swift 2>/dev/null | grep -cF 'func matchDatesOfProvenPairs')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads dates=1):
+# main, v5.x, v4.x, v3.x, v2.x   bulk=1 dates=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same whole-file copy over identical pairs (`dates=0`) | RECORDED — not owed |

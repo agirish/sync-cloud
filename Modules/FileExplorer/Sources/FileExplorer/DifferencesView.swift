@@ -492,7 +492,8 @@ public struct DifferencesView: View {
                 syncManager.dismissVerifiedCopyDialogWithoutCopy()
             }
         } message: {
-            Text("\(verifiedIdenticalCount) files verified identical. One permission — copies all from \(paneNames.left) to \(paneNames.right) to match dates. No per-file confirmation.")
+            // FR41: the run sets dates; it no longer copies a byte-identical file over its twin.
+            Text("\(verifiedIdenticalCount) files verified identical. One permission — each file on \(paneNames.right) takes the date of its twin on \(paneNames.left). Nothing is copied: the contents already match. No per-file confirmation.")
         }
     }
 

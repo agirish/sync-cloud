@@ -626,6 +626,13 @@ import Foundation
         let fixture = try makeRaceFixture()
         defer { fixture.cleanup() }
         let manager = fixture.manager
+        manager.undoManager = UndoManager()
+        // Dates a whole day apart, so "matched" cannot be an accident of the fixture's timing.
+        let leftURL = URL(fileURLWithPath: fixture.identical.leftItemPath)
+        let leftDate = Date(timeIntervalSince1970: 1_600_000_000)
+        try FileManager.default.setAttributes([.modificationDate: leftDate], ofItemAtPath: leftURL.path)
+        try FileManager.default.setAttributes([.modificationDate: leftDate.addingTimeInterval(86_400)],
+                                              ofItemAtPath: fixture.rightIdenticalURL.path)
 
         await manager.verifyAllWithChecksum()
         try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
@@ -637,9 +644,51 @@ import Foundation
         // The run completed and resolved its row; only the differing pair is left.
         #expect(manager.differences.map(\.id) == [fixture.differed.id])
         #expect(manager.banner?.severity != .warning)
+        // FR41: the pair was proven identical, so the right file took the left's DATE and nothing
+        // else — no copy over it, and so no backup of an identical original in the Trash.
+        let rightDate = try FileManager.default.attributesOfItem(atPath: fixture.rightIdenticalURL.path)[.modificationDate] as? Date
+        #expect(rightDate == leftDate, "the right file's date was not matched to the left's")
+        #expect(try Data(contentsOf: fixture.rightIdenticalURL) == Data("identical".utf8))
         let trash = try #require(manager.fileManager as? ScratchTrash)
-        #expect(trash.names.contains { $0.hasPrefix(".rollback_") },
-                "the replaced same.txt's backup never reached the test's own Trash: \(trash.names)")
+        #expect(!trash.names.contains { $0.hasPrefix(".rollback_") },
+                "a byte-identical file was copied over, sending a backup to the Trash: \(trash.names)")
+
+        // And one ⌘Z gives the right file its own date back.
+        try #require(manager.undoManager?.canUndo == true, "matching the dates registered no undo")
+        manager.undoManager?.undo()
+        await waitUntil("the date-match undo drains") { manager.activeFileOperationsCount == 0 }
+        let restored = try FileManager.default.attributesOfItem(atPath: fixture.rightIdenticalURL.path)[.modificationDate] as? Date
+        #expect(restored == leftDate.addingTimeInterval(86_400), "⌘Z did not restore the right file's own date")
+    }
+
+    /// FR41's link half: a pair whose LEFT is a symbolic link verifies identical — Verify reads the
+    /// file it points to — but the left-to-right run must never write the link over the real file
+    /// on the right, nor re-date anything through it. Left out, and said so.
+    @MainActor
+    @Test func testAVerifiedPairWhoseLeftIsALinkIsLeftOutOfTheRun() async throws {
+        let fixture = try makeRaceFixture()
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+        let leftURL = URL(fileURLWithPath: fixture.identical.leftItemPath)
+        let target = leftURL.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("target.txt")
+        try Data("identical".utf8).write(to: target)
+        try FileManager.default.removeItem(at: leftURL)
+        try FileManager.default.createSymbolicLink(at: leftURL, withDestinationURL: target)
+        let rightDateBefore = try FileManager.default.attributesOfItem(atPath: fixture.rightIdenticalURL.path)[.modificationDate] as? Date
+
+        await manager.verifyAllWithChecksum()
+        try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id],
+                     "the premise: Verify reads through the link and finds the pair identical")
+
+        await manager.confirmVerifiedCopy()?.value
+
+        let rightAttributes = try FileManager.default.attributesOfItem(atPath: fixture.rightIdenticalURL.path)
+        #expect(rightAttributes[.type] as? FileAttributeType == .typeRegular, "the link was written over the real file")
+        #expect(rightAttributes[.modificationDate] as? Date == rightDateBefore)
+        #expect(try Data(contentsOf: fixture.rightIdenticalURL) == Data("identical".utf8))
+        #expect(manager.differences.map(\.id).contains(fixture.identical.id), "the held row was resolved anyway")
+        #expect(manager.banner?.severity == .warning)
+        #expect(manager.banner?.message.contains("left out") == true, "banner: \(manager.banner?.message ?? "nil")")
     }
 
     /// Cancel rests on the same verdicts (see `testDismissAfterAFileOperationHidesNothing`), so
