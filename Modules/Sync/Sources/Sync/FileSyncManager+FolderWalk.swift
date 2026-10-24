@@ -73,6 +73,48 @@ extension FileSyncManager {
                 return "the profile could not be written — \(why)"
             }
         }
+
+        /// The failure in one plain sentence, for a person rather than the log.
+        ///
+        /// **`description` is the log's**: lowercase and path-first. Setup's Structure screen
+        /// showed it under its own heading, so a failed Save read "Couldn’t save your folder
+        /// profile, so nothing was written." over "the profile could not be written — …".
+        public var plainReason: String {
+            switch self {
+            case .noProfilesDirectory:
+                return "SyncCloud has nowhere to keep folder profiles on this Mac."
+            case .rootUnreadable(let path):
+                return "“\((path as NSString).lastPathComponent)” couldn’t be read."
+            case .nothingToLearn(let path):
+                return "“\((path as NSString).lastPathComponent)” has no folders in it to learn from."
+            case .refused(let why):
+                return why
+            }
+        }
+
+        /// What a store error says to a person — the reason ``refused(_:)`` carries.
+        ///
+        /// **Never `String(describing:)` of an `NSError`**, which is `Error Domain=NSCocoaErrorDomain
+        /// Code=… UserInfo={…}`: that is what a failed Save put on screen. The store's own refusals
+        /// get a sentence each; anything else gets Foundation's localized description.
+        public static func plainRefusal(_ error: Error) -> String {
+            guard let refusal = error as? FilingProfileStore.WriteRefusal else {
+                return error.localizedDescription
+            }
+            switch refusal {
+            case .profileExists:
+                return "A profile with the same name was saved a moment ago. Try again."
+            case .indexUnreadable:
+                return "SyncCloud can’t read its list of folder profiles (profiles.json), so it "
+                    + "won’t change it."
+            case .invalidProfileId:
+                return "The profile’s name can’t be used as a folder name."
+            case .notReplacingTheActiveProfile:
+                return "The folder profile in use changed while this one was being saved."
+            case .chainMissing:
+                return "The new profile doesn’t record the one it replaces, so it couldn’t be undone."
+            }
+        }
     }
 
     /// Walks `root` and writes a folder profile describing it.
@@ -185,7 +227,7 @@ extension FileSyncManager {
             _ = try FilingProfileStore.writeProfile(profile, in: directory, now: now)
         } catch {
             Logger.shared.warning("Folder walk could not write its profile: \(error)")
-            return .failure(.refused(String(describing: error)))
+            return .failure(.refused(FolderWalkFailure.plainRefusal(error)))
         }
 
         let becameActive = FilingProfileStore.activeProfileId(in: directory) == profileId

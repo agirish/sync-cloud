@@ -8583,20 +8583,21 @@ asks first; `main` asks Settings' own question (`PersonRemoval`), except for a n
 same run.
 
 ```sh
-for l in main v5.x v4.x v3.x v2.x; do printf '%-5s setupModel=%s rebuilds=%s rosterRemove=%s oldSheetRemove=%s\n' $l \
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s setupModel=%s rebuilds=%s rosterAsks=%s oldSheetRemove=%s\n' $l \
   "$(git ls-tree -r --name-only origin/$l -- MacApp/Setup/SetupModel.swift | wc -l | tr -d ' ')" \
   "$(git show origin/$l:MacApp/Setup/SetupModel.swift 2>/dev/null | grep -c 'rebuildPreview()')" \
-  "$(git show origin/$l:MacApp/Setup/SetupModel.swift 2>/dev/null | grep -c 'store.remove(id: person.id)')" \
+  "$(git show origin/$l:MacApp/Setup/SetupModel.swift 2>/dev/null | grep -c 'func requestRemovePerson')" \
   "$(git show origin/$l:MacApp/SetupSheet.swift 2>/dev/null | grep -c 'store.remove(id: person.id)')"; done
-# measured 2026-10-23, against origin, before this landed:
-# main, v5.x   setupModel=1 rebuilds=3 rosterRemove=1 oldSheetRemove=0
-# v4.x         setupModel=0 rebuilds=0 rosterRemove=0 oldSheetRemove=1
-# v3.x, v2.x   setupModel=0 rebuilds=0 rosterRemove=0 oldSheetRemove=0
+# measured 2026-10-23, against origin, after this landed (rosterAsks is the fix's own question):
+# main         setupModel=1 rebuilds=4 rosterAsks=1 oldSheetRemove=0
+# v5.x         setupModel=1 rebuilds=3 rosterAsks=0 oldSheetRemove=0
+# v4.x         setupModel=0 rebuilds=0 rosterAsks=0 oldSheetRemove=1
+# v3.x, v2.x   setupModel=0 rebuilds=0 rosterAsks=0 oldSheetRemove=0
 ```
 
 | Line | Carries | Status |
 |---|---|---|
-| `v5.x` | Both, the same code (`rebuilds=3`, `rosterRemove=1`) | RECORDED — not owed |
+| `v5.x` | Both, the same code (`rebuilds=3`, `rosterAsks=0`) | RECORDED — not owed |
 | `v4.x` | The one-click removal, in the older sheet (`oldSheetRemove=1`); no walk to land | RECORDED — not owed |
 | `v3.x` / `v2.x` | No guided People screen with a roster | CLOSED — does not apply |
 
@@ -8979,23 +8980,24 @@ SH1, SH6/SH7).
   had no accessibility name (SH6, SH7).
 
 ```sh
-for l in main v5.x v4.x v3.x v2.x; do printf '%-5s learnAgainPrimary=%s saveFailsWalk=%s summaryToTab=%s spendClearFiles=%s keyRemove=%s nextLaunch=%s organizeArrow=%s inspectorClose=%s swap=%s sourcesSwitch=%s\n' $l \
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s learnAgainPrimary=%s saveFailsWalk=%s summaryToTab=%s spendAsks=%s keyRemove=%s nextLaunch=%s organizeArrow=%s inspectorName=%s swapName=%s switchName=%s\n' $l \
   "$(git show origin/$l:MacApp/SetupSheet.swift 2>/dev/null | grep -c '"Learn again" : "Learn"')" \
   "$(git show origin/$l:MacApp/Setup/SetupModel.swift 2>/dev/null | grep -c '^ *walkState = .failed(failure.description)')" \
   "$(git show origin/$l:MacApp/Setup/SummaryScreen.swift 2>/dev/null | grep -c 'learnedSummary, tab: .filing')" \
-  "$(git grep -l 'FilingSpendStore.clear()' origin/$l -- Modules MacApp 2>/dev/null | wc -l | tr -d ' ')" \
+  "$(git grep -l 'FilingSpendStore.clearIfConfirmed' origin/$l -- Modules MacApp 2>/dev/null | wc -l | tr -d ' ')" \
   "$(git show origin/$l:Modules/Settings/Sources/Settings/CloudKeyRow.swift 2>/dev/null | grep -c 'Button("Remove", action: removeKey)')" \
   "$(git show origin/$l:Modules/Settings/Sources/Settings/SettingsView.swift 2>/dev/null | grep -c 'opens again on the next launch')" \
   "$(git grep -l 'Settings → Organize' origin/$l -- MacApp 2>/dev/null | wc -l | tr -d ' ')" \
-  "$(git show origin/$l:MacApp/ContentView.swift 2>/dev/null | grep -c 'CloseButton {')" \
-  "$(git grep -l 'Button(action: onSwap)' origin/$l -- MacApp 2>/dev/null | wc -l | tr -d ' ')" \
-  "$(git show origin/$l:Modules/Settings/Sources/Settings/SettingsView.swift 2>/dev/null | grep -c 'Toggle("", isOn: enabledBinding)')"; done
-# measured 2026-10-23, against origin, before this landed:
-# main   learnAgainPrimary=1 saveFailsWalk=1 summaryToTab=1 spendClearFiles=2 keyRemove=1 nextLaunch=2 organizeArrow=2 inspectorClose=1 swap=1 sourcesSwitch=1
-# v5.x   learnAgainPrimary=1 saveFailsWalk=1 summaryToTab=1 spendClearFiles=2 keyRemove=1 nextLaunch=1 organizeArrow=2 inspectorClose=1 swap=1 sourcesSwitch=1
-# v4.x   learnAgainPrimary=0 saveFailsWalk=0 summaryToTab=0 spendClearFiles=2 keyRemove=1 nextLaunch=0 organizeArrow=2 inspectorClose=1 swap=1 sourcesSwitch=1
-# v3.x   learnAgainPrimary=0 saveFailsWalk=0 summaryToTab=0 spendClearFiles=2 keyRemove=1 nextLaunch=0 organizeArrow=2 inspectorClose=1 swap=1 sourcesSwitch=1
-# v2.x   learnAgainPrimary=0 saveFailsWalk=0 summaryToTab=0 spendClearFiles=2 keyRemove=1 nextLaunch=0 organizeArrow=0 inspectorClose=1 swap=1 sourcesSwitch=1
+  "$(git show origin/$l:MacApp/ContentView.swift 2>/dev/null | grep -c 'accessibilityLabel("Hide the inspector")')" \
+  "$(git grep -l 'accessibilityLabel("Swap panes")' origin/$l -- MacApp 2>/dev/null | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:Modules/Settings/Sources/Settings/SettingsView.swift 2>/dev/null | grep -c 'accessibilityLabel(provider.displayName)')"; done
+# measured 2026-10-23, against origin, after this landed — spendAsks, inspectorName, swapName and
+# switchName grep for what the fix added, so 0 is a line that still carries the defect:
+# main   learnAgainPrimary=0 saveFailsWalk=0 summaryToTab=0 spendAsks=4 keyRemove=0 nextLaunch=0 organizeArrow=0 inspectorName=1 swapName=1 switchName=1
+# v5.x   learnAgainPrimary=1 saveFailsWalk=1 summaryToTab=1 spendAsks=0 keyRemove=1 nextLaunch=1 organizeArrow=2 inspectorName=0 swapName=0 switchName=0
+# v4.x   learnAgainPrimary=0 saveFailsWalk=0 summaryToTab=0 spendAsks=0 keyRemove=1 nextLaunch=0 organizeArrow=2 inspectorName=0 swapName=0 switchName=0
+# v3.x   learnAgainPrimary=0 saveFailsWalk=0 summaryToTab=0 spendAsks=0 keyRemove=1 nextLaunch=0 organizeArrow=2 inspectorName=0 swapName=0 switchName=0
+# v2.x   learnAgainPrimary=0 saveFailsWalk=0 summaryToTab=0 spendAsks=0 keyRemove=1 nextLaunch=0 organizeArrow=0 inspectorName=0 swapName=0 switchName=0
 ```
 
 | Line | Carries | Status |

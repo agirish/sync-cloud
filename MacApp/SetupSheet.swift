@@ -350,7 +350,7 @@ struct SetupSheet: View {
                   // Nothing to read means nothing to press: a Learn that silently did nothing
                   // left the sheet unable to reach Structure with no line saying why. Continue
                   // over a finished reading reads nothing, so it is never held back by this.
-                  primaryDisabled: !model.walkState.isDone && !model.canLearn,
+                  primaryDisabled: !model.hasReadingOfChosenFolder && !model.canLearn,
                   secondary: model.learnAgainTitle.map { title in
                       (title, { model.pressLearnAgain() }, !model.canLearn)
                   },
@@ -382,7 +382,8 @@ struct SetupSheet: View {
             // hand it writes, and names which of the two things it will do. On a re-run where
             // Learn was skipped there is a profile on screen and nothing to write; and after a
             // folder is changed but not read there is neither — a Save in either case is a button
-            // whose whole effect is to move to the next screen, so it says Continue instead.
+            // whose whole effect is to move to the next screen, so it says Continue instead. So
+            // does a reading Save already wrote: writing it again made a second profile.
             frame(primary: model.canWriteProfile
                     ? (model.readDocuments ? "Save and start reading" : "Save")
                     : "Continue",
@@ -391,7 +392,12 @@ struct SetupSheet: View {
                   primaryAction: model.canWriteProfile ? {
                       Task { await model.saveAndContinue() }
                   } : nil,
-                  primaryDisabled: model.isSaving) {
+                  primaryDisabled: model.isSaving,
+                  // Only once a Save has failed: the primary stays Save so it can be retried, and
+                  // this is the way on that writes nothing.
+                  secondary: model.structureSecondaryTitle.map { title in
+                      (title, { model.continueWithoutSaving() }, model.isSaving)
+                  }) {
                 StructureScreen(model: model, hue: glassHue)
             }
 
@@ -486,11 +492,12 @@ struct SetupSheet: View {
         primary: String,
         primaryAction: (() -> Void)? = nil,
         primaryDisabled: Bool = false,
+        secondary: (String, () -> Void, Bool)? = nil,
         skip: (String, () -> Void)? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
         frame(title: title, primary: primary, primaryAction: primaryAction,
-              primaryDisabled: primaryDisabled, skip: skip,
+              primaryDisabled: primaryDisabled, secondary: secondary, skip: skip,
               why: { EmptyView() }, content: content)
     }
 

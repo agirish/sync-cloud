@@ -146,7 +146,8 @@ wiring, which no `swift test` process can drive (a `Button` is not an `NSControl
 `onDismiss` needs a real presentation).
 
 - [ ] **Clearing spend history updates the Organize setup card.** Organize ▸ *History* ▸ **Clear
-  History** ▸ close the sheet. The setup card's *last run ~$x.xx* must be gone, not still quoting
+  History** ▸ **Clear Spend** in the question that follows (Cancel is the default, and must clear
+  nothing) ▸ close the sheet. The setup card's *last run ~$x.xx* must be gone, not still quoting
   the run you just erased. (The bug: `LensWorkspaceView` cached the figure and presented the sheet with no
   `onDismiss` — `SettingsView` presents the same sheet and always got this right.)
 - [ ] **Settings ▸ Advanced ▸ Saved scan data reads and clears.** Both rows show a size after a

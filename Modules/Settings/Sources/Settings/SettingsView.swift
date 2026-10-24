@@ -2758,6 +2758,20 @@ struct KeptNamesList: View {
     }
 }
 
+/// The question asked before a person leaves the roster — here and on setup's People screen.
+///
+/// **One wording for one act.** Setup's chip ✕ removed a person from the same `people.json` with no
+/// question at all, taking the full names and aliases curated here with them.
+public enum PersonRemoval {
+    public static func title(_ name: String) -> String { "Remove \(name)?" }
+
+    /// Says what removal does and — more usefully — what it does not. Nobody should have to guess
+    /// whether this touches their files.
+    public static let message = "Their folders and files are left exactly as they are. Organize will stop "
+        + "recognising documents that name them, so it will no longer keep those documents "
+        + "out of other people's folders."
+}
+
 /// Who Organize files for — one row per person, each editable, each showing what the engine
 /// actually knows about them.
 ///
@@ -2783,20 +2797,6 @@ struct KeptNamesList: View {
 /// the Sources tab gives its providers. The rest of the page is split into sections with titles,
 /// so each thing on it is one thing.
 ///
-/// The question asked before a person leaves the roster — here and on setup's People screen.
-///
-/// **One wording for one act.** Setup's chip ✕ removed a person from the same `people.json` with no
-/// question at all, taking the full names and aliases curated here with them.
-public enum PersonRemoval {
-    public static func title(_ name: String) -> String { "Remove \(name)?" }
-
-    /// Says what removal does and — more usefully — what it does not. Nobody should have to guess
-    /// whether this touches their files.
-    public static let message = "Their folders and files are left exactly as they are. Organize will stop "
-        + "recognising documents that name them, so it will no longer keep those documents "
-        + "out of other people's folders."
-}
-
 /// `@ObservedObject` on the store, unlike the value this used to take: the roster is now written
 /// from this view, and a list that did not observe its own edits would need a relaunch to show them.
 struct PeopleList: View {
@@ -3763,7 +3763,7 @@ struct AdvancedSettingsTab: View {
 
             if let onResetSetup {
                 SettingsSection(
-                    caption: "Forgets that setup has run and opens it now, from the beginning. On a Mac with no folder profile yet this also discards the name and household answers setup was holding for one; everything already saved stays."
+                    caption: "Forgets that setup has run and which location it learns from, and opens it now, from the beginning. On a Mac with no folder profile yet this also discards the name and household answers setup was holding for one. Your folder profile, people and other settings stay."
                 ) {
                     Button("Reset setup…", role: .destructive) {
                         confirmResetSetup(onResetSetup)
@@ -3807,8 +3807,6 @@ struct AdvancedSettingsTab: View {
         return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
 
-    /// Confirmation ahead of the defaults wipe; Cancel is the default button (Return must
-    /// not reset, same convention as the permanent-delete alert).
     /// Asks before forgetting that setup has run.
     ///
     /// Its own alert rather than the general one, because what it destroys is different and the
@@ -3818,7 +3816,7 @@ struct AdvancedSettingsTab: View {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Run setup again from the beginning?"
-        alert.informativeText = "SyncCloud forgets that setup has run and opens it now, from the beginning. On a Mac that hasn’t learned a folder tree yet, the name and household answers setup was holding are discarded with it. Nothing already saved is affected."
+        alert.informativeText = "SyncCloud forgets that setup has run and which location it learns from, and opens setup now, from the beginning. On a Mac that hasn’t learned a folder tree yet, the name and household answers setup was holding are discarded with it. Your folder profile, people and other settings stay."
         alert.addButton(withTitle: "Reset")
         alert.addButton(withTitle: "Cancel")
         if let resetButton = alert.buttons.first {
@@ -3831,6 +3829,8 @@ struct AdvancedSettingsTab: View {
         }
     }
 
+    /// Confirmation ahead of the defaults wipe; Cancel is the default button (Return must
+    /// not reset, same convention as the permanent-delete alert).
     private func confirmReset(_ reset: () -> Void) {
         let alert = NSAlert()
         alert.alertStyle = .warning

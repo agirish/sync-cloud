@@ -186,6 +186,49 @@ import Testing
         #expect(throws: FileSyncManager.FolderWalkFailure.rootUnreadable(file.path)) { try result.get() }
     }
 
+    /// **A write the disk refuses says why in a sentence, not as an `NSError` dump.**
+    ///
+    /// The refusal carried `String(describing: error)`, which for a Foundation error is
+    /// `Error Domain=NSCocoaErrorDomain Code=… UserInfo={…}` — and setup's Structure screen put that
+    /// on screen under "Couldn’t save your folder profile".
+    @Test func aRefusedWriteSaysWhyInASentence() async throws {
+        let root = try Self.scratch(), elsewhere = try Self.scratch()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: elsewhere)
+        }
+        try Self.tree(in: root)
+        let tree = await FileSyncManager.buildTree(url: root, sortOption: .name)
+        // A regular file where the profiles folder's parent should be: nothing can be written.
+        let blocker = elsewhere.appendingPathComponent("blocker")
+        try Data("not a folder".utf8).write(to: blocker)
+
+        let result = await manager(profiles: blocker.appendingPathComponent("profiles"))
+            .writeWalkProfile(tree: tree, root: root)
+        guard case .failure(.refused(let why)) = result else {
+            Issue.record("premise: the write was refused — got \(result)")
+            return
+        }
+        #expect(!why.isEmpty)
+        #expect(!why.contains("Error Domain") && !why.contains("UserInfo"),
+                "the refusal is an NSError dump: \(why)")
+        #expect(FileSyncManager.FolderWalkFailure.refused(why).plainReason == why)
+    }
+
+    /// The store's own refusals each get a sentence; anything else, Foundation's own words.
+    @Test func eachStoreRefusalHasItsOwnSentence() {
+        typealias Failure = FileSyncManager.FolderWalkFailure
+        #expect(Failure.plainRefusal(FilingProfileStore.WriteRefusal.indexUnreadable("not an object"))
+                == "SyncCloud can’t read its list of folder profiles (profiles.json), so it won’t change it.")
+        #expect(Failure.plainRefusal(FilingProfileStore.WriteRefusal.profileExists(id: "walk-1"))
+                == "A profile with the same name was saved a moment ago. Try again.")
+        let cocoa = NSError(domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError)
+        #expect(String(describing: cocoa).contains("Error Domain"),
+                "premise: describing a Foundation error dumps it — the fallback below would be vacuous")
+        #expect(Failure.plainRefusal(cocoa) == cocoa.localizedDescription)
+        #expect(Failure.rootUnreadable("/Users/x/Documents").plainReason == "“Documents” couldn’t be read.")
+    }
+
     // MARK: - The outcome that looks like success
 
     /// A walk on a machine with a hand-built profile succeeds, lands on disk, and is **not** used.

@@ -314,6 +314,53 @@ import Testing
         }
     }
 
+    /// **Structure fits with a failed Save on it**, the tallest that screen gets.
+    ///
+    /// The failure takes the place of the line about grey words, with a heading, the reason and the
+    /// two ways on — on the screen that has the least room of the ten. The fit test above measures
+    /// it with no failure, so nothing saw this state.
+    @Test func structureFitsWithAFailedSaveOnIt() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-fit-fail-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let blocker = root.appendingPathComponent("blocker")
+        try Data("not a folder".utf8).write(to: blocker)
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = blocker.appendingPathComponent("profiles")
+        let settings = await manager(providerCount: Self.realisticProviderCount)
+        func model() -> SetupModel {
+            SetupModel(settings: settings, peopleStore: nil, syncManager: engine,
+                       hasFilingProfile: false, defaults: ScratchDefaults("setup-fit-d"),
+                       walk: Self.realisticWalk, startScreen: .structure)
+        }
+        let failed = model()
+        await failed.save()
+        #expect(failed.saveFailure != nil, "premise: the Save failed")
+        let clean = model()
+
+        func height(_ model: SetupModel, scale: CGFloat) -> CGFloat {
+            let host = NSHostingView(
+                rootView: StructureScreen(model: model, hue: .blue)
+                    .environment(\.appFontScale, scale)
+                    .environment(\.setupCardScale, SetupSheetMetrics.cardScale(
+                        availableSize: Self.smallDisplayHost, scale: scale))
+                    .frame(width: width(for: .structure, scale: scale)))
+            host.layoutSubtreeIfNeeded()
+            return host.fittingSize.height
+        }
+        for size in FontSize.allCases {
+            let scale = size.scale
+            let ceiling = SetupSheetMetrics.contentHeight(availableSize: Self.smallDisplayHost,
+                                                          scale: scale)
+            let measured = height(failed, scale: scale)
+            #expect(measured != height(clean, scale: scale),
+                    "at \(size.percent)% the failure changed nothing — this measures the clean screen")
+            #expect(measured <= ceiling,
+                    "at \(size.percent)% Structure with a failed Save lays out at \(Int(measured))pt against a \(Int(ceiling))pt opening")
+        }
+    }
+
     /// **The welcome card fits too, and nothing measured it before.**
     ///
     /// Welcome is deliberately not a `Step` — it precedes the rail — so `everyBoundedStepFitsThe

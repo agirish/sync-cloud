@@ -239,6 +239,93 @@ import Testing
         #expect(model.canWriteProfile)
     }
 
+    /// **A reading that lands before Structure builds no preview; one that lands after it does.**
+    ///
+    /// The rebuild is heavy main-actor work. On You or People — where a reading usually lands,
+    /// Continue never waiting — it ran under the user's typing, for a tree arrival at Structure
+    /// builds anyway. Past Structure it is the only rebuild: Workspaces reads the loose-file routes.
+    @Test(.timeLimit(.minutes(1)))
+    func aReadingRebuildsThePreviewOnlyWhereItIsRead() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-where-\(UUID().uuidString)")
+        let documents = root.appendingPathComponent("Documents")
+        for folder in ["Finance/US", "Family/Mother"] {
+            try FileManager.default.createDirectory(at: documents.appendingPathComponent(folder),
+                                                    withIntermediateDirectories: true)
+        }
+        try Data("x".utf8).write(to: documents.appendingPathComponent("loose.pdf"))
+        defer { try? FileManager.default.removeItem(at: root) }
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = root.appendingPathComponent("profiles")
+
+        let early = await self.model(syncManager: engine)
+        early.walkRoot = documents
+        early.screen = .people
+        early.startWalk()
+        await early.lastWalk?.value
+        #expect(early.walkState.isDone, "premise: the reading landed (\(early.walkFailureReason ?? "still running"))")
+        #expect(early.preview == nil, "a reading landing on People built Structure's preview")
+        early.screen = .countries
+        #expect(early.advance(), "premise: Countries leads on")
+        #expect(early.screen == .structure)
+        #expect(early.preview != nil, "arrival at Structure no longer builds the preview")
+
+        let late = await self.model(syncManager: engine)
+        late.walkRoot = documents
+        late.screen = .workspaces
+        late.startWalk()
+        await late.lastWalk?.value
+        #expect(late.walkState.isDone)
+        #expect(late.looseRoutes.count == 1,
+                "a reading landing on Workspaces left it saying “No loose files” (\(late.looseRoutes.count) routes)")
+    }
+
+    /// **A reading of the old folder that lands after Change… is dropped.**
+    ///
+    /// Change… does not wait for the reading it supersedes. The late result landed as the reading
+    /// of the new folder, and Learn's primary — Continue over a finished reading — kept the old
+    /// folder's tree under the new folder's name.
+    @Test(.timeLimit(.minutes(1)))
+    func aReadingOfTheOldFolderThatLandsLateIsDropped() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-late-\(UUID().uuidString)")
+        let first = root.appendingPathComponent("First")
+        let second = root.appendingPathComponent("Second")
+        for folder in ["First/Finance/US", "First/Family/Mother", "Second/Taxes/2024"] {
+            try FileManager.default.createDirectory(at: root.appendingPathComponent(folder),
+                                                    withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = root.appendingPathComponent("profiles")
+
+        let model = await self.model(syncManager: engine)
+        model.walkRoot = first
+        model.screen = .learn
+        model.startWalk()
+        // The test holds the main actor, so the reading cannot land before the folder changes.
+        model.changeWalkRoot(to: second)
+        await model.lastWalk?.value
+
+        #expect(model.walkRoot == second, "premise: the folder changed")
+        #expect(!model.walkState.isDone,
+                "the reading of \(model.walkState.walk?.root.lastPathComponent ?? "?") landed as the reading of Second")
+        #expect(model.learnPrimaryTitle == "Learn",
+                "Learn offered \(model.learnPrimaryTitle) over a folder nobody has read")
+    }
+
+    /// And a reading kept in hand is Continue's only for the folder it read.
+    @Test func continueIsOfferedOnlyForTheFolderTheReadingRead() async {
+        let model = await self.model(walk: Self.walk(folders: ["Finance/US"]))
+        model.screen = .learn
+        #expect(model.learnPrimaryTitle == "Continue", "premise: a reading of the chosen folder")
+
+        model.walkRoot = URL(fileURLWithPath: "/tmp/Elsewhere")
+        #expect(model.learnPrimaryTitle == "Learn",
+                "Continue would keep /tmp/Documents's tree under Elsewhere's name")
+        #expect(model.learnAgainTitle == nil)
+    }
+
     // MARK: - People
 
     /// The ✕ on a person who was already on the roster asks first; one added in this run does not.
@@ -334,8 +421,12 @@ import Testing
         #expect(model.walkFailureReason == nil,
                 "a failed write was recorded as a failed reading — People would say “Couldn't read that folder”")
         let failure = try #require(model.saveFailure, "nothing on Structure says the write failed")
-        #expect(failure.contains("could not be written"), "the reason is not the write's: \(failure)")
+        // A sentence under the heading, not the log's words or an NSError dump.
+        #expect(!failure.contains("could not be written —") && !failure.contains("Error Domain"),
+                "Structure shows the log's words: \(failure)")
         #expect(model.writtenReport == nil)
+        #expect(model.structureSecondaryTitle == "Continue without saving",
+                "a Save that keeps failing leaves Structure with no way on")
 
         // And the same press, once the write can succeed, moves on and clears the line.
         try FileManager.default.removeItem(at: blocker)
@@ -345,6 +436,61 @@ import Testing
         #expect(model.writtenReport != nil, "premise: the second press wrote")
         #expect(model.screen == .workspaces)
         #expect(model.saveFailure == nil)
+        #expect(model.structureSecondaryTitle == nil, "Continue without saving outlived the failure")
+    }
+
+    /// **Continue without saving moves on and writes nothing** — offered only after a failed Save.
+    @Test func continuingWithoutSavingMovesOnAndWritesNothing() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-nosave-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let blocker = root.appendingPathComponent("blocker")
+        try Data("not a folder".utf8).write(to: blocker)
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = blocker.appendingPathComponent("profiles")
+
+        let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
+                                     syncManager: engine)
+        model.screen = .structure
+        #expect(model.structureSecondaryTitle == nil, "offered before any Save had failed")
+        await model.saveAndContinue()
+        #expect(model.structureSecondaryTitle != nil, "premise: the Save failed")
+
+        model.continueWithoutSaving()
+        #expect(model.screen == .workspaces, "Continue without saving stayed on \(model.screen)")
+        #expect(model.writtenReport == nil)
+        #expect(model.saveFailure == nil, "the failure line followed the sheet off Structure")
+    }
+
+    /// **A reading Save has written is not written again.**
+    ///
+    /// Summary's Learn leads back through Structure, and its button still said "Save and start
+    /// reading": a second press wrote a second profile from the same tree, and asked for a second
+    /// reading of the documents.
+    @Test func aWrittenReadingIsNotOfferedForSavingAgain() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-twice-\(UUID().uuidString)")
+        let profiles = root.appendingPathComponent("profiles")
+        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = profiles
+        let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
+                                     syncManager: engine)
+        #expect(model.canWriteProfile, "premise: a reading to write")
+        #expect(await model.save(), "premise: the first Save wrote")
+
+        #expect(!model.canWriteProfile,
+                "Structure would offer “Save and start reading” over a reading already written")
+        #expect(await model.save() == false, "a second Save of the same reading was let through")
+        let written = try FileManager.default.contentsOfDirectory(atPath: profiles.path)
+            .filter { $0.hasPrefix("walk-") }
+        #expect(written.count == 1, "one reading wrote \(written.count) profiles: \(written)")
+
+        // A new reading is a new thing to write.
+        model.adopt(Self.walk(folders: ["Taxes/2024"]))
+        #expect(model.canWriteProfile, "a fresh reading could not be saved")
     }
 
     // MARK: - Back to Learn

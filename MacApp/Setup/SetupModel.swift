@@ -185,6 +185,7 @@ final class SetupModel: ObservableObject {
     func adopt(_ walk: SetupWalk) {
         walkRoot = walk.root
         walkState = .done(walk)
+        readingNumber += 1
         confirmedCountries = Set(walk.places.filter(JurisdictionCandidates.isConfident).map(\.value))
         rebuildPreview()
     }
@@ -287,16 +288,26 @@ final class SetupModel: ObservableObject {
     /// which resets the Countries ticks to the rule's picks, or Skip, which throws the reading away
     /// and drops Countries and Structure. Continue is the third, and the one a person who only went
     /// back to look wants.
-    var learnPrimaryTitle: String { walkState.isDone ? "Continue" : "Learn" }
+    var learnPrimaryTitle: String { hasReadingOfChosenFolder ? "Continue" : "Learn" }
 
     /// The secondary button beside Learn's primary: "Learn again" once there is a reading to
     /// replace, and nothing before it.
-    var learnAgainTitle: String? { walkState.isDone ? "Learn again" : nil }
+    var learnAgainTitle: String? { hasReadingOfChosenFolder ? "Learn again" : nil }
 
-    /// Learn's primary press. Reads the folder unless a reading is already in hand, and moves on
-    /// either way — **Continue never waits** (see ``startWalk()``).
+    /// Whether the reading in hand is of the folder now chosen.
+    ///
+    /// **A reading of another folder is not one to continue with.** Learn's primary keeps the tree
+    /// it has, so if it asked only `walkState.isDone` a reading of one folder could carry on under
+    /// another's name.
+    var hasReadingOfChosenFolder: Bool {
+        guard let walk = walkState.walk else { return false }
+        return walk.root == walkRoot
+    }
+
+    /// Learn's primary press. Reads the folder unless a reading of it is already in hand, and
+    /// moves on either way — **Continue never waits** (see ``startWalk()``).
     func pressLearnPrimary() {
-        if !walkState.isDone { startWalk() }
+        if !hasReadingOfChosenFolder { startWalk() }
         _ = advance()
     }
 
@@ -454,6 +465,11 @@ final class SetupModel: ObservableObject {
         panel.message = "Choose the folder SyncCloud should learn from"
         panel.prompt = "Choose"
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        changeWalkRoot(to: url, thenLearn: thenLearn)
+    }
+
+    /// What a folder picked by hand does, without the panel — so a test can pick one.
+    func changeWalkRoot(to url: URL, thenLearn: Bool = false) {
         walkRoot = url
         rootChosenByHand = true
         invalidateProposals()
@@ -476,30 +492,56 @@ final class SetupModel: ObservableObject {
     /// **Continue never waits.** The screens after this one each work without the walk and fill in
     /// when it lands, so the user is never held in front of a spinner for a tree they have already
     /// told the app to read.
+    ///
+    /// **A reading that lands after the folder changed is dropped.** Change… does not wait for the
+    /// reading it supersedes, so without the check a late result for the old folder landed as the
+    /// reading of the new one — and Learn's Continue kept that tree under the new folder's name.
     func startWalk() {
         guard let root = walkRoot, let manager = syncManager else { return }
         walkState = .running
         let known = Set((roster?.people.flatMap(\.nameForms) ?? [])
                         + draft.everyone.map(\.displayName))
-        Task { [weak self] in
+        lastWalk = Task { [weak self] in
             let result = await manager.walkForSetup(root: root, known: known)
             guard let self else { return }
+            guard self.walkRoot == root else {
+                Logger.shared.info("Setup walk of \(root.path) landed after the folder changed to "
+                                   + "\(self.walkRoot?.path ?? "none") — dropped")
+                return
+            }
             switch result {
             case .success(let walk):
                 self.walkState = .done(walk)
+                self.readingNumber += 1
                 self.confirmedCountries = Set(walk.places.filter(JurisdictionCandidates.isConfident)
                     .map(\.value))
                 self.seedNameSuggestion()
                 // **Here as well as on arrival at Structure**, because Continue never waits: a
                 // reading that lands while Structure is on screen otherwise left its button saying
-                // "Save and start reading" over "Nothing has been learned yet." `adopt` does the same.
-                self.rebuildPreview()
+                // "Save and start reading" over "Nothing has been learned yet." Only on the screens
+                // that read the preview, though: it is heavy main-actor work, and on You or People
+                // it would land under the user's typing for a tree arrival at Structure rebuilds.
+                if Self.screensThatReadThePreview.contains(self.screen) { self.rebuildPreview() }
             case .failure(let failure):
                 self.walkState = .failed(failure.description)
                 Logger.shared.warning("Setup walk failed: \(failure.description)")
             }
         }
     }
+
+    /// The most recent reading's task, so a test can wait for one whose result is dropped.
+    private(set) var lastWalk: Task<Void, Never>?
+
+    /// The screens a reading that lands rebuilds the preview for.
+    ///
+    /// **Structure and every screen after it**, not Structure alone: Continue never waits, so a
+    /// reading can land after Structure was passed, and Workspaces and Summary read the loose-file
+    /// routes the rebuild derives — without it Workspaces would say "No loose files" over a
+    /// folder full of them. Appearance reads nothing, but it is the way to Summary, and arriving
+    /// there rebuilds nothing. The screens before Structure are left alone: arriving at Structure
+    /// rebuilds.
+    static let screensThatReadThePreview: Set<SetupFlow.Screen> =
+        [.structure, .workspaces, .appearance, .summary]
 
     /// The failure's own words, for the line the three screens after Learn show in place of items.
     var walkFailureReason: String? {
@@ -664,8 +706,11 @@ final class SetupModel: ObservableObject {
     ///
     /// **A roster person is asked about first, as Settings asks.** On a re-run the chips are the
     /// real `people.json`, and one click on a 10pt ✕ deleted a person along with the full names
-    /// and aliases curated for them in Settings, with no undo. A name added in this run, or one
-    /// still only in the draft, carries nothing yet and goes at once.
+    /// and aliases curated for them in Settings, with no undo. Two kinds of name carry nothing yet
+    /// and go at once: one this screen added to the roster in this run, and one still only in the
+    /// draft on a Mac with no roster. **Draft names stop being the second kind at Save**, which
+    /// lands them in the new roster: from then on they ask like any other roster person, because
+    /// ``namesAddedThisRun`` holds only what `addPerson` put there.
     func requestRemovePerson(named name: String) {
         if roster != nil, !namesAddedThisRun.contains(name) {
             personAwaitingRemoval = name
@@ -767,7 +812,33 @@ final class SetupModel: ObservableObject {
     /// False in two states that look different and behave the same: a re-run showing the profile
     /// this Mac already has, and a folder that was changed and not re-read. Both used to offer a
     /// Save that returned at its first guard.
-    var canWriteProfile: Bool { walkState.walk != nil && syncManager != nil }
+    ///
+    /// **And false once Save has written the reading in hand.** Summary's Learn leads back through
+    /// Structure, where a second "Save and start reading" wrote a second profile from the same tree
+    /// and asked for a second reading of the documents.
+    var canWriteProfile: Bool {
+        walkState.walk != nil && syncManager != nil && !currentReadingIsWritten
+    }
+
+    /// Bumped each time a reading lands, so Save can tell the reading it wrote from a newer one.
+    private var readingNumber = 0
+    /// The reading the last successful Save wrote.
+    private var writtenReadingNumber: Int?
+
+    /// Whether the reading in hand is the one Save already wrote.
+    var currentReadingIsWritten: Bool { walkState.isDone && writtenReadingNumber == readingNumber }
+
+    /// Structure's secondary button: offered only once a Save has failed.
+    ///
+    /// **A Save that keeps failing left Structure with no way on** — the primary stays Save, so the
+    /// person can retry, and this is the way past that is chosen rather than taken for them.
+    var structureSecondaryTitle: String? { saveFailure == nil ? nil : "Continue without saving" }
+
+    /// "Continue without saving": moves on and writes nothing.
+    func continueWithoutSaving() {
+        Logger.shared.warning("Setup: continued past a failed Save — no folder profile was written")
+        _ = advance()
+    }
 
     /// Structure's Save: writes, and moves on only once the profile is on disk.
     ///
@@ -787,15 +858,18 @@ final class SetupModel: ObservableObject {
     ///   already writing, which must not move the sheet on as well.
     @discardableResult
     func save() async -> Bool {
-        guard !isSaving, let walk = walkState.walk, let manager = syncManager else { return false }
+        guard !isSaving, !currentReadingIsWritten, let walk = walkState.walk,
+              let manager = syncManager else { return false }
         isSaving = true
         saveFailure = nil
         defer { isSaving = false }
+        let reading = readingNumber
         let result = await manager.writeWalkProfile(tree: walk.tree, root: walk.root,
                                                     jurisdictionValues: confirmedCountries,
                                                     registry: walkRegistry)
         switch result {
         case .success(let report):
+            writtenReadingNumber = reading
             writtenReport = report
             walkNotInUse = !report.becameActive
             // Attach first, so `roster` resolves to the store the write just created; then land
@@ -812,7 +886,8 @@ final class SetupModel: ObservableObject {
         case .failure(let failure):
             // The reading stays: it was the write that failed, and the tree is what a second
             // press needs.
-            saveFailure = failure.description
+            // The plain sentence on screen; the log keeps the store's own words.
+            saveFailure = failure.plainReason
             Logger.shared.warning("Setup could not write its profile: \(failure.description)")
             return false
         }

@@ -742,12 +742,27 @@ import Testing
                 "Structure's Save no longer goes through `saveAndContinue` — a failed write may move on")
         #expect(!sheet.contains("await model.save()"),
                 "Structure calls `save()` directly again, and will move on whatever it answers")
-        // And the failure is drawn where the press stays.
-        #expect(try source("Setup/StructureScreen.swift").contains("if let failure = model.saveFailure"),
+        // A failed Save offers a way on that writes nothing.
+        #expect(sheet.contains("secondary: model.structureSecondaryTitle.map"),
+                "Structure no longer offers Continue without saving after a failed Save")
+        #expect(sheet.contains("model.continueWithoutSaving()"))
+        // And the failure is drawn where the press stays, with the two ways on.
+        let structure = try source("Setup/StructureScreen.swift")
+        #expect(structure.contains("if let failure = model.saveFailure"),
                 "Structure no longer draws a failed Save")
+        #expect(structure.contains("Text(failure + \" \" + Self.saveFailedNextStep)"),
+                "the failure line no longer says what to do next")
         // Summary: Learn goes back to the Learn screen, not out to a Settings tab.
         #expect(try source("Setup/SummaryScreen.swift").contains("action: { model.returnToLearn() }"),
                 "Summary's Learn no longer goes back to the Learn screen")
+        // People: a chip's ✕ asks about a roster person; only the question's Remove removes.
+        let people = try source("Setup/PeopleScreen.swift")
+        #expect(people.contains("onRemove: { model.requestRemovePerson(named: $0) }"),
+                "People's ✕ no longer goes through `requestRemovePerson` — a roster person may go unasked")
+        #expect(people.components(separatedBy: "model.removePerson(").count - 1 == 1,
+                "People calls `removePerson` somewhere besides the question's Remove button")
+        #expect(people.contains("if let name = model.personAwaitingRemoval { model.removePerson(named: name) }"),
+                "the question's Remove no longer removes the person it asked about")
     }
 
     /// Summary no longer talks about the folder walk as work that has not shipped.

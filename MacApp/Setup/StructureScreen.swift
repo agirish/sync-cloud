@@ -87,7 +87,7 @@ struct StructureScreen: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Label(Self.saveFailedHeading, systemImage: "exclamationmark.triangle")
                             .scaledFont(.caption.weight(.medium))
-                        Text(failure)
+                        Text(failure + " " + Self.saveFailedNextStep)
                             .scaledFont(.caption2)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -103,22 +103,13 @@ struct StructureScreen: View {
                         .scaledFont(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                }
 
-                SetupMoreOptions(subtitle: "what each grey word means") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(Self.legend, id: \.term) { entry in
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text(entry.term)
-                                    .scaledFont(.caption.weight(.medium))
-                                    .frame(width: 132, alignment: .leading)
-                                Text(entry.meaning)
-                                    .scaledFont(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-                    }
+                    // **The legend goes with the line it explains.** A failed Save's heading,
+                    // reason and next step are taller than that line, and on the tightest screen
+                    // of the ten they pushed the reading switch below the fold at three of the four
+                    // named text sizes, by up to 23pt (`structureFitsWithAFailedSaveOnIt`). It
+                    // comes back once the failure clears.
+                    legendDisclosure
                 }
             }
 
@@ -127,6 +118,25 @@ struct StructureScreen: View {
             readingToggle
 
             Spacer(minLength: 0)
+        }
+    }
+
+    /// What each grey word means, behind a disclosure — see ``legend``.
+    private var legendDisclosure: some View {
+        SetupMoreOptions(subtitle: "what each grey word means") {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Self.legend, id: \.term) { entry in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(entry.term)
+                            .scaledFont(.caption.weight(.medium))
+                            .frame(width: 132, alignment: .leading)
+                        Text(entry.meaning)
+                            .scaledFont(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
         }
     }
 
@@ -158,6 +168,9 @@ struct StructureScreen: View {
 
     /// The heading over a failed Save's own reason. The button below it tries again.
     static let saveFailedHeading = "Couldn’t save your folder profile, so nothing was written."
+
+    /// The line after the reason: the two ways on, named as the buttons name them.
+    static let saveFailedNextStep = "Try again, or continue without saving."
 
     /// One column per count, so the five of them share a rhythm. Wide enough for the longest label
     /// the screen has — "loose at the top" — measured rather than guessed; a narrower column makes
