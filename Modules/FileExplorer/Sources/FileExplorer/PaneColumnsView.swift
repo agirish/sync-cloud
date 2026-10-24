@@ -954,6 +954,10 @@ struct PaneColumnsView: View {
             case .loading: return nil
             }
         }
+
+        /// What VoiceOver says for the loading spinner, which otherwise reads as an unnamed
+        /// progress indicator. The column and the tree's placeholder row both use it.
+        static let loadingLabel = "Reading this folder"
     }
 
     /// This column's caption, with the three state questions answered from the column's own inputs.
@@ -1059,6 +1063,7 @@ struct PaneColumnsView: View {
                             .foregroundStyle(.tertiary)
                     } else {
                         ProgressView().controlSize(.small)
+                            .accessibilityLabel(Caption.loadingLabel)
                     }
                 }
                 .allowsHitTesting(false)

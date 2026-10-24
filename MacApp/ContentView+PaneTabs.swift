@@ -1183,7 +1183,7 @@ enum PaneTabChips {
         return zip(drafts, titles).map { draft, title in
             PaneTabStrip.Item(id: draft.id, title: title, markImageName: draft.markImageName,
                               isActive: draft.isActive, fullPath: draft.fullPath,
-                              isPinned: draft.isPinned)
+                              isPinned: draft.isPinned, sourceName: draft.sourceName)
         }
     }
 

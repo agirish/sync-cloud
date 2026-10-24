@@ -236,10 +236,11 @@ import Sync
         #expect(recorder.exits == 0)
     }
 
-    /// **→ skips too (LN21)** — Organize's Rules walkthrough skips on →, so someone who learned
-    /// that one presses it here. Plain only (an arrow always carries `.function` and `.numericPad`,
-    /// which are not chords), once per press; ⌥→ and ⌘→ are not skips — ⌘→ copies elsewhere.
-    @Test func rightArrowSkipsLikeDelete() async throws {
+    /// **→ does not skip here**, though the Rules walkthrough takes it. In Compare → means "to the
+    /// right pane" (⌘→ copies there) and a skip cannot be taken back, so a → pressed out of that
+    /// habit must not spend a row. The positive control, a plain ⌫ afterwards, is what keeps the
+    /// arrow's silence from passing against a card that never got focus.
+    @Test func rightArrowDoesNotSkip() async throws {
         let recorder = Recorder()
         let subject = try #require(makeCard(into: recorder), "fixture queue produced no session")
         let (window, _) = host(subject)
@@ -247,11 +248,10 @@ import Sync
 
         let arrow: NSEvent.ModifierFlags = [.function, .numericPad]
         send(window, keyCode: 124, characters: "\u{F703}", modifiers: arrow)
-        #expect(recorder.skips == 1, "a plain → did not skip (skips: \(recorder.skips))")
-        for _ in 0..<3 { send(window, keyCode: 124, characters: "\u{F703}", modifiers: arrow, isARepeat: true) }
         send(window, keyCode: 124, characters: "\u{F703}", modifiers: arrow.union(.option))
-        send(window, keyCode: 124, characters: "\u{F703}", modifiers: arrow.union(.command))
-        #expect(recorder.skips == 1, "a held or modified → skipped an item (skips: \(recorder.skips))")
+        #expect(recorder.skips == 0, "a → skipped an item (skips: \(recorder.skips))")
+        sendDelete(window)
+        #expect(recorder.skips == 1, "plain ⌫ did not skip — the → reading above is vacuous")
         #expect(recorder.primaries == 0)
         #expect(recorder.exits == 0)
     }
@@ -440,7 +440,7 @@ import Sync
         let expected = "guard press.isPlainKeystroke, focused else { return .ignored }"
         let handlers = [
             ("ReviewCardView.swift", ".onKeyPress(keys: [.return, .keypadEnter], phases: .down)", "⏎ — the primary copy/move"),
-            ("ReviewCardView.swift", ".onKeyPress(keys: [.delete, .rightArrow], phases: .down)", "⌫ and → — an unrevisitable skip"),
+            ("ReviewCardView.swift", ".onKeyPress(keys: [.delete], phases: .down)", "⌫ — an unrevisitable skip"),
             ("AutomationsLens.swift", ".onKeyPress(keys: [.return, .keypadEnter], phases: .down)", "⏎ — files a real file"),
             ("AutomationsLens.swift", ".onKeyPress(keys: [.rightArrow, .delete], phases: .down)", "→ and ⌫ — an unrevisitable skip"),
         ]

@@ -1554,13 +1554,13 @@ extension FileSyncManager {
             if let restoreUndoHandback {
                 restoreUndoHandback(urls, backups)
             } else {
-                self.registerRestoreItems(urls: urls, trashedItems: backups, actionName: "Delete \(CountedNoun.phrase(successfullyTrashed.count, "Item"))", fileManager: fm)
+                self.registerRestoreItems(urls: urls, trashedItems: backups, actionName: Self.trashUndoActionName(count: successfullyTrashed.count), fileManager: fm)
             }
         }
         
         // Show the success banner for whatever was removed, INDEPENDENTLY of any failure below: a
-        // transiently-busy item in a larger batch must not hide the "Deleted N — ⌘Z" banner for the
-        // items that did trash (they're already registered for undo above).
+        // transiently-busy item in a larger batch must not hide the "Moved N items to the Trash"
+        // banner, with its ⌘Z, for the items that did trash (already registered for undo above).
         if !items.isEmpty {
             // Distinguish recoverable (Trash) from irreversible (permanent) deletes: a permanent
             // delete happens only on Trash-less volumes after the user confirmed, and cannot be
@@ -1581,7 +1581,8 @@ extension FileSyncManager {
             // back only the trashed subset, so a mixed batch (some permanently deleted on a
             // Trash-less volume) must not offer an Undo that would silently leave the permanent
             // deletions in place.
-            let deleted = items.count == 1 ? "Deleted “\(name)”" : "Deleted \(items.count) items"
+            let deleted = Self.removalBannerText(count: items.count, firstName: name,
+                                                 anyPermanent: !permanentlyDeleted.isEmpty)
             // A batch can both remove some items and keep others the user declined to destroy.
             // Reporting only the removals would leave them believing the kept ones went too.
             let kept = result.declined == 0 ? "" :
@@ -1684,5 +1685,25 @@ extension FileSyncManager {
                              permanentlyDeleted: items.count - successfullyTrashed.count,
                              declined: result.declined,
                              refusedByGate: result.refused)
+    }
+}
+
+extension FileSyncManager {
+    /// The undo action name for a batch moved to the Trash — what Edit ▸ Undo reads after
+    /// "Undo": "Move to Trash", "Move 3 Items to Trash". The row menu's own words, so the undo
+    /// names the act you chose rather than calling a recoverable move a delete.
+    nonisolated static func trashUndoActionName(count: Int) -> String {
+        count == 1 ? "Move to Trash" : "Move \(CountedNoun.phrase(count, "Item")) to Trash"
+    }
+
+    /// The banner after a delete gesture: “Moved “a.txt” to the Trash” or “Moved 3 items to the
+    /// Trash”. **"Deleted" only when something was deleted** — on a volume with no Trash, after
+    /// the permanent-delete question was answered yes, part of the batch is gone for good, and
+    /// "moved to the Trash" would then promise a way back that is not there.
+    nonisolated static func removalBannerText(count: Int, firstName: String, anyPermanent: Bool) -> String {
+        if anyPermanent {
+            return count == 1 ? "Deleted “\(firstName)”" : "Deleted \(count.formatted()) items"
+        }
+        return count == 1 ? "Moved “\(firstName)” to the Trash" : "Moved \(count.formatted()) items to the Trash"
     }
 }

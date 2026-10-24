@@ -338,7 +338,7 @@ extension ContentView {
     }
 
     /// The window toolbar — the window-level controls, and only those: which workspace you're in,
-    /// and the three utilities (Settings, Logs, Info). Everything else lives where it acts: Scan is
+    /// and the three utilities (Settings, Activity Log, Info). Everything else lives where it acts: Scan is
     /// in each pane header, Find Duplicates in the Duplicates lens, and the file actions are
     /// the panes' contextual action bar.
     @ToolbarContentBuilder

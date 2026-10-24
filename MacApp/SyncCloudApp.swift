@@ -1242,7 +1242,7 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         /// file-operation warning outranks the document's, which is right — but "outranks" was
         /// implemented as "replaces", so with a copy running and a buffer dirty the alert named
         /// only the copy and its "Quit Anyway" button terminated with no second question. The
-        /// ranking that justified it says the *"Don’t Quit" (once "Wait") answer keeps the app up, which is also the
+        /// ranking that justified it says the *"Don’t Quit" answer keeps the app up, which is also the
         /// answer that saves the buffer* — true of one of the two buttons. The other one dropped
         /// the typing, and the alert never mentioned it existed.
         case warn(activeOperations: Int, hasUnsavedDocument: Bool)

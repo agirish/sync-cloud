@@ -245,7 +245,7 @@ enum ShortcutsReference {
         ]),
         Group(title: "Guided review", items: [
             Item(keys: "↩", action: "Copy the current item"),
-            Item(keys: "⌫ / →", action: "Skip the current item"),
+            Item(keys: "⌫", action: "Skip the current item"),
             Item(keys: "Space", action: "Quick Look the current item"),
             Item(keys: "Esc", action: "End the review"),
         ]),
@@ -379,12 +379,17 @@ struct ShortcutsReferenceView: View {
     /// the find row, whose keys then wrapped to a second line beside a one-line action, and the
     /// content measured **749pt**. 760 leaves 11pt, still 40pt below the 800pt a 13" display allows.
     ///
+    /// **760 → 762, and 12pt is a floor now** (2026-10-24). 11pt is under the 12pt the v4.4 note
+    /// judged too tight, and Largest had slipped to 8pt (819pt of rows in 827), so the fit test now
+    /// holds every stop to at least 12pt under the last row as well as at most 60pt. 762 leaves 13pt
+    /// here; `heightPerGrowth` went 240 → 250 for the larger stops.
+    ///
     /// **This is the size at the default text size; ``windowSize(scale:)`` is the one drawn.** It
     /// was this constant at every size, so above Default the rows outgrew it and the window
     /// scrolled, and the longest key strings wrapped in a keys column that stayed 165pt while its
     /// type grew. `theReferenceFitsItsWindowAtEveryTextSize` holds every selectable stop to the
     /// same fit and the same 60pt ceiling on empty space this number was held to.
-    static let windowSize = CGSize(width: 1240, height: 760)
+    static let windowSize = CGSize(width: 1240, height: 762)
 
     /// The keys column at the default text size.
     static let keysColumnWidth: CGFloat = 165
@@ -411,7 +416,12 @@ struct ShortcutsReferenceView: View {
 
     /// Points of window height per unit of type growth — fitted to the rows measured at every
     /// stop, 688pt at 90% to 819pt at 135% (2026-10-23), not to the 760 a flat multiply would use.
-    static let heightPerGrowth: CGFloat = 240
+    ///
+    /// **250, up from 240**, so every stop keeps 12–60pt under its last row. Measured 2026-10-24:
+    /// 240 left Largest 8pt (819pt of rows in 827). 250 leaves it 13pt, and 120% — the stop
+    /// nearest the 60pt ceiling, 738pt of rows — 59pt, so this cannot rise much further without
+    /// re-measuring.
+    static let heightPerGrowth: CGFloat = 250
 
     static func keysColumnWidth(scale: CGFloat) -> CGFloat {
         (keysColumnWidth * growth(scale: scale)).rounded()
@@ -427,14 +437,74 @@ struct ShortcutsReferenceView: View {
     }
 
     @Environment(\.appFontScale) private var fontScale
+    /// The visible size of the screen this window is on, once it is in one — see `WindowScreenReader`.
+    @State private var windowScreen: CGSize?
+
+    /// The screen to fit inside: the window's own, else the main screen until the window has one.
+    ///
+    /// **Not `NSScreen.main` alone.** That is the screen with the key window, which is the main
+    /// window's screen when ⌘/ is pressed — so on a two-display desk the reference opened sized
+    /// for the other display, cut off on a laptop panel or cramped on a large one, and kept that
+    /// size when dragged across.
+    static func screenToFit(window: CGSize?, main: CGSize?) -> CGSize? { window ?? main }
 
     var body: some View {
-        let size = Self.fitted(Self.windowSize(scale: fontScale), to: NSScreen.main?.visibleFrame.size)
+        let size = Self.fitted(Self.windowSize(scale: fontScale),
+                               to: Self.screenToFit(window: windowScreen, main: NSScreen.main?.visibleFrame.size))
         ScrollView {
             ShortcutsReferenceContent()
         }
         .frame(width: size.width, height: size.height)
+        .background(WindowScreenReader { windowScreen = $0 })
         .navigationTitle("Keyboard Shortcuts")
+    }
+}
+
+/// Reports the visible size of the screen its window is on — when it joins a window and again
+/// whenever that window moves to another screen (`NSWindow.didChangeScreenNotification`).
+struct WindowScreenReader: NSViewRepresentable {
+    let onChange: (CGSize?) -> Void
+
+    func makeNSView(context: Context) -> Probe { Probe(onChange: onChange) }
+
+    func updateNSView(_ view: Probe, context: Context) { view.onChange = onChange }
+
+    /// A zero-sized view whose only job is to have a `window`.
+    final class Probe: NSView {
+        var onChange: (CGSize?) -> Void
+        private var observer: NSObjectProtocol?
+
+        init(onChange: @escaping (CGSize?) -> Void) {
+            self.onChange = onChange
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        deinit {
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+            observer = nil
+            if let window {
+                observer = NotificationCenter.default.addObserver(
+                    forName: NSWindow.didChangeScreenNotification, object: window, queue: .main
+                ) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.report() }
+                }
+            }
+            report()
+        }
+
+        /// Off the current layout pass: the callback writes SwiftUI state.
+        private func report() {
+            let size = window?.screen?.visibleFrame.size
+            DispatchQueue.main.async { [weak self] in self?.onChange(size) }
+        }
     }
 }
 

@@ -779,6 +779,34 @@ import Testing
                 "the question's Remove no longer removes the person it asked about")
     }
 
+    /// **Countries says "ticked" only when it ticked something.** Short names found but none
+    /// certain enough to tick arrive with nothing ticked, and the line invites the picking.
+    @Test func countriesClaimsTicksOnlyWhenItTickedSome() throws {
+        #expect(CountriesScreen.foundBlurb(candidates: 3, confident: 2).contains("ticked"))
+        let unsure = CountriesScreen.foundBlurb(candidates: 3, confident: 0)
+        #expect(!unsure.contains("ticked"), "nothing was ticked, yet the line says so: \(unsure)")
+        #expect(unsure.contains("Tick the ones"))
+        #expect(CountriesScreen.foundBlurb(candidates: 0, confident: 0).hasPrefix("No short folder names"))
+    }
+
+    /// **People tells "found names, all added" from "found none".** Taking the last chip used to
+    /// flip the header to "No folder names looked like people".
+    @Test func peopleTellsAllAddedFromNoneFound() throws {
+        #expect(PeopleScreen.foundBlurb(found: 4, offered: 2).contains("found some names to offer"))
+        let allAdded = PeopleScreen.foundBlurb(found: 4, offered: 0)
+        #expect(!allAdded.contains("No folder names"), "every name was added, yet the line says none was found")
+        #expect(allAdded.hasPrefix("Everyone SyncCloud found is added"))
+        #expect(PeopleScreen.foundBlurb(found: 0, offered: 0).hasPrefix("No folder names looked like people"))
+
+        // Both screens route their finished reading through these rules.
+        let setup = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/Setup")
+        let people = try String(contentsOf: setup.appendingPathComponent("PeopleScreen.swift"), encoding: .utf8)
+        #expect(people.contains("return Self.foundBlurb(found: model.walkState.walk?.people.count ?? 0,"))
+        let countries = try String(contentsOf: setup.appendingPathComponent("CountriesScreen.swift"), encoding: .utf8)
+        #expect(countries.contains("confident: model.countryCandidates.filter(JurisdictionCandidates.isConfident).count)"))
+    }
+
     /// Summary no longer talks about the folder walk as work that has not shipped.
     @Test func summaryDoesNotDescribeTheWalkAsUnshipped() throws {
         let url = URL(fileURLWithPath: #filePath)

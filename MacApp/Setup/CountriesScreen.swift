@@ -121,15 +121,23 @@ struct CountriesScreen: View {
     /// spinner, or after a reading that failed, promised ticks that were not there.
     private var blurb: String {
         switch model.walkState {
-        case .done where model.countryCandidates.isEmpty:
-            return "No short folder names looked like countries. Add any by their code."
         case .done:
-            return "SyncCloud ticked the ones it is confident about. Correct it below."
+            return Self.foundBlurb(candidates: model.countryCandidates.count,
+                                   confident: model.countryCandidates.filter(JurisdictionCandidates.isConfident).count)
         case .running:
             return "SyncCloud is looking for country codes in your folder names."
         case .idle, .skipped, .failed:
             return "Add any countries your folders use, by their code."
         }
+    }
+
+    /// The finished reading's line. "Ticked" only when SyncCloud ticked something: names were
+    /// found but none was certain enough to tick, the screen arrives with nothing ticked, and the
+    /// line invites the picking instead.
+    static func foundBlurb(candidates: Int, confident: Int) -> String {
+        if candidates == 0 { return "No short folder names looked like countries. Add any by their code." }
+        if confident == 0 { return "SyncCloud wasn’t sure of any of these. Tick the ones that are countries." }
+        return "SyncCloud ticked the ones it is confident about. Correct it below."
     }
 
     private func chip(_ value: String, detail: String, help: String) -> some View {

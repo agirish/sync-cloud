@@ -3,7 +3,7 @@ import Foundation
 import Combine
 @testable import Sync
 
-/// Count titles — undo action names (read in Edit ▸ Undo as "Undo Delete 1 Item") and progress
+/// Count titles — undo action names (read in Edit ▸ Undo as "Undo Move 2 Items to Trash") and progress
 /// titles — inflect their noun for the count and group the number the way the counter under them
 /// does. `CopyMoveBehaviorPinTests`, `ProgressAccountingTests` and `UndoRedoLogLabelTests` pin the
 /// single-item copy, move and delete names; this suite pins the rule itself and the bulk titles
@@ -92,5 +92,27 @@ import Combine
             await manager.bulkCopyDifferencesLeftToRight([diff], asOf: manager.fileOperationsEpoch)
         }
         #expect(seen == ["Copying 1 file to match dates"])
+    }
+}
+
+/// The words a delete gesture leaves behind: Edit ▸ Undo's action name and the banner.
+@Suite struct TrashWordingTests {
+
+    /// Undo names the act chosen — a recoverable move to the Trash — in the row menu's words.
+    @Test func theUndoNameIsTheRowMenusMoveToTrash() {
+        #expect(FileSyncManager.trashUndoActionName(count: 1) == "Move to Trash")
+        #expect(FileSyncManager.trashUndoActionName(count: 3) == "Move 3 Items to Trash")
+    }
+
+    /// "Moved … to the Trash" while everything went there; "Deleted" once anything is gone for good.
+    @Test func theBannerSaysTrashOnlyWhenEverythingWentThere() {
+        #expect(FileSyncManager.removalBannerText(count: 1, firstName: "a.txt", anyPermanent: false)
+                == "Moved “a.txt” to the Trash")
+        #expect(FileSyncManager.removalBannerText(count: 3, firstName: "a.txt", anyPermanent: false)
+                == "Moved 3 items to the Trash")
+        #expect(FileSyncManager.removalBannerText(count: 1, firstName: "a.txt", anyPermanent: true)
+                == "Deleted “a.txt”")
+        #expect(FileSyncManager.removalBannerText(count: 3, firstName: "a.txt", anyPermanent: true)
+                == "Deleted 3 items")
     }
 }

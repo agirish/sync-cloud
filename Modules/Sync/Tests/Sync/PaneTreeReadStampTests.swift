@@ -8,7 +8,7 @@ import Foundation
 /// **The whole of the interesting behaviour is the cache hit.** Stamping the moment a tree is
 /// *published* is one line and always compiles; the question is whether a tree served from the
 /// prefetch cache carries the age of the walk that built it, or claims to have been read at the
-/// moment it was handed over. The second is a freshness segment that resets to "Scanned 0s ago"
+/// moment it was handed over. The second is a freshness segment that resets to "Scanned just now"
 /// every time you navigate back into a folder you were just in.
 @MainActor
 @Suite struct PaneTreeReadStampTests {

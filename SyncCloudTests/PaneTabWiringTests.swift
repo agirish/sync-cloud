@@ -759,6 +759,21 @@ import Sync
                 "Copy Path and the tooltip no longer agree with the chip's own label")
     }
 
+    /// **Every chip carries its source's name**, which is what VoiceOver reads in place of the
+    /// hidden mark (`PaneTabStrip.spokenName`). Dropped here, two "Documents" chips from different
+    /// clouds would sound identical.
+    @Test func everyChipCarriesItsSourcesNameForVoiceOver() {
+        let items = PaneTabChips.items(list(["Finance", "Photos"], selected: 0),
+                                       liveProviderId: "iCloud", livePath: "Finance",
+                                       drawsColumns: true,
+                                       source: { _ in self.iCloud })
+        #expect(items.map(\.sourceName) == ["iCloud Drive", "iCloud Drive"])
+        let gone = PaneTabChips.items(list(["Finance"], selected: 0),
+                                      liveProviderId: "iCloud", livePath: "Finance",
+                                      drawsColumns: true, source: { _ in nil })
+        #expect(gone[0].sourceName == nil)
+    }
+
     /// A tab at a source root has no folder to name.
     @Test func aChipAtTheRootWearsItsSourcesName() {
         let items = PaneTabChips.items(list(["", "Photos"], selected: 0),

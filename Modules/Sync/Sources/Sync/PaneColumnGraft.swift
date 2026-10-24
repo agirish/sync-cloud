@@ -110,6 +110,8 @@ extension FileSyncManager {
         // render, each walking the same directory.
         let key = ColumnGraftKey(isLeft: isLeft, path: path)
         guard !columnGraftsInFlight.contains(key) else { return }
+        // Already tried and unreadable: the answer stands until this side is walked afresh.
+        guard !columnGraftsUnreadable.contains(key) else { return }
         // Asked of the tree with the folder it was walked at: a column's `path` is composed from
         // that folder, and the names down from it are what find the node (`TreeShape.position`).
         guard Self.isUnexplored(atPath: path, under: paneTreeFolder(isLeft: isLeft) ?? "",
@@ -147,7 +149,10 @@ extension FileSyncManager {
             // inside itself; leaving the node alone keeps its unexplored mark, which is what makes
             // the column say "Can't be read" rather than "Empty". `adoptRawTree` unwraps the same
             // shape for the same reason.
-            if Self.isUnreadableRootWalk(children, at: path) { return }
+            if Self.isUnreadableRootWalk(children, at: path) {
+                self.columnGraftsUnreadable.insert(key)
+                return
+            }
 
             // Re-read the tree AFTER the await: the pane may have re-rooted or reloaded while the
             // listing ran, in which case this answer is about a tree that is gone. `grafting`

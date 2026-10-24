@@ -6,6 +6,10 @@ public struct NativeAlerts {
     
     /// The ⌘⌫ / row-menu confirmation. It says "Move to Trash" because that is what happens — the
     /// same verb as the pane bar's rung and every other trash confirmation, as Finder names it.
+    ///
+    /// **No promise of ⌘Z.** It once said "You can put it back with ⌘Z, or from the Trash", which
+    /// is false on a volume with no Trash (a second alert follows, for a permanent delete) and in
+    /// Edit's file list, where ⌘Z may undo typing instead.
     /// - Parameters:
     ///   - itemNames: The list of file or folder names selected for deletion.
     /// - Returns: True if the user confirmed the deletion.
@@ -15,13 +19,13 @@ public struct NativeAlerts {
         if itemNames.count == 1, let first = itemNames.first {
             return confirmAction(
                 messageText: "Move “\(first)” to the Trash?",
-                informativeText: "You can put it back with ⌘Z, or from the Trash.",
+                informativeText: "It goes to the Trash.",
                 confirmTitle: "Move to Trash"
             )
         }
         return confirmAction(
             messageText: "Move \(itemNames.count.formatted()) items to the Trash?",
-            informativeText: "You can put them back with ⌘Z, or from the Trash.",
+            informativeText: "They go to the Trash.",
             confirmTitle: "Move to Trash"
         )
     }

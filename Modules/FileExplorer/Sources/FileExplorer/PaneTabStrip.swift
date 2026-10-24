@@ -36,16 +36,37 @@ public struct PaneTabStrip: View {
         /// The full path, for the chip's tooltip — the strip's answer to "which Documents is this?"
         /// for anyone who wants more than the mark.
         public let fullPath: String
+        /// The source's display name ("iCloud Drive"), or nil when the source is gone. The mark's
+        /// words: `ProviderLogo` is hidden from VoiceOver, so without this the ear hears two
+        /// "Documents" chips where the eye sees two different clouds. See `spokenName(_:)`.
+        public let sourceName: String?
 
         public init(id: UUID, title: String, markImageName: String, isActive: Bool,
-                    fullPath: String, isPinned: Bool = false) {
+                    fullPath: String, isPinned: Bool = false, sourceName: String? = nil) {
             self.id = id
             self.title = title
             self.markImageName = markImageName
             self.isActive = isActive
             self.fullPath = fullPath
             self.isPinned = isPinned
+            self.sourceName = sourceName
         }
+    }
+
+    /// What VoiceOver reads for a chip: its title, then the source the mark stands for —
+    /// "Documents, iCloud Drive".
+    ///
+    /// **The mark is the only thing on the chip that tells two same-named tabs apart** (see
+    /// `Item.markImageName`), and `ProviderLogo` hides itself from VoiceOver everywhere, which is
+    /// right for every other mark in the app and wrong here. So the chip says in words what the
+    /// mark says in pictures. The source is left off when the title already carries it — a tab at
+    /// a source root is titled with the source's name, and a colliding title is already qualified
+    /// "Documents — iCloud Drive" — so nothing is said twice.
+    static func spokenName(_ item: Item) -> String {
+        guard let source = item.sourceName, !source.isEmpty,
+              item.title != source, !item.title.hasSuffix("— \(source)")
+        else { return item.title }
+        return "\(item.title), \(source)"
     }
 
     let items: [Item]
@@ -371,6 +392,8 @@ public struct PaneTabStrip: View {
                 ProviderLogo(item.markImageName, size: PaneTabStripLadder.markSide)
                 Text(item.title)
                     .scaledFont(PaneTabStripLadder.titleFont)
+                    // The hidden mark's words — see `spokenName`.
+                    .accessibilityLabel(Self.spokenName(item))
                     // Middle truncation, because the ends of a folder name are what tell two of them
                     // apart ("2023 Tax Return" / "2024 Tax Return" differ at the front; "Kaiser
                     // 2024" / "Kaiser 2025" at the back). A tail ellipsis loses one of those.
@@ -610,6 +633,7 @@ public struct PaneTabStrip: View {
                 ProviderLogo(active.markImageName, size: PaneTabStripLadder.markSide, inAppKitLabel: true)
                 Text(active.title)
                     .scaledFont(PaneTabStripLadder.titleFont)
+                    .accessibilityLabel(Self.spokenName(active))
                     .truncationMode(.middle)
                     .lineLimit(1)
             }

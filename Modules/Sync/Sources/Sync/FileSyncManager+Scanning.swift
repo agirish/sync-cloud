@@ -413,6 +413,8 @@ extension FileSyncManager {
             tree = []
         }
         rawTreeGeneration += 1
+        // A fresh walk is when an unreadable folder may have become readable: ask again.
+        columnGraftsUnreadable = columnGraftsUnreadable.filter { $0.isLeft != isLeft }
         if isLeft {
             rawLeftTree = tree
             lastLoadedLeftFocusPath = focusPath

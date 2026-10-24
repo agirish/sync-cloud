@@ -684,6 +684,12 @@ import Foundation
             // row measures ~36pt, so a 60pt ceiling fails the moment a row leaves without the window
             // following it.
             let slack = window.height - height
+            // **And at least 12pt under the last row.** The window cannot be resized by hand, and
+            // less than 12pt is inside one line of ordinary text reflow — "it fits today" and "it
+            // fits after a system font metric moves" are different claims (the v4.4 note on
+            // `windowSize`). Largest once left 8pt.
+            #expect(slack >= 12,
+                    "\(percent)%: only \(slack)pt under the last row (\(height)pt of rows in \(window.height)pt) — raise the window")
             #expect(slack <= 60,
                     "\(percent)%: the window shows \(slack)pt of empty space below the last row (\(height)pt of rows in \(window.height)pt) — lower windowSize to the rows it actually has")
         }
@@ -700,6 +706,53 @@ import Foundation
         let big = ShortcutsReferenceView.fitted(largest, to: CGSize(width: 3000, height: 2000))
         #expect(big == largest)
         #expect(ShortcutsReferenceView.fitted(largest, to: nil) == largest)
+    }
+
+    /// **The window fits the screen it is ON**, not the main screen: the window's own screen wins,
+    /// and the main screen stands in only until the window has one.
+    @Test func theWindowFitsItsOwnScreen() {
+        let laptop = CGSize(width: 1470, height: 900)
+        let desk = CGSize(width: 2560, height: 1400)
+        #expect(ShortcutsReferenceView.screenToFit(window: laptop, main: desk) == laptop)
+        #expect(ShortcutsReferenceView.screenToFit(window: nil, main: desk) == desk)
+    }
+
+    /// The reader reports when it joins a window and again each time that window changes screen,
+    /// and the reference's frame is sized from what it reports.
+    @Test func theScreenReaderReportsOnJoiningAndOnEveryScreenChange() async throws {
+        var reports: [CGSize?] = []
+        let probe = WindowScreenReader.Probe { reports.append($0) }
+        // Never ordered in: test windows stay off his screen.
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
+                              styleMask: [.borderless], backing: .buffered, defer: true)
+        window.contentView?.addSubview(probe)
+        // Suspending, not spinning the run loop: the reports arrive on the main queue, which a
+        // nested run loop inside this main-actor job does not drain. Bounded at two seconds.
+        func settle(until count: Int) async throws {
+            let deadline = Date().addingTimeInterval(2)
+            while reports.count < count && Date() < deadline {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        try await settle(until: 1)
+        #expect(reports.count == 1, "joining a window reported \(reports.count) times")
+        #expect(reports.last == .some(window.screen?.visibleFrame.size))
+
+        NotificationCenter.default.post(name: NSWindow.didChangeScreenNotification, object: window)
+        try await settle(until: 2)
+        #expect(reports.count == 2, "a screen change was not reported")
+
+        // Another window's screen change is not this one's.
+        let other = NSWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: true)
+        NotificationCenter.default.post(name: NSWindow.didChangeScreenNotification, object: other)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(reports.count == 2)
+
+        let source = try #require(try? String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/ShortcutsReference.swift"), encoding: .utf8))
+        #expect(source.contains(".background(WindowScreenReader { windowScreen = $0 })"))
+        #expect(source.contains("to: Self.screenToFit(window: windowScreen, main: NSScreen.main?.visibleFrame.size)"))
     }
 
     /// **A key string that fits its column at Default fits it at every size.** The column was a

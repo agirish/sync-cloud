@@ -35,15 +35,15 @@ import EventsTestSupport
         // ⌘Z restores the item from the Trash — the header must say Undo, and the summary agrees.
         manager.undoManager?.undo()
         await waitUntil("undo restores the deleted item") { mockFM.virtualDisk["/dst/label_pin.txt"] != nil }
-        #expect(await loggerContains(log, "User triggered Undo: Delete 1 Item"))
-        #expect(await loggerContains(log, "Undo (Delete 1 Item): restored 1 of 1 deleted item(s) from Trash, 0 restore failure(s)"))
+        #expect(await loggerContains(log, "User triggered Undo: Move to Trash"))
+        #expect(await loggerContains(log, "Undo (Move to Trash): restored 1 of 1 deleted item(s) from Trash, 0 restore failure(s)"))
         // No delete redo has run yet, so no handler may have claimed the Redo label.
-        #expect(!(await loggerContains(log, "User triggered Redo: Delete 1 Item")))
+        #expect(!(await loggerContains(log, "User triggered Redo: Move to Trash")))
 
         // ⌘⇧Z re-trashes the item — the header must say Redo, and the summary agrees.
         manager.undoManager?.redo()
         await waitUntil("redo re-trashes the item") { mockFM.virtualDisk["/dst/label_pin.txt"] == nil }
-        #expect(await loggerContains(log, "User triggered Redo: Delete 1 Item"))
-        #expect(await loggerContains(log, "Redo (Delete 1 Item): trashed 1 of 1 item(s)"))
+        #expect(await loggerContains(log, "User triggered Redo: Move to Trash"))
+        #expect(await loggerContains(log, "Redo (Move to Trash): trashed 1 of 1 item(s)"))
     }
 }

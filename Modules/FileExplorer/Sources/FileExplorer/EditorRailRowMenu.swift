@@ -133,7 +133,7 @@ struct EditorRailRowMenu: View {
                  perform: { actions.quickLook(path) }),
             Item(title: "Rename", systemImage: "pencil", startsGroup: true,
                  perform: { actions.rename(path) }),
-            Item(title: "Move to Trash", systemImage: "trash", isDestructive: true,
+            Item(title: "Move to Trash…", systemImage: "trash", isDestructive: true,
                  perform: { actions.delete(path) }),
         ]
         return items

@@ -772,6 +772,7 @@ extension FileSyncManager {
         // its own; that is the same self-healing path a re-root already relies on.
         paneOrientationGeneration += 1
         columnGraftsInFlight.removeAll()
+        columnGraftsUnreadable.removeAll()
 
         swap(&rawLeftTree, &rawRightTree)
         swap(&leftTree, &rightTree)

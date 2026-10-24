@@ -166,10 +166,10 @@ import Events
     }
 
     @Test func mixedDeleteInvalidatesAStalePairingUnderACollidingName() async throws {
-        // The delete undo's action name embeds the TRASHED count ("Delete 1 Item"), so two
+        // The delete undo's action name follows the TRASHED count ("Move to Trash" for one), so two
         // consecutive deletes can push identically-named groups: run 1 deletes one item (all
         // trashed, pairing armed), run 2 deletes two items of which only one reaches the Trash
-        // (mixed → not armed, but a NEW group named "Delete 1 Item" now tops the stack). The
+        // (mixed → not armed, but a NEW group named "Move to Trash" now tops the stack). The
         // stale run-1 pairing would pass the name gate and preview run 1's paths while undo()
         // restored run 2's item. A mixed delete must invalidate the stale pairing outright.
         let manager = isolatedManager()
@@ -183,11 +183,14 @@ import Events
         manager.permanentDeleteConfirmer = { _ in true }
 
         _ = await manager.deleteItems(at: ["/src/a.txt"], fileManager: mockFM)
-        #expect(manager.lastSyncRunUndoPreview?.actionName == "Delete 1 Item")   // run 1 armed
+        #expect(manager.lastSyncRunUndoPreview?.actionName == "Move to Trash")   // run 1 armed
+        #expect(manager.banner?.message == "Moved “a.txt” to the Trash")
 
-        // Run 2: one of the two trashes, the other goes permanent → group also "Delete 1 Item".
+        // Run 2: one of the two trashes, the other goes permanent → group also "Move to Trash".
         mockFM.trashErrorOnce = NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError)
         _ = await manager.deleteItems(at: ["/src/b.txt", "/src/c.txt"], fileManager: mockFM)
+        // Part of this batch is gone for good, so the banner may not say "to the Trash".
+        #expect(manager.banner?.message == "Deleted 2 items")
 
         // The stack top is run 2's partial group; run 1's pairing must be dead, not matching
         // the colliding name.

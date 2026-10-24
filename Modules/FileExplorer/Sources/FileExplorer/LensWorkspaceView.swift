@@ -4430,7 +4430,7 @@ public struct LensWorkspaceView: View {
                     // Findings first, for the reason written on To File above.
                     state: n > 0 ? .findings(count: n, headline: "\(n) group\(n == 1 ? "" : "s")",
                                     examples: scoped.prefix(OrganizeOverview.exampleLimit).map {
-                                        "\($0.name) — \(DuplicateGroupCard.memberCount($0.copies.count, isDirectory: $0.isDirectory))"
+                                        "\($0.name) — \(DuplicateGroupCard.memberCount($0.copies.count, isDirectory: $0.isDirectory, matchType: $0.matchType))"
                                     })
                         : !syncManager.hasFoundDuplicates || !duplicatesCover ? .notScanned
                         : .clean,

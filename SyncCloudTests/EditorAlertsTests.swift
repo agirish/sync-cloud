@@ -146,7 +146,7 @@ import FileExplorer
     /// the ranking was implemented by dropping `hasUnsavedDocument` on the floor, which is a
     /// different thing. The alert then named only the copy, and its "Quit Anyway" button terminated
     /// with no second question and no mention that there was typing to lose. The rationale offered
-    /// for the ranking — *its "Wait" answer keeps the app up, which is also the answer that saves
+    /// for the ranking — *its "Don’t Quit" answer keeps the app up, which is also the answer that saves
     /// the buffer* — is true of one of the two buttons; the other one was the bug. The fact now
     /// travels with the decision so one alert can name both.
     @Test func aFileOperationInFlightLeadsButTheBufferIsStillNamed() {

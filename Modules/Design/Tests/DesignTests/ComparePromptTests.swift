@@ -15,7 +15,7 @@ import Testing
 
     @Test func testItReportsTheCountAndTheAge() {
         #expect(text(count: 412, ageSeconds: 3 * 86_400)
-                == "Last scanned 3d ago — 412 differences. Scan again to see what has changed since.")
+                == "Last scanned 3 days ago — 412 differences. Scan again to see what has changed since.")
     }
 
     /// Both plural seams. "1 differences" and "0 differences" are the two ways this sentence reads
@@ -27,10 +27,11 @@ import Testing
     }
 
     /// The age comes from `ScanFreshness`'s ladder, not a second one — the app must not have two
-    /// answers to "how old is this scan?".
+    /// answers to "how old is this scan?" — in its words form, because this is a sentence: the
+    /// compact "3d ago" is pill shorthand, and VoiceOver reads it as "3 d".
     @Test func testTheAgeUsesTheSharedFreshnessLadder() {
         for seconds: TimeInterval in [0, 45, 90, 4000, 100_000, 300_000] {
-            let expected = ScanFreshness.relative(seconds)
+            let expected = ScanFreshness.spokenRelative(seconds)
             #expect(text(count: 2, ageSeconds: seconds).contains("Last scanned \(expected) —"),
                     "\(seconds)s should read as “\(expected)”")
         }
@@ -39,7 +40,17 @@ import Testing
     /// A clock change can put the recorded scan in the future. Clamped, so the card never reports
     /// a negative age.
     @Test func testAFutureScanDateDoesNotProduceANegativeAge() {
-        #expect(text(count: 2, ageSeconds: -5_000).contains(ScanFreshness.relative(0)))
+        #expect(text(count: 2, ageSeconds: -5_000).contains("Last scanned just now —"))
+    }
+
+    /// Words, never the pill's compact units: no "3d", "1h" or "29m" inside the sentence.
+    @Test func testTheAgeIsSpelledOutNotAbbreviated() {
+        #expect(text(count: 2, ageSeconds: 29 * 60).contains("Last scanned 29 minutes ago —"))
+        #expect(text(count: 2, ageSeconds: 3600).contains("Last scanned 1 hour ago —"))
+        for seconds: TimeInterval in [45, 90, 4000, 100_000] {
+            let message = text(count: 2, ageSeconds: seconds)
+            #expect(message.range(of: "[0-9][smhd] ago", options: .regularExpression) == nil, "\(message)")
+        }
     }
 
     /// Everything here is past tense, and the sentence says outright that the world has moved on.

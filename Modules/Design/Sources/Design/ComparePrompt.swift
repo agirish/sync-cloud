@@ -8,7 +8,9 @@ import Foundation
 /// action it offers against one writes files — but it can stop pretending it has never run.
 ///
 /// Lives beside ``ScanFreshness``, whose buckets it borrows, so the two ways this app says "how old
-/// is this?" use one ladder. The summary itself is a `Sync` type; only the sentence is here, which
+/// is this?" use one ladder. It takes the ladder's words form (``ScanFreshness/spokenRelative(_:)``),
+/// not the compact one: this is a sentence, and "3d ago" inside a sentence reads as a pill's
+/// shorthand on screen and as "3 d" to VoiceOver. The summary itself is a `Sync` type; only the sentence is here, which
 /// is why these take loose values rather than the struct — `Design` sits under `Sync`, not over it.
 public enum ComparePrompt {
 
@@ -17,14 +19,14 @@ public enum ComparePrompt {
     public static let neverScanned =
         "Nothing scanned yet. Scan the two focused folders to see what differs."
 
-    /// `"Last scanned 3d ago — 412 differences. Scan again to see what has changed since."`
+    /// `"Last scanned 3 days ago — 412 differences. Scan again to see what has changed since."`
     ///
     /// Past tense throughout, and the button beside it says Scan: nothing here may read as a
     /// statement about the folders *now*. The count is what the last scan found, and the sentence
     /// that follows exists to say the world has moved on since — which is the whole reason the rows
     /// themselves are not restored.
     public static func lastScan(differenceCount: Int, date: Date, now: Date) -> String {
-        let age = ScanFreshness.relative(max(0, now.timeIntervalSince(date)))
+        let age = ScanFreshness.spokenRelative(max(0, now.timeIntervalSince(date)))
         let found: String
         switch differenceCount {
         case 0: found = "no differences"

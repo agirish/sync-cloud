@@ -126,6 +126,7 @@ struct PaneOutlineRows<Row: View>: View {
                     .foregroundStyle(.tertiary)
             } else {
                 ProgressView().controlSize(.small)
+                    .accessibilityLabel(PaneColumnsView.Caption.loadingLabel)
             }
         }
         .allowsHitTesting(false)

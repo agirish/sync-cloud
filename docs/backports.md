@@ -9168,7 +9168,8 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s historyAsks=%s fakeICloud=%s 
 
 ## The shortcuts window grows with the text, scan ages say "just now" and speak in words, and decoration is silent — main only
 
-Four design-system defects from the v6.1 review (SH12, DS6, DS7, DS15).
+Four design-system defects from the v6.1 review (SH12, DS6, DS7, DS15), and the ↩ speech gap the
+same commit closed.
 
 - **Keyboard Shortcuts** was a fixed 1240×760 with a 165pt keys column, so above Default the
   rows outgrew it and it scrolled, and longer chords wrapped. `main` sizes the window and the
@@ -9182,26 +9183,36 @@ Four design-system defects from the v6.1 review (SH12, DS6, DS7, DS15).
 - **Provider marks and empty-state icons** were read aloud at some sites, and empty-state titles
   were not headings. `main` hides the mark once, inside `ProviderLogo`, hides the empty state's
   icon, and gives its title the header trait.
+- **↩ had no spoken name.** `main` draws Return as ↩ wherever it shows a keycap, and gave ↩ the
+  name "Return" in `ShortcutKeycapSpeech` beside ⏎. `v5.x` / `v4.x` draw `ShortcutKeycap("↩")` at
+  one site (`GoToResultsPanel`) and their table names only ⏎, so VoiceOver reads the glyph there.
 
 ```sh
 D=Modules/Design/Sources/Design
-for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fixedWindow=%s scaledWindow=%s logoHidden=%s emptyHeader=%s zeroSecs=%s dayWords=%s spokenWords=%s\n' $l \
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fixedWindow=%s scaledWindow=%s logoHidden=%s emptyHeader=%s zeroSecs=%s dayWords=%s spokenWords=%s returnDrawn=%s returnSpoken=%s\n' $l \
   "$(git show origin/$l:MacApp/ShortcutsReference.swift 2>/dev/null | grep -c '\.frame(width: Self.windowSize.width')" \
   "$(git show origin/$l:MacApp/ShortcutsReference.swift 2>/dev/null | grep -c 'static func windowSize(scale:')" \
   "$(git show origin/$l:$D/ProviderLogo.swift 2>/dev/null | grep -c 'accessibilityHidden(true)')" \
   "$(git show origin/$l:$D/EmptyStateView.swift 2>/dev/null | grep -c 'isHeader')" \
-  "$(git show origin/$l:$D/ScanFreshness.swift 2>/dev/null | grep -c '"0s ago"')" \
-  "$(git show origin/$l:$D/ScanFreshness.swift 2>/dev/null | grep -c '1 day ago')" \
-  "$(git show origin/$l:$D/ScanFreshness.swift 2>/dev/null | grep -c 'spokenRelative')"; done
-# measured 2026-10-23, against origin, before this landed:
-# main, v5.x, v4.x   fixedWindow=1 scaledWindow=0 logoHidden=0 emptyHeader=0 zeroSecs=1 dayWords=1 spokenWords=0
-# v3.x, v2.x         fixedWindow=0 scaledWindow=0 logoHidden=0 emptyHeader=0 zeroSecs=1 dayWords=1 spokenWords=0
+  "$(git show origin/$l:$D/ScanFreshness.swift 2>/dev/null | grep -c 'return "0s ago"')" \
+  "$(git show origin/$l:$D/ScanFreshness.swift 2>/dev/null | grep -c '"1 day ago" :')" \
+  "$(git show origin/$l:$D/ScanFreshness.swift 2>/dev/null | grep -c 'func spokenRelative')" \
+  "$(git grep -l 'eycap("↩")' origin/$l -- MacApp 'Modules/*/Sources/*' | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:$D/ShortcutKeycap.swift 2>/dev/null | grep -c '("↩", "Return")')"; done
+# zeroSecs and dayWords match code, not prose: main's comments still quote "0s ago" and "1 day ago".
+# returnDrawn counts source files drawing a ↩ keycap; returnSpoken is whether ↩ has a spoken name.
+# re-measured 2026-10-24, against origin, after this landed (main caec21a1a):
+# main    fixedWindow=0 scaledWindow=1 logoHidden=1 emptyHeader=1 zeroSecs=0 dayWords=0 spokenWords=1 returnDrawn=11 returnSpoken=1
+# v5.x    fixedWindow=1 scaledWindow=0 logoHidden=0 emptyHeader=0 zeroSecs=1 dayWords=1 spokenWords=0 returnDrawn=1 returnSpoken=0
+# v4.x    fixedWindow=1 scaledWindow=0 logoHidden=0 emptyHeader=0 zeroSecs=1 dayWords=1 spokenWords=0 returnDrawn=1 returnSpoken=0
+# v3.x    fixedWindow=0 scaledWindow=0 logoHidden=0 emptyHeader=0 zeroSecs=1 dayWords=1 spokenWords=0 returnDrawn=0 returnSpoken=0
+# v2.x    fixedWindow=0 scaledWindow=0 logoHidden=0 emptyHeader=0 zeroSecs=1 dayWords=1 spokenWords=0 returnDrawn=0 returnSpoken=0
 ```
 
 | Line | Carries | Status |
 |---|---|---|
-| `v5.x` / `v4.x` | All four, the same code | RECORDED — not owed |
-| `v3.x` / `v2.x` | All four; the shortcuts window is the older fixed 480×420 one, which scrolls above Default for the same reason | RECORDED — not owed |
+| `v5.x` / `v4.x` | All five, the same code; ↩ unspoken at its one keycap | RECORDED — not owed |
+| `v3.x` / `v2.x` | The first four; the shortcuts window is the older fixed 480×420 one, which scrolls above Default for the same reason. No ↩ keycap, so nothing to speak | RECORDED — not owed |
 
 ---
 
@@ -9224,8 +9235,8 @@ LN21). The copy fixes in the same sweep carry no row.
 - **Restructure's member column** cut the list off at two lines with no tooltip. `main` adds one.
 - **Restructure's Applied/Undone stamps** used a fixed "HH:mm" and "d MMM yyyy". `main` follows the
   reader's clock and region.
-- **One-at-a-time walkthroughs** skipped on → (Rules) and ⌫ (Compare's review). `main` takes both
-  in both.
+- **One-at-a-time walkthroughs** skipped on → (Rules) and ⌫ (Compare's review). `main` takes ⌫
+  in both and → in Rules alone: in Compare → means the right pane, and a skip cannot be taken back.
 
 ```sh
 F=Modules/FileExplorer/Sources/FileExplorer
@@ -9244,14 +9255,16 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s treeEmpty=%s sortTick=%s rowC
 # main, v5.x         treeEmpty=0 sortTick=0 rowCopyPath=0 info80=1 recentParent=0 memberTip=0 rulesDelete=0 reviewArrow=0 fixedClock=1
 # v4.x, v3.x, v2.x   treeEmpty=0 sortTick=0 rowCopyPath=0 info80=1 recentParent=0 memberTip=0 rulesDelete=0 reviewArrow=0 fixedClock=0
 # and on this branch: treeEmpty=1 sortTick=1 rowCopyPath=1 info80=0 recentParent=1 memberTip=2 rulesDelete=1 reviewArrow=1 fixedClock=0
+# reviewArrow is 0 on main again: Compare's review went back to ⌫ alone (2026-10-24), which is
+# what every maintenance line has, so the walkthrough difference left is Rules' ⌫ (rulesDelete).
 ```
 
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` | All eight, the same code | RECORDED — not owed |
 | `v4.x` | All but the stamps: its Restructure has no Applied/Undone ledger (`fixedClock=0`) | RECORDED — not owed |
-| `v3.x` | The Browse five and the walkthrough keys; no Restructure lens | RECORDED — not owed |
-| `v2.x` | As `v3.x`; its tree is an `OutlineGroup` (no `PaneOutlineRows.swift`), with the same empty expansion | RECORDED — not owed |
+| `v3.x` | The Browse five and the Rules ⌫; no Restructure lens | RECORDED — not owed |
+| `v2.x` | As `v3.x` but for the Info card: its tree is an `OutlineGroup` (no `PaneOutlineRows.swift`), with the same empty expansion; its card has no “Where it lives:” row, its widest label (“Permissions:”) fits the 80pt column, and its labels do not follow the text size, so nothing wraps (`info80=1` is the column, not the defect) | RECORDED — not owed |
 
 ---
 

@@ -1928,6 +1928,16 @@ public class FileSyncManager: ObservableObject {
     /// the listings themselves landing on the wrong side.
     @Published internal var columnGraftsInFlight: Set<ColumnGraftKey> = []
 
+    /// **Listings that came back unreadable**, so they are not asked for again on every appear.
+    ///
+    /// A tree row's "Can’t be read" placeholder asks on `.onAppear`, and scrolling brings it into
+    /// view over and over: without this each appearance started the same doomed listing and drew
+    /// a spinner for its length, so the row flickered between the spinner and the caption. The
+    /// outcome is remembered until this side's tree is walked afresh (`adoptRawTree`), which is
+    /// when a retry can find something different — ⌘R, or navigating back in. Cleared by
+    /// `swapPanes` for the reason the in-flight set is.
+    internal var columnGraftsUnreadable: Set<ColumnGraftKey> = []
+
     /// **Bumped when the panes change sides**, and nothing else.
     ///
     /// A column listing is started for a side and lands on the main actor some time later, holding
@@ -2118,7 +2128,7 @@ public class FileSyncManager: ObservableObject {
     /// **Provenance the tree cannot carry, and the reason the status bar's freshness is honest.**
     /// A cache hit republishes a tree that was walked minutes ago — navigate away, navigate back,
     /// nothing mutated in between — so stamping "read just now" at the moment it is *served* would
-    /// make the freshness segment say `Scanned 0s ago` over a listing nobody has re-read. The stamp
+    /// make the freshness segment say `Scanned just now` over a listing nobody has re-read. The stamp
     /// travels with the entry instead, exactly as `prefetchedTreeWalkStopped` does, and a slice
     /// inherits its root's stamp for the same reason it inherits the root's stopped bit: the slice
     /// is part of that walk, not a walk of its own.

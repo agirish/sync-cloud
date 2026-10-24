@@ -35,12 +35,13 @@ enum EditorDivergenceColumns {
         "\(editorLabel) · \(EditorDocumentFacts.count(words, "word"))"
     }
 
-    /// `On disk · written 2m ago`, or just `On disk` when the file has no modification date.
+    /// `On disk · written 2 minutes ago`, or just `On disk` when the file has no modification date.
     ///
     /// **No claim about WHERE it was written.** A sync client, another app on this Mac, a script,
     /// and another machine are indistinguishable from here, and "changed on another machine" is the
-    /// guess a reader would act on. The age comes from ``ScanFreshness/relative(_:)`` rather than a
-    /// second ladder of buckets — it is the app's one relative-age vocabulary, already tested, and
+    /// guess a reader would act on. The age comes from ``ScanFreshness/spokenRelative(_:)`` rather than a
+    /// second ladder of buckets — it is the app's one relative-age vocabulary, already tested, in its
+    /// words form because this caption is prose that VoiceOver reads as it stands — and
     /// its floor ("just now") is right here too: the interesting case for this overlay is a file that
     /// changed seconds ago.
     static func disk(modified: Date?, now: Date) -> String {
@@ -48,10 +49,10 @@ enum EditorDivergenceColumns {
         // **A future modification date is not guarded against here, because it does not need to
         // be.** A clock skew between machines is ordinary in exactly the shared folders this
         // overlay is about, so a file can carry an mtime ahead of now — and `relative`'s first
-        // bucket is `..<30`, which a negative interval falls into: it answers "just now". A
+        // bucket (in both forms) is `..<30`, which a negative interval falls into: it answers "just now". A
         // `max(0, …)` here was written first and then measured, and it changed nothing for any
         // input; a redundant clamp is a rule no test can hold, so it went and this comment stayed.
-        return "\(diskLabel) · written \(ScanFreshness.relative(now.timeIntervalSince(modified)))"
+        return "\(diskLabel) · written \(ScanFreshness.spokenRelative(now.timeIntervalSince(modified)))"
     }
 
     /// What the two sides are called in the diff's refusals, when a side cannot be read at all.
@@ -81,7 +82,7 @@ public struct EditorDivergenceDiffOverlay: View {
     private let takingDiskIsUndoable: Bool
     private let onAnswer: (EditorDivergenceVerdict) -> Void
 
-    /// `now` is injectable for the reason every clock in this repo is: "written 2m ago" is a claim
+    /// `now` is injectable for the reason every clock in this repo is: "written 2 minutes ago" is a claim
     /// about a duration, and a test that had to wait two minutes to assert it would not be written.
     ///
     /// `takingDiskIsUndoable` is whether Use Disk Version is the one ⌘Z takes back — true while the
@@ -213,7 +214,7 @@ public struct EditorDivergenceDiffOverlay: View {
         .padding(.vertical, 12)
     }
 
-    /// `In Edit · 1,204 words` over the left column, `On disk · written 2m ago` over the
+    /// `In Edit · 1,204 words` over the left column, `On disk · written 2 minutes ago` over the
     /// right — split down the middle so each sits over the side it describes.
     private var columnHeaders: some View {
         HStack(spacing: 0) {

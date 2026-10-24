@@ -14,7 +14,7 @@ import Testing
         ScanElapsed.text(since: start, now: start.addingTimeInterval(seconds))
     }
 
-    /// Seconds are counted, not bucketed. `ScanFreshness` floors the first half-minute to "0s ago"
+    /// Seconds are counted, not bucketed. `ScanFreshness` floors the first half-minute to "just now"
     /// because it answers "is this fresh?"; this is read by someone waiting, and a clock that sits
     /// on 0 for thirty seconds looks stopped.
     @Test func testItCountsEverySecondBeforeTheFirstMinute() {

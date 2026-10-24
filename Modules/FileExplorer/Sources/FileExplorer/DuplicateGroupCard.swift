@@ -232,6 +232,15 @@ struct DuplicateGroupCard: View {
         isDirectory ? "\(n) folder\(n == 1 ? "" : "s")" : "\(n) cop\(n == 1 ? "y" : "ies")"
     }
 
+    /// A group's members as the card's subtitle counts them: **versions** for a version group —
+    /// they are not copies, they differ — and `memberCount`'s folders or copies otherwise. The
+    /// Overview's Duplicates line reads this too, so it cannot say "3 copies" over a card that
+    /// says "3 versions".
+    nonisolated static func memberCount(_ n: Int, isDirectory: Bool, matchType: DuplicateMatchType) -> String {
+        if case .versions = matchType { return "\(n) version\(n == 1 ? "" : "s")" }
+        return memberCount(n, isDirectory: isDirectory)
+    }
+
     private var subtitle: String {
         let n = group.copies.count
         let members = Self.memberCount(n, isDirectory: group.isDirectory)
@@ -252,7 +261,7 @@ struct DuplicateGroupCard: View {
         case .overlapping(let f):
             return "\(members) · \(Int((f * 100).rounded()))% shared"
         case .versions:
-            return "\(n) versions"
+            return Self.memberCount(n, isDirectory: group.isDirectory, matchType: group.matchType)
         }
     }
 

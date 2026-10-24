@@ -95,15 +95,22 @@ struct PeopleScreen: View {
     private var blurb: String {
         // "Found some names" only once it has: the line used to sit above "Reading names…".
         switch model.walkState {
-        case .done where !model.visiblePeopleCandidates.isEmpty:
-            return "Anyone whose documents you keep. SyncCloud found some names to offer."
         case .done:
-            return "No folder names looked like people. Add anyone by hand."
+            return Self.foundBlurb(found: model.walkState.walk?.people.count ?? 0,
+                                   offered: model.visiblePeopleCandidates.count)
         case .running:
             return "Anyone whose documents you keep. SyncCloud is looking for names to offer."
         case .idle, .skipped, .failed:
             return "Add anyone whose documents you keep."
         }
+    }
+
+    /// The finished reading's line. Names found and all added already is not "found none": the
+    /// line used to say "No folder names looked like people" the moment the last chip was taken.
+    static func foundBlurb(found: Int, offered: Int) -> String {
+        if offered > 0 { return "Anyone whose documents you keep. SyncCloud found some names to offer." }
+        if found > 0 { return "Everyone SyncCloud found is added. Add anyone else by hand." }
+        return "No folder names looked like people. Add anyone by hand."
     }
 
     private func candidateChip(_ candidate: PersonCandidate) -> some View {

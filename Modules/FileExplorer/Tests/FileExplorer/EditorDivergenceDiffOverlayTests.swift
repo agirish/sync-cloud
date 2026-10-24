@@ -43,7 +43,7 @@ import FileExplorerTestSupport
     @Test func theDiskColumnDatesTheFileAndClaimsNothingElse() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         let caption = EditorDivergenceColumns.disk(modified: now.addingTimeInterval(-120), now: now)
-        #expect(caption == "On disk · written 2m ago")
+        #expect(caption == "On disk · written 2 minutes ago")
         for guess in ["machine", "device", "iCloud", "Dropbox", "someone"] {
             #expect(!caption.lowercased().contains(guess), "the column guessed at provenance: \(caption)")
         }
@@ -58,7 +58,7 @@ import FileExplorerTestSupport
     /// written by a machine whose clock runs ahead carries a future mtime, and "written -3s ago" is
     /// worse than no age at all.
     ///
-    /// The property comes from `ScanFreshness.relative`, whose first bucket is `..<30` and swallows
+    /// The property comes from `ScanFreshness.spokenRelative`, whose first bucket is `..<30` and swallows
     /// a negative interval into "just now" — stated here rather than clamped at the call site,
     /// because a `max(0, …)` there was measured to change nothing for any input and a redundant
     /// guard is a rule no test can hold. This is the assertion that the inherited behaviour is the

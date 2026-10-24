@@ -1903,8 +1903,10 @@ struct FileContextMenu: View {
 
             Divider()
             
+            // Ellipsis, as File ▸ Move Selection to Trash… has it: it asks first whenever "Confirm
+            // before deleting" is on (the default), and this menu cannot see that setting.
             Button(role: .destructive, action: { delegate.handleDelete(selectedNodes) }) {
-                Label(count > 1 ? "Move \(count) Items to Trash" : "Move to Trash", systemImage: "trash")
+                Label(count > 1 ? "Move \(count) Items to Trash…" : "Move to Trash…", systemImage: "trash")
             }
         }
     }

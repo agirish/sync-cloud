@@ -570,8 +570,17 @@ import SwiftUI
         #expect(DuplicateGroupCard.memberCount(2, isDirectory: false) == "2 copies")
         #expect(DuplicateGroupCard.memberCount(1, isDirectory: false) == "1 copy")
         let model = try Self.overviewModelCode()
-        #expect(model.contains("DuplicateGroupCard.memberCount($0.copies.count, isDirectory: $0.isDirectory)"),
+        #expect(model.contains("DuplicateGroupCard.memberCount($0.copies.count, isDirectory: $0.isDirectory, matchType: $0.matchType)"),
                 "the Overview's Duplicates examples no longer read the card's member-count rule")
+        // A version group's members are versions, on the card and in the Overview alike.
+        #expect(DuplicateGroupCard.memberCount(3, isDirectory: false, matchType: .versions) == "3 versions")
+        #expect(DuplicateGroupCard.memberCount(1, isDirectory: false, matchType: .versions) == "1 version")
+        #expect(DuplicateGroupCard.memberCount(3, isDirectory: false, matchType: .identical) == "3 copies")
+        let card = try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/DuplicateGroupCard.swift"), encoding: .utf8)
+        #expect(card.contains("return Self.memberCount(n, isDirectory: group.isDirectory, matchType: group.matchType)"),
+                "the card's version subtitle no longer reads the shared rule")
         #expect(!model.contains("copies.count) copies"), "the Overview says copies for folders again")
     }
 

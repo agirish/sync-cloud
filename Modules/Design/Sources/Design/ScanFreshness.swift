@@ -88,6 +88,10 @@ public enum ScanFreshness {
 
     /// `relative`'s buckets in words, for VoiceOver: "just now", "30 seconds ago",
     /// "1 minute ago", "29 minutes ago", "2 hours ago", "3 days ago".
+    ///
+    /// Also the form for prose. The compact "3d ago" is pill shorthand; inside a full sentence
+    /// (Compare's "Last scanned …", the divergence overlay's "written …") it reads as a fragment
+    /// and VoiceOver says "3 d". Those callers use this, so the eye and the ear get one string.
     public static func spokenRelative(_ seconds: TimeInterval) -> String {
         let s = Int(seconds)
         func ago(_ n: Int, _ unit: String) -> String { "\(n) \(unit)\(n == 1 ? "" : "s") ago" }

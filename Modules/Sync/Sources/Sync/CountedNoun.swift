@@ -3,8 +3,8 @@ import Foundation
 /// A count and its noun, inflected for the count and with the number grouped the way the reader's
 /// locale writes it: "1 Item", "2 Items", "7,363 Items".
 ///
-/// Undo action names ("Delete 1 Item", read in the Edit menu as "Undo Delete 1 Item") and progress
-/// titles ("Deleting 7,363 Items", sitting over "3,336 of 7,363") are built from this, so a single
+/// Undo action names ("Move 2 Items to Trash", read in the Edit menu as "Undo Move 2 Items to
+/// Trash") and progress titles ("Deleting 7,363 Items", sitting over "3,336 of 7,363") are built from this, so a single
 /// item never reads as "1 Items" and a title's count is grouped like the counter under it. Each
 /// call site keeps its own noun and case — "Item" for an undo name in Title Case, "file" for a
 /// progress title that says files.

@@ -9,8 +9,8 @@ import Foundation
 /// redoParams"): the redo URL list is resolved AFTER the restore loop from only the items that
 /// actually came back out of the Trash.
 ///
-/// Both tests delete TWO items so the action name is "Delete 2 Items" — `UndoRedoLogLabelTests`
-/// pins the "Delete 1 Item" labels against the shared Logger, and a parallel suite redoing a
+/// Both tests delete TWO items so the action name is "Move 2 Items to Trash" — `UndoRedoLogLabelTests`
+/// pins the "Move to Trash" labels against the shared Logger, and a parallel suite redoing a
 /// one-item delete would trip its "no Redo logged yet" assertion.
 @Suite struct DeleteRedoOccupantTests {
 

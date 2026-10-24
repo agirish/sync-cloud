@@ -293,7 +293,7 @@ cloud-only files the better. `tail -f ~/sync-cloud.log` beside it for the load l
   — recorded here rather than in a test because the honest fix is a census that watches downloads,
   and that was not built.
 - [ ] **"Scanned N ago" is about the listing, not about a comparison.** Open a folder, wait a few
-  minutes, navigate away and back. It must say the minutes, not "0s ago" — the cache hit carries the
+  minutes, navigate away and back. It must say the minutes, not "just now" — the cache hit carries the
   walk's age. Then ⌘R and confirm it resets. (In Compare, ⌘R also runs a comparison scan; the bar is
   not there, which is the point.)
 - [ ] **The ladder sheds.** Drag the window narrow with three files selected. The freshness goes

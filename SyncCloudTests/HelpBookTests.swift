@@ -330,6 +330,23 @@ import Testing
     /// header buttons read New Text File and Close, and its PDF line offers the outline only when a
     /// PDF has two or more bookmarks (`EditorRailTab.minimumPDFBookmarks`); and ⌘O opens a selected
     /// PDF as well as a text file. Mutation: put any old line back and its check fails.
+    /// **Help names controls by the labels they wear now** (X1, X2): Restructure's re-read is
+    /// “Update the survey” (never a Rescan, never “…now”), File's trash item is Move Selection to
+    /// Trash…, and a folder you keep is in Favorites, not "pinned". Each positive half is checked
+    /// against the control's own source, so a rename on either side fails here.
+    @Test func helpNamesControlsByTheirCurrentLabels() throws {
+        let book = HelpBook.allTopics.flatMap(Self.copy(of:)).joined(separator: " ")
+        for stale in ["a Rescan beside it", "Update the survey now", "then Delete, then", "pinned folder"] {
+            #expect(!book.contains(stale), "Help still says “\(stale)”")
+        }
+        #expect(book.contains("“Update the survey”"))
+        #expect(book.contains("then Move Selection to Trash…, then Close Document"))
+        let lens = try LinkedMoveTranslationTests.repoFile("Modules/FileExplorer/Sources/FileExplorer/RestructureLens.swift")
+        #expect(lens.contains(": \"Update the survey\""), "Restructure's button no longer reads Update the survey")
+        let commands = try LinkedMoveTranslationTests.repoFile("MacApp/ShortcutCommands.swift")
+        #expect(commands.contains("Button(\"Move Selection to Trash…\")"), "File's trash item was renamed")
+    }
+
     @Test func editsLinesSayWhatEditDoes() throws {
         let book = HelpBook.allTopics.flatMap(Self.copy(of:)).joined(separator: " ")
         for stale in ["it saves when you ask it to", "The file list has two tabs: Files and Outline"] {

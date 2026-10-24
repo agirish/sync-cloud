@@ -921,11 +921,65 @@ enum DetailsMetadataLine: Equatable {
 ///
 /// The labels never wrap (`fixedSize`); the values take the rest and wrap, as the path always
 /// has. Both follow the app's text size, like the card's title above them.
+///
+/// **When the labels leave the values too little room, each label goes above its value.** At the
+/// largest text size in a 200pt inspector the label column took all but ~17pt, and the values
+/// wrapped a few letters to a line. The side-by-side grid is offered only when its value column can
+/// be at least ``minimumValueWidth`` wide (`ViewThatFits`, reading the grid's ideal width as the
+/// widest label plus that); otherwise the facts stack.
 struct DetailsMetadataGrid: View {
     let lines: [DetailsMetadataLine]
+    @Environment(\.appFontScale) private var scale
+
+    /// The narrowest value column worth drawing beside its label.
+    static let minimumValueWidth: CGFloat = 64
+    static let columnSpacing: CGFloat = 8
+
+    /// The width the side-by-side grid needs: its widest label, the gap, and a usable value column.
+    static func columnsWidth(labels: [String], scale: CGFloat) -> CGFloat {
+        let widest = labels.map { LabelMetrics.width(of: $0, font: .body, scale: scale) }.max() ?? 0
+        return widest + columnSpacing + minimumValueWidth
+    }
+
+    private var labels: [String] {
+        lines.compactMap { if case let .fact(label, _) = $0 { label } else { nil } }
+    }
 
     var body: some View {
-        Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 12) {
+        let needed = Self.columnsWidth(labels: labels, scale: scale)
+        ViewThatFits(in: .horizontal) {
+            columns.frame(minWidth: needed, idealWidth: needed, maxWidth: .infinity, alignment: .leading)
+            stacked
+        }
+    }
+
+    /// Each label above its value, for a column too narrow to hold both side by side.
+    var stacked: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                switch line {
+                case .divider:
+                    Divider()
+                case let .fact(label, value):
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(label)
+                            .scaledFont(.body)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(value)
+                            .scaledFont(.body)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+
+    /// The labels in a trailing-aligned column beside their values.
+    var columns: some View {
+        Grid(alignment: .leading, horizontalSpacing: Self.columnSpacing, verticalSpacing: 12) {
             ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                 switch line {
                 case .divider:

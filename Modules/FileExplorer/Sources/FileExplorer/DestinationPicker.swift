@@ -420,6 +420,10 @@ public struct DestinationPicker: View {
     /// Legal read identically in the rail; each now carries where it sits, relative to the
     /// provider — the provider's name for one directly under it. `nil` for a name no other recent
     /// shares, so the ordinary row stays one line. Every row also gets its full path as a tooltip.
+    ///
+    /// Written as the picker's own breadcrumb writes a place — "iCloud › Clients › Acme", from the
+    /// provider down, `›` between — not as a slash path, so the rail and the crumbs above the
+    /// columns name one folder one way.
     nonisolated static func recentDetail(for path: String, among recents: [String], under root: String,
                              rootName: String) -> String? {
         let name = (path as NSString).lastPathComponent
@@ -427,7 +431,8 @@ public struct DestinationPicker: View {
         guard sharing.count > 1 else { return nil }
         let parent = (PaneBrowsePath.normalized(path) as NSString).deletingLastPathComponent
         let relative = browsePath(for: parent, under: root).relativePath
-        return relative.isEmpty ? rootName : relative
+        let folders = relative.split(separator: "/").map(String.init)
+        return ([rootName] + folders).joined(separator: " › ")
     }
 
     private var searchField: some View {

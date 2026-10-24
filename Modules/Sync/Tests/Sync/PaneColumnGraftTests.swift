@@ -486,4 +486,60 @@ import Testing
         #expect(manager.columnGraftsInFlightPaths(isLeft: true).isEmpty,
                 "a directory the walk already read was queued for a second listing")
     }
+
+    /// **An unreadable folder is asked for once, not on every appearance.** The tree's "Can’t be
+    /// read" placeholder asks in `.onAppear`, and each scroll back into view started the same
+    /// doomed listing and drew a spinner over the caption for its length. The outcome is
+    /// remembered — and forgotten when the side is walked afresh, which is when a retry can
+    /// answer differently. A readable unexplored folder beside it still asks: the control that
+    /// tells "remembered" from "the guard refuses everything".
+    @MainActor
+    @Test func anUnreadableFolderIsNotAskedForAgainUntilTheTreeIsWalkedAfresh() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "graftunreadable")
+        let locked = root.appendingPathComponent("locked")
+        let open = root.appendingPathComponent("open")
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: open, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: open.appendingPathComponent("f.txt"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let manager = FileSyncManager()
+        let shallow = await FileSyncManager.buildTree(url: root, sortOption: .name, maxDepth: 1)
+        manager.adoptRawTree(shallow, isLeft: true, focusPath: root.path)
+        try #require(FileSyncManager.isUnexplored(atPath: locked.path, under: root.path, in: manager.rawLeftTree),
+                     "the fixture arrived already walked — this measures nothing")
+
+        manager.loadColumnChildren(atPath: locked.path, isLeft: true)
+        try #require(manager.columnGraftsInFlightPaths(isLeft: true) == [locked.path], "the first ask was never made")
+        await waitUntil("the unreadable listing comes back") {
+            manager.columnGraftsInFlightPaths(isLeft: true).isEmpty
+        }
+        try #require(FileSyncManager.isUnexplored(atPath: locked.path, under: root.path, in: manager.rawLeftTree),
+                     "the locked folder was read after all — the fixture is not unreadable here")
+
+        // Asked again, as a placeholder scrolling back into view asks: no listing, no spinner.
+        manager.loadColumnChildren(atPath: locked.path, isLeft: true)
+        #expect(manager.columnGraftsInFlightPaths(isLeft: true).isEmpty,
+                "an unreadable folder was listed again — its placeholder flickers a spinner on every scroll")
+
+        // The control: another unexplored folder still asks.
+        manager.loadColumnChildren(atPath: open.path, isLeft: true)
+        #expect(manager.columnGraftsInFlightPaths(isLeft: true) == [open.path])
+        await waitUntil("the readable listing lands") {
+            manager.columnGraftsInFlightPaths(isLeft: true).isEmpty
+        }
+
+        // A fresh walk of the side is when to try again.
+        manager.adoptRawTree(shallow, isLeft: true, focusPath: root.path)
+        manager.loadColumnChildren(atPath: locked.path, isLeft: true)
+        #expect(manager.columnGraftsInFlightPaths(isLeft: true).contains(locked.path),
+                "a fresh walk did not let the unreadable folder be asked for again")
+        await waitUntil("the retried listing comes back") {
+            manager.columnGraftsInFlightPaths(isLeft: true).isEmpty
+        }
+    }
 }

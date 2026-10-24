@@ -114,7 +114,7 @@ enum WorkspaceBarMetrics {
     // what keeps the five labels under a floor that would otherwise have had to rise further.
 
     /// Toolbar width the bar can never have: the traffic lights and their margin, the minimum gap
-    /// before the trailing group, and the utility pill (Settings, Logs, Info). Deliberately
+    /// before the trailing group, and the utility pill (Settings, Activity Log, Info). Deliberately
     /// generous — being one segment too cautious costs a label, being one too optimistic costs the
     /// entire control behind an overflow chevron.
     ///

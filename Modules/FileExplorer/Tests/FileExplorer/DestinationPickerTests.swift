@@ -59,8 +59,9 @@ import Sync
         func detail(_ path: String) -> String? {
             DestinationPicker.recentDetail(for: path, among: recents, under: "/p", rootName: "iCloud")
         }
-        #expect(detail("/p/Clients/Acme/Legal") == "Clients/Acme")
-        #expect(detail("/p/Archive/Legal") == "Archive")
+        // The breadcrumb's style, provider first: not a slash path.
+        #expect(detail("/p/Clients/Acme/Legal") == "iCloud › Clients › Acme")
+        #expect(detail("/p/Archive/Legal") == "iCloud › Archive")
         #expect(detail("/p/Legal") == "iCloud")
         #expect(detail("/p/Medical") == nil, "a name no other recent shares stays one line")
     }
