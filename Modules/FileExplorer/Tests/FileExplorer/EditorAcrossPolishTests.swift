@@ -117,22 +117,60 @@ import Testing
         #expect(EditorPDFFind.unreadableCaption == "Couldn’t read this PDF’s text")
     }
 
-    /// **No sentence in Edit's sources has a straight apostrophe** — nor in Help or the keyboard
-    /// shortcuts window (TE173), which had 200 and 5 between them, nor at a word's end ("buttons’"),
-    /// which the first pattern could not see. Log lines are not read by anyone but us, so they are
-    /// skipped. Mutation: straighten “Couldn’t” in EditorFileStore, “doesn’t” in Help or “words’” in
-    /// Help, and this names the line.
-    @Test func editsSentencesUseCurlyApostrophes() throws {
-        let straight = try NSRegularExpression(pattern: "[A-Za-z]'[A-Za-z]|[a-z]'(?=[\\s.,;:!?)—–])")
-        var found: [String] = []
-        let help = try Self.sentenceLiterals(inAppFiles: ["HelpBook.swift", "ShortcutsReference.swift"])
-        try #require(help.count > 300, "not reading Help's sentences: \(help.count)")
-        for (file, literal) in try Self.sentenceLiterals() + help {
-            if straight.firstMatch(in: literal, range: NSRange(literal.startIndex..., in: literal)) != nil {
-                found.append("\(file): \(literal)")
-            }
+    /// **No sentence anywhere in the app has a straight apostrophe or straight quotes** — Edit's
+    /// files first, then Help and the keyboard shortcuts window (TE173), and since ST17 every source
+    /// in `MacApp/` and the packages: an alert said “can't” beside a row that said “can’t”. Log
+    /// statements are skipped, and the strings no one sees are named in
+    /// `AppCopyScan.punctuationExemptions`. Mutation: straighten “doesn’t” in Help, “aren’t” in a
+    /// Settings caption or the quotes around a name in a Sync banner, and this names the line.
+    @Test func everySentenceInTheAppUsesCurlyApostrophesAndQuotes() throws {
+        let literals = try AppCopyScan.literals()
+        try #require(Set(literals.map(\.path)).count > 400, "not reading the app's sources")
+        try #require(literals.filter { $0.fileName == "HelpBook.swift" && $0.text.contains(" ") }.count > 300,
+                     "not reading Help's sentences")
+        try #require(literals.contains { $0.path.hasPrefix("Modules/Settings/") }, "not reading Settings")
+        for (name, rule) in [("apostrophe", AppCopyScan.straightApostrophe), ("quote", AppCopyScan.straightQuote)] {
+            let found = try AppCopyScan.violations(of: rule, exemptions: AppCopyScan.punctuationExemptions)
+            #expect(found.isEmpty, "straight \(name)s:\n\(found.map { "\($0.path):\($0.line): \($0.text)" }.joined(separator: "\n"))")
         }
-        #expect(found.isEmpty, "\(found.joined(separator: "\n"))")
+    }
+
+    /// **US spelling, app-wide** (ST16): colour, reorganisation, judgement and grey had reached
+    /// Setup, Organize, Help and a PDF tool past the Edit-only check. Mutation: spell “color” in
+    /// a Dashboard tooltip the British way and this names it.
+    @Test func everySentenceInTheAppIsSpelledTheUSWay() throws {
+        let found = try AppCopyScan.violations(of: AppCopyScan.britishSpelling, sentencesOnly: false, exemptions: AppCopyScan.spellingExemptions)
+        #expect(found.isEmpty, "\(found.map { "\($0.path):\($0.line): \($0.text)" }.joined(separator: "\n"))")
+    }
+
+    /// **The exemptions still exempt something** — one that no longer matches would hide the next
+    /// string written where it points.
+    @Test func everyCopyExemptionIsStillNeeded() throws {
+        let staleApostrophe = try AppCopyScan.staleExemptions(AppCopyScan.punctuationExemptions, rule: AppCopyScan.straightApostrophe)
+        let staleQuote = try AppCopyScan.staleExemptions(AppCopyScan.punctuationExemptions, rule: AppCopyScan.straightQuote)
+        let stale = staleApostrophe.filter { a in staleQuote.contains { $0.file == a.file && $0.contains == a.contains } }
+        #expect(stale.isEmpty, "\(stale.map { "\($0.file): \($0.contains)" })")
+        let staleSpelling = try AppCopyScan.staleExemptions(AppCopyScan.spellingExemptions, rule: AppCopyScan.britishSpelling, sentencesOnly: false)
+        #expect(staleSpelling.isEmpty, "\(staleSpelling.map { "\($0.file): \($0.contains)" })")
+    }
+
+    /// The scanner reads what a person reads: comments go, a URL in a string stays, an
+    /// interpolation's own strings stay inside their literal, and a log call is skipped to its
+    /// closing parenthesis.
+    @Test func theCopyScannerReadsStringsNotComments() {
+        let code = """
+            // Don't count me
+            let a = "Can't open https://x.org" /* won't count */
+            let b = "\\(n == 1 ? "" : "s") files aren't here"
+            Logger.shared.info("couldn't log "
+                + "this isn't seen")
+            let c = "after the log, it's seen"
+            """
+        let found = AppCopyScan.literals(in: code, path: "X.swift")
+            .filter { AppCopyScan.matches(AppCopyScan.straightApostrophe, $0.text) }
+        #expect(found.map(\.line) == [2, 3, 6], "\(found.map { "\($0.line): \($0.text)" })")
+        #expect(found.first?.text == "\"Can't open https://x.org\"")
+        #expect(found.dropFirst().first?.text == #""\(n == 1 ? "" : "s") files aren't here""#)
     }
 
     // MARK: TE132 — one tooltip pattern
@@ -298,16 +336,6 @@ import Testing
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/FileExplorer")
-    }
-
-    /// The same, in files of the app target — `MacApp/<name>`, beside this package.
-    static func sentenceLiterals(inAppFiles names: [String]) throws -> [(file: String, literal: String)] {
-        let app = sourcesFolder.deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("MacApp")
-        return try names.flatMap { name in
-            try sentenceLiterals(in: String(contentsOf: app.appendingPathComponent(name), encoding: .utf8))
-                .map { (name, $0) }
-        }
     }
 
     /// Every string literal with a space in it — a sentence, not a key — in Edit's own files,

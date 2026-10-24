@@ -523,5 +523,47 @@ import Sync
         #expect(EditorPDFFillMark.check.title == "Check Mark")
         #expect(EditorPDFFillColor.allCases.map(\.title) == ["Blue", "Black"])
         #expect(EditorPDFFillColor.allCases.map(\.inkTitle) == ["Blue ink", "Black ink"])
+        #expect(EditorPDFFillFlyouts.originalInkTitle == "Original Ink", "PD13: among Blue and Black")
+    }
+
+    /// **Every menu item the app writes is in Title Case** — the menu bar, every context menu and
+    /// pop-up menu, in `MacApp/` and every package (TE126, widened by BR9: the pane row said
+    /// “Fix name” and “Ignore in comparison” where the menu bar said “Fix Name” and “Ignore in
+    /// Comparison”). Mutation: put back “Paste here” in FileTreeView, or “Manage sources…” in
+    /// ProviderMenu, and this names the line.
+    @Test func everyMenuItemInTheAppIsInTitleCase() throws {
+        let found = try AppCopyScan.menuTitleViolations(exemptions: AppCopyScan.menuExemptions)
+        #expect(found.isEmpty, "\(found.map { "\($0.path):\($0.line): \($0.text)" }.joined(separator: "\n"))")
+        // The exemption still has something to exempt — a scope the scan lost would pass vacuously.
+        let all = try AppCopyScan.menuTitleViolations(exemptions: [])
+        #expect(all.contains { $0.fileName == "EditorPDFFillSignMenuItems.swift" },
+                "the scan no longer reaches the Fill & Sign menu, so its exemption proves nothing")
+        #expect(AppCopyScan.isTitleCase("Find Duplicates of This") && AppCopyScan.isTitleCase("Copy \\(count) Items to…"))
+        #expect(!AppCopyScan.isTitleCase("Find duplicates of this") && !AppCopyScan.isTitleCase("Paste here"))
+    }
+
+    /// The menu scan's reach: a context menu, a menu-content type, a ternary's two branches and
+    /// `NSMenuItem` — and not a comment, a labelled argument or a string handed to a function.
+    @Test func theMenuScanReadsMenusAndOnlyMenus() {
+        let code = """
+            struct RowView: View {
+                var body: some View {
+                    Text("A sentence here is fine")
+                        .contextMenu {
+                            Button("Paste here") {}
+                            // Button("Not this one")
+                            Button(action: {}) { Label(on ? "Include in comparison" : "Ignore In Comparison", systemImage: "eye") }
+                            Button(Self.title("by 180°")) {}
+                        }
+                }
+            }
+            struct ThingMenu: View {
+                var body: some View { Label("Fix name", systemImage: "x") }
+            }
+            let item = NSMenuItem(title: "Show all files", action: nil, keyEquivalent: "")
+            """
+        let found = AppCopyScan.menuTitleViolations(in: code, path: "X.swift").map(\.text)
+        #expect(found == [#""Paste here""#, #""Include in comparison""#, #""Fix name""#, #""Show all files""#],
+                "\(found)")
     }
 }
