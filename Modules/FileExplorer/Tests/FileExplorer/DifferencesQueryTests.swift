@@ -302,6 +302,83 @@ import Sync
 
     // MARK: Selection-driven action targets
 
+    /// A held row (FR39/FR40/FR8) is not something the header copies: its count leaves it out and
+    /// so does what the button sends — and with one held row and nothing else, there is nothing to
+    /// send, rather than a `syncFile` of the held row.
+    @Test func testTheHeaderNeitherCountsNorSendsAHeldRow() {
+        func held(_ path: String, _ reason: FileDifference.HeldBack) -> FileDifference {
+            FileDifference(relativePath: path, leftItemPath: "/l/\(path)", rightItemPath: "/r/\(path)",
+                           type: .differentDates, action: .copyToRight, description: "test",
+                           leftFileSize: 1, rightFileSize: 2, heldBack: reason)
+        }
+        let guess = held("guess.txt", .sizesDifferWithoutANewerSide)
+        let plain = diff("plain.txt", action: .copyToRight)
+        let both = DifferenceActionTargets(filtered: [guess, plain], selection: [])
+        #expect(both.copyToRightCount == 1, "the count promised a held row the run would not copy")
+        #expect(both.transferItems(.copyToRight).map(\.relativePath) == ["plain.txt"])
+
+        let onlyHeld = DifferenceActionTargets(filtered: [held("link", .sourceIsSymbolicLink)], selection: [])
+        #expect(onlyHeld.copyToRightCount == 0)
+        #expect(onlyHeld.transferItems(.copyToRight).isEmpty,
+                "a single held row went to syncFile from the header and was copied unasked")
+    }
+
+    /// The call site: the header's Copy/Move sends exactly `transferItems`, the set its count
+    /// describes — not its own filter over `targets`.
+    @Test func testTheHeaderCopySendsTransferItems() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/DifferencesView.swift")
+        let source = try String(contentsOf: url, encoding: .utf8)
+        let start = try #require(source.range(of: "private func copy(direction: FileDifference.SyncAction, targets: DifferenceActionTargets)"),
+                                 "the header's copy was renamed — this scan is measuring nothing")
+        let body = source[start.upperBound...].prefix(400)
+        #expect(body.contains("items: targets.transferItems(direction)"))
+    }
+
+    /// ⌘→ and the bulk context menu leave held rows out of a multi-row selection exactly as the
+    /// header does — and when exactly one held row survives, nothing reaches `syncFile`. The one
+    /// exception is a held row the user selected ALONE and asked to copy: the "pick it alone" path
+    /// the held rows' wording points to.
+    @Test func testTheChordAndBulkMenuLeaveHeldRowsOutOfASelection() {
+        let guess = FileDifference(relativePath: "guess.txt", leftItemPath: "/l/guess.txt",
+                                   rightItemPath: "/r/guess.txt", type: .differentDates,
+                                   action: .copyToRight, description: "test",
+                                   leftFileSize: 1, rightFileSize: 2, heldBack: .sizesDifferWithoutANewerSide)
+        let plain = diff("plain.txt", action: .copyToRight)
+        let other = diff("other.txt", action: .copyToLeft)
+
+        #expect(DifferencesShortcutRules.transferItems(rows: [guess, plain], selection: [guess.id, plain.id],
+                                                        direction: .copyToRight).map(\.relativePath) == ["plain.txt"],
+                "a held row went along with a multi-row selection")
+        // Two selected, one held and one going the other way: the held row alone is left, and it
+        // must not go to `syncFile` as a single item.
+        #expect(DifferencesShortcutRules.transferItems(rows: [guess, other], selection: [guess.id, other.id],
+                                                        direction: .copyToRight).isEmpty,
+                "the one held row of a multi-row selection was sent on its own")
+        // A selection of two whose other row is no longer on screen is not "picked alone".
+        #expect(DifferencesShortcutRules.transferItems(rows: [guess], selection: [guess.id, UUID()],
+                                                        direction: .copyToRight).isEmpty)
+        // The exception, left alone.
+        #expect(DifferencesShortcutRules.transferItems(rows: [guess, plain], selection: [guess.id],
+                                                        direction: .copyToRight).map(\.relativePath) == ["guess.txt"],
+                "a held row the user selected alone and asked to copy was refused")
+    }
+
+    /// The call site: the bulk menu's labels count with the rule its actions send, so "Copy 3"
+    /// cannot sit over a run that copies two.
+    @Test func testTheBulkMenuCountsWhatItsActionsSend() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/DifferencesView.swift")
+        let source = try String(contentsOf: url, encoding: .utf8)
+        let start = try #require(source.range(of: "private func bulkMenu("),
+                                 "bulkMenu was renamed — this scan is measuring nothing")
+        let body = source[start.upperBound...].prefix(600)
+        #expect(body.contains("let toRight = DifferencesShortcutRules.transferItems(rows: selected, selection: ids, direction: .copyToRight)"))
+        #expect(body.contains("let toLeft = DifferencesShortcutRules.transferItems(rows: selected, selection: ids, direction: .copyToLeft)"))
+    }
+
     @Test func testEmptySelectionTargetsTheWholeFilteredSet() {
         let filtered = [
             diff("a", action: .copyToRight),

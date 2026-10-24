@@ -123,9 +123,9 @@ struct DifferenceActionTargets: Equatable {
     let targets: [FileDifference]
     /// True when a non-empty selection scoped the targets; false when acting on the full filtered set.
     let isSelectionScoped: Bool
-    /// Items "Copy/Move to Right" would sync (subset of `targets`).
+    /// Items "Copy/Move to Right" would sync (subset of `targets`) — `transferItems(.copyToRight)`.
     let copyToRightCount: Int
-    /// Items "Copy/Move to Left" would sync (subset of `targets`).
+    /// Items "Copy/Move to Left" would sync (subset of `targets`) — `transferItems(.copyToLeft)`.
     let copyToLeftCount: Int
     /// Items "Verify" would checksum: date-only differences with matching sizes within `targets`.
     let verifiableCount: Int
@@ -146,13 +146,32 @@ struct DifferenceActionTargets: Equatable {
         // reduces into a single loop drops two extra O(n) walks of the targets each frame.
         var right = 0, left = 0, verifiable = 0
         for difference in targets {
-            if difference.action == .copyToRight { right += 1 }
-            if difference.action == .copyToLeft { left += 1 }
+            if Self.headerTransfers(difference, .copyToRight) { right += 1 }
+            if Self.headerTransfers(difference, .copyToLeft) { left += 1 }
             if difference.type == .differentDates && difference.sizesMatch { verifiable += 1 }
         }
         self.copyToRightCount = right
         self.copyToLeftCount = left
         self.verifiableCount = verifiable
+    }
+
+    /// What the header's Copy/Move in `direction` acts on — the rows its count is the count OF.
+    ///
+    /// **A held row is not among them** (`FileDifference.heldBack`, FR39/FR40/FR8). Its direction
+    /// is a guess the user has to make, and the header is the one surface that acts on a SET: the
+    /// bulk run already left held rows out, but the counts still included them — "Copy 3 →" over
+    /// a run that copied two — and when exactly one row was targeted the header went through
+    /// `syncFile`, which copies whatever it is handed, so a held row was copied after all,
+    /// unasked. A held row is copied by selecting it alone and asking for it (⌘→); ⌘→ and the bulk
+    /// menu over a larger selection leave it out the same way (`DifferencesShortcutRules.transferItems`).
+    func transferItems(_ direction: FileDifference.SyncAction) -> [FileDifference] {
+        targets.filter { Self.headerTransfers($0, direction) }
+    }
+
+    /// The one rule behind both the counts and `transferItems`, so the label cannot promise a
+    /// different set than the button sends.
+    private static func headerTransfers(_ difference: FileDifference, _ direction: FileDifference.SyncAction) -> Bool {
+        difference.action == direction && difference.heldBack == nil
     }
 
     /// The direction carrying strictly more of the targets: the header renders that copy

@@ -75,7 +75,7 @@ import Foundation
         let body = try Self.bulkMenuBody()
         // The premise: the snapshot bindings still exist and the labels still use them. Without
         // this the absence below passes on a function that simply stopped having them.
-        #expect(body.contains("let toRight = selected.filter"),
+        #expect(body.contains("let toRight = DifferencesShortcutRules.transferItems(rows: selected,"),
                 "the snapshot bindings are gone — this absence is no longer measuring anything")
         #expect(body.contains("\\(toRight.count)"), "the label stopped counting the snapshot")
 

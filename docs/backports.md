@@ -10287,3 +10287,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s bulk=%s dates=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same whole-file copy over identical pairs (`dates=0`) | RECORDED — not owed |
+
+---
+
+## The Compare header neither counts nor copies a held row — main only
+
+The header's Copy counts still included rows held out of bulk runs (`FileDifference.heldBack`), and
+with exactly one row targeted it went through `syncFile` and copied a held row. `main` gives the
+counts and the button one rule (`DifferenceActionTargets.transferItems`), and ⌘→ and the bulk
+context menu the same exclusion (`DifferencesShortcutRules.transferItems`) — except a held row
+selected alone, which ⌘→ still copies.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s heldBack=%s rule=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileDifference.swift 2>/dev/null | grep -cF 'public let heldBack')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DifferencesQuery.swift 2>/dev/null | grep -cF 'func transferItems(_ direction')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads heldBack=1 rule=1):
+# main, v5.x, v4.x, v3.x, v2.x   heldBack=0 rule=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No held rows at all (`heldBack=0`) | CLOSED — does not apply |

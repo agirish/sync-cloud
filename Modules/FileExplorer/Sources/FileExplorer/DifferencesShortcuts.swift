@@ -106,13 +106,25 @@ enum DifferencesShortcutRules {
     /// lines inside a view method — because "unify these, they look the same" is exactly the edit
     /// that would introduce the fallback.
     ///
+    /// **A held row (`FileDifference.heldBack`) is left out of a selection of more than one**, as
+    /// the header leaves it out (`DifferenceActionTargets.transferItems`): its direction is a guess
+    /// the user has to make, and a set is not where they make it. Without this ⌘→ and the bulk
+    /// menu counted and sent held rows, and when one alone survived `runCopyOrMove` handed it to
+    /// `syncFile`, which copies whatever it is given. A held row the user selected ALONE and asked
+    /// to copy is theirs to copy — the "pick it alone" path the held rows' wording points to. One
+    /// selected id, not one surviving row: a selection of two whose other row has gone from the
+    /// screen was not a pick of the one left.
+    ///
     /// - Parameter rows: the visible rows **as of the moment the chord fires**, never a snapshot
     ///   taken when the shortcut was published. See ``TransferShortcut``.
     static func transferItems(rows: [FileDifference],
                               selection: Set<FileDifference.ID>,
                               direction: FileDifference.SyncAction) -> [FileDifference] {
         guard !selection.isEmpty else { return [] }
-        return rows.filter { selection.contains($0.id) && $0.action == direction }
+        let pickedAlone = selection.count == 1
+        return rows.filter {
+            selection.contains($0.id) && $0.action == direction && (pickedAlone || $0.heldBack == nil)
+        }
     }
 
     /// The live rows for a set of ids, in the rows' own order.

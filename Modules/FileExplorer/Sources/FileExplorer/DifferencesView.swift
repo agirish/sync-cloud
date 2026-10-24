@@ -1931,7 +1931,7 @@ public struct DifferencesView: View {
     private func copy(direction: FileDifference.SyncAction, targets: DifferenceActionTargets) {
         runCopyOrMove(
             direction: direction,
-            items: targets.targets.filter { $0.action == direction },
+            items: targets.transferItems(direction),
             scope: targets.isSelectionScoped ? "selection" : "filtered set"
         )
     }
@@ -2119,8 +2119,9 @@ public struct DifferencesView: View {
     /// (respecting the move modifier) and ignore them all.
     @ViewBuilder
     private func bulkMenu(for ids: Set<FileDifference.ID>, snapshot selected: [FileDifference]) -> some View {
-        let toRight = selected.filter { $0.action == .copyToRight }
-        let toLeft = selected.filter { $0.action == .copyToLeft }
+        // Counted by the rule the actions send through, so a held row is in neither.
+        let toRight = DifferencesShortcutRules.transferItems(rows: selected, selection: ids, direction: .copyToRight)
+        let toLeft = DifferencesShortcutRules.transferItems(rows: selected, selection: ids, direction: .copyToLeft)
         // Label-only snapshot: NSMenu can't relabel items from @Published while open, so the
         // verb shows the modifier held when the menu was built. The ACTION re-reads the live
         // modifier inside runCopyOrMove.
