@@ -141,10 +141,13 @@ extension FileSyncManager {
             undoManager?.setActionName("Sync run")
             undoManager?.endUndoGrouping()
         }
+        // The pairing is armed HERE, in the turn that closed the group, and not after the walks
+        // below (FR26): what tops the stack after an await may be a rename or a ⌘Z made during
+        // the tail, and "Undo Last Run" would then describe this run while reversing that.
+        recordSyncHistory(historyRecords)
         // Outside the group (see the note at `identityWalks`): the run does not report complete
         // until every undo it registered is fully armed.
         for walk in identityWalks { await walk.value }
-        recordSyncHistory(historyRecords)
         removeResolvedDifferences(matching: result.successes.map { $0.0 })
         // The failures stay in the list — only successes were removed — so mark them while they
         // are still in hand. Unconditional: a clean run clears the previous one's marks.
@@ -580,10 +583,13 @@ extension FileSyncManager {
             undoManager?.setActionName("Sync run")
             undoManager?.endUndoGrouping()
         }
+        // The pairing is armed HERE, in the turn that closed the group, and not after the walks
+        // below (FR26): what tops the stack after an await may be a rename or a ⌘Z made during
+        // the tail, and "Undo Last Run" would then describe this run while reversing that.
+        recordSyncHistory(historyRecords)
         // Outside the group (see the note at `identityWalks`): the run does not report complete
         // until every undo it registered is fully armed.
         for walk in identityWalks { await walk.value }
-        recordSyncHistory(historyRecords)
         removeResolvedDifferences(matching: result.successes.map { $0.0 })
         // The failures stay in the list — only successes were removed — so mark them while they
         // are still in hand. Unconditional: a clean run clears the previous one's marks.

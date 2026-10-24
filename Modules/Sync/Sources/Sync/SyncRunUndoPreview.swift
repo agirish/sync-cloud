@@ -6,17 +6,30 @@ import Events
 /// be undone. It exists ONLY when the top of the shared `UndoManager` stack really is the last
 /// recorded sync run (see `FileSyncManager.lastSyncRunUndoPreview`); when a Filing move, a rename,
 /// a "New Folder", or any other non-sync action sits on top instead, there is no preview and the
-/// undo is refused — so this can never describe one run while a different action gets reversed.
+/// undo is refused.
+///
+/// **What that gate does not cover, and what does** (FR26). This used to say the preview "can
+/// never describe one run while a different action gets reversed", and two paths did exactly that:
+/// a run armed its pairing only after awaiting its identity walks, so a rename or ⌘Z made during
+/// that tail was paired with the run's records; and the confirmation is modal, so a second "Sync
+/// run" finishing while it was up re-armed the pairing under the same name, and Undo reversed the
+/// run the alert never listed. Runs now arm in the turn that registers them, and the confirmation
+/// (`undoLastSyncRunAskingFirst`) re-reads the preview after the modal and refuses unless its
+/// `runToken` still names the run it showed. A path that bypasses both — ⌘Z itself — reverses whatever is on top.
 public struct SyncRunUndoPreview: Sendable {
     /// The `UndoManager` action name of the run's group (e.g. "Sync run", "Move 3 Items"). Used
     /// both to gate the undo (it must still match the stack's top) and to title the log line.
     public let actionName: String
     /// Every record produced by the run, in the order it happened — the evidence shown to the user.
     public let records: [SyncHistoryRecord]
+    /// Which arming of the pairing this preview describes — fresh for every run that arms it, so
+    /// two runs under one action name are still two tokens.
+    public let runToken: UUID
 
-    public init(actionName: String, records: [SyncHistoryRecord]) {
+    public init(actionName: String, records: [SyncHistoryRecord], runToken: UUID = UUID()) {
         self.actionName = actionName
         self.records = records
+        self.runToken = runToken
     }
 
     /// How many file operations the run performed (and this undo will reverse).

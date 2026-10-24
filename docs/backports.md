@@ -9880,3 +9880,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s copyRedo=%s guard=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same unguarded redos (`guard=0`) | RECORDED — not owed |
+
+---
+
+## "Undo Last Run" reverses only the run it showed (FR26) — main only
+
+A run armed its pairing after awaiting its identity walks, so a rename or ⌘Z during that tail was
+paired with the run's records; and a second same-named run finishing behind the modal
+confirmation re-armed the pairing, so Undo reversed a run the alert never listed. `main` arms the
+pairing in the registration's own turn and gives each arming a token that the confirmation
+(`undoLastSyncRunAskingFirst`) checks again after the modal, refusing on a mismatch.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s token=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager.swift 2>/dev/null | grep -cF 'lastRecordedRunToken')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads token=5):
+# main, v5.x, v4.x, v3.x, v2.x   token=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same late, token-less pairing (`token=0`) | RECORDED — not owed |

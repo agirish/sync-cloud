@@ -213,6 +213,10 @@ public class FileSyncManager: ObservableObject {
     /// runs and are not in the history.
     private(set) var lastRecordedRunUndoName: String?
     private(set) var lastRecordedRunRecords: [SyncHistoryRecord] = []
+    /// A fresh token each time a run arms the pairing, carried by the preview it produces — so
+    /// a confirmation shown for one run can tell, when it is answered, whether the run on top is
+    /// still that one (FR26). The name cannot: every bulk run is "Sync run".
+    private(set) var lastRecordedRunToken: UUID?
     /// Whether any run armed the pairing this session — distinguishes "the pairing was
     /// invalidated" (a manual ⌘Z, a mixed delete, a manager swap) from "no sync run ever
     /// happened", so the refusal doesn’t claim history changed "since the last sync
@@ -223,6 +227,13 @@ public class FileSyncManager: ObservableObject {
     /// way and a future change (e.g. off switch) has one place to live. Never fails the caller.
     /// Also snapshots the run's undo-group name (each op site registers its undo BEFORE calling
     /// this) so "Undo Last Run" can later confirm it's still the top of the stack.
+    ///
+    /// **Called in the same main-actor turn as the registration, never after an await** (FR26).
+    /// The bulk runs, a single sync and a pane copy used to call this only after awaiting their
+    /// identity walks, and the name read then was whatever topped the stack at the END of that
+    /// tail: a rename registered during it was paired with the run's records — "Undo Last Run"
+    /// described the run and reversed the rename — and a ⌘Z during it, whose invalidation had
+    /// already run, was undone by this re-arming the pairing over the group below.
     ///
     /// `pairedWithUndo: false` appends to the durable store WITHOUT touching the pairing — for
     /// runs that registered no undo group covering exactly these records (an all-permanent
@@ -236,6 +247,7 @@ public class FileSyncManager: ObservableObject {
         guard pairedWithUndo else { return }
         lastRecordedRunUndoName = undoManager?.undoActionName
         lastRecordedRunRecords = records
+        lastRecordedRunToken = UUID()
         hasArmedRunPairingThisSession = true
     }
 
@@ -252,6 +264,7 @@ public class FileSyncManager: ObservableObject {
     func invalidateRunUndoPairing() {
         lastRecordedRunUndoName = nil
         lastRecordedRunRecords = []
+        lastRecordedRunToken = nil
     }
 
     /// A preview of what "Undo Last Run" would reverse, or nil when it must not act: nil unless the
@@ -263,9 +276,10 @@ public class FileSyncManager: ObservableObject {
         guard let undoManager, undoManager.canUndo,
               let expected = lastRecordedRunUndoName,
               undoManager.undoActionName == expected,
-              !lastRecordedRunRecords.isEmpty
+              !lastRecordedRunRecords.isEmpty,
+              let token = lastRecordedRunToken
         else { return nil }
-        return SyncRunUndoPreview(actionName: expected, records: lastRecordedRunRecords)
+        return SyncRunUndoPreview(actionName: expected, records: lastRecordedRunRecords, runToken: token)
     }
 
     /// Why "Undo Last Run" would refuse right now, in the words the user sees — or nil when it
@@ -311,7 +325,14 @@ public class FileSyncManager: ObservableObject {
         guard let preview = lastSyncRunUndoPreview else { return lastSyncRunUndoRefusal }
         guard confirm(preview) else { return nil }
         // Re-read, not `preview`: the confirm is a modal, and the stack is only trusted as of now.
-        guard lastSyncRunUndoPreview != nil else { return lastSyncRunUndoRefusal }
+        guard let current = lastSyncRunUndoPreview else { return lastSyncRunUndoRefusal }
+        // …and it must still be the run the alert listed: a second "Sync run" finishing behind the
+        // modal re-arms the pairing under the same name (FR26), and Undo would reverse a run the alert
+        // never listed.
+        guard current.runToken == preview.runToken else {
+            Logger.shared.warning("Undo Last Run refused: the run on top of the undo stack is not the one the confirmation listed (\(preview.operationCount) operation(s) shown, \(current.operationCount) on top)")
+            return "Another sync run finished while you were deciding, so nothing was undone. Choose Undo Last Run again to see what it would reverse."
+        }
         reverseLastSyncRun()
         return nil
     }
@@ -325,6 +346,7 @@ public class FileSyncManager: ObservableObject {
         // re-registers its own group with a fresh action name).
         lastRecordedRunUndoName = nil
         lastRecordedRunRecords = []
+        lastRecordedRunToken = nil
     }
 
     /// Initializes a new FileSyncManager with a specific file manager.
@@ -3643,14 +3665,15 @@ public class FileSyncManager: ObservableObject {
                 let actionName = "Sync \(difference.relativePath.components(separatedBy: "/").last ?? "")"
                 if isMove {
                     self.registerMoveUndo(items: [(from: from, to: to, overwritten: result.trashed)], actionName: actionName, fileManager: activeFM)
-                } else {
-                    // Registration is synchronous; the awaited value is the detached identity
-                    // walk (see `registerCopyUndo(items:)`), so the sync does not report done
-                    // until its undo is fully armed. One file, so the walk is one stat.
-                    await self.registerCopyUndo(items: [(source: from, destination: to, overwritten: result.trashed)], actionName: actionName, fileManager: activeFM).value
                 }
+                // Registration is synchronous; the awaited value is the detached identity
+                // walk (see `registerCopyUndo(items:)`), so the sync does not report done
+                // until its undo is fully armed. One file, so the walk is one stat.
+                let identityWalk = isMove ? nil : self.registerCopyUndo(items: [(source: from, destination: to, overwritten: result.trashed)], actionName: actionName, fileManager: activeFM)
                 // Durable Sync History (X2). Size is free from the difference (source side);
-                // checksum is left nil at op time (see the bulk path's checksum note).
+                // checksum is left nil at op time (see the bulk path's checksum note). In the
+                // registration's own turn, before the await, so the pairing names this sync's
+                // group and nothing that lands on the stack during the walk (FR26).
                 let size = difference.action == .copyToRight ? difference.leftFileSize : difference.rightFileSize
                 self.recordSyncHistory([SyncHistoryRecord(
                     runId: UUID(),
@@ -3662,6 +3685,7 @@ public class FileSyncManager: ObservableObject {
                     backupPath: result.trashed?.path,
                     direction: difference.action == .copyToRight ? "→ Right" : "← Left"
                 )])
+                await identityWalk?.value
             }
             removeResolvedDifferences(matching: [difference])
             return true

@@ -621,9 +621,36 @@ extension FileSyncManager {
         }
 
         let transferred = result.transferred
+        /// Durable Sync History (X2): one record per transferred item, all sharing this batch's
+        /// run id. The result tuples don't carry size, so best-effort stat the landed file — a
+        /// local metadata read of a file that was just written, so it's cheap. Checksum is left
+        /// nil at op time (see the bulk path's note).
+        ///
+        /// Called in the registration's own turn, right after it and BEFORE the copy's await
+        /// (FR26): the pairing reads the name on top of the undo stack, and after the identity
+        /// tail that may be a rename or a ⌘Z made during it, not this transfer's group.
+        func recordTransferHistory() {
+            let runId = UUID()
+            let recordAction: SyncAction = isMove ? .move : .copy
+            let records = transferred.map { item in
+                let size = ((try? fm.attributesOfItem(atPath: item.to.path))?[.size] as? NSNumber)?.intValue
+                return SyncHistoryRecord(
+                    runId: runId,
+                    action: recordAction,
+                    sourcePath: item.from.path,
+                    destPath: item.to.path,
+                    sizeBytes: size,
+                    checksum: nil,
+                    backupPath: item.overwritten?.path,
+                    direction: direction
+                )
+            }
+            recordSyncHistory(records)
+        }
         if !transferred.isEmpty {
             if isMove {
                 self.registerMoveUndo(items: transferred, actionName: "Move \(CountedNoun.phrase(transferred.count, "Item"))", fileManager: fm)
+                recordTransferHistory()
             } else {
                 // Each item's identity walk was started the moment ITS copy landed, inside the
                 // loop above; the registration here is synchronous and what is awaited is the
@@ -640,7 +667,9 @@ extension FileSyncManager {
                 let pending: [PendingCopyItemState] = zip(transferred, result.identityWalks).map {
                     (source: $0.0.from, destination: $0.0.to, overwritten: $0.0.overwritten, identity: $0.1)
                 }
-                await self.registerCopyUndo(pendingItems: pending, actionName: "Copy \(CountedNoun.phrase(transferred.count, "Item"))", fileManager: fm).value
+                let armed = self.registerCopyUndo(pendingItems: pending, actionName: "Copy \(CountedNoun.phrase(transferred.count, "Item"))", fileManager: fm)
+                recordTransferHistory()
+                await armed.value
             }
         }
 
@@ -707,31 +736,6 @@ extension FileSyncManager {
                     ? "“\(first.name)” is already in \(folder)"
                     : "All \(prunedNodes.count) items are already in \(folder)")
             }
-        }
-
-        // Durable Sync History (X2): one record per transferred item, all sharing this batch's
-        // run id. The result tuples don't carry size, so best-effort stat the landed file — a
-        // local metadata read of a file that was just written, so it's cheap. Built SYNCHRONOUSLY
-        // (no await): an awaited suspension here, after the op already decremented
-        // `activeFileOperationsCount`, would let a caller waiting on completion observe "done"
-        // before this method returns. Checksum is left nil at op time (see the bulk path's note).
-        if !transferred.isEmpty {
-            let runId = UUID()
-            let recordAction: SyncAction = isMove ? .move : .copy
-            let records = transferred.map { item in
-                let size = ((try? fm.attributesOfItem(atPath: item.to.path))?[.size] as? NSNumber)?.intValue
-                return SyncHistoryRecord(
-                    runId: runId,
-                    action: recordAction,
-                    sourcePath: item.from.path,
-                    destPath: item.to.path,
-                    sizeBytes: size,
-                    checksum: nil,
-                    backupPath: item.overwritten?.path,
-                    direction: direction
-                )
-            }
-            recordSyncHistory(records)
         }
 
         return transferredNodes
