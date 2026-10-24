@@ -1003,6 +1003,7 @@ public enum FilingEngine {
     /// things worse than the keyword engine alone.
     public static func applyVerdicts(_ verdicts: [String: FilingVerdict], to suggestions: [FilingSuggestion],
                                      taxonomy: [FileNode], providerRoot: String,
+                                     nameProvider: CloudProvider.ProviderType? = nil,
                                      rejectedByFile: [String: Set<String>] = [:],
                                      contentBlind: Set<String> = [],
                                      routerShortlists: [String: [String]] = [:],
@@ -1021,7 +1022,8 @@ public enum FilingEngine {
         // Relative folder set for new-vs-existing marking — symlink-proof (see relativeFolderPaths).
         return applyVerdicts(verdicts, to: suggestions,
                              existingRelative: Set(relativeFolderPaths(of: taxonomy, limit: .max)),
-                             providerRoot: providerRoot, rejectedByFile: rejectedByFile,
+                             providerRoot: providerRoot, nameProvider: nameProvider,
+                             rejectedByFile: rejectedByFile,
                              contentBlind: contentBlind, routerShortlists: routerShortlists,
                              satelliteHomes: satelliteHomes,
                              profile: profile, registry: registry, pageSamples: pageSamples,
@@ -1069,6 +1071,7 @@ public enum FilingEngine {
 
     public static func applyVerdicts(_ verdicts: [String: FilingVerdict], to suggestions: [FilingSuggestion],
                                      existingRelative: Set<String>, providerRoot: String,
+                                     nameProvider: CloudProvider.ProviderType? = nil,
                                      rejectedByFile: [String: Set<String>] = [:],
                                      contentBlind: Set<String> = [],
                                      routerShortlists: [String: [String]] = [:],
@@ -1083,7 +1086,8 @@ public enum FilingEngine {
             if s.best?.remembered == true { return s }   // an explicit user rule outranks the model
             guard let v = verdicts[s.filePath],
                   let rawDest = destination(from: v, providerRoot: providerRoot,
-                                            existingRelative: existingRelative, fileName: s.fileName)
+                                            existingRelative: existingRelative, fileName: s.fileName,
+                                            nameProvider: nameProvider)
             else { return s }
             if rejectedByFile[s.filePath]?.contains(rawDest.path) == true { return s }   // model re-picked a rejected folder
             // Strictly less information cannot override more. Not a confidence comparison — a
@@ -1407,9 +1411,13 @@ public enum FilingEngine {
     /// Turns a verdict into an absolute destination, sanitizing the model's path (strip whitespace
     /// and slashes, drop any provider-root prefix it echoed back, reject empties, absolute escapes,
     /// and `..`/`.` traversal) and marking which trailing folders are new. nil ⇒ nothing usable.
+    ///
+    /// `nameProvider` is the ruleset a NEW folder's name is held to — the destination provider's,
+    /// as the scan's risky-name pass uses it. nil applies `validateItemName` alone.
     static func destination(from verdict: FilingVerdict, providerRoot: String,
                             existingRelative: Set<String>,
-                            fileName: String = "") -> FilingDestination? {
+                            fileName: String = "",
+                            nameProvider: CloudProvider.ProviderType? = nil) -> FilingDestination? {
         var rel = verdict.relativePath.trimmingCharacters(in: .whitespacesAndNewlines)
         // Strip an echoed provider-root prefix only on a PATH-COMPONENT boundary, so a sibling that
         // merely shares a string prefix (root "/Users/x/Docs", verdict "/Users/x/DocsArchive/Foo")
@@ -1477,6 +1485,22 @@ public enum FilingEngine {
             segments.removeLast(newSegments.count)
             newSegments = []
             guard !segments.isEmpty else { return nil }
+        }
+        // **A folder the model names into being has to be a name the folder can have (FR47).**
+        // The user-typed "Create as" path goes through `validateItemName`; a model's answer went
+        // straight to `createDirectory`, so `Taxes: 2025` was created — and Finder shows a `:` as
+        // `/`, so the folder is not the one the card named — and `Acme Inc.` was created on
+        // Dropbox and OneDrive, which refuse to sync a name ending in a period, leaving the filed
+        // document local-only under a success banner. Each segment this would CREATE is held to
+        // the shared predicate and to the destination provider's rules; a folder that already
+        // exists is the user's, whatever it is called. The candidate is dropped, not repaired:
+        // a sanitized name is a folder nobody proposed, and the card still offers "Choose a
+        // folder…" for the user to name one.
+        for seg in newSegments {
+            if FileSyncManager.validateItemName(seg) != nil { return nil }
+            if let nameProvider, ProviderNameRules.violation(name: seg, provider: nameProvider) != nil {
+                return nil
+            }
         }
         let abs = providerRoot + "/" + segments.joined(separator: "/")
         return FilingDestination(path: abs, confidence: verdict.confidence, reasons: [verdict.reason],

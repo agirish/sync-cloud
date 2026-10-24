@@ -9546,3 +9546,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s existsOnly=%s identity=%s\n' 
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same existence-only check (`existsOnly=1`) | RECORDED — not owed |
+
+---
+
+## A model's new folder name is checked before it is created (FR47) — main only
+
+`destination(from:)` refused only empty, `.`, `..` and file-looking segments, so a model-proposed
+`Taxes: 2025` was created (Finder shows the `:` as `/`) and `Acme Inc.` was created on Dropbox and
+OneDrive, which do not sync a trailing period. `main` holds every new segment to `validateItemName`
+and the destination provider's `ProviderNameRules` (the scan's `nameProvider`, kept as
+`filingLastNameProvider` for Refine and Try another) and drops a candidate that fails; existing
+folders are not judged.
+
+```sh
+F=Modules/Sync/Sources/Sync/FilingEngine.swift
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s resolver=%s checked=%s\n' $l \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF 'static func destination(from verdict: FilingVerdict, providerRoot: String,')" \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF 'if FileSyncManager.validateItemName(seg) != nil { return nil }')"; done
+# measured 2026-10-23, against origin, before this landed (the working tree reads checked=1):
+# main, v5.x, v4.x, v3.x, v2.x   resolver=1 checked=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same resolver (`resolver=1`) | RECORDED — not owed |

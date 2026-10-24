@@ -352,6 +352,7 @@ extension FileSyncManager {
         // Cache the taxonomy for single-file re-asks (Try another).
         let taxonomyFolders = FilingEngine.relativeFolderPaths(of: taxonomy)
         filingLastProviderRoot = providerRoot.path
+        filingLastNameProvider = nameProvider
         filingLastTaxonomyFolders = taxonomyFolders
         // Uncapped set for new-vs-existing marking on a re-ask (matches the main path's limit: .max).
         filingLastExistingFolders = Set(FilingEngine.relativeFolderPaths(of: taxonomy, limit: .max))
@@ -675,6 +676,7 @@ extension FileSyncManager {
                     hadReader: filingReadsContents && filingSnippetExtractor != nil)
                 suggestions = FilingEngine.applyVerdicts(verdicts, to: suggestions, taxonomy: taxonomy,
                                                          providerRoot: providerRoot.path,
+                                                         nameProvider: nameProvider,
                                                          rejectedByFile: rejectedByFile,
                                                          contentBlind: contentBlind,
                                                          routerShortlists: routerShortlists,
@@ -1401,6 +1403,7 @@ extension FileSyncManager {
         // these locals, which are consistent with the validated `root` by construction.
         let taxonomyFolders = filingLastTaxonomyFolders
         let existingFoldersSnapshot = filingLastExistingFolders
+        let nameProvider = filingLastNameProvider   // same snapshot rule, for a new folder's name (FR47)
         // "Try another" is a re-ask, not a scan, so it may only BORROW the status line while the
         // Filing lens is idle. Writing it unconditionally overwrote a running rescan's own phase
         // text, and the `defer` then blanked the line while that scan was still going — leaving the
@@ -1489,7 +1492,8 @@ extension FileSyncManager {
         let accepted: FilingDestination? = {
             guard let verdict = verdicts[suggestion.filePath],
                   let dest = FilingEngine.destination(from: verdict, providerRoot: root,
-                                                      existingRelative: existingFolders),
+                                                      existingRelative: existingFolders,
+                                                      nameProvider: nameProvider),
                   !allRejected.contains(dest.path)
             else { return nil }
             if let refusal = FilingEngine.personVeto(
@@ -1585,6 +1589,7 @@ extension FileSyncManager {
         // launch, exactly as Storage's restore does after `clearStorageLens()`.
         filingAutoRescanAttempted = nil
         filingLastProviderRoot = nil
+        filingLastNameProvider = nil
         filingLastTaxonomyFolders = []
         filingLastExistingFolders = []
         filingSessionRejections = [:]

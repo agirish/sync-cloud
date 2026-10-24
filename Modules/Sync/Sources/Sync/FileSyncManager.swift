@@ -897,6 +897,11 @@ public class FileSyncManager: ObservableObject {
     /// The most recent Filing scan's provider root + relative folder list, kept so a "Try another"
     /// re-ask can classify a single file without re-walking the whole provider.
     public var filingLastProviderRoot: String?
+    /// The name ruleset that scan checked against (its `nameProvider`), set and cleared with
+    /// ``filingLastProviderRoot`` — so a refine or a "Try another" holds a model's NEW folder names
+    /// to the same provider rules the scan did (FR47). nil ⇒ no provider rules, only
+    /// `validateItemName`.
+    public var filingLastNameProvider: CloudProvider.ProviderType?
 
     // MARK: Automations (N2)
 

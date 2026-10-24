@@ -326,7 +326,8 @@ extension FileSyncManager {
         // person — could file one family member's document into another's with nothing to stop it.
         let refined = FilingEngine.applyVerdicts(verdicts, to: filingSuggestions,
                                                  existingRelative: existingRelative,
-                                                 providerRoot: root, rejectedByFile: rejectedByFile,
+                                                 providerRoot: root, nameProvider: filingLastNameProvider,
+                                                 rejectedByFile: rejectedByFile,
                                                  contentBlind: contentBlind,
                                                  satelliteHomes: filingSatelliteHomes,
                                                  profile: filingFolderProfile,
