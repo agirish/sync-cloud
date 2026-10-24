@@ -198,6 +198,11 @@ public final class EditorDocument: ObservableObject {
     func beginBackgroundWrite() { backgroundWrites += 1 }
     func endBackgroundWrite() { backgroundWrites = max(0, backgroundWrites - 1) }
 
+    /// What a background write installed, readable before its commit reaches the main actor — so a
+    /// synchronous save can take the editor's own write as saved instead of asking about it (FR50,
+    /// ``EditorAutosave/settleLandedWrite(into:waitingUpTo:)``).
+    nonisolated let landings = EditorAutosave.Landings()
+
     /// **The text a write put on disk that couldn't be checked afterwards** (TE147) — the read-back
     /// failed, so the document holds no stamp for it and still reads unsaved. Without it, the next
     /// look at the file found Edit's own write newer than the stamp and asked about it as a change

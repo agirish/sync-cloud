@@ -197,4 +197,94 @@ import Foundation
                                           encoding: .utf8, ticket: older) == nil)
         #expect(try String(contentsOf: url, encoding: .utf8) == "newer\n")
     }
+
+    // MARK: - A synchronous save meeting a background write that has landed (FR50)
+
+    /// Opens a note holding "one", types "one / two", dispatches autosave's background write of it,
+    /// and returns once its bytes are on disk — with the main actor HELD from the moment it left, so
+    /// the commit (a hop back onto the main actor) cannot have run. Whatever the caller does next,
+    /// until its first `await`, happens inside the window between the swap and the commit.
+    ///
+    /// **Retried when the write never left the main actor.** Awaiting a task that has already
+    /// finished does not suspend, so on a loaded machine — the main thread descheduled between
+    /// starting the detached half and awaiting it — the bytes land, the commit runs in the same
+    /// turn, and there is no window to stand in. That attempt is discarded and another note opened.
+    private func landedAndUncommitted(in folder: URL)
+        async throws -> (EditorDocument, URL, Task<EditorAutosave.Outcome, Never>) {
+        for attempt in 0..<8 {
+            let (document, url) = try opened("one\n", named: "note-\(attempt).md", in: folder)
+            document.text = "one\ntwo\n"
+            let snapshot = try #require(EditorAutosave.snapshot(of: document))
+            var dispatched = false
+            document.onBackgroundWrites = { if $0 > 0 { dispatched = true } }
+            defer { document.onBackgroundWrites = nil }
+            let write = Task { await EditorAutosave.write(snapshot, into: document) }
+            // The write's first lines run on the main actor, so it has to be let in once.
+            for _ in 0..<10_000 where !dispatched { await Task.yield() }
+            try #require(dispatched, "the background write never left")
+            // No `await` from here: the main actor is this loop's until the bytes are on disk.
+            let deadline = Date().addingTimeInterval(10)
+            while (try? String(contentsOf: url, encoding: .utf8)) != "one\ntwo\n", Date() < deadline { usleep(1_000) }
+            try #require(try String(contentsOf: url, encoding: .utf8) == "one\ntwo\n",
+                         "the background write never landed")
+            guard document.backgroundWrites == 1 else {
+                // The commit ran in the write's own turn: no window this time.
+                _ = await write.value
+                continue
+            }
+            try #require(document.stamp != EditorFileStore.stamp(ofPath: url.path),
+                         "the premise: the disk is newer than the document's stamp")
+            return (document, url, write)
+        }
+        struct NoWindow: Error, CustomStringConvertible {
+            var description: String { "the premise: every attempt's commit ran before the window could be held" }
+        }
+        throw NoWindow()
+    }
+
+    /// **A save made between autosave's swap and its commit is not asked about** (FR50).
+    ///
+    /// ⌘S, the flush before another file opens, and the flush at ⌘Q all compare the disk with the
+    /// document's stamp. In that window the disk holds autosave's own bytes under a stamp the
+    /// document has not been told yet — so the flush answered "changed on disk", and Use Disk
+    /// Version or Don't Save then threw away what was typed after the snapshot. The save now takes
+    /// the landed write as the editor's own and writes the rest; the commit, arriving after,
+    /// changes nothing.
+    @Test func aSaveWhileAutosavesWriteIsUncommittedIsNotAskedAbout() async throws {
+        let folder = try scratch()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let (document, url, write) = try await landedAndUncommitted(in: folder)
+        // Typed after the snapshot, still inside the window.
+        document.text = "one\ntwo\nthree\n"
+
+        #expect(EditorAutosave.attempt(document) == .wrote,
+                "a flush took autosave's own write for a change made elsewhere")
+        #expect(try String(contentsOf: url, encoding: .utf8) == "one\ntwo\nthree\n")
+        #expect(!document.isDirty)
+
+        // The commit arrives to find a newer save, and leaves it alone.
+        #expect(await write.value == .nothingToDo)
+        #expect(!document.isDirty)
+        #expect(document.stamp == EditorFileStore.stamp(ofPath: url.path))
+        #expect(try String(contentsOf: url, encoding: .utf8) == "one\ntwo\nthree\n")
+    }
+
+    /// **And a real change in that window is still asked about** — the control for the test above:
+    /// settling the editor's own write must not swallow somebody else's that landed after it.
+    @Test func aChangeFromElsewhereAfterAutosavesWriteLandedIsStillAskedAbout() async throws {
+        let folder = try scratch()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let (document, url, write) = try await landedAndUncommitted(in: folder)
+        // Another Mac's version arrives over autosave's — longer, so its stamp differs whatever the
+        // clock's resolution.
+        let theirs = "theirs, from another Mac, longer than either\n"
+        let other = folder.appendingPathComponent("incoming.md")
+        try Data(theirs.utf8).write(to: other)
+        _ = try FileManager.default.replaceItemAt(url, withItemAt: other)
+        document.text = "one\ntwo\nthree\n"
+
+        #expect(EditorAutosave.attempt(document) == .blocked(.changed))
+        #expect(try String(contentsOf: url, encoding: .utf8) == theirs, "the version from elsewhere was overwritten")
+        _ = await write.value
+    }
 }

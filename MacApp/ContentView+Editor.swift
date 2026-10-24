@@ -1437,7 +1437,14 @@ extension ContentView {
         // change raises its banner, and the question below is still asked, since ⌘S asked to write.
         if let path = editorDocument.path, let stamp = editorDocument.stamp,
            EditorFileStore.divergence(atPath: path, from: stamp) != nil {
-            editorDiskWatch.reconcile()
+            // **FR50: autosave's own write, landed and not yet committed, is not a change from
+            // elsewhere.** It is committed here, with the host's half of a write, and the question
+            // below then compares against the stamp it left — so only a real change is asked about.
+            if EditorAutosave.settleLandedWrite(into: editorDocument) {
+                _ = writeEditorDocumentDidWrite()
+            } else {
+                editorDiskWatch.reconcile()
+            }
         }
         guard let path = editorDocument.path, let stamp = editorDocument.stamp,
               !editorDocument.isReadOnly else { return false }

@@ -181,6 +181,21 @@ import FileExplorer
         #expect(blocked.lowerBound < settleLook.lowerBound && settleLook.lowerBound < question.lowerBound)
     }
 
+    /// **FR50: ⌘S commits autosave's own landed write before it looks or asks** — the call site for
+    /// `EditorAutosave.settleLandedWrite`, whose behaviour `EditorAutosaveSnapshotTests` measures
+    /// with a write held between its swap and its commit. The leave and quit flushes reach it
+    /// through `EditorAutosave.attempt`.
+    @Test func explicitSavesSettleAutosavesOwnWriteBeforeTheyAsk() throws {
+        let save = try Self.body("func saveEditorDocument() -> Bool")
+        let settle = try #require(save.range(of: "if EditorAutosave.settleLandedWrite(into: editorDocument) {"))
+        let host = try #require(save.range(of: "_ = writeEditorDocumentDidWrite()"))
+        let look = try #require(save.range(of: "editorDiskWatch.reconcile()"))
+        let ask = try #require(save.range(of: "EditorAlerts.askAboutDivergence("))
+        #expect(settle.lowerBound < host.lowerBound && host.lowerBound < ask.lowerBound
+                && look.lowerBound < ask.lowerBound,
+                "⌘S asks about the divergence before taking autosave's own write as saved")
+    }
+
     /// **TE145: ⌘S on a clean document writes nothing** — unless a stop stands, which ⌘S settles.
     /// The skip sits after the divergence check, so a file that went or changed is still asked
     /// about, and stays out of `writeEditorDocument`, which Keep Mine and Save Again write through.

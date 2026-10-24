@@ -1,4 +1,5 @@
 import Foundation
+import Events
 
 /// Writing the open document without being asked to.
 ///
@@ -90,7 +91,16 @@ public enum EditorAutosave {
             return .nothingToDo
         }
         if let divergence = EditorFileStore.divergence(atPath: path, from: stamp) {
-            return .blocked(divergence)
+            // **The file may be newer only because autosave's own write is out** (FR50) — see
+            // ``settleLandedWrite(into:waitingUpTo:)``. Settled, it is compared again against the
+            // stamp that write left; whatever was typed since the snapshot is written by this attempt.
+            guard settleLandedWrite(into: document), let settled = document.stamp else {
+                return .blocked(divergence)
+            }
+            guard document.canSave else { return .wrote }
+            if let divergence = EditorFileStore.divergence(atPath: path, from: settled) {
+                return .blocked(divergence)
+            }
         }
         do {
             document.markSaved(stamp: try EditorFileStore.write(document))
@@ -161,7 +171,12 @@ public enum EditorAutosave {
     public static func write(_ snapshot: Snapshot, into document: EditorDocument) async -> Outcome {
         document.beginBackgroundWrite()
         defer { document.endBackgroundWrite() }
+        let landings = document.landings
+        landings.dispatched()
         let result = await Task.detached(priority: .utility) { () -> Result in
+            // Told on every way out, so a settle waiting for this write never waits past it.
+            var landed: Landing?
+            defer { landings.finished(landed) }
             if let divergence = EditorFileStore.divergence(atPath: snapshot.path,
                                                            from: snapshot.stamp) {
                 return .blocked(divergence)
@@ -173,11 +188,16 @@ public enum EditorAutosave {
                                                             expected: snapshot.stamp) else {
                     return .overtaken
                 }
+                landed = Landing(ticket: snapshot.ticket, path: snapshot.path, from: snapshot.stamp,
+                                 text: snapshot.text, stamp: stamp)
                 return .wrote(stamp)
             } catch {
                 return .ended(.of(error))
             }
         }.value
+        // The commit is this write's word on it from here — unless a settle took it first, in which
+        // case the stamp has moved and the guard below drops the result.
+        _ = landings.take(ticket: snapshot.ticket)
 
         // The document moved on while the write was out: whatever this says is about a state that
         // is no longer the one on screen.
@@ -207,5 +227,96 @@ public enum EditorAutosave {
         case blocked(EditorFileStore.Divergence)
         /// A write that threw — failed, or landed and could not be checked.
         case ended(Outcome)
+    }
+
+    // MARK: - A synchronous save meeting a background one (FR50)
+
+    /// What a background write put on disk, known off the main actor before its commit is.
+    struct Landing: Sendable {
+        var ticket: UInt64
+        var path: String
+        /// The document's stamp the write was made against — what the commit guards on.
+        var from: EditorFileStore.Stamp
+        var text: String
+        var stamp: EditorFileStore.Stamp
+    }
+
+    /// **Where a background write leaves word of what it installed, the moment it has** — kept on
+    /// the document (``EditorDocument/landings``) and locked, because it is written off the main
+    /// actor while the main actor may be waiting on it. See ``settleLandedWrite(into:waitingUpTo:)``.
+    final class Landings: @unchecked Sendable {
+        private let condition = NSCondition()
+        private var outstanding = 0
+        private var landed: Landing?
+
+        /// A write is leaving — told on the main actor, before the bytes go.
+        func dispatched() {
+            condition.lock(); defer { condition.unlock() }
+            outstanding += 1
+        }
+
+        /// The write is done with the disk, with what it installed when it installed something.
+        func finished(_ landing: Landing?) {
+            condition.lock(); defer { condition.unlock() }
+            outstanding = max(0, outstanding - 1)
+            if let landing { landed = landing }
+            condition.broadcast()
+        }
+
+        /// Waits until no write is out on the disk; `false` when `limit` ran out first.
+        func waitUntilNoneOut(upTo limit: Duration) -> Bool {
+            let seconds = Double(limit.components.seconds) + Double(limit.components.attoseconds) / 1e18
+            let deadline = Date().addingTimeInterval(seconds)
+            condition.lock(); defer { condition.unlock() }
+            while outstanding > 0 {
+                if !condition.wait(until: deadline) { return outstanding == 0 }
+            }
+            return true
+        }
+
+        /// Takes the word of the last write that landed — only `ticket`'s, when one is named.
+        func take(ticket: UInt64? = nil) -> Landing? {
+            condition.lock(); defer { condition.unlock() }
+            guard let landed, ticket == nil || landed.ticket == ticket else { return nil }
+            self.landed = nil
+            return landed
+        }
+    }
+
+    /// **Commits a background write that has landed but whose commit has not reached the main actor
+    /// yet** — now, on the main actor, exactly as that commit would (FR50).
+    ///
+    /// Between the swap that installs autosave's bytes and the hop back that marks them saved, the
+    /// file on disk is newer than the document's stamp — and it is the editor's own. The disk watch
+    /// already waits out that window (``EditorDocument/backgroundWrites``); a synchronous save did
+    /// not. ⌘S, the flush before another file opens and the flush at ⌘Q compared the disk with the
+    /// old stamp, found "changed on disk", and asked — and Use Disk Version or Don't Save then threw
+    /// away what was typed after the snapshot, and its undo history with it, over a change the app
+    /// had made itself a moment before.
+    ///
+    /// So a synchronous save that finds the file diverged while a write is out **waits for that
+    /// write to be done with the disk** — the swap has usually happened already, so what is left is
+    /// a stat and a delete — and takes what it installed as saved, against the snapshot's text. The
+    /// buffer is then compared with the stamp that write left, and anything typed since is still
+    /// dirty for the caller to write. The commit, when it arrives, finds the stamp moved and drops
+    /// its result, as it does after any newer save. A write that found a real change, failed, or was
+    /// overtaken leaves no word, and the caller asks about the divergence as before.
+    ///
+    /// - Parameter limit: how long the main actor may wait — a ceiling for a volume that has stopped
+    ///   answering, after which the divergence is asked about as it always was.
+    /// - Returns: whether a landed write was committed.
+    @MainActor
+    @discardableResult
+    public static func settleLandedWrite(into document: EditorDocument,
+                                         waitingUpTo limit: Duration = .seconds(10)) -> Bool {
+        guard document.backgroundWrites > 0 else { return false }
+        guard document.landings.waitUntilNoneOut(upTo: limit) else {
+            Logger.shared.warning("[edit] \(document.path ?? "") — autosave's write was still out after \(limit); asking about the file as it stands")
+            return false
+        }
+        guard let landing = document.landings.take(),
+              document.path == landing.path, document.stamp == landing.from else { return false }
+        document.markSaved(text: landing.text, stamp: landing.stamp)
+        return true
     }
 }
