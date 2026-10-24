@@ -110,7 +110,7 @@ import Events
     /// which is how the first draft of this suite failed.
     ///
     /// Both indices are resolved and guarded BEFORE anything is sliced, and `start` is searched for
-    /// only in `entries[..<end]`, so the bounds cannot be reversed: `entries[a..<b]` on reversed
+    /// only in `lines[..<end]`, so the bounds cannot be reversed: `lines[a..<b]` on reversed
     /// bounds TRAPS, and a trap here takes the whole test host down and loses every other verdict
     /// in the run.
     @MainActor
@@ -118,22 +118,29 @@ import Events
                           sourceLocation: SourceLocation = #_sourceLocation) async -> [String] {
         let closing = "undo-drift-close \(marker)"
         await Logger.shared.info(closing).value
-        let entries = Logger.shared.entries
-        guard let end = entries.lastIndex(where: { $0.message == closing }) else {
+        // **The log FILE, not `Logger.shared.entries`.** The entries are a rolled 1000-line window
+        // every suite in the package shares; under load a 14 s test let the rest of a full run log
+        // past this test's own marker, and the opening `guard` below failed with nothing wrong in
+        // the undo (flaky-tests: "A log assertion reading a window that has already rolled"). The
+        // per-process file is never trimmed under a test. `flushToDisk` drains the writer first.
+        Logger.shared.flushToDisk()
+        let text = (try? String(contentsOf: Logger.shared.logFileURL, encoding: .utf8)) ?? ""
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard let end = lines.lastIndex(where: { $0.hasSuffix(closing) }) else {
             Issue.record("""
                 this test's own CLOSING marker is not in the log at all — the window cannot be \
                 bounded, so nothing can be concluded about the refusal line
                 """, sourceLocation: sourceLocation)
             return []
         }
-        guard let start = entries[..<end].lastIndex(where: { $0.message == marker }) else {
+        guard let start = lines[..<end].lastIndex(where: { $0.hasSuffix(marker) }) else {
             Issue.record("""
-                the log window rolled past this test's own marker — the 1000-entry cap evicted it, \
-                so nothing can be concluded about the refusal line
+                this test's own opening marker never reached the log file, so nothing can be \
+                concluded about the refusal line
                 """, sourceLocation: sourceLocation)
             return []
         }
-        return entries[start..<end].map(\.message)
+        return Array(lines[start..<end])
     }
 
     // MARK: 1 — a copied folder is now guarded
