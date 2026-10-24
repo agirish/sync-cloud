@@ -10086,3 +10086,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s planner=%s blocking=%s\n' $l 
 |---|---|---|
 | `v5.x` | The same unbounded Restructure listings (`blocking=0`) | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Restructure (`planner=0`) | CLOSED — does not apply |
+
+---
+
+## A landing keeps its journal until its record is on disk (FR16, follow-up) — main only
+
+The landing removed its journal right after finalising its ledger record, even when that write
+failed; the next launch then refused Undo with "No list of the steps that ran was found." `main`
+makes `updateApplied` report whether the record was written and keeps the journal when it was not.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s journal=%s kept=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+RestructureApply.swift 2>/dev/null | grep -cF 'final class RestructureLandingJournal')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+RestructureApply.swift 2>/dev/null | grep -cF 'if finalised {')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads kept=1):
+# main                     journal=1 kept=0
+# v5.x, v4.x, v3.x, v2.x   journal=0 kept=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No landing journal (`journal=0`) | CLOSED — does not apply |

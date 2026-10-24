@@ -317,7 +317,7 @@ extension FileSyncManager {
         var landed = manifest
         landed.actions = execution.performed
         outcome.landedManifest = landed
-        store.updateApplied(manifestId: manifest.manifestId) {
+        let finalised = store.updateApplied(manifestId: manifest.manifestId) {
             $0.manifest = landed
             $0.inverse = landed.inverse
             $0.created = execution.created
@@ -331,7 +331,20 @@ extension FileSyncManager {
                 : Self.verifierNote(outcome.verifierMismatches)
         }
         // Finalised: the record now says what ran, so the running list has done its job.
-        journal?.finish()
+        //
+        // **Only once that record is on disk (FR16).** When the finalising write fails — a full
+        // disk, an unreadable `restructure.json` the store refuses to overwrite — the record on
+        // disk still has no summary, so the next launch refuses Undo as a landing that never
+        // finished, and points at this journal as the list of what ran. Removed regardless, that
+        // sentence read "No list of the steps that ran was found" about a landing that had kept
+        // one. Kept, it is closed and stays where the refusal looks.
+        if finalised {
+            journal?.finish()
+        } else {
+            journal?.close()
+            Logger.shared.warning("Restructure apply \(manifest.manifestId): the landing's record "
+                + "could not be written, so its list of the steps that ran is kept")
+        }
 
         restructureApplyProgress = RestructureApplyProgress(stage: .rederive)
         // Steps 6 and 7, extracted so the Scaffolded card can run the same re-derive with a
@@ -1676,5 +1689,11 @@ final class RestructureLandingJournal: @unchecked Sendable {
     func finish() {
         try? handle.close()
         try? FileManager.default.removeItem(at: url)
+    }
+
+    /// Stops writing and leaves the file where it is — for a landing whose record could not be
+    /// finalised, so the journal is still the only list of what ran (FR16).
+    func close() {
+        try? handle.close()
     }
 }

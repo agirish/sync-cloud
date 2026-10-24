@@ -941,6 +941,92 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: journal.path))
     }
 
+    /// FR16. The journal goes only once the finalised record is ON DISK. When the finalising
+    /// write fails, the record on disk has no summary, the next launch refuses Undo as a landing
+    /// that never finished, and the refusal points at this journal — so it must still be there.
+    /// The write is broken mid-landing (the ledger's path becomes a folder at the first move), so
+    /// the landing's own step-2 record is written and only the finalise fails.
+    @Test func aLandingWhoseRecordCouldNotBeFinalisedKeepsItsJournal() async throws {
+        let breaker = LedgerBreaker()
+        let world = try await Self.makeWorld { trash in
+            LedgerBreakingDisk(over: trash, breaker: breaker)
+        }
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let profileId = try #require(world.manager.filingProfileDirectoryId)
+        breaker.ledger = try #require(world.manager.restructureStore?.fileURL)
+        let journal = RestructureLandingJournal.url(manifestId: world.manifest.manifestId,
+                                                    profileId: profileId, in: world.profiles)
+
+        _ = await world.manager.applyPlan(world.manifest, now: Date(timeIntervalSince1970: 1_756_500_000))
+
+        #expect(breaker.broke, "the ledger was never broken — this measured an ordinary landing")
+        #expect(FileManager.default.fileExists(atPath: journal.path),
+                "the only list of what ran was removed though the record never reached the disk")
+    }
+
+    /// Makes the ledger unwritable at the first move: its path becomes a folder, so the store's
+    /// atomic write cannot land over it.
+    final class LedgerBreaker: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _ledger: URL?
+        private var _broke = false
+        var ledger: URL? {
+            get { lock.lock(); defer { lock.unlock() }; return _ledger }
+            set { lock.lock(); _ledger = newValue; lock.unlock() }
+        }
+        var broke: Bool { lock.lock(); defer { lock.unlock() }; return _broke }
+        func breakOnce() {
+            lock.lock(); defer { lock.unlock() }
+            guard !_broke, let ledger = _ledger else { return }
+            try? FileManager.default.removeItem(at: ledger)
+            try? FileManager.default.createDirectory(at: ledger, withIntermediateDirectories: true)
+            _broke = true
+        }
+    }
+
+    final class LedgerBreakingDisk: FileManaging, @unchecked Sendable {
+        private let inner: FileManager
+        private let breaker: LedgerBreaker
+        init(over inner: FileManager, breaker: LedgerBreaker) {
+            self.inner = inner
+            self.breaker = breaker
+        }
+        func fileExists(atPath path: String) -> Bool { inner.fileExists(atPath: path) }
+        func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool {
+            inner.fileExists(atPath: path, isDirectory: isDirectory)
+        }
+        func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
+            try inner.attributesOfItem(atPath: path)
+        }
+        func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {
+            try inner.setAttributes(attributes, ofItemAtPath: path)
+        }
+        func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool,
+                             attributes: [FileAttributeKey: Any]?) throws {
+            try inner.createDirectory(at: url, withIntermediateDirectories: createIntermediates,
+                                      attributes: attributes)
+        }
+        func copyItem(at srcURL: URL, to dstURL: URL) throws { try inner.copyItem(at: srcURL, to: dstURL) }
+        func moveItem(at srcURL: URL, to dstURL: URL) throws {
+            breaker.breakOnce()
+            try inner.moveItem(at: srcURL, to: dstURL)
+        }
+        func trashItem(at url: URL,
+                       resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+            try inner.trashItem(at: url, resultingItemURL: outResultingURL)
+        }
+        func removeItem(at URL: URL) throws { try inner.removeItem(at: URL) }
+        func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL,
+                         backupItemName: String) throws -> URL? {
+            try inner.replaceItem(at: destinationURL, withItemAt: stagedURL, backupItemName: backupItemName)
+        }
+        func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?,
+                        options mask: FileManager.DirectoryEnumerationOptions,
+                        errorHandler handler: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
+            inner.enumerator(at: url, includingPropertiesForKeys: keys, options: mask, errorHandler: handler)
+        }
+    }
+
     /// An undo that could do NOTHING — the tree fully reshaped since — must not mark the record
     /// undone or re-point the survey: the kept profile would describe a tree that does not
     /// exist, and the record could never be retried.

@@ -474,19 +474,26 @@ public final class RestructureStore: ObservableObject {
     }
 
     /// Replaces the record with `manifestId`'s manifest — how a landing finalises its counts.
+    ///
+    /// - Returns: whether the record as changed is written — false when there is no such record
+    ///   or the write failed (the change then lives in memory only, and is gone at relaunch).
+    ///   A change that changes nothing answers true: there was nothing to write. Inside a
+    ///   `batchingSaves` it answers true for a change only in memory, as `save()` does there.
+    ///   A landing reads it before throwing its journal away (FR16).
+    @discardableResult
     public func updateApplied(manifestId: String,
-                              _ change: (inout AppliedRecord) -> Void) {
+                              _ change: (inout AppliedRecord) -> Void) -> Bool {
         guard let index = applied.firstIndex(where: { $0.manifest.manifestId == manifestId })
         else {
             Logger.shared.warning("restructure.json holds no record \(manifestId) to update — "
                                   + "the change was dropped")
-            return
+            return false
         }
         var record = applied[index]
         change(&record)
-        guard record != applied[index] else { return }
+        guard record != applied[index] else { return true }
         applied[index] = record
-        save()
+        return save()
     }
 
     // MARK: - Replay
