@@ -10173,3 +10173,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s restore=%s verdict=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same path-only Trash restores (`verdict=0`) | RECORDED — not owed |
+
+---
+
+## A dangling link is not "vanished" to an undo (FR28) — main only
+
+The copy-undo and move-undo asked `fileExists`, which follows links, whether their item had gone. A
+moved relative link usually dangles, so ⌘Z reported it "no longer on disk", never moved it back, and
+then failed to restore the displaced original over it under a banner blaming the Trash. `main` asks
+without following (`entryExists`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s vanish=%s noFollow=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'is no longer on disk')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'func entryExists(at url: URL')"; done
+# measured 2026-10-23, against origin, before this landed (the fix reads noFollow=1):
+# main, v5.x, v4.x, v3.x, v2.x   vanish=3 noFollow=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same link-following checks (`noFollow=0`) | RECORDED — not owed |

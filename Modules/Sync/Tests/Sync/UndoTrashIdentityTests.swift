@@ -7,6 +7,9 @@ import Foundation
 /// - **FR27** — every undo that restores from the Trash moved whatever sat at the recorded Trash
 ///   path. Empty the Trash, trash a different file of the same name, and macOS gives it the freed
 ///   name: ⌘Z then moved that unrelated file into the folder it was restoring.
+/// - **FR28** — the copy-undo and move-undo asked `fileExists` whether their item had vanished.
+///   It follows links, so a dangling link — what moving a relative link usually leaves — read as
+///   gone: never moved back, never removed.
 ///
 /// Real disk with a `ScratchTrash` throughout: the claims are about where items end up, and the
 /// mock's flat paths and link-less stat cannot model either.
@@ -184,5 +187,58 @@ import Foundation
         #expect(read(backup) == "an unrelated file the user trashed later")
         #expect(m.banner?.message.contains("isn’t the one SyncCloud put there") == true,
                 "banner: \(m.banner?.message ?? "nil")")
+    }
+
+    // MARK: FR28
+
+    /// A relative link moved to another folder dangles there — and is still the item the move put
+    /// there, so ⌘Z moves it back.
+    @MainActor
+    @Test func aMoveUndoMovesADanglingLinkBack() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "undo-dangling-link-move")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let trash = ScratchTrash(in: root)
+        let from = root.appendingPathComponent("src/link")
+        let to = root.appendingPathComponent("dst/link")
+        try write("target", root.appendingPathComponent("src/target.txt"))
+        try FileManager.default.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: from.path, withDestinationPath: "target.txt")
+        _ = try FileSyncManager.safeMoveItem(at: from, to: to, fileManager: trash)
+        // The premise: the moved link dangles where it landed.
+        #expect(entryExists(to) && !FileManager.default.fileExists(atPath: to.path))
+
+        let m = manager()
+        m.registerMoveUndo(items: [(from: from, to: to, overwritten: nil)], actionName: "Move 1 Item", fileManager: trash)
+
+        await undoAndDrain(m)
+
+        #expect(entryExists(from), "the link was never moved back")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: from.path) == "target.txt")
+        #expect(!entryExists(to), "the link is still at the destination")
+    }
+
+    /// The copy-undo's twin: a copied link that dangles is still the copy, and ⌘Z removes it.
+    @MainActor
+    @Test func aCopyUndoRemovesADanglingLinkItCopied() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "undo-dangling-link-copy")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let trash = ScratchTrash(in: root)
+        let source = root.appendingPathComponent("src/link")
+        let destination = root.appendingPathComponent("dst/link")
+        try write("target", root.appendingPathComponent("src/target.txt"))
+        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: source.path, withDestinationPath: "target.txt")
+        _ = try FileSyncManager.safeCopyItem(at: source, to: destination, fileManager: trash)
+        #expect(entryExists(destination) && !FileManager.default.fileExists(atPath: destination.path))
+
+        let m = manager()
+        await m.registerCopyUndo(items: [(source: source, destination: destination, overwritten: nil)],
+                                 actionName: "Copy 1 Item", fileManager: trash).value
+
+        await undoAndDrain(m)
+
+        #expect(!entryExists(destination), "the copied link was left behind as \"already gone\"")
+        #expect(trash.names.contains("link"))
+        #expect(entryExists(source))
     }
 }

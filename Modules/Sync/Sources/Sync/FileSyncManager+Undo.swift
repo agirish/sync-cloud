@@ -620,6 +620,21 @@ extension FileSyncManager {
         return URL(fileURLWithPath: livingParent).appendingPathComponent(url.lastPathComponent).path
     }
 
+    /// Whether ANY entry sits at `url` — a file, a folder, or a symbolic link, whether or not the
+    /// link's target exists. For the undo's "the user already removed it" decisions (FR28).
+    ///
+    /// **`fileExists` answers a different question.** It follows a link, so a DANGLING link reads
+    /// as nothing at all — and moving a relative link usually leaves it dangling, because its
+    /// target is resolved against the folder it now sits in. The copy-undo and the move-undo both
+    /// asked `fileExists` whether their item had vanished, while `ItemIdentity` records a link as
+    /// ITSELF: so ⌘Z of a moved link reported "no longer on disk", never moved it back, and then
+    /// tried to put the displaced original over the link that was still there, failing under a
+    /// banner that blamed the Trash. `attributesOfItem` does not follow links; `fileExists` stays
+    /// only as the fallback for an entry that is there but cannot be statted, which is present.
+    nonisolated static func entryExists(at url: URL, fileManager fm: FileManaging) -> Bool {
+        (try? fm.attributesOfItem(atPath: url.path)) != nil || fm.fileExists(atPath: url.path)
+    }
+
     /// What sits at a backup's location as an undo registers — the identity a later restore holds
     /// that location to (FR27). `.absent` when there is no backup.
     ///
@@ -652,7 +667,7 @@ extension FileSyncManager {
     nonisolated static func trashBackupVerdict(recorded: ItemIdentity, at backup: URL,
                                                fileManager fm: FileManaging) -> DriftVerdict {
         guard recorded != .absent else { return .unchanged }
-        guard (try? fm.attributesOfItem(atPath: backup.path)) != nil || fm.fileExists(atPath: backup.path) else { return .unchanged }
+        guard FileSyncManager.entryExists(at: backup, fileManager: fm) else { return .unchanged }
         return recorded.drift(at: backup, fileManager: fm)
     }
 
@@ -1082,7 +1097,8 @@ extension FileSyncManager {
                             // backup, keep the item in the redo params (a redo re-copies it),
                             // and log the breadcrumb. (registerCreateFolderUndo guards its
                             // missing-folder case the same way.)
-                            if !fm.fileExists(atPath: item.destination.path) {
+                            // No-follow (FR28): a copied link left dangling is still the copy.
+                            if !FileSyncManager.entryExists(at: item.destination, fileManager: fm) {
                                 vanished += 1
                                 markHandled(item.destination)
                                 logger.info("Undo (\(actionName)): \(item.destination.lastPathComponent) is no longer on disk — nothing to remove")
@@ -1428,8 +1444,11 @@ extension FileSyncManager {
                             // `a.txt is no longer on disk` about a file sitting in `Photos/`.
                             // A missing parent falls through to the drift guard, which refuses —
                             // which is what it did before this branch existed.
+                            //
+                            // No-follow (FR28): a moved relative link usually dangles where it
+                            // landed, and it is still the item this undo moves back.
                             let parentExists = fm.fileExists(atPath: item.to.deletingLastPathComponent().path)
-                            if parentExists, !fm.fileExists(atPath: item.to.path) {
+                            if parentExists, !FileSyncManager.entryExists(at: item.to, fileManager: fm) {
                                 vanished += 1
                                 logger.info("Undo (\(actionName)): \(item.to.lastPathComponent) is no longer on disk — nothing to move back")
                                 if let trashed = item.overwritten {
