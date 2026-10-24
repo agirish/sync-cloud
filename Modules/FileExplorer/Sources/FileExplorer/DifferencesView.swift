@@ -1071,7 +1071,7 @@ public struct DifferencesView: View {
             Divider()
             // Grouping lives in the filter menu rather than earning chrome of its own: it is a
             // scope decision like the filter above it, and the header has no width to spare.
-            Toggle("Group by folder", isOn: $groupByFolder)
+            Toggle("Group by Folder", isOn: $groupByFolder)
             if !sections.isEmpty {
                 // Enabled states are judged against the sections actually on screen (see
                 // `collapsedOnScreen`, which the header's master toggle reads too — one count, so
@@ -2098,7 +2098,7 @@ public struct DifferencesView: View {
             )
         } label: {
             Label(
-                isIgnored ? "Include in comparison" : "Ignore in comparison",
+                isIgnored ? "Include in Comparison" : "Ignore in Comparison",
                 systemImage: isIgnored ? "eye" : "eye.slash"
             )
         }
@@ -2152,12 +2152,12 @@ public struct DifferencesView: View {
                 DifferencesShortcutRules.rows(displayRows.sorted, matching: ids),
                 in: syncManager.ignoredPaths)
         } label: {
-            Label("Ignore \(selected.count) in comparison", systemImage: "eye.slash")
+            Label("Ignore \(selected.count) in Comparison", systemImage: "eye.slash")
         }
         Button {
             selection.removeAll()
         } label: {
-            Label("Clear selection", systemImage: "xmark.circle")
+            Label("Clear Selection", systemImage: "xmark.circle")
         }
     }
 }

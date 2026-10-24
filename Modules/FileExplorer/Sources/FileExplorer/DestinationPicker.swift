@@ -584,7 +584,7 @@ public struct DestinationPicker: View {
                 Spacer(minLength: 20)
 
                 Button { newFolderName = ""; isCreatingFolder = true } label: {
-                    Label("New folder", systemImage: "folder.badge.plus")
+                    Label("New Folder", systemImage: "folder.badge.plus")
                 }
                 // Gated on the same refusal as Move, not merely on having a folder chosen.
                 // Otherwise you could create a folder inside the very folder you are moving and

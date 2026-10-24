@@ -3,7 +3,7 @@ import Sync
 
 /// A source-switcher dropdown. The trigger is a caller-supplied label (e.g. a pane header's
 /// brand-tinted provider capsule, or a lens source bar), and the menu is an inline picker over the
-/// enabled sources plus "Choose Folder…" and a "Manage sources…" escape hatch to Settings.
+/// enabled sources plus "Choose Folder…" and a "Manage Sources…" escape hatch to Settings.
 ///
 /// This replaces the old standalone Left/Right `ProviderSidebar`: source choice now rides on the
 /// thing it applies to (each pane header, or the single lens source), so no window column is spent
@@ -59,7 +59,7 @@ public struct ProviderMenu<LabelContent: View>: View {
                 Button {
                     onGoToRoot()
                 } label: {
-                    Label(currentName.map { "Go to \($0)" } ?? "Go to the top of this source",
+                    Label(currentName.map { "Go to \($0)" } ?? "Go to the Top of This Source",
                           systemImage: "arrow.turn.left.up")
                 }
                 Divider()
@@ -93,7 +93,7 @@ public struct ProviderMenu<LabelContent: View>: View {
             Button {
                 onManage()
             } label: {
-                Label("Manage sources…", systemImage: "gearshape")
+                Label("Manage Sources…", systemImage: "gearshape")
             }
         } label: {
             label

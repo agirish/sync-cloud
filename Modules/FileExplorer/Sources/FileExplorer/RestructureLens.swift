@@ -909,7 +909,7 @@ struct RestructureLens: View {
         .lensCard()
         .contextMenu {
             if let onSuppress {
-                Button("Never suggest this again") { onSuppress(finding) }
+                Button("Never Suggest This Again") { onSuppress(finding) }
             }
         }
     }

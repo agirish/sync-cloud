@@ -168,7 +168,7 @@ import SwiftUI
             ("RestructurePlanSheet.swift", "\"Export plan\" : \"Export \\(group.count) plans\"",
              "Export plan…"),
             ("RestructurePairMergeSheet.swift", "Button(\"Save for later\")", "Save for later…"),
-            ("FileTreeView.swift", "Label(\"Fix name\", systemImage: RiskyNameGlyph.lens)", "Fix name…"),
+            ("FileTreeView.swift", "Label(\"Fix Name\", systemImage: RiskyNameGlyph.lens)", "Fix Name…"),
         ]
         for (file, now, was) in cases {
             let code = try Self.code(file)

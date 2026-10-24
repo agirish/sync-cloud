@@ -3765,7 +3765,7 @@ struct AdvancedSettingsTab: View {
                 SettingsSection(
                     caption: "Forgets that setup has run and which location it learns from, and opens it now, from the beginning. On a Mac with no folder profile yet this also discards the name and household answers setup was holding for one. Your folder profile, people and other settings stay."
                 ) {
-                    Button("Reset setup…", role: .destructive) {
+                    Button("Reset Setup…", role: .destructive) {
                         confirmResetSetup(onResetSetup)
                     }
                     .help("Forgets that setup has run and opens it now, from the beginning. Asks first.")

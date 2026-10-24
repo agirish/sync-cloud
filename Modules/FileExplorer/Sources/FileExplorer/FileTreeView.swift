@@ -1433,7 +1433,7 @@ enum SharedFileMenuItems {
 
     static func pasteHere(clipboardHasItems: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label("Paste here", systemImage: "doc.on.clipboard")
+            Label("Paste Here", systemImage: "doc.on.clipboard")
         }
         .disabled(!clipboardHasItems)
     }
@@ -1528,7 +1528,7 @@ struct FileContextMenu: View {
                     delegate.handleCompareFilePair(node, with: counterpart,
                                                    secondIsInOtherPane: false)
                 } label: {
-                    Label("Compare these two files", systemImage: "rectangle.split.2x1")
+                    Label("Compare These Two Files", systemImage: "rectangle.split.2x1")
                 }
             }
         }
@@ -1707,7 +1707,7 @@ struct FileContextMenu: View {
                 if let risky = delegate.riskyName(for: singleNode) {
                     Button(action: { delegate.handleFixName(singleNode) }) {
                         // No ellipsis (LN13): it renames at once, undoably — nothing more is asked.
-                        Label("Fix name", systemImage: RiskyNameGlyph.lens)
+                        Label("Fix Name", systemImage: RiskyNameGlyph.lens)
                     }
                     .help("\(risky.reason) Renames it to “\(risky.sanitizedName)”, undoably.")
                     // The badge's answer, and the ONLY way back from one. Keeping is durable, so
@@ -1743,7 +1743,7 @@ struct FileContextMenu: View {
                 // this one opens a workspace and starts a scan.
                 if !singleNode.isDirectory, delegate.canFindDuplicates {
                     Button(action: { delegate.handleFindDuplicates(singleNode) }) {
-                        Label("Find duplicates of this", systemImage: "doc.on.doc")
+                        Label("Find Duplicates of This", systemImage: "doc.on.doc")
                     }
                     .help("Open Duplicates and reveal the group holding “\(singleNode.name)”.")
                 }
@@ -1806,7 +1806,7 @@ struct FileContextMenu: View {
                         if isSingleSource {
                             Label("Open", systemImage: "arrow.forward")
                         } else {
-                            Label("Compare only this folder", systemImage: "scope")
+                            Label("Compare Only This Folder", systemImage: "scope")
                         }
                     }
                 }
@@ -1819,7 +1819,7 @@ struct FileContextMenu: View {
                     delegate.isNodeIgnored(n, currentPath: currentPath)
                 }
                 Button(action: { delegate.handleIgnore(selectedNodes) }) {
-                    Label(allIgnored ? "Include in comparison" : "Ignore in comparison", systemImage: allIgnored ? "eye" : "eye.slash")
+                    Label(allIgnored ? "Include in Comparison" : "Ignore in Comparison", systemImage: allIgnored ? "eye" : "eye.slash")
                 }
             }
 
@@ -1848,11 +1848,11 @@ struct FileContextMenu: View {
             if isSingleSource {
                 // Copy before Move, as in the two-pane items below and File ▸ Copy to… / Move to….
                 Button(action: { delegate.handleChooseDestination(selectedNodes, isMove: false) }) {
-                    Label(count > 1 ? "Copy \(count) items to…" : "Copy to…", systemImage: TransferGlyph.copy)
+                    Label(count > 1 ? "Copy \(count) Items to…" : "Copy to…", systemImage: TransferGlyph.copy)
                 }
 
                 Button(action: { delegate.handleChooseDestination(selectedNodes, isMove: true) }) {
-                    Label(count > 1 ? "Move \(count) items to…" : "Move to…", systemImage: TransferGlyph.move(toRight: true))
+                    Label(count > 1 ? "Move \(count) Items to…" : "Move to…", systemImage: TransferGlyph.move(toRight: true))
                 }
 
                 Divider()
@@ -1864,22 +1864,22 @@ struct FileContextMenu: View {
                 // box-arrow at the actual target pane, like the toolbar — right when this is the
                 // left pane, left when it's the right pane.
                 Button(action: { delegate.handleCopy(selectedNodes) }) {
-                    Label(count > 1 ? "Copy \(count) items to \(otherPaneName)" : "Copy to \(otherPaneName)", systemImage: TransferGlyph.copy)
+                    Label(count > 1 ? "Copy \(count) Items to \(otherPaneName)" : "Copy to \(otherPaneName)", systemImage: TransferGlyph.copy)
                 }
 
                 Button(action: { delegate.handleMove(selectedNodes) }) {
-                    Label(count > 1 ? "Move \(count) items to \(otherPaneName)" : "Move to \(otherPaneName)", systemImage: TransferGlyph.move(toRight: isLeft))
+                    Label(count > 1 ? "Move \(count) Items to \(otherPaneName)" : "Move to \(otherPaneName)", systemImage: TransferGlyph.move(toRight: isLeft))
                 }
 
                 Divider()
             }
 
             Button(action: { delegate.handleCopyToClipboard(selectedNodes, isCut: true) }) {
-                Label(count > 1 ? "Cut \(count) items" : "Cut", systemImage: "scissors")
+                Label(count > 1 ? "Cut \(count) Items" : "Cut", systemImage: "scissors")
             }
             
             Button(action: { delegate.handleCopyToClipboard(selectedNodes, isCut: false) }) {
-                Label(count > 1 ? "Copy \(count) items" : "Copy", systemImage: "doc.on.doc")
+                Label(count > 1 ? "Copy \(count) Items" : "Copy", systemImage: "doc.on.doc")
             }
             
             SharedFileMenuItems.pasteHere(clipboardHasItems: delegate.clipboardHasItems) {
@@ -1892,7 +1892,7 @@ struct FileContextMenu: View {
             if !otherSelectedNodes.isEmpty {
                 Button(action: { delegate.handlePasteExplicit(node, nodes: otherSelectedNodes) }) {
                     if otherSelectedNodes.count > 1 {
-                        Label("Copy \(otherSelectedNodes.count) items from \(otherPaneName)", systemImage: "arrow.right.to.line.compact")
+                        Label("Copy \(otherSelectedNodes.count) Items from \(otherPaneName)", systemImage: "arrow.right.to.line.compact")
                     } else if let first = otherSelectedNodes.first {
                         Label("Copy “\(first.name)” from \(otherPaneName)", systemImage: "arrow.right.to.line.compact")
                     }

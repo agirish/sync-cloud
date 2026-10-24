@@ -2803,7 +2803,7 @@ public struct LensWorkspaceView: View {
                 Button {
                     onFindFilingSuggestionsFresh()
                 } label: {
-                    Label("Ignore saved suggestions", systemImage: "arrow.clockwise.circle")
+                    Label("Ignore Saved Suggestions", systemImage: "arrow.clockwise.circle")
                 }
                 .help("Ask the model about every file again, even the ones that haven’t changed. With Claude selected this re-runs the paid classification for the whole folder.")
                 if let onUpdateFolderMemory {
@@ -2818,7 +2818,7 @@ public struct LensWorkspaceView: View {
                             // **The object stays here.** On a card the title above supplies it;
                             // in a menu, beside "Ignore saved suggestions", a bare "Refresh" names
                             // nothing. Same rule `rescanAccessibilityLabel` applies for VoiceOver.
-                            Label("Refresh what’s learned", systemImage: "brain")
+                            Label("Refresh What’s Learned", systemImage: "brain")
                         }
                         .disabled(syncManager.filingSurveyLifecycle.isRunning)
                         .help("Learn what your folders have been given since the last survey, so folders "

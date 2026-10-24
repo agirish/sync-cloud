@@ -597,7 +597,7 @@ enum EditorPDFFillFlyouts {
         return menu
     }
 
-    static let originalInkTitle = "Original ink"
+    static let originalInkTitle = "Original Ink"
 
     private static func swatch(_ color: NSColor) -> NSImage {
         NSImage(size: CGSize(width: 12, height: 12), flipped: false) { rect in

@@ -11,7 +11,7 @@ import SwiftUI
 /// - ONE inline `Picker` over the whole list. A second Picker over the same binding shows the
 ///   check column in whichever group holds the selection and a blank column in the other, and the
 ///   list re-spaces as the selection crosses groups.
-/// - `Choose Folder…` is optional (`onChooseFolder` nil hides the door), `Manage sources…` is not.
+/// - `Choose Folder…` is optional (`onChooseFolder` nil hides the door), `Manage Sources…` is not.
 /// - `.fixedSize(horizontal: false, vertical: true)` — vertical-ONLY. The full `.fixedSize()`
 ///   spelling ignored the width proposal, so a long custom provider name ballooned the label past
 ///   the pane edge and pushed the header's nav cluster out of view. The modifier IS the fix, so
@@ -48,8 +48,8 @@ import SwiftUI
         let code = Self.codeOnly(try Self.source())
         #expect(code.contains("if let onChooseFolder"),
                 "Choose Folder… must be withheld when the surface offers no folder door")
-        // Manage sources is unconditional — it must not have crept behind the same (or any) gate.
-        let manage = try #require(code.range(of: "Manage sources"), "the Manage sources item is gone")
+        // Manage Sources is unconditional — it must not have crept behind the same (or any) gate.
+        let manage = try #require(code.range(of: "Manage Sources"), "the Manage Sources item is gone")
         let before = code[..<manage.lowerBound]
         let lastGate = before.range(of: "if let onChooseFolder", options: .backwards)
         if let lastGate {
@@ -73,7 +73,7 @@ import SwiftUI
             }
             let close = try #require(gateClose, "the gate's block never closes — the scan is broken")
             #expect(close < manage.lowerBound,
-                    "Manage sources… appears inside the onChooseFolder gate — it must be reachable from every surface")
+                    "Manage Sources… appears inside the onChooseFolder gate — it must be reachable from every surface")
         }
     }
 

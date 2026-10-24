@@ -272,7 +272,7 @@ import SwiftUI
         try #require(source.count > 5000,
                      "LensWorkspaceView.swift could not be read — the scan below would be vacuous")
 
-        #expect(source.contains("Label(\"Refresh what\u{2019}s learned\", systemImage: \"brain\")"),
+        #expect(source.contains("Label(\"Refresh What\u{2019}s Learned\", systemImage: \"brain\")"),
                 "the survey item in the Rescan menu no longer names what it refreshes")
         // The typographic apostrophe, matching the two items either side of it.
         #expect(!source.contains("Refresh what's learned"),
