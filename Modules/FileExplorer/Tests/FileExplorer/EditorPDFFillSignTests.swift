@@ -625,7 +625,9 @@ extension PDFFixtures {
         fill.place(at: CGPoint(x: 100, y: 100), page: 0)
         fill.place(at: CGPoint(x: 100, y: 200), page: 0)
         try FileManager.default.removeItem(atPath: file)
+        // Two looks: an empty path is believed only when a second agrees (FR52).
         pdf.look()
+        pdf.lookAsAnEventWould()
         #expect(pdf.phase == .refused(EditorPDFDocument.goneReason))
         #expect(fill.items.isEmpty)
         #expect(pdf.tools.banner?.message
@@ -634,6 +636,7 @@ extension PDFFixtures {
         let (quiet, other) = try await letter("Quiet.pdf")
         try FileManager.default.removeItem(atPath: other)
         quiet.look()
+        quiet.lookAsAnEventWould()
         #expect(quiet.phase == .refused(EditorPDFDocument.goneReason) && quiet.tools.banner == nil)
         // A file left unreadable — a sync client's half-written copy — says it the same way.
         let (torn, tornFile) = try await letter("Torn.pdf")
@@ -648,6 +651,57 @@ extension PDFFixtures {
         #expect(phases == [.refused(EditorPDFDocument.unreadableReason)])
         #expect(torn.tools.banner?.message
                 == "The file couldn’t be read, so Fill & Sign’s unsaved work — 1 item — was dropped.")
+    }
+
+    /// **A file renamed aside and then put back keeps the work on it** (FR52). A sync client, or an
+    /// app's save, that moves the original aside before installing the new revision leaves the path
+    /// empty for a moment that can outlast the settle. One look at that moment dropped every item,
+    /// field value and undo step, and said so in a banner, for a file back a moment later.
+    @Test func aFileRenamedAsideAndPutBackKeepsTheWorkOnIt() async throws {
+        let (pdf, file) = try await letter()
+        let fill = pdf.fill
+        fill.toggle()
+        fill.armed = .mark(.check)
+        fill.place(at: CGPoint(x: 100, y: 100), page: 0)
+        fill.place(at: CGPoint(x: 100, y: 200), page: 0)
+        try #require(fill.items.count == 2)
+
+        // No `await` from the rename to the new file, so no look but these two can come between.
+        try FileManager.default.moveItem(atPath: file, toPath: file + ".sb-old")
+        pdf.lookAsAnEventWould()
+        #expect(pdf.phase == .open, "one look at an empty path let the file go")
+        #expect(fill.items.count == 2, "the work went at the first look at an empty path")
+        #expect(pdf.tools.banner == nil)
+        // The new revision lands: the same pages, new bytes.
+        PDFFixtures.write(file, pages: 2, text: false)
+        let returned = pdf.loadsReturned
+        pdf.lookAsAnEventWould()
+        let deadline = Date().addingTimeInterval(10)
+        while pdf.loadsReturned == returned, Date() < deadline { await PDFKitSerialAccess.perform {} }
+        try #require(pdf.loadsReturned > returned, "the file put back was never reloaded")
+        #expect(pdf.phase == .open)
+        #expect(fill.items.count == 2, "the reload of a file with the same pages dropped its items")
+        #expect(pdf.tools.banner == nil)
+    }
+
+    /// **And a file that stays gone is let go at the second look** — the control: waiting must not
+    /// mean keeping a document whose file is not coming back. The first look's own second look,
+    /// a settle later, is what lets it go.
+    @Test func aFileThatStaysGoneIsLetGoAtTheSecondLook() async throws {
+        let (pdf, file) = try await letter()
+        let fill = pdf.fill
+        fill.toggle()
+        fill.armed = .mark(.check)
+        fill.place(at: CGPoint(x: 100, y: 100), page: 0)
+        try FileManager.default.moveItem(atPath: file, toPath: file + ".filed")
+        pdf.look()
+        #expect(pdf.phase == .open)
+        let deadline = Date().addingTimeInterval(10)
+        while pdf.phase == .open, Date() < deadline { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(pdf.phase == .refused(EditorPDFDocument.goneReason))
+        #expect(fill.items.isEmpty)
+        #expect(pdf.tools.banner?.message
+                == "The file was moved or deleted, so Fill & Sign’s unsaved work — 1 item — was dropped.")
     }
 
     /// **A reload that changed the pages takes the undo steps too**, with nothing placed at the

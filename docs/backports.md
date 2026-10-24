@@ -9297,3 +9297,29 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s hintFixed=%s chipInk=%s compr
 |---|---|---|
 | `v5.x` | The Body menu's own ramp only (`pickerRamp=1`); no Replace, Compress sheet or Fill & Sign overlay | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Edit workspace | CLOSED — does not apply |
+
+---
+
+## A PDF whose path is found empty is looked at twice before Fill & Sign's work goes (FR52) — main only
+
+The PDF watch dropped every placed item, typed field value, picture and undo step at the first look
+that found the path empty — and a sync client or app that renames the original aside before
+installing the new revision leaves it empty for longer than the 250 ms settle. `main` notes the
+first empty look, keeps the work, and looks again a settle later (an event-prompted look, so an
+activation look cannot stand in for the wait); a file back by then is the ordinary reload, which
+keeps the items while the pages match. Only a path still empty lets the work go.
+
+```sh
+F=Modules/FileExplorer/Sources/FileExplorer/EditorPDFDocument.swift
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s secondLook=%s emptyPath=%s fillDrop=%s\n' $l \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF 'foundGoneOnce')" \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF 'guard let now = EditorFileStore.stamp(ofPath: path) else {')" \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF 'fill.detach()')"; done
+# measured 2026-10-23; main read from the p2-edit worktree before landing:
+# main  secondLook=7 emptyPath=1 fillDrop=3      (origin/main before this: secondLook=0)
+# v5.x, v4.x, v3.x, v2.x  secondLook=0 emptyPath=0 fillDrop=0 — no EditorPDFDocument.swift
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF in Edit at all, so no Fill & Sign work to drop | CLOSED — does not apply |

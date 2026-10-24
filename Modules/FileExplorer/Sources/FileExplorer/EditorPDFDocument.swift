@@ -165,6 +165,7 @@ public final class EditorPDFDocument: ObservableObject {
         ticket = nil
         pending?.cancel()
         pending = nil
+        foundGoneOnce = false
         watcher?.cancel()
         watcher = nil
         document = nil
@@ -415,9 +416,12 @@ public final class EditorPDFDocument: ObservableObject {
         pending = Task { [weak self] in
             try? await Task.sleep(for: settle)
             guard !Task.isCancelled else { return }
-            self?.look()
+            self?.look(confirmingGone: true)
         }
     }
+
+    /// Whether a look has found the path empty and is waiting for a second before believing it.
+    private var foundGoneOnce = false
 
     /// **Unsaved Fill & Sign work the file took with it is said, not only logged** — the leave
     /// question cannot ask when the file goes on its own, so the banner over the card says it.
@@ -426,8 +430,16 @@ public final class EditorPDFDocument: ObservableObject {
                                        kind: .note) }
     }
 
-    /// Looks at the disk now: a new stamp reloads, keeping the page; an empty path says so.
-    func look() {
+    /// Looks at the disk now: a new stamp reloads, keeping the page; an empty path says so — once a
+    /// second look agrees.
+    func look() { look(confirmingGone: false) }
+
+    /// The look an event prompts, taken now rather than a settle later — for the tests, which put
+    /// the file system's own steps between two such looks where a clock under load cannot.
+    func lookAsAnEventWould() { look(confirmingGone: true) }
+
+    /// One look. **`confirmingGone`** for a look an event prompted — see the empty path below.
+    private func look(confirmingGone: Bool) {
         guard let path else { return }
         // Not while a load is out — it read the stamp it will compare against.
         guard phase != .loading else { return }
@@ -435,6 +447,26 @@ public final class EditorPDFDocument: ObservableObject {
         if refusal == Self.notDownloadedReason { return }
         guard let now = EditorFileStore.stamp(ofPath: path) else {
             guard refusal != Self.goneReason else { return }
+            // **An empty path is looked at twice before the work on it is dropped** (FR52) — the
+            // text watch's rule for a rename (`EditorDiskWatch.renameHasSettled`). A sync client or
+            // an app that renames the original aside and only then installs the new one leaves the
+            // path empty for as long as the new file takes to write, which can outlast the settle;
+            // believed at the first look, that dropped every placed item, typed field value and
+            // picture, and their undo, for a file that was back a moment later. So the first look
+            // only notes it and looks again a settle later, keeping everything meanwhile: a path
+            // filled again by then is the ordinary reload below, which keeps the items while the
+            // pages match, and one still empty is gone. Only a look an event prompted confirms —
+            // it comes a full settle after the last event — so an activation look straight after
+            // one cannot stand in for the wait.
+            guard confirmingGone, foundGoneOnce else {
+                if !foundGoneOnce {
+                    foundGoneOnce = true
+                    log("Editor found \(path) missing — looking once more before letting it go, in case a save is putting a new file in its place")
+                }
+                eventArrived()
+                return
+            }
+            foundGoneOnce = false
             let lost = fill.unsavedWork
             document = nil
             locked = nil
@@ -449,6 +481,7 @@ public final class EditorPDFDocument: ObservableObject {
             finish(.refused(Self.goneReason), path: path)
             return
         }
+        foundGoneOnce = false
         guard now != stamp else { return }
         // A new revision of a file evicted while open is not downloaded to show it — the text
         // watch's rule (`EditorDiskWatch`): it is read when it is next opened, or by the next look
