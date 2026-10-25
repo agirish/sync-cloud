@@ -162,8 +162,10 @@ struct DifferenceActionTargets: Equatable {
     /// bulk run already left held rows out, but the counts still included them — "Copy 3 →" over
     /// a run that copied two — and when exactly one row was targeted the header went through
     /// `syncFile`, which copies whatever it is handed, so a held row was copied after all,
-    /// unasked. A held row is copied by selecting it alone and asking for it (⌘→); ⌘→ and the bulk
-    /// menu over a larger selection leave it out the same way (`DifferencesShortcutRules.transferItems`).
+    /// unasked. A held row is copied from its own right-click menu, either way its sides allow
+    /// (`DifferenceRowMenu.heldCopyDirections`), or selected alone with ⌘← / ⌘→ the way its guess
+    /// points; ⌘→ and the bulk menu over a larger selection leave it out the same way
+    /// (`DifferencesShortcutRules.transferItems`).
     func transferItems(_ direction: FileDifference.SyncAction) -> [FileDifference] {
         targets.filter { Self.headerTransfers($0, direction) }
     }

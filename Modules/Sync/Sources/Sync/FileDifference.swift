@@ -49,7 +49,9 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
     /// A held row stays on the list with its note in `description`, is left out of every bulk run
     /// (`FileSyncManager.syncAll`, the CLI's `sync`), and is reported there as left out. A single
     /// row the user picks and copies on its own is their choice and goes ahead — except
-    /// `.sourceIsSymbolicLink`, which no copy does right (`syncFile` refuses it).
+    /// `.sourceIsSymbolicLink`, which no copy does right (`syncFile` refuses it). In the app that
+    /// choice is the row's right-click menu, which copies a held row either way its sides allow
+    /// (`redirected(to:)`); the CLI has none, and leaves held rows to the app.
     ///
     /// Not a `DifferenceType`: a held row is still a missing, differing or name-conflict row, and
     /// every filter, badge and sort keyed on that type should keep reading it as one.
@@ -178,6 +180,18 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
             // still the side copied from and an undecided pair is still undecided.
             heldBack: heldBack
         )
+    }
+
+    /// This row with the user's choice of direction in place of the engine's — what the row's own
+    /// Copy to … item hands `syncFile` for a held row, where the suggested `action` is a guess and
+    /// the user has decided which side to keep. Paths, type, note and hold are unchanged, and so is
+    /// the `id`, so the row it resolves is this one. Not `mirrored()`, which trades the panes.
+    public func redirected(to direction: SyncAction) -> FileDifference {
+        FileDifference(
+            id: id, relativePath: relativePath, leftItemPath: leftItemPath, rightItemPath: rightItemPath,
+            type: type, action: direction, description: description, isSyncing: isSyncing,
+            leftFileSize: leftFileSize, rightFileSize: rightFileSize, enclosedItemCount: enclosedItemCount,
+            leftIsDirectory: leftIsDirectory, rightIsDirectory: rightIsDirectory, heldBack: heldBack)
     }
 
     /// Absolute path of the item on the side this difference's `action` copies FROM

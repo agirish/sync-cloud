@@ -38,9 +38,8 @@ extension FileSyncManager {
             Logger.shared.info("Copy to match dates: left out \(pair.relativePath) — \(pair.heldBack == nil ? "one side is a symbolic link" : "it needs a decision of its own")")
         }
         if toCopy.isEmpty, !held.isEmpty {
-            banner = .warning(held.count == 1
-                ? "“\(held[0].relativePath)” was left out — it’s a link or needs your decision; copy it from its own row"
-                : "\(held.count) items were left out — links or rows that need your decision; copy each from its own row")
+            banner = .warning((["No dates were matched"] + Self.leftOutPhrases(held, linkOnEitherSide: true))
+                .joined(separator: "; "))
             return
         }
         let total = toCopy.count
@@ -124,7 +123,7 @@ extension FileSyncManager {
         }
         let proven = toCopy.filter(isProven)
         if !proven.isEmpty {
-            await matchDatesOfProvenPairs(proven, stamps: stamps, heldCount: held.count)
+            await matchDatesOfProvenPairs(proven, stamps: stamps, held: held)
         }
         let unproven = toCopy.filter { !isProven($0) }
         guard !unproven.isEmpty else { return }
@@ -257,7 +256,7 @@ extension FileSyncManager {
     /// Undoable as one step: ⌘Z puts each right file's previous date back, but only on a file that
     /// still reads as this run left it (same size, the date it was given).
     private func matchDatesOfProvenPairs(_ pairs: [FileDifference], stamps: [UUID: FilePairStamp],
-                                         heldCount: Int) async {
+                                         held: [FileDifference]) async {
         let activeFM = fileManager
         let outcome = await enqueueFileOperation { () -> (matched: [(FileDifference, DateMatchState)], changed: [FileDifference], failures: [(FileDifference, Error)]) in
             var matched: [(FileDifference, DateMatchState)] = []
@@ -297,18 +296,46 @@ extension FileSyncManager {
         for (diff, error) in outcome.failures {
             Logger.shared.error("Copy to match dates: could not set the date of \(diff.rightItemPath): \(error.localizedDescription)")
         }
-        let leftOut = outcome.changed.count + outcome.failures.count + heldCount
+        let leftOut = outcome.changed.count + outcome.failures.count + held.count
         if leftOut > 0 {
             var parts = ["\(CountedNoun.phrase(outcome.matched.count, "date")) matched"]
             if !outcome.changed.isEmpty { parts.append("\(outcome.changed.count) changed since Verify All and left alone") }
             if !outcome.failures.isEmpty { parts.append("\(outcome.failures.count) failed") }
-            if heldCount > 0 { parts.append("\(heldCount) left out (links or rows that need your decision)") }
+            parts += Self.leftOutPhrases(held, linkOnEitherSide: true)
             // The dates it did match are one undo step all the same, so the banner keeps its Undo.
             banner = .warning(parts.joined(separator: "; "), undoable: !outcome.matched.isEmpty)
         } else {
             banner = .success("\(CountedNoun.phrase(outcome.matched.count, "file")) now match — dates set, nothing copied",
                               undoable: true)
         }
+    }
+
+    /// What a run says about the held rows it left out, one phrase per kind: the rows that need the
+    /// user's decision, with where they make it — the row's right-click menu, which copies a held
+    /// row either way — and the links, which nothing in the app copies right (`syncFile` refuses a
+    /// row copying FROM one), so no path is named for them.
+    ///
+    /// `linkOnEitherSide` words the link half for Copy to match dates, which also leaves out a pair
+    /// with a link on the side it would write — such a row carries no hold, so a row without one
+    /// counts as a link there.
+    static func leftOutPhrases(_ held: [FileDifference], linkOnEitherSide: Bool = false) -> [String] {
+        let links = held.filter { $0.heldBack == nil || $0.heldBack == .sourceIsSymbolicLink }.count
+        let decisions = held.count - links
+        var phrases: [String] = []
+        if decisions > 0 {
+            phrases.append(decisions == 1
+                ? "1 item needs your decision and was left out — right-click its row to choose which to keep"
+                : "\(decisions) items need your decision and were left out — right-click each row to choose which to keep")
+        }
+        if links > 0 {
+            switch (linkOnEitherSide, links == 1) {
+            case (true, true): phrases.append("1 item has a link on one side and was left out")
+            case (true, false): phrases.append("\(links) items have a link on one side and were left out")
+            case (false, true): phrases.append("1 item is a link and was left out — a copy would be a link too")
+            case (false, false): phrases.append("\(links) items are links and were left out — a copy would be a link too")
+            }
+        }
+        return phrases
     }
 
     /// Registers one undo step over a date match: it sets each file's date back toward
@@ -453,14 +480,12 @@ extension FileSyncManager {
         for held in heldBack {
             Logger.shared.info("Bulk \(isMove ? "move" : "sync") left \(held.relativePath) for a decision: \(held.description)")
         }
-        let heldNote = heldBack.isEmpty ? "" : (heldBack.count == 1
-            ? " — 1 item needs your decision and was left out"
-            : " — \(heldBack.count) items need your decision and were left out")
+        let leftOut = Self.leftOutPhrases(heldBack)
+        let heldNote = leftOut.map { "; " + $0 }.joined()
         let total = toSync.count
         guard total > 0 else {
             if !heldBack.isEmpty, postBanner {
-                banner = .warning((heldBack.count == 1 ? "1 item needs" : "\(heldBack.count) items need")
-                    + " your decision, so nothing was \(isMove ? "moved" : "copied") — see each row’s note")
+                banner = .warning("Nothing was \(isMove ? "moved" : "copied")" + heldNote)
             }
             return
         }

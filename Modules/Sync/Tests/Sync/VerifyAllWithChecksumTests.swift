@@ -736,7 +736,8 @@ import Foundation
                                                      stamps: [fixture.identical.id: stamp])
 
         let banner = try #require(manager.banner)
-        #expect(banner.message == "1 date matched; 1 left out (links or rows that need your decision)")
+        #expect(banner.message
+                == "1 date matched; 1 item needs your decision and was left out — right-click its row to choose which to keep")
         #expect(banner.severity == .warning)
         #expect(banner.isUndoable, "the dates it matched are undoable, and the banner hid it")
         #expect(manager.undoManager?.canUndo == true)

@@ -111,9 +111,12 @@ enum DifferencesShortcutRules {
     /// the user has to make, and a set is not where they make it. Without this ⌘→ and the bulk
     /// menu counted and sent held rows, and when one alone survived `runCopyOrMove` handed it to
     /// `syncFile`, which copies whatever it is given. A held row the user selected ALONE and asked
-    /// to copy is theirs to copy — the "pick it alone" path the held rows' wording points to. One
-    /// selected id, not one surviving row: a selection of two whose other row has gone from the
-    /// screen was not a pick of the one left.
+    /// to copy is theirs to copy — but only the way its guess points, since this filters on
+    /// `action`, and not at all when it copies FROM a link, which `syncFile` refuses. So the held
+    /// rows' wording points to the row's right-click menu, not here: that copies a held row either
+    /// way its sides allow (`DifferenceRowMenu.heldCopyDirections`). One selected id, not one
+    /// surviving row: a selection of two whose other row has gone from the screen was not a pick
+    /// of the one left.
     ///
     /// - Parameter rows: the visible rows **as of the moment the chord fires**, never a snapshot
     ///   taken when the shortcut was published. See ``TransferShortcut``.

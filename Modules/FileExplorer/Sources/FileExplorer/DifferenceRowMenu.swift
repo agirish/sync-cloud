@@ -63,6 +63,26 @@ public enum DifferenceRowMenu {
             .map(\.side)
     }
 
+    /// The directions a HELD row's own Copy to … items offer (`FileDifference.heldBack`), right
+    /// first as the bulk menu orders them; empty for every other row.
+    ///
+    /// **A held row's suggested direction is a guess, so the choice is the user's, and this is
+    /// where they make it.** Its note says "choose which to keep", but nothing else lets them: every
+    /// bulk run leaves the row out, and ⌘← / ⌘→ and the Review card copy only the way the guess
+    /// points — keeping the other file had no path at all. So each direction whose source side
+    /// exists is offered: both for two files whose sizes differ with no newer side and for a folder
+    /// against a file; only the existing side for a folder missing on one side that holds a link.
+    ///
+    /// **A row copying FROM a link offers neither** (`.sourceIsSymbolicLink`): a copy would be a
+    /// link too, whichever way the user wanted it, so `syncFile` refuses it and its note says why.
+    public static func heldCopyDirections(for difference: FileDifference) -> [FileDifference.SyncAction] {
+        guard let held = difference.heldBack, held != .sourceIsSymbolicLink else { return [] }
+        var directions: [FileDifference.SyncAction] = []
+        if difference.type != .missingOnLeft { directions.append(.copyToRight) }
+        if difference.type != .missingOnRight { directions.append(.copyToLeft) }
+        return directions
+    }
+
     /// Whether this difference is hidden by the current ignore set. Uses the same
     /// predicate the differences filter applies (`FileSyncManager.isIgnoredPath` over
     /// `relativePath`), so the menu label always agrees with list membership.

@@ -167,6 +167,68 @@ import Sync
                 "an empty folder against a text file offers the folder")
     }
 
+    // MARK: A held row's Copy to … items
+
+    private func held(_ type: FileDifference.DifferenceType, _ reason: FileDifference.HeldBack?,
+                      action: FileDifference.SyncAction = .copyToRight) -> FileDifference {
+        FileDifference(relativePath: "docs/report.txt", leftItemPath: "/icloud/docs/report.txt",
+                       rightItemPath: "/dropbox/docs/report.txt", type: type, action: action,
+                       description: "d", heldBack: reason)
+    }
+
+    /// **A held row offers both directions where both files exist — the way against its guess
+    /// included, which nothing else in Compare reached.** Asked of a row whose guess points left
+    /// as well as one pointing right, so an answer keyed on `action` cannot pass.
+    @Test func aHeldPairOffersBothDirectionsWhicheverWayItsGuessPoints() {
+        for action in [FileDifference.SyncAction.copyToRight, .copyToLeft] {
+            #expect(DifferenceRowMenu.heldCopyDirections(
+                for: held(.differentDates, .sizesDifferWithoutANewerSide, action: action)) == [.copyToRight, .copyToLeft])
+        }
+    }
+
+    /// The engine's own folder-against-file row, held by FR40: both directions.
+    @Test func aFolderAgainstAFileOffersBothDirections() throws {
+        let row = try EngineRows().folderAgainstFile(folderHasContents: true)
+        try #require(row.heldBack == .folderVersusFile, "the premise: the engine holds this row")
+        #expect(DifferenceRowMenu.heldCopyDirections(for: row) == [.copyToRight, .copyToLeft])
+    }
+
+    /// A folder missing on one side that holds a link has one side to copy from.
+    @Test func aMissingFolderHoldingALinkOffersOnlyTheSideThatExists() {
+        #expect(DifferenceRowMenu.heldCopyDirections(
+            for: held(.missingOnRight, .enclosesSymbolicLink(path: "docs/lib"))) == [.copyToRight])
+        #expect(DifferenceRowMenu.heldCopyDirections(
+            for: held(.missingOnLeft, .enclosesSymbolicLink(path: "docs/lib"), action: .copyToLeft)) == [.copyToLeft])
+    }
+
+    /// A row copying FROM a link offers neither — the copy would be a link too, whichever way —
+    /// and an unheld row offers none: its direction is not a guess, and the header and ⌘← / ⌘→
+    /// already copy it.
+    @Test func aLinkSourceRowAndAnUnheldRowOfferNothing() {
+        #expect(DifferenceRowMenu.heldCopyDirections(for: held(.differentDates, .sourceIsSymbolicLink)).isEmpty)
+        #expect(DifferenceRowMenu.heldCopyDirections(for: held(.differentDates, nil)).isEmpty)
+    }
+
+    /// The rule is one revert from unused, so the menu's wiring is read at source level: the row
+    /// menu asks the rule, and the item it builds copies the LIVE row redirected the chosen way.
+    @Test func theRowMenuOffersAndSendsTheHeldDirections() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/DifferencesView.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read DifferencesView.swift — every check below would be vacuous")
+        let menu = try #require(source.range(of: "private func singleRowMenu(")
+            .map { String(source[$0.lowerBound...].prefix(1_200)) }, "singleRowMenu is gone — this scan measures nothing")
+        #expect(menu.contains("DifferenceRowMenu.heldCopyDirections(for: difference)"),
+                "the row menu no longer asks which directions a held row offers")
+        #expect(menu.contains("heldCopyButton(id: id, direction: .copyToRight)")
+                && menu.contains("heldCopyButton(id: id, direction: .copyToLeft)"))
+        #expect(source.contains("Task { await syncManager.syncFile(live.redirected(to: direction)) }"),
+                "the item no longer copies the live row in the direction picked")
+        #expect(source.contains("DifferenceRowMenu.heldCopyDirections(for: live).contains(direction)"),
+                "the item no longer re-checks the live row when it fires")
+    }
+
     // MARK: Ignore toggle
 
     @Test func testToggleIgnoresUsingRelativePath() {

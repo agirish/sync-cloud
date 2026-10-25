@@ -2086,10 +2086,18 @@ public struct DifferencesView: View {
     ///
     /// Resolved to nothing means the row is gone from the visible list, and the toggle does
     /// nothing, exactly as the bulk items do with an empty resolution.
+    ///
+    /// A HELD row also gets a Copy to … item per direction its sides allow
+    /// (`DifferenceRowMenu.heldCopyDirections`) — the one place its "choose which to keep" is made.
+    /// They write too, so they take the id, as the toggle does.
     @ViewBuilder
     private func singleRowMenu(for difference: FileDifference, id: FileDifference.ID) -> some View {
         inspectionMenuItems(for: difference)
         Divider()
+        let heldDirections = DifferenceRowMenu.heldCopyDirections(for: difference)
+        if heldDirections.contains(.copyToRight) { heldCopyButton(id: id, direction: .copyToRight) }
+        if heldDirections.contains(.copyToLeft) { heldCopyButton(id: id, direction: .copyToLeft) }
+        if !heldDirections.isEmpty { Divider() }
         let isIgnored = DifferenceRowMenu.isIgnored(difference, ignoredPaths: syncManager.ignoredPaths)
         Button {
             guard let live = DifferencesShortcutRules.rows(displayRows.sorted, matching: [id]).first
@@ -2104,6 +2112,32 @@ public struct DifferencesView: View {
                 systemImage: isIgnored ? "eye" : "eye.slash"
             )
         }
+    }
+
+    /// One of a held row's Copy to … items: copies the row the way the user chose, against the
+    /// engine's guess as readily as with it.
+    private func heldCopyButton(id: FileDifference.ID, direction: FileDifference.SyncAction) -> some View {
+        let toRight = direction == .copyToRight
+        return Button {
+            copyHeldRow(id: id, direction: direction)
+        } label: {
+            Label("Copy to \(toRight ? paneNames.right : paneNames.left)",
+                  systemImage: TransferGlyph.copy(toRight: toRight))
+        }
+        .disabled(isSyncActionBlocked)
+    }
+
+    /// Resolved when it FIRES, as every writing item here is: the live row must still be on screen
+    /// and still offer this direction — a rescan that settled the pair, or found a link on the side
+    /// it would copy from, leaves nothing to do. A single deliberate copy, so `syncFile` and its
+    /// prompt, with the row `redirected(to:)` the direction picked.
+    private func copyHeldRow(id: FileDifference.ID, direction: FileDifference.SyncAction) {
+        guard !isSyncActionBlocked,
+              let live = DifferencesShortcutRules.rows(displayRows.sorted, matching: [id]).first,
+              DifferenceRowMenu.heldCopyDirections(for: live).contains(direction)
+        else { return }
+        Logger.shared.debug("Held row copied \(direction == .copyToRight ? "to right" : "to left") from its menu: \(live.relativePath)")
+        Task { await syncManager.syncFile(live.redirected(to: direction)) }
     }
 
     /// Read-only row actions — Compare…, Open in Edit, and per-side Get Info/Reveal/Quick Look/

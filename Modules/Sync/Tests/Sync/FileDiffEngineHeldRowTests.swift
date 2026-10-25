@@ -168,7 +168,8 @@ import Foundation
         manager.banner = nil
         await manager.syncAll(direction: .copyToRight, confirmed: true)
         #expect(destinationIsAbsent(), "a bulk run wrote something at \(destination.path)")
-        #expect(manager.banner?.message == "1 item needs your decision, so nothing was copied — see each row’s note")
+        // No path is named: nothing in the app copies a row FROM a link right, the row's menu included.
+        #expect(manager.banner?.message == "Nothing was copied; 1 item is a link and was left out — a copy would be a link too")
         #expect(manager.differences.map(\.relativePath) == ["Linked"], "the held row must stay on the list")
         #expect(try fm.contentsOfDirectory(atPath: original.path).sorted() == ["one.txt", "two.txt"])
     }
@@ -345,7 +346,54 @@ import Foundation
         #expect(try String(contentsOf: rightRoot.appendingPathComponent("b-missing.txt"), encoding: .utf8) == "only on the left")
         #expect(try String(contentsOf: rightRoot.appendingPathComponent("a-held.txt"), encoding: .utf8) == "right",
                 "the held row's right file was overwritten by a bulk run")
-        #expect(manager.banner?.message == "Copied 1 item — 1 item needs your decision and was left out")
+        #expect(manager.banner?.message
+                == "Copied 1 item; 1 item needs your decision and was left out — right-click its row to choose which to keep")
         #expect(manager.differences.map(\.relativePath) == ["a-held.txt"])
+    }
+
+    /// **The row's menu decides a held row either way, and the way against the guess is the one
+    /// nothing else reached.** The engine suggests left → right for a sizes-differ pair; ⌘← and the
+    /// Review card offer only that direction, and every bulk run leaves the row out — so keeping the
+    /// RIGHT file had no path at all. `redirected(to:)` is what the menu's Copy to … item hands
+    /// `syncFile`: the right file lands on the left, the right is untouched, and the row resolves.
+    @MainActor
+    @Test func aHeldRowRedirectedAgainstItsGuessCopiesTheOtherWay() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "HeldRedirected")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fm = FileManager.default
+        let leftRoot = root.appendingPathComponent("Left")
+        let rightRoot = root.appendingPathComponent("Right")
+        for dir in [leftRoot, rightRoot] { try fm.createDirectory(at: dir, withIntermediateDirectories: true) }
+        try Data("left, longer".utf8).write(to: leftRoot.appendingPathComponent("held.txt"))
+        try Data("right".utf8).write(to: rightRoot.appendingPathComponent("held.txt"))
+        for url in [leftRoot.appendingPathComponent("held.txt"), rightRoot.appendingPathComponent("held.txt")] {
+            try fm.setAttributes([.modificationDate: d1], ofItemAtPath: url.path)
+        }
+        let row = try #require(FileDiffEngine.computeDifferences(
+            left: mac, leftURL: leftRoot, right: backup, rightURL: rightRoot,
+            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftRoot),
+            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightRoot),
+            dateToleranceSeconds: 5).first)
+        try #require(row.heldBack == .sizesDifferWithoutANewerSide && row.action == .copyToRight,
+                     "the premise: a held row whose guess is left → right")
+
+        let manager = FileSyncManager(fileManager: ScratchTrash(in: root))
+        let store = makeTempHistoryStore(prefix: "HeldRedirected")
+        defer { removeHistoryStoreFiles(store) }
+        manager.syncHistoryStore = store
+        manager.collisionResolver = { _ in .replace }
+        manager.rawDifferences = [row]
+        manager.differences = [row]
+
+        let redirected = row.redirected(to: .copyToLeft)
+        #expect(redirected.id == row.id && redirected.leftItemPath == row.leftItemPath
+                && redirected.heldBack == row.heldBack, "redirected traded more than the direction")
+        let copied = await manager.syncFile(redirected, confirmed: true)
+
+        #expect(copied)
+        #expect(try String(contentsOf: leftRoot.appendingPathComponent("held.txt"), encoding: .utf8) == "right",
+                "the right file was not copied over the left")
+        #expect(try String(contentsOf: rightRoot.appendingPathComponent("held.txt"), encoding: .utf8) == "right")
+        #expect(manager.differences.isEmpty, "the decided row is still on the list")
     }
 }

@@ -10573,3 +10573,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s dates=%s partialUndo=%s\n' $l
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No date match at all (`dates=0`) | CLOSED — does not apply |
+
+---
+
+## A held row is decided from its own menu (FR39/FR40, follow-up) — main only
+
+A held row's note said "choose which to keep", but Compare offered no way to keep the file its
+guess pointed away from: bulk runs leave it out, and ⌘← / ⌘→ and the Review card copy only the
+suggested way. `main` gives a held row's right-click menu a Copy to … item for each direction its
+sides allow (`DifferenceRowMenu.heldCopyDirections`, `FileDifference.redirected(to:)`) — none for a
+row copying from a link, which stays refused — and the left-out banners name that menu for the
+rows that need a decision and say plainly that a link is left out.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s heldBack=%s rowCopy=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileDifference.swift 2>/dev/null | grep -cF 'public let heldBack')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DifferenceRowMenu.swift 2>/dev/null | grep -cF 'func heldCopyDirections')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads rowCopy=1):
+# main                     heldBack=1 rowCopy=0
+# v5.x, v4.x, v3.x, v2.x   heldBack=0 rowCopy=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No held rows at all (`heldBack=0`) | CLOSED — does not apply |
