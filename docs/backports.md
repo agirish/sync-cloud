@@ -11567,3 +11567,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s banner=%s floats=%s\n' $l \
 |---|---|---|
 | `v5.x` | The banner as a row above the text (`floats=0`) | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No disk banner (`banner=0`) | CLOSED — does not apply |
+
+---
+
+## Edit's status hint keeps Line/Col (TE213) — main only
+
+"That change needs Source." took the whole status line for its four seconds, hiding Line/Col (Go
+to Line) and the heading menu. `main` stands it in the line's free space, or in the heading's place
+where that is tight (`EditorStatusLine.HintPlace`), and moves nothing.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s hint=%s hintPlace=%s\n' $l \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorStatusLine.swift 2>/dev/null | grep -c 'struct EditorStatusHint')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorStatusLine.swift 2>/dev/null | grep -c 'enum HintPlace')"; done
+# measured 2026-10-25, against origin, before this landed (the change reads hintPlace=1):
+# main, v5.x         hint=1 hintPlace=0
+# v4.x, v3.x, v2.x   hint=0 hintPlace=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The hint over the whole line (`hintPlace=0`) | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No editable Preview, so no hint (`hint=0`) | CLOSED — does not apply |

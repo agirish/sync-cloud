@@ -35,9 +35,10 @@ struct EditorStatusLine: View, Equatable {
     /// **The heading the caret is in, leading the line, as a menu of every heading (TE57)** — or
     /// `nil` when there is none to name: a plain-text file, or Markdown with no headings.
     var headings: EditorStatusHeadings?
-    /// **An edit Preview could not make (TE67 §1.2)**, said in the line's leading slot for a few
-    /// seconds instead of the counts — the "only minor edits work here" message, at the moment it
-    /// matters rather than as a standing warning. The host clears it after ``EditorStatusHint/duration``.
+    /// **An edit Preview could not make (TE67 §1.2)**, said for a few seconds in the line's free
+    /// space — the "only minor edits work here" message, at the moment it matters rather than as a
+    /// standing warning. The host clears it after ``EditorStatusHint/duration``. See
+    /// ``HintPlace`` for where it stands and what gives way to it.
     var hint: EditorStatusHint?
     /// **The selection's counts, while text is selected (TE60)** — "12 of 78 words · 64 characters
     /// selected" in the counts' place — or `nil` for a bare caret, when the line reads as it always did.
@@ -60,8 +61,19 @@ struct EditorStatusLine: View, Equatable {
     var caretIsCurrent = true
 
     @Environment(\.appFontScale) private var scale
-    /// The drawn caret button's bounds in the line, for Go to Line's arrow (TE61).
+    /// The drawn caret's bounds in the line, for Go to Line's arrow (TE61) and for where the hint's
+    /// free space starts (TE213).
     @State private var caretBounds: CGRect = .zero
+    /// Where the caret ends in the line's own rungs — not ``hinted(_:)``'s, which draws it
+    /// elsewhere and would answer the question of whether the hint fits beside the rungs with the
+    /// wrong caret, and flip between the two each pass.
+    @State private var ladderCaretEnd: CGFloat = 0
+    /// The line's own width, for where the hint's free space ends.
+    @State private var lineWidth: CGFloat = 0
+    /// What each of the hint's rungs needs, measured off the line (``hintPlace``).
+    @State private var hintWidths: [EditorStatusHint.Rung: CGFloat] = [:]
+    /// The heading menu's bounds in the line's own rungs — the room the hint can take from it.
+    @State private var headingBounds: CGRect = .zero
 
     /// The three rungs, named so a test can ask for one.
     enum Rung: CaseIterable { case full, counts, caret }
@@ -109,10 +121,10 @@ struct EditorStatusLine: View, Equatable {
     /// before it goes. Without a multi-line selection those two rungs are not built at all: they
     /// would draw exactly what the rungs after them draw.
     var body: some View {
-        Group {
-            if let hint {
+        lineType(Group {
+            if let hint, hint.forcedRung != nil || hintPlace == .aside {
                 hinted(hint)
-            } else if let notice = shownNotice {
+            } else if hint == nil, let notice = shownNotice {
                 Text(notice)
                     .truncationMode(.tail)
                     .accessibilityLabel(notice)
@@ -142,14 +154,30 @@ struct EditorStatusLine: View, Equatable {
                     counted(.caret)
                 }
             }
-        }
-        .scaledFont(.system(size: 10))
-        .monospacedDigit()
-        .foregroundStyle(.secondary)
-        .lineLimit(1)
+        })
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { lineWidth = $0 }
+        // The hint where ``hintPlace`` puts it — see ``HintPlace``.
+        .overlay(alignment: .trailing) {
+            if let hint, case .free(let rung) = hintPlace { lineType(hintRow(rung, hint)).padding(.trailing, 14) }
+        }
+        .overlay(alignment: .leading) {
+            if let hint, case .heading(let rung) = hintPlace { lineType(hintRow(rung, hint)).offset(x: headingBounds.minX) }
+        }
+        // Each of the hint's rungs, measured and never drawn — what decides where it goes.
+        .background {
+            if let hint, hint.forcedRung == nil {
+                ZStack {
+                    ForEach(EditorStatusHint.Rung.allCases, id: \.self) { rung in
+                        lineType(hintRow(rung, hint))
+                            .hidden()
+                            .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { hintWidths[rung] = $0 }
+                    }
+                }
+            }
+        }
         .coordinateSpace(.named(Self.lineSpace))
         // **Hung on the line once, never on a rung.** Every rung of both ladders draws its own
         // caret button, and a change of rung — a multi-line selection's count arriving, the column
@@ -165,18 +193,93 @@ struct EditorStatusLine: View, Equatable {
         }
     }
 
+    /// **The line's type**, for its rungs and for the hint over them — an overlay is outside the
+    /// rungs' environment, and a hint measured in body type was measured too wide for the line.
+    private func lineType(_ content: some View) -> some View {
+        content
+            .scaledFont(.system(size: 10))
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+    }
+
     /// The line's own coordinate space, which the caret reports its bounds in.
     private static let lineSpace = "EditorStatusLine"
 
-    /// **Shed as the counts are**, so a narrow column at a large text size keeps the way to Source:
-    /// the sentence, then its short form, then the link alone (`theHintFitsTheNarrowestColumnAtEveryTextSize`).
+    /// **Where the hint stands: somewhere nothing else is, so nothing moves** (TE213). It used to
+    /// take the whole line for its four seconds, so Line/Col — Go to Line's door — and the heading
+    /// menu went away under whoever was reaching for them, and came back under them when it ended.
+    ///
+    /// Now the line keeps the rung it has and everything where it was. The hint stands in the
+    /// free space — from the caret's end to the line's, where the file's facts are, which go
+    /// undrawn (size, encoding, line endings: true of the file, not of the edit). Where that is too
+    /// tight for more than the link — a rung whose heading has taken all the room — and the
+    /// heading's place has room for words too, it stands there, the heading undrawn: the heading
+    /// gives way first, and Line/Col does not move for either. Only where neither has room for the
+    /// link is the line redrawn around it (``hinted(_:)``).
+    enum HintPlace: Equatable {
+        /// Not measured yet: the line as it is, the hint not drawn for the one pass it takes.
+        case pending
+        case free(EditorStatusHint.Rung)
+        case heading(EditorStatusHint.Rung)
+        case aside
+    }
+
+    /// The rule, apart from the measuring: the rung's widths, and the room in each place.
+    static func hintPlace(freeSpace: CGFloat, headingSlot: CGFloat?,
+                          widths: [EditorStatusHint.Rung: CGFloat]) -> HintPlace {
+        let rungs = EditorStatusHint.Rung.allCases
+        guard rungs.allSatisfy({ widths[$0] != nil }) else { return .pending }
+        func widest(in room: CGFloat) -> EditorStatusHint.Rung? { rungs.first { widths[$0]! <= room } }
+        let free = widest(in: freeSpace)
+        let heading = headingSlot.flatMap(widest(in:))
+        switch (free, heading) {
+        case let (free?, heading?):
+            return free == .link && heading != .link ? .heading(heading) : .free(free)
+        case let (free?, nil): return .free(free)
+        case let (nil, heading?): return .heading(heading)
+        case (nil, nil): return .aside
+        }
+    }
+
+    /// This line's place for its hint, or `nil` without one (or with a forced rung, drawn alone).
+    private var hintPlace: HintPlace? {
+        guard let hint, hint.forcedRung == nil else { return nil }
+        return Self.hintPlace(freeSpace: lineWidth - 14 - ladderCaretEnd - Self.spacing,
+                              headingSlot: headings == nil ? nil : headingBounds.width, widths: hintWidths)
+    }
+
+    /// Whether the file's facts are undrawn, the hint standing over them.
+    private var hintTakesFreeSpace: Bool {
+        if case .free = hintPlace { return true }
+        return false
+    }
+
+    /// Whether the heading is undrawn, the hint standing in its place.
+    private var hintHidesHeading: Bool {
+        if case .heading = hintPlace { return true }
+        return false
+    }
+
+    /// **Where neither place has room even for the link** (the narrowest column at a large text
+    /// size): the heading and the counts go and Line/Col stays, beside the hint shed as the counts
+    /// are — the sentence, its short form, the link. Only where Line/Col and the link cannot share
+    /// the line at all is the link alone (`theHintFitsTheNarrowestColumn`). A forced rung draws that
+    /// rung alone, for the tests that measure each.
     @ViewBuilder
     private func hinted(_ hint: EditorStatusHint) -> some View {
         if let rung = hint.forcedRung {
             hintRow(rung, hint)
         } else {
             ViewThatFits(in: .horizontal) {
-                ForEach(EditorStatusHint.Rung.allCases, id: \.self) { hintRow($0, hint) }
+                ForEach(EditorStatusHint.Rung.allCases, id: \.self) { rung in
+                    HStack(spacing: Self.spacing) {
+                        caretSegment(inLadder: false)
+                        hintRow(rung, hint)
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                }
+                hintRow(.link, hint)
             }
         }
     }
@@ -206,19 +309,26 @@ struct EditorStatusLine: View, Equatable {
     private func rung(_ rung: Rung, _ headings: EditorStatusHeadings, fit: HeadingFit,
                       lines: Bool = false) -> some View {
         HStack(spacing: Self.spacing) {
-            switch fit {
-            case .whole:
-                EditorHeadingMenu(headings: headings).fixedSize()
-            case .floor:
-                EditorHeadingMenu(headings: headings)
-                    .frame(minWidth: Self.headingFloor(scale: scale), idealWidth: Self.headingFloor(scale: scale),
-                           alignment: .leading)
-                    .layoutPriority(-1)
-            case .glyph:
-                EditorHeadingMenu(headings: headings)
-                    .frame(minWidth: 0, idealWidth: 0, alignment: .leading)
-                    .layoutPriority(-1)
+            Group {
+                switch fit {
+                case .whole:
+                    EditorHeadingMenu(headings: headings).fixedSize()
+                case .floor:
+                    EditorHeadingMenu(headings: headings)
+                        .frame(minWidth: Self.headingFloor(scale: scale), idealWidth: Self.headingFloor(scale: scale),
+                               alignment: .leading)
+                        .layoutPriority(-1)
+                case .glyph:
+                    EditorHeadingMenu(headings: headings)
+                        .frame(minWidth: 0, idealWidth: 0, alignment: .leading)
+                        .layoutPriority(-1)
+                }
             }
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.lineSpace)) }) { headingBounds = $0 }
+            // Undrawn, its room kept, while the hint stands there (``HintPlace``).
+            .opacity(hintHidesHeading ? 0 : 1)
+            .allowsHitTesting(!hintHidesHeading)
+            .accessibilityHidden(hintHidesHeading)
             counted(rung, lines: lines)
         }
     }
@@ -244,14 +354,18 @@ struct EditorStatusLine: View, Equatable {
         return HStack(spacing: Self.spacing) {
             ForEach(Self.countCaptions(facts: counts, selection: selection, rung: rung, lines: lines),
                     id: \.self) { Text($0).opacity(drawn) }
-            caretSegment
+            caretSegment()
             Spacer(minLength: 8)
             // The file's own facts, right-aligned and last: they are true of the file rather than
             // of what you are doing in it, and they change only when a different file is opened.
+            //
+            // Undrawn under a hint, which stands over them (``HintPlace``); their room is
+            // kept, so the line keeps its rung.
             if rung != .caret {
-                if let fileSize { Text(fileSize) }
-                if let encoding = counts?.encoding { Text(encoding).opacity(drawn) }
-                if let ending = counts?.lineEnding { Text(ending.statusCaption).opacity(drawn) }
+                let shown: Double = hintTakesFreeSpace ? 0 : 1
+                if let fileSize { Text(fileSize).opacity(shown) }
+                if let encoding = counts?.encoding { Text(encoding).opacity(drawn * shown) }
+                if let ending = counts?.lineEnding { Text(ending.statusCaption).opacity(drawn * shown) }
             }
         }
         .fixedSize(horizontal: true, vertical: false)
@@ -285,7 +399,7 @@ struct EditorStatusLine: View, Equatable {
     /// rung measures differently for being clickable. Secondary like the counts — a wash on hover, not
     /// a colour at rest, says it can be pressed.
     @ViewBuilder
-    private var caretSegment: some View {
+    private func caretSegment(inLadder: Bool = true) -> some View {
         if let goToLine {
             Button { goToLine.isPresented.wrappedValue = true } label: {
                 Text(Self.caretCaption(caret))
@@ -299,6 +413,7 @@ struct EditorStatusLine: View, Equatable {
             // Where the field's arrow points — the field itself hangs on the whole line (`body`).
             .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.lineSpace)) }) {
                 caretBounds = $0
+                if inLadder { ladderCaretEnd = $0.maxX }
             }
             .padding(.horizontal, -4)
             .help(EditorStatusGoToLine.help)
@@ -310,6 +425,10 @@ struct EditorStatusLine: View, Equatable {
         } else {
             Text(Self.caretCaption(caret))
                 .opacity(caretIsCurrent ? 1 : 0)
+                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.lineSpace)) }) {
+                    caretBounds = $0
+                    if inLadder { ladderCaretEnd = $0.maxX }
+                }
         }
     }
 
@@ -428,7 +547,8 @@ struct EditorStatusHint: Equatable {
     var token: Int
     /// Switches to Source with the caret at the refused edit.
     var onShowInSource: () -> Void
-    /// Forces a rung, for the tests that measure each one. `nil` picks by width.
+    /// Forces a rung, drawn alone, for the tests that measure each one. `nil` picks by width, in
+    /// the line (``EditorStatusLine/HintPlace``).
     var forcedRung: Rung? = nil
     /// Why the edit was refused, for the words — ``sentence(_:)``.
     var reason: PreviewRefusal? = nil

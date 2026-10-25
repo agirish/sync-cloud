@@ -570,4 +570,72 @@ import Design
         #expect(said == example.says,
                 "\(example.source.debugDescription), caret on line \(example.line): said \(said ?? "nothing")")
     }
+
+
+    // MARK: - The hint keeps the line (TE213)
+
+    private var goTo: EditorStatusGoToLine {
+        EditorStatusGoToLine(isPresented: .constant(false), lineCount: 412, accent: .blue, onGo: { _ in })
+    }
+
+    /// The buttons' focus rings on a line `width` points wide, left to right, once the hint's
+    /// measurements have landed — the heading menu's and Line/Col's (the hint's link draws none).
+    /// Pumped a fixed number of passes: what is waited for is a place being chosen, which leaves
+    /// nothing to poll.
+    private func buttonRings(width: CGFloat, scale: CGFloat = 1, hint: EditorStatusHint?) async -> [NSRect] {
+        let line = EditorStatusLine(facts: facts, caret: EditorCaret(line: 408, column: 118), fileSize: "421 bytes",
+                                    headings: long, hint: hint, goToLine: goTo)
+        let host = NSHostingView(rootView: AnyView(line.frame(width: width).environment(\.appFontScale, scale)))
+        host.frame = NSRect(x: 0, y: 0, width: width, height: 60)
+        await LayoutPumpWait.pump(host, upTo: 0) { false }
+        return rings(in: host).sorted { $0.minX < $1.minX }
+    }
+
+    private var aHint: EditorStatusHint { EditorStatusHint(token: 1, onShowInSource: {}) }
+
+    /// **The hint moves nothing** (TE213): Line/Col is drawn exactly where it is without the hint,
+    /// at every width from roomy to the narrowest column — the full rung with the whole heading,
+    /// the heading truncated, the counts gone, the caret rung beside a heading that has taken all
+    /// the room. The hint took the whole line for its four seconds, and Line/Col went away under
+    /// the pointer — and came back under it.
+    @Test func theHintNeverMovesLineCol() async throws {
+        for width: CGFloat in [900, 700, 520, 420, EditorLayoutMetrics.minDocumentWidth] {
+            let without = await buttonRings(width: width, hint: nil)
+            try #require(without.count == 2, "\(width)pt: \(without.count) buttons drawn without a hint")
+            let with = await buttonRings(width: width, hint: aHint)
+            #expect(with.contains(without[1]), "\(width)pt: Line/Col moved from \(without[1]) — now \(with)")
+            #expect(with.allSatisfy { $0 == without[0] || $0 == without[1] },
+                    "\(width)pt: a button moved with the hint up: \(without) became \(with)")
+        }
+    }
+
+    /// **Where neither place has room for the link: the heading goes, Line/Col stays.** The
+    /// narrowest column at the largest text size.
+    @Test func whereNothingHasRoomTheHeadingGoesBeforeLineCol() async throws {
+        let width = EditorLayoutMetrics.minDocumentWidth
+        let scale = try #require(FontSize.allCases.last).scale
+        let without = await buttonRings(width: width, scale: scale, hint: nil)
+        try #require(without.count == 2)
+        let with = await buttonRings(width: width, scale: scale, hint: aHint)
+        #expect(with.contains { abs($0.width - without[1].width) <= 1 }, "Line/Col went: \(with)")
+        #expect(with.allSatisfy { $0.maxX <= width + 1 }, "the line runs past the column: \(with)")
+    }
+
+    /// **The rule**: the free space first; the heading's place only where the free space has room
+    /// for the link alone and the heading's for words; the line redrawn only where neither has room
+    /// for the link — and nothing until measured.
+    @Test func theHintTakesThePlaceWithRoomForMoreOfIt() {
+        let widths: [EditorStatusHint.Rung: CGFloat] = [.sentence: 200, .short: 140, .link: 70]
+        typealias Line = EditorStatusLine
+        #expect(Line.hintPlace(freeSpace: 300, headingSlot: 300, widths: widths) == .free(.sentence))
+        #expect(Line.hintPlace(freeSpace: 150, headingSlot: 120, widths: widths) == .free(.short))
+        #expect(Line.hintPlace(freeSpace: 80, headingSlot: 250, widths: widths) == .heading(.sentence))
+        #expect(Line.hintPlace(freeSpace: 150, headingSlot: 250, widths: widths) == .free(.short),
+                "the heading was hidden for the sentence where the short form fits beside it")
+        #expect(Line.hintPlace(freeSpace: 75, headingSlot: 75, widths: widths) == .free(.link), "a tie goes to the free space")
+        #expect(Line.hintPlace(freeSpace: 20, headingSlot: 80, widths: widths) == .heading(.link))
+        #expect(Line.hintPlace(freeSpace: 20, headingSlot: nil, widths: widths) == .aside)
+        #expect(Line.hintPlace(freeSpace: 69, headingSlot: 69, widths: widths) == .aside)
+        #expect(Line.hintPlace(freeSpace: 300, headingSlot: 300, widths: [.link: 70]) == .pending)
+    }
 }
