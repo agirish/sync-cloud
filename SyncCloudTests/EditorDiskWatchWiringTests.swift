@@ -138,6 +138,30 @@ import FileExplorer
         #expect(foot.contains("path: review.path, explicit: review.explicit, seen: review.seen)"))
     }
 
+    /// **A save that kept another version aside is a save, through every door** (FR48). The store
+    /// marks the document saved and says where the other version went; the host used to read that
+    /// as an unchecked write and stop autosave under "not saving — couldn't check the save".
+    ///
+    /// Mutation: drop the `landed` catch from `writeEditorDocument`, or route
+    /// `.wroteKeepingAside` to a stop, and this fails.
+    @Test func aSaveThatKeptAnotherVersionAsideIsASave() throws {
+        let write = try Self.body("private func writeEditorDocument(explicit: Bool, consentedTo: EditorFileStore.Stamp? = nil) -> Bool")
+        let caught = try #require(write.range(
+            of: "catch let failure as EditorFileStore.Failure where failure.landed != nil { keptAside = failure.savedBut }"),
+            "⌘S reads a checked save that kept another version aside as a failure")
+        let cleared = try #require(write.range(of: "editorAutosaveStop = nil"))
+        #expect(caught.lowerBound < cleared.lowerBound)
+        #expect(write.contains("syncManager.banner = EditorAutosaveStop.savedBut(name: editorDocument.name, clause: keptAside)"))
+        let outcome = try Self.body("private func applyAutosaveOutcome(_ outcome: EditorAutosave.Outcome)")
+        let arm = try #require(outcome.range(of: "case .wroteKeepingAside(let clause):"))
+        let next = outcome.normalized[arm.upperBound...].range(of: normalizedCode("case ."))?.lowerBound
+            ?? outcome.normalized.endIndex
+        let body = CodeText(String(outcome.normalized[arm.upperBound..<next]))
+        #expect(body.contains("_ = writeEditorDocumentDidWrite()"))
+        #expect(!body.contains("editorAutosaveStop = ."), "a checked save stops autosave")
+        #expect(EditorAutosaveStop.savedBut(name: "note.md", clause: "c").message == "Saved “note.md”, but c")
+    }
+
     /// **The sheet says ⌘Z brings the typing back only where it does** — with the banner up, where
     /// Use Disk Version is the undoable take (TE97).
     @Test func theSheetIsToldWhetherTakingTheDiskIsUndoable() throws {

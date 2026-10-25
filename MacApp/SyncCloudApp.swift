@@ -1418,6 +1418,9 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
             case .savedUnchecked(let clause):
                 stop = .unchecked(clause)
                 Logger.shared.warning("Flushed the editor's document before quitting, but \(clause)")
+            case .wroteKeepingAside(let clause):
+                // Saved and checked (FR48); the version it displaced is beside it, said in the log.
+                Logger.shared.warning("Flushed the editor's document before quitting, but \(clause)")
             case .nothingToDo:
                 break
             }

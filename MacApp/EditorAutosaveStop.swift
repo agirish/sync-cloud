@@ -50,8 +50,14 @@ enum EditorAutosaveStop: Equatable {
         switch self {
         case .diverged: return nil
         case .failed(let message): return .error("Couldn’t save “\(name)” — \(message)")
-        case .unchecked(let clause): return .warning("Saved “\(name)”, but \(clause)")
+        case .unchecked(let clause): return Self.savedBut(name: name, clause: clause)
         }
+    }
+
+    /// "Saved “name”, but …" — an unchecked save's banner, and a checked one's that kept another
+    /// version beside it (FR48), which stops nothing and so has no stop to say it.
+    static func savedBut(name: String, clause: String) -> OperationBanner {
+        .warning("Saved “\(name)”, but \(clause)")
     }
 
     /// The stop a write that threw leaves — see ``EditorAutosave/Outcome/savedUnchecked(_:)``.

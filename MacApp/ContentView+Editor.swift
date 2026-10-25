@@ -847,6 +847,12 @@ extension ContentView {
             if case .wrote = flushed { noteEditorWrote(editorDocument.path) }
             noteAutosave()
             return true
+        case .wroteKeepingAside(let clause):
+            // Saved and checked; the version it displaced is beside it, and the banner says where.
+            noteEditorWrote(editorDocument.path)
+            noteAutosave()
+            syncManager.banner = EditorAutosaveStop.savedBut(name: editorDocument.name, clause: clause)
+            return true
         case .blocked(let divergence):
             // **TE59: a move is followed and a re-stamp taken before anything is asked** — then the
             // flush is tried once more, at the path the file is really at.
@@ -1598,8 +1604,15 @@ extension ContentView {
         // new file in a folder the panes have walked, and is shown there as ⌘N's is. A rewrite of a
         // file the panes already list is not (see `rereadPanesAfterEditorWrite`).
         let recreates = editorDocument.path.map { !FileManager.default.fileExists(atPath: $0) } ?? false
+        // **Saved and checked, with a displaced version kept beside it** (FR48): the store has
+        // marked the document saved, so this is a save with something to say, not a stop.
+        var keptAside: String?
         do {
-            editorDocument.markSaved(stamp: try EditorFileStore.write(editorDocument, consentedTo: consentedTo))
+            do {
+                editorDocument.markSaved(stamp: try EditorFileStore.write(editorDocument, consentedTo: consentedTo))
+            } catch let failure as EditorFileStore.Failure where failure.landed != nil {
+                keptAside = failure.savedBut
+            }
             editorAutosaveStop = nil
             // The disk agrees with the document now, so a TE59 banner has nothing left to ask.
             editorDiskWatch.reconcile()
@@ -1616,6 +1629,9 @@ extension ContentView {
             }
             Task { await refreshEditorRail() }
             if recreates { showCreatedFileInPane(path) }
+            if let keptAside {
+                syncManager.banner = EditorAutosaveStop.savedBut(name: editorDocument.name, clause: keptAside)
+            }
             return true
         } catch {
             // **Banner, never log-only.** A save that silently failed is the one failure in this
@@ -1688,6 +1704,11 @@ extension ContentView {
             break
         case .wrote:
             _ = writeEditorDocumentDidWrite()
+        case .wroteKeepingAside(let clause):
+            // **A save, not a stop** (FR48): written and checked, with the version it displaced
+            // kept beside it — said in the banner, while the header goes back to saving.
+            _ = writeEditorDocumentDidWrite()
+            syncManager.banner = EditorAutosaveStop.savedBut(name: editorDocument.name, clause: clause)
         case .blocked(let divergence):
             // **TE59: the disk watch answers this first**, with its banner rather than a modal — the
             // write found what the watch would have found a moment later. A move it follows is not

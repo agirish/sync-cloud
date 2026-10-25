@@ -67,10 +67,16 @@ public enum EditorAutosave {
         /// Not marked saved: there is no stamp to hold, so the host stops autosave rather than write
         /// again blind.
         case savedUnchecked(String)
+        /// **Written and checked, and a different version the save displaced was kept beside it**
+        /// (FR48) — a save, so the document is marked saved and nothing stops. The clause follows
+        /// "Saved “name”, but …" and says where the other version went.
+        case wroteKeepingAside(String)
 
         /// What a write that threw comes to — a landed write's own outcome where the store says so.
         static func of(_ error: Error) -> Outcome {
-            if let clause = (error as? EditorFileStore.Failure)?.savedBut { return .savedUnchecked(clause) }
+            if let failure = error as? EditorFileStore.Failure, let clause = failure.savedBut {
+                return failure.landed != nil ? .wroteKeepingAside(clause) : .savedUnchecked(clause)
+            }
             return .failed(error.localizedDescription)
         }
     }
@@ -191,6 +197,11 @@ public enum EditorAutosave {
                 landed = Landing(ticket: snapshot.ticket, path: snapshot.path, from: snapshot.stamp,
                                  text: snapshot.text, stamp: stamp)
                 return .wrote(stamp)
+            } catch let failure as EditorFileStore.Failure where failure.landed != nil {
+                // Landed and checked, another version kept beside it (FR48): a write to commit.
+                landed = Landing(ticket: snapshot.ticket, path: snapshot.path, from: snapshot.stamp,
+                                 text: snapshot.text, stamp: failure.landed!)
+                return .keptAside(failure.landed!, failure.savedBut ?? "")
             } catch {
                 return .ended(.of(error))
             }
@@ -210,6 +221,9 @@ public enum EditorAutosave {
         case .wrote(let stamp):
             document.markSaved(text: snapshot.text, stamp: stamp)
             return .wrote
+        case .keptAside(let stamp, let clause):
+            document.markSaved(text: snapshot.text, stamp: stamp)
+            return .wroteKeepingAside(clause)
         case .blocked(let divergence):
             return .blocked(divergence)
         case .ended(let outcome):
@@ -223,6 +237,8 @@ public enum EditorAutosave {
     /// that was overtaken by a newer one and therefore never happened.
     private enum Result: Sendable {
         case wrote(EditorFileStore.Stamp)
+        /// Written and checked, with a displaced version kept beside it — the clause says where.
+        case keptAside(EditorFileStore.Stamp, String)
         case overtaken
         case blocked(EditorFileStore.Divergence)
         /// A write that threw — failed, or landed and could not be checked.

@@ -189,11 +189,16 @@ public enum EditorFileStore {
         /// clause that follows "Saved “name”, but …". A save that landed is not reported as one
         /// that could not be made: "Couldn't save “x” — Saved, but…" said both.
         public var savedBut: String?
+        /// **Set when the write landed AND was checked** — the stamp it read back — and `savedBut`
+        /// says where a different version it displaced was kept (FR48). A save with something to
+        /// say, not one owed a check: the document is marked saved against this stamp.
+        public var landed: Stamp?
         public var errorDescription: String? { message }
 
-        public init(message: String, savedBut: String? = nil) {
+        public init(message: String, savedBut: String? = nil, landed: Stamp? = nil) {
             self.message = message
             self.savedBut = savedBut
+            self.landed = landed
         }
 
         /// The write landed and `clause` is what went wrong after it — said whole as "Saved, but …".
@@ -609,10 +614,12 @@ public enum EditorFileStore {
                displaced != lastWritten[destination.path] {
                 let kept = keptAsideURL(for: destination)
                 if (try? fileManager.moveItem(at: backup, to: kept)) != nil {
-                    keptAside = kept.lastPathComponent
+                    keptAside = "That version was kept beside it as “\(kept.lastPathComponent)”."
                 } else {
-                    // Not deleted for failing to move: it stays as the hidden backup it already is.
-                    keptAside = backup.lastPathComponent
+                    // Not deleted for failing to move: it stays as the hidden backup it already is
+                    // — said as a hidden file, since Finder will not show it, and with its name so
+                    // it can be found (⇧⌘. shows hidden files).
+                    keptAside = "That version was kept beside it as a hidden file, “\(backup.lastPathComponent)”."
                     keepBackupInPlace = true
                 }
                 Logger.shared.warning("[edit] \(destination.path) changed on disk while it was being saved; the other version was kept as \(keptAside ?? "")")
@@ -623,8 +630,15 @@ public enum EditorFileStore {
         // The other version's whereabouts outrank the read-back's verdict: both are "saved, but",
         // and only this one names a file the user has to go and look at.
         if let keptAside {
-            if let stamp = stamp(ofPath: destination.path) { lastWritten[destination.path] = stamp }
-            throw Failure.saved(but: "a different version arrived while it was saving. That version was kept beside it as “\(keptAside)”.")
+            let clause = "a different version arrived while it was saving. \(keptAside)"
+            if let stamp = stamp(ofPath: destination.path) {
+                lastWritten[destination.path] = stamp
+                // **Checked, so a save** (FR48): the read-back is the one below, and passed. It
+                // went out as an unchecked write, and the header then said "couldn't check the save"
+                // of a save that had been checked, with autosave stopped for it.
+                if stamp.size == bytes.count { throw Failure(message: "Saved, but \(clause)", savedBut: clause, landed: stamp) }
+            }
+            throw Failure.saved(but: clause)
         }
         guard let stamp = stamp(ofPath: destination.path) else {
             // The bytes are on disk — this is only the read-back of the new stamp failing, so it is
@@ -697,6 +711,11 @@ public enum EditorFileStore {
         let text = document.text
         do {
             return try write(text, toPath: path, encoding: encoding, expected: consentedTo ?? document.stamp)
+        } catch let failure as Failure where failure.landed != nil {
+            // Landed and checked, with another version kept beside it (FR48): saved, and still
+            // thrown, so the caller can say where the other version went.
+            document.markSaved(text: text, stamp: failure.landed!)
+            throw failure
         } catch let failure as Failure where failure.savedBut != nil {
             // Landed, unchecked: remembered, so the disk can be compared with it later (TE147).
             document.noteUncheckedWrite(text)

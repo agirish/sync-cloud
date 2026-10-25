@@ -10852,3 +10852,28 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s readScan=%s fr44=%s said=%s\n
 |---|---|---|
 | `v5.x` / `v4.x` | No FR44 refusal (`fr44=0`); FR44's row records what they lack | CLOSED — does not apply |
 | `v3.x` / `v2.x` | No Read scan (`readScan=0`) | CLOSED — does not apply |
+
+---
+
+## A save that kept another version aside is a save (FR48, follow-up) — main only
+
+A save that displaced a version arriving mid-write kept it as "(other version)" and was then
+reported as an unchecked write: the document stayed unsaved, the header said "not saving —
+couldn't check the save" and autosave stopped, though its read-back had passed. A move-aside that
+failed named the hidden `.rollback_<UUID>` without saying it was hidden. `main` marks the document
+saved (`EditorAutosave.Outcome.wroteKeepingAside`) and only the banner says where the other version
+went, as a hidden file when it is one.
+
+```sh
+E=Modules/FileExplorer/Sources/FileExplorer
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr48=%s keptIsASave=%s\n' $l \
+  "$(git show origin/$l:$E/EditorFileStore.swift 2>/dev/null | grep -cF 'func keptAsideURL(')" \
+  "$(git show origin/$l:$E/EditorAutosave.swift 2>/dev/null | grep -cF 'case wroteKeepingAside')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads keptIsASave=1):
+# main                     fr48=1 keptIsASave=0
+# v5.x, v4.x, v3.x, v2.x   fr48=0 keptIsASave=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No keep-aside (`fr48=0`); FR48's row records it | CLOSED — does not apply |

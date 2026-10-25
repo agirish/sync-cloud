@@ -49,6 +49,47 @@ import Foundation
         #expect((try? String(contentsOfFile: kept, encoding: .utf8)) == "written on the other Mac")
     }
 
+    /// **A save that kept another version aside is a save** (FR48). The write landed and its
+    /// read-back passed, but it went out as an unchecked write: the document stayed unsaved, the
+    /// header said "not saving — couldn't check the save", and autosave stopped. Staged as Keep
+    /// Mine against the version the question showed (B) with a newer one (C) landed since — E1's
+    /// window, where C must be kept and not deleted.
+    @MainActor
+    @Test func keepingAVersionAsideIsASaveNotAnUncheckedOne() throws {
+        let folder = try scratch()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let path = try write(Data("opened".utf8), named: "note.md", in: folder)
+        let document = EditorDocument()
+        EditorFileStore.load(path: path, into: document)
+        document.text = "mine"
+        // B arrives and is the version the question is put about…
+        let b = folder.appendingPathComponent(".b")
+        try Data("version B".utf8).write(to: b)
+        _ = try FileManager.default.replaceItemAt(URL(fileURLWithPath: path), withItemAt: b)
+        let seen = try #require(EditorFileStore.stamp(ofPath: path))
+        // …and C lands while it is on screen.
+        let c = folder.appendingPathComponent(".c")
+        try Data("version C, newer".utf8).write(to: c)
+        _ = try FileManager.default.replaceItemAt(URL(fileURLWithPath: path), withItemAt: c)
+
+        var thrown: Error?
+        do { _ = try EditorFileStore.write(document, consentedTo: seen) } catch { thrown = error }
+
+        let failure = try #require(thrown as? EditorFileStore.Failure, "C was replaced without a word")
+        #expect(failure.savedBut?.contains("kept beside it as “note (other version).md”") == true,
+                "\(failure.message)")
+        #expect(failure.landed == EditorFileStore.stamp(ofPath: path), "the checked stamp was not carried")
+        #expect(EditorAutosave.Outcome.of(failure) == .wroteKeepingAside(failure.savedBut ?? ""),
+                "a checked save is reported as an unchecked one")
+        #expect(!document.isDirty, "the document is not marked saved")
+        #expect(document.stamp == EditorFileStore.stamp(ofPath: path))
+        #expect(document.uncheckedWrite == nil, "a checked save is left owing a check")
+        #expect(try String(contentsOfFile: path, encoding: .utf8) == "mine")
+        let kept = folder.appendingPathComponent("note (other version).md").path
+        #expect((try? String(contentsOfFile: kept, encoding: .utf8)) == "version C, newer",
+                "the version that arrived during the question was not kept")
+    }
+
     /// Keep Mine: the user agreed to replace the version on disk, and the write says which one —
     /// so it is replaced as asked, not kept aside as one that arrived unasked.
     @Test func keepMineReplacesTheVersionItWasAskedAbout() throws {
