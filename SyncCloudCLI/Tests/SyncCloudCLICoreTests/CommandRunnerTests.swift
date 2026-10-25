@@ -368,14 +368,17 @@ import Sync
             ProviderNameRules.violation(inRelativePath: "Swimming ", for: .dropBox)?.reason)
 
         let rec = Recorder()
-        try await makeRunner(rec, providers: [dropbox]).runSync(
-            left: left.path, right: "dropbox-test",
-            direction: .auto, showHidden: false, ignore: [],
-            strategy: .replace, yes: true, failFast: false, verify: false)
+        await #expect(throws: CLISyncFailuresError()) {
+            try await makeRunner(rec, providers: [dropbox]).runSync(
+                left: left.path, right: "dropbox-test",
+                direction: .auto, showHidden: false, ignore: [],
+                strategy: .replace, yes: true, failFast: false, verify: false)
+        }
 
         // Exactly one copy: the valid name. The violating one is skipped BEFORE any write.
         #expect(rec.copies.map(\.source.lastPathComponent) == ["normal.txt"])
-        #expect(rec.err == "Skipping Swimming : \(expectedReason) Dropbox would not upload it.\n")
+        #expect(rec.err == "Skipping Swimming : \(expectedReason) Dropbox would not upload it.\n"
+                + "1 file(s) have names the destination provider does not allow and were not synced; exiting with a non-zero status.\n")
         #expect(rec.out.contains("Sync complete. Copied: 1, Skipped: 1, Failed: 0."))
         #expect(rec.out.contains("Skipped 1 file(s) (name not allowed by the destination provider):"))
         #expect(rec.out.contains("  Swimming  — \(expectedReason)"))
@@ -422,15 +425,18 @@ import Sync
             ProviderNameRules.violation(inRelativePath: "CON.txt", for: .oneDrive)?.reason)
 
         let rec = Recorder()
-        try await makeRunner(rec, providers: [oneDrive]).runSync(
-            left: "onedrive-test", right: right.path,
-            direction: .auto, showHidden: false, ignore: [],
-            strategy: .replace, yes: true, failFast: false, verify: false)
+        await #expect(throws: CLISyncFailuresError()) {
+            try await makeRunner(rec, providers: [oneDrive]).runSync(
+                left: "onedrive-test", right: right.path,
+                direction: .auto, showHidden: false, ignore: [],
+                strategy: .replace, yes: true, failFast: false, verify: false)
+        }
 
         // Exactly one copy: the valid name. The reserved one is refused BEFORE any write, even
         // though the RIGHT (source) side — an ordinary folder — has no name rules at all.
         #expect(rec.copies.map(\.source.lastPathComponent) == ["normal.txt"])
-        #expect(rec.err == "Skipping CON.txt: \(expectedReason) OneDrive (Personal) would not upload it.\n")
+        #expect(rec.err == "Skipping CON.txt: \(expectedReason) OneDrive (Personal) would not upload it.\n"
+                + "1 file(s) have names the destination provider does not allow and were not synced; exiting with a non-zero status.\n")
         #expect(rec.out.contains("Sync complete. Copied: 1, Skipped: 1, Failed: 0."))
         #expect(rec.out.contains("  CON.txt — \(expectedReason)"))
     }
@@ -491,16 +497,19 @@ import Sync
             ProviderNameRules.violation(inRelativePath: "CON.txt", for: .oneDrive)?.reason)
 
         let rec = Recorder()
-        try await makeRunner(rec, providers: [oneDrive]).runSync(
-            left: left.path, right: addressedRoot.path,
-            direction: .auto, showHidden: false, ignore: [],
-            strategy: .replace, yes: true, failFast: false, verify: false)
+        await #expect(throws: CLISyncFailuresError()) {
+            try await makeRunner(rec, providers: [oneDrive]).runSync(
+                left: left.path, right: addressedRoot.path,
+                direction: .auto, showHidden: false, ignore: [],
+                strategy: .replace, yes: true, failFast: false, verify: false)
+        }
 
         #expect(rec.copies.map(\.source.lastPathComponent) == ["ok.txt"],
                 "a path-addressed OneDrive root must refuse the reserved name, not copy it")
         // The message names the ad-hoc "Right" label, not "OneDrive (Personal)" — proof the root
         // resolved down the PATH branch and still inherited the account's provider type.
-        #expect(rec.err == "Skipping CON.txt: \(expectedReason) Right would not upload it.\n")
+        #expect(rec.err == "Skipping CON.txt: \(expectedReason) Right would not upload it.\n"
+                + "1 file(s) have names the destination provider does not allow and were not synced; exiting with a non-zero status.\n")
         #expect(rec.out.contains("Sync complete. Copied: 1, Skipped: 1, Failed: 0."))
     }
 
@@ -550,13 +559,16 @@ import Sync
                   mtime: Date(timeIntervalSince1970: 1_700_000_000))
 
         let rec = Recorder()
-        try await makeRunner(rec).runSync(left: left.path, right: right.path,
-                                          direction: .auto, showHidden: false, ignore: [],
-                                          strategy: .skip, yes: true, failFast: false, verify: false)
+        await #expect(throws: CLISyncFailuresError()) {
+            try await makeRunner(rec).runSync(left: left.path, right: right.path,
+                                              direction: .auto, showHidden: false, ignore: [],
+                                              strategy: .skip, yes: true, failFast: false, verify: false)
+        }
 
         #expect(rec.copies.isEmpty)
         #expect(rec.out.contains("Sync complete. Copied: 0, Skipped: 1, Failed: 0."))
         #expect(rec.out.contains("Skipped 1 file(s) (existing files left untouched; use --strategy replace to update them):"))
+        #expect(rec.err == "1 file(s) already existed at the destination and were not synced; exiting with a non-zero status.\n")
     }
 
     @Test func syncKeepBothStrategyCopiesToAUniqueName() async throws {
@@ -770,9 +782,11 @@ import Sync
         try write(left.appendingPathComponent("b-missing.txt"), "only left")
 
         let rec = Recorder()
-        try await makeRunner(rec).runSync(left: left.path, right: right.path,
-                                          direction: .auto, showHidden: false, ignore: [],
-                                          strategy: .replace, yes: true, failFast: false, verify: false)
+        await #expect(throws: CLISyncFailuresError()) {
+            try await makeRunner(rec).runSync(left: left.path, right: right.path,
+                                              direction: .auto, showHidden: false, ignore: [],
+                                              strategy: .replace, yes: true, failFast: false, verify: false)
+        }
 
         #expect(rec.copies.map(\.source.lastPathComponent) == ["b-missing.txt"])
         let note = "Sizes differ but the dates match within the 1 s tolerance — choose which to keep"
@@ -793,6 +807,7 @@ import Sync
           a-held.txt — \(note)
 
         """), "\(rec.out)")
+        #expect(rec.err == "1 item(s) need your decision and were not synced; exiting with a non-zero status.\n")
     }
 
     /// **A linked folder is never handed to the copy (FR8).** The scan reads it as the folder it
@@ -808,9 +823,11 @@ import Sync
                                                    withDestinationURL: original)
 
         let rec = Recorder()
-        try await makeRunner(rec).runSync(left: left.path, right: right.path,
-                                          direction: .auto, showHidden: false, ignore: [],
-                                          strategy: .replace, yes: true, failFast: false, verify: false)
+        await #expect(throws: CLISyncFailuresError()) {
+            try await makeRunner(rec).runSync(left: left.path, right: right.path,
+                                              direction: .auto, showHidden: false, ignore: [],
+                                              strategy: .replace, yes: true, failFast: false, verify: false)
+        }
 
         #expect(rec.copies.isEmpty, "the link was handed to the copy: \(rec.copies)")
         #expect(rec.out.hasPrefix("Nothing to sync automatically.\n"), "\(rec.out)")
@@ -818,5 +835,7 @@ import Sync
         - Linked [missing-on-right] Folder missing on right (Right) — it is a link, so a copy would be a link too, not what it points to
         """), "\(rec.out)")
         #expect(rec.out.contains("Sync complete. Copied: 0, Skipped: 1, Failed: 0."), "\(rec.out)")
+        #expect(rec.err == "1 item(s) need your decision and were not synced; exiting with a non-zero status.\n",
+                "a run that copied nothing exits 1 too")
     }
 }

@@ -96,8 +96,9 @@ public struct SyncTally: Equatable, Sendable {
 }
 
 /// The end-of-run report for `sync`, split by stream so failures land on stderr. Pure so the
-/// summary/exit-code story is testable: `exitNonzero` must match `stderrLines` mentioning
-/// failures, and any skipped count must come with the reason and the flag that changes it.
+/// summary/exit-code story is testable: `exitNonzero` holds exactly when `stderrLines` names a
+/// failure or a skip — 0 only when every planned file was copied — and any skipped count comes
+/// with the reason and the flag that changes it.
 public func syncSummary(tally: SyncTally, strategy: CollisionStrategy) -> (
     stdoutLines: [String], stderrLines: [String], exitNonzero: Bool
 ) {
@@ -154,16 +155,24 @@ public func syncSummary(tally: SyncTally, strategy: CollisionStrategy) -> (
     if tally.failed > 0 {
         err.append("\(tally.failed) file(s) failed to sync (errors above); exiting with a non-zero status.")
     }
-    // **A file skipped because it changed after the plan was shown exits non-zero (FR43).** The
-    // other skips are policy the user chose (`--strategy skip`) or a rule no run can satisfy (a
-    // provider's name rule, a row only the user can decide), and a 0 exit with the summary
-    // listing them stays right for those. This one is a file the user asked to have copied that
-    // was NOT copied, for a reason that says nothing about the next run — and a script that
-    // reads 0 as "everything planned landed" and then deletes the sources would delete the one
-    // copy of it. The partial-failure code (1), with its own stderr line, because to such a
-    // script it is exactly a partial failure.
+    // **Any file left uncopied exits non-zero, each cause with its own stderr line (FR43).** A
+    // script reads 0 as "everything planned landed" — and one that then deletes its sources would
+    // delete the only copy of a file a skip left behind, whatever the skip's reason: a policy the
+    // user chose (`--strategy skip`), a provider's name rule, a plan that went stale while it
+    // waited, or a row only the user can decide. The partial-failure code (1), because to such a
+    // script each of these is exactly a partial failure; the stdout summary above still lists
+    // every file with its reason.
+    if !collisionSkips.isEmpty {
+        err.append("\(collisionSkips.count) file(s) already existed at the destination and were not synced; exiting with a non-zero status.")
+    }
+    if !nameSkips.isEmpty {
+        err.append("\(nameSkips.count) file(s) have names the destination provider does not allow and were not synced; exiting with a non-zero status.")
+    }
     if !staleSkips.isEmpty {
         err.append("\(staleSkips.count) file(s) changed after the plan was shown and were not synced; exiting with a non-zero status.")
     }
-    return (out, err, tally.failed > 0 || !staleSkips.isEmpty)
+    if !heldSkips.isEmpty {
+        err.append("\(heldSkips.count) item(s) need your decision and were not synced; exiting with a non-zero status.")
+    }
+    return (out, err, tally.failed > 0 || tally.skipped > 0)
 }

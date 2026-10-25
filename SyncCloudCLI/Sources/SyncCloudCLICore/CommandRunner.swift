@@ -11,8 +11,9 @@ public struct CLIValidationError: Error, Equatable, Sendable {
     public init(message: String) { self.message = message }
 }
 
-/// Partial sync failures: thrown AFTER the summary printed, so scripts see a non-zero exit
-/// while humans still get the counts. The shell maps it onto `ExitCode.failure`.
+/// Partial sync failures, and any file a sync skipped: thrown AFTER the summary printed, so
+/// scripts see a non-zero exit while humans still get the counts. The shell maps it onto
+/// `ExitCode.failure`.
 public struct CLISyncFailuresError: Error, Equatable, Sendable {
     public init() {}
 }
@@ -301,7 +302,11 @@ public struct CommandRunner {
             printOut("")
             printHeldRows()
             printOut("")
-            for line in syncSummary(tally: tally, strategy: strategy).stdoutLines { printOut(line) }
+            // Nothing copied and every row skipped: a non-zero exit like any other skip (FR43).
+            let summary = syncSummary(tally: tally, strategy: strategy)
+            for line in summary.stdoutLines { printOut(line) }
+            for line in summary.stderrLines { env.writeErr(line + "\n") }
+            if summary.exitNonzero { throw CLISyncFailuresError() }
             return
         }
 
@@ -415,7 +420,7 @@ public struct CommandRunner {
         let summary = syncSummary(tally: tally, strategy: strategy)
         for line in summary.stdoutLines { printOut(line) }
         for line in summary.stderrLines { env.writeErr(line + "\n") }
-        // Partial failures must be visible to scripts, not just in the text summary. Thrown
+        // Partial failures and skips must be visible to scripts, not just in the summary. Thrown
         // after the summary so the counts still print; the shell's flushingLogToDisk flushes
         // on this throw path too. (--fail-fast still aborts immediately above, before the
         // summary.)

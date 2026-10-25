@@ -11263,3 +11263,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s heldBack=%s fix=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No held rows at all (`heldBack=0`); the tie default left → right, as for every row | CLOSED — does not apply |
+
+---
+
+## `synccloud sync` exits non-zero for any skip (FR43, owner decision) — main only
+
+Only a file that changed after the plan exited `1`; a `--strategy skip` collision, a provider's
+name rule and a row left for the user's decision exited `0`, so a script reading `0` as "everything
+landed" could delete a source that never copied. `main` exits `0` only when every planned file was
+copied: any skip exits `1`, each cause with its own stderr line, including a run where every row
+needed a decision. The README's exit-code text says so.
+
+```sh
+C=SyncCloudCLI/Sources/SyncCloudCLICore
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s skips=%s fix=%s\n' $l \
+  "$(git show origin/$l:$C/CollisionHandling.swift 2>/dev/null | grep -cE 'case (collision|nameViolation)$')" \
+  "$(git show origin/$l:$C/CollisionHandling.swift 2>/dev/null | grep -cF 'tally.failed > 0 || tally.skipped > 0')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads fix=1):
+# main, v5.x, v4.x, v3.x, v2.x   skips=2 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | Collision and name-rule skips exiting `0` (`skips=2 fix=0`); no needs-decision rows | RECORDED — not owed |

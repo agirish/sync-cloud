@@ -80,7 +80,8 @@ import Testing
         #expect(s.stdoutLines.contains(
             "Skipped 2 file(s) (existing files left untouched; use --strategy replace to update them):"))
         #expect(s.stdoutLines.suffix(2) == ["  a.txt", "  b/c.txt"])
-        #expect(!s.exitNonzero)
+        #expect(s.stderrLines == ["2 file(s) already existed at the destination and were not synced; exiting with a non-zero status."])
+        #expect(s.exitNonzero, "a file left uncopied is a partial sync, whatever skipped it")
     }
 
     @Test func testReplacedCountMentionsTrashRecovery() {
@@ -105,7 +106,11 @@ import Testing
             "Skipped 1 file(s) (name not allowed by the destination provider):"))
         #expect(s.stdoutLines.contains("  Swimming  — Dropbox doesn't allow names ending with a space."))
         #expect(s.stdoutLines.first == "Sync complete. Copied: 0, Skipped: 2, Failed: 0.")
-        #expect(!s.exitNonzero)
+        #expect(s.stderrLines == [
+            "1 file(s) already existed at the destination and were not synced; exiting with a non-zero status.",
+            "1 file(s) have names the destination provider does not allow and were not synced; exiting with a non-zero status.",
+        ])
+        #expect(s.exitNonzero)
     }
 
     @Test func testNameViolationSkipsUnderReplaceStrategyDoNotClaimCollision() {
@@ -129,19 +134,29 @@ import Testing
         #expect(!s.stdoutLines.joined().contains(" — "))
     }
 
-    /// FR43. A file skipped because it changed after the plan was shown is a file the user asked
-    /// for that did not land, so the run exits non-zero and says why on stderr — a script that
-    /// deletes its sources after a 0 exit would otherwise delete the only copy. The policy skips
-    /// beside it stay at 0 (pinned above); the control here is the same run without the stale row.
-    @Test func testAChangedSincePlanSkipExitsNonzero() {
-        var t = tally(copied: 2, skipped: ["kept.txt"])
-        #expect(!syncSummary(tally: t, strategy: .skip).exitNonzero, "the control: policy skips alone exit 0")
-        t.recordSkipped(relativePath: "a-moved.txt", reason: .changedSincePlan,
-                        detail: "the destination changed after the plan was shown")
-        let s = syncSummary(tally: t, strategy: .skip)
-        #expect(s.exitNonzero)
-        #expect(s.stderrLines == ["1 file(s) changed after the plan was shown and were not synced; exiting with a non-zero status."])
-        #expect(s.stdoutLines.first == "Sync complete. Copied: 2, Skipped: 2, Failed: 0.")
+    /// FR43, owner decision 2026-10-25. `0` only when every planned file was copied: a skip of any
+    /// kind is a file the user asked for that did not land, and a script that deletes its sources
+    /// after a 0 exit would delete the only copy. Each cause names itself on stderr. The control is
+    /// a copies-only run, which stays at 0.
+    @Test func testEverySkipExitsNonzeroAndNamesItsReasonOnStderr() {
+        let clean = syncSummary(tally: tally(copied: 2), strategy: .skip)
+        #expect(!clean.exitNonzero, "the control: a run that copied everything exits 0")
+        #expect(clean.stderrLines.isEmpty)
+
+        let cases: [(SkipReason, String)] = [
+            (.collision, "1 file(s) already existed at the destination and were not synced; exiting with a non-zero status."),
+            (.nameViolation, "1 file(s) have names the destination provider does not allow and were not synced; exiting with a non-zero status."),
+            (.changedSincePlan, "1 file(s) changed after the plan was shown and were not synced; exiting with a non-zero status."),
+            (.needsDecision, "1 item(s) need your decision and were not synced; exiting with a non-zero status."),
+        ]
+        for (reason, line) in cases {
+            var t = tally(copied: 2)
+            t.recordSkipped(relativePath: "a.txt", reason: reason, detail: "why")
+            let s = syncSummary(tally: t, strategy: .skip)
+            #expect(s.exitNonzero, "\(reason) skip exited 0")
+            #expect(s.stderrLines == [line], "\(reason)")
+            #expect(s.stdoutLines.first == "Sync complete. Copied: 2, Skipped: 1, Failed: 0.")
+        }
     }
 
     @Test func testNoSkipExplanationWhenNothingSkipped() {
@@ -175,7 +190,11 @@ import Testing
             "  Swimming  — Dropbox doesn't allow names ending with a space.",
             "  docs/CON.txt/x.txt — \"CON\" is a reserved name on OneDrive.",
         ])
-        #expect(s.stderrLines == ["1 file(s) failed to sync (errors above); exiting with a non-zero status."])
+        #expect(s.stderrLines == [
+            "1 file(s) failed to sync (errors above); exiting with a non-zero status.",
+            "2 file(s) already existed at the destination and were not synced; exiting with a non-zero status.",
+            "2 file(s) have names the destination provider does not allow and were not synced; exiting with a non-zero status.",
+        ])
         #expect(s.exitNonzero)
     }
 }
