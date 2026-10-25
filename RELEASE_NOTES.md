@@ -38,8 +38,8 @@ Requires **macOS 26**, unchanged from v6.0.
   with a reason of its own. One Apply recommended can no longer send every copy to the Trash.
 - **A copy holding what couldn't be read is kept.** A merge whose copy holds a folder it couldn't
   read — permission denied, or a cloud folder whose app didn't answer in time — is refused, naming
-  the folder. Trash right copy refuses a copy holding items the left one lacks, and points to Merge
-  into keeper.
+  the folder. Trash right copy refuses a copy holding items the left one lacks, or a file the left
+  one has with another date, and points to Merge into keeper.
 - **A folder that isn't empty stays.** Restructure no longer trashes a drained folder still holding
   `.env`, `.gitignore` or an Office lock file; only macOS's own files, such as `.DS_Store`, are
   ignored. Undoing New Folder leaves the folder in place if anything is still inside it.
@@ -81,13 +81,17 @@ Requires **macOS 26**, unchanged from v6.0.
 ### Compare leaves its guesses to you
 
 - **A row whose direction is a guess is held out of bulk runs**: sizes that differ while the dates
-  are within the tolerance or missing, a folder against a file, and a row whose source is a symbolic
-  link. Sync All and `synccloud sync` leave such rows out and say how many; the header reads "2 need
-  your decision"; the Review card leads with the row's note; and the row's right-click menu offers a
-  Copy to … item for each way its sides allow.
+  are within the tolerance or missing, two names that differ only invisibly, a folder against a
+  file, and a row whose source is a symbolic link. Sync All, Copy Remaining and `synccloud sync`
+  leave such rows out and say how many; the header reads "2 need your decision"; and the Review
+  card leads with the row's note and stays on the rows left.
+- **Copy either way from any row.** Every row's right-click menu offers a Copy to … item for each
+  side that exists, against the suggested direction as readily as with it. A row copying from a
+  link offers none.
 - **Copy to match dates sets dates, not bytes**, for pairs Verify has read in full and found
   identical: the right file takes the left one's modification date, to the nanosecond, as one
-  undoable step. A pair with a link on either side is left out.
+  undoable step, listed in Sync History and undone by Undo Last Run. A pair with a link on either
+  side is left out.
 - **Verify reads again a file whose date was put back.** Its cache of file contents is now keyed on
   the file's number and status-change time as well as its path, date and size, so an edit that
   restores the date and keeps the size (`touch -r`, `rsync -t`, `exiftool -P`) is not taken for
@@ -95,7 +99,8 @@ Requires **macOS 26**, unchanged from v6.0.
 - **The command line.** `-L` and `-R` match a provider's exact id first and refuse a display name
   two providers share, listing each one's id and folder; the sync plan prints both folders before
   the prompt. `scan` prints `[needs-decision]` for a held row, and `--json` gives every row
-  `needsDecision`. A sync that skips a file changed after the plan exits 1.
+  `needsDecision`. `synccloud sync` exits 0 only when every planned file was copied; any skipped
+  file exits 1, each cause with its own line on stderr.
 
 ### Organize and Setup
 
@@ -112,11 +117,12 @@ Requires **macOS 26**, unchanged from v6.0.
   both; a folder name from the model that the provider won't sync; and a destination that is the
   file's own folder through a link, where it now says the file is already there. Its refusals come
   under "Filing Failed", not "Sync Failed".
-- **A versions group needs a real version marker.** "invoice.pdf", "invoice (1).pdf" and "invoice
-  (2).pdf" — three months' bills — no longer form a group offering to trash two of them.
-- **Restructure** matches subfolders regardless of case, skips the merges planned into a rename it
-  had to skip, recreates a merged file's source folder when undoing, and gives a cloud-only folder a
-  bounded time to answer instead of hanging the plan sheet.
+- **A download counter is not a version.** "invoice.pdf", "invoice (1).pdf" and "invoice (2).pdf" —
+  three months' bills — no longer form a versions group offering to trash two of them; files named
+  only by a counter group only when their contents match.
+- **Restructure** matches subfolders and file names regardless of case, skips the merges planned
+  into a rename it had to skip, recreates a merged file's source folder when undoing, and gives a
+  cloud-only folder a bounded time to answer instead of hanging the plan sheet.
 - **Setup** keeps a reading that lands late, for the folder it read. Once a reading is done,
   Continue keeps it and Learn again is a button of its own. Removing a person from the roster asks
   first, and a profile that can't be written stays on Structure with the reason and Continue without
@@ -131,8 +137,11 @@ Requires **macOS 26**, unchanged from v6.0.
   tool runs against the version of the file it started on.
 - **PDF copies say more about what they lose.** Protect, a form's Clean Metadata and Fill & Sign's
   form save now say when the copy drops tags for screen readers, layers or color output intent, as
-  the other tools did. A correction typed over a link says the link still opens, and Fill & Sign's
-  flat save says it flattens the file's comments.
+  the other tools did, and Fill & Sign's flat save says it flattens the file's comments.
+- **Remove the links under a correction.** A correction typed over a link leaves the link working
+  in the copy unless you turn on "Also remove links under corrections" in the note card, off by
+  default and for that save only. On macOS 26 that copy loses the page labels, attached files,
+  viewer settings and language the other copies keep.
 - **The status line** no longer shows the previous file's counts or Line/Col after a switch.
 
 ### Words, keys and VoiceOver
