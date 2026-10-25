@@ -167,8 +167,8 @@ extension FileSyncManager {
     ) async {
         guard !isFindingDuplicates else { return }
         let fileManager = fm ?? self.fileManager
-        // The two caches must not be the same instance. They share a key shape — (path, mtime,
-        // size) — and both store a 64-hex string, so one instance holding both would let a file's
+        // The two caches must not be the same instance. They share a key shape — `ContentHashKey`:
+        // path, mtime, size, file number and status-change time — and both store a 64-hex string, so one instance holding both would let a file's
         // SHA-256 be served as its fingerprint and vice versa, silently and with nothing about the
         // value to give it away. `ContentHashCache.sharedFingerprints` exists to make that
         // unwriteable; this is what makes that claim true rather than a comment. Declining the

@@ -64,13 +64,19 @@ public enum FileContentVerifier {
         isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
     ) async -> HashOutcome {
         await Task.detached(priority: .utility) { () -> HashOutcome in
-            // ONE metadata read for a non-symlink, where there used to be three. `fileExists`
+            // ONE `attributesOfItem` for a non-symlink, where there used to be three. `fileExists`
             // asked about existence and directory-ness, a discarded `attributesOfItem` asked
             // about the link type, and a second one asked for size and mtime — and
-            // `attributesOfItem` answers all four in a single round trip. Three stats per
-            // hashed file is the whole cost of a WARM rescan, where every digest is a cache hit
-            // and the reads never happen: the cache saves the bytes and the stats spend the
-            // saving.
+            // `attributesOfItem` answers all four in a single round trip. Stats per hashed file
+            // are the whole cost of a WARM rescan, where every digest is a cache hit and the
+            // reads never happen: the cache saves the bytes and the stats spend the saving.
+            //
+            // **Two stats with a cache, not one.** The cache key adds a raw `stat` of the same
+            // path for the file number and status-change time (FR59, `ContentHashKey.diskIdentity`)
+            // — `attributesOfItem` reports no ctime — so it is taken only when there is a cache
+            // to key. Folding all four into that one raw stat would leave the `FileManaging` seam
+            // and re-derive the mtime from a `timespec`, where a persisted key needs Foundation's
+            // exact `Date` value (see the descriptor note below).
             guard let linkAttributes = try? fileManager.attributesOfItem(atPath: path) else {
                 // Missing or unreadable — the verdict `fileExists` used to return here.
                 return .unverifiable
@@ -98,8 +104,10 @@ public enum FileContentVerifier {
                 return .unverifiable
             }
             // Build the cache key from the same resolved path. When mtime is unavailable the file
-            // is hashed normally but never cached (no stable key).
-            let cacheKey = Self.cacheKey(statPath: statPath, attributes: attributes, size: size)
+            // is hashed normally but never cached (no stable key); with no cache there is nothing
+            // to key, so the identity stat is skipped.
+            let cacheKey = cache == nil ? nil
+                : Self.cacheKey(statPath: statPath, attributes: attributes, size: size)
             if let cache, let cacheKey, let hit = await cache.hash(for: cacheKey) {
                 return .hashed(hit)
             }

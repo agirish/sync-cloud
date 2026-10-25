@@ -8,9 +8,11 @@ import Foundation
 /// The rule the whole cache rests on: **an unchanged file, asked the same question, gets the same
 /// answer.** Every input to that sentence is in this key —
 ///
-/// - `filePath` + `modifiedMillis` + `size` identify the file. This is the same (path, mtime, size)
-///   triple ``ContentHashKey`` uses and the sync engine already trusts to mean "unchanged"; an edit
-///   bumps the mtime, so a stale entry is bypassed rather than served.
+/// - `filePath` + `modifiedMillis` + `size` identify the file — the (path, mtime, size) triple the
+///   sync engine trusts to mean "unchanged"; an edit bumps the mtime, so a stale entry is bypassed
+///   rather than served. ``ContentHashKey`` starts from the same triple and adds the file number
+///   and status-change time (FR59); this key does not, so an edit that restores the mtime and
+///   keeps the size is served the old verdict.
 /// - `model` — an Opus verdict is not a Haiku verdict. Switching models in Settings therefore
 ///   misses every entry and re-pays, which is correct and is worth warning about in the UI.
 /// - `promptVersion` — see ``CloudFilingProtocol/promptVersion``. Editing the instructions or the
