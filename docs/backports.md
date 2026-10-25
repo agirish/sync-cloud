@@ -8802,15 +8802,19 @@ so ⌘Z put B's content at `/A` and left `/B` empty. `main` redirects the earlie
 replace kept its file, and hands the later one what `/D` held before the batch.
 
 ```sh
-for l in main v5.x v4.x v3.x v2.x; do printf '%-5s moveSnap=%s\n' $l \
-  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'movedIdentity: ItemIdentity.snapshot(')"; done
-# measured 2026-10-23, against origin, before this landed:
-# main, v5.x, v4.x, v3.x, v2.x   moveSnap=2
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s redirect=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileOperations.swift 2>/dev/null | grep -cF 'moveIndicesByFoldedDestination[folded]')"; done
+# measured 2026-10-24, against origin, after this landed (the fix reads redirect=2):
+# main               redirect=2
+# v5.x, v4.x, v3.x, v2.x   redirect=0
 ```
+
+The probe this row first carried counted `movedIdentity: ItemIdentity.snapshot(`, a line the fix
+never touched (2 on every line); it was corrected on 2026-10-24 to the index the redirect keys on.
 
 | Line | Carries | Status |
 |---|---|---|
-| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The registration-time snapshot (`moveSnap=2`) | RECORDED — not owed |
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No redirect (`redirect=0`): both records describe the later file | RECORDED — not owed |
 
 ---
 
