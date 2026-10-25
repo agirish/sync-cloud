@@ -288,43 +288,18 @@ enum SaveAsPDFSummary {
 
 // MARK: - The window's half
 
-/// **Save as PDF's progress at the window's foot** — with Stop while it runs, in the strip and card
-/// the PDF tools' pane progress uses. How it ended is the pane's result message (Banner Room,
-/// TE207): handed to `onResult` and taken off the model.
+/// **Save as PDF's handover to the pane.** Its progress, with Stop, is in the toolbar's capsule
+/// (``RunCapsuleHost``); how it ended is the pane's result message (Banner Room, TE207): handed to
+/// `onResult` and taken off the model. Nothing is drawn at the window's foot.
 struct PaneSaveAsPDFLayer: View {
     @ObservedObject var model: PaneSaveAsPDF
     let accent: Color
     let onResult: (PaneToolResult) -> Void
 
     var body: some View {
-        // A stack, so the handover below has a view to hang from when nothing is running.
-        VStack(spacing: 0) {
-            if let progress = model.progress {
-                PanePDFToolCard {
-                    VStack(alignment: .leading, spacing: 0) {
-                        EditorPDFToolBannerView.strip(symbol: nil, tint: accent,
-                                                      message: Self.progressMessage(progress)) {
-                            if progress.total > 1 {
-                                Button("Stop") { model.stop() }
-                                    .controlSize(.small)
-                                    .help("Stop after this file — the PDFs already saved stay")
-                            }
-                        }
-                        if progress.total > 1 {
-                            // No tint of its own: the window's root gives every progress bar the hue
-                            // (DS4), and a raw-accent tint here made this the one bar a shade lighter.
-                            ProgressView(value: Double(progress.done), total: Double(progress.total))
-                                .progressViewStyle(.linear)
-                                .padding(.horizontal, 14)
-                                .padding(.bottom, 8)
-                        }
-                        if let note = model.busyNote {
-                            Self.detailLine(note)
-                        }
-                    }
-                }
-            }
-        }
+        // A view for the handover below to hang from; nothing is drawn.
+        Color.clear
+            .frame(width: 0, height: 0)
         .onChange(of: model.banner, initial: true) { _, banner in
             guard let banner else { return }
             onResult(PaneToolResult(banner, host: model.host))
@@ -332,21 +307,11 @@ struct PaneSaveAsPDFLayer: View {
         }
     }
 
-    static func progressMessage(_ progress: PaneSaveAsPDF.Progress) -> String {
+    /// The capsule's title — its count says how far a batch has got.
+    static func progressTitle(_ progress: PaneSaveAsPDF.Progress) -> String {
         progress.total == 1
             ? "Saving “\(progress.name)” as PDF…"
-            : "Saving \(progress.total) files as PDF · \(progress.done + 1) of \(progress.total)"
-    }
-
-    static func detailLine(_ text: String) -> some View {
-        Text(text)
-            .scaledFont(.system(size: 11))
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .textSelection(.enabled)
-            .padding(.horizontal, 14)
-            .padding(.bottom, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            : "Saving \(progress.total) files as PDF"
     }
 }
 

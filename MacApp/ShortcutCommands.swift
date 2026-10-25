@@ -81,6 +81,14 @@ struct OrganizeVerbs {
     /// from the menu bar sits outside the anchor that keeps it alive across a lens switch.
     let planShape: (() -> Void)?
     let setUpLikeSiblings: (() -> Void)?
+
+    /// During a long run (BZ): the verbs that write go silent; Organize, Find Duplicates, Keep Name
+    /// (a list the app keeps, not a file) and Plan — whose sheet's Apply greys itself — stay.
+    func lockingWrites() -> OrganizeVerbs {
+        OrganizeVerbs(organizeFolder: organizeFolder, findDuplicates: findDuplicates,
+                      fixName: nil, keepName: keepName, undoReorganisation: nil,
+                      planShape: planShape, setUpLikeSiblings: nil)
+    }
 }
 
 /// File ▸ the verbs the row menu has always had, over the pane selection.
@@ -118,6 +126,14 @@ struct PaneRowVerbs {
     /// The row menu's Save as PDF for the selection — `SaveAsPDFOffer.forSelection`, the row's own
     /// question — or `nil` where the row shows none, which greys File ▸ Save as PDF.
     let saveAsPDF: SelectionSaveAsPDF?
+
+    /// During a long run (BZ): Rename, Copy to… / Move to…, PDF Tools and Save as PDF go silent;
+    /// the verbs that only open, show or fetch stay, as does Ignore (a list the app keeps).
+    func lockingWrites() -> PaneRowVerbs {
+        PaneRowVerbs(openInNewTab: openInNewTab, quickLook: quickLook, openInEditor: openInEditor,
+                     download: download, revealInFinder: revealInFinder, rename: nil,
+                     chooseDestination: nil, ignore: ignore, pdfTools: nil, saveAsPDF: nil)
+    }
 
     struct IgnoreToggle {
         /// Already resolved: "Ignore in Comparison" or "Include in Comparison".
@@ -1378,6 +1394,14 @@ struct ShortcutValuePublisher: ViewModifier {
     /// the folder the pick is describing.
     let editorExpand: EditorExpandSwitch?
 
+    /// **True while a long run is going** (decision BZ) — the menu-bar half of the window's run
+    /// lock. The window stays live for reading, so this silences only the chords whose button is
+    /// greyed beside them: New Folder, New Text File, Move to Trash, Rename, Copy to… /
+    /// Move to…, Fix Name, Set Up Like Its Siblings, Undo This Reorganization, and a pane's PDF
+    /// Tools and Save as PDF. A chord live while its button is greyed is a mouse/keyboard split the
+    /// suspension below exists to prevent. Undo, Edit's own saves and Edit's PDF tools stay live.
+    var writesLocked: Bool = false
+
     /// True while the destination picker is up. The picker is a full-window overlay that
     /// deliberately blocks the mouse from every control these chords mirror — an in-flight
     /// file operation is waiting on an answer — but focused values are published by the still-
@@ -1397,22 +1421,26 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveOpenSelectedFolder: (() -> Void)? { suspended ? nil : openSelectedFolder }
     var effectiveEnclosingFolder: (() -> Void)? { suspended ? nil : enclosingFolder }
     var effectiveRescan: (() -> Void)? { suspended ? nil : rescan }
-    var effectiveNewFolder: (() -> Void)? { suspended ? nil : newFolder }
+    var effectiveNewFolder: (() -> Void)? { suspended || writesLocked ? nil : newFolder }
     var effectiveSaveDocument: (() -> Void)? { suspended ? nil : saveDocument }
-    var effectiveNewTextFile: (() -> Void)? { suspended ? nil : newTextFile }
+    var effectiveNewTextFile: (() -> Void)? { suspended || writesLocked ? nil : newTextFile }
     var effectiveCloseDocument: (() -> Void)? { suspended ? nil : closeDocument }
     var effectiveDocumentPrint: DocumentPrintActions? { suspended ? nil : documentPrint }
     var effectiveHiddenFiles: Binding<Bool>? { suspended ? nil : hiddenFiles }
     var effectivePreviewColumn: Binding<Bool>? { suspended ? nil : previewColumn }
     var effectiveInspector: Binding<Bool>? { suspended ? nil : inspector }
     var effectiveDifferencesList: Binding<Bool>? { suspended ? nil : differencesList }
-    var effectiveDelete: (() -> Void)? { suspended ? nil : delete }
+    var effectiveDelete: (() -> Void)? { suspended || writesLocked ? nil : delete }
     var effectiveSwitchPaneFocus: PaneFocusSwitch? { suspended ? nil : switchPaneFocus }
     var effectiveCommandPalette: (() -> Void)? { suspended ? nil : commandPalette }
     var effectiveBeginPaneSearch: (() -> Void)? { suspended ? nil : beginPaneSearch }
     var effectiveSelectAll: (() -> Void)? { suspended ? nil : selectAll }
     /// Suspended as a whole, so a destination pick cannot be answered by pasting into the pane
     /// underneath it — and so the three verbs go silent together rather than one at a time.
+    ///
+    /// Not touched by `writesLocked`: Paste is never greyed (see `PasteCommand`), so a file paste
+    /// during a run goes through to `FileActionHandler`, which refuses it and says why — where a
+    /// silenced closure would have made ⌘V a key that does nothing.
     var effectiveClipboard: ClipboardActions? {
         suspended ? nil : clipboard
     }
@@ -1426,8 +1454,12 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveEditorTextFiles: Binding<Bool>? { suspended ? nil : editorTextFiles }
     var effectiveStatusBar: Binding<Bool>? { suspended ? nil : statusBar }
     var effectiveOrganizeLens: OrganizeLensSwitch? { suspended ? nil : organizeLens }
-    var effectiveOrganizeVerbs: OrganizeVerbs? { suspended ? nil : organizeVerbs }
-    var effectivePaneRowVerbs: PaneRowVerbs? { suspended ? nil : paneRowVerbs }
+    var effectiveOrganizeVerbs: OrganizeVerbs? {
+        suspended ? nil : (writesLocked ? organizeVerbs?.lockingWrites() : organizeVerbs)
+    }
+    var effectivePaneRowVerbs: PaneRowVerbs? {
+        suspended ? nil : (writesLocked ? paneRowVerbs?.lockingWrites() : paneRowVerbs)
+    }
     var effectiveCompareTwoFiles: (() -> Void)? { suspended ? nil : compareTwoFiles }
     var effectiveEditorVerbs: EditorVerbs? { suspended ? nil : editorVerbs }
     var effectivePDFFind: PDFFindVerbs? { suspended ? nil : pdfFind }
@@ -1558,6 +1590,7 @@ extension ContentView {
             // `toggleCommandPalette` carries its own `pendingDestination` guard, because the toolbar
             // pill and the armed-on-launch path call it without going through a focused value —
             // and so do the two pane key handlers, through `paneChordsSuspended` below.
+            writesLocked: runWriteLockReason != nil,
             suspended: paneChordsSuspended
         )
     }

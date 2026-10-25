@@ -131,8 +131,10 @@ public struct PaneActionBar: View {
                                     : "Compare just this folder, or the two selected files",
                                 action: onCompare)
             }
-            actionBarButton(copyTitle, systemImage: copySymbol, accent: accent, help: transferHelp, action: onCopy)
-            actionBarButton(moveTitle, systemImage: moveSymbol, accent: accent, help: transferHelp, action: onMove)
+            actionBarButton(copyTitle, systemImage: copySymbol, accent: accent, help: transferHelp,
+                            writes: true, action: onCopy)
+            actionBarButton(moveTitle, systemImage: moveSymbol, accent: accent, help: transferHelp,
+                            writes: true, action: onMove)
 
             // New Folder is intentionally omitted here to keep the bar compact — it lives in the
             // pane's nav cluster and its right-click menu.
@@ -140,7 +142,7 @@ public struct PaneActionBar: View {
 
             actionBarButton("Delete", systemImage: "trash", accent: accent, role: .destructive,
                             help: ShortcutHint.tooltip("Move the selected items to the Trash", AppChord.deleteSelection.display),
-                            keycap: AppChord.deleteSelection.display, action: onDelete)
+                            keycap: AppChord.deleteSelection.display, writes: true, action: onDelete)
 
             // ✕ dismisses the selection (the file lists offer no deselect gesture; Escape does the
             // same). At the trailing edge, separated from the actions, so it reads as "close this
@@ -183,7 +185,7 @@ public struct PaneActionBar: View {
     /// same call so there is one rule here instead of a special case.
     private func actionBarButton(_ title: String, systemImage: String, accent: Color,
                                  role: ButtonRole? = nil, help: String? = nil,
-                                 keycap: String? = nil,
+                                 keycap: String? = nil, writes: Bool = false,
                                  action: @escaping () -> Void) -> some View {
         let isDestructive = role == .destructive
         return Button(role: role, action: action) {
@@ -198,6 +200,8 @@ public struct PaneActionBar: View {
         // Optional directly and withholds both the badge and the hint on nil, which is what the
         // private `OptionalKeycap` wrapper here used to do by branching.
         .shortcutKeycap(keycap)
+        // Copy, Move and Delete grey with the reason while a long run is going (decision BZ).
+        .lockedDuringRun(writes)
         // `.help` takes a non-optional, and `.help("")` renders an empty tooltip box rather than
         // none, so the presence check has to happen somewhere.
         .modifier(OptionalHelp(text: help))

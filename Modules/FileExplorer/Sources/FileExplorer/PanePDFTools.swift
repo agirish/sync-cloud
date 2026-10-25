@@ -290,11 +290,8 @@ struct PanePDFSingleLayer: View {
         // A stack rather than a `Group`: with nothing to say a `Group` is no view at all, and the
         // sheet below would have nothing to hang from.
         VStack(spacing: 0) {
-            // A run in flight with Stop (Rotate opens no sheet). Its ending is the pane's result
-            // message, handed over below.
-            if tools.running != nil && tools.sheet == nil {
-                PanePDFToolCard { EditorPDFToolBannerView(tools: tools, accent: accent) }
-            }
+            // Nothing drawn here: a run in flight shows in the toolbar's capsule with its Stop (TE207,
+            // ``RunCapsuleHost``), and its ending is the pane's result message, handed over below.
         }
         // `initial`: a banner set before this layer mounted — a cloud-only file refused in the same
         // turn the run was made — is handed over too. Cleared once handed, so a remount cannot

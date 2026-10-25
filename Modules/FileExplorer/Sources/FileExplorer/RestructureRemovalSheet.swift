@@ -131,6 +131,7 @@ struct RestructureRemovalSheet: View {
                 Button(removeTitle) { remove() }
                     .scaledFont(.system(size: 11, weight: .semibold))
                     .disabled(ticked.isEmpty || running || landed)
+                    .lockedDuringRun()
             }
         }
         .padding(18)

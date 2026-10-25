@@ -352,6 +352,7 @@ extension FileSyncManager {
             // Sentence case, as Finder titles its progress (FD7) — the undo name stays Title Case.
             progress.localizedDescription = "\(isMove ? "Moving" : "Copying") \(CountedNoun.phrase(Int(total), "item"))"
             progress.isCancellable = true
+            progress.runLockReason = Progress.runLockReason(waitingFor: isMove ? "the move" : "the copy")
         }
 
         let result = await enqueueFileOperation(alreadyCounted: true) { [weak self, progress] () -> (errors: [Error], transferred: [(from: URL, to: URL, overwritten: URL?)], identityWalks: [Task<CopyIdentityReading, Never>], alreadyThere: Int, mergedNodeIDs: Set<String>, trashedMergeSources: [(before: Int, item: MoveItemState)], redirectedIntoTrash: [URL: URL]) in
@@ -1390,6 +1391,7 @@ extension FileSyncManager {
             // deleted outright.
             progress.localizedDescription = "Moving \(CountedNoun.phrase(Int(total), "item")) to the Trash"
             progress.isCancellable = true
+            progress.runLockReason = Progress.runLockReason(waitingFor: "the move to the Trash")
         }
 
         let result = await enqueueFileOperation { [weak self, progress, prunedPaths, swallowedByAncestor] () -> (errors: [Error], items: [(original: URL, trashed: URL?)], declined: Int, refused: Int) in

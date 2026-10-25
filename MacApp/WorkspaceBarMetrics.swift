@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import Design
 import FileExplorer
 
 /// Whether the workspace bar can afford to spell its segments out.
@@ -174,22 +175,59 @@ enum WorkspaceBarMetrics {
     /// The workspace bar stays all-or-nothing within its own rung: shedding labels one segment at a
     /// time would leave a bar where some workspaces are words and others are glyphs, which reads as
     /// two different controls rather than one row of peers.
+    ///
+    /// **With a run going, the progress capsule is on the row too** (TE205/TE206), and it is
+    /// charged here like the other two — the reason this function exists. Its two rungs slot in
+    /// ahead of the bar's labels: the full capsule while it fits, then the ring, and only then do
+    /// the labels go. The ring is never dropped: it carries the run's only stop button, and a
+    /// capsule folded behind the chevron would leave a run nobody can see or stop.
     static func styles(contentWidth: CGFloat, labelWidths: [CGFloat],
                        searchLabelWidth: CGFloat, searchKeycapWidth: CGFloat,
-                       openField: OpenFieldRequest? = nil) -> ToolbarBarStyles {
+                       openField: OpenFieldRequest? = nil, runShowing: Bool = false) -> ToolbarBarStyles {
         let available = contentWidth - reservedChrome
         let bar = fullWidth(labelWidths: labelWidths)
         if let request = openField {
-            return openStyles(available: available, bar: bar, labelWidths: labelWidths,
-                              request: request)
+            // The open field takes the spare, so the capsule takes its ring and nothing more.
+            return openStyles(available: available - (runShowing ? capsuleWidth(.ring) : 0),
+                              bar: bar, labelWidths: labelWidths, request: request,
+                              run: runShowing ? .ring : nil)
         }
         let searchFull = CommandPaletteBarMetrics.width(style: .full, labelWidth: searchLabelWidth,
                                                         keycapWidth: searchKeycapWidth)
         let searchCompact = CommandPaletteBarMetrics.width(style: .compact, labelWidth: searchLabelWidth,
                                                            keycapWidth: searchKeycapWidth)
-        if bar + searchFull <= available { return ToolbarBarStyles(workspace: .full, search: .full) }
-        if bar + searchCompact <= available { return ToolbarBarStyles(workspace: .full, search: .compact) }
-        return ToolbarBarStyles(workspace: .iconOnly, search: .compact)
+        guard runShowing else {
+            if bar + searchFull <= available { return ToolbarBarStyles(workspace: .full, search: .full) }
+            if bar + searchCompact <= available { return ToolbarBarStyles(workspace: .full, search: .compact) }
+            return ToolbarBarStyles(workspace: .iconOnly, search: .compact)
+        }
+        let full = capsuleWidth(.full), ring = capsuleWidth(.ring)
+        if bar + searchFull + full <= available {
+            return ToolbarBarStyles(workspace: .full, search: .full, run: .full)
+        }
+        if bar + searchCompact + full <= available {
+            return ToolbarBarStyles(workspace: .full, search: .compact, run: .full)
+        }
+        if bar + searchCompact + ring <= available {
+            return ToolbarBarStyles(workspace: .full, search: .compact, run: .ring)
+        }
+        return ToolbarBarStyles(workspace: .iconOnly, search: .compact, run: .ring)
+    }
+
+    /// What the capsule costs the row: its fixed frame, and the toolbar's own spacing around an
+    /// item of its own. Generous for the reason ``reservedChrome`` is.
+    ///
+    /// Measured 2026-10-25 on a probe window carrying this toolbar's shape (navigation items, a
+    /// flexible spacer, a `.principal` item, the trailing pill and group): a principal item `w`
+    /// wide moved the width at which nothing overflowed by `w − 30`, so `w + 16` over-reserves by
+    /// about 46pt. And when the row did overflow, AppKit folded the TRAILING items, never the
+    /// principal one — so an under-charge here would hide Settings and Info, not the stop button.
+    static func capsuleWidth(_ style: ProgressCapsuleStyle) -> CGFloat {
+        let item: CGFloat = 16
+        switch style {
+        case .full: return ProgressCapsuleMetrics.fullWidth + item
+        case .ring: return ProgressCapsuleMetrics.ringWidth + item
+        }
     }
 
     /// **Both answers, resolved together and cached together.** The row has to know what it looks
@@ -199,15 +237,21 @@ enum WorkspaceBarMetrics {
     ///
     /// Resolving both here also keeps the state write coarse: the caller stores this value, and it
     /// changes only when one of the two answers does, not on every pixel of a window drag.
+    ///
+    /// With and without a run, for the same reason: a run starts on a click rather than a resize.
     static func styleSet(contentWidth: CGFloat, labelWidths: [CGFloat],
                          searchLabelWidth: CGFloat, searchKeycapWidth: CGFloat,
                          fieldKeycapWidth: CGFloat, scale: CGFloat) -> ToolbarBarStyleSet {
-        ToolbarBarStyleSet(
-            closed: styles(contentWidth: contentWidth, labelWidths: labelWidths,
-                           searchLabelWidth: searchLabelWidth, searchKeycapWidth: searchKeycapWidth),
-            open: styles(contentWidth: contentWidth, labelWidths: labelWidths,
-                         searchLabelWidth: searchLabelWidth, searchKeycapWidth: searchKeycapWidth,
-                         openField: OpenFieldRequest(keycapWidth: fieldKeycapWidth, scale: scale)))
+        func resolve(open: Bool, run: Bool) -> ToolbarBarStyles {
+            styles(contentWidth: contentWidth, labelWidths: labelWidths,
+                   searchLabelWidth: searchLabelWidth, searchKeycapWidth: searchKeycapWidth,
+                   openField: open ? OpenFieldRequest(keycapWidth: fieldKeycapWidth, scale: scale) : nil,
+                   runShowing: run)
+        }
+        return ToolbarBarStyleSet(closed: resolve(open: false, run: false),
+                                  open: resolve(open: true, run: false),
+                                  closedWithRun: resolve(open: false, run: true),
+                                  openWithRun: resolve(open: true, run: true))
     }
 
     /// The open field's share of the row. **The field takes the spare; the labels shed only when
@@ -225,7 +269,8 @@ enum WorkspaceBarMetrics {
     /// is already icon-only at rest, so nothing appears to move at either end. (Both edges moved up
     /// with the fifth label — they were 950 and 710 with four.)
     private static func openStyles(available: CGFloat, bar: CGFloat, labelWidths: [CGFloat],
-                                   request: OpenFieldRequest) -> ToolbarBarStyles {
+                                   request: OpenFieldRequest,
+                                   run: ProgressCapsuleStyle? = nil) -> ToolbarBarStyles {
         func layout(spare: CGFloat) -> GoToFieldLayout {
             // `max(0,)` rather than a fallback width: a negative spare means the row cannot seat
             // the field at all, and a field drawn wider than its share is the overflow chevron.
@@ -238,13 +283,13 @@ enum WorkspaceBarMetrics {
         let spareWithLabels = available - bar
         if spareWithLabels >= request.floor {
             return ToolbarBarStyles(workspace: .full, search: .compact,
-                                    field: layout(spare: spareWithLabels))
+                                    field: layout(spare: spareWithLabels), run: run)
         }
         // Shedding buys the difference between the two bar widths. Below the floor even then, the
         // field opens as wide as it can — §7's narrow case, where the short placeholder is what
         // absorbs the rest.
         let shed = available - iconOnlyWidth(segmentCount: labelWidths.count)
-        return ToolbarBarStyles(workspace: .iconOnly, search: .compact, field: layout(spare: shed))
+        return ToolbarBarStyles(workspace: .iconOnly, search: .compact, field: layout(spare: shed), run: run)
     }
 }
 
@@ -260,12 +305,15 @@ struct ToolbarBarStyles: Equatable {
     /// what the toolbar draws. Resolved here rather than by the field, for the same reason the
     /// other two are: it is spending the same width they are.
     var field: GoToFieldLayout?
+    /// The progress capsule's rung while a run is going, `nil` otherwise — charged on the same row.
+    var run: ProgressCapsuleStyle?
 
     init(workspace: WorkspaceBarStyle, search: CommandPaletteBarStyle,
-         field: GoToFieldLayout? = nil) {
+         field: GoToFieldLayout? = nil, run: ProgressCapsuleStyle? = nil) {
         self.workspace = workspace
         self.search = search
         self.field = field
+        self.run = run
     }
 }
 
@@ -274,6 +322,28 @@ struct ToolbarBarStyles: Equatable {
 struct ToolbarBarStyleSet: Equatable {
     var closed: ToolbarBarStyles
     var open: ToolbarBarStyles
+    /// The same two with the progress capsule on the row.
+    var closedWithRun: ToolbarBarStyles
+    var openWithRun: ToolbarBarStyles
+
+    init(closed: ToolbarBarStyles, open: ToolbarBarStyles,
+         closedWithRun: ToolbarBarStyles? = nil, openWithRun: ToolbarBarStyles? = nil) {
+        self.closed = closed
+        self.open = open
+        self.closedWithRun = closedWithRun ?? ToolbarBarStyles(workspace: .iconOnly, search: .compact, run: .ring)
+        self.openWithRun = openWithRun ?? ToolbarBarStyles(workspace: .iconOnly, search: .compact,
+                                                           field: open.field, run: .ring)
+    }
+
+    /// The row the toolbar wears for this state.
+    func resolved(fieldOpen: Bool, runShowing: Bool) -> ToolbarBarStyles {
+        switch (fieldOpen, runShowing) {
+        case (false, false): return closed
+        case (true, false): return open
+        case (false, true): return closedWithRun
+        case (true, true): return openWithRun
+        }
+    }
 }
 
 /// What the open field needs the row to know about it: its own floor and ceiling, and the two

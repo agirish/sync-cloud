@@ -63,6 +63,7 @@ extension FileSyncManager {
             ? "Matching the dates of \(CountedNoun.phrase(total, "file"))"
             : "Copying \(CountedNoun.phrase(total, "file")) to match dates"
         progress.isCancellable = true
+        progress.runLockReason = Progress.runLockReason(waitingFor: "the date match")
         activeProgress = progress
 
         markSyncing(ids: toCopyIDs)
@@ -554,6 +555,7 @@ extension FileSyncManager {
         let progress = Progress(totalUnitCount: Int64(total))
         progress.localizedDescription = "\(isMove ? "Moving" : "Syncing") \(CountedNoun.phrase(total, "file"))"
         progress.isCancellable = true
+        progress.runLockReason = Progress.runLockReason(waitingFor: isMove ? "the move" : "the sync")
         activeProgress = progress
 
         markSyncing(ids: toSyncIDs)

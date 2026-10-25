@@ -55,6 +55,8 @@ struct ReviewCardView: View {
     /// ColumnPreviewColumn.watchDownload shipped with) — one side must be the live property.
     @State private var verifyToken = UUID()
     @FocusState private var focused: Bool
+    /// A long run elsewhere in the window (decision BZ) — the primary copy/move waits for it.
+    @Environment(\.runWriteLock) private var runWriteLock
 
     var body: some View {
         if let item = session.current {
@@ -159,7 +161,7 @@ struct ReviewCardView: View {
             guard press.isPlainKeystroke, focused else { return .ignored }
             // Both gates: a copy mid-verify would overwrite the destination while the hash
             // reads it (same exclusion the bulk paths enforce via isVerifyAllRunning).
-            if !isActing && !isVerifying { onPrimary(item) }
+            if !isActing && !isVerifying && runWriteLock == nil { onPrimary(item) }
             return .handled
         }
         // .down only, no .repeat: Skip is synchronous and decided rows are unrevisitable, so
@@ -326,6 +328,7 @@ struct ReviewCardView: View {
             .accentedProminent()
             .chromeHover()
             .disabled(isActing || isVerifying)
+            .lockedDuringRun()
             Button("Skip") {
                 onSkip(item)
             }

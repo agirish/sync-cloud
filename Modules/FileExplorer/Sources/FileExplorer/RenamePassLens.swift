@@ -213,6 +213,7 @@ struct RenamePassLens: View {
                     .buttonStyle(.borderless)
                     .tint(accent)
                     .disabled(syncManager.isApplyingRenames || syncManager.isSuggestingFiles)
+                    .lockedDuringRun()
                     .help("Rename to a name every provider can store, as one undoable change")
                 }
                 .padding(.vertical, 2)
@@ -245,6 +246,7 @@ struct RenamePassLens: View {
                 .layoutPriority(1)
                 .fixedSize()
                 .disabled(syncManager.isApplyingRenames || syncManager.isSuggestingFiles)
+                .lockedDuringRun()
                 .help("Rename every listed name to its safe form, as one undoable batch")
             }
             .padding(.vertical, 2)
@@ -294,6 +296,7 @@ struct RenamePassLens: View {
                 .layoutPriority(1)
                 .fixedSize()
                 .disabled(syncManager.isApplyingRenames || syncManager.isSuggestingFiles)
+                .lockedDuringRun()
                 .help("Apply every rename in this section’s folders, as one undoable change"
                       + (section.fileCount == section.kindCount ? ""
                          : " — includes the folders’ other pending renames, since a folder is applied whole"))
@@ -387,6 +390,7 @@ struct RenamePassLens: View {
                     .buttonStyle(.borderless)
                     .tint(accent)
                     .disabled(syncManager.isApplyingRenames || syncManager.isSuggestingFiles)
+                    .lockedDuringRun()
                     .help("Apply every rename in this folder, as one undoable change")
                 }
             }

@@ -5,7 +5,7 @@ visual surfaces that regressed silently in past review rounds. Suites live in fo
 
 - `Modules/Design` — `DesignSnapshotTests`: TokenChipsRow (active / superseded-dimmed / yellow
   tint), StatusBadge, EmptyStateView (pre-scan + filtered-empty + C5 compact + long-path
-  middle truncation), ProgressDialog, the action bar's three weights + divider (enabled and
+  middle truncation), ProgressCapsule (full and ring), the action bar's three weights + divider (enabled and
   disabled)
 - `Modules/FileExplorer` — `FileExplorerSnapshotTests`: StatPill variants, treemap tiles
   (AccentLabel light-hue pairing on the amber tile), DuplicateGroupCard (collapsed versions group +

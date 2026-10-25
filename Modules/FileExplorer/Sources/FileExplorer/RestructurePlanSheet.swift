@@ -1430,6 +1430,7 @@ struct RestructurePlanSheet: View {
                         .scaledFont(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.red)
                         .disabled(landable.isEmpty || applying || isApplied)
+                        .lockedDuringRun()
                         .help("Lands each family’s own plan, one after another — never at once, "
                               + "because each landing re-derives the survey the next one reads. "
                               + "It stops at the first refusal, leaving the rest unrun.")
@@ -1438,6 +1439,7 @@ struct RestructurePlanSheet: View {
                         .scaledFont(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.red)
                         .disabled((try? plan.get()) == nil || applying || isApplied)
+                        .lockedDuringRun()
                         .help("Runs the reviewed operations now: renames and merges on disk, one "
                               + "grouped ⌘Z, the inverse in the ledger, and the survey "
                               + "re-derived.")

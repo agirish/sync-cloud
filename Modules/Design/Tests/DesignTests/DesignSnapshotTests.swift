@@ -5,7 +5,7 @@ import Testing
 
 /// Visual snapshot net over the Design module's shared surfaces — the components that burned
 /// us in review rounds and were only caught by code-reading: TokenChipsRow (hit targets,
-/// superseded dimming), StatusBadge, EmptyStateView, ProgressDialog. Each scenario renders at
+/// superseded dimming), StatusBadge, EmptyStateView, ProgressCapsule. Each scenario renders at
 /// a fixed size in light and dark against committed reference images (see SNAPSHOTS.md for
 /// the re-record workflow and the single-machine caveat).
 @MainActor
@@ -127,20 +127,21 @@ import Testing
             named: "compact-sidebar")
     }
 
-    // MARK: ProgressDialog
+    // MARK: ProgressCapsule
 
-    /// Mid-flight with a long current-item path: the count line, the clamped bar and the
-    /// middle-truncated file name.
-    @Test func progressDialogMidOperation() {
+    /// Mid-flight with a long title, both rungs: the full capsule's ring, middle-truncated title,
+    /// bar, count and stop button, and the ring alone with its stop button (TE206).
+    @Test(arguments: [ProgressCapsuleStyle.full, .ring])
+    func progressCapsuleMidOperation(style: ProgressCapsuleStyle) {
         let progress = Progress(totalUnitCount: 7363)
         progress.completedUnitCount = 3336
-        progress.localizedDescription = "Moving files to iCloud Drive"
-        progress.localizedAdditionalDescription =
-            "~/Documents/Projects/2026/Quarterly Reports/Q2/final-revision-with-appendix.pdf"
+        progress.localizedDescription = "Merging “Quarterly Reports 2026 — final revisions”"
+        progress.localizedAdditionalDescription = "final-revision-with-appendix.pdf"
         assertViewSnapshot(
-            of: ProgressDialog(progress: progress).padding(24),
-            size: CGSize(width: 420, height: 220),
-            named: "mid-operation")
+            of: ProgressCapsule(run: ProgressCapsuleRun(progress: progress), style: style, onCancel: {})
+                .padding(12),
+            size: CGSize(width: style == .full ? 410 : 90, height: 52),
+            named: style == .full ? "mid-operation-full" : "mid-operation-ring")
     }
 
     // MARK: Glass surfaces — the dark "bold" re-tune

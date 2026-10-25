@@ -666,7 +666,28 @@ struct ContentView: View {
                                field: GoToFieldLayout(width: GoToFieldMetrics.floorWidth,
                                                       placeholder: .short)))
     /// Whichever of the two the row is actually wearing right now.
-    var toolbarStyles: ToolbarBarStyles { showCommandPalette ? toolbarStyleSet.open : toolbarStyleSet.closed }
+    var toolbarStyles: ToolbarBarStyles {
+        toolbarStyleSet.resolved(fieldOpen: showCommandPalette, runShowing: runCapsuleShowing)
+    }
+    /// A pane-launched PDF tool run or Save as PDF showing in the toolbar capsule — reported by
+    /// `RunCapsulePresence`, so this view need not observe the PDF models.
+    @State var paneRunShowing = false
+    /// Whether the toolbar seats the progress capsule.
+    var runCapsuleShowing: Bool { syncManager.activeProgress != nil || paneRunShowing }
+    /// **Why writes wait** while a long run is going — "Wait for the merge to finish" — or `nil`.
+    /// Read from the run itself; published to every write control as `runWriteLock` (BZ). The
+    /// pane PDF runs and Save as PDF do not lock: they only ever add a file of their own beside
+    /// its original, and never locked the window before.
+    var runWriteLockReason: String? {
+        syncManager.activeProgress.map { $0.runLockReason ?? Progress.genericRunLockReason }
+    }
+    /// A write reached by a route the lock cannot grey — a key, or a menu item whose own item stays
+    /// live — refused with the reason in the banner, as `FileActionHandler` does for its own.
+    func refusedWhileRunLocked() -> Bool {
+        guard let reason = runWriteLockReason else { return false }
+        syncManager.banner = .warning(reason)
+        return true
+    }
     /// What is typed in the toolbar's Go-to field. Held here rather than in the panel's state so
     /// the field can redraw (its trailing key becomes a clear button) without observing it.
     @State var goToQuery = ""
@@ -1429,6 +1450,14 @@ struct ContentView: View {
 
     var body: some View {
         chromedContent
+        // Every write control below reads this and greys itself, with the reason as its tooltip,
+        // while a long run is going (decision BZ). Reading stays live.
+        .environment(\.runWriteLock, runWriteLockReason)
+        // Whether a pane PDF run or Save as PDF is in the toolbar capsule — the toolbar's width
+        // ladder has to seat it (`runCapsuleShowing`).
+        .background(RunCapsulePresence(pdfTools: panePDFTools, saveAsPDF: paneSaveAsPDF) { showing in
+            paneRunShowing = showing
+        })
         .alert(
             syncManager.currentError?.title ?? "Something Went Wrong",
             isPresented: Binding(
@@ -4430,23 +4459,12 @@ struct ContentView: View {
         .animation(nil, value: bottomPaneIsCollapsed)
         .designAnimation(.easeInOut(duration: 0.2), value: selectedWorkspace)
         .designAnimation(.easeInOut(duration: 0.15), value: showInspector)
-        .overlay {
-            if let progress = syncManager.activeProgress {
-                ZStack {
-                    Color.black.opacity(0.1)
-                        .ignoresSafeArea()
-
-                    ProgressDialog(progress: progress)
-                        .padding()
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-            }
-        }
-        // The animation must live on the container: inside the
-        // `if let` it can't animate the overlay's own insertion/removal, so the transition
-        // above never ran. Keyed on presence — Progress is a reference type whose counters
-        // mutate in place, so the value itself is the wrong animation trigger anyway.
-        .designAnimation(.spring(), value: syncManager.activeProgress == nil)
+        // **No dimming overlay during a long run** (TE208, decision BZ). The progress dialog used
+        // to sit here over a scrim that took every click until the run ended — minutes, for a
+        // duplicate merge. The run's progress is the toolbar capsule's now (`mainToolbar`), the
+        // window stays live for reading, and what would write to disk is greyed with the reason
+        // through `runWriteLock`, set on the window root.
+        //
         // **No result message up here any more** (Banner Room, CA). It floated across the window's
         // top for five seconds, over the pane header's Delete — the next click's target — and in
         // Compare over the seam's ⇄ and 🔗 as well. Each pane's list docks it now, in one stack with

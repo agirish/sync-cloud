@@ -439,6 +439,7 @@ public struct AutomationsLens: View {
                 .accentedProminent(glassHue)
                 .chromeHover()
                 .controlSize(.small)
+                .lockedDuringRun()
                 .help("File these \(fileable.count) file\(fileable.count == 1 ? "" : "s") one at a time, confirming each. Moves real files; undoes with ⌘Z.")
             }
         }
@@ -588,6 +589,7 @@ struct FilingWalkthroughCard: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @FocusState private var focused: Bool
+    @Environment(\.runWriteLock) private var runWriteLock
 
     /// Wraps a non-destructive inspection gesture (Preview / Reveal) so it FIRST bumps the host's
     /// focus nudge, then runs. Those clicks are gestures aimed squarely at the card, yet before
@@ -626,6 +628,7 @@ struct FilingWalkthroughCard: View {
                 .chromeHover()
                 .controlSize(.large)
                 .shortcutKeycap("↩")
+                .lockedDuringRun()
             }
             Button("Cancel") { onCancel() }
                 .shortcutKeycap("esc")
@@ -698,7 +701,8 @@ struct FilingWalkthroughCard: View {
         // See `KeyEquivalent.keypadEnter` for the measured delivery.
         .onKeyPress(keys: [.return, .keypadEnter], phases: .down) { press in
             guard press.isPlainKeystroke, focused else { return .ignored }
-            onDecision(true)
+            // ↩ files, so it waits with the File button while a long run is going (BZ).
+            if runWriteLock == nil { onDecision(true) }
             return .handled
         }
         // ⌫ skips as well as →: Compare's one-at-a-time review skips on ⌫, and someone who has

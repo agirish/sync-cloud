@@ -362,6 +362,7 @@ struct RestructurePairMergeSheet: View {
                 // Apply wears; the two sheets must not price the same act differently.
                 .foregroundStyle(.red)
                 .disabled(manifest == nil || applying || landed)
+                .lockedDuringRun()
                 .help("Runs the operations above. The inverse is written to disk first, every "
                       + "one is re-probed as it runs, and the landing is undoable from its own "
                       + "card after a quit — ⌘Z covers only this launch.")

@@ -87,13 +87,13 @@ import AppKit
         #expect(registered.count > 20,
                 "only \(registered.count) chords found in the menu bar — the walk lost its way")
 
-        // ⌘. is the progress dialog's Cancel, not a menu item — see `AppChord.controlOnly`, whose
-        // key is proved through a real window by `ProgressDialogCancelKeyTests` instead.
+        // ⌘. is the progress capsule's stop, not a menu item — see `AppChord.controlOnly`, whose
+        // key is proved through a real window by `ProgressCapsuleCancelKeyTests` instead.
         let controlOnly = Set(AppChord.controlOnly.map { Self.chordKey($0) })
         #expect(controlOnly.count == AppChord.controlOnly.count)
         // And the other way: no menu item may claim it, or the menu answers ⌘. before the dialog.
         #expect(registered.isDisjoint(with: controlOnly),
-                "a menu item claims ⌘., which belongs to the progress dialog's Cancel")
+                "a menu item claims ⌘., which belongs to the progress capsule's stop")
         let missing = AppChord.registry
             .filter { !registered.contains(Self.chordKey($0)) && !controlOnly.contains(Self.chordKey($0)) }
             .map(\.display)

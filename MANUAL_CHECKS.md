@@ -19,8 +19,8 @@ Check items off as you verify them, and note anything that misbehaves.
 - [ ] **Banner auto-dismiss after ✕.** Hover a success banner, close it with ✕, then
   trigger another operation → the new banner auto-dismisses on its own (previously it
   hung forever).
-- [ ] **Progress overlay animates.** Start a bulk copy → the progress dialog slides in
-  from the top with a fade, and animates out on completion (no abrupt pop).
+- [ ] ~~**Progress overlay animates.**~~ Superseded 2026-10-25: the dialog is gone (BZ); see
+  "Long runs in the toolbar capsule" below.
 
 ## Single window (Wave 2E)
 
@@ -374,7 +374,27 @@ placement maths and the message's layout at 250/400/560pt are covered by tests; 
   with Undo and Save as rule…; the cards did not move. Click it → the offer opens in a popover and the
   message stays while it is open. Ignore one → the offer is gone with the message after 5 s.
 - [ ] **PDF tool from a pane.** Right-click a PDF ▸ PDF Tools ▸ Rotate All Pages → progress at the
-  window's foot, then a pane message with Open in Edit and Reveal in Browse that leaves after 5 s.
+  toolbar's capsule while it runs (BZ, 2026-10-25), then a pane message with Open in Edit and Reveal
+  in Browse that leaves after 5 s.
 - [ ] **Clicks still land in Edit and Organize.** Both halves now carry the click reporter: select
   text by dragging in Edit, click a PDF's page, drag a card's button in Organize → all behave as before.
 - [ ] **VoiceOver.** With VoiceOver on, delete a file → it says "Deleted “…”. Undo available, Command Z".
+
+## Long runs in the toolbar capsule (Banner Room BZ/TE205/TE206, 2026-10-25)
+
+Built and installed with the screen locked, so nobody has seen the capsule in the real toolbar. The
+capsule's two rungs are snapshot-tested, the toolbar's width ladder is swept, and the lock's chords
+and key refusals are tested; this is what is not.
+
+- [ ] **Merge, then read.** Organize ▸ Duplicates, Merge into keeper on a large overlapping group →
+  no dimming; the capsule in the toolbar's middle says "Merging “…”" with a bar and a count, and the
+  current file while the pointer is over it. Browse another folder, select a file, open Preview and
+  Quick Look (Space) — all work while it runs.
+- [ ] **Writes wait, and say why.** During that merge, the pane header's Delete and New Folder, the
+  row menu's Rename / Move to Trash / Copy to…, and Compare's Copy are greyed; hovering one says
+  "Wait for the merge to finish". ⌘⌫ and ⇧⌘N are greyed in the menus; ⌫ in a list or ⌘V puts the
+  same sentence in a message instead of acting.
+- [ ] **Stop from the capsule.** Click the capsule's ✕, or press ⌘. → the merge stops between copies;
+  Esc does not stop it.
+- [ ] **Narrow window.** Drag the window to its narrowest (760pt) during a run → the capsule is a ring
+  with its ✕, still in the toolbar, with Settings, Activity Log and Info still visible beside it.

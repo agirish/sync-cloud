@@ -11522,3 +11522,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s topBanner=%s pressCmdZ=%s inl
 |---|---|---|
 | `v5.x` / `v4.x` | The window-top banner over the pane header; the offer inserted above To File's cards; "Press ⌘Z to undo" beside the Undo keycap; no announcement | RECORDED — not owed |
 | `v3.x` / `v2.x` | The window-top banner; "Press ⌘Z to undo" (on `v2.x` the only place ⌘Z is named, so TE216 would not apply there); no announcement | RECORDED — not owed |
+
+---
+
+## Long runs show progress in a toolbar capsule and leave the window readable (BZ, TE205/206/208) — main only
+
+The owner's decision BZ of 2026-10-25. A copy, move, trash, Compare sync, Verify All or duplicate
+merge showed `ProgressDialog` over a scrim that took every click until it ended — minutes, for a
+merge. Its progress is now a capsule in the toolbar's middle that shrinks to a ring with its stop
+button at narrow widths, and the window stays live for browsing, Preview and Quick Look while every
+action that writes to the panes' files greys with the reason (`runWriteLock`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s dialog=%s scrim=%s\n' $l \
+  "$(git show origin/$l:MacApp/ContentView.swift 2>/dev/null | grep -cF 'ProgressDialog(progress: progress)')" \
+  "$(git show origin/$l:MacApp/ContentView.swift 2>/dev/null | grep -cF 'Color.black.opacity(0.1)')"; done
+# measured 2026-10-25, against origin, before this landed (the change reads dialog=0 scrim=0):
+# main, v5.x, v4.x, v3.x, v2.x   dialog=1 scrim=1
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The dimmed window and centred progress dialog during long runs | RECORDED — not owed |

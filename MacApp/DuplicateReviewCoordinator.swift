@@ -192,6 +192,7 @@ struct DuplicateReviewCoordinator {
             .accentedProminent()
             .chromeHover()
             .controlSize(.small)
+            .lockedDuringRun()
             .help("Move the right copy to the Trash and keep the left one")
         }
         .padding(.horizontal, 14).padding(.vertical, 8)

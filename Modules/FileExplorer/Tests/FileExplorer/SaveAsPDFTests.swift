@@ -241,10 +241,10 @@ private struct SaveDelegate: FileActionDelegate {
         #expect(files() == ["First.md", "First.pdf", "Second.md"])
     }
 
-    /// Progress reads as the mockup draws it.
+    /// Progress reads in the toolbar capsule as the mockup draws it: the title, and a batch's count.
     @Test func progressReadsAsTheMockup() {
-        #expect(PaneSaveAsPDFLayer.progressMessage(.init(done: 3, total: 12, name: "x")) == "Saving 12 files as PDF · 4 of 12")
-        #expect(PaneSaveAsPDFLayer.progressMessage(.init(done: 0, total: 1, name: "Lease.docx")) == "Saving “Lease.docx” as PDF…")
+        #expect(PaneSaveAsPDFLayer.progressTitle(.init(done: 3, total: 12, name: "x")) == "Saving 12 files as PDF")
+        #expect(PaneSaveAsPDFLayer.progressTitle(.init(done: 0, total: 1, name: "Lease.docx")) == "Saving “Lease.docx” as PDF…")
     }
 
     // MARK: The banner's words

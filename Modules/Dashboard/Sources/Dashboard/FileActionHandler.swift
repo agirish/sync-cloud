@@ -63,6 +63,21 @@ public class FileActionHandler {
         return error
     }
     
+    // MARK: - The run lock
+
+    /// **Refuses a write while a long run is going, and says why** (decision BZ). The window greys
+    /// every write control during a run, but some routes to these methods are keys rather than
+    /// controls — ⌫ in a list, ⌘V, ↩ to rename, the palette's New Folder — and a key cannot be
+    /// greyed. They land here and are told in the banner what a greyed control says in its tooltip.
+    /// Undo is not routed here and stays live, as it always has during Verify All.
+    private func refusedWhileRunning() -> Bool {
+        guard let run = syncManager.activeProgress else { return false }
+        let reason = run.runLockReason ?? Progress.genericRunLockReason
+        Logger.shared.info("File action refused while a run is going: \(run.localizedDescription ?? "a run") — \(reason)")
+        syncManager.banner = .warning(reason)
+        return true
+    }
+
     // MARK: - Navigation
     
     /// Focuses the comparison on the selected folder (updates left/right relative path for the given pane).
@@ -157,6 +172,7 @@ public class FileActionHandler {
     ///   - leftProviderId: Provider ID for the left pane (root path).
     ///   - rightProviderId: Provider ID for the right pane.
     public func copyItems(_ nodes: [FileNode], fromLeft: Bool, leftProviderId: String, rightProviderId: String) {
+        guard !refusedWhileRunning() else { return }
         let targetDisplayName = providerDisplayName(forProviderId: fromLeft ? rightProviderId : leftProviderId)
 
         Logger.shared.info("User initiated copy of \(nodes.count) item(s)")
@@ -174,6 +190,7 @@ public class FileActionHandler {
     /// - Parameters: Same as `copyItems`; direction is determined by `fromLeft`.
     @discardableResult
     public func moveItems(_ nodes: [FileNode], fromLeft: Bool, leftProviderId: String, rightProviderId: String) async -> [FileNode] {
+        guard !refusedWhileRunning() else { return [] }
         guard let roots = await transferRoots(fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId) else { return [] }
 
         let targetDisplayName = providerDisplayName(forProviderId: fromLeft ? rightProviderId : leftProviderId)
@@ -231,6 +248,7 @@ public class FileActionHandler {
     /// Confirmation lives in the sync layer's `transferConfirmer` (same as the pane-to-pane
     /// `moveItems` above — no prompt here).
     public func moveItems(_ nodes: [FileNode], toPath destinationPath: String) {
+        guard !refusedWhileRunning() else { return }
         let destDisplayName = providerDisplayName(forPath: destinationPath)
         Logger.shared.info("User initiated move of \(nodes.count) item(s) to a dropped-on directory")
         Task {
@@ -278,6 +296,7 @@ public class FileActionHandler {
     }
     
     public func pasteItems(_ nodes: [FileNode], toPath destinationPath: String, isCut: Bool) {
+        guard !refusedWhileRunning() else { return }
         let destDisplayName = providerDisplayName(forPath: destinationPath)
         Logger.shared.info("User pasted \(nodes.count) item(s) (\(isCut ? "move" : "copy"))")
         Task {
@@ -323,6 +342,7 @@ public class FileActionHandler {
     /// than falling back to a stale in-app list: copying text elsewhere and then pressing ⌘V here
     /// must not write files nobody asked for.
     public func pasteClipboard(toPath destinationPath: String) {
+        guard !refusedWhileRunning() else { return }
         switch ClipboardSource.current(pasteboard: pasteboard,
                                        hasInAppItems: !syncManager.clipboardNodes.isEmpty,
                                        ownChangeCount: syncManager.clipboardPasteboardChangeCount) {
@@ -384,6 +404,7 @@ public class FileActionHandler {
     // MARK: - Mutations
     
     public func beginRename(_ node: FileNode) {
+        guard !refusedWhileRunning() else { return }
         if let newName = renamePrompter(node.name, FileSyncManager.validateItemName), newName != node.name {
             Logger.shared.info("User initiated rename of '\(node.name)' to '\(newName)'")
             Task {
@@ -393,6 +414,7 @@ public class FileActionHandler {
     }
     
     public func beginCreateFolder(in path: String) {
+        guard !refusedWhileRunning() else { return }
         // "" is the root of a pane whose provider vanished from settings (`settings.rootPath(for:)`
         // for an unknown id) while its stale tree was still showing. The sync layer refuses it
         // too; short-circuit here — like focusFolder/transferRoots — so the user is never
@@ -423,6 +445,7 @@ public class FileActionHandler {
     ///   menu and ⌘⌫ keep honouring the preference exactly as before — this is not a second
     ///   reading of the defaults key.
     public func confirmDelete(_ nodes: [FileNode], alwaysConfirm: Bool = false) {
+        guard !refusedWhileRunning() else { return }
         if alwaysConfirm || GeneralSettings.shouldConfirmBeforeDelete(defaults) {
             guard deleteConfirmer(nodes.map { $0.name }) else { return }
             Logger.shared.info("User confirmed deletion of \(nodes.count) item(s)")

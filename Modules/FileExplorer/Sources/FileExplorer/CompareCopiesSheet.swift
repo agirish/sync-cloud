@@ -1770,6 +1770,7 @@ struct CompareCopiesSheet: View {
         .buttonStyle(.bordered)
         .controlSize(.regular)
         .disabled(!standing.offersVerdict || other == nil || reason != nil)
+        .lockedDuringRun()
         .help(reason ?? "Move the other copy to the Trash")
     }
 

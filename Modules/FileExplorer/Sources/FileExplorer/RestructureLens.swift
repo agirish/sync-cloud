@@ -417,6 +417,7 @@ struct RestructureLens: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(accent)
                         .chromeHover()
+                        .lockedDuringRun()
                         .help("Asks first, then runs the inverse stored in the ledger and "
                               + "re-points the survey back — it survives a quit, and it is not ⌘Z.")
                     }
@@ -966,6 +967,7 @@ struct RestructureLens: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(accent)
                         .chromeHover()
+                        .lockedDuringRun()
                         .help("Creates \(scaffold.joined(separator: ", ")) — folders only, one "
                               + "⌘Z — then opens To File scoped here for the flat files.")
                 }

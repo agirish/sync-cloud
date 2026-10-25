@@ -720,6 +720,7 @@ struct DuplicateGroupCard: View {
                 // a dead control. Reachable by re-aiming the keeper of a group whose other copies
                 // all live inside a folder another group is keeping (see `isProtectedFromRemoval`).
                 .disabled(isMerging || group.recommendedRemovalPaths.isEmpty)
+                .lockedDuringRun()
                 .help(applyHelp)
             } else if group.matchType.kind == .overlapping {
                 Button(action: onMerge) {
@@ -743,6 +744,7 @@ struct DuplicateGroupCard: View {
                 .chromeHover()
                 .controlSize(.small)
                 .disabled(isMerging)
+                .lockedDuringRun()
                 .help(mergeHelp)
             }
             // **Every group gets this now.** It used to be folder-only, on the grounds that a

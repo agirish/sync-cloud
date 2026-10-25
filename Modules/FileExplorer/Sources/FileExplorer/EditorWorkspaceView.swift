@@ -1077,6 +1077,7 @@ public struct EditorWorkspaceView: View {
         .chromeGlassGlyphButton(tint: accent, shape: .capsule, outset: ChromeGlass.smallGlyphOutset)
         .accessibilityLabel("New text file")
         .shortcutKeycap(AppChord.newTextFile.display)
+        .lockedDuringRun()
         .help(ShortcutHint.tooltip(Self.newTextFileTitle(folderName: newFileFolderLabel),
                                    AppChord.newTextFile.display))
         .disabled(onNewTextFile == nil)

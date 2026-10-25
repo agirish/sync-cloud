@@ -3,22 +3,28 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// **⌘. cancels the progress dialog, and Esc does not.**
+/// **⌘. stops the run in the toolbar's progress capsule, and Esc does not.**
 ///
-/// Before this the dialog had no key at all: a 7,000-item copy could be stopped only with the
-/// mouse. The chord is ⌘. — the Mac's cancel-operation chord — and NOT Esc, because the dialog is
-/// an overlay with the whole window live under it, where Esc clears a pane's selection; a habitual
-/// Esc must not abort the copy. So both directions are pinned: the chord fires, and the role key
-/// a sheet's Cancel would carry does not.
+/// The progress dialog it replaced had no key at first: a 7,000-item copy could be stopped only
+/// with the mouse. The chord is ⌘. — the Mac's cancel-operation chord — and NOT Esc, because the
+/// whole window is live around the capsule, where Esc clears a pane's selection; a habitual Esc
+/// must not abort the copy. So both directions are pinned: the chord fires, and the role key a
+/// sheet's Cancel would carry does not.
 ///
 /// Driven through a real window's key-equivalent pass, which is where a SwiftUI
 /// `.keyboardShortcut` lives — a `Button` is not an `NSControl` and cannot be pressed from here
 /// any other way. `AppChordTests` pins what the chord renders; this pins that it is wired.
 @MainActor
-@Suite(.serialized) struct ProgressDialogCancelKeyTests {
+@Suite(.serialized) struct ProgressCapsuleCancelKeyTests {
 
-    private func host(_ progress: Progress) async throws -> NSWindow {
-        try await host(AnyView(ProgressDialog(progress: progress)))
+    private func host(_ progress: Progress, style: ProgressCapsuleStyle = .full) async throws -> NSWindow {
+        try await host(AnyView(capsule(progress, style: style)))
+    }
+
+    /// The capsule as `RunCapsuleHost` builds it for a file operation.
+    private func capsule(_ progress: Progress, style: ProgressCapsuleStyle = .full) -> ProgressCapsule {
+        ProgressCapsule(run: ProgressCapsuleRun(progress: progress), style: style,
+                        onCancel: { progress.cancel() })
     }
 
     private func host(_ root: AnyView) async throws -> NSWindow {
@@ -53,21 +59,23 @@ import Testing
         return progress
     }
 
-    @Test func commandPeriodPressesCancel() async throws {
+    /// Both rungs: the ring keeps the stop button, and with it the chord (TE206).
+    @Test(arguments: [ProgressCapsuleStyle.full, .ring])
+    func commandPeriodPressesCancel(style: ProgressCapsuleStyle) async throws {
         let progress = cancellable()
-        let window = try await host(progress)
+        let window = try await host(progress, style: style)
         defer { window.close() }
         // keyCode 47 is the period key.
         let commandPeriod = try key(window, keyCode: 47, characters: ".", modifiers: .command)
-        #expect(window.performKeyEquivalent(with: commandPeriod), "⌘. was not claimed by the dialog")
+        #expect(window.performKeyEquivalent(with: commandPeriod), "⌘. was not claimed by the capsule")
         #expect(progress.isCancelled, "⌘. did not cancel the operation")
     }
 
     /// A click counter a SwiftUI button can write from inside a hosted view.
     private final class Presses { var count = 0 }
 
-    /// **⌘. over a window with an Esc button reaches the dialog, and only the dialog.** AppKit
-    /// treats ⌘. as Esc (`cancelOperation:`), so a `.cancelAction` button under the overlay —
+    /// **⌘. over a window with an Esc button reaches the capsule, and only the capsule.** AppKit
+    /// treats ⌘. as Esc (`cancelOperation:`), so a `.cancelAction` button elsewhere in the window —
     /// Settings' close, a sheet's Cancel — is the other claimant. Pressing it there would close
     /// whatever lies under the copy and leave the copy running. Both stacking orders, since which
     /// view the key pass meets first is the whole question.
@@ -77,11 +85,11 @@ import Testing
     /// half has never been seen red here — it holds the line should AppKit or SwiftUI start
     /// mapping ⌘. onto Esc buttons. The first half goes red with the chord removed.
     @Test(arguments: [true, false])
-    func commandPeriodCancelsTheDialogNotAnEscButtonUnderIt(dialogOnTop: Bool) async throws {
+    func commandPeriodCancelsTheCapsuleNotAnEscButtonBesideIt(dialogOnTop: Bool) async throws {
         let progress = cancellable()
         let presses = Presses()
         let escButton = Button("Close") { presses.count += 1 }.keyboardShortcut(.cancelAction)
-        let dialog = ProgressDialog(progress: progress)
+        let dialog = capsule(progress)
         let root = dialogOnTop
             ? AnyView(ZStack { escButton; dialog })
             : AnyView(ZStack { dialog; escButton })
@@ -98,19 +106,19 @@ import Testing
         // it — the window's keyDown, where AppKit turns ⌘. into `cancelOperation:`.
         let commandPeriod = try key(window, keyCode: 47, characters: ".", modifiers: .command)
         if !window.performKeyEquivalent(with: commandPeriod) { window.sendEvent(commandPeriod) }
-        #expect(progress.isCancelled, "⌘. did not cancel the operation with an Esc button under the dialog")
-        #expect(presses.count == 1, "⌘. also pressed the Esc button under the dialog")
+        #expect(progress.isCancelled, "⌘. did not cancel the operation with an Esc button beside the capsule")
+        #expect(presses.count == 1, "⌘. also pressed the Esc button beside the capsule")
     }
 
     /// **The count is grouped for the reader's locale**, like the title above it. The locale is
     /// pinned so the separator is a fact of the test; a cached formatter with no locale ignored
     /// it. Clamped to the total, as the bar is.
     @Test func theCountIsGroupedForTheLocale() {
-        #expect(ProgressDialog.formattedCount(completed: 3336, total: 7363, locale: Locale(identifier: "en_US"))
+        #expect(ProgressCapsule.formattedCount(completed: 3336, total: 7363, locale: Locale(identifier: "en_US"))
                 == "3,336 of 7,363")
-        #expect(ProgressDialog.formattedCount(completed: 3336, total: 7363, locale: Locale(identifier: "de_DE"))
+        #expect(ProgressCapsule.formattedCount(completed: 3336, total: 7363, locale: Locale(identifier: "de_DE"))
                 == "3.336 of 7.363")
-        #expect(ProgressDialog.formattedCount(completed: 7400, total: 7363, locale: Locale(identifier: "en_US"))
+        #expect(ProgressCapsule.formattedCount(completed: 7400, total: 7363, locale: Locale(identifier: "en_US"))
                 == "7,363 of 7,363")
     }
 
@@ -122,14 +130,14 @@ import Testing
     @Test func theCancelButtonIsBoundToTheRegisteredChord() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/Design/ProgressDialog.swift")
+            .appendingPathComponent("Sources/Design/ProgressCapsule.swift")
         let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read ProgressDialog.swift — this check would be vacuous")
+                                  "cannot read ProgressCapsule.swift — this check would be vacuous")
         let code = source.split(separator: "\n")
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")
         #expect(code.components(separatedBy: ".keyboardShortcut(").count == 2,
-                "the dialog should register exactly one key equivalent")
+                "the capsule should register exactly one key equivalent")
         #expect(code.contains(
             ".keyboardShortcut(AppChord.cancelOperation.key, modifiers: AppChord.cancelOperation.modifiers)"),
             "Cancel's key equivalent is no longer read from AppChord.cancelOperation")
@@ -145,7 +153,7 @@ import Testing
         let escape = try key(window, keyCode: 53, characters: "\u{1b}", modifiers: [])
         _ = window.performKeyEquivalent(with: escape)
         window.sendEvent(escape)
-        #expect(!progress.isCancelled, "Esc cancelled the operation — it belongs to the window under the dialog")
+        #expect(!progress.isCancelled, "Esc cancelled the operation — it belongs to the window around the capsule")
 
         // ⇧⌘. spelled as the keyboard spells it: `characters` ".", `charactersIgnoringModifiers` ">"
         // — measured 2026-10-23 by converting a CGEvent for key 47 with ⇧⌘ on this Mac's layout.

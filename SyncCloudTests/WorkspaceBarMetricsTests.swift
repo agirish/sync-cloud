@@ -552,4 +552,93 @@ import FileExplorer
             #expect(styles(contentWidth: contentWidth, labelWidths: widths).field == nil)
         }
     }
+
+    // MARK: The progress capsule (TE205, TE206)
+
+    /// `styles(...)` with a run going, closed or open, at a text scale.
+    private func runStyles(contentWidth: CGFloat, labelWidths: [CGFloat], scale: CGFloat = 1,
+                           open: Bool = false) -> ToolbarBarStyles {
+        let search = searchWidths(scale: scale)
+        return WorkspaceBarMetrics.styles(
+            contentWidth: contentWidth, labelWidths: labelWidths,
+            searchLabelWidth: search.label, searchKeycapWidth: search.keycap,
+            openField: open ? OpenFieldRequest(
+                keycapWidth: CommandPaletteBarMetrics.keycapWidth(symbol: GoToFieldMetrics.closeKeycap,
+                                                                  scale: scale),
+                scale: scale) : nil,
+            runShowing: true)
+    }
+
+    /// **The chevron guard, with the capsule on the row.** A capsule folded behind the overflow
+    /// chevron is a run nobody can see or stop, so this is the one claim that has to hold at every
+    /// width and text size: the row seats the capsule — at least its ring — and never spends more
+    /// than it has, closed or with the Go-to field open.
+    @Test func testTheCapsuleIsAlwaysSeatedAndNeverOverspendsTheRow() {
+        for size in FontSize.allCases {
+            let widths = labelWidths(scale: size.scale)
+            let search = searchWidths(scale: size.scale)
+            for contentWidth in stride(from: Self.windowFloor, through: 2400, by: 13) {
+                for open in [false, true] {
+                    let resolved = runStyles(contentWidth: contentWidth, labelWidths: widths,
+                                             scale: size.scale, open: open)
+                    let run = try? #require(resolved.run, "no capsule at \(contentWidth)pt / \(size.displayName)")
+                    guard let run else { continue }
+                    let bar = resolved.workspace == .full
+                        ? WorkspaceBarMetrics.fullWidth(labelWidths: widths)
+                        : WorkspaceBarMetrics.iconOnlyWidth(segmentCount: widths.count)
+                    let pill = resolved.field?.width ?? CommandPaletteBarMetrics.width(
+                        style: resolved.search, labelWidth: search.label, keycapWidth: search.keycap)
+                    let spent = bar + pill + WorkspaceBarMetrics.capsuleWidth(run)
+                    let available = contentWidth - WorkspaceBarMetrics.reservedChrome
+                    #expect(spent <= available,
+                            "at \(contentWidth)pt / \(size.displayName)\(open ? " (field open)" : "") the row spends \(spent) of \(available)")
+                }
+            }
+        }
+    }
+
+    /// **The ring before the labels** (TE206): there is a band where the capsule has shrunk to its
+    /// ring and the workspace bar still spells its segments out — the bar is the primary navigation,
+    /// the capsule's words are in its tooltip.
+    @Test func testTheCapsuleShrinksToItsRingBeforeTheLabelsShed() {
+        let widths = labelWidths()
+        let rungs = stride(from: Self.windowFloor, through: 2000, by: 1).map {
+            runStyles(contentWidth: $0, labelWidths: widths)
+        }
+        #expect(rungs.contains { $0.run == .ring && $0.workspace == .full })
+        // And never the other way round: labels shed while the full capsule stays.
+        #expect(!rungs.contains { $0.run == .full && $0.workspace == .iconOnly })
+    }
+
+    /// The narrowest window keeps the ring and its stop button; an ordinary one has the whole
+    /// capsule beside the full row.
+    @Test func testTheFloorSeatsTheRingAndAnOrdinaryWindowTheWholeCapsule() {
+        let widths = labelWidths()
+        #expect(runStyles(contentWidth: Self.windowFloor, labelWidths: widths).run == .ring)
+        let wide = runStyles(contentWidth: 1600, labelWidths: widths)
+        #expect(wide.run == .full)
+        #expect(wide.workspace == .full && wide.search == .full)
+        // With the field open the capsule takes its ring and the field the rest.
+        #expect(runStyles(contentWidth: 1600, labelWidths: widths, open: true).run == .ring)
+    }
+
+    /// No run, no capsule: the row without one resolves exactly what it did before the capsule
+    /// existed, and the style set hands each of the four states its own answer.
+    @Test func testWithNoRunTheRowIsUntouched() {
+        let widths = labelWidths()
+        let search = searchWidths()
+        for contentWidth in stride(from: Self.windowFloor, through: 2000, by: 37) {
+            let set = WorkspaceBarMetrics.styleSet(
+                contentWidth: contentWidth, labelWidths: widths,
+                searchLabelWidth: search.label, searchKeycapWidth: search.keycap,
+                fieldKeycapWidth: CommandPaletteBarMetrics.keycapWidth(symbol: GoToFieldMetrics.closeKeycap,
+                                                                       scale: 1),
+                scale: 1)
+            #expect(set.resolved(fieldOpen: false, runShowing: false) == styles(contentWidth: contentWidth, labelWidths: widths))
+            #expect(set.resolved(fieldOpen: false, runShowing: false).run == nil)
+            #expect(set.resolved(fieldOpen: true, runShowing: false).run == nil)
+            #expect(set.resolved(fieldOpen: false, runShowing: true) == runStyles(contentWidth: contentWidth, labelWidths: widths))
+            #expect(set.resolved(fieldOpen: true, runShowing: true) == runStyles(contentWidth: contentWidth, labelWidths: widths, open: true))
+        }
+    }
 }

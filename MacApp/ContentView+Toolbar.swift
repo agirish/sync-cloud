@@ -399,6 +399,21 @@ extension ContentView {
             ToolbarSpacer(.flexible)
         }
 
+        // **A long run's progress, in the toolbar's middle** (TE205, decision BY): the file
+        // operation on `activeProgress`, or a PDF tool or Save as PDF run from a pane. Present only
+        // while something runs, and always seated: its rung — the full capsule or the ring with its
+        // stop button (TE206) — comes from the same width ladder as the workspace bar and the ⌘K
+        // pill, which charges it before it lets either of them keep a word. A toolbar that does not
+        // fit folds into the overflow chevron, and a run nobody can see or stop is the one thing
+        // this item must never become.
+        if runCapsuleShowing {
+            ToolbarItem(placement: .principal) {
+                RunCapsuleHost(activeProgress: syncManager.activeProgress,
+                               pdfTools: panePDFTools, saveAsPDF: paneSaveAsPDF,
+                               style: toolbarStyles.run ?? .ring)
+            }
+        }
+
         // ⌘K, wearing its own key. Trailing rather than centred, which is where every Mac app puts
         // a toolbar search (Finder, Mail, Notes, Xcode), and its own item rather than a fourth
         // member of the utility group: those three are glyph buttons and this is a field-shaped

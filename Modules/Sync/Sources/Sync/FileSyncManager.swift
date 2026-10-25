@@ -2599,7 +2599,9 @@ public class FileSyncManager: ObservableObject {
     private func noteFileOperationBegan() {
         fileOperationsEpoch += 1
     }
-    /// Real-time progress tracker for the currently active bulk file operation.
+    /// Real-time progress tracker for the currently active bulk file operation. While it is set
+    /// the window greys every action that writes to disk (decision BZ) — each publisher names its
+    /// run in ``Foundation/Progress/runLockReason`` for the tooltip that says why.
     @Published public var activeProgress: Progress? = nil
     /// Short-lived banner for in-app operation completion toasts. The severity drives the UI's
     /// icon, tint, and dismissal behavior.

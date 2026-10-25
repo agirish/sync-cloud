@@ -2454,6 +2454,7 @@ public struct LensWorkspaceView: View {
             .chromeHover()
             .controlSize(.small)
             .disabled(syncManager.isSuggestingFiles)
+            .lockedDuringRun()
             .help("Files the \(batch.count) name-matched suggestion\(batch.count == 1 ? "" : "s") with a confident home"
                   + (isFiltered ? " among the \(filing.count) your search left showing" : "")
                   + ". Content- and AI-based picks stay for you to review; every move undoes with ⌘Z.")
@@ -3284,6 +3285,7 @@ public struct LensWorkspaceView: View {
             .layoutPriority(1)
             .fixedSize()
             .disabled(syncManager.isFindingDuplicates)
+            .lockedDuringRun()
             .help("Moves the redundant copies of \(batch.count) byte-identical group\(batch.count == 1 ? "" : "s")"
                   + (isFiltered ? (query.isEmpty ? " — the ones the filter left showing —"
                                        : " — the ones your search left showing —") : "")
@@ -3317,6 +3319,7 @@ public struct LensWorkspaceView: View {
             .chromeHover()
             .controlSize(.small)
             .disabled(syncManager.isApplyingRenames || syncManager.isSuggestingFiles)
+            .lockedDuringRun()
             .help("Renames \(files) file\(files == 1 ? "" : "s") across \(plans.count) "
                   + "folder\(plans.count == 1 ? "" : "s") to match each folder’s own convention. "
                   + "One undoable change — ⌘Z puts every name back.")
@@ -3345,6 +3348,7 @@ public struct LensWorkspaceView: View {
             .chromeHover()
             .controlSize(.small)
             .disabled(syncManager.isNormalizingNames)
+            .lockedDuringRun()
             .help(help)
         }
     }

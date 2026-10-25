@@ -180,8 +180,12 @@ public struct DifferencesView: View {
     /// One gate for every Copy/Move/Verify entry point — the header buttons AND the bulk
     /// context menu must share it: `syncAll` silently drops re-entrant runs, so an entry
     /// point left enabled during a bulk sync is a silent no-op.
+    ///
+    /// Any long run on `activeProgress` blocks them too — a merge, a pane copy, a trash — which is
+    /// the window's run lock (decision BZ) reaching Compare's own buttons and chords.
     private var isSyncActionBlocked: Bool {
         syncManager.differences.contains { $0.isSyncing } || isBulkSyncing || isVerifyAllInProgress
+            || syncManager.activeProgress != nil
     }
     private var verifiedIdenticalCount: Int {
         syncManager.verifiedIdenticalForCopy?.differences.count ?? 0
@@ -1212,6 +1216,7 @@ public struct DifferencesView: View {
             .compareBarGlass()
             .shortcutKeycap(AppChord.reviewDifferences.display)
             .disabled(isSyncActionBlocked)
+            .lockedDuringRun()
             .help(ShortcutHint.tooltip(
                 "Step through each difference one at a time — hold ⇧ or ⌘ to move instead of copy",
                 AppChord.reviewDifferences.display))
@@ -1231,6 +1236,7 @@ public struct DifferencesView: View {
             .compareBarGlass()
             .shortcutKeycap(AppChord.verifyDifferences.display)
             .disabled(isSyncActionBlocked)
+            .lockedDuringRun()
             // Same explanation as the review card's Verify, scoped to what the bulk run
             // actually covers: only date-only differences whose sizes match are checksummed.
             .help(ShortcutHint.tooltip(
@@ -1327,6 +1333,7 @@ public struct DifferencesView: View {
         // it is ungated, so it renders while ⇧ is held and the button has retitled to Move.
         .shortcutKeycap(chord)
         .disabled(isSyncActionBlocked)
+        .lockedDuringRun()
         // The label may shed the destination; the tooltip never does, and it always names the verb
         // — and now the chord, ungated, for anyone who never finds the ⌥ hold.
         .help(ShortcutHint.tooltip(
@@ -1384,6 +1391,7 @@ public struct DifferencesView: View {
             // Gated while the current item's copy runs: that item is still undecided (in
             // `pending`), so handing the remainder to syncAll now would target it twice.
             .disabled(reviewStore.isActing || isSyncActionBlocked)
+            .lockedDuringRun()
             .help("\(session.isMove ? "Move" : "Copy") every remaining item without further review")
         }
         Button {

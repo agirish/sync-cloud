@@ -445,12 +445,15 @@ struct FilingSuggestionCard: View {
                 }
                     .buttonStyle(.borderedProminent).accentedProminent().controlSize(.small)
                     .chromeHover()
+                    .lockedDuringRun()
                 Button(action: onChooseFolder) { Label("Choose a folder…", systemImage: "folder") }
                     .controlSize(.small)
+                    .lockedDuringRun()
             } else {
                 Button(action: onChooseFolder) { Label("Choose a folder…", systemImage: "folder") }
                     .buttonStyle(.borderedProminent).accentedProminent().controlSize(.small)
                     .chromeHover()
+                    .lockedDuringRun()
             }
             if best != nil, let onTryAnother {
                 Button(action: onTryAnother) { Label("Try another folder", systemImage: "arrow.triangle.2.circlepath") }

@@ -105,6 +105,8 @@ struct EditorRailRowMenu: View {
         var isDestructive = false
         /// Whether a separator comes before it.
         var startsGroup = false
+        /// Whether it writes to disk, and so waits while a long run is going (decision BZ).
+        var writes = false
         let perform: () -> Void
         var id: String { title }
     }
@@ -131,9 +133,9 @@ struct EditorRailRowMenu: View {
                  perform: { actions.revealInFinder(path) }),
             Item(title: "Quick Look", systemImage: "doc.viewfinder",
                  perform: { actions.quickLook(path) }),
-            Item(title: "Rename", systemImage: "pencil", startsGroup: true,
+            Item(title: "Rename", systemImage: "pencil", startsGroup: true, writes: true,
                  perform: { actions.rename(path) }),
-            Item(title: "Move to Trash…", systemImage: "trash", isDestructive: true,
+            Item(title: "Move to Trash…", systemImage: "trash", isDestructive: true, writes: true,
                  perform: { actions.delete(path) }),
         ]
         return items
@@ -152,6 +154,7 @@ struct EditorRailRowMenu: View {
                 Label(item.title, systemImage: item.systemImage)
             }
             .disabled(item.refusal != nil)
+            .lockedDuringRun(item.writes)
             // A menu draws a `Text` as a greyed line of its own — the reason, under the item.
             if let refusal = item.refusal { Text(refusal) }
         }

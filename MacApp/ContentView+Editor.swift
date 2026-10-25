@@ -670,6 +670,7 @@ extension ContentView {
     /// is on screen); the banner's Open hands the copy to Edit through the pane's own door, and its
     /// Reveal in Browse is the reader's.
     func startPanePDFTool(_ request: PDFToolRequest, paths: [String]) {
+        guard !refusedWhileRunLocked() else { return }
         let writer = "PDF Tools in \(selectedWorkspace.title)"
         panePDFTools.host = PanePDFToolHost(
             didWrite: { path in
@@ -695,6 +696,7 @@ extension ContentView {
     /// goes through the pane's own door, and its Reveal in Browse selects the PDFs. A folder that
     /// cannot be written to asks where, with a save panel.
     func startSaveAsPDF(_ paths: [String]) {
+        guard !refusedWhileRunLocked() else { return }
         let writer = "Save as PDF in \(selectedWorkspace.title)"
         paneSaveAsPDF.fontScale = appFontScale
         paneSaveAsPDF.accent = glassHue.accentColor
@@ -1963,6 +1965,9 @@ extension ContentView {
     /// was already looking at.
     var shortcutNewTextFile: () -> Void {
         {
+            // A new file waits with the rest of the window's writes while a long run goes (BZ):
+            // the empty page's and the rail's buttons reach here without a menu item to grey.
+            guard !refusedWhileRunLocked() else { return }
             // Asked of the workspace being LEFT, before the switch below: from Compare the pane
             // is half of the comparison and stays; from Organize it keeps its source.
             editorNewFilePane = ExternalOpen.pane(workspace: selectedWorkspace,

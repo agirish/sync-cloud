@@ -837,6 +837,7 @@ public struct PaneHeader: View {
                 .buttonStyle(navButtonStyle)
                 .paneNavGlass()
                 .shortcutKeycap(AppChord.newFolder.display)
+                .lockedDuringRun()
                 .help(ShortcutHint.tooltip("New folder in this pane’s current folder", AppChord.newFolder.display))
                 .accessibilityLabel("New folder")
             }
@@ -911,6 +912,7 @@ public struct PaneHeader: View {
                 .buttonStyle(navButtonStyle)
                 .paneNavGlass()
                 .disabled(selectionCount == 0)
+                .lockedDuringRun()
                 // Deliberately NOT `AppChord.deleteSelection`: ⌘⌫ is Compare-only and acts on the
                 // ACTIVE pane, so badging this button with it would promise the chord does what
                 // the button does — which is false on the inactive side, and false everywhere in
@@ -1291,6 +1293,7 @@ public struct PaneHeader: View {
         case .newFolder:
             if let onNewFolder {
                 Button(action: onNewFolder) { Label("New Folder", systemImage: "folder.badge.plus") }
+                    .lockedDuringRun()
             }
         case .sort:
             Picker("Sort By", selection: $sortOption) {
@@ -1334,6 +1337,7 @@ public struct PaneHeader: View {
                     Label("Move Selection to Trash…", systemImage: "trash")
                 }
                 .disabled(selectionCount == 0)
+                .lockedDuringRun()
             }
         case .space, .flexibleSpace:
             EmptyView()

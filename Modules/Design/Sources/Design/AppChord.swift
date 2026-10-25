@@ -376,10 +376,10 @@ public extension AppChord {
     /// reader already knows, in a menu that already holds the other Compare verbs.
     static let compareTwoFiles = AppChord("c", [.shift, .command])
 
-    // The progress dialog
-    /// ⌘. — the Mac's cancel-operation chord, on the progress dialog's Cancel. A copy, move,
-    /// delete, sync or verify can run for minutes, and before this it could only be stopped with
-    /// the mouse.
+    // The progress capsule
+    /// ⌘. — the Mac's cancel-operation chord, on the toolbar progress capsule's stop button. A
+    /// copy, move, delete, sync or verify can run for minutes, and before this it could only be
+    /// stopped with the mouse.
     ///
     /// **The one member that is not a menu item**, and declared here anyway because it is a chord
     /// rather than a role: a menu that later claimed ⌘. would outrank the button's key equivalent
@@ -387,7 +387,7 @@ public extension AppChord {
     /// the ⌘/ reference, which this registry drives.
     ///
     /// **Not esc**, which is the role key the type's header leaves literal on a sheet's Cancel. The
-    /// dialog is an overlay with the whole window still live under it, where esc clears a pane's
+    /// capsule sits in the toolbar with the whole window still live around it, where esc clears a pane's
     /// selection — a key pressed out of habit, and it must not abort a 7,000-item copy. ⌘. is
     /// pressed on purpose. ⇧⌘. is `hiddenFiles`, a different chord.
     static let cancelOperation = AppChord(".", .command)
@@ -432,8 +432,9 @@ public extension AppChord {
     /// Registry members that belong to a **control rather than a menu item** — the menu-bar walk's
     /// one sanctioned exception (`WindowMenuTests.everyDeclaredChordIsOnAMenuItem`).
     ///
-    /// ⌘. is the progress dialog's Cancel, which exists only while a long copy runs; a menu item
-    /// for it would be a dead item the rest of the time. `ProgressDialogCancelKeyTests` drives the
-    /// key through a real window instead, which is the evidence the menu walk gives the others.
+    /// ⌘. is the toolbar progress capsule's stop button, which exists only while a long run goes;
+    /// a menu item for it would be a dead item the rest of the time. `ProgressCapsuleCancelKeyTests`
+    /// drives the key through a real window instead, which is the evidence the menu walk gives the
+    /// others.
     static let controlOnly: [AppChord] = [cancelOperation]
 }

@@ -1395,10 +1395,12 @@ enum SharedFileMenuItems {
         }
     }
 
+    @MainActor
     static func newFolder(at path: String, delegate: FileActionDelegate) -> some View {
         Button(action: { delegate.handleCreateFolder(at: path) }) {
             Label("New Folder", systemImage: "folder.badge.plus")
         }
+        .lockedDuringRun()
     }
 
     static func getInfo(for path: String, delegate: FileActionDelegate) -> some View {
@@ -1433,11 +1435,13 @@ enum SharedFileMenuItems {
         }
     }
 
+    @MainActor
     static func pasteHere(clipboardHasItems: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label("Paste Here", systemImage: "doc.on.clipboard")
         }
         .disabled(!clipboardHasItems)
+        .lockedDuringRun()
     }
 }
 
@@ -1686,6 +1690,7 @@ struct FileContextMenu: View {
                 if delegate.canRunPDFTools, let offer = PanePDFToolOffer.forSelection([singleNode]) {
                     Divider()
                     PanePDFToolsSubmenu(offer: offer, delegate: delegate)
+                        .lockedDuringRun()
                 }
                 // **Save as PDF, in PDF Tools' own section** (CV1) — a file that can become a PDF
                 // shows it where a PDF shows its tools, so Rename never moves. A PDF keeps its tools
@@ -1693,11 +1698,13 @@ struct FileContextMenu: View {
                 if delegate.canSaveAsPDF, let offer = SaveAsPDFOffer.forSelection([singleNode]) {
                     Divider()
                     SaveAsPDFMenuItem(offer: offer, delegate: delegate)
+                        .lockedDuringRun()
                 }
                 Divider()
                 Button(action: { delegate.handleRename(singleNode) }) {
                     Label("Rename", systemImage: "pencil")
                 }
+                .lockedDuringRun()
                 // Offered only when this provider will actually reject the name — a finding, not a
                 // standing menu item. **This runs with the ROW, not only when the menu opens:**
                 // SwiftUI builds a row's context menu each time the row renders, so everything in
@@ -1710,6 +1717,7 @@ struct FileContextMenu: View {
                         // No ellipsis (LN13): it renames at once, undoably — nothing more is asked.
                         Label("Fix Name", systemImage: RiskyNameGlyph.lens)
                     }
+                    .lockedDuringRun()
                     .help("\(risky.reason) Renames it to “\(risky.sanitizedName)”, undoably.")
                     // The badge's answer, and the ONLY way back from one. Keeping is durable, so
                     // without a withdrawal offered from the file itself it would be a one-way door
@@ -1851,10 +1859,12 @@ struct FileContextMenu: View {
                 Button(action: { delegate.handleChooseDestination(selectedNodes, isMove: false) }) {
                     Label(count > 1 ? "Copy \(count) Items to…" : "Copy to…", systemImage: TransferGlyph.copy)
                 }
+                .lockedDuringRun()
 
                 Button(action: { delegate.handleChooseDestination(selectedNodes, isMove: true) }) {
                     Label(count > 1 ? "Move \(count) Items to…" : "Move to…", systemImage: TransferGlyph.move(toRight: true))
                 }
+                .lockedDuringRun()
 
                 Divider()
             }
@@ -1867,10 +1877,12 @@ struct FileContextMenu: View {
                 Button(action: { delegate.handleCopy(selectedNodes) }) {
                     Label(count > 1 ? "Copy \(count) Items to \(otherPaneName)" : "Copy to \(otherPaneName)", systemImage: TransferGlyph.copy)
                 }
+                .lockedDuringRun()
 
                 Button(action: { delegate.handleMove(selectedNodes) }) {
                     Label(count > 1 ? "Move \(count) Items to \(otherPaneName)" : "Move to \(otherPaneName)", systemImage: TransferGlyph.move(toRight: isLeft))
                 }
+                .lockedDuringRun()
 
                 Divider()
             }
@@ -1898,6 +1910,7 @@ struct FileContextMenu: View {
                         Label("Copy “\(first.name)” from \(otherPaneName)", systemImage: "arrow.right.to.line.compact")
                     }
                 }
+                .lockedDuringRun()
             }
 
             compareItems(node: node, selectedNodes: selectedNodes)
@@ -1909,6 +1922,7 @@ struct FileContextMenu: View {
             Button(role: .destructive, action: { delegate.handleDelete(selectedNodes) }) {
                 Label(count > 1 ? "Move \(count) Items to Trash…" : "Move to Trash…", systemImage: "trash")
             }
+            .lockedDuringRun()
         }
     }
 }

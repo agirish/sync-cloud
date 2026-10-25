@@ -1819,12 +1819,13 @@ extension FileSyncManager {
             return false
         }
         // Progress for the minutes-long run, published the way Verify All does it: an NSProgress
-        // on `activeProgress` drives the app-wide ProgressDialog overlay (bar, per-file line,
+        // on `activeProgress` drives the toolbar's progress capsule (bar, per-file line,
         // Cancel). One unit per redundant copy; the current file name rides along as the
         // additional description from inside the copy loop.
         let progress = Progress(totalUnitCount: Int64(group.redundantCopies.count))
         progress.localizedDescription = "Merging “\(group.name)”"
         progress.isCancellable = true
+        progress.runLockReason = Progress.runLockReason(waitingFor: "the merge")
         activeProgress = progress
         defer {
             // Clear only if still ours: a queued operation may have published its own by now.
@@ -1895,7 +1896,7 @@ extension FileSyncManager {
         var driftedCopies: [String] = []
 
         for redundant in group.redundantCopies {
-            // Honor the dialog's Cancel between copies: whatever already landed is undoable and
+            // Honor the capsule's Cancel between copies: whatever already landed is undoable and
             // a retry skips it; the remaining copies stay listed. Nothing is ever trashed for a
             // copy whose fold didn't complete.
             if progress.isCancelled {

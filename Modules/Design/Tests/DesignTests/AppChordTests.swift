@@ -85,7 +85,7 @@ import Foundation
         #expect(AppChord.strikethrough.display == "⇧⌘X")
         #expect(AppChord.inlineCode.display == "⇧⌘K")
         #expect(AppChord.link.display == "⇧⌘L")
-        // The progress dialog's Cancel: ⌘. — and not ⇧⌘. above, which is the hidden-files toggle.
+        // The progress capsule's stop: ⌘. — and not ⇧⌘. above, which is the hidden-files toggle.
         #expect(AppChord.cancelOperation.display == "⌘.")
         #expect(AppChord.workspace(1)?.display == "⌘1")
         #expect(AppChord.workspace(5)?.display == "⌘5")

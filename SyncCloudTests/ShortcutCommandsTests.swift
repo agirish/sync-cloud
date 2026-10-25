@@ -24,7 +24,7 @@ import Foundation
     ///
     /// `closeTab` is injectable because ⌘W is the one chord whose suspended behaviour is a
     /// *silence* rather than a `nil`, so its tests have to watch what the published action DOES.
-    private func loadedPublisher(suspended: Bool,
+    private func loadedPublisher(suspended: Bool, writesLocked: Bool = false,
                                  closeTab: @escaping () -> Void = {}) -> ShortcutValuePublisher {
         ShortcutValuePublisher(
             workspace: .constant(.compare),
@@ -77,8 +77,51 @@ import Foundation
             pdfFill: PDFFillSignVerbs(fill: EditorPDFFillSign(store: EditorPDFSignatureStore()),
                                       tools: EditorPDFTools()),
             editorExpand: EditorExpandSwitch(isOn: false, toggle: {}),
+            writesLocked: writesLocked,
             suspended: suspended
         )
+    }
+
+    /// **A long run silences exactly the chords whose buttons it greys** (decision BZ). The window
+    /// stays live for reading, so this is not the suspension: navigation, search, tabs, Quick Look,
+    /// the clipboard and Edit's own saves stay live; what writes to the panes' files goes silent with
+    /// the button beside it, so a mouse user and a keyboard user meet the same lock.
+    @Test func aLongRunSilencesTheWritingChordsAndOnlyThose() throws {
+        let open = loadedPublisher(suspended: false, writesLocked: false)
+        let locked = loadedPublisher(suspended: false, writesLocked: true)
+        // Live before, so the silences below are real.
+        #expect(open.effectiveNewFolder != nil && open.effectiveDelete != nil && open.effectiveNewTextFile != nil)
+
+        #expect(locked.effectiveNewFolder == nil, "⇧⌘N stayed live during a run")
+        #expect(locked.effectiveNewTextFile == nil, "⌘N stayed live during a run")
+        #expect(locked.effectiveDelete == nil, "⌘⌫ stayed live during a run")
+        let row = try #require(locked.effectivePaneRowVerbs)
+        #expect(row.rename == nil && row.chooseDestination == nil, "Rename / Copy to… stayed live")
+        #expect(row.pdfTools == nil && row.saveAsPDF == nil, "a pane's PDF Tools / Save as PDF stayed live")
+        #expect(row.quickLook != nil && row.openInEditor != nil && row.revealInFinder != nil
+                && row.download != nil && row.openInNewTab != nil && row.ignore != nil,
+                "a verb that only opens, shows or fetches went silent")
+        let organize = try #require(locked.effectiveOrganizeVerbs)
+        #expect(organize.fixName == nil && organize.setUpLikeSiblings == nil && organize.undoReorganisation == nil)
+        #expect(organize.organizeFolder != nil && organize.findDuplicates != nil
+                && organize.keepName != nil && organize.planShape != nil)
+
+        // Reading, and Edit's own document, stay live.
+        #expect(locked.effectiveGoBack != nil && locked.effectiveRescan != nil
+                && locked.effectiveBeginPaneSearch != nil && locked.effectiveCommandPalette != nil
+                && locked.effectiveNewTab != nil && locked.effectiveSelectAll != nil)
+        #expect(locked.effectiveSaveDocument != nil && locked.effectiveDocumentPrint?.export != nil
+                && locked.effectivePDFTools != nil && locked.effectivePDFFill != nil)
+        // Paste is never greyed; a file paste reaches `FileActionHandler`, which says why.
+        #expect(locked.effectiveClipboard?.paste != nil)
+    }
+
+    /// The lock's expression at the call site — what `aLongRunSilencesTheWritingChordsAndOnlyThose`
+    /// injects and cannot see.
+    @Test func theRunLockIsFedFromTheWindowsRun() throws {
+        let source = Self.codeOnly(try Self.publisherSource())
+        #expect(source.contains("writesLocked: runWriteLockReason != nil"),
+                "the chord publisher is no longer told when a run is going")
     }
 
     /// **Every `effective…` value is actually published.**

@@ -240,6 +240,7 @@ extension FileSyncManager {
         let progress = Progress(totalUnitCount: Int64(toVerify.count))
         progress.localizedDescription = "Verifying \(CountedNoun.phrase(toVerify.count, "file"))"
         progress.isCancellable = true
+        progress.runLockReason = Progress.runLockReason(waitingFor: "Verify All")
         activeProgress = progress
         verifyAllProgress = (0, toVerify.count)
 

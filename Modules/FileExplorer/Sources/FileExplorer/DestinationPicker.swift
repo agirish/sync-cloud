@@ -281,6 +281,7 @@ public struct DestinationPicker: View {
             Button("Cancel", role: .cancel) { newFolderName = "" }
             Button("Create & \(verb) Here") { createFolderAndCommit() }
                 .disabled(FileSyncManager.validateItemName(newFolderName) != nil)
+                .lockedDuringRun()
         } message: {
             Text("It will be created inside “\(displayName(of: highlighted))”.")
         }
@@ -600,6 +601,7 @@ public struct DestinationPicker: View {
                 // ABOVE `.disabled`, so no badge on a button whose shortcut is refused.
                 .shortcutKeycap(AppChord.newFolder.display)
                 .disabled(!canCommit)
+                .lockedDuringRun()
 
                 Button("Other…") { onChooseOther() }
                     .buttonStyle(.actionBar(.outline, tint: accent, onTint: glassHue.onAccentLabelColor))
@@ -614,6 +616,7 @@ public struct DestinationPicker: View {
                     .keyboardShortcut(.defaultAction)
                     .shortcutKeycap("↩")
                     .disabled(!canCommit)
+                    .lockedDuringRun()
             }
         }
         .padding(.horizontal, 20)
