@@ -11171,3 +11171,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s counterOnlyRefused=%s fix=%s\
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The counter as a marker, without FR14 (`counterOnlyRefused=0`) — FR14's section records it | RECORDED — not owed |
+
+---
+
+## "Trash right copy" counts a re-dated file as a difference (FR13, follow-up) — main only
+
+FR13's refusal compared the two copies' files by path and size only, so a file edited to the same
+length in the right copy read as one the left already had, and went to the Trash with the folder.
+`main` also compares modification dates: same path and size but another date refuses, naming the
+file. Nothing is hashed, so a copy made without keeping dates refuses too and points to Merge.
+
+```sh
+F=MacApp/DuplicateReviewCoordinator.swift
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr13=%s fix=%s\n' $l \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF 'static func itemsOnlyInRightCopy')" \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF 'same(date, otherDate)')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads fix=1):
+# main                     fr13=1 fix=0
+# v5.x, v4.x, v3.x, v2.x   fr13=0 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR13 refusal (`fr13=0`) — FR13's section records it | RECORDED — not owed |

@@ -506,18 +506,23 @@ struct DuplicateReviewCoordinator {
 
     /// What the right copy holds that the left one lacks, by the scan's own baselines: each file
     /// or link (relative to the right copy) that the left copy has nowhere at that path, or has as
-    /// a different kind or a different size. Directories are not counted — what is inside one
-    /// is, and an empty folder is nothing to lose. Empty when either copy carries no baseline; the
-    /// drift gate refuses that case on its own.
+    /// a different kind, a different size or a different modification date (FR13) — a same-length
+    /// edit keeps the size and moves the date, and nothing here reads the bytes. Dates compare
+    /// only when both are known, as the drift gate's do. Directories are not counted — what is
+    /// inside one is, and an empty folder is nothing to lose. Empty when either copy carries no
+    /// baseline; the drift gate refuses that case on its own.
     nonisolated static func itemsOnlyInRightCopy(_ review: DuplicateCompareContext) -> [String] {
         guard let right = review.deleteContentSnapshot, let left = review.keepContentSnapshot else {
             return []
         }
+        func same(_ a: Date?, _ b: Date?) -> Bool { a == nil || b == nil || a == b }
         return right.entries.compactMap { path, entry -> String? in
             switch (entry, left.entries[path]) {
             case (.directory, _): return nil
-            case (.file(let size, _), .file(let other, _)?) where size == other: return nil
-            case (.symlink(let size, _), .symlink(let other, _)?) where size == other: return nil
+            case (.file(let size, let date), .file(let other, let otherDate)?)
+                where size == other && same(date, otherDate): return nil
+            case (.symlink(let size, let date), .symlink(let other, let otherDate)?)
+                where size == other && same(date, otherDate): return nil
             default: return path
             }
         }.sorted()
@@ -532,8 +537,8 @@ struct DuplicateReviewCoordinator {
     ///
     /// Two sources, either one enough, because each sees what the other cannot. The scan's
     /// `uniqueItemCount` compares CONTENT, by hash, so it catches a file at the same path and size
-    /// whose bytes differ; the baselines compare PATH and size, so they catch a file the keeper
-    /// holds only under another name. (The count cannot go stale under a keeper re-pick here: only
+    /// whose bytes differ; the baselines compare PATH, size and date, so they catch a file the
+    /// keeper holds only under another name, or holds edited since. (The count cannot go stale under a keeper re-pick here: only
     /// folder groups reach this review, a folder copy's count is non-zero only on an overlapping
     /// group, overlapping groups offer no keeper choice, and the left copy is always the group's
     /// keeper.) Refusing on either is the conservative reading — a merge of a copy that turns out to

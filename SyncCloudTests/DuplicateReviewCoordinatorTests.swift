@@ -734,8 +734,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         let copy = root.appendingPathComponent("Backup/Docs")
         try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
-        try Data("x".utf8).write(to: keep.appendingPathComponent("a.txt"))
-        try Data("x".utf8).write(to: copy.appendingPathComponent("a.txt"))
+        try writeTwins("a.txt", in: keep, and: copy)
 
         let harness = Harness(fileManager: ScratchTrash(folder: trash))
         harness.lensProviderRoot = root.path
@@ -803,8 +802,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         let copy = root.appendingPathComponent("Backup/Docs")
         try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
-        try Data("x".utf8).write(to: keep.appendingPathComponent("a.txt"))
-        try Data("x".utf8).write(to: copy.appendingPathComponent("a.txt"))
+        try writeTwins("a.txt", in: keep, and: copy)
         try Data("only here".utf8).write(to: copy.appendingPathComponent("only-here.txt"))
 
         let harness = Harness(fileManager: ScratchTrash(folder: trash))
@@ -830,6 +828,54 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.duplicateReview == review)
         #expect(harness.workspace == .compare)
         #expect(harness.appliedPlans.isEmpty)
+    }
+
+    /// FR13: a file at the same path and size but a different modification date counts as
+    /// something the right copy holds — a same-length edit (2025 → 2026) keeps the size, and
+    /// nothing here reads the bytes. Real folders, real baselines: refused before asking, naming
+    /// the file. The control: the same pair dated alike is not a difference.
+    @Test func aSameSizedFileWithAnotherDateIsRefusedBeforeAsking() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dup-review-dated-\(UUID().uuidString)")
+        let trash = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dup-review-dated-trash-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: trash)
+        }
+        let keep = root.appendingPathComponent("Docs")
+        let copy = root.appendingPathComponent("Backup/Docs")
+        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
+        try writeTwins("a.txt", in: keep, and: copy)
+        try Data("tax 2025".utf8).write(to: keep.appendingPathComponent("summary.txt"))
+        try Data("tax 2026".utf8).write(to: copy.appendingPathComponent("summary.txt"))
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_700_000_000)],
+                                              ofItemAtPath: keep.appendingPathComponent("summary.txt").path)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_760_000_000)],
+                                              ofItemAtPath: copy.appendingPathComponent("summary.txt").path)
+
+        let harness = Harness(fileManager: ScratchTrash(folder: trash))
+        harness.lensProviderRoot = root.path
+        let ignored = DuplicateFinderOptions.defaultIgnoredNames
+        let keepSnapshot = await FileSyncManager.folderContentSnapshot(
+            ofPath: keep.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let deleteSnapshot = await FileSyncManager.folderContentSnapshot(
+            ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
+        #expect(DuplicateReviewCoordinator.itemsOnlyInRightCopy(review) == ["summary.txt"],
+                "a.txt is dated alike, so only the edited file is a difference")
+        harness.workspace = .compare
+        harness.trashConfirmAnswer = true
+
+        harness.coordinator.trashRightCopy(review)
+        await Task.yield()
+
+        #expect(harness.trashConfirmedFor.isEmpty, "the user was asked to confirm a trash that loses an edit")
+        let message = harness.syncManager.banner?.message ?? ""
+        #expect(message.contains("holds 1 item the left one doesn’t"), "banner: \(message)")
+        #expect(message.contains("summary.txt"), "banner: \(message)")
+        #expect(FileManager.default.fileExists(atPath: copy.appendingPathComponent("summary.txt").path))
     }
 
     /// The scan's own count is enough on its own: the baselines compare path and size, so a file
@@ -876,8 +922,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         let copy = root.appendingPathComponent("Backup/Docs")
         try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
-        try Data("x".utf8).write(to: keep.appendingPathComponent("a.txt"))
-        try Data("x".utf8).write(to: copy.appendingPathComponent("a.txt"))
+        try writeTwins("a.txt", in: keep, and: copy)
         let harness = Harness(fileManager: ScratchTrash(folder: trash))
         harness.lensProviderRoot = root.path
         let ignored = DuplicateFinderOptions.defaultIgnoredNames
@@ -976,8 +1021,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         let copy = root.appendingPathComponent("Backup/Docs")
         try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
-        try Data("x".utf8).write(to: keep.appendingPathComponent("a.txt"))
-        try Data("x".utf8).write(to: copy.appendingPathComponent("a.txt"))
+        try writeTwins("a.txt", in: keep, and: copy)
 
         let harness = Harness(fileManager: TrashlessVolume())
         harness.lensProviderRoot = root.path
@@ -1026,8 +1070,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         let copy = root.appendingPathComponent("Backup/Docs")
         try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
-        try Data("x".utf8).write(to: keep.appendingPathComponent("a.txt"))
-        try Data("x".utf8).write(to: copy.appendingPathComponent("a.txt"))
+        try writeTwins("a.txt", in: keep, and: copy)
 
         let harness = Harness()
         harness.lensProviderRoot = root.path
@@ -1068,8 +1111,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         let copy = root.appendingPathComponent("Backup/Docs")
         try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
-        try Data("x".utf8).write(to: keep.appendingPathComponent("a.txt"))
-        try Data("x".utf8).write(to: copy.appendingPathComponent("a.txt"))
+        try writeTwins("a.txt", in: keep, and: copy)
 
         let harness = Harness()
         harness.lensProviderRoot = root.path
@@ -1110,8 +1152,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         let copy = root.appendingPathComponent("Backup/Docs")
         try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
-        try Data("x".utf8).write(to: keep.appendingPathComponent("a.txt"))
-        try Data("x".utf8).write(to: copy.appendingPathComponent("a.txt"))
+        try writeTwins("a.txt", in: keep, and: copy)
 
         let harness = Harness()
         harness.lensProviderRoot = root.path
@@ -1251,8 +1292,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         let copy = root.appendingPathComponent("Backup/Docs")
         try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
-        try Data("x".utf8).write(to: keep.appendingPathComponent("a.txt"))
-        try Data("x".utf8).write(to: copy.appendingPathComponent("a.txt"))
+        try writeTwins("a.txt", in: keep, and: copy)
 
         let harness = Harness()
         harness.lensProviderRoot = root.path
@@ -1293,8 +1333,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         let copy = root.appendingPathComponent("Backup/Docs")
         try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
-        try Data("x".utf8).write(to: keep.appendingPathComponent("a.txt"))
-        try Data("x".utf8).write(to: copy.appendingPathComponent("a.txt"))
+        try writeTwins("a.txt", in: keep, and: copy)
 
         let harness = Harness()
         harness.lensProviderRoot = root.path
@@ -1338,8 +1377,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         let copy = root.appendingPathComponent("Backup/Docs")
         try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
-        try Data("x".utf8).write(to: keep.appendingPathComponent("a.txt"))
-        try Data("x".utf8).write(to: copy.appendingPathComponent("a.txt"))
+        try writeTwins("a.txt", in: keep, and: copy)
 
         let harness = Harness()
         harness.lensProviderRoot = root.path
@@ -1395,5 +1433,18 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         // Drilling either pane elsewhere deactivates the review (the scoped trash action's gate).
         harness.currentLeftPath = "/scan/root/Docs/Sub"
         #expect(!harness.coordinator.duplicateReviewActive(review))
+    }
+}
+
+/// The same file in both copies, dated alike — what a Finder duplicate or a `cp -p` leaves. Two
+/// separate writes land moments apart, and a right copy whose file is dated differently holds
+/// something the left lacks (FR13), so a fixture meant to be a true duplicate pins the date.
+/// A whole second on both: `setAttributes` may round below a microsecond.
+private func writeTwins(_ name: String, in keep: URL, and copy: URL, _ text: String = "x") throws {
+    let date = Date(timeIntervalSince1970: 1_760_000_000)
+    for folder in [keep, copy] {
+        let file = folder.appendingPathComponent(name)
+        try Data(text.utf8).write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: file.path)
     }
 }
