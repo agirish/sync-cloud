@@ -478,7 +478,10 @@ import Testing
 
     @MainActor
     private func loadedPanes(_ host: NSHostingView<AnyView>, _ window: NSWindow) async throws -> [PDFView] {
-        let (loaded, pumps) = await LayoutPumpWait.pump(window, upTo: 5) {
+        // A bound, not a pace: the wait ends the moment both documents are in. Five seconds was
+        // short of a PDFKit load in loaded full-package CI runs (40156309573, the test at 445 s),
+        // and nothing here asserts an absence, so a longer bound only costs a failing run time.
+        let (loaded, pumps) = await LayoutPumpWait.pump(window, upTo: 30) {
             pdfViews(host).count == 2 && pdfViews(host).allSatisfy { $0.document != nil }
         }
         try #require(loaded, "the pair never loaded (\(pumps) pumps)")
@@ -692,7 +695,10 @@ import Testing
     @Test func atTheRealPaneSizeThereIsSomethingToScroll() async throws {
         let fixture = try LetterFixture()
         let (host, window) = mountLetterPair(fixture)
-        let (loaded, pumps) = await LayoutPumpWait.pump(window, upTo: 5) {
+        // A bound, not a pace: the wait ends the moment both documents are in. Five seconds was
+        // short of a PDFKit load in loaded full-package CI runs (40156309573, the test at 445 s),
+        // and nothing here asserts an absence, so a longer bound only costs a failing run time.
+        let (loaded, pumps) = await LayoutPumpWait.pump(window, upTo: 30) {
             pdfViews(host).count == 2 && pdfViews(host).allSatisfy { $0.document != nil }
         }
         try #require(loaded, "the pair never loaded (\(pumps) pumps)")
