@@ -53,6 +53,66 @@ import EventsTestSupport
         #expect(try same(FileNode(id: "/src/a/b.txt", name: "b.txt", isDirectory: false)).path == "/dst/a/b.txt")
     }
 
+    /// **P1: the landing folder itself never lands on the other pane's root.** Dropbox opens at
+    /// `Documents`, iCloud at its root; at Dropbox's account root the user picks `Documents`. Carried
+    /// across as `""`, it targeted the iCloud root itself — Replace swapped over the whole root. It
+    /// keeps its name a level up instead, and a source opening deeper keeps ITS name too, rather
+    /// than turning into the other source's landing folder.
+    @Test func theLandingFolderItselfKeepsItsName() throws {
+        let toICloud = FileSyncManager.paneTargetURL(fromLeft: true, leftRoot: "/r/Dropbox", rightRoot: "/r/iCloud",
+                                                     leftOpenAt: "Documents", rightOpenAt: "", links: [:])
+        let documents = FileNode(id: "/r/Dropbox/Documents", name: "Documents", isDirectory: true)
+        #expect(try toICloud(documents).path == "/r/iCloud/Documents")
+
+        let toDropbox = FileSyncManager.paneTargetURL(fromLeft: false, leftRoot: "/r/Dropbox", rightRoot: "/r/GD",
+                                                      leftOpenAt: "Documents", rightOpenAt: "My Drive/Work", links: [:])
+        let work = FileNode(id: "/r/GD/My Drive/Work", name: "Work", isDirectory: true)
+        #expect(try toDropbox(work).path == "/r/Dropbox/Work", "the landing folder became the other one")
+    }
+
+    /// **P3: a row above the landing folder lands at the other source's matching level.** Dropbox
+    /// `Photos/a.jpg` (beside `Documents`) went to the Google Drive account root, outside My Drive;
+    /// it lands beside Drive's `Documents`, and back again. A row branching higher than the other
+    /// source has levels for is refused, not grafted at its root.
+    @Test func aRowAboveTheLandingFolderLandsAtTheMatchingLevel() throws {
+        let toDrive = FileSyncManager.paneTargetURL(fromLeft: true, leftRoot: "/r/Dropbox", rightRoot: "/r/GD",
+                                                    leftOpenAt: "Documents", rightOpenAt: "My Drive/Documents", links: [:])
+        let photo = FileNode(id: "/r/Dropbox/Photos/a.jpg", name: "a.jpg", isDirectory: false)
+        #expect(try toDrive(photo).path == "/r/GD/My Drive/Photos/a.jpg")
+
+        let toDropbox = FileSyncManager.paneTargetURL(fromLeft: false, leftRoot: "/r/Dropbox", rightRoot: "/r/GD",
+                                                      leftOpenAt: "Documents", rightOpenAt: "My Drive/Documents", links: [:])
+        let drivePhoto = FileNode(id: "/r/GD/My Drive/Photos/a.jpg", name: "a.jpg", isDirectory: false)
+        #expect(try toDropbox(drivePhoto).path == "/r/Dropbox/Photos/a.jpg")
+        #expect(throws: FileSyncManager.FileOperationError.itemAboveOpeningFolder(itemName: "s.pdf")) {
+            try toDropbox(FileNode(id: "/r/GD/Shared drives/Team/s.pdf", name: "s.pdf", isDirectory: false))
+        }
+        // A destination that opens at its root takes every level there, as it always did.
+        let toICloud = FileSyncManager.paneTargetURL(fromLeft: true, leftRoot: "/r/Dropbox", rightRoot: "/r/iCloud",
+                                                     leftOpenAt: "Documents", rightOpenAt: "", links: [:])
+        #expect(try toICloud(photo).path == "/r/iCloud/Photos/a.jpg")
+    }
+
+    /// The call site, with Replace answering: the landing folder copied to a pane that opens at its
+    /// root merges into a folder of its name there; the root and what else it holds stay.
+    @MainActor
+    @Test func copyingTheLandingFolderLeavesTheOtherPanesRootAlone() async throws {
+        let manager = makeManager()
+        manager.paneOpenAt = { $0 ? "Documents" : "" }
+        let mockFM = MockFileManager()
+        for dir in ["/r", "/r/Dropbox", "/r/Dropbox/Documents", "/r/iC"] {
+            try mockFM.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: true)
+        }
+        mockFM.virtualDisk["/r/Dropbox/Documents/Tax.pdf"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/r/iC/keep.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        let node = FileNode(id: "/r/Dropbox/Documents", name: "Documents", isDirectory: true)
+
+        _ = await manager.copyItems(nodes: [node], fromLeft: true, leftRoot: "/r/Dropbox", rightRoot: "/r/iC", fileManager: mockFM)
+
+        #expect(mockFM.virtualDisk["/r/iC/Documents"]?.isDirectory == true, "error: \(String(describing: manager.currentError))")
+        #expect(mockFM.virtualDisk["/r/iC/keep.txt"] != nil, "the copy replaced the other pane's root")
+    }
+
     /// Rows under iCloud's `Documents` link carry the folder's real path. A bare prefix test said
     /// every one was outside the pane; the link table takes it back through the link's name.
     @Test func aRowUnderICloudsDocumentsLinkTransfers() throws {

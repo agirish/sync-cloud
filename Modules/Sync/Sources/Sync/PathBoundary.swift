@@ -283,6 +283,44 @@ public enum PathBoundary {
         return joinRelative(destination, belowSource)
     }
 
+    /// Where a row a pane transfer carries lands in the other source, root-relative — `reanchor`
+    /// below the landing folder, and a translation of its own at and above it. Nil when the other
+    /// source has no place at that level.
+    ///
+    /// **Linked navigation may carry a path across unchanged; a write may not** (P1, P3). Carried
+    /// unchanged, the landing folder ITSELF — Dropbox `Documents` picked at the account root — came
+    /// out as `""`, the other pane's root: Replace swapped over the whole root and Keep Both landed
+    /// beside it, outside the pane. And a row above the landing folder (Dropbox `Photos/a.jpg`) went
+    /// to the Google Drive account root, outside `My Drive`, which Drive does not sync.
+    ///
+    /// So the row is placed by how many levels above the landing folder it branches, and keeps its
+    /// own name: the landing folder and its siblings branch one level up, so they land one level
+    /// above the other landing folder — Dropbox `Photos/a.jpg` at Google Drive `My Drive/Photos/a.jpg`,
+    /// Google Drive `My Drive/Work` at Dropbox `Work`. A destination whose landing folder is its root
+    /// takes every level at its root. Any other that is not that deep has no such level: nil.
+    public static func transferTarget(_ relative: String, from source: String, to destination: String) -> String? {
+        guard source != destination else { return relative }
+        if source.isEmpty { return joinRelative(destination, relative) }
+        if let below = lexicalRelativize(relative, under: source), !below.isEmpty {
+            return joinRelative(destination, below)
+        }
+        // At or above the landing folder: climb until the row is strictly below.
+        var ancestor = source
+        var levels = 0
+        var below = relative
+        repeat {
+            ancestor = (ancestor as NSString).deletingLastPathComponent
+            levels += 1
+            if ancestor.isEmpty { below = relative; break }
+            if let found = lexicalRelativize(relative, under: ancestor), !found.isEmpty { below = found; break }
+        } while true
+        let destinationParts = destination.split(separator: "/").map(String.init)
+        if destinationParts.count >= levels {
+            return joinRelative(destinationParts.dropLast(levels).joined(separator: "/"), below)
+        }
+        return destination.isEmpty ? below : nil
+    }
+
     /// Whether two paths name the SAME directory, folding case when the volume does.
     ///
     /// The one implementation of filing's "the chosen folder IS the file's current folder" test,

@@ -39,6 +39,9 @@ extension FileSyncManager {
         /// The item is locked in Finder (Get Info ▸ Locked) — `uchg` or `uappnd` — so it cannot be
         /// renamed or put in the Trash, which a move must do to the original (FR31).
         case itemIsLocked(name: String)
+        /// A pane transfer's row sits above the folder its source opens at, at a level the other
+        /// source has no place for (`PathBoundary.transferTarget`).
+        case itemAboveOpeningFolder(itemName: String)
 
         var errorDescription: String? {
             switch self {
@@ -69,6 +72,8 @@ extension FileSyncManager {
                 return "An item can’t replace the folder it’s inside — that would put the rest of the folder in the Trash. Choose Keep Both instead, or Merge for two folders."
             case .itemIsLocked(let name):
                 return "“\(name)” is locked, so it can’t be moved or renamed. Unlock it in Finder (File ▸ Get Info) and try again."
+            case .itemAboveOpeningFolder(let itemName):
+                return "“\(itemName)” is above the folder its source opens at, and the other source has no folder at that level to put it in. It was left where it is."
             }
         }
     }

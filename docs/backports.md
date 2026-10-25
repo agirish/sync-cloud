@@ -10900,3 +10900,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr24=%s fix=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR24 emptiness check (`fr24=0`) | CLOSED — does not apply |
+
+---
+
+## A pane transfer never lands on the other pane's root (final review P1, P3) — main only
+
+Re-expressed through linked navigation's `reanchor`, the landing folder itself (Dropbox `Documents`,
+picked at the account root) targeted the other pane's root, and a row beside it (Dropbox
+`Photos/a.jpg`) went to the Google Drive account root, outside My Drive. `main` places such rows by
+how many levels above the landing folder they branch (`PathBoundary.transferTarget`), and refuses
+one the other source has no level for.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s reanchor=%s fix=%s\n' $l \
+  "$(git show origin/$l:$S/FileOperations.swift 2>/dev/null | grep -cF 'PathBoundary.reanchor(relativePath')" \
+  "$(git show origin/$l:$S/PathBoundary.swift 2>/dev/null | grep -cF 'func transferTarget')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads fix=1):
+# main                     reanchor=1 fix=0
+# v5.x, v4.x, v3.x, v2.x   reanchor=0 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No landing folders (`reanchor=0`): both panes share one origin | CLOSED — does not apply |

@@ -201,9 +201,11 @@ extension FileSyncManager {
     /// **Through `PathBoundary`, the way linked navigation goes** (FR37, FR38). The path is taken
     /// relative to the source root link-aware — rows under iCloud's `Documents` carry the real
     /// `~/Documents/…` path, which a bare prefix test called "outside the pane" for every item —
-    /// then moved from the source's landing folder to the destination's (`reanchor`), and joined
-    /// link-aware. Re-rooting by account root alone put Dropbox `Documents/Tax.pdf` at the Google
-    /// Drive account root, outside `My Drive`, while the pane on screen showed `My Drive/Documents`.
+    /// then moved from the source's landing folder to the destination's (`transferTarget`), and
+    /// joined link-aware. Re-rooting by account root alone put Dropbox `Documents/Tax.pdf` at the
+    /// Google Drive account root, outside `My Drive`, while the pane on screen showed
+    /// `My Drive/Documents`. At and above the landing folder the row keeps its name a level up,
+    /// never the other pane's root (P1, P3).
     nonisolated static func paneTargetURL(fromLeft: Bool, leftRoot: String, rightRoot: String,
                                           leftOpenAt: String = "", rightOpenAt: String = "",
                                           links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders)
@@ -218,7 +220,9 @@ extension FileSyncManager {
             guard let relativePath = PathBoundary.relativize(node.id, under: fromRoot, links: links) else {
                 throw FileOperationError.itemOutsideSourceRoot(itemName: node.name)
             }
-            let anchored = PathBoundary.reanchor(relativePath, from: fromOpenAt, to: toOpenAt)
+            guard let anchored = PathBoundary.transferTarget(relativePath, from: fromOpenAt, to: toOpenAt) else {
+                throw FileOperationError.itemAboveOpeningFolder(itemName: node.name)
+            }
             return URL(fileURLWithPath: PathBoundary.join(root: toRoot, relative: anchored, links: links))
         }
     }
