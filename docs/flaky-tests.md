@@ -3883,6 +3883,10 @@ cut with no cap warning means a picture was drawn with a background decode queue
 `sync` by `syncPictures` — a picture drawn as a CSS background, which the attribute does not
 cover — or a view made without it.
 
+**Red again 2026-10-25, and not this mechanism.** The picture-deck tests failed fast (0.4–4 s) with
+no words read, under `--filter` too: Vision had thrown, see "Vision's Neural Engine refuses text
+requests for hours". A picture-deck red that is fast and has `e5rt` in the output is that one.
+
 ### 34. A pixel probe that calls `colorAt` per pixel, so load stretches it into a hang — FIXED
 
 **Symptom.** A full FileExplorer `swift test` stops making progress: one core at 100%, no test
@@ -4085,3 +4089,86 @@ guard never fired. Before, the first such run sat in one `createPDF` for 231.5 s
 **Tell.** A Save as PDF test that stops with no verdict, the process idle and its task in
 `pdf(of:)`, `print` or a script call: `ps -M -p <web process>` shows priority 4. Since the fix it
 reads "macOS stopped answering while drawing it" after 120 s, and a warning names the step.
+
+**`aWebProcessThatNeverAnswersFailsEachCallInWords` red 2026-10-25, and not this mechanism.** The
+three guards fired as they should; the test compared every warning its `LogCapture` heard, and
+heard two `[preview] PDF … could not be opened` lines from `PDFPreviewMountedTests` running
+beside it (CI run 40218901987). It now compares only lines starting "Save as PDF:" — rule 4 of
+"A log assertion reading a window that has already rolled".
+
+### 38. Vision's Neural Engine refuses text requests for hours — a red about the machine, not the display — FIXED
+
+**Symptom.** `SaveAsPDFRenderTests`' text-recognition cases red together — `aDeckOfPicturesOfWordsIsSearchable`,
+`aPictureSlideDrawnLateIsStillDrawn`, `aMixedDeckReadsOnlyItsPictureSlides`, `recognisedTextDrawsNothing`
+("Vision read no words in the fixture") — **fast**, in 0.4–4 s, with `output.isRecognised` false. Red
+under `--filter` too, and on code without the commit under test; a `--filter` run passed and the
+same binary failed four seconds later. CI runs 40216946771 and 40218901987, 2026-10-25.
+
+**Mechanism.** Vision threw, and the render read the throw as a deck with no words. The test
+process's stderr carries the error, once per request:
+
+```
+[VNImageRequestHandler performRequests:] failed. Error: TextRecognition.CRImageReaderError.e5rtError(
+  "e5rt_execution_stream_operation_create_precompiled_compute_operation_with_options call failed", 13)
+```
+
+It is machine-wide. `log show --predicate 'eventMessage CONTAINS "e5rt"'` for that day has **851**
+of these, from **09:27 to 12:04**, in every process that asked for text recognition, macOS's own
+`mediaanalysisd` first. Over the same window `ANECompilerService` ran almost without a break
+(09:20–12:05), logging compile failures (`RasterizeWorkUnit failed`, `temp file allocation failed`),
+while `dasd` ran `mediaanalysisd`'s photo analysis and `spotlightknowledged`'s embedding pipelines,
+the work macOS saves for when nobody is at the Mac. The two red runs logged the error 34 and 72
+times; the green run at 12:00 logged none.
+
+**It is not the display.** The display was off from 10:57:17 to 12:40:55 (`pmset -g log`), and CI
+run 40223927503 (12:00–12:24) went fully green inside that window, while the run before it, with
+the display just as asleep, went red. The display's state did not change between them; the Neural
+Engine's did. Its errors began at 09:27, between the display going off at 09:24 and back on at
+09:33. That the reds came while the owner was away fits macOS's idle-time work keeping the Neural
+Engine's compiler busy; it was not caught in the act. *Measured at 12:50, after the window:* the
+first request from a freshly built probe took **37.5 s** on Vision's own choice of processor and
+then 0.09–0.29 s; on the CPU it took 0.10–0.37 s.
+
+**Fix.** `PictureText.recognise` reads a page on Vision's own choice and, when that throws, reads
+it again on the CPU (`setComputeDevice` to the request's `MLCPUComputeDevice`), saying so in a
+warning. This is a product fix as much as a test one: a reader's Save as PDF in the same window
+came out unsearchable in exactly the same way. Test: `aRefusedRecognitionIsReadAgainOnTheCPU`, which
+refuses the first read and expects the CPU's to find the fixture's words. **Mutation-checked:**
+with the CPU read removed it fails.
+
+Not proved against the live fault, which had ended before the fix was built: the claim is that
+a CPU request does not create the Neural Engine's precompiled operation, the call that failed.
+
+**Tell.** Several OCR tests red at once, fast, with `e5rt` in the test output. Count
+`log show --last 2h --predicate 'eventMessage CONTAINS "e5rt"'` by process: if `mediaanalysisd` has
+them too, it is the machine. Since the fix, look for "text recognition failed … reading on the CPU"
+in `~/sync-cloud.log`; "failed on the CPU too" is a new failure.
+
+### 39. A mounted PDF's wait counted seconds while its document waited in the PDFKit lane — FIXED
+
+**Symptom.** `ComparePairViewingTests.anUntouchedPairReportsNoZoomAndKeepsFitting` red with "the
+pair never loaded (51 pumps)" after **616 s** (CI run 40214697085, 2026-10-25), and
+`EditorContentOpenMountedTests.aPDFResultOpensWithItsFindSearchingForTheWord` red with "found 1
+matches" of two (run 40216946771). Both green under `--filter` and on most full runs, but the slow
+part is on the green runs too: the Compare test passed after 503–646 s on the other three runs that
+day, and the find test after 115–179 s.
+
+**Mechanism.** Both wait for work queued in `PDFKitSerialAccess`'s one lane: `PDFPairView`'s two
+opens, and the find's search, one lane turn per page. In a full package run that lane serves every
+PDF suite in turn, and some suites hold it on purpose (`LaneHold`, whose own patience was raised
+past 30 s for the same reason). The waits were `LayoutPumpWait.pump` bounds, which count seconds
+and main-actor turns: neither moves the lane. `db2981980` raised the Compare wait from 5 s to 30 s
+on the reasoning that the load itself was slow; the next red ran 616 s and still found the opens
+queued. The find's 15 s spin ran out with page two's turn still in the lane, and its result was
+discarded, so the test counted the one match page one had landed. `e1a982477` raised that spin to a
+90 s bound the same day, on the same reasoning as `db2981980`; the lane wait replaces it.
+
+**Fix.** `LaneWait.pump`: each pass lays the window out, checks, takes a lane turn of its own and
+then sleeps for a main-actor turn. The lane is serial and first come, first served, so a pass ends
+only after everything queued before it, and the pass floor counts lane passes and main-actor turns
+together. All five Compare-pair load waits use it, and so does the find wait, which now
+`#require`s its result and reports the matches so far. The existing lane-paced loops in
+`EditorPDFReaderChromeTests` and `EditorPDFFillSignTests` already had this shape.
+
+**Tell.** A mounted-PDF test red at a seconds bound, waiting for a document or a search, and slow
+on green runs too. Ask what the condition waits for: if it is a lane turn, pace the wait on the lane.

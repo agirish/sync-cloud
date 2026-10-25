@@ -391,6 +391,27 @@ import EventsTestSupport
         }
     }
 
+    /// **A picture Vision refuses to read is read again on the CPU**, so a Neural Engine that turns
+    /// every request away while macOS recompiles its models does not leave the deck unsearchable
+    /// (`docs/flaky-tests.md`, "Vision's Neural Engine refuses text requests for hours"). The
+    /// refusal is made here; the CPU read is Vision's own.
+    @Test func aRefusedRecognitionIsReadAgainOnTheCPU() async throws {
+        let plain = try await SaveAsPDFRender.officePDF(try Self.fixture("PictureWords.pptx"), kind: .presentation,
+                                                        settings: SaveAsPDFRender.Settings())
+        let page = try #require(PDFComposer.document(plain)?.page(at: 1))
+        struct Refused: Error {}
+        var asked: [PictureText.Processor] = []
+        let log = LogCapture()
+        let lines = PictureText.recognise(page) { image, processor in
+            asked.append(processor)
+            guard processor == .cpu else { throw Refused() }
+            return try PictureText.read(image, on: .cpu)
+        }.map(\.text)
+        #expect(asked == [.any, .cpu])
+        #expect(lines.contains("Harvest moon festival"), "the CPU read: \(lines)")
+        #expect(await log.holds(.warning, containing: "text recognition failed"))
+    }
+
     // MARK: When WebKit gives nothing
 
     /// A folder holding `page.html`, a line of text — with `stuck`, and a picture that is a named
@@ -560,7 +581,11 @@ import EventsTestSupport
         }
         let info = SaveAsPDFRender.printInfo(paper: CGSize(width: 612, height: 792), margins: NSEdgeInsets())
         await #expect(throws: SaveAsPDFFailure.stalled) { try await web.print(info, budget: 1) }
+        // Only this suite's lines: the capture also hears every other suite running beside this
+        // one, such as a preview's "could not be opened" (`docs/flaky-tests.md`, "A log assertion
+        // reading a window that has already rolled", rule 4).
         let lines = await log.entries.filter { $0.level == .warning }.map { $0.message.components(separatedBy: " | ")[0] }
+            .filter { $0.hasPrefix("Save as PDF:") }
         #expect(lines == ["Save as PDF: WebKit didn’t finish drawing a page in 1 s; giving up on it",
                           "Save as PDF: WebKit didn’t finish measuring the page in 1 s; giving up on it",
                           "Save as PDF: WebKit didn’t finish printing in 1 s; giving up on it"])

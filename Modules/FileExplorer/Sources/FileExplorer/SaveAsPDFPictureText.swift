@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreML
 import CoreText
 import Events
 import Foundation
@@ -53,18 +54,44 @@ enum PictureText {
         return found ? composer.finish() : nil
     }
 
-    static func recognise(_ page: CGPDFPage) -> [Line] {
+    /// Which processor Vision may read on: its own choice, the Neural Engine when it has one, or
+    /// the CPU alone.
+    enum Processor: Sendable { case any, cpu }
+
+    /// The page's lines, read on Vision's own choice of processor and, **when that fails, read
+    /// again on the CPU**. The Neural Engine can refuse every request for hours while macOS
+    /// recompiles its models: from 09:27 to 12:04 on 2026-10-25 every text request on this Mac
+    /// failed with `e5rt_execution_stream_operation_create_precompiled_compute_operation_with_options
+    /// call failed (Code: 13)`, macOS's own `mediaanalysisd` included, while the same picture read
+    /// on the CPU in 0.1–0.4 s. `read` is injectable so a test can be the refusal.
+    static func recognise(_ page: CGPDFPage,
+                          read: (CGImage, Processor) throws -> [Line] = read(_:on:)) -> [Line] {
         guard let image = bitmap(of: page) else { return [] }
+        do {
+            return try read(image, .any)
+        } catch {
+            // Said, because a Vision that fails reads exactly like slides with no words.
+            Logger.shared.warning("Save as PDF: text recognition failed: \(error.localizedDescription); reading on the CPU")
+        }
+        do {
+            return try read(image, .cpu)
+        } catch {
+            Logger.shared.warning("Save as PDF: text recognition failed on the CPU too: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    static func read(_ image: CGImage, on processor: Processor) throws -> [Line] {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
-        do {
-            try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
-        } catch {
-            // Said, because a Vision that fails reads exactly like slides with no words.
-            Logger.shared.warning("Save as PDF: text recognition failed: \(error.localizedDescription)")
-            return []
+        if processor == .cpu {
+            for (stage, devices) in try request.supportedComputeStageDevices {
+                guard let cpu = devices.first(where: { if case .cpu = $0 { true } else { false } }) else { continue }
+                request.setComputeDevice(cpu, for: stage)
+            }
         }
+        try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
         return (request.results ?? []).compactMap { observation in
             guard let best = observation.topCandidates(1).first,
                   !best.string.allSatisfy(\.isWhitespace) else { return nil }

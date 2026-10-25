@@ -202,13 +202,11 @@ import SwiftUI
         await spin(window) { model.firstResult != nil && model.textPhase != .searching(.init()) }
         try #require(model.firstResult?.hit.kind == .pdf, "no PDF result to open")
         try pressReturn(in: window)
-        // A bound, not a pace: the find searches a page per turn in the process-wide PDFKit lane,
-        // which every PDF suite in a full run shares, and 15 s was short of it in loaded CI runs
-        // (40229669567 and earlier: "found 0 matches" after 150–210 s). It ends when the find does.
-        let finished = await LayoutPumpWait.pump(window, upTo: 90) {
-            pdf.find.isShown && pdf.find.phase == .done
-        }
-        try #require(finished.held, "the PDF's find never finished (\(finished.pumps) pumps)")
+        // Paced by the PDFKit lane the open and each page's search queue in, not by seconds: on CI
+        // a 15 s spin ran out with page two still queued and one of the two matches counted (run
+        // 40216946771), and others read 0 matches after 150–210 s (40229669567). See `LaneWait`.
+        let (searched, passes) = await LaneWait.pump(window) { pdf.find.isShown && pdf.find.phase == .done }
+        try #require(searched, "the find never finished (\(passes) lane passes, \(pdf.find.matches.count) matches so far)")
         #expect(pdf.path == paper.path)
         #expect(pdf.find.query == "needle", "the PDF's find holds “\(pdf.find.query)”")
         #expect(pdf.find.isShown)
