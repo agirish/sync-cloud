@@ -1222,7 +1222,10 @@ extension FileSyncManager {
                     + "whose contents the plan cannot see is never moved out of")
                 return true
             }
-            let unlisted = listed.filter { !$0.hasPrefix(".") }
+            // **Only OS noise is ignorable — not every dotted name** (review R10, as FR18 for the
+            // emptiness walk). A `.env` or `.gitignore` the plan never read was skipped here, so a
+            // merge drained the folder around it and split it from the files it belongs with.
+            let unlisted = listed.filter { !ItemIdentity.deepIdentityIgnoredNames.contains($0) }
                 .filter { !(plannedOut[parent] ?? []).contains($0) }
             guard !unlisted.isEmpty else { return false }
             vetoedSources.insert(parent)

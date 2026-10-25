@@ -10437,3 +10437,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s walkWrite=%s landing=%s walkG
 |---|---|---|
 | `v5.x` | Both the walk and the landing (`walkWrite=1 landing=3`), unguarded | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No walk profile (`walkWrite=0`) | CLOSED — does not apply |
+
+---
+
+## A dotted file the plan never read stops a merge out of its folder (review R10) — main only
+
+The landing's unlisted-file rule skipped every dotted name, so a merge drained a folder around a
+`.env` or `.gitignore` the plan had never read and left it behind, split from the files it belongs
+with. `main` ignores only OS noise there (`ItemIdentity.deepIdentityIgnoredNames`), as FR18 did for
+the emptiness walk, and refuses the drain otherwise.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s veto=%s dotted=%s\n' $l \
+  "$(git show origin/$l:$S/FileSyncManager+RestructureApply.swift 2>/dev/null | grep -cF 'func sourceFolderVeto')" \
+  "$(git show origin/$l:$S/FileSyncManager+RestructureApply.swift 2>/dev/null | grep -cF 'listed.filter { !$0.hasPrefix(".") }')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads dotted=0):
+# main, v5.x         veto=1 dotted=1
+# v4.x, v3.x, v2.x   veto=0 dotted=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The same dotted-name filter (`dotted=1`) | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Restructure landing (`veto=0`) | CLOSED — does not apply |

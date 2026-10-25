@@ -199,6 +199,33 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: sealed.path), "kept, not trashed")
     }
 
+    /// The unlisted-file rule counts a dotted file the plan never read (review R10): a merge out
+    /// of a folder holding `.env` is refused rather than leaving it behind, split from the files
+    /// it belongs with. The control: OS noise (`.DS_Store`) alone does not stop the move.
+    @Test func aDottedFileThePlanNeverListedStopsTheDrain() throws {
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for folder in ["Old", "Noise", "New"] {
+            try FileManager.default.createDirectory(at: root.appendingPathComponent(folder),
+                                                    withIntermediateDirectories: true)
+        }
+        for file in ["Old/app.py", "Old/.env", "Noise/notes.txt", "Noise/.DS_Store"] {
+            try Data("x".utf8).write(to: root.appendingPathComponent(file))
+        }
+        let actions = [
+            RestructureManifest.Action(action: .moveFile, src: "Old/app.py", dst: "New/app.py"),
+            RestructureManifest.Action(action: .moveFile, src: "Noise/notes.txt", dst: "New/notes.txt"),
+        ]
+        let execution = FileSyncManager.executeRestructureActions(
+            actions, root: root.path, fm: FileManager.default)
+        #expect(execution.skipped.contains { $0.hasPrefix("Old/ holds 1 item(s)") && $0.contains(".env") },
+                "skipped: \(execution.skipped)")
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("Old/app.py").path),
+                "the folder was drained around a file the plan never read")
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("New/notes.txt").path),
+                "OS noise stopped a move")
+    }
+
     // MARK: - One landing at a time
 
     /// The guard set's first check: a landing already in flight refuses a second entry — the
