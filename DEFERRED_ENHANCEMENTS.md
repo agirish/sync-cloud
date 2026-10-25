@@ -152,10 +152,10 @@ log line that ends "duplicates among them are not detected"):
 cloud-only files (with a byte/count budget shown up front), and a sampled hash — head + tail +
 size — for files over the cap, reported as a weaker claim than a full hash.
 
-**Why deferred:** Materializing costs the user bandwidth and disk, and there is **no public
-consumer API to fetch on demand outside iCloud** (`MaterializationStatus.download` uses
-`startDownloadingUbiquitousItem`; for Dropbox / Drive / OneDrive it throws and the caller falls
-back to Reveal in Finder). A sampled hash is a *different* claim than byte-identical and would
+**Why deferred:** Materializing costs the user bandwidth and disk. Fetching on demand is not the
+obstacle it was thought to be: `MaterializationStatus.download` (`startDownloadingUbiquitousItem`)
+fetched a real Google Drive placeholder on 2026-10-25, and only falls back to Reveal in Finder
+when it throws; Dropbox and OneDrive are not yet measured. A sampled hash is a *different* claim than byte-identical and would
 need its own UI vocabulary and its own never-auto-trash rule — the current copies already carry an
 `unverified` flag for exactly this kind of weaker evidence. **Effort:** medium. **Risk:** medium
 (it widens what "identical" means on a destructive path).

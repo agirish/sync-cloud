@@ -656,9 +656,9 @@ struct ColumnPreviewColumn: View {
 
     /// Asks the provider for the file's content, then watches for it to arrive.
     ///
-    /// Only iCloud exposes a consumer download API; for every other File Provider
-    /// `MaterializationStatus.download` throws, and the honest fallback is Finder, which can reach
-    /// the provider's own extension.
+    /// `MaterializationStatus.download` works for iCloud and, measured on Google Drive, for File
+    /// Provider clouds too. When it throws, the fallback is Finder, which can reach the provider's
+    /// own extension.
     private func requestDownload() {
         let path = item.path
         do {
@@ -670,7 +670,7 @@ struct ColumnPreviewColumn: View {
             // two `forget`s, and each one invalidates every in-flight badge stat in both panes.
             CloudDownloadRequest.post(path: path, from: paneToken, through: downloadChannel)
         } catch {
-            Logger.shared.warning("[preview] no download API for \(path): \(error.localizedDescription) — revealing in Finder")
+            Logger.shared.warning("[preview] download refused for \(path): \(error.localizedDescription) — revealing in Finder")
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
         }
     }

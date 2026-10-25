@@ -1,3 +1,4 @@
+import AppKit
 import Events
 import Foundation
 import Sync
@@ -92,28 +93,43 @@ public struct CloudDownloadRequest: Equatable, Sendable {
     /// and the menu bar's item would have been a second copy of the try, the two log lines and the
     /// post — three chances to drift, on the path that decides whether a badge ever clears.
     ///
-    /// Works cleanly for iCloud, the one provider with a public, non-blocking download API. For
-    /// other File Provider providers `MaterializationStatus.download` throws, the badge correctly
-    /// stays, and the log names Reveal in Finder as the route — which is on both menus already.
-    /// Nothing is posted on that path: a watch for a download nobody started would poll for ten
-    /// seconds and conclude nothing.
+    /// **It works for File Provider clouds too, not only iCloud.** Measured 2026-10-25 on a real
+    /// Google Drive placeholder: `startDownloadingUbiquitousItem` returned without throwing and the
+    /// file was on disk within a second. This comment, ROADMAP and DEFERRED_ENHANCEMENTS used to say
+    /// the call throws outside iCloud; nothing had ever measured it.
+    ///
+    /// **When it does throw, the request is not silent.** It used to leave only a log line, so the
+    /// row menu's and File ▸ Download's click did nothing on screen. It now reveals the file in
+    /// Finder, which reaches the provider's own extension — what the preview's Download and Compare
+    /// Copies already did. Nothing is posted on that path: a watch for a download nobody started
+    /// would poll for ten seconds and conclude nothing.
     ///
     /// - Parameter channel: the channel the POSTING pane listens on. `.default` in the app; a test
     ///   that mounts a pane hands both sides its own.
+    /// - Parameter whenUnavailable: what a refused request does instead — reveals the file in
+    ///   Finder in the app; a test passes a recorder so no Finder window opens.
     /// - Returns: whether the download was requested.
     @MainActor
     @discardableResult
     public static func requestDownload(path: String, name: String, from paneToken: PaneToken,
-                                       through channel: NotificationCenter = .default) -> Bool {
+                                       through channel: NotificationCenter = .default,
+                                       whenUnavailable: @MainActor (URL) -> Void = revealInFinder) -> Bool {
         do {
             try MaterializationStatus.download(atPath: path)
             Logger.shared.info("Requested download of cloud-only file: \(path)")
             post(path: path, from: paneToken, through: channel)
             return true
         } catch {
-            Logger.shared.warning("Download unavailable for “\(name)” — reveal it in Finder to download it (\(error.localizedDescription))")
+            Logger.shared.warning("Download unavailable for “\(name)” — revealing it in Finder, which can fetch it (\(error.localizedDescription))")
+            whenUnavailable(URL(fileURLWithPath: path))
             return false
         }
+    }
+
+    /// The fallback the app uses: Finder reaches the provider's own extension.
+    @MainActor
+    public static func revealInFinder(_ url: URL) {
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
     /// The routing decision, extracted so it can be unit-tested: the request carried by

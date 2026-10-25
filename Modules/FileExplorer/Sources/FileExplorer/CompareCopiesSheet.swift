@@ -1548,9 +1548,9 @@ struct FilePairCompareView<Verdict: View>: View {
             // the double-watch the pane-scoped token exists to prevent, reached from a new door.
             downloads.begin(CloudDownloadRequest(path: copy.path, paneToken: .compareCopies))
         } catch {
-            // Only iCloud exposes a consumer download API; for every other File Provider this
-            // throws, and the honest fallback is Finder, which can reach the provider's extension.
-            Logger.shared.warning("[compare] no download API for \(copy.path): \(error.localizedDescription) — revealing in Finder")
+            // Works for iCloud and (measured on Google Drive) File Provider clouds; when it throws,
+            // the fallback is Finder, which can reach the provider's extension.
+            Logger.shared.warning("[compare] download refused for \(copy.path): \(error.localizedDescription) — revealing in Finder")
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: copy.path)])
         }
     }

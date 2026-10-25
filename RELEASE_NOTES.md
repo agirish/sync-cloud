@@ -77,6 +77,8 @@ Requires **macOS 26**, unchanged from v6.0.
 - **Copy or Move to the other pane lands where that pane opens.** A file from Dropbox's Documents
   lands in Google Drive's My Drive, not at the account root outside it, and rows under iCloud's
   linked Documents are no longer refused as outside the pane.
+- **A Download that can't start shows the file in Finder**, which can fetch it, from the row menu
+  and File ▸ Download as from the preview, instead of doing nothing.
 
 ### Compare leaves its guesses to you
 

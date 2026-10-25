@@ -11378,3 +11378,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr56=%s fix=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Cover and Retype (`fr56=0`) | CLOSED — does not apply |
+
+---
+
+## A refused Download reveals the file in Finder (v6.1 call BR1) — main only
+
+The row menu's and File ▸ Download's Download did nothing on screen when the system refused the
+request — only a log line — while the preview's Download and Compare Copies revealed the file in
+Finder. `main` reveals it there too. The same session measured that the request works for Google
+Drive's File Provider placeholders (2026-10-25), so the comments no longer say it is iCloud-only.
+
+```sh
+P=Modules/FileExplorer/Sources/FileExplorer/CloudDownloadRequest.swift
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s request=%s fix=%s\n' $l \
+  "$(git show origin/$l:$P 2>/dev/null | grep -cF 'static func requestDownload')" \
+  "$(git show origin/$l:$P 2>/dev/null | grep -cF 'whenUnavailable: @MainActor')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads fix=1):
+# main, v5.x               request=1 fix=0
+# v4.x, v3.x, v2.x         request=0 fix=0 — the same silent catch sits inline in FileTreeView.swift
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | `requestDownload` with the silent catch (`request=1 fix=0`) | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | The silent catch inline in `FileTreeView.swift`'s row menu | RECORDED — not owed |

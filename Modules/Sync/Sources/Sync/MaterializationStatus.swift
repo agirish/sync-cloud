@@ -105,10 +105,15 @@ public enum MaterializationStatus {
         return URL(fileURLWithPath: path).resolvingSymlinksInPath().path
     }
 
-    /// Asks the system to fetch a dataless file's content. Uses the iCloud download API — the one
-    /// public, side-effect-free way to materialize on demand — which returns immediately and fetches
-    /// in the background. For other File Provider providers there is no public consumer API, so this
-    /// throws and the caller should fall back to revealing the item in Finder.
+    /// Asks the system to fetch a dataless file's content, returning at once while it fetches in the
+    /// background. `startDownloadingUbiquitousItem` serves File Provider clouds as well as iCloud:
+    /// measured 2026-10-25 on a real Google Drive placeholder, it did not throw and the content was
+    /// on disk within a second. When it does throw, callers fall back to revealing the item in
+    /// Finder.
+    ///
+    /// **Read the result with a fresh URL.** `URL` caches resource values, so polling
+    /// `ubiquitousItemDownloadingStatus` on the same instance kept saying "not downloaded" after the
+    /// content had landed; `lstat`'s `SF_DATALESS` flag and a new URL both told the truth.
     ///
     /// A link is downloaded as the file it points to (``linkTarget(of:)``): that is the file every
     /// door that offers Download said was not downloaded.

@@ -300,13 +300,12 @@ because nobody was watching.
   discoverable with no setup, but puts a half-million-file scan one click from someone who only
   wanted to diff two Dropbox folders. Lean: offer it from the lens's empty state ("Scan my Home
   folder"), do not add it silently at launch.
-- **Downloading a cloud-only file is only solved for iCloud.** `MaterializationStatus.download` uses
-  `startDownloadingUbiquitousItem`; for Dropbox, OneDrive and Drive there is no public consumer API.
-  The documented route is a coordinated read (`NSFileCoordinator.coordinate(readingItemAt:)`), which
-  for a File Provider item triggers materialization and blocks until content lands — **plausible and
-  unverified**, and this codebase proves filesystem-semantics claims on a fixture before shipping
-  them. Until then the row action for non-iCloud providers is *Reveal in Finder*, which always
-  works.
+- **Downloading a cloud-only file works beyond iCloud — measured.** `MaterializationStatus.download`
+  uses `startDownloadingUbiquitousItem`, and on 2026-10-25 it fetched a real Google Drive placeholder
+  (a 180-byte `.gdoc`) without throwing; `SF_DATALESS` cleared within a second. This line used to say
+  there was no API outside iCloud; nothing had measured it. **Not yet measured:** Dropbox (no
+  cloud-only file in the first 4,000 scanned) and OneDrive (only large files were cloud-only). When
+  the call does throw, Download now reveals the file in Finder instead of only logging.
 - **Time Machine could upgrade the claim.** `tmutil destinationinfo` and `CSBackupIsItemExcluded`
   can say whether Time Machine is configured and whether a path is excluded. If that holds up, a
   fourth state appears — *"on this Mac and on Time Machine, last backup 4 hours ago"* — the headline
