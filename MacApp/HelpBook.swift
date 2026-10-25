@@ -784,7 +784,7 @@ enum HelpBook {
                 related: ["sync-history", "staying-safe", "about"]
             )),
             Topic(id: "sync-history", title: "Sync History", systemImage: "clock.arrow.circlepath", article: Article(
-                intro: "Copies, moves and deletes are recorded in a durable history that survives quitting — filterable, exportable, and reversible a whole run at a time.",
+                intro: "Copies, moves, deletes and date matches are recorded in a durable history that survives quitting — filterable, exportable, and reversible a whole run at a time.",
                 blocks: [
                     .paragraph("Unlike the live Activity Log, which forgets when you quit, Sync History is written to disk as a structured record of each operation — its time, action, direction, the paths involved, and the size."),
                     .bullets([

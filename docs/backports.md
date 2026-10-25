@@ -11286,3 +11286,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s skips=%s fix=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | Collision and name-rule skips exiting `0` (`skips=2 fix=0`); no needs-decision rows | RECORDED — not owed |
+
+---
+
+## A date match is a run in Sync History, and Undo Last Run reverses it (FR41, owner decision) — main only
+
+"Copy to match dates" set each right file's date and recorded nothing, so the Sync History window
+never listed it and Undo Last Run refused it as not a sync run, though ⌘Z undid it. `main` records
+each pair as a "Match Dates" action (`SyncAction.matchDates`) and arms Undo Last Run's pairing for
+the batch; its confirmation says each file gets its own date back. An older build reading the
+history skips those lines and keeps the rest.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s dates=%s history=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+BulkSync.swift 2>/dev/null | grep -cF 'func matchDatesOfProvenPairs')" \
+  "$(git show origin/$l:Modules/Events/Sources/Events/SyncHistoryRecord.swift 2>/dev/null | grep -cF 'case matchDates')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads history=1):
+# main                     dates=1 history=0
+# v5.x, v4.x, v3.x, v2.x   dates=0 history=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No date match at all (`dates=0`) | CLOSED — does not apply |

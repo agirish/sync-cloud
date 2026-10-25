@@ -286,6 +286,16 @@ extension FileSyncManager {
         if !outcome.matched.isEmpty {
             registerDateMatchUndo(outcome.matched.map(\.1), restoringPrevious: true,
                                   actionName: "Match \(CountedNoun.phrase(outcome.matched.count, "Date"))", fileManager: activeFM)
+            // **In Sync History, and paired for Undo Last Run, like every other run** (FR41). The
+            // match changed files on disk and recorded nothing, so the History window never
+            // listed it and Undo Last Run refused it as "not a sync run". One record per file,
+            // armed in this turn — the one that registered the step (FR26).
+            let runId = UUID()
+            recordSyncHistory(outcome.matched.map { diff, state in
+                SyncHistoryRecord(runId: runId, action: .matchDates,
+                                  sourcePath: diff.leftItemPath, destPath: state.url.path,
+                                  sizeBytes: Int(state.size), direction: "→ Right")
+            })
             removeResolvedDifferences(matching: outcome.matched.map(\.0))
             Logger.shared.info("Copy to match dates: set the date of \(outcome.matched.count) verified-identical file(s) on the right to the left's — no bytes copied")
         }

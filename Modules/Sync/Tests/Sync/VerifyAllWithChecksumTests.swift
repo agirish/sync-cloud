@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Events
 @testable import Sync
 
 /// Pins `verifyAllWithChecksum` end-to-end ahead of refactoring its parallel-worker scaffolding:
@@ -741,6 +742,59 @@ import Foundation
         #expect(banner.severity == .warning)
         #expect(banner.isUndoable, "the dates it matched are undoable, and the banner hid it")
         #expect(manager.undoManager?.canUndo == true)
+    }
+
+    /// **A date match is a run in Sync History, and Undo Last Run reverses it** (FR41, owner
+    /// decision 2026-10-25). It set the right file's date and recorded nothing: the History window
+    /// never listed it, and Undo Last Run refused it as "not a sync run" though ⌘Z undid it. Dates
+    /// a day apart, so the restore cannot be an accident of the fixture's timing.
+    @MainActor
+    @Test func testADateMatchIsRecordedInSyncHistoryAndUndoneByUndoLastRun() async throws {
+        let fixture = try makeRaceFixture()
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+        let store = makeTempHistoryStore(prefix: "DateMatchHistory")
+        defer { removeHistoryStoreFiles(store) }
+        manager.syncHistoryStore = store
+        manager.undoManager = UndoManager()
+        let leftPath = fixture.identical.leftItemPath
+        let leftDate = Date(timeIntervalSince1970: 1_600_000_000)
+        let rightDate = leftDate.addingTimeInterval(86_400)
+        try FileManager.default.setAttributes([.modificationDate: leftDate], ofItemAtPath: leftPath)
+        try FileManager.default.setAttributes([.modificationDate: rightDate], ofItemAtPath: fixture.rightIdenticalURL.path)
+        func date() throws -> Date? {
+            try FileManager.default.attributesOfItem(atPath: fixture.rightIdenticalURL.path)[.modificationDate] as? Date
+        }
+
+        await manager.verifyAllWithChecksum()
+        try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
+        await manager.confirmVerifiedCopy()?.value
+        try #require(try date() == leftDate, "the premise: the dates were matched")
+
+        #expect(store.records.count == 1, "\(store.records.map(\.action))")
+        let record = try #require(store.records.first, "the date match left nothing in Sync History")
+        #expect(record.action == .matchDates)
+        #expect(record.sourcePath == leftPath)
+        #expect(record.destPath == fixture.rightIdenticalURL.path)
+        #expect(record.direction == "→ Right")
+        #expect(record.sizeBytes == 9)
+
+        let preview = try #require(manager.lastSyncRunUndoPreview, "Undo Last Run refused the date match: \(manager.lastSyncRunUndoRefusal ?? "nil")")
+        #expect(preview.actionName == "Match 1 Date")
+        #expect(preview.records.map(\.id) == [record.id])
+        #expect(preview.confirmationDetail() == """
+            This reverses 1 operation from the last run (1 date match):
+              •  Put back the date of “same.txt”
+
+            Files whose dates were matched get their own dates back, unless changed since. You can redo this afterward.
+            """)
+
+        var asked = false
+        let refusal = manager.undoLastSyncRunAskingFirst { _ in asked = true; return true }
+        #expect(refusal == nil)
+        #expect(asked)
+        await waitUntil("the date-match undo drains") { manager.activeFileOperationsCount == 0 }
+        #expect(try date() == rightDate, "Undo Last Run did not give the right file its own date back")
     }
 
     /// FR41's link half: a pair whose LEFT is a symbolic link verifies identical — Verify reads the

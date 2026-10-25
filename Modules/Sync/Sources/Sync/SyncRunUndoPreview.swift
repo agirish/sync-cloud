@@ -40,11 +40,16 @@ public struct SyncRunUndoPreview: Sendable {
     public var actionSummary: String {
         var counts: [SyncAction: Int] = [:]
         for r in records { counts[r.action, default: 0] += 1 }
-        return [SyncAction.copy, .move, .delete].compactMap { action -> String? in
+        return SyncAction.allCases.compactMap { action -> String? in
             guard let n = counts[action], n > 0 else { return nil }
-            let singular = action.label.lowercased()          // "copy" / "move" / "delete"
-            let plural = singular.hasSuffix("y") ? String(singular.dropLast()) + "ies" : singular + "s"
-            return "\(n) \(n == 1 ? singular : plural)"        // "2 copies", "1 move", "3 deletes"
+            let (singular, plural): (String, String)
+            switch action {
+            case .copy: (singular, plural) = ("copy", "copies")
+            case .move: (singular, plural) = ("move", "moves")
+            case .delete: (singular, plural) = ("delete", "deletes")
+            case .matchDates: (singular, plural) = ("date match", "date matches")
+            }
+            return "\(n) \(n == 1 ? singular : plural)"        // "2 copies", "1 move", "3 date matches"
         }.joined(separator: ", ")
     }
 
@@ -59,6 +64,9 @@ public struct SyncRunUndoPreview: Sendable {
             switch rec.action {
             case .delete:
                 lines.append("  •  Restore “\(src)” from the Trash")
+            case .matchDates:
+                let dest = rec.destPath.map { ($0 as NSString).lastPathComponent } ?? src
+                lines.append("  •  Put back the date of “\(dest)”")
             case .copy, .move:
                 let destDir = rec.destPath.map { ((($0 as NSString).deletingLastPathComponent) as NSString).lastPathComponent } ?? ""
                 let where_ = destDir.isEmpty ? "" : " → \(destDir)"
@@ -90,6 +98,9 @@ public struct SyncRunUndoPreview: Sendable {
         }
         if present.contains(.delete) {
             clauses.append("deleted items are restored from the Trash")
+        }
+        if present.contains(.matchDates) {
+            clauses.append("files whose dates were matched get their own dates back, unless changed since")
         }
         guard let first = clauses.first else { return "" }
         clauses[0] = first.prefix(1).uppercased() + first.dropFirst()

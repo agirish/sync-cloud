@@ -6,7 +6,7 @@ import Events
 
 /// The Sync History window (X2): the durable, exportable, reversible counterpart to the Activity
 /// Log. Where `LogViewer` shows the in-memory event stream that forgets on quit, this shows the
-/// persisted `SyncHistoryStore` — every copy/move/delete with time, action, direction, paths, and
+/// persisted `SyncHistoryStore` — every copy/move/delete/date match with time, action, direction, paths, and
 /// size — filterable by action, date range, and path, exportable to CSV/JSON, with a one-click
 /// "Undo last sync run" that reverses the most recent run through the app's existing undo stack.
 ///
@@ -61,7 +61,7 @@ public struct SyncHistoryView: View {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Clear all sync history?"
-        alert.informativeText = "Permanently removes every recorded copy, move, and delete from this window and from the history file on disk. Your files aren’t affected, and this can’t be undone. Export first if you want to keep a copy."
+        alert.informativeText = "Permanently removes every recorded copy, move, delete, and date match from this window and from the history file on disk. Your files aren’t affected, and this can’t be undone. Export first if you want to keep a copy."
         alert.addButton(withTitle: "Clear History")
         alert.addButton(withTitle: "Cancel")
         if let clearButton = alert.buttons.first {
@@ -116,6 +116,7 @@ public struct SyncHistoryView: View {
         ("Copies", .copy),
         ("Moves", .move),
         ("Deletes", .delete),
+        ("Date Matches", .matchDates),
     ]
 
     public var body: some View {
@@ -266,7 +267,7 @@ public struct SyncHistoryView: View {
                     EmptyStateView(
                         icon: "clock.arrow.circlepath",
                         title: "No sync history yet",
-                        message: "Every copy, move, and delete is recorded here as it happens — with a timestamp, direction, and size you can filter, search, and export. History survives quitting the app.",
+                        message: "Every copy, move, delete, and date match is recorded here as it happens — with a timestamp, direction, and size you can filter, search, and export. History survives quitting the app.",
                         secondary: .init("Reveal History File", systemImage: "doc.text",
                                          help: "Show the file the sync history is saved in, \(store.fileURL.lastPathComponent), in Finder") {
                             NSWorkspace.shared.activateFileViewerSelecting([store.fileURL])
@@ -442,6 +443,8 @@ struct SyncHistoryRow: View {
         case .copy: return SemanticColor.success
         case .move: return SemanticColor.move
         case .delete: return SemanticColor.error
+        // Nothing was copied, moved or removed — only a date set — so informational blue.
+        case .matchDates: return SemanticColor.info
         }
     }
 

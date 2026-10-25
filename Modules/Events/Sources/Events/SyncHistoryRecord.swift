@@ -4,17 +4,26 @@ import Foundation
 /// history reader thinks in "copy / move / delete", not in the app's internal sync directions
 /// (that nuance lives in `SyncHistoryRecord.direction`). `Codable` so the store can persist it
 /// as JSON-lines and re-load it; `Sendable` so records can be built off the main actor.
+///
+/// **Adding a case is safe for the file on disk.** The store is append-only and loads line by
+/// line, dropping a line it cannot decode (`SyncHistoryStore.loadRecords`), so an older build
+/// reading a history with a newer case skips those lines and keeps the rest — it never rewrites
+/// them away.
 public enum SyncAction: String, Codable, Sendable, CaseIterable {
     case copy
     case move
     case delete
+    /// "Copy to match dates" on a pair Verify All proved byte-identical (FR41): the destination
+    /// file took the source's modification date, and no byte was copied.
+    case matchDates
 
-    /// A short human label for the UI ("Copy" / "Move" / "Delete").
+    /// A short human label for the UI ("Copy" / "Move" / "Delete" / "Match Dates").
     public var label: String {
         switch self {
         case .copy: return "Copy"
         case .move: return "Move"
         case .delete: return "Delete"
+        case .matchDates: return "Match Dates"
         }
     }
 
@@ -24,6 +33,7 @@ public enum SyncAction: String, Codable, Sendable, CaseIterable {
         case .copy: return "doc.on.doc"
         case .move: return "arrow.right.doc.on.clipboard"
         case .delete: return "trash"
+        case .matchDates: return "calendar"
         }
     }
 }
