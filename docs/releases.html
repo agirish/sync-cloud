@@ -171,6 +171,7 @@
         <li><span class="ic">&#128193;</span><span><b>A sync's Replace takes the source's metadata</b>, so a script made executable at the source is executable after a sync. Edit's saves keep the original file's, as before.</span></li>
         <li><span class="ic">&#128193;</span><span><b>A copy asks a cloud-only folder's app first</b>, with a deadline, and refuses at the first folder that doesn't answer, instead of holding every later file operation behind it.</span></li>
         <li><span class="ic">&#128193;</span><span><b>Copy or Move to the other pane lands where that pane opens.</b> A file from Dropbox's Documents lands in Google Drive's My Drive, not at the account root outside it, and rows under iCloud's linked Documents are no longer refused as outside the pane.</span></li>
+        <li><span class="ic">&#128193;</span><span><b>A Download that can't start shows the file in Finder</b>, which can fetch it, from the row menu and File ▸ Download as from the preview, instead of doing nothing.</span></li>
       </ul>
     </div>
     <div class="grp">
@@ -192,7 +193,7 @@
         <li><span class="ic">▤</span><span><b>Filing refuses what it can't stand behind</b>: a file that changed since the scan; a date stamp either convention could have written — "05062023" could be May 6 or June 5, and the skip names both; a folder name from the model that the provider won't sync; and a destination that is the file's own folder through a link, where it now says the file is already there. Its refusals come under "Filing Failed", not "Sync Failed".</span></li>
         <li><span class="ic">▤</span><span><b>A download counter is not a version.</b> "invoice.pdf", "invoice (1).pdf" and "invoice (2).pdf" — three months' bills — no longer form a versions group offering to trash two of them; files named only by a counter group only when their contents match.</span></li>
         <li><span class="ic">▤</span><span><b>Restructure</b> matches subfolders and file names regardless of case, skips the merges planned into a rename it had to skip, recreates a merged file's source folder when undoing, and gives a cloud-only folder a bounded time to answer instead of hanging the plan sheet.</span></li>
-        <li><span class="ic">▤</span><span><b>Setup</b> keeps a reading that lands late, for the folder it read. Once a reading is done, Continue keeps it and Learn again is a button of its own. Removing a person from the roster asks first, and a profile that can't be written stays on Structure with the reason and Continue without saving.</span></li>
+        <li><span class="ic">▤</span><span><b>Setup</b> keeps a reading that lands late, for the folder it read. Once a reading is done, Continue keeps it and Learn Again is a button of its own. Removing a person from the roster asks first, and a profile that can't be written stays on Structure with the reason and Continue Without Saving. Closing Setup keeps the answers on the open screen. Structure says when it is still reading, and its button reads Skip Saving until the reading is done. Setup's buttons use Title Case.</span></li>
       </ul>
     </div>
     <div class="grp">
@@ -208,7 +209,9 @@
     <div class="grp">
       <h3>Words, keys and VoiceOver</h3>
       <ul class="flist">
-        <li><span class="ic">&#9000;</span><span><b>One spelling, one case, one count.</b> The app's words use US spelling — color, gray, Reorganization — curly quotes and apostrophes, Title Case on menus, and counts that read "1 item" and "1,200 files". Settings search still finds "colour". The reversible delete is Move to Trash everywhere.</span></li>
+        <li><span class="ic">&#9000;</span><span><b>One spelling, one case, one count.</b> The app's words use US spelling — color, gray, Reorganization — curly quotes and apostrophes, Title Case on menus, and counts that read "1 item" and "1,200 files". Settings search still finds "colour". The reversible delete is Move to Trash everywhere, Sync History included. Progress windows are titled in sentence case, Edit's empty page offers New Text File, and reading fewer than 200 documents is offered as "A few minutes", not "About 3 h". The command-line tool prints its own punctuation as plain ASCII; file names still print exactly as they are on disk.</span></li>
+        <li><span class="ic">&#9000;</span><span><b>⌃⇧⇥ goes to the previous tab</b>, the reverse of ⌃⇥, and the Go menu lists Next Tab and Previous Tab once each.</span></li>
+        <li><span class="ic">&#9000;</span><span><b>Color you can read.</b> Links in both Markdown Previews use a shade of the accent that reads in light and dark. A colored pill's words are black or white, with the color in its fill. Switches, checkboxes, sliders and progress bars take the app's accent, not the Mac's, unless the accent is None.</span></li>
         <li><span class="ic">&#9000;</span><span><b>⌘. cancels the progress dialog.</b> Esc doesn't, since it clears the selection.</span></li>
         <li><span class="ic">&#9000;</span><span><b>VoiceOver</b> names the Sources switch, the swap-panes button, the inspector's close button and a tab's source; decorative logos are hidden from it; and ages are read in words.</span></li>
         <li><span class="ic">&#9000;</span><span><b>Settings.</b> Replacing the Anthropic key no longer deletes the old one first, and a refused save keeps the typed key. Clear, Clear History and Remove ask first.</span></li>
