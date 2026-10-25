@@ -386,4 +386,26 @@ private let providers = [
         #expect((try? resolveProviderOrPath(value: "folder-b", label: "Right",
                                             providers: twins, fileManager: fm))?.landingPath == "/b/Photos")
     }
+
+    /// The refusal names the folder each candidate would SCAN — its landing folder — not the account
+    /// root above it. With an `openAt` the two differ, and the listing used to show two roots the
+    /// run would never have read.
+    @Test func theAmbiguityRefusalNamesTheFoldersTheRunWouldScan() {
+        let twins = [
+            CloudProvider(id: "od-a", displayName: "OneDrive", imageName: "onedrive",
+                          rootPath: "/a", openAt: "Documents", type: .oneDrive),
+            CloudProvider(id: "od-b", displayName: "OneDrive", imageName: "onedrive",
+                          rootPath: "/b", openAt: "Documents", type: .oneDrive),
+        ]
+        let fm = StubFileManager(directories: ["/a", "/b", "/a/Documents", "/b/Documents"])
+        do {
+            _ = try resolveProviderOrPath(value: "OneDrive", label: "Left", providers: twins, fileManager: fm)
+            Issue.record("an ambiguous display name was resolved instead of refused")
+        } catch let error as ProviderResolutionError {
+            #expect(error.message.contains("'od-a' (/a/Documents), 'od-b' (/b/Documents)."),
+                    "\(error.message)")
+        } catch {
+            Issue.record("expected ProviderResolutionError, got \(error)")
+        }
+    }
 }

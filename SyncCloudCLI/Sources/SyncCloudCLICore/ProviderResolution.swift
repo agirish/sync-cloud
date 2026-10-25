@@ -32,7 +32,8 @@ public func expandPath(_ path: String) -> String {
 /// An id is the stable handle (`synccloud providers` lists it), so a value that is some
 /// provider's id means that provider even when another's display name happens to read the
 /// same. A display name shared by several providers is refused rather than guessed, naming every
-/// candidate's id and root so the re-run can say which. Ids are expected to be unique; two
+/// candidate's id and the folder it would scan — its `landingPath`, which is what `CommandRunner`
+/// scans, not the account root above it — so the re-run can say which. Ids are expected to be unique; two
 /// providers claiming one are refused the same way rather than trusted to discovery order.
 func matchingProvider(
     for value: String,
@@ -40,7 +41,7 @@ func matchingProvider(
     among providers: [CloudProvider]
 ) throws -> CloudProvider? {
     func refusal(_ candidates: [CloudProvider], by what: String, remedy: String) -> ProviderResolutionError {
-        let listed = candidates.map { "'\($0.id)' (\($0.rootPath))" }.joined(separator: ", ")
+        let listed = candidates.map { "'\($0.id)' (\($0.landingPath))" }.joined(separator: ", ")
         return ProviderResolutionError(
             message: "'\(value)' for \(label) matches \(candidates.count) providers by \(what): \(listed). \(remedy)")
     }

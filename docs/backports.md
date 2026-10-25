@@ -9413,6 +9413,8 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s firstMatch=%s planRoots=%s\n'
 # measured 2026-10-23, against origin, before this landed (planRoots=1 is `scan`'s own line):
 # main, v5.x, v4.x, v3.x, v2.x   firstMatch=1 planRoots=1
 # after, in the worktree:        firstMatch=0 planRoots=2
+# re-measured 2026-10-24 on main: planRoots=3 — `sync`'s "Nothing to sync automatically" prints the
+# roots too
 ```
 
 | Line | Carries | Status |
@@ -10663,3 +10665,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s heldBack=%s jsonHeld=%s\n' $l
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No held rows at all (`heldBack=0`) | CLOSED — does not apply |
+
+---
+
+## The CLI's ambiguity refusal names the folders it would scan (FR42, follow-up) — main only
+
+A `-L`/`-R` display name two providers share is refused naming each candidate, but it listed each
+one's account root while the CLI scans its landing folder, so for a provider opening below its
+root the listing named folders the run would never read. `main` lists each `landingPath`.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s byName=%s listsLanding=%s\n' $l \
+  "$(git show origin/$l:SyncCloudCLI/Sources/SyncCloudCLICore/ProviderResolution.swift 2>/dev/null | grep -cF 'matches \(candidates.count) providers by')" \
+  "$(git show origin/$l:SyncCloudCLI/Sources/SyncCloudCLICore/ProviderResolution.swift 2>/dev/null | grep -cF '($0.landingPath))')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads listsLanding=1):
+# main                     byName=1 listsLanding=0
+# v5.x, v4.x, v3.x, v2.x   byName=0 listsLanding=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No ambiguity refusal (`byName=0`) | CLOSED — does not apply |
