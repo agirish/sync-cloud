@@ -2000,27 +2000,6 @@ extension FileSyncManager {
         undoManager?.setActionName(actionName)
     }
     
-    /// How many items `url` holds at any depth that are not folders — files and links, OS noise
-    /// aside — counting no further than the first, which is all the caller asks. Nil when any of
-    /// it could not be read, so a partial listing is never mistaken for an empty folder.
-    ///
-    /// `attributesOfItem`, not `fileExists`: the latter follows a link, so a link to a folder read
-    /// as a folder and a dangling one as nothing, and a folder holding only a link the user put
-    /// there was removed as empty.
-    nonisolated static func filesHeld(in url: URL, fileManager fm: FileManaging) -> Int? {
-        var sawError = false
-        guard let walker = fm.enumerator(at: url, includingPropertiesForKeys: [.isDirectoryKey],
-                                         options: [], errorHandler: { _, _ in sawError = true; return false })
-        else { return nil }
-        for case let child as URL in walker {
-            if ItemIdentity.deepIdentityIgnoredNames.contains(child.lastPathComponent) { continue }
-            guard let type = (try? fm.attributesOfItem(atPath: child.path))?[.type] as? FileAttributeType
-            else { continue }
-            if type != .typeDirectory { return 1 }
-        }
-        return sawError ? nil : 0
-    }
-
     func registerCreateFolderUndo(url: URL, fileManager fm: FileManaging = FileManager.default) {
         invalidateUndoableBanner()
         let confirmPermanentDelete = permanentDeleteConfirmer
@@ -2046,7 +2025,13 @@ extension FileSyncManager {
                 // refused it as changed. Restructure's ⌘Z trashed such a folder right after a
                 // banner said the refused item was left in place. OS noise and empty subfolders
                 // hold nothing; a folder that cannot be fully read is never treated as empty.
-                guard let held = FileSyncManager.filesHeld(in: url, fileManager: fm), held == 0 else {
+                //
+                // **Restructure's own count, not a walk of this undo's own** (U1): it asks a
+                // cloud-only folder for its contents first, bounded (FR21), so a folder whose app
+                // has stopped reads as unknown instead of hanging the file queue; it skips what is
+                // inside `.Trashes`; and an entry it cannot stat counts as content. Nil — not
+                // fully read — is "not empty".
+                guard let held = FileSyncManager.visibleFileCount(atPath: url.path, fm: fm), held == 0 else {
                     let name = url.lastPathComponent
                     await MainActor.run {
                         logger.warning("Undo (New Folder): left \(url.path) in place — it holds files the undo did not put there, or could not be fully read")

@@ -10877,3 +10877,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr48=%s keptIsASave=%s\n' $l 
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No keep-aside (`fr48=0`); FR48's row records it | CLOSED — does not apply |
+
+---
+
+## Undoing New Folder asks a cloud-only folder first (final review U1) — main only
+
+FR24's emptiness check walked the folder with a plain enumerator: a dataless subfolder whose app had
+stopped hung the file queue, `.Trashes` contents counted, and an unstatable entry counted as
+nothing. `main` uses Restructure's `visibleFileCount`, which asks through the bounded dataless
+reads.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr24=%s fix=%s\n' $l \
+  "$(git show origin/$l:$S/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'FileSyncManager.filesHeld(in: url')" \
+  "$(git show origin/$l:$S/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'visibleFileCount(atPath: url.path, fm: fm)')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads fix=1):
+# main                     fr24=1 fix=0
+# v5.x, v4.x, v3.x, v2.x   fr24=0 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR24 emptiness check (`fr24=0`) | CLOSED — does not apply |

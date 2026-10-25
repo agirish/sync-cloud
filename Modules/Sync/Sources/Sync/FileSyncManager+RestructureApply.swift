@@ -1097,7 +1097,7 @@ extension FileSyncManager {
         // only those read "still empty", the removal step trashed it, and its inverse is a bare
         // `create-dir` — so Undo brought the folder back without the file. The names skipped now
         // are `ItemIdentity.deepIdentityIgnoredNames`, the set the OS writes on its own schedule
-        // and that the move-undo's "is it empty?" (`filesHeld`) already uses; one of those as a
+        // and the one New Folder's undo asks through this same count; one of those as a
         // directory (`.Trashes`) is skipped with everything inside it.
         //
         // **A folder whose contents are not on this Mac is asked for first, bounded (FR21).** This

@@ -389,24 +389,50 @@ import EventsTestSupport
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(at: folder.appendingPathComponent("Shared"),
                                                    withDestinationURL: base.appendingPathComponent("gone"))
-        #expect(FileSyncManager.filesHeld(in: folder, fileManager: FileManager.default) == 1)
+        #expect(FileSyncManager.visibleFileCount(atPath: folder.path, fm: FileManager.default) == 1)
     }
 
-    /// The other direction: Finder's droppings and empty subfolders hold nothing, so the folder
-    /// the action made still goes.
+    /// The other direction: Finder's droppings, empty subfolders and what the OS keeps under a
+    /// `.Trashes` hold nothing, so the folder the action made still goes. A real folder: the mock's
+    /// entries do not say which of them are folders, so an empty subfolder would read as a file.
+    /// `.Trashes` is U1's: the undo's own walk skipped the name but counted what is inside it.
     @MainActor
     @Test func createFolderUndoStillRemovesAFolderHoldingOnlyNoise() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "fr24n")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let folder = base.appendingPathComponent("Archive")
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent("Empty"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent(".Trashes/501"), withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: folder.appendingPathComponent(".Trashes/501/old.txt"))
+        try Data("x".utf8).write(to: folder.appendingPathComponent(".DS_Store"))
         let manager = makeManager()
-        let mockFM = MockFileManager()
-        for path in ["/dst", "/dst/Archive", "/dst/Archive/Empty"] {
-            try mockFM.createDirectory(at: URL(fileURLWithPath: path), withIntermediateDirectories: true)
-        }
-        mockFM.virtualDisk["/dst/Archive/.DS_Store"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        manager.registerCreateFolderUndo(url: URL(fileURLWithPath: "/dst/Archive"), fileManager: mockFM)
+        let disk = ScratchTrash(in: base)
+        manager.registerCreateFolderUndo(url: folder, fileManager: disk)
 
         manager.undoManager?.undo()
-        await waitUntil("the folder goes to the Trash") { mockFM.virtualDisk["/dst/Archive"] == nil }
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        #expect(!FileManager.default.fileExists(atPath: folder.path), "banner: \(String(describing: manager.banner?.message))")
+    }
+
+    /// **U1: a cloud-only folder inside is asked for first, bounded.** The undo walked the folder
+    /// with a plain enumerator, so a dataless subfolder whose app has stopped held the serial file
+    /// queue — and everything behind it — until the app answered. It now reads as unknown within
+    /// the reads' deadline, and the folder is left in place, said so.
+    @MainActor
+    @Test(.parksAThread) func createFolderUndoGivesUpOnAFolderInsideThatDoesNotAnswer() async throws {
+        let f = UnansweredFolderTests.Fixture(root: "/fr24-dataless")
+        let gate = ParkGate()
+        let disk = try f.disk(gate: gate)
+        defer { gate.release.signal() }
+        let cloud = URL(fileURLWithPath: f.root + "/home/Cloud")
+        let manager = makeManager()
+        manager.registerCreateFolderUndo(url: cloud, fileManager: disk)
+
+        manager.undoManager?.undo()
+        await waitUntil("the undo sat on the provider past the deadline") { manager.activeFileOperationsCount == 0 }
+        #expect(disk.providerReads == 1, "premise: the undo never reached the folder that does not answer")
+        #expect(disk.fileExists(atPath: cloud.path))
+        #expect(manager.banner?.message.contains("isn’t empty") == true)
     }
 
     /// The gap this pair closes: when the CONFIRMED permanent delete then fails, the folder is
