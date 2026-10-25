@@ -163,6 +163,57 @@ import Sync
         #expect(text?.contains("1000+ items") == true)
     }
 
+    /// A held row's card says why its direction is a guess — the note Compare's list shows — where
+    /// it used to present the guess as a plain copy. Ahead of any replace hazard, which still
+    /// follows; a missing row that is held (a folder holding a link) gets the note too.
+    @Test func aHeldRowLeadsWithItsNote() {
+        func held(_ type: FileDifference.DifferenceType, _ reason: FileDifference.HeldBack, note: String) -> FileDifference {
+            FileDifference(relativePath: "Docs/report.txt", leftItemPath: "/l/Docs/report.txt",
+                           rightItemPath: "/r/Docs/report.txt", type: type, action: .copyToRight,
+                           description: note, leftFileSize: 10, rightFileSize: 20, heldBack: reason)
+        }
+        let sizes = held(.differentDates, .sizesDifferWithoutANewerSide,
+                         note: "Sizes differ but the dates are the same — choose which to keep")
+        #expect(ReviewCardModel.make(difference: sizes, facts: facts(), paneNames: paneNames, isMove: false)
+                .warningText == "Sizes differ but the dates are the same — choose which to keep.")
+
+        var folder = ReviewCardModel.Facts()
+        folder.destinationIsDirectory = true
+        folder.destinationChildCount = 3
+        let mismatch = held(.differentDates, .folderVersusFile, note: "Folder in iCloud, file in Local — choose which to keep")
+        #expect(ReviewCardModel.make(difference: mismatch, facts: folder, paneNames: paneNames, isMove: false).warningText
+                == "Folder in iCloud, file in Local — choose which to keep. "
+                + "Replacing this folder replaces its entire contents — 3 items on iCloud will be removed.")
+
+        let linked = held(.missingOnRight, .enclosesSymbolicLink(path: "Docs/report.txt/lib"),
+                          note: "Folder missing on right — “Docs/report.txt/lib” inside it is a link")
+        #expect(ReviewCardModel.make(difference: linked, facts: facts(), paneNames: paneNames, isMove: false).warningText
+                == "Folder missing on right — “Docs/report.txt/lib” inside it is a link.")
+    }
+
+    /// Copy Remaining with one pending row: a decided row takes `syncFile` (with Retry); a held one
+    /// takes `syncAll`, which leaves it out and says so — as it already did for two.
+    @Test func copyRemainingSendsALoneHeldRowThroughTheHeldFilter() throws {
+        let plain = diff()
+        let held = FileDifference(relativePath: "a.txt", leftItemPath: "/l/a.txt", rightItemPath: "/r/a.txt",
+                                  type: .differentDates, action: .copyToRight, description: "x",
+                                  leftFileSize: 1, rightFileSize: 2, heldBack: .sizesDifferWithoutANewerSide)
+        #expect(CopyRemainingRoute.route([plain]) == .single(plain))
+        #expect(CopyRemainingRoute.route([held]) == .bulk, "a lone held row was copied unasked")
+        #expect(CopyRemainingRoute.route([plain, held]) == .bulk)
+
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/DifferencesView.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read DifferencesView.swift — the check below would be vacuous")
+        let body = try #require(source.range(of: "private func copyRemaining(")
+            .map { String(source[$0.lowerBound...].prefix(1_500)) }, "copyRemaining was renamed")
+        #expect(body.contains("if case .single(let single) = CopyRemainingRoute.route(remaining) {"),
+                "Copy Remaining no longer asks the route")
+        #expect(!body.contains("if remaining.count == 1"), "Copy Remaining picks its single path by count again")
+    }
+
     // MARK: Verify eligibility
 
     @Test func verifyOffersOnlyForSameSizeFileReplacements() {

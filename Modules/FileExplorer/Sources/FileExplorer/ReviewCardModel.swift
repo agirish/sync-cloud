@@ -183,10 +183,26 @@ struct ReviewCardModel: Equatable {
         return (source > destination ? "+" : "−") + magnitude
     }
 
-    /// The amber banner. Folder wholesale-replace wins over destination-newer: it implies it,
-    /// and losing a folder's contents is the bigger hazard. Wording matches the collision
-    /// alert's Finder-style folder warning.
+    /// The amber banner. A HELD row (`FileDifference.heldBack`) leads with its own note — why its
+    /// direction is a guess — because the card otherwise presented the guess as a plain copy:
+    /// Compare's list shows the note, the card showed nothing of it. Then the replace hazard, if
+    /// any: folder wholesale-replace wins over destination-newer, since it implies it and losing a
+    /// folder's contents is the bigger hazard. Wording matches the collision alert's Finder-style
+    /// folder warning.
     static func warningText(
+        difference: FileDifference,
+        facts: Facts,
+        destinationName: String,
+        isMove: Bool
+    ) -> String? {
+        let held = difference.heldBack == nil ? nil : difference.description + "."
+        let replace = replaceWarningText(difference: difference, facts: facts,
+                                         destinationName: destinationName, isMove: isMove)
+        let parts = [held, replace].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+
+    private static func replaceWarningText(
         difference: FileDifference,
         facts: Facts,
         destinationName: String,

@@ -210,6 +210,23 @@ struct DifferenceActionTargets: Equatable {
     }
 }
 
+/// How Review's "Copy Remaining N" sends what is still pending: one decided row through
+/// `syncFile` (whose failure alert carries Retry), anything else through `syncAll`.
+///
+/// **A held row never takes the single path.** `syncAll` leaves held rows out and says so, so two
+/// pending held rows were left while ONE went to `syncFile(confirmed: true)` and was copied — the
+/// same button deciding a guess or not by how many were left. One held row now goes to `syncAll`
+/// too, and is left out and named like the rest.
+enum CopyRemainingRoute: Equatable {
+    case single(FileDifference)
+    case bulk
+
+    static func route(_ remaining: [FileDifference]) -> CopyRemainingRoute {
+        if remaining.count == 1, let only = remaining.first, only.heldBack == nil { return .single(only) }
+        return .bulk
+    }
+}
+
 /// Display strings and sort keys for the Differences table's four columns. Exposed as
 /// computed properties on `FileDifference` so the Table's `sortOrder` (KeyPathComparator) can
 /// order rows by them and the same keys stay unit-testable without SwiftUI.

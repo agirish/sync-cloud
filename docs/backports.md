@@ -10620,3 +10620,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s heldBack=%s heldReadout=%s\n'
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No held rows at all (`heldBack=0`) | CLOSED — does not apply |
+
+---
+
+## Review shows a held row's note, and Copy Remaining leaves a lone one out (FR39/FR40, follow-up) — main only
+
+The Review card presented a held row's guess as a plain copy, with none of the note Compare's list
+shows, and "Copy Remaining" with exactly one pending held row copied it through `syncFile` while two
+or more were left out by `syncAll`. `main` leads the card's warning with the row's note and sends a
+lone held row through `syncAll` too (`CopyRemainingRoute`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s heldBack=%s route=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileDifference.swift 2>/dev/null | grep -cF 'public let heldBack')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DifferencesQuery.swift 2>/dev/null | grep -cF 'enum CopyRemainingRoute')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads route=1):
+# main                     heldBack=1 route=0
+# v5.x, v4.x, v3.x, v2.x   heldBack=0 route=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No held rows at all (`heldBack=0`) | CLOSED — does not apply |

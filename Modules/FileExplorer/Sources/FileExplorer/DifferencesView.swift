@@ -1785,7 +1785,7 @@ public struct DifferencesView: View {
         // review mode — it IS the confirmation. Prompting per syncAll call asked twice for a
         // mixed-direction remainder (with partial counts that never matched the button), and
         // declining the second prompt silently dropped items after the session was torn down.
-        if remaining.count == 1, let single = remaining.first {
+        if case .single(let single) = CopyRemainingRoute.route(remaining) {
             Task { await syncManager.syncFile(single, isMove: isMove, confirmed: true) }
             return
         }
