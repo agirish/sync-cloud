@@ -122,7 +122,10 @@ import Events
         // every suite in the package shares; under load a 14 s test let the rest of a full run log
         // past this test's own marker, and the opening `guard` below failed with nothing wrong in
         // the undo (flaky-tests: "A log assertion reading a window that has already rolled"). The
-        // per-process file is never trimmed under a test. `flushToDisk` drains the writer first.
+        // per-process file rolls far later, not never: `LogFileWriter.trimMidSessionIfOversized`
+        // cuts it to its newest half once it passes the writer's cap (about 5 MB), so a very long
+        // run can still trim the opening marker away — the guard below says that, rather than
+        // blaming the undo. `flushToDisk` drains the writer first.
         Logger.shared.flushToDisk()
         let text = (try? String(contentsOf: Logger.shared.logFileURL, encoding: .utf8)) ?? ""
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
@@ -135,8 +138,9 @@ import Events
         }
         guard let start = lines[..<end].lastIndex(where: { $0.hasSuffix(marker) }) else {
             Issue.record("""
-                this test's own opening marker never reached the log file, so nothing can be \
-                concluded about the refusal line
+                this test's own opening marker is not in the log file — it never reached it, or the \
+                writer trimmed it away past its size cap (about 5 MB) during a long run — so nothing \
+                can be concluded about the refusal line
                 """, sourceLocation: sourceLocation)
             return []
         }
