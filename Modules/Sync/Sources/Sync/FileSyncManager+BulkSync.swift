@@ -479,6 +479,12 @@ extension FileSyncManager {
     ///     for this exact run (e.g. review mode's "Copy Remaining N" button, which names the
     ///     count) — the `transferConfirmer` prompt is skipped so one gesture never asks twice.
     public func syncAll(direction: FileDifference.SyncAction, isMove: Bool = false, subset: [FileDifference]? = nil, confirmed: Bool = false, postBanner: Bool = true) async {
+        _ = await syncAllResolving(direction: direction, isMove: isMove, subset: subset, confirmed: confirmed, postBanner: postBanner)
+    }
+
+    /// `syncAll`, returning the ids of the rows the run resolved — empty when it copied nothing —
+    /// for a caller that has to say which ones landed (`copyRemaining`).
+    func syncAllResolving(direction: FileDifference.SyncAction, isMove: Bool, subset: [FileDifference]?, confirmed: Bool, postBanner: Bool) async -> Set<UUID> {
         let source = subset ?? differences
         // **A row whose direction is a guess is not taken in bulk** (`FileDifference.heldBack`:
         // FR8, FR39, FR40). The user approves a count here, not each row, so a guess inside the
@@ -497,22 +503,22 @@ extension FileSyncManager {
             if !heldBack.isEmpty, postBanner {
                 banner = .warning("Nothing was \(isMove ? "moved" : "copied")" + heldNote)
             }
-            return
+            return []
         }
         // Drop, don't queue, a bulk run started while another is in flight (see the flag's doc).
-        guard !isBulkSyncRunning else { return }
+        guard !isBulkSyncRunning else { return [] }
         // A Verify All in flight is hashing the very files this run would overwrite; starting
         // anyway would feed it half-written content. Tell the user rather than silently drop.
         guard !isVerifyAllRunning else {
             banner = .warning("Wait for the current operation to finish before syncing")
-            return
+            return []
         }
         // A single-row syncFile in flight (possibly parked at its prompt — the latch is set
         // before any prompt) may target the very rows this run would stat and copy; running
         // anyway could double-write one difference from two flows. Mirrors Verify All's guard.
         guard syncingDifferenceIds.isEmpty else {
             banner = .warning("Wait for the current operation to finish before syncing")
-            return
+            return []
         }
         // Latch the bulk-sync flag BEFORE the confirmation prompt, not after: the prompt's
         // modal spins the run loop, so a queued second syncAll (or a Verify All, whose guard
@@ -539,7 +545,7 @@ extension FileSyncManager {
                 // .info like the single-transfer decline: a bulk run's start is visible at Info
                 // level, so its cancellation has to be too, or the trace shows a run that never ends.
                 Logger.shared.info("Bulk \(isMove ? "move" : "sync") of \(total) item(s) cancelled at the confirmation prompt")
-                return
+                return []
             }
         }
         let toSyncIDs = Set(toSync.map { $0.id })
@@ -838,6 +844,51 @@ extension FileSyncManager {
             let verb = isMove ? "Moved" : "Synced"
             Logger.shared.info("\(verb) \(result.successes.count) item(s) in bulk\(result.failures.isEmpty ? "" : ", \(result.failures.count) failed")")
         }
+        return Set(result.successes.map { $0.0.id })
+    }
+
+    /// Review's "Copy Remaining N" when some of the rows left need the user's decision.
+    ///
+    /// **It left them out and said nothing** (owner decision 2026-10-25). Each direction is its own
+    /// `syncAll`, and a remainder holding both ran them with their banners off — so the held rows
+    /// were dropped from the outcome, and with one direction only the held rows going that way
+    /// were named. Here every row that can go is copied, both directions, and one banner names the
+    /// held rows in the words every bulk run uses (`leftOutPhrases`); they stay on the list.
+    ///
+    /// The prompt is skipped: the button names the count and is the confirmation. Undo is offered
+    /// only for one direction — two runs are two undo steps, and one Undo would reverse half.
+    /// - Returns: The ids of the rows it resolved, so Review can mark them and stay on the rest —
+    ///   or nil when it refused to start (another operation is running), having said so.
+    @discardableResult
+    public func copyRemaining(_ remaining: [FileDifference], isMove: Bool) async -> Set<UUID>? {
+        // syncAll's own guards, up front: a refusal inside it would read here as "nothing
+        // copied", and this banner would cover the reason.
+        guard !isBulkSyncRunning, !isVerifyAllRunning, syncingDifferenceIds.isEmpty else {
+            banner = .warning("Wait for the current operation to finish before syncing")
+            return nil
+        }
+        let held = remaining.filter { $0.heldBack != nil }
+        let toCopy = remaining.filter { $0.heldBack == nil }
+        let directions = [FileDifference.SyncAction.copyToRight, .copyToLeft].filter { direction in
+            toCopy.contains { $0.action == direction }
+        }
+        var resolved: Set<UUID> = []
+        for direction in directions {
+            resolved.formUnion(await syncAllResolving(direction: direction, isMove: isMove, subset: toCopy,
+                                                      confirmed: true, postBanner: false))
+        }
+        let pastTense = isMove ? "Moved" : "Copied"
+        let head = resolved.isEmpty
+            ? "Nothing was \(isMove ? "moved" : "copied")"
+            : resolved.count == 1 ? "\(pastTense) 1 item" : "\(pastTense) \(resolved.count) items"
+        let message = ([head] + Self.leftOutPhrases(held)).joined(separator: "; ")
+        if resolved.count < toCopy.count || resolved.isEmpty {
+            // A row that did not land has told the user already, in its own alert.
+            banner = .warning(message)
+        } else {
+            banner = .success(message, undoable: directions.count == 1)
+        }
+        return resolved
     }
 
 }

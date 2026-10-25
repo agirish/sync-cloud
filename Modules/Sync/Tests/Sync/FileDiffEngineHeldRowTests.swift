@@ -387,6 +387,64 @@ import Foundation
         #expect(manager.differences.map(\.relativePath) == ["a-held.txt"])
     }
 
+    /// **Review's Copy Remaining copies both ways and names the held rows it left** (owner decision
+    /// 2026-10-25). A remainder going both ways ran two `syncAll`s with their banners off, so two
+    /// held rows vanished from the outcome without a word. The held rows sort first (law 9) and both
+    /// stay untouched and on the list; the banner says how many need a decision. Two runs are two
+    /// undo steps, so no Undo is offered.
+    @MainActor
+    @Test func copyRemainingCopiesBothWaysAndNamesTheHeldRowsItLeft() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "HeldCopyRemaining")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fm = FileManager.default
+        let leftRoot = root.appendingPathComponent("Left")
+        let rightRoot = root.appendingPathComponent("Right")
+        for dir in [leftRoot, rightRoot] { try fm.createDirectory(at: dir, withIntermediateDirectories: true) }
+        for name in ["a-held.txt", "b-held.txt"] {
+            try Data("left, longer".utf8).write(to: leftRoot.appendingPathComponent(name))
+            try Data("right".utf8).write(to: rightRoot.appendingPathComponent(name))
+            for url in [leftRoot.appendingPathComponent(name), rightRoot.appendingPathComponent(name)] {
+                try fm.setAttributes([.modificationDate: d1], ofItemAtPath: url.path)
+            }
+        }
+        try Data("only on the left".utf8).write(to: leftRoot.appendingPathComponent("c-to-right.txt"))
+        try Data("only on the right".utf8).write(to: rightRoot.appendingPathComponent("d-to-left.txt"))
+
+        let rows = FileDiffEngine.computeDifferences(
+            left: mac, leftURL: leftRoot, right: backup, rightURL: rightRoot,
+            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftRoot),
+            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightRoot),
+            dateToleranceSeconds: 5).sorted { $0.relativePath < $1.relativePath }
+        try #require(rows.map(\.relativePath) == ["a-held.txt", "b-held.txt", "c-to-right.txt", "d-to-left.txt"])
+        try #require(rows.map { $0.heldBack != nil } == [true, true, false, false])
+        try #require(rows.map(\.action) == [.copyToRight, .copyToRight, .copyToRight, .copyToLeft])
+
+        let manager = FileSyncManager()
+        let store = makeTempHistoryStore(prefix: "HeldCopyRemaining")
+        defer { removeHistoryStoreFiles(store) }
+        manager.syncHistoryStore = store
+        manager.collisionResolver = { _ in .replace }
+        manager.bulkCollisionResolver = { _ in (.replace, true) }
+        manager.rawDifferences = rows
+        manager.differences = rows
+
+        let resolved = await manager.copyRemaining(rows, isMove: false)
+
+        #expect(resolved == Set(rows.suffix(2).map(\.id)))
+        #expect(try String(contentsOf: rightRoot.appendingPathComponent("c-to-right.txt"), encoding: .utf8) == "only on the left")
+        #expect(try String(contentsOf: leftRoot.appendingPathComponent("d-to-left.txt"), encoding: .utf8) == "only on the right")
+        for name in ["a-held.txt", "b-held.txt"] {
+            #expect(try String(contentsOf: rightRoot.appendingPathComponent(name), encoding: .utf8) == "right",
+                    "\(name)'s right file was overwritten by Copy Remaining")
+        }
+        let banner = try #require(manager.banner, "Copy Remaining said nothing")
+        #expect(banner.message
+                == "Copied 2 items; 2 items need your decision and were left out — right-click each row to choose which to keep")
+        #expect(banner.severity == .success)
+        #expect(!banner.isUndoable, "one Undo would reverse only one of the two runs")
+        #expect(manager.differences.map(\.relativePath) == ["a-held.txt", "b-held.txt"])
+    }
+
     /// **The row's menu decides a held row either way, and the way against the guess is the one
     /// nothing else reached.** The engine suggests left → right for a sizes-differ pair; ⌘← and the
     /// Review card offer only that direction, and every bulk run leaves the row out — so keeping the

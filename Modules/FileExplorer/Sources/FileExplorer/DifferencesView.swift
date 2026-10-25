@@ -1775,10 +1775,30 @@ public struct DifferencesView: View {
 
     /// "Copy Remaining N": leaves review mode and resolves every still-pending item through
     /// the existing bulk path (or the single-item path, whose failure alert carries Retry).
+    ///
+    /// **Held rows keep the session open** (owner decision 2026-10-25). They are left out of every
+    /// bulk run, and this used to tear the session down over them and, for a remainder going both
+    /// ways, say nothing. Now the rest is copied (`FileSyncManager.copyRemaining`, whose banner
+    /// names the rows that need a decision), each copied row is marked, and the card stays on the
+    /// held rows for the user to decide.
     private func copyRemaining(_ session: ReviewSession) {
         let remaining = session.pending
         let isMove = session.isMove
         Logger.shared.debug("Review: \(isMove ? "move" : "copy") remaining \(remaining.count) item(s)")
+        if remaining.contains(where: { $0.heldBack != nil }) {
+            guard !reviewStore.isActing else { return }
+            reviewStore.isActing = true; let token = session.sessionToken
+            Task { @MainActor in
+                defer { reviewStore.isActing = false }
+                guard let resolved = await syncManager.copyRemaining(remaining, isMove: isMove) else { return }
+                // Not resolved = a failure or a Skip at the collision prompt, as `reviewPrimary`
+                // reads it; both already told the user. Token-guarded like every outcome.
+                for item in remaining where item.heldBack == nil {
+                    reviewStore.apply(resolved.contains(item.id) ? .copied : .skipped, for: item.id, token: token)
+                }
+            }
+            return
+        }
         reviewStore.session = nil
         reviewSelection = []
         // confirmed: the "Copy Remaining N" button names the exact count and lives inside

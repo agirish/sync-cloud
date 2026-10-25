@@ -208,10 +208,35 @@ import Sync
         let source = try #require(try? String(contentsOf: url, encoding: .utf8),
                                   "cannot read DifferencesView.swift — the check below would be vacuous")
         let body = try #require(source.range(of: "private func copyRemaining(")
-            .map { String(source[$0.lowerBound...].prefix(1_500)) }, "copyRemaining was renamed")
+            .map { String(source[$0.lowerBound...].prefix(3_000)) }, "copyRemaining was renamed")
         #expect(body.contains("if case .single(let single) = CopyRemainingRoute.route(remaining) {"),
                 "Copy Remaining no longer asks the route")
         #expect(!body.contains("if remaining.count == 1"), "Copy Remaining picks its single path by count again")
+    }
+
+    /// **Copy Remaining with held rows keeps Review on them** (owner decision 2026-10-25). The view
+    /// is SwiftUI and undrivable (testing law 5), so `FileSyncManager.copyRemaining` is pinned in
+    /// `FileDiffEngineHeldRowTests` and this pins the call site: a remainder holding a held row goes
+    /// there and marks the rows it resolved, BEFORE the line that tears the session down.
+    @Test func copyRemainingWithHeldRowsKeepsTheSessionOnThem() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/DifferencesView.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read DifferencesView.swift — the check below would be vacuous")
+        let body = try #require(source.range(of: "private func copyRemaining(")
+            .map { String(source[$0.lowerBound...].prefix(3_000)) }, "copyRemaining was renamed")
+        let held = try #require(body.range(of: "if remaining.contains(where: { $0.heldBack != nil }) {"),
+                                "Copy Remaining no longer branches on held rows")
+        let call = try #require(body.range(of: "await syncManager.copyRemaining(remaining, isMove: isMove)"),
+                                "the held branch no longer calls FileSyncManager.copyRemaining")
+        let mark = try #require(body.range(of: "reviewStore.apply(resolved.contains(item.id) ? .copied : .skipped, for: item.id, token: token)"),
+                                "the held branch no longer marks the rows it resolved")
+        let teardown = try #require(body.range(of: "reviewStore.session = nil"))
+        #expect(held.lowerBound < call.lowerBound && call.lowerBound < mark.lowerBound)
+        #expect(mark.lowerBound < teardown.lowerBound, "the session is torn down before the held branch returns")
+        let branch = String(body[held.lowerBound..<teardown.lowerBound])
+        #expect(branch.contains("            return\n        }\n"), "the held branch falls through to the teardown")
     }
 
     // MARK: Verify eligibility

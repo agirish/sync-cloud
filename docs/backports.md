@@ -11309,3 +11309,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s dates=%s history=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No date match at all (`dates=0`) | CLOSED — does not apply |
+
+---
+
+## Copy Remaining names the held rows it leaves, and Review stays on them (FR39/FR40, owner decision) — main only
+
+Review's "Copy Remaining" over a remainder holding rows that need a decision ended the review, and
+when the rest went both ways it ran both directions with their banners off, so the held rows went
+unmentioned. `main` copies the rest both ways (`FileSyncManager.copyRemaining`), says "N items need
+your decision and were left out" in the words every bulk run uses, and keeps the Review card on the
+held rows.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s heldBack=%s fix=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileDifference.swift 2>/dev/null | grep -cF 'public let heldBack')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+BulkSync.swift 2>/dev/null | grep -cF 'public func copyRemaining(')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads fix=1):
+# main                     heldBack=1 fix=0
+# v5.x, v4.x, v3.x, v2.x   heldBack=0 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No held rows at all (`heldBack=0`) | CLOSED — does not apply |
