@@ -816,10 +816,17 @@ extension FileSyncManager {
     /// locks INSIDE the staging item are lifted and it is removed again. Only an exact `.tmp_<UUID>`
     /// name is ever unlocked, and a symbolic link inside it is skipped, never followed: its target
     /// is somebody else's item.
+    ///
+    /// **A staging item that still will not go is said in the log (P8)**, with its path: it is a
+    /// hidden full-size copy beside the destination, and `OrphanSweeper` is the only other thing
+    /// that will ever look at it.
     nonisolated static func removeStaging(_ url: URL, fileManager: FileManaging) {
         guard (try? fileManager.removeItem(at: url)) == nil,
-              fileManager.fileExists(atPath: url.path),
-              OrphanSweeper.isTempArtifactName(url.lastPathComponent) else { return }
+              fileManager.fileExists(atPath: url.path) else { return }
+        guard OrphanSweeper.isTempArtifactName(url.lastPathComponent) else {
+            Logger.shared.warning("Could not remove the staging item at \(url.path); it was left in place")
+            return
+        }
         var entries = [url]
         if let walk = fileManager.enumerator(at: url, includingPropertiesForKeys: nil, options: [], errorHandler: nil) {
             for case let entry as URL in walk { entries.append(entry) }
@@ -831,7 +838,11 @@ extension FileSyncManager {
             else { continue }
             try? fileManager.setAttributes([.immutable: false, .appendOnly: false], ofItemAtPath: entry.path)
         }
-        try? fileManager.removeItem(at: url)
+        do {
+            try fileManager.removeItem(at: url)
+        } catch {
+            Logger.shared.warning("Could not remove the staging item at \(url.path), even with its locks lifted — it is left beside the destination for the periodic cleanup: \(error.localizedDescription)")
+        }
     }
 
     /// Ensures the parent of `destinationURL` can be used as a directory (creates it or throws if it exists as a file).

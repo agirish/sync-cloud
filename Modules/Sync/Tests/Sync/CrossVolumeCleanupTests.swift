@@ -1,3 +1,5 @@
+import Events
+import EventsTestSupport
 import Foundation
 import Testing
 @testable import Sync
@@ -100,5 +102,24 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: destination.path))
         #expect(names(in: destination.deletingLastPathComponent()).isEmpty, "a staging copy was left behind")
         #expect(names(in: source) == ["a.txt", "deep"])
+    }
+
+    /// **P8: a staging item that will not go is logged, with its path.** The last removal was a
+    /// `try?`, so a hidden full-size copy left beside the destination left no line anywhere.
+    @MainActor
+    @Test func aStagingItemThatCannotBeRemovedIsLogged() async throws {
+        final class UnremovableDisk: FileManager, @unchecked Sendable {
+            override func removeItem(at url: URL) throws { throw CocoaError(.fileWriteNoPermission) }
+        }
+        let base = try makeCanonicalTempRoot(prefix: "p8")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let staging = base.appendingPathComponent(".tmp_\(UUID().uuidString)")
+        try Data("x".utf8).write(to: staging)
+        let log = LogCapture()
+
+        FileSyncManager.removeStaging(staging, fileManager: UnremovableDisk())
+
+        #expect(FileManager.default.fileExists(atPath: staging.path), "premise: the double removed it")
+        #expect(await log.holds(.warning, containing: "staging item at \(staging.path)"))
     }
 }
