@@ -78,7 +78,7 @@ import EventsTestSupport
         let workspace = try Self.source("EditorWorkspaceView.swift")
         #expect(workspace.contains("onVerb: { verb in textViewHandle.applyMarkup(verb) }"),
                 "the workspace does not route the bar through the text view's handle")
-        #expect(workspace.contains("textViewHandle: textViewHandle)"),
+        #expect(workspace.contains("textViewHandle: textViewHandle,\n                        bottomInset: diskBannerInset)"),
                 "the text view is not handed the handle the bar presses through")
     }
 

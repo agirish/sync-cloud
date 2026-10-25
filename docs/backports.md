@@ -11544,3 +11544,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s dialog=%s scrim=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The dimmed window and centred progress dialog during long runs | RECORDED — not owed |
+
+---
+
+## Edit's disk banner floats over the text's foot (TE210, decision CC) — main only
+
+The "changed elsewhere" / "file is gone" banner was a row above the text, so the format bar and
+every line jumped down when a change from elsewhere was noticed. `main` floats it over the bottom
+of the text card, above the status line, and gives the text views a bottom inset of its height
+(`diskBannerInset`), so nothing moves and the last lines scroll clear of it.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s banner=%s floats=%s\n' $l \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorDiskBannerView.swift 2>/dev/null | grep -c 'struct EditorDiskBannerView')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorWorkspaceView.swift 2>/dev/null | grep -c 'diskBannerInset')"; done
+# measured 2026-10-25, against origin, before this landed (the change reads floats=8):
+# main, v5.x         banner=1 floats=0
+# v4.x, v3.x, v2.x   banner=0 floats=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The banner as a row above the text (`floats=0`) | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No disk banner (`banner=0`) | CLOSED — does not apply |

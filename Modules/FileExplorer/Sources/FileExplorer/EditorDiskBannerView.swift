@@ -35,10 +35,16 @@ public enum EditorDiskVerbs {
 
 /// **The banner in the document card while a change from elsewhere waits for an answer** (TE59).
 ///
-/// In the card, above the text and with the read-only banner's shape, rather than an alert: the
-/// question is not urgent — nothing is being written while it stands (the host has stopped
-/// autosave) — and an alert would take the text away from somebody who wants to read both versions
-/// before answering. Amber, as the header's stopped state is, because it is that state.
+/// In the card rather than an alert: the question is not urgent — nothing is being written while
+/// it stands (the host has stopped autosave) — and an alert would take the text away from somebody
+/// who wants to read both versions before answering. Amber, as the header's stopped state is,
+/// because it is that state.
+///
+/// **Floating over the card's foot, above the status line** (TE210, his call CC, 2026-10-25). It
+/// was a row above the text, so the format bar and every line under it jumped down when a change
+/// was noticed — under a pointer aiming at Bold. Now nothing moves: it stands on the floating
+/// ground Edit's other floating pieces stand on, and the text view gains a bottom inset of its
+/// height (``EditorWorkspaceView``) so the last lines scroll clear of it.
 struct EditorDiskBannerView: View {
 
     let banner: EditorDiskBanner
@@ -75,6 +81,9 @@ struct EditorDiskBannerView: View {
         }
     }
 
+    /// The find card's shape, one outline for the amber and the ground under it.
+    static let shape: HoverAffordanceShape = .roundedRect(Radius.card)
+
     var body: some View {
         // Wraps rather than truncates: the buttons go under the sentence in a narrow column, and the
         // sentence is the part that must be read whole.
@@ -92,7 +101,9 @@ struct EditorDiskBannerView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.12))
+        // The amber over the ground, not instead of it: the text runs under this card.
+        .background(Self.shape.outline.fill(Color.orange.opacity(0.12)))
+        .modifier(EditorPDFFloatingGround(shape: Self.shape))
         .accessibilityElement(children: .contain)
     }
 

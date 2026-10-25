@@ -46,6 +46,9 @@ struct PreviewEditorView: NSViewRepresentable {
     /// The window's hue, which links wear here as they do in read-only Preview (ED5) — in the shade
     /// ``linkInk(_:)`` makes of it, not raw (FE2).
     var linkColor: Color = LiquidGlassHue.stored().accentColor
+    /// Room under the last line for what floats over the text's foot — see
+    /// ``PlainTextEditor/bottomInset``.
+    var bottomInset: CGFloat = 0
     /// Text ▸ Check Spelling While Typing, followed here as Source follows it (review V10).
     @AppStorage(EditorTextSettings.checksSpellingKey) private var checksSpelling: Bool
         = EditorTextSettings.checksSpellingDefault
@@ -89,6 +92,7 @@ struct PreviewEditorView: NSViewRepresentable {
         context.coordinator.watchScrolling(of: scroll)
         update(context.coordinator)
         register(view)
+        PlainTextEditor.applyBottomInset(bottomInset, to: scroll)
         // Requests already standing are not news to a view built after them: replaying one would
         // jump somewhere asked for long ago (review).
         context.coordinator.lastFollowRequest = followRequest
@@ -118,6 +122,7 @@ struct PreviewEditorView: NSViewRepresentable {
             PlainTextEditor.showFindBar(in: view)
         }
         if let view = scroll.documentView as? PreviewTextView { register(view) }
+        PlainTextEditor.applyBottomInset(bottomInset, to: scroll)
     }
 
     /// Tells the handle where this view is — its text view, or in Split its Preview half.

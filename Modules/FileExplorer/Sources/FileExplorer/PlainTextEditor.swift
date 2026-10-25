@@ -155,6 +155,11 @@ struct PlainTextEditor: NSViewRepresentable {
     /// ``EditorTextViewHandle``. `nil` where nothing beside the text acts on it.
     var textViewHandle: EditorTextViewHandle?
 
+    /// **Room under the last line for what floats over the text's foot** — the disk banner
+    /// (TE210). The scroll view's own content inset, so the text runs under the banner and its last
+    /// lines scroll clear of it, and nothing on screen moves when it comes or goes.
+    var bottomInset: CGFloat = 0
+
     // Read here rather than threaded in, the way `EditorWorkspaceView` reads the window's glass
     // settings: these are preferences, not state a caller owns. See `EditorTextSettings`.
     @AppStorage(EditorTextSettings.wrapsKey) private var wrapsLines: Bool
@@ -710,6 +715,18 @@ struct PlainTextEditor: NSViewRepresentable {
         view.performTextFinderAction(sender)
     }
 
+    /// **Sets the room under the last line** (``bottomInset``) — only when it changed, so an
+    /// update that leaves it alone does not retile the scroll view. The automatic insets go off
+    /// for good once one is set: they follow the window's title bar, which this card is nowhere
+    /// near, so the top stays where it was.
+    static func applyBottomInset(_ inset: CGFloat, to scroll: NSScrollView) {
+        guard scroll.contentInsets.bottom != inset else { return }
+        scroll.automaticallyAdjustsContentInsets = false
+        var insets = scroll.contentInsets
+        insets.bottom = inset
+        scroll.contentInsets = insets
+    }
+
     /// Ends the find bar's work over `view`, for a text view that is about to be let go.
     ///
     /// **AppKit's find indicator can outlive the finder it reports to.** Find Next, and an
@@ -856,6 +873,7 @@ struct PlainTextEditor: NSViewRepresentable {
         scroll.identifier = EditorDocumentSurface.identifier
         // ⌘Z from the find bar is the document's (UND-3) — see `EditorDocumentScrollView`.
         (scroll as? EditorDocumentScrollView)?.documentUndoManager = undoManager
+        Self.applyBottomInset(bottomInset, to: scroll)
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.drawsBackground = false
@@ -990,6 +1008,7 @@ struct PlainTextEditor: NSViewRepresentable {
         // file switch hands the buffer another document's — and that is an identity check.
         context.coordinator.undoManager = undoManager
         (scroll as? EditorDocumentScrollView)?.documentUndoManager = undoManager
+        Self.applyBottomInset(bottomInset, to: scroll)
         // **The undo stack goes with the DOCUMENT**, and this is the one line standing between the
         // editor and a crash. `NSTextView`'s registrations name character RANGES in the buffer they
         // were made against; assigning `string` replaces the buffer and clears nothing, so a ⌘Z

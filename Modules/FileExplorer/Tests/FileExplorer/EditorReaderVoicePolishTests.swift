@@ -387,7 +387,7 @@ import FileExplorerTestSupport
     /// The workspace hands editable Preview the window's accent, as it hands read-only Preview.
     @Test func theWorkspaceHandsEditablePreviewItsAccent() throws {
         let code = try Self.code("EditorWorkspaceView.swift")
-        #expect(code.contains("findRequest: inSplit ? splitPreviewFindRequest : findRequest, linkColor: accent)"))
+        #expect(code.contains("findRequest: inSplit ? splitPreviewFindRequest : findRequest, linkColor: accent,"))
     }
 
     // MARK: ED10 — the rail's dot says what the header's says

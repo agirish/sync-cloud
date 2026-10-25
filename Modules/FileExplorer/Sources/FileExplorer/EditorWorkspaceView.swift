@@ -360,6 +360,8 @@ public struct EditorWorkspaceView: View {
     @State private var selectionFacts: EditorSelectionFacts?
     /// Whether Go to Line's field is up over the status line's "Line, Col" (TE61).
     @State private var goToLineShown = false
+    /// The floating disk banner's measured height — see ``diskBannerInset``.
+    @State private var diskBannerHeight: CGFloat = 0
     /// What the format bar shows lit — see ``MarkupFormatState``.
     @State private var formatState: MarkupFormatState = .none
     /// Editable Preview's pending styles, as verbs — lit on the bar while Preview has the caret
@@ -1927,16 +1929,35 @@ public struct EditorWorkspaceView: View {
             }
         } else {
             VStack(spacing: 0) {
-                if let diskBanner {
-                    EditorDiskBannerView(banner: diskBanner, name: document.name,
-                                         canSaveAgain: !document.isReadOnly, onAction: onDiskBanner)
-                }
                 if let reason = document.readOnlyReason {
                     readOnlyBanner(reason)
                 }
                 surfaces(for: EditorMode.resolved(mode, isMarkdown: document.isMarkdown))
             }
+            // **Over the text's foot, not above it** (TE210): see ``EditorDiskBannerView``. Sticky
+            // until answered, as it was; the text views take ``diskBannerInset`` at their bottom.
+            .overlay(alignment: .bottom) {
+                if let diskBanner {
+                    EditorDiskBannerView(banner: diskBanner, name: document.name,
+                                         canSaveAgain: !document.isReadOnly, onAction: onDiskBanner)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { diskBannerHeight = $0 }
+                        .padding(Self.diskBannerMargin)
+                }
+            }
         }
+    }
+
+    /// The disk banner's margin from the text card's edges and the status line under it.
+    static let diskBannerMargin: CGFloat = 8
+
+    /// **How far the text views scroll past their last line while the disk banner stands** — its
+    /// height and both margins, so the last line can rise clear of it. None without a banner.
+    static func diskBannerInset(bannerHeight: CGFloat, isShown: Bool) -> CGFloat {
+        isShown ? bannerHeight + 2 * diskBannerMargin : 0
+    }
+
+    private var diskBannerInset: CGFloat {
+        Self.diskBannerInset(bannerHeight: diskBannerHeight, isShown: diskBanner != nil && document.refusal == nil)
     }
 
     /// Hands a drop on the empty page to the host — **files only**: a web address dragged from a
@@ -2053,13 +2074,15 @@ public struct EditorWorkspaceView: View {
                                       scrollRequest: inSplit ? nil : previewScrollRequest,
                                       initialSourceOffset: document.caretAnchors.offset(for: document.path),
                                       findRequest: inSplit ? splitPreviewFindRequest : findRequest,
-                                      linkColor: accent)
+                                      linkColor: accent,
+                                      bottomInset: diskBannerInset)
                         // A new document is a new storage, and a new session to project it.
                         .id(ObjectIdentifier(buffer.source))
                 } else {
                     MarkdownPreview(blocks: blocks, accent: accent, scrollRequest: previewScrollRequest,
                                     onToggleTask: taskToggle, documentFolder: documentFolder,
                                     onFollowAnchor: followAnchor)
+                        .contentMargins(.bottom, diskBannerInset, for: .scrollContent)
                 }
             }
         }
@@ -2213,7 +2236,8 @@ public struct EditorWorkspaceView: View {
                         editsMarkdown: document.isMarkdown,
                         imageImport: imageImporter,
                         followRequest: editsInPreview ? editorFollowRequest : nil,
-                        textViewHandle: textViewHandle)
+                        textViewHandle: textViewHandle,
+                        bottomInset: diskBannerInset)
     }
 
     /// Where a dropped or pasted image goes — only for a Markdown note that can be written, and
