@@ -11011,3 +11011,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s outside=%s fix=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same id-only refusal (`outside=1`), by a prefix test | RECORDED — not owed |
+
+---
+
+## A merge that moved nothing out still has an undo (final review U4) — main only
+
+A move's merge whose source held only a `.DS_Store` landed no child but still put the emptied source
+in the Trash, and no undo was registered for it. `main` registers one.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr35=%s fix=%s\n' $l \
+  "$(git show origin/$l:$S/FileOperations.swift 2>/dev/null | grep -cF 'trashedMergeSources.append')" \
+  "$(git show origin/$l:$S/FileOperations.swift 2>/dev/null | grep -cF 'isMove && !result.trashedMergeSources.isEmpty')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads fix=1):
+# main                     fr35=1 fix=0
+# v5.x, v4.x, v3.x, v2.x   fr35=0 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR35 merge-source trash (`fr35=0`) | CLOSED — does not apply |

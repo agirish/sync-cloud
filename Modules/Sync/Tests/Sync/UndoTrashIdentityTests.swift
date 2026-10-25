@@ -413,6 +413,35 @@ import Foundation
         #expect(read(dst.appendingPathComponent("sub/other.txt")) == "other c")
     }
 
+    /// **U4: a merge that moved nothing out still has an undo.** Its source held only a
+    /// `.DS_Store`, so no child landed — and the registration ran only for a batch that transferred
+    /// something, so the emptied folder went to the Trash with nothing that could bring it back.
+    @MainActor
+    @Test func aMergeMoveThatLandsNoChildStillUndoesItsTrashedSource() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "undo-merge-nothing-landed")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let trash = ScratchTrash(in: root)
+        let src = root.appendingPathComponent("src/Reports")
+        let dst = root.appendingPathComponent("dst/Reports")
+        try write("finder", src.appendingPathComponent(".DS_Store"))
+        try write("kept", dst.appendingPathComponent("kept.txt"))
+        // The destination keeps its own `.DS_Store`, so the source's is skipped, not moved.
+        try write("its own", dst.appendingPathComponent(".DS_Store"))
+        let m = manager()
+        m.collisionResolver = { _ in .merge }
+        _ = await m.moveItems(nodes: [FileNode(id: src.path, name: "Reports", isDirectory: true)],
+                              toPath: dst.deletingLastPathComponent().path, fileManager: trash)
+        try #require(!entryExists(src), "premise: the merge did not trash its emptied source")
+        try #require(read(dst.appendingPathComponent(".DS_Store")) == "its own", "premise: a child landed")
+        #expect(m.undoManager?.canUndo == true, "nothing was registered to bring the folder back")
+
+        await undoAndDrain(m)
+
+        #expect(entryExists(src))
+        #expect(!trash.names.contains("Reports"), "trash: \(trash.names)")
+        #expect(read(dst.appendingPathComponent("kept.txt")) == "kept")
+    }
+
     /// Moves `src/Reports` (holding `a.txt`) into a `dst` that already has a `Reports`, with Merge,
     /// and undoes it: the shape every FR35 redo test starts from.
     @MainActor

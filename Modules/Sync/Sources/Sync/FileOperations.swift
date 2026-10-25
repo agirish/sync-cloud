@@ -731,13 +731,16 @@ extension FileSyncManager {
             }
             recordSyncHistory(records)
         }
-        if !transferred.isEmpty {
+        // **A merge that moved nothing out still put its emptied source in the Trash (U4)** — an
+        // empty folder, or one holding only a `.DS_Store` — so that alone is a move ⌘Z must reverse.
+        if !transferred.isEmpty || (isMove && !result.trashedMergeSources.isEmpty) {
             if isMove {
+                let moved = transferred.isEmpty ? result.trashedMergeSources.count : transferred.count
                 self.registerMoveUndo(items: Self.undoItems(transferred, restoringFirst: result.trashedMergeSources),
                                       mergeEmptiedFolders: Set(result.trashedMergeSources.map(\.item.to)),
                                       redirectedIntoTrash: Set(result.redirectedIntoTrash.keys),
-                                      actionName: "Move \(CountedNoun.phrase(transferred.count, "Item"))", fileManager: fm)
-                recordTransferHistory()
+                                      actionName: "Move \(CountedNoun.phrase(moved, "Item"))", fileManager: fm)
+                if !transferred.isEmpty { recordTransferHistory() }
             } else {
                 // Each item's identity walk was started the moment ITS copy landed, inside the
                 // loop above; the registration here is synchronous and what is awaited is the
