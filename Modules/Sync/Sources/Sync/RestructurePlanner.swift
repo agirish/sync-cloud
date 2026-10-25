@@ -1214,7 +1214,10 @@ public enum RestructurePlanner {
             return .unknownFiles(source: sourcePath)
         }
         for file in files.sorted() {
-            let collision = landed.files.contains(file)
+            // Folded, as folder occupancy is (FR22): `receipt.pdf` standing in the target takes
+            // `Receipt.PDF`'s name on a case-insensitive volume, and the apply lands it under a
+            // unique name — so the plan says so.
+            let collision = Self.occupant(named: file, in: landed.files) != nil
             actions.append(RestructureManifest.Action(
                 action: .moveFile,
                 src: (sourcePath as NSString).appendingPathComponent(file),
@@ -1256,7 +1259,7 @@ public enum RestructurePlanner {
                 }
                 var keptDeeper: Set<String> = []
                 for file in subFiles.sorted() {
-                    let collision = sub.files.contains(file)
+                    let collision = Self.occupant(named: file, in: sub.files) != nil
                     actions.append(RestructureManifest.Action(
                         action: .moveFile,
                         src: (subSource as NSString).appendingPathComponent(file),

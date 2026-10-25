@@ -11194,3 +11194,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr13=%s fix=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR13 refusal (`fr13=0`) — FR13's section records it | RECORDED — not owed |
+
+---
+
+## A case-only file name clash is planned as a collision (FR22, follow-up) — main only
+
+The Restructure planner judged a file landing in a merge target by exact case, so `Receipt.PDF`
+arriving beside `receipt.pdf` was planned as no clash, and the landing — on a case-insensitive
+volume — gave it a unique name the plan never mentioned. `main` folds case for files as it already
+did for folders, at both levels a merge writes.
+
+```sh
+F=Modules/Sync/Sources/Sync/RestructurePlanner.swift
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s exactCase=%s fix=%s\n' $l \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF 'let collision = landed.files.contains(file)')" \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF 'occupant(named: file, in: landed.files)')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads exactCase=0 fix=1):
+# main, v5.x         exactCase=1 fix=0
+# v4.x, v3.x, v2.x   exactCase=0 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The same exact-case file test (`exactCase=1`) | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Restructure planner | CLOSED — does not apply |

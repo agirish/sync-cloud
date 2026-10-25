@@ -446,6 +446,33 @@ private struct FakeTree {
         }, "two levels down, a case twin is kept, not carried whole onto it")
     }
 
+    /// FR22, for files: names that differ only by case clash, at both levels a merge writes. On
+    /// a case-insensitive volume `receipt.pdf` standing in the target takes `Receipt.PDF`'s
+    /// name, so the apply lands it under a unique one; read by exact case, the plan promised it
+    /// no clash. A name no file in the target wears, in any case, still clashes with nothing.
+    @Test func caseVariantFileNamesArePlannedAsCollisions() throws {
+        let tree = FakeTree(files: [
+            "F": [], "F/2016": [],
+            "F/2016/Payment": ["Receipt.PDF", "fresh.pdf"],
+            "F/2016/Payment/Receipts": ["A.PDF"],
+            "F/2016/Payments": ["receipt.pdf"],
+            "F/2016/Payments/Receipts": ["a.pdf"],
+        ])
+        let manifest = try Self.derive(
+            family: "F", members: ["2016"],
+            mapping: RestructureMapping(rows: [.init(source: "Payment", target: "Payments")]),
+            in: tree.view)
+        func row(_ src: String) throws -> RestructureManifest.Action {
+            try #require(manifest.actions.first { $0.action == .moveFile && $0.src == src },
+                         "no move for \(src): \(manifest.actions.map(\.evidence))")
+        }
+        #expect(try row("F/2016/Payment/Receipt.PDF").collisionExpected == true,
+                "receipt.pdf stands there — the landing will pick a unique name")
+        #expect(try row("F/2016/Payment/Receipts/A.PDF").collisionExpected == true,
+                "one level down, the same")
+        #expect(try row("F/2016/Payment/fresh.pdf").collisionExpected == nil)
+    }
+
     // MARK: - Refusals
 
     /// The refusals are sentences for the sheet, and each fires for exactly its own reason.
