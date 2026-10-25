@@ -435,7 +435,14 @@ extension FileSyncManager {
         // to an external disk or another volume skipped all three: Cancel could not stop it, and
         // the original was deleted outright rather than put in the Trash. The tests never saw it
         // because their doubles throw EXDEV on cue.
-        let crossVolume = crossVolume ?? isCrossVolumeMove(from: sourceURL, to: destinationURL)
+        //
+        // **Only a real disk is asked (P6).** The volumes are read off the real file system, so a
+        // test double's paths were judged by whatever the real disk holds there: a mock source at
+        // `/src` (the system volume, by the nearest existing folder) and a destination under the
+        // temporary directory (the Data volume) read as two volumes. A double is one volume unless
+        // its caller says otherwise.
+        let crossVolume = crossVolume
+            ?? (fileManager is FileManager && isCrossVolumeMove(from: sourceURL, to: destinationURL))
 
         // **A locked original is refused before anything is written** (FR31). A move has to rename
         // the original or put it in the Trash, and the kernel refuses both for an item locked in

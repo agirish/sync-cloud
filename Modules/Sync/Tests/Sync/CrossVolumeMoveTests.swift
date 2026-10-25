@@ -102,6 +102,28 @@ import Testing
         #expect(!disk.inner.virtualDisk.keys.contains { $0.contains(".tmp_") })
     }
 
+    /// P6. A double's paths are not on the real disk, but the decision read them there: a mock
+    /// folder that happens to sit under `/dev` on this Mac (devfs, a volume of its own) moving to one
+    /// that does not was judged two volumes, and the mock took the staged copy path, not its rename.
+    @Test func aDoublesMoveIsNotJudgedByTheRealDisksVolumes() throws {
+        let source = URL(fileURLWithPath: "/dev/p6-src/a.bin"), destination = URL(fileURLWithPath: "/p6-dst/a.bin")
+        try #require(FileSyncManager.isCrossVolumeMove(from: source, to: destination),
+                     "premise: on this Mac `/dev` is not a volume of its own")
+        let fm = MockFileManager()
+        for dir in ["/dev/p6-src", "/p6-dst"] {
+            try fm.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: true)
+        }
+        fm.virtualDisk[source.path] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 3], contents: nil)
+
+        try FileSyncManager.safeMoveItem(at: source, to: destination, fileManager: fm)
+
+        // The staged path copies and then puts the original in the Trash; the rename does neither
+        // (the mock's own `moveItem` copies inside, so `calledCopyItem` cannot tell them apart).
+        #expect(fm.trashedPaths.isEmpty, "a rename on the double was staged as a cross-volume copy")
+        #expect(!fm.virtualDisk.keys.contains { $0.contains(".tmp_") })
+        #expect(fm.virtualDisk[destination.path] != nil)
+    }
+
     /// The control: on one volume a move is still a rename.
     @Test func aMoveOnOneVolumeIsStillARename() throws {
         let disk = try disk(destinationTaken: false)
