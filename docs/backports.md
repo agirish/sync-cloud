@@ -10924,3 +10924,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s reanchor=%s fix=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No landing folders (`reanchor=0`): both panes share one origin | CLOSED — does not apply |
+
+---
+
+## A failed move cleanup keeps the only complete copy (final review P2) — main only
+
+On a volume with no Trash a move-by-copy removes its original outright; a folder's `removeItem`
+stops part-way, and the cleanup then removed the destination copy (or reverted a Replace over it),
+losing data. `main` keeps both for a folder and says the original may be partly removed, and refuses
+a move-by-copy whose tree holds a locked entry before copying.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s revert=%s fix=%s\n' $l \
+  "$(git show origin/$l:$S/FileOperations+Primitives.swift 2>/dev/null | grep -cF 'removed to revert it')" \
+  "$(git show origin/$l:$S/FileOperations+Primitives.swift 2>/dev/null | grep -cF 'originalPartlyRemoved')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads fix=4):
+# main, v5.x, v4.x, v3.x, v2.x   revert=1 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same revert (`revert=1`) | RECORDED — not owed |

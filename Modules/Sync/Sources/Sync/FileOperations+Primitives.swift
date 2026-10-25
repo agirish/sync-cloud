@@ -42,6 +42,9 @@ extension FileSyncManager {
         /// A pane transfer's row sits above the folder its source opens at, at a level the other
         /// source has no place for (`PathBoundary.transferTarget`).
         case itemAboveOpeningFolder(itemName: String)
+        /// A move-by-copy landed its copy, could not put the original folder in the Trash, and its
+        /// permanent removal stopped part-way (P2). Both are kept: the copy is the only whole one.
+        case originalPartlyRemoved(name: String)
 
         var errorDescription: String? {
             switch self {
@@ -74,6 +77,8 @@ extension FileSyncManager {
                 return "“\(name)” is locked, so it can’t be moved or renamed. Unlock it in Finder (File ▸ Get Info) and try again."
             case .itemAboveOpeningFolder(let itemName):
                 return "“\(itemName)” is above the folder its source opens at, and the other source has no folder at that level to put it in. It was left where it is."
+            case .originalPartlyRemoved(let name):
+                return "“\(name)” was copied, but its original couldn’t be put in the Trash and may have been only partly removed. The complete copy is at the destination; what is left of the original is still where it was."
             }
         }
     }
@@ -454,7 +459,8 @@ extension FileSyncManager {
 
             defer { removeStaging(tempURL, fileManager: fileManager) }
 
-            let lock = try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer)
+            let lock = try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer,
+                                 refusingLockedEntries: true)
             try fileManager.moveItem(at: tempURL, to: destinationURL)
             restoreLock(lock, on: destinationURL, fileManager: fileManager)
 
@@ -469,6 +475,8 @@ extension FileSyncManager {
                 if !FileSyncManager.retriedSourceCleanupTrash(
                     sourceURL, after: error, fileManager: fileManager,
                     context: "Cross-volume move") {
+                    // Read before the removal: a folder's can stop part-way (P2).
+                    let sourceIsFolder = entryKind(at: sourceURL, fileManager: fileManager) == .typeDirectory
                     do {
                         try fileManager.removeItem(at: sourceURL)
                         // The one branch of a move that removes something unrecoverably. The data
@@ -476,8 +484,17 @@ extension FileSyncManager {
                         // so the log must say so — the delete path's equivalent already does.
                         Logger.shared.warning("Cross-volume move: the original at \(sourceURL.path) could not be moved to the Trash and was permanently deleted — its content is at \(destinationURL.path)")
                     } catch let cleanupError {
-                        // The move already landed, so the item at the destination is this operation's
-                        // own copy - removing it is a clean revert when the source can't be cleaned up.
+                        // **A folder's removal can stop part-way, so its copy is never removed then**
+                        // (P2). `removeItem` deletes what it can before it throws — a locked file
+                        // inside is enough — and removing the copy after that deleted the only
+                        // complete one. Both stay, and the error says so.
+                        if sourceIsFolder {
+                            Logger.shared.warning("Cross-volume move of \(sourceURL.path) failed at source cleanup, and the original may have been partly removed — the complete copy stays at \(destinationURL.path): \(cleanupError.localizedDescription)")
+                            throw FileOperationError.originalPartlyRemoved(name: sourceURL.lastPathComponent)
+                        }
+                        // A file's removal is one unlink: it failed whole, the original is intact,
+                        // and the item at the destination is this operation's own copy - removing it
+                        // is a clean revert.
                         let reverted = (try? fileManager.removeItem(at: destinationURL)) != nil
                         Logger.shared.warning(reverted
                             ? "Cross-volume move of \(sourceURL.path) failed at source cleanup — the copy at \(destinationURL.path) was removed to revert it"
@@ -523,7 +540,8 @@ extension FileSyncManager {
             if crossVolume { throw POSIXError(.EXDEV) }
             try fileManager.moveItem(at: sourceURL, to: tempURL)
         } catch {
-            lock = try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer)
+            lock = try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer,
+                             refusingLockedEntries: true)
             sourceConsumed = false
         }
 
@@ -598,12 +616,22 @@ extension FileSyncManager {
                 if !FileSyncManager.retriedSourceCleanupTrash(
                     sourceURL, after: error, fileManager: fileManager,
                     context: "Cross-volume replace") {
+                    let sourceIsFolder = entryKind(at: sourceURL, fileManager: fileManager) == .typeDirectory
                     do {
                         try fileManager.removeItem(at: sourceURL)
                         // Same unrecoverable removal as the plain cross-volume move above, and the
                         // same obligation to say so.
                         Logger.shared.warning("Cross-volume replace: the original at \(sourceURL.path) could not be moved to the Trash and was permanently deleted — its content is at \(destinationURL.path)")
                     } catch let cleanupError {
+                        // A folder may be partly gone (P2): reverting would put the old destination
+                        // back over the only complete copy, and drop that copy with the fresh
+                        // backup. The new content stays, the old destination goes to the Trash
+                        // like any replaced item, and the error says what happened.
+                        if sourceIsFolder {
+                            let previous = finalizeBackup(backupURL, replacing: destinationURL, fileManager: fileManager)
+                            Logger.shared.warning("Cross-volume replace of \(destinationURL.path) failed at source cleanup, and the original at \(sourceURL.path) may have been partly removed — the complete copy stays at the destination\(previous.map { "; the item it replaced is at \($0.path)" } ?? ""): \(cleanupError.localizedDescription)")
+                            throw FileOperationError.originalPartlyRemoved(name: sourceURL.lastPathComponent)
+                        }
                         // Neither Trash nor remove worked, so this cross-volume move can't complete.
                         // Undo the replace and fail — matching the dest-absent cross-volume path, and
                         // avoiding a "moved" undo entry for a source still on disk.
@@ -682,8 +710,14 @@ extension FileSyncManager {
     /// clear. Only the STAGED copy's own flags are touched — never the source's — and the lock goes
     /// back on the installed item (``restoreLock(_:on:fileManager:)``), so the copy is locked like
     /// its original.
-    private nonisolated static func stage(_ sourceURL: URL, to tempURL: URL, fileManager: FileManaging, observer: CopyObserver?) throws -> StagedLock {
-        try requireContentsOnThisMac(sourceURL, fileManager: fileManager, observer: observer)
+    ///
+    /// `refusingLockedEntries` is a move's (P2): its original must be removed once the copy lands,
+    /// and a locked entry inside a folder cannot be — on a volume with no Trash, the removal stops
+    /// part-way. So a locked entry anywhere in the tree refuses the move before anything is copied.
+    private nonisolated static func stage(_ sourceURL: URL, to tempURL: URL, fileManager: FileManaging, observer: CopyObserver?,
+                                          refusingLockedEntries: Bool = false) throws -> StagedLock {
+        try requireContentsOnThisMac(sourceURL, fileManager: fileManager, observer: observer,
+                                     refusingLockedEntries: refusingLockedEntries)
         if let observer {
             try fileManager.copyItem(at: sourceURL, to: tempURL, observer: observer)
         } else {
@@ -711,7 +745,8 @@ extension FileSyncManager {
     /// and a folder one — with each dataless folder asked for first, which materializes it, and
     /// then walked in turn. A folder that answers is on disk for the copy that follows. A link is
     /// not followed (the copy copies the link); a file needs nothing. Cancel is heard per entry.
-    nonisolated static func requireContentsOnThisMac(_ source: URL, fileManager: FileManaging, observer: CopyObserver?) throws {
+    nonisolated static func requireContentsOnThisMac(_ source: URL, fileManager: FileManaging, observer: CopyObserver?,
+                                                     refusingLockedEntries: Bool = false) throws {
         guard entryKind(at: source, fileManager: fileManager) == .typeDirectory else { return }
         func walk(_ folder: URL) throws {
             if fileManager.isDataless(at: folder),
@@ -723,6 +758,9 @@ extension FileSyncManager {
             for case let entry as URL in entries {
                 if let observer, !observer.shouldContinue() {
                     throw CocoaError(.userCancelled, userInfo: [NSFilePathErrorKey: source.path])
+                }
+                if refusingLockedEntries, isLocked(entry, fileManager: fileManager) {
+                    throw FileOperationError.itemIsLocked(name: entry.lastPathComponent)
                 }
                 guard entry.hasDirectoryPath, fileManager.isDataless(at: entry) else { continue }
                 entries.skipDescendants()
