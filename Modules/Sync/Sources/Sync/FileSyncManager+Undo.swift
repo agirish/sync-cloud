@@ -1232,6 +1232,18 @@ extension FileSyncManager {
                             return volumeFoldsCase(underParent: url.deletingLastPathComponent())
                                 ? precomposed.lowercased() : precomposed
                         }
+                        // **The redo re-copies what the batch ENDED with at each name (U5).** A
+                        // batch that landed two copies on one name is undone once, at the item
+                        // handled first, and the later registration is skipped as a duplicate; the
+                        // redo param named the handled item's source, so ⌘⇧Z re-copied the copy the
+                        // batch had replaced. `items` is in registration order: the last one wins.
+                        let finalSourceByDestination = Dictionary(
+                            items.map { (foldedKey($0.destination), $0.source) },
+                            uniquingKeysWith: { _, later in later })
+                        func undone(_ item: CopyUndoItemState) -> (source: URL, destination: URL) {
+                            (source: finalSourceByDestination[foldedKey(item.destination)] ?? item.source,
+                             destination: item.destination)
+                        }
                         func markHandled(_ url: URL) {
                             handledDestinations.insert(url.path)
                             handledFoldedDestinations.insert(foldedKey(url))
@@ -1267,7 +1279,7 @@ extension FileSyncManager {
                                 vanished += 1
                                 markHandled(item.destination)
                                 logger.info("Undo (\(actionName)): \(item.destination.lastPathComponent) is no longer on disk — nothing to remove")
-                                undoneCopies.append((source: item.source, destination: item.destination))
+                                undoneCopies.append(undone(item))
                                 switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, verdict: backupVerdict(item), to: item.destination, actionName: actionName, fileManager: fm, on: target) {
                                 case .restored: restored += 1
                                 case .failed: restoreFailures += 1
@@ -1341,7 +1353,7 @@ extension FileSyncManager {
                             }
                             removed += 1
                             markHandled(item.destination)
-                            undoneCopies.append((source: item.source, destination: item.destination))
+                            undoneCopies.append(undone(item))
 
                             switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, verdict: itemBackupVerdict, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
                             case .restored: restored += 1
@@ -1402,7 +1414,7 @@ extension FileSyncManager {
                                 }
                                 removed += 1
                                 markHandled(item.destination)
-                                undoneCopies.append((source: item.source, destination: item.destination))
+                                undoneCopies.append(undone(item))
                                 switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, verdict: itemBackupVerdict, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
                                 case .restored: restored += 1
                                 case .failed: restoreFailures += 1

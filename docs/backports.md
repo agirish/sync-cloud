@@ -11032,3 +11032,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr35=%s fix=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR35 merge-source trash (`fr35=0`) | CLOSED — does not apply |
+
+---
+
+## Redo of a same-name copy batch copies the source it ended on (final review U5) — main only
+
+Copying `A/f.txt` and `B/f.txt` into `D` with Replace leaves B's copy; the undo handles the name
+once, and its redo param named A, so ⌘⇧Z re-copied A's file. `main` takes the last registration per
+folded destination.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s redoParam=%s fix=%s\n' $l \
+  "$(git show origin/$l:$S/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'undoneCopies.append((source: item.source')" \
+  "$(git show origin/$l:$S/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'finalSourceByDestination')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads redoParam=0 fix=2):
+# main, v5.x, v4.x, v3.x, v2.x   redoParam=3 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same redo param (`redoParam=3`) | RECORDED — not owed |
