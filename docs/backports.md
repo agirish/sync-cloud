@@ -11218,3 +11218,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s exactCase=%s fix=%s\n' $l \
 |---|---|---|
 | `v5.x` | The same exact-case file test (`exactCase=1`) | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Restructure planner | CLOSED — does not apply |
+
+---
+
+## An undo tells a folder it could not read from a stranger (FR27, follow-up) — main only
+
+FR27 holds each Trash backup to the identity recorded when its undo registered, but a folder with
+one unreadable descendant could not be digested, so it recorded none, and ⌘Z restored whatever had
+since taken its name in the Trash. `main` records such a folder's own file number instead and
+refuses a stranger whose number differs; the real folder, still unreadable inside, still comes back.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr27=%s fix=%s\n' $l \
+  "$(git show origin/$l:$S/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'static func trashBackupVerdict')" \
+  "$(git show origin/$l:$S/ItemIdentity.swift 2>/dev/null | grep -cF 'case directoryFileNumber(')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads fix=1):
+# main                     fr27=1 fix=0
+# v5.x, v4.x, v3.x, v2.x   fr27=0 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR27 check (`fr27=0`) — FR27's section records it | RECORDED — not owed |

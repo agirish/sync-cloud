@@ -737,8 +737,14 @@ extension FileSyncManager {
     /// source folder, is read by `mergeEmptiedFolderIdentity` instead. Its cost is a stat-only
     /// walk, which is why every registration that reads this for a whole batch reads it off the
     /// main actor.
+    ///
+    /// **A folder whose contents cannot be read is still known by its file number** (FR27,
+    /// follow-up): one unreadable descendant makes the deep walk `.indeterminate`, which records no
+    /// identity at all, so ⌘Z restored whatever had taken its name in the Trash. The folder's own
+    /// `st_ino` needs only a stat of the folder, survives the move into the Trash, and differs for
+    /// a stranger (`ItemIdentity.directoryFileNumber`).
     nonisolated static func backupIdentity(_ backup: URL?, fileManager fm: FileManaging) -> ItemIdentity {
-        backup.map { ItemIdentity.deepSnapshot(at: $0, fileManager: fm) } ?? .absent
+        backup.map { ItemIdentity.deepSnapshotOrFileNumber(at: $0, fileManager: fm) } ?? .absent
     }
 
     /// What sits at the Trash location of a source folder a merge emptied and trashed (FR35):
@@ -761,10 +767,11 @@ extension FileSyncManager {
     /// recorded when its undo is registered, moments after the trash, and read again here.
     ///
     /// Re-read at the depth it was recorded at (`drift`): a file by its size and date, a folder by
-    /// its contents (see `backupIdentity`). Three answers let the restore through and are not
+    /// its contents (see `backupIdentity`), a folder whose contents could not be read by its file
+    /// number. Three answers let the restore through and are not
     /// identity claims. Nothing was at the backup when the undo registered (`.absent`), or nothing
-    /// there could be read (`.indeterminate` — a folder with one unreadable descendant, a cloud
-    /// folder that did not answer in time): there is no identity to hold the backup to, and the
+    /// there could be read (`.indeterminate` — now only an item that could not even be statted, or
+    /// a file system with no file numbers): there is no identity to hold the backup to, and the
     /// restore behaves exactly as it did before FR27. Holding it to `.indeterminate` refused it
     /// forever, since every later read of that folder is `.indeterminate` too. And nothing is there
     /// now — the restore's own move then fails and reports the Trash as emptied, which is the

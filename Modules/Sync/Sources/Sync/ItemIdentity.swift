@@ -36,6 +36,13 @@ public enum ItemIdentity: Equatable, Sendable {
     /// so does Finder writing a `.DS_Store` into it. Produced only by `deepSnapshotWithFileNumber`,
     /// and `drift` re-reads it the same way.
     case directoryTreeAndFileNumber(contentDigest: String, fileNumber: UInt64)
+    /// A directory whose CONTENTS could not be read — one unreadable descendant, a cloud folder
+    /// that did not answer — known by its own file number alone (FR27, follow-up). Lighter than
+    /// a digest, and enough for the one question it is asked: is the folder in the Trash under
+    /// this name still the one an operation put there? The number survives the move into the
+    /// Trash, and a stranger given the freed name has another. Produced only by
+    /// `deepSnapshotOrFileNumber`, and `drift` re-reads the number alone.
+    case directoryFileNumber(UInt64)
     /// A symbolic link, described by its OWN size and date, not its target's.
     ///
     /// Spelled out rather than folded into `.file` because `attributesOfItem` does not follow
@@ -230,15 +237,32 @@ public extension ItemIdentity {
     static func deepSnapshotWithFileNumber(at url: URL, fileManager fm: FileManaging) -> ItemIdentity {
         let deep = deepSnapshot(at: url, fileManager: fm)
         guard case .directoryTree(let digest) = deep,
-              let number = (try? fm.attributesOfItem(atPath: url.path))?[.systemFileNumber] else { return deep }
-        let fileNumber: UInt64
-        switch number {
-        case let number as NSNumber: fileNumber = number.uint64Value
-        case let number as UInt64: fileNumber = number
-        case let number as Int: fileNumber = UInt64(truncatingIfNeeded: number)
-        default: return deep
-        }
+              let fileNumber = directoryFileNumber(at: url, fileManager: fm) else { return deep }
         return .directoryTreeAndFileNumber(contentDigest: digest, fileNumber: fileNumber)
+    }
+
+    /// `deepSnapshot`, or — when that is `.indeterminate` because the folder's contents could not
+    /// all be read — the folder's own file number (`.directoryFileNumber`), which needs only a
+    /// stat of the folder itself. Anything else, and a file system that reports no number (a test
+    /// double), is `deepSnapshot`'s answer unchanged.
+    static func deepSnapshotOrFileNumber(at url: URL, fileManager fm: FileManaging) -> ItemIdentity {
+        let deep = deepSnapshot(at: url, fileManager: fm)
+        guard deep == .indeterminate,
+              let fileNumber = directoryFileNumber(at: url, fileManager: fm) else { return deep }
+        return .directoryFileNumber(fileNumber)
+    }
+
+    /// The file number (`st_ino`) of the directory at `url`, from a stat of it alone — nil when it
+    /// is not a directory or the file system reports none.
+    static func directoryFileNumber(at url: URL, fileManager fm: FileManaging) -> UInt64? {
+        guard let attrs = try? fm.attributesOfItem(atPath: url.path),
+              attrs[.type] as? FileAttributeType == .typeDirectory else { return nil }
+        switch attrs[.systemFileNumber] {
+        case let number as NSNumber: return number.uint64Value
+        case let number as UInt64: return number
+        case let number as Int: return UInt64(truncatingIfNeeded: number)
+        default: return nil
+        }
     }
 
     /// `deepSnapshot` plus, when the answer is `.indeterminate`, the descendant that made it so —
@@ -349,6 +373,12 @@ public extension ItemIdentity {
             current = ItemIdentity.deepSnapshot(at: url, fileManager: fm)
         case .directoryTreeAndFileNumber:
             current = ItemIdentity.deepSnapshotWithFileNumber(at: url, fileManager: fm)
+        case .directoryFileNumber:
+            // The number alone, by a stat: the contents could not be read when it was recorded
+            // and need not be readable now. Not a directory, or gone, is an ordinary `.changed`;
+            // a stat that fails is `snapshot`'s `.indeterminate`.
+            current = ItemIdentity.directoryFileNumber(at: url, fileManager: fm)
+                .map(ItemIdentity.directoryFileNumber) ?? ItemIdentity.snapshot(at: url, fileManager: fm)
         default:
             current = ItemIdentity.snapshot(at: url, fileManager: fm)
         }

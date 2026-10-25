@@ -198,9 +198,9 @@ import Foundation
         return { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path) }
     }
 
-    /// A deleted folder holding one unreadable subfolder records `.indeterminate` — nothing could
-    /// be known about it when the undo registered — and ⌘Z restores it, as it did before FR27. A
-    /// recorded `.indeterminate` is the absence of an identity, not a mismatch with one.
+    /// A deleted folder holding one unreadable subfolder cannot be digested, so it is recorded by
+    /// its own file number (FR27, follow-up) — and ⌘Z restores it, unreadable subfolder and all:
+    /// the number needs only a stat of the folder, and the move into the Trash kept it.
     @MainActor
     @Test func aDeleteUndoRestoresAFolderWhoseIdentityCouldNotBeRecorded() async throws {
         let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-unrecorded")
@@ -214,8 +214,12 @@ import Foundation
         let backup = try #require(trashedURL as URL?)
         let unlockBackup = { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: backup.appendingPathComponent("private").path) }
         defer { unlockBackup(); unlockOriginal(); try? FileManager.default.removeItem(at: root) }
-        // The premise: nothing could be recorded.
-        #expect(FileSyncManager.backupIdentity(backup, fileManager: trash) == .indeterminate)
+        // The premise: the contents could not be read, and the number was recorded instead.
+        #expect(ItemIdentity.deepSnapshot(at: backup, fileManager: trash) == .indeterminate)
+        guard case .directoryFileNumber = FileSyncManager.backupIdentity(backup, fileManager: trash) else {
+            Issue.record("recorded \(FileSyncManager.backupIdentity(backup, fileManager: trash))")
+            return
+        }
 
         let m = manager()
         await m.registerRestoreItems(urls: [original], trashedItems: [backup], actionName: "Delete 1 Item", fileManager: trash).value
@@ -224,6 +228,47 @@ import Foundation
         #expect(read(original.appendingPathComponent("one.txt")) == "one",
                 "the undo refused the folder this delete put in the Trash: \(m.banner?.message ?? "nil")")
         #expect(!entryExists(backup))
+    }
+
+    /// …and a STRANGER given that folder's name in the Trash is refused (FR27, follow-up). With no
+    /// identity recorded for a folder it could not read, ⌘Z restored whatever sat at the Trash
+    /// path: empty the Trash, trash another folder of that name, and it landed in the user's
+    /// folder. Its file number differs, so it stays in the Trash.
+    @MainActor
+    @Test func aDeleteUndoRefusesAStrangerInPlaceOfAFolderItCouldNotRead() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-unread-stranger")
+        let trash = ScratchTrash(in: root)
+        let original = root.appendingPathComponent("docs/Project")
+        try write("one", original.appendingPathComponent("one.txt"))
+        try write("secret", original.appendingPathComponent("private/s.txt"))
+        let unlockOriginal = try lock(original.appendingPathComponent("private"))
+        var trashedURL: NSURL?
+        try trash.trashItem(at: original, resultingItemURL: &trashedURL)
+        let backup = try #require(trashedURL as URL?)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755],
+                                                   ofItemAtPath: backup.appendingPathComponent("private").path)
+            unlockOriginal(); try? FileManager.default.removeItem(at: root)
+        }
+        let m = manager()
+        await m.registerRestoreItems(urls: [original], trashedItems: [backup], actionName: "Delete 1 Item", fileManager: trash).value
+
+        // The Trash emptied, and another folder of the same name — same contents, so only its
+        // number can tell — trashed into the freed name.
+        try FileManager.default.setAttributes([.posixPermissions: 0o755],
+                                              ofItemAtPath: backup.appendingPathComponent("private").path)
+        try FileManager.default.removeItem(at: backup)
+        try write("one", backup.appendingPathComponent("one.txt"))
+        try write("secret", backup.appendingPathComponent("private/s.txt"))
+        let unlockStranger = try lock(backup.appendingPathComponent("private"))
+        defer { unlockStranger() }
+
+        await undoAndDrain(m)
+
+        #expect(!entryExists(original), "the undo restored a folder the delete never put in the Trash")
+        #expect(read(backup.appendingPathComponent("one.txt")) == "one")
+        #expect(m.banner?.message.contains("isn’t the one SyncCloud put there") == true,
+                "banner: \(m.banner?.message ?? "nil")")
     }
 
     /// Against an identity that WAS recorded, a backup that cannot be read at ⌘Z still refuses —
