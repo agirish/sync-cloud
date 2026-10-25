@@ -290,8 +290,17 @@ extension FileSyncManager {
         // republishes, so this provider's old cards stay on screen over the other provider's index.
         // Routing against it would put this file on a folder in the other account's tree, and
         // "File here" would then move it across accounts. The same guard `tryAnotherFolder` has.
-        guard let ocr = filingOCRExtractor, let index = filingRouterIndex,
-              let root = filingLastProviderRoot, root == suggestion.providerRoot else { return false }
+        guard let ocr = filingOCRExtractor else { return false }
+        guard let index = filingRouterIndex, let root = filingLastProviderRoot,
+              root == suggestion.providerRoot else {
+            // **Said, and the dead offer retired.** Refused in silence, the click did nothing and
+            // the button stayed up to be clicked again for the same nothing. The cards on screen
+            // are older than the scan the cache came from; a new scan of this folder rebuilds both.
+            filingUnreadableScans.remove(suggestion.filePath)
+            Logger.shared.info("Filing: Read scan of “\(suggestion.fileName)” refused — the cached index is from another scan (\(filingLastProviderRoot ?? "none"))")
+            banner = .warning("Couldn’t read “\(suggestion.fileName)” — this list is from an earlier scan. Scan this folder again to read it.")
+            return false
+        }
         // One render per file at a time — a second click while Vision is out would start a second.
         guard !filingOCRInFlight.contains(suggestion.filePath) else { return false }
         filingOCRInFlight.insert(suggestion.filePath)

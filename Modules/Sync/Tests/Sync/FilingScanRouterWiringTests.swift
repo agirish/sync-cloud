@@ -385,10 +385,17 @@ import Testing
         m.filingRouterIndex = otherIndex
         m.filingLastProviderRoot = rootB.path
 
+        m.banner = nil
         #expect(await m.readScan(for: s) == false)
         let after = try #require(m.filingSuggestions.first)
         #expect(after.best == nil,
                 "Read scan routed provider A's card onto \(after.best?.path ?? "-") from provider B's index")
         #expect(!(after.best?.path.hasPrefix(rootB.path) ?? false))
+        // **And the refusal is not silent** (FR44): the click did nothing and said nothing, and the
+        // button stayed up to be clicked again for the same nothing. It now says to scan again, and
+        // stops offering a read this list cannot make.
+        let banner = try #require(m.banner, "Read scan was refused without a word")
+        #expect(banner.message.contains("Scan this folder again"), "\(banner.message)")
+        #expect(!m.filingUnreadableScans.contains(s.filePath), "the dead offer stayed up")
     }
 }

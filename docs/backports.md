@@ -10827,3 +10827,28 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s silent=%s said=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same silent no-op for the file's own folder chosen by path (`silent=1`) | RECORDED — not owed |
+
+---
+
+## Read scan says why it can't read, and stops offering (FR44, follow-up) — main only
+
+FR44's guard refuses Read scan when the cached index is from another provider's scan, and refused
+in silence: the click did nothing and the button stayed up. `main` logs it, retires the offer, and
+says "Couldn't read “x” — this list is from an earlier scan. Scan this folder again to read it."
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s readScan=%s fr44=%s said=%s\n' $l \
+  "$(git show origin/$l:$S/FileSyncManager+FilingRoute.swift 2>/dev/null | grep -cF 'func readScan(')" \
+  "$(git show origin/$l:$S/FileSyncManager+FilingRoute.swift 2>/dev/null | grep -cF 'root == suggestion.providerRoot')" \
+  "$(git show origin/$l:$S/FileSyncManager+FilingRoute.swift 2>/dev/null | grep -cF 'Scan this folder again to read it')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads said=1):
+# main               readScan=1 fr44=1 said=0
+# v5.x, v4.x         readScan=1 fr44=0 said=0
+# v3.x, v2.x         readScan=0 fr44=0 said=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` | No FR44 refusal (`fr44=0`); FR44's row records what they lack | CLOSED — does not apply |
+| `v3.x` / `v2.x` | No Read scan (`readScan=0`) | CLOSED — does not apply |
