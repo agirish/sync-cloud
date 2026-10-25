@@ -849,16 +849,35 @@ public struct FileDiffEngine {
                         let action: FileDifference.SyncAction =
                             rightDate.timeIntervalSince(leftDate) > dateToleranceSeconds ? .copyToLeft : .copyToRight
                         let source = action == .copyToRight ? leftFile : rightFile
+                        // **Two files of different sizes with no clearly newer side are a question
+                        // here too (FR39).** The tie default above is a guess, and a bulk run took
+                        // it: "Sync all" overwrote whichever spelling lost. Held like the plain
+                        // both-files row, with the same note; a side with no date is no newer side.
+                        let bothDated = leftFile.modificationDate != nil && rightFile.modificationDate != nil
+                        let noNewerSide = !bothDated
+                            || abs(leftDate.timeIntervalSince(rightDate)) <= dateToleranceSeconds
+                        let sizesUnclear = !leftFile.isDirectory && !rightFile.isDirectory
+                            && leftFile.fileSize != rightFile.fileSize && noNewerSide
+                        var conflictNote = ProviderNameRules.nameConflictDescription(
+                            leftName: leftLeaf, leftProvider: left.displayName,
+                            rightName: rightLeaf, rightProvider: right.displayName
+                        )
+                        if sizesUnclear {
+                            let sizesNote = sizesDifferWithoutANewerSide(
+                                leftDate: leftFile.modificationDate, rightDate: rightFile.modificationDate,
+                                left: left, right: right, dateToleranceSeconds: dateToleranceSeconds)
+                            conflictNote += "; " + sizesNote.prefix(1).lowercased() + sizesNote.dropFirst()
+                        }
+                        let heldReason: FileDifference.HeldBack? = leftFile.isDirectory != rightFile.isDirectory
+                            ? .folderVersusFile
+                            : sizesUnclear ? .sizesDifferWithoutANewerSide : nil
                         diffs.append(FileDifference(
                             relativePath: relativePath,
                             leftItemPath: leftFile.url.path,
                             rightItemPath: rightFile.url.path,
                             type: .nameConflict,
                             action: action,
-                            description: noted(ProviderNameRules.nameConflictDescription(
-                                leftName: leftLeaf, leftProvider: left.displayName,
-                                rightName: rightLeaf, rightProvider: right.displayName
-                            ), source: source),
+                            description: noted(conflictNote, source: source),
                             leftFileSize: leftFile.fileSize,
                             rightFileSize: rightFile.fileSize,
                             leftIsDirectory: leftFile.isDirectory,
@@ -866,8 +885,7 @@ public struct FileDiffEngine {
                             // A folder against a file is judged by the folder's own date here too,
                             // which says nothing about its contents (FR40) — held like the plain
                             // type-mismatch row below.
-                            heldBack: held(leftFile.isDirectory != rightFile.isDirectory ? .folderVersusFile : nil,
-                                           source: source)
+                            heldBack: held(heldReason, source: source)
                         ))
                         continue
                     }

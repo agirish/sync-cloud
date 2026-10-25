@@ -11241,3 +11241,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr27=%s fix=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR27 check (`fr27=0`) — FR27's section records it | RECORDED — not owed |
+
+---
+
+## A name-conflict pair with different sizes and no newer side is held (FR39, owner decision) — main only
+
+Two files whose names differ only invisibly, with different sizes and dates inside the tolerance (or
+a side undated), still defaulted left → right, and "Sync all" overwrote the right spelling. `main`
+holds such a row as "needs your decision", like the plain both-files row, and its note says why.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s heldBack=%s fix=%s\n' $l \
+  "$(git show origin/$l:$S/FileDifference.swift 2>/dev/null | grep -cF 'public let heldBack')" \
+  "$(git show origin/$l:$S/FileDiffEngine.swift 2>/dev/null | grep -cF 'let sizesUnclear')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads fix=1):
+# main                     heldBack=1 fix=0
+# v5.x, v4.x, v3.x, v2.x   heldBack=0 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No held rows at all (`heldBack=0`); the tie default left → right, as for every row | CLOSED — does not apply |

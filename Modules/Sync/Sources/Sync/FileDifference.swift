@@ -62,7 +62,8 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
         /// (FR39) Two files whose sizes differ while their dates match within the tolerance, or
         /// where a side has no date at all: nothing says which is newer, and the old default
         /// ("left as truth") overwrote the right on every bulk run — at the 5 s and 60 s
-        /// tolerances, for any pair edited within that window of each other.
+        /// tolerances, for any pair edited within that window of each other. A `.nameConflict`
+        /// pair of two files is held for the same reason (its tie default was left → right too).
         case sizesDifferWithoutANewerSide
         /// (FR40) A folder against a file. A folder's own date is not when its contents last
         /// changed — a package edited yesterday inside can carry a 2024 folder date — so the two

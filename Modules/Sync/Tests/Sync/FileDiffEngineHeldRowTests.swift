@@ -78,6 +78,42 @@ import Foundation
         #expect(rightless.description == "Sizes differ and the Backup file has no date — choose which to keep")
     }
 
+    /// **A name-conflict pair is the same question (FR39).** Two files whose names differ only
+    /// invisibly, sizes different, dates 3 s apart at the 5 s tolerance (or one undated): the row
+    /// used to default left → right and "Sync all" overwrote the right spelling. Held, with the
+    /// sizes note after the names. Its neighbours are not: a same-size pair has nothing to lose,
+    /// and a pair 10 s apart has a newer side.
+    @Test func aNameConflictPairWithDifferentSizesAndNoNewerSideIsHeld() throws {
+        let rows = diff([
+            "Report ": info("/left/Report ", size: 100, date: d1.addingTimeInterval(3)),
+            "Undated ": info("/left/Undated ", size: 100, date: nil),
+            "Same.": info("/left/Same.", size: 100, date: d1),
+            "Clear ": info("/left/Clear ", size: 100, date: d1.addingTimeInterval(10)),
+        ], [
+            "Report": info("/right/Report", size: 200, date: d1),
+            "Undated": info("/right/Undated", size: 200, date: d1),
+            "Same": info("/right/Same", size: 100, date: d1.addingTimeInterval(3)),
+            "Clear": info("/right/Clear", size: 200, date: d1),
+        ], tolerance: 5)
+
+        let tied = try #require(rows["Report "])
+        #expect(tied.type == .nameConflict)
+        #expect(tied.heldBack == .sizesDifferWithoutANewerSide, "Sync all overwrites the right spelling on a guess")
+        #expect(tied.description == "Names differ by a trailing space: “Report ” (Mac) vs “Report” (Backup); sizes differ but the dates match within the 5 s tolerance — choose which to keep")
+        let undated = try #require(rows["Undated "])
+        #expect(undated.heldBack == .sizesDifferWithoutANewerSide, "a side with no date is no newer side")
+        #expect(undated.description.hasSuffix("; sizes differ and the Mac file has no date — choose which to keep"))
+
+        let same = try #require(rows["Same."])
+        #expect(same.type == .nameConflict)
+        #expect(same.heldBack == nil, "equal sizes inside the tolerance lose nothing either way")
+        let clear = try #require(rows["Clear "])
+        #expect(clear.type == .nameConflict)
+        #expect(clear.heldBack == nil, "a pair whose dates clearly differ must not be held")
+        #expect(clear.action == .copyToRight)
+        #expect(!clear.description.contains("choose"))
+    }
+
     // MARK: FR40 — a folder against a file
 
     /// **The `Report.pages` case.** A package edited yesterday inside still carries its 2024 folder
