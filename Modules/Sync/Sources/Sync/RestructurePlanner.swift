@@ -135,7 +135,14 @@ public struct RestructureTreeView {
 
     static func fromDisk(root: URL, fileManager: FileManager, contentsFrom: any FileManaging)
         -> RestructureTreeView {
-        RestructureTreeView(listing: { path in
+        // **One unanswered folder, one wait** (review R8). Each dataless folder waits out the
+        // reads' deadline the first time it goes unanswered, on the main actor, one after
+        // another — a plan over a family of cloud-only folders whose app has stopped held the
+        // sheet five seconds per folder. Once one has not answered, every later dataless folder
+        // this view is asked about lists as unknown at once: the plan is refused either way.
+        final class Stall { var unanswered = false }
+        let stall = Stall()
+        return RestructureTreeView(listing: { path in
             let url = root.appendingPathComponent(path)
             let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .isPackageKey]
             // A package asked about by its own path is a document, not a folder with a listing —
@@ -150,7 +157,11 @@ public struct RestructureTreeView {
             if walkedDown.contains(where: {
                 (try? $0.resourceValues(forKeys: [.isPackageKey]))?.isPackage == true
             }) { return nil }
-            guard contentsFrom.waitForContentsBlocking(of: url) else { return nil }
+            if stall.unanswered, contentsFrom.isDataless(at: url) { return nil }
+            guard contentsFrom.waitForContentsBlocking(of: url) else {
+                stall.unanswered = true
+                return nil
+            }
             guard let urls = try? fileManager.contentsOfDirectory(
                 at: url, includingPropertiesForKeys: keys, options: [])
             else { return nil }

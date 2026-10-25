@@ -10385,3 +10385,30 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fromDisk=%s survey=%s surveyP
 | `v5.x` | Both: a survey that descends into packages and the disk view (`fromDisk=1`) | RECORDED — not owed |
 | `v4.x` | The survey half; no Restructure (`fromDisk=0`), so nothing plans a move inside one | RECORDED — not owed |
 | `v3.x` / `v2.x` | No folder survey (`survey=0`) | CLOSED — does not apply |
+
+---
+
+## A plan over cloud-only folders waits once, not once per folder (review R8) — main only
+
+The plan view asks a cloud-only folder for its contents for a bounded time (FR21), but each such
+folder waited out the deadline the first time it went unanswered, on the main actor, one after
+another — a family of folders whose cloud app had stopped held the plan sheet several seconds per
+folder. `main`'s disk view (`RestructureTreeView.fromDisk`) lists every later cloud-only folder as
+unknown at once after the first goes unanswered; the plan is refused either way.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fromDisk=%s askFirst=%s stall=%s\n' $l \
+  "$(git show origin/$l:$S/RestructurePlanner.swift 2>/dev/null | grep -cF 'public static func fromDisk')" \
+  "$(git show origin/$l:$S/RestructurePlanner.swift 2>/dev/null | grep -cF 'waitForContentsBlocking(of: url)')" \
+  "$(git show origin/$l:$S/RestructurePlanner.swift 2>/dev/null | grep -cF 'stall.unanswered')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads stall=2):
+# main               fromDisk=1 askFirst=1 stall=0
+# v5.x               fromDisk=1 askFirst=0 stall=0
+# v4.x, v3.x, v2.x   fromDisk=0 askFirst=0 stall=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The disk view with no bounded ask at all (`askFirst=0`): it hangs rather than waits; FR21's row records that | CLOSED — does not apply |
+| `v4.x` / `v3.x` / `v2.x` | No Restructure (`fromDisk=0`) | CLOSED — does not apply |
