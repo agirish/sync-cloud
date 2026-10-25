@@ -129,6 +129,9 @@ struct DifferenceActionTargets: Equatable {
     let copyToLeftCount: Int
     /// Items "Verify" would checksum: date-only differences with matching sizes within `targets`.
     let verifiableCount: Int
+    /// Held rows within `targets` (`FileDifference.heldBack`), either direction: the rows no Copy or
+    /// Move here takes, which the header counts out loud (`heldText`) so they are not simply absent.
+    let heldCount: Int
 
     init(filtered: [FileDifference], selection: Set<FileDifference.ID>) {
         // Resolve the selection against the *visible* rows. A selection that resolves to no
@@ -144,15 +147,35 @@ struct DifferenceActionTargets: Equatable {
         // One pass for all three counts. This initializes once per Differences render, which
         // during a bulk sync happens per file over the whole filtered set, so folding three
         // reduces into a single loop drops two extra O(n) walks of the targets each frame.
-        var right = 0, left = 0, verifiable = 0
+        var right = 0, left = 0, verifiable = 0, held = 0
         for difference in targets {
             if Self.headerTransfers(difference, .copyToRight) { right += 1 }
             if Self.headerTransfers(difference, .copyToLeft) { left += 1 }
             if difference.type == .differentDates && difference.sizesMatch { verifiable += 1 }
+            if difference.heldBack != nil { held += 1 }
         }
         self.copyToRightCount = right
         self.copyToLeftCount = left
         self.verifiableCount = verifiable
+        self.heldCount = held
+    }
+
+    /// What the header says about the held rows it will not copy — "2 need your decision" — or nil
+    /// when there are none. Without it a header over 5 rows with 2 held read "Copy 3 →" and said
+    /// nothing of the other two, and one whose every row was held showed no button and no reason.
+    var heldText: String? {
+        switch heldCount {
+        case 0: return nil
+        case 1: return "1 needs your decision"
+        default: return "\(heldCount) need your decision"
+        }
+    }
+
+    /// The held rows a Copy/Move in `direction` leaves out — handed to the run beside
+    /// `transferItems` so its banner can say how many it left and why (`FileSyncManager.syncAll`
+    /// filters them out itself and names them).
+    func heldItems(_ direction: FileDifference.SyncAction) -> [FileDifference] {
+        targets.filter { $0.action == direction && $0.heldBack != nil }
     }
 
     /// What the header's Copy/Move in `direction` acts on — the rows its count is the count OF.

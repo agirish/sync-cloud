@@ -130,6 +130,17 @@ enum DifferencesShortcutRules {
         }
     }
 
+    /// The held rows ``transferItems(rows:selection:direction:)`` leaves out of a selection of more
+    /// than one, in that direction — handed to the run beside the rows it sends, so its banner says
+    /// how many were left out and why instead of reporting only what it copied. Empty for a held row
+    /// picked alone, which `transferItems` sends.
+    static func heldItems(rows: [FileDifference],
+                          selection: Set<FileDifference.ID>,
+                          direction: FileDifference.SyncAction) -> [FileDifference] {
+        guard selection.count > 1 else { return [] }
+        return rows.filter { selection.contains($0.id) && $0.action == direction && $0.heldBack != nil }
+    }
+
     /// The live rows for a set of ids, in the rows' own order.
     ///
     /// The direction-blind half of ``transferItems(rows:selection:direction:)``, for the menu

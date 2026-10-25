@@ -338,8 +338,8 @@ import Sync
 
     /// ⌘→ and the bulk context menu leave held rows out of a multi-row selection exactly as the
     /// header does — and when exactly one held row survives, nothing reaches `syncFile`. The one
-    /// exception is a held row the user selected ALONE and asked to copy: the "pick it alone" path
-    /// the held rows' wording points to.
+    /// exception is a held row the user selected ALONE and asked to copy, which goes the way its
+    /// guess points (the row's own menu copies it either way — `DifferenceRowMenu.heldCopyDirections`).
     @Test func testTheChordAndBulkMenuLeaveHeldRowsOutOfASelection() {
         let guess = FileDifference(relativePath: "guess.txt", leftItemPath: "/l/guess.txt",
                                    rightItemPath: "/r/guess.txt", type: .differentDates,
@@ -377,6 +377,67 @@ import Sync
         let body = source[start.upperBound...].prefix(600)
         #expect(body.contains("let toRight = DifferencesShortcutRules.transferItems(rows: selected, selection: ids, direction: .copyToRight)"))
         #expect(body.contains("let toLeft = DifferencesShortcutRules.transferItems(rows: selected, selection: ids, direction: .copyToLeft)"))
+    }
+
+    /// The rows the header will not copy are counted out loud: "Copy 3 →" over five rows with two
+    /// held said nothing of the two, and a set that was ALL held showed no button and no reason.
+    /// The count spans both directions; what a run in one direction is handed is that direction's.
+    @Test func testTheHeaderCountsTheHeldRowsAndHandsThemToTheRun() {
+        func held(_ path: String, _ action: FileDifference.SyncAction) -> FileDifference {
+            FileDifference(relativePath: path, leftItemPath: "/l/\(path)", rightItemPath: "/r/\(path)",
+                           type: .differentDates, action: action, description: "test",
+                           leftFileSize: 1, rightFileSize: 2, heldBack: .sizesDifferWithoutANewerSide)
+        }
+        let toRight = held("a.txt", .copyToRight), toLeft = held("b.txt", .copyToLeft)
+        let plain = diff("plain.txt", action: .copyToRight)
+
+        let none = DifferenceActionTargets(filtered: [plain], selection: [])
+        #expect(none.heldCount == 0)
+        #expect(none.heldText == nil, "the header says something with nothing held")
+        let one = DifferenceActionTargets(filtered: [toRight, plain], selection: [])
+        #expect(one.heldText == "1 needs your decision")
+        let both = DifferenceActionTargets(filtered: [toRight, toLeft, plain], selection: [])
+        #expect(both.heldCount == 2)
+        #expect(both.heldText == "2 need your decision")
+        #expect(both.heldItems(.copyToRight).map(\.relativePath) == ["a.txt"])
+        #expect(both.heldItems(.copyToLeft).map(\.relativePath) == ["b.txt"])
+        // All held: no transfer to offer, and the readout is the reason.
+        let allHeld = DifferenceActionTargets(filtered: [toRight, toLeft], selection: [])
+        #expect(allHeld.copyToRightCount == 0 && allHeld.copyToLeftCount == 0)
+        #expect(allHeld.heldText == "2 need your decision")
+        // Scoped to a selection, it counts the selection's held rows only.
+        let scoped = DifferenceActionTargets(filtered: [toRight, toLeft, plain], selection: [plain.id, toLeft.id])
+        #expect(scoped.heldText == "1 needs your decision")
+
+        // ⌘→ and the bulk menu hand the run the held rows they leave out of a larger selection —
+        // and none for a held row picked alone, which they send.
+        #expect(DifferencesShortcutRules.heldItems(rows: [toRight, plain], selection: [toRight.id, plain.id],
+                                                   direction: .copyToRight).map(\.relativePath) == ["a.txt"])
+        #expect(DifferencesShortcutRules.heldItems(rows: [toRight, plain], selection: [toRight.id, plain.id],
+                                                   direction: .copyToLeft).isEmpty)
+        #expect(DifferencesShortcutRules.heldItems(rows: [toRight, plain], selection: [toRight.id],
+                                                   direction: .copyToRight).isEmpty)
+    }
+
+    /// The call sites: every Copy/Move hands its held rows to the run, the run passes them on to
+    /// `syncAll` — which leaves them out and names them — and takes `syncFile` only when none are
+    /// in hand; and the header draws the readout from the string the ladder priced.
+    @Test func testEveryRunIsHandedItsHeldRowsAndTheHeaderSaysHowMany() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/DifferencesView.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read DifferencesView.swift — every check below would be vacuous")
+        let run = try #require(source.range(of: "private func runCopyOrMove(")
+            .map { String(source[$0.lowerBound...].prefix(900)) }, "runCopyOrMove was renamed — this scan measures nothing")
+        #expect(run.contains("if items.count == 1, held.isEmpty, let single = items.first {"),
+                "one item with held rows in hand goes to syncFile, which never mentions them")
+        #expect(run.contains("subset: items + held"), "the run no longer hands syncAll the held rows")
+        #expect(source.contains("held: targets.heldItems(direction),"), "the header's Copy drops its held rows")
+        #expect(source.components(separatedBy: "DifferencesShortcutRules.heldItems(rows: displayRows.sorted, selection:").count == 3,
+                "⌘→ or the bulk menu drops its held rows")
+        #expect(source.contains("heldReadout(facts.heldText)"), "the header no longer draws the held count")
+        #expect(source.contains("heldText: targets.heldText,"), "the ladder no longer prices the held count")
     }
 
     @Test func testEmptySelectionTargetsTheWholeFilteredSet() {

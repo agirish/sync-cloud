@@ -10597,3 +10597,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s heldBack=%s rowCopy=%s\n' $l 
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No held rows at all (`heldBack=0`) | CLOSED — does not apply |
+
+---
+
+## Compare says how many held rows a run left out (FR39/FR40, follow-up) — main only
+
+The header, ⌘→ and the bulk menu filtered held rows out before `syncAll`, so "Copy 3 →" over five
+rows with two held reported "Copied 3 items" and the two went unexplained, and a set that was all
+held showed no button and no reason. `main` hands the held rows to `syncAll`, which leaves them out
+and names them in its banner, and the header reads "N need your decision" beside its buttons
+(`DifferenceActionTargets.heldText`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s heldBack=%s heldReadout=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileDifference.swift 2>/dev/null | grep -cF 'public let heldBack')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DifferencesQuery.swift 2>/dev/null | grep -cF 'var heldText: String?')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads heldReadout=1):
+# main                     heldBack=1 heldReadout=0
+# v5.x, v4.x, v3.x, v2.x   heldBack=0 heldReadout=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No held rows at all (`heldBack=0`) | CLOSED — does not apply |

@@ -821,6 +821,7 @@ public struct DifferencesView: View {
             verifiableCount: targets.verifiableCount,
             copyToLeftCount: targets.copyToLeftCount,
             copyToRightCount: targets.copyToRightCount,
+            heldText: targets.heldText,
             reverseIsMajority: targets.dominantCopyDirection == .copyToLeft,
             leftName: paneNames.left,
             rightName: paneNames.right,
@@ -862,6 +863,7 @@ public struct DifferencesView: View {
             overflowMenu(compaction, targets: targets, sorted: sorted)   // ACTIONS
             if compaction < .foldVerify { verifyButton(targets) }
             if compaction < .foldReview { reviewButton(targets, sorted: sorted) }
+            heldReadout(facts.heldText)
             // `facts.isMove`, not `modifierTracker` read afresh: the ladder priced these two labels
             // from that snapshot, and "Move" is materially wider than "Copy" — at the narrow rungs it
             // is 37pt wider, because Copy sheds its verb along with its destination and Move never
@@ -961,6 +963,22 @@ public struct DifferencesView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .transition(.opacity)
+        }
+    }
+
+    /// "2 need your decision", beside the transfer buttons that leave those rows out, or nothing
+    /// when none are held. Drawn as the totals readout is, and priced from the same string
+    /// (`HeaderLadder.Facts.heldText`). On every rung: when every target is held it is the only
+    /// thing in the action zone that says why there is no Copy.
+    @ViewBuilder
+    private func heldReadout(_ text: String?) -> some View {
+        if let text {
+            Text(text)
+                .scaledFont(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .help("Left out of Copy and Move — each row’s note says why")
         }
     }
 
@@ -1934,6 +1952,7 @@ public struct DifferencesView: View {
         runCopyOrMove(
             direction: direction,
             items: targets.transferItems(direction),
+            held: targets.heldItems(direction),
             scope: targets.isSelectionScoped ? "selection" : "filtered set"
         )
     }
@@ -1980,8 +1999,9 @@ public struct DifferencesView: View {
         let items = DifferencesShortcutRules.transferItems(rows: displayRows.sorted,
                                                            selection: ids,
                                                            direction: direction)
-        guard !items.isEmpty else { return }
-        runCopyOrMove(direction: direction, items: items, scope: "selection")
+        let held = DifferencesShortcutRules.heldItems(rows: displayRows.sorted, selection: ids, direction: direction)
+        guard !items.isEmpty || !held.isEmpty else { return }
+        runCopyOrMove(direction: direction, items: items, held: held, scope: "selection")
     }
 
     private func keyboardCopy(direction: FileDifference.SyncAction, isMove: Bool) {
@@ -1989,8 +2009,10 @@ public struct DifferencesView: View {
         let items = DifferencesShortcutRules.transferItems(rows: displayRows.sorted,
                                                            selection: selection,
                                                            direction: direction)
-        guard !items.isEmpty else { return }
-        runCopyOrMove(direction: direction, items: items, scope: "selection", isMove: isMove)
+        let held = DifferencesShortcutRules.heldItems(rows: displayRows.sorted, selection: selection,
+                                                      direction: direction)
+        guard !items.isEmpty || !held.isEmpty else { return }
+        runCopyOrMove(direction: direction, items: items, held: held, scope: "selection", isMove: isMove)
     }
 
     /// One Copy/Move dispatch shared by the header buttons and the bulk context menu, so
@@ -2001,15 +2023,22 @@ public struct DifferencesView: View {
     /// handler; `syncAll` (which offers no Retry) is only for genuine multi-item runs.
     /// `isMove` overrides the live move-modifier read — the keyboard shortcut passes ⇧ explicitly
     /// (⌘ is always held for its chord); the header and context menu omit it to read the modifier.
-    private func runCopyOrMove(direction: FileDifference.SyncAction, items: [FileDifference], scope: String, isMove overrideMove: Bool? = nil) {
+    ///
+    /// `held` is the held rows the caller's rule left out of `items`. They ride into `syncAll`'s
+    /// subset, which leaves them out again and says how many and why — the callers used to filter
+    /// them away first, so "Copy 3 →" over five rows with two held said "Copied 3 items" and the two
+    /// went unexplained, and a set that was all held did nothing at all. With any held row in hand
+    /// the run is `syncAll` even for one item, because `syncFile` would not mention them.
+    private func runCopyOrMove(direction: FileDifference.SyncAction, items: [FileDifference],
+                               held: [FileDifference], scope: String, isMove overrideMove: Bool? = nil) {
         let isMove = overrideMove ?? ModifierTracker.moveModifierHeld
         Logger.shared.debug(
             "Bulk \(isMove ? "move" : "copy") \(direction == .copyToRight ? "to right" : "to left"): "
-            + "\(items.count) item(s) (\(scope))")
-        if items.count == 1, let single = items.first {
+            + "\(items.count) item(s), \(held.count) held (\(scope))")
+        if items.count == 1, held.isEmpty, let single = items.first {
             Task { await syncManager.syncFile(single, isMove: isMove) }
-        } else {
-            Task { await syncManager.syncAll(direction: direction, isMove: isMove, subset: items) }
+        } else if !items.isEmpty || !held.isEmpty {
+            Task { await syncManager.syncAll(direction: direction, isMove: isMove, subset: items + held) }
         }
     }
 

@@ -92,6 +92,8 @@ struct HeaderLadder {
         var verifiableCount: Int
         var copyToLeftCount: Int
         var copyToRightCount: Int
+        /// `DifferenceActionTargets.heldText` — "2 need your decision" — or nil when nothing is held.
+        var heldText: String? = nil
         var reverseIsMajority: Bool
         var leftName: String
         var rightName: String
@@ -111,6 +113,7 @@ struct HeaderLadder {
     private struct Widths {
         var countPill: CGFloat = 0
         var itemCounts: CGFloat = 0
+        var held: CGFloat = 0
         var filterFull: CGFloat = 0
         var selectionChip: CGFloat = 0
         var verify: CGFloat = 0
@@ -171,6 +174,10 @@ struct HeaderLadder {
             // three-figure fixture and is why the suite carries a four-figure one.
             w.itemCounts = LabelMetrics.width(of: text, font: ScaledFont.caption.monospacedDigit(),
                                               scale: scale)
+        }
+
+        if let text = facts.heldText {
+            w.held = LabelMetrics.width(of: text, font: .caption, scale: scale)
         }
 
         // The full filter label: funnel, name, chevron, at 6pt apart, inside an action-bar capsule.
@@ -285,6 +292,7 @@ struct HeaderLadder {
         if foldedReview || foldedVerify { run.append(LabelMetrics.actionBarIconOnlyWidth) }
         if compaction < .foldVerify, facts.verifiableCount > 0 { run.append(widths.verify) }
         if compaction < .foldReview, facts.targetCount > 0 { run.append(widths.review) }
+        if facts.heldText != nil { run.append(widths.held) }
         if facts.copyToLeftCount > 0 {
             run.append(BulkActionLabel.reverseNamesDestination(
                 reverseIsMajority: facts.reverseIsMajority, compaction: compaction)

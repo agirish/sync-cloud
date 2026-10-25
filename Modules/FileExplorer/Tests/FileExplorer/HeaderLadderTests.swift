@@ -44,9 +44,18 @@ struct HeaderLadderTests {
 
     /// A comparison whose header has something in every slot: both directions non-empty, verifiable
     /// items for Verify, and enough folders to offer the fold-all toggle.
-    private func differences(toRight: Int = 12, toLeft: Int = 5, verifiable: Int = 4,
+    private func differences(toRight: Int = 12, toLeft: Int = 5, verifiable: Int = 4, held: Int = 0,
                              folders: [String] = ["Documents", "Photos", "Projects"]) -> [FileDifference] {
         var rows: [FileDifference] = []
+        // Held rows (`heldBack`): no transfer button counts them, and the header says how many.
+        for index in 0..<held {
+            rows.append(FileDifference(
+                relativePath: "\(folders[index % folders.count])/held-\(index).txt",
+                leftItemPath: "/left/held-\(index).txt", rightItemPath: "/right/held-\(index).txt",
+                type: .differentDates, action: .copyToRight,
+                description: "Sizes differ but the dates are the same — choose which to keep",
+                leftFileSize: 10, rightFileSize: 20, heldBack: .sizesDifferWithoutANewerSide))
+        }
         for index in 0..<toRight {
             rows.append(FileDifference(
                 relativePath: "\(folders[index % folders.count])/right-\(index).txt",
@@ -132,6 +141,7 @@ struct HeaderLadderTests {
             verifiableCount: targets.verifiableCount,
             copyToLeftCount: targets.copyToLeftCount,
             copyToRightCount: targets.copyToRightCount,
+            heldText: targets.heldText,
             reverseIsMajority: targets.dominantCopyDirection == .copyToLeft,
             leftName: names.left, rightName: names.right,
             isMove: false,
@@ -301,6 +311,8 @@ struct HeaderLadderTests {
             ("ungrouped (no folds)", differences(),                                false, false, false, true,  true),
             ("no collapse binding",  differences(),                                false, false, true,  false, true),
             ("pre-scan",             differences(),                                false, false, true,  true,  false),
+            ("some held",            differences(held: 2),                         false, false, true,  true,  true),
+            ("all held",             differences(toRight: 0, toLeft: 0, verifiable: 0, held: 3), false, false, true,  true,  true),
         ]
 
         for (label, rows, scoped, isMove, grouped, binds, scanned) in states {
