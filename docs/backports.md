@@ -11589,3 +11589,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s hint=%s hintPlace=%s\n' $l \
 |---|---|---|
 | `v5.x` | The hint over the whole line (`hintPlace=0`) | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No editable Preview, so no hint (`hint=0`) | CLOSED — does not apply |
+
+---
+
+## Closing to one tab keeps the strip under the pointer (TE214, decision CD) — main only
+
+Closing the second-to-last tab took the tab strip away at once, so the header and the list jumped
+up 34pt under the pointer — in Compare both panes. `main` keeps the strip, showing the one tab
+left, until the pointer leaves it (`PaneTabStripHold`), then slides it away; ⌘W still collapses
+it at once.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s strip=%s held=%s\n' $l \
+  "$(git show origin/$l:MacApp/ContentView.swift 2>/dev/null | grep -c 'if paneShowsTabStrip(isLeft: isLeft) {')" \
+  "$(git show origin/$l:MacApp/ContentView+PaneTabs.swift 2>/dev/null | grep -c 'struct PaneTabStripHold')"; done
+# measured 2026-10-25, against origin, before this landed (the change reads held=1):
+# main, v5.x, v4.x   strip=1 held=0
+# v3.x, v2.x         strip=0 held=0   (no tabs)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` | The strip leaving at once from under the pointer (`held=0`) | RECORDED — not owed |
+| `v3.x` / `v2.x` | No tabs | CLOSED — does not apply |

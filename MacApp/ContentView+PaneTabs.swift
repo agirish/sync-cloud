@@ -130,8 +130,8 @@ extension ContentView {
         // `PaneSideChoice.sibling`.
         let sibling = PaneSideChoice.sibling(isLeft)
         return PaneTabStripVisibility.shows(
-            own: syncManager.paneTabs(isLeft: isLeft).showsStrip,
-            sibling: syncManager.paneTabs(isLeft: sibling).showsStrip,
+            own: syncManager.paneTabs(isLeft: isLeft).showsStrip || tabStripHold.holds(isLeft: isLeft),
+            sibling: syncManager.paneTabs(isLeft: sibling).showsStrip || tabStripHold.holds(isLeft: sibling),
             isCompare: layoutMode == .compare,
             switchIsOn: tabBarVisible)
     }
@@ -659,6 +659,9 @@ extension ContentView {
         // landed in* is the whole question that line has to answer, and it named neither pane nor
         // tab.
         let closing = tabLogDescription(id: id, isLeft: isLeft)
+        // **A keyboard close lets a held strip go at once** — nothing is aiming at it. A close from
+        // the strip holds it again straight after (`holdingTabStrip`).
+        if tabStripHold.holds(isLeft: isLeft) { tabStripHold.release(isLeft: isLeft) }
         guard syncManager.paneTabs(isLeft: isLeft).count > 1 else {
             // **Asked because this closes the window, not because the buffer would be lost.**
             // It once could have been: the document was a `@StateObject` on `ContentView`, and a
@@ -1001,6 +1004,31 @@ struct BrowseTabPersistence: ViewModifier {
 /// Browse has no sibling, and the single-source rail's other pane is not on screen: both take the
 /// own-pane term alone. Ticked-and-disabled past one tab is enforced by `shortcutTabBar`, so the
 /// switch stays a plain disjunct.
+/// **The panes whose strip is held on screen under the pointer** (TE214) — begun by
+/// `holdingTabStrip` only while `PaneTabStripPointer` has the pointer on that strip, ended when it
+/// leaves or a keyboard close comes. Folded into each pane's `showsStrip` by `paneShowsTabStrip`,
+/// so in Compare a held strip keeps its sibling's up too, as two tabs would.
+struct PaneTabStripHold: Equatable {
+    private var held: Set<Bool> = []
+
+    func holds(isLeft: Bool) -> Bool { held.contains(isLeft) }
+    mutating func hold(isLeft: Bool) { held.insert(isLeft) }
+    mutating func release(isLeft: Bool) { held.remove(isLeft) }
+}
+
+/// Whether the pointer is on each pane's strip. A class, unobserved, because the strip's hover
+/// fires on every crossing and a `ContentView` state write would re-render the window for it.
+@MainActor
+final class PaneTabStripPointer {
+    private var over: Set<Bool> = []
+
+    func isOver(isLeft: Bool) -> Bool { over.contains(isLeft) }
+
+    func setOver(_ inside: Bool, isLeft: Bool) {
+        if inside { over.insert(isLeft) } else { over.remove(isLeft) }
+    }
+}
+
 enum PaneTabStripVisibility {
     static func shows(own: Bool, sibling: Bool, isCompare: Bool, switchIsOn: Bool) -> Bool {
         own || switchIsOn || (isCompare && sibling)

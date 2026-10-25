@@ -2420,6 +2420,59 @@ import Sync
                 "Open in New Tab is not wired to the delegate")
     }
 
+    // MARK: The strip stays under the pointer (TE214)
+
+    /// **A hold is per pane and ends when asked** — the value `paneShowsTabStrip` folds in.
+    @Test func aHeldStripIsHeldPerPaneUntilReleased() {
+        var hold = PaneTabStripHold()
+        #expect(!hold.holds(isLeft: true) && !hold.holds(isLeft: false))
+        hold.hold(isLeft: true)
+        #expect(hold.holds(isLeft: true))
+        #expect(!hold.holds(isLeft: false), "holding the left strip held the right one too")
+        hold.release(isLeft: true)
+        #expect(!hold.holds(isLeft: true))
+    }
+
+    @Test func thePointerIsTrackedPerStrip() {
+        let pointer = PaneTabStripPointer()
+        pointer.setOver(true, isLeft: false)
+        #expect(pointer.isOver(isLeft: false))
+        #expect(!pointer.isOver(isLeft: true))
+        pointer.setOver(false, isLeft: false)
+        #expect(!pointer.isOver(isLeft: false))
+    }
+
+    /// **The hold is wired where it acts**: both panes' terms of the visibility rule fold it in (so
+    /// in Compare a held strip keeps its sibling's up, as two tabs would); the strip's close and
+    /// Close Others go through the hold; the strip reports the pointer and lets a held strip go when
+    /// it leaves; and a close from anywhere else — ⌘W — releases it first. The value tests above
+    /// pass with every one of these lines reverted.
+    @Test func theHoldIsWiredWhereItActs() throws {
+        let tabs = try Self.source("ContentView+PaneTabs.swift")
+        let shows = try Self.memberBody("func paneShowsTabStrip(isLeft: Bool) -> Bool {", in: tabs)
+        #expect(shows.contains("showsStrip || tabStripHold.holds(isLeft: isLeft)"),
+                "this pane's strip no longer counts a hold — closing to one tab jumps the header under the pointer")
+        #expect(shows.contains("showsStrip || tabStripHold.holds(isLeft: sibling)"),
+                "the sibling's hold is not counted — in Compare the other pane's strip goes and its header jumps")
+        let close = try Self.memberBody("func closeTab(id: UUID, isLeft: Bool) {", in: tabs)
+        let release = try #require(close.range(of: "tabStripHold.release(isLeft: isLeft)"),
+                                   "a keyboard close no longer lets a held strip go")
+        let guardLine = try #require(close.range(of: "guard syncManager.paneTabs(isLeft: isLeft).count > 1"))
+        #expect(release.lowerBound < guardLine.lowerBound, "the release comes after the last-tab guard returns")
+        let content = try Self.source("ContentView.swift")
+        let column = try Self.memberBody("func paneColumn(isLeft: Bool) -> some View {", in: content)
+        #expect(column.contains("onClose: { id in holdingTabStrip(isLeft: isLeft) { closeTab(id: id, isLeft: isLeft) } }"),
+                "the strip's close button closes without the hold")
+        #expect(column.contains("holdingTabStrip(isLeft: isLeft) { closeOtherTabs(keeping: id, isLeft: isLeft) }"),
+                "the strip's Close Other Tabs closes without the hold")
+        #expect(column.contains("tabStripPointer.setOver(inside, isLeft: isLeft)"),
+                "the strip no longer reports the pointer, so no click ever holds it")
+        #expect(column.contains("if !inside, tabStripHold.holds(isLeft: isLeft) { tabStripHold.release(isLeft: isLeft) }"),
+                "the pointer leaving no longer lets a held strip go — it would stay until the next close")
+        #expect(column.contains(".designAnimation(.easeOut(duration: 0.18), value: paneShowsTabStrip(isLeft: isLeft))"),
+                "the strip's coming and going is no longer animated on its presence — a released strip would vanish, not slide")
+    }
+
     // MARK: Compare — both panes wear the strip
 
     /// The term that makes Compare readable: **a second tab on either pane draws the strip on

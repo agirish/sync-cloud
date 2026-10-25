@@ -754,6 +754,12 @@ struct ContentView: View {
     /// it re-reads the flipped edge — animated. Selection changes re-render on their own.
     @State var leftBarAtTop = false
     @State var rightBarAtTop = false
+    /// The tab strip kept under the pointer after a click closed it down to one tab (TE214) — see
+    /// `PaneTabStripHold`.
+    @State var tabStripHold = PaneTabStripHold()
+    /// Whether the pointer is on each pane's strip — a reference, so crossing a strip re-renders
+    /// nothing. Read only when a close asks whether to hold.
+    @State var tabStripPointer = PaneTabStripPointer()
     /// An explicit "Get Info" target for the inspector, from a pane or differences-row right-click.
     /// Overrides the pane selection; cleared when the pane selection changes so the inspector then
     /// follows the selection again.
@@ -3974,6 +3980,23 @@ struct ContentView: View {
         )
     }
 
+    /// **Runs a close aimed at the strip with the pointer, and keeps the strip if it would go**
+    /// (TE214, his call CD, 2026-10-25). Closing the second-to-last tab took the strip away at
+    /// once, so the header and the list jumped up 34pt under the pointer — in Compare both panes,
+    /// whose strips come and go together. Now the strip stays, showing the one tab left, until the
+    /// pointer leaves it, and then slides away (`paneColumn`'s animation is keyed on presence, the
+    /// hold included). Held only while the pointer is on the strip: a press from elsewhere has
+    /// nothing under it to keep still. Here, beside the strip it wires, and not among the tab
+    /// verbs in `ContentView+PaneTabs.swift`: it is not one — the close it runs is, and the focus
+    /// rule (`everyTabVerbTheHostWiresReachesTheFocusDoorUnconditionally`) follows that close.
+    private func holdingTabStrip(isLeft: Bool, _ close: () -> Void) {
+        let wasShown = paneShowsTabStrip(isLeft: isLeft)
+        close()
+        if wasShown && !paneShowsTabStrip(isLeft: isLeft) && tabStripPointer.isOver(isLeft: isLeft) {
+            tabStripHold.hold(isLeft: isLeft)
+        }
+    }
+
     /// One resizable file pane: provider header stacked over its file tree.
     ///
     /// No `@ViewBuilder`: the body computes its locals and then has a single `return`, which
@@ -4028,8 +4051,11 @@ struct ContentView: View {
                     // chip and the selected rows under it can never name different panes.
                     isActivePane: paneWearsActiveAccent(isLeft: isLeft),
                     onSelect: { selectTab(id: $0, isLeft: isLeft) },
-                    onClose: { closeTab(id: $0, isLeft: isLeft) },
-                    onCloseOthers: { closeOtherTabs(keeping: $0, isLeft: isLeft) },
+                    // Closes aimed with the pointer, so the strip stays under it (TE214).
+                    onClose: { id in holdingTabStrip(isLeft: isLeft) { closeTab(id: id, isLeft: isLeft) } },
+                    onCloseOthers: { id in
+                        holdingTabStrip(isLeft: isLeft) { closeOtherTabs(keeping: id, isLeft: isLeft) }
+                    },
                     onDuplicate: { duplicateTab(id: $0, isLeft: isLeft) },
                     onCopyPath: { copyTabPath(id: $0, isLeft: isLeft) },
                     onReorder: { id, index in moveTab(id: id, to: index, isLeft: isLeft) },
@@ -4043,6 +4069,13 @@ struct ContentView: View {
                     // same way, and for the same reason).
                     .contentSurface(hue: glassHue, tint: surfaceTint)
                     .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: isLeft))
+                    // Where the pointer is, for the hold above — and leaving lets a held strip go.
+                    .onHover { inside in
+                        tabStripPointer.setOver(inside, isLeft: isLeft)
+                        if !inside, tabStripHold.holds(isLeft: isLeft) { tabStripHold.release(isLeft: isLeft) }
+                    }
+                    // A strip that goes from under the pointer reports no exit.
+                    .onDisappear { tabStripPointer.setOver(false, isLeft: isLeft) }
                     // **The strip's arrival IS the feedback for ⌘T** (roadmap Fig. 10): the new tab
                     // opens on the folder you are already in, so both chips say the same thing and
                     // nothing else on screen changes. Sliding in from the top is what tells you it
