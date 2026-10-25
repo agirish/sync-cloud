@@ -9600,8 +9600,9 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s resolver=%s checked=%s\n' $l 
 The versions pass took a browser's download counter " (n)" as a version marker, so `invoice.pdf`,
 `invoice (1).pdf` and `invoice (2).pdf` — three months' bills with different bytes — became a "Keep
 newest, Trash older" group. `main` will not stand a versions group up when the only markers in it are
-counters (`hasNonCounterVersionMarker`); a " copy", "-v2" or "final" beside them still does, and a
-counter re-download with the same bytes is still an identical group.
+counters (`hasNonCounterVersionMarker`); a " copy", "-v2" or "final" beside them still does — since
+FR14's follow-up below, without the counter-only members — and a counter re-download with the same
+bytes is still an identical group.
 
 ```sh
 F=Modules/Sync/Sources/Sync/DuplicateFinder.swift
@@ -11147,3 +11148,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s keep=%s fix=%s\n' $l \
 |---|---|---|
 | `v5.x` | The re-derive, without FR17's keep (`keep=0`) — FR17's section records it | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Restructure | CLOSED — does not apply |
+
+---
+
+## A download counter never joins a versions group by name (FR14, follow-up) — main only
+
+FR14 refused a versions group whose only markers were counters, but one " copy" beside five
+downloaded `invoice (n).pdf` bills still stood the whole cluster up, and "Keep newest" trashed the
+bills. `main` leaves every counter-only member out of a versions group; such files group only when
+their contents match.
+
+```sh
+F=Modules/Sync/Sources/Sync/DuplicateFinder.swift
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s counterOnlyRefused=%s fix=%s\n' $l \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF 'static func hasNonCounterVersionMarker')" \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF 'let members = cluster.filter')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads fix=1):
+# main                     counterOnlyRefused=1 fix=0
+# v5.x, v4.x, v3.x, v2.x   counterOnlyRefused=0 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The counter as a marker, without FR14 (`counterOnlyRefused=0`) — FR14's section records it | RECORDED — not owed |

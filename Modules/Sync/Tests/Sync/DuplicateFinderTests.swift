@@ -410,6 +410,41 @@ import Testing
         #expect(g.reclaimableBytes == 5000)
     }
 
+    /// **A counter never joins a versions group by name (FR14, owner's call).** Five months of
+    /// downloaded `invoice (n).pdf` beside one `invoice copy.pdf` stood as ONE versions group off
+    /// the copy's marker, and "Keep newest" trashed the bills. The counter-only members leave the
+    /// cluster: the copy groups with its unmarked original alone, and with no original left
+    /// there is nothing to group. Their contents still group them when they match (FR14's own
+    /// test: the identical pass).
+    @Test func counterOnlyMembersNeverJoinAVersionsGroup() {
+        let day = 86_400.0
+        var files = [file("/root/Downloads/invoice.pdf", size: 40_000,
+                          modified: Date(timeIntervalSince1970: 1_000_000))]
+        var hashes = ["/root/Downloads/invoice.pdf": "BILL0"]
+        for n in 1...5 {
+            let path = "/root/Downloads/invoice (\(n)).pdf"
+            files.append(file(path, size: 40_000 + n * 100,
+                              modified: Date(timeIntervalSince1970: 1_000_000 + Double(n) * 30 * day)))
+            hashes[path] = "BILL\(n)"
+        }
+        files.append(file("/root/Downloads/invoice copy.pdf", size: 40_050,
+                          modified: Date(timeIntervalSince1970: 1_000_000 + 200 * day)))
+        hashes["/root/Downloads/invoice copy.pdf"] = "COPY"
+
+        let versions = DuplicateFinder.findGroups(tree: [dir("/root/Downloads", files)],
+                                                  fileHashes: hashes)
+            .filter { $0.matchType == .versions }
+        #expect(versions.count == 1)
+        #expect(Set(versions.first?.copies.map(\.path) ?? [])
+                == ["/root/Downloads/invoice.pdf", "/root/Downloads/invoice copy.pdf"],
+                "a downloaded bill joined a versions group: \(versions.map { $0.copies.map(\.path) })")
+
+        // Without the original, the copy has no one left to be a version of.
+        let orphaned = files.filter { $0.name != "invoice.pdf" }
+        #expect(!DuplicateFinder.findGroups(tree: [dir("/root/Downloads", orphaned)], fileHashes: hashes)
+                    .contains { $0.matchType == .versions })
+    }
+
     /// **A download counter alone is not evidence of versions (FR14).** A browser appends " (1)",
     /// " (2)" when the name it is saving already exists, and a site names every bill the same:
     /// three months of `invoice.pdf` became a "Keep newest, Trash older" group that trashed two
@@ -445,8 +480,8 @@ import Testing
         #expect(!DuplicateFinder.findGroups(tree: pooled, fileHashes: pooledHashes)
                     .contains { $0.matchType == .versions })
 
-        // A deliberate marker in the cluster still makes it versions — the rule is about counters
-        // ALONE, not about clusters that happen to include one.
+        // A deliberate marker in the cluster still makes it versions — of the members a person
+        // marked and the unmarked original. The counter-suffixed member stays out (X4 below).
         let marked = [
             dir("/root/Docs", [
                 file("/root/Docs/plan.pdf", size: 9_000, modified: jan),
@@ -459,7 +494,8 @@ import Testing
         let versions = DuplicateFinder.findGroups(tree: marked, fileHashes: markedHashes)
             .filter { $0.matchType == .versions }
         #expect(versions.count == 1)
-        #expect(versions.first?.copies.count == 3)
+        #expect(Set(versions.first?.copies.map(\.path) ?? [])
+                == ["/root/Docs/plan.pdf", "/root/Docs/plan-final.pdf"])
 
         // And the same bytes behind a counter are still found — by the identical pass.
         let same = ["/root/Downloads/invoice.pdf": "ONE", "/root/Downloads/invoice (1).pdf": "ONE",

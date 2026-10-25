@@ -1188,23 +1188,24 @@ public enum DuplicateFinder {
                     memberClusters = clusters
                 }
             }
-            for members in memberClusters {
-                guard members.count >= 2 else { continue }
-                // **A download counter alone is not evidence of versions (FR14).** " (1)", " (2)"
-                // is what a browser appends when a name it is saving already exists, and a site
+            for cluster in memberClusters {
+                // **A download counter is not evidence of versions (FR14).** " (1)", " (2)" is
+                // what a browser appends when a name it is saving already exists, and a site
                 // hands out the same name for every document of a kind: `invoice.pdf`,
                 // `invoice (1).pdf`, `invoice (2).pdf` are three months' bills, different bytes
                 // because they are different documents, and "Keep newest, Trash older" would trash
                 // two of them. A re-download of the SAME document is caught upstream — identical
                 // bytes by the identical pass, the same text re-stamped by the same-text pass —
-                // so what reaches here with only counters to go on is exactly the case the name
-                // cannot tell apart from distinct documents. A cluster stands up only when some
-                // member carries a marker a person adds on purpose (" copy", "-v2", "final"); one
-                // with no marker at all (same-folder case variants) is unaffected.
-                if members.contains(where: { hasVersionMarker($0.name) }),
-                   !members.contains(where: { hasNonCounterVersionMarker($0.name) }) {
-                    continue
+                // so what reaches here behind a counter is exactly the case the name cannot tell
+                // apart from distinct documents. So a member whose only marker is a counter never
+                // joins by name, even beside one a person added on purpose (" copy", "-v2",
+                // "final"): `invoice copy.pdf` beside five downloaded bills groups with
+                // `invoice.pdf` alone, and the bills stay out. Unmarked members (same-folder case
+                // variants, the original beside its copy) are unaffected.
+                let members = cluster.filter {
+                    !hasVersionMarker($0.name) || hasNonCounterVersionMarker($0.name)
                 }
+                guard members.count >= 2 else { continue }
                 // Only PROVEN drift: at least two distinct REAL contents (identical bytes were
                 // already grouped). Placeholder ("u:" unknown) and missing signatures are not
                 // evidence of difference — two byte-identical files that were merely too large
