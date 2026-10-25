@@ -172,7 +172,13 @@ public enum EditorFileStore {
     /// Whether the file has moved out from under a buffer opened with `stamp`.
     public static func divergence(atPath path: String, from stamp: Stamp,
                            fileManager: FileManaging = FileManager.default) -> Divergence? {
-        guard let current = self.stamp(ofPath: path, fileManager: fileManager) else { return .missing }
+        divergence(of: self.stamp(ofPath: path, fileManager: fileManager), from: stamp)
+    }
+
+    /// The same answer for a stamp the caller has already read — so a caller that asks about the
+    /// version it found can keep THAT stamp, rather than stat again and hold a different one.
+    public static func divergence(of current: Stamp?, from stamp: Stamp) -> Divergence? {
+        guard let current else { return .missing }
         return current == stamp ? nil : .changed
     }
 

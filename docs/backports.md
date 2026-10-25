@@ -10708,3 +10708,29 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s nestedLinkNote=%s quoteAware=
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No quoted path in any row's note (`nestedLinkNote=0`) | CLOSED — does not apply |
+
+---
+
+## Keep Mine replaces only the version it asked about (FR48, follow-up) — main only
+
+Keep Mine passed the write the disk's stamp as read after its consent alert closed, so a version a
+sync installed while the alert or the comparison was on screen counted as agreed to, and the save
+deleted it unseen. `main` stamps the disk where each door puts the question (⌘S and autosave as they
+find the divergence, the banner at the click, the comparison as it opens) and passes that stamp, so
+a later version is kept beside the file as an "(other version)".
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s keepMine=%s afterAlert=%s asked=%s\n' $l \
+  "$(git show origin/$l:MacApp/EditorAlerts.swift 2>/dev/null | grep -cF 'func confirmKeepMine(')" \
+  "$(git show origin/$l:MacApp/ContentView+Editor.swift 2>/dev/null | grep -cF 'consentedTo: EditorFileStore.stamp(ofPath: path)')" \
+  "$(git show origin/$l:MacApp/ContentView+Editor.swift 2>/dev/null | grep -cF 'consentedTo: seen')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads afterAlert=0 asked=1):
+# main               keepMine=1 afterAlert=1 asked=0
+# v5.x               keepMine=1 afterAlert=0 asked=0
+# v4.x, v3.x, v2.x   keepMine=0 afterAlert=0 asked=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | Keep Mine with no consent stamp (`afterAlert=0`): every displaced version is deleted; FR48's row records what it lacks | CLOSED — does not apply |
+| `v4.x` / `v3.x` / `v2.x` | No Keep Mine (`keepMine=0`) | CLOSED — does not apply |

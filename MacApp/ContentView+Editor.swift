@@ -1449,11 +1449,13 @@ extension ContentView {
         guard let path = editorDocument.path, let stamp = editorDocument.stamp,
               !editorDocument.isReadOnly else { return false }
         // Re-stat before writing. A file opened an hour ago may have been filed, renamed or edited
-        // since — including by this same window's Organize run.
-        if let divergence = EditorFileStore.divergence(atPath: path, from: stamp) {
+        // since — including by this same window's Organize run. **The stamp is kept**: it is the
+        // version the question is about, and Keep Mine replaces that one and no later one (FR48).
+        let seen = EditorFileStore.stamp(ofPath: path)
+        if let divergence = EditorFileStore.divergence(of: seen, from: stamp) {
             return applyDivergenceAnswer(
                 EditorAlerts.askAboutDivergence(name: editorDocument.name, divergence: divergence),
-                divergence: divergence, path: path, explicit: true)
+                divergence: divergence, path: path, explicit: true, seen: seen)
         }
         // **TE145: nothing changed, nothing written.** The file is where the stamp says and holds the
         // buffer, so a rewrite would only give it a new date — and a sync client a reason to upload
@@ -1492,6 +1494,10 @@ extension ContentView {
         /// whatever document happened to be open by then, on the strength of a diff of a different
         /// file. The answer is refused instead: see ``answerEditorDivergenceDiff(_:)``.
         var path: String
+        /// **The disk's stamp as the diff was opened** — the version on the right-hand side, which
+        /// the foot's Keep Mine… agrees to replace. A version that arrives while the two columns are
+        /// on screen is not that one, and the write keeps it aside rather than delete it (FR48).
+        var seen: EditorFileStore.Stamp?
     }
 
     /// **The one place a divergence answer is acted on** — from the alert, from the overlay's foot,
@@ -1499,11 +1505,14 @@ extension ContentView {
     /// differently from the others, and `.showWhatChanged` cannot be dropped on the floor by a
     /// `switch` that has run out of interesting cases.
     ///
+    /// - Parameter seen: the disk's stamp when the question was put — the version the user is
+    ///   answering about. Keep Mine consents to replacing that version only, so one that arrives
+    ///   while the question is on screen is kept aside by the write, not deleted unseen (FR48).
     /// - Returns: whether anything was WRITTEN — so `false` for the detour, which resolves nothing.
     @discardableResult
     func applyDivergenceAnswer(_ answer: EditorAlerts.DivergenceAnswer,
                                divergence: EditorFileStore.Divergence,
-                               path: String, explicit: Bool) -> Bool {
+                               path: String, explicit: Bool, seen: EditorFileStore.Stamp?) -> Bool {
         switch answer {
         case .saveAnyway:
             // **A gone file's Save Again is the banner's, through the same path** (TE151): it looks
@@ -1517,10 +1526,10 @@ extension ContentView {
                 editorAutosaveStop = .diverged(divergence)
                 return false
             }
-            // The disk as it stood when they agreed — the version Keep Mine replaces on purpose, so
-            // the save does not keep it aside as one that arrived unasked (FR48).
-            return writeEditorDocument(explicit: explicit,
-                                       consentedTo: EditorFileStore.stamp(ofPath: path))
+            // The disk as it stood when they were ASKED — the version Keep Mine replaces on purpose,
+            // so the save does not keep it aside as one that arrived unasked (FR48). Not a stat taken
+            // now: a sync landing while the consent alert was up would be "agreed to" unseen.
+            return writeEditorDocument(explicit: explicit, consentedTo: seen)
         case .reloadFromDisk:
             // **With the TE59 banner up, the reload is "Use Disk Version"** — the same answer, as one
             // step ⌘Z takes back, so the typing the question was about can still come back. Every
@@ -1535,8 +1544,10 @@ extension ContentView {
             // screen the debounce must not quietly write one of them — and it makes dismissing the
             // overlay identical to Cancel, which is the property Escape has to have.
             editorAutosaveStop = .diverged(divergence)
+            // Stamped as the diff opens, which is the version it reads for its right-hand side.
             editorDivergenceReview = EditorDivergenceReview(divergence: divergence,
-                                                            explicit: explicit, path: path)
+                                                            explicit: explicit, path: path,
+                                                            seen: EditorFileStore.stamp(ofPath: path))
             return false
         case .cancel:
             // Declining leaves autosave stopped, and says so on the header rather than going
@@ -1551,7 +1562,7 @@ extension ContentView {
     func showEditorDivergenceDiff() {
         guard case .diverged(let divergence) = editorAutosaveStop, divergence == .changed,
               let path = editorDocument.path else { return }
-        applyDivergenceAnswer(.showWhatChanged, divergence: divergence, path: path, explicit: true)
+        applyDivergenceAnswer(.showWhatChanged, divergence: divergence, path: path, explicit: true, seen: nil)
     }
 
     /// The overlay's foot, answered. **The same three answers travelling back**, through the same
@@ -1574,7 +1585,7 @@ extension ContentView {
         }
         applyDivergenceAnswer(EditorAlerts.divergenceAnswer(for: verdict),
                               divergence: review.divergence,
-                              path: review.path, explicit: review.explicit)
+                              path: review.path, explicit: review.explicit, seen: review.seen)
     }
 
     /// The write itself, with no questions in it — both ⌘S and autosave land here.
@@ -1699,9 +1710,12 @@ extension ContentView {
             // declining leaves the document visibly stopped instead of asking again — and so does
             // asking to see the diff, which is why both go through the one function below rather
             // than being re-decided here.
+            // The version the alert is about, stamped before it is put (FR48).
+            let path = editorDocument.path ?? ""
+            let seen = EditorFileStore.stamp(ofPath: path)
             applyDivergenceAnswer(
                 EditorAlerts.askAboutDivergence(name: editorDocument.name, divergence: divergence),
-                divergence: divergence, path: editorDocument.path ?? "", explicit: false)
+                divergence: divergence, path: path, explicit: false, seen: seen)
         case .failed(let message):
             // Latched for the same reason: a full disk or a read-only volume fails identically
             // every two seconds, and a banner per attempt is not a report, it is noise.
@@ -1855,8 +1869,11 @@ extension ContentView {
             // **The same answer as the alert's and the sheet's Keep Mine…** (TE97), so it asks the
             // same consent in the same place: the other changes are lost, said in words, with the
             // destructive button off Return.
+            // Stamped at the click, before the consent alert is put: the version on disk as they
+            // chose, not one that lands while the alert is up (FR48).
             guard let path = editorDocument.path else { return }
-            applyDivergenceAnswer(.saveAnyway, divergence: .changed, path: path, explicit: true)
+            applyDivergenceAnswer(.saveAnyway, divergence: .changed, path: path, explicit: true,
+                                  seen: EditorFileStore.stamp(ofPath: path))
         case .useDisks:
             if editorDiskWatch.useDisksVersion() == .unreadable { reportDisksVersionUnreadable() }
         case .close:

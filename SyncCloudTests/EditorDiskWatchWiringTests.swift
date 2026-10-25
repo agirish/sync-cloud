@@ -77,14 +77,14 @@ import FileExplorer
         // …with the disk stamp the user agreed to replace, or the version they chose to discard
         // would be kept aside as an "(other version)" (FR48).
         let write = try #require(apply.range(
-            of: "return writeEditorDocument(explicit: explicit, consentedTo: EditorFileStore.stamp(ofPath: path))"))
+            of: "return writeEditorDocument(explicit: explicit, consentedTo: seen)"))
         #expect(keep.lowerBound < asks.lowerBound && asks.lowerBound < ask.lowerBound
                 && ask.lowerBound < declined.lowerBound && declined.lowerBound < write.lowerBound,
                 "Keep Mine… writes before it asks")
         // The banner's Keep Mine… is the same answer, not a write of its own.
         let banner = try Self.body("func answerEditorDiskBanner(_ action: EditorDiskBannerAction)")
         let bannerKeep = try #require(banner.range(of: "case .keepMine:"))
-        let routed = try #require(banner.range(of: "applyDivergenceAnswer(.saveAnyway, divergence: .changed, path: path, explicit: true)"))
+        let routed = try #require(banner.range(of: "applyDivergenceAnswer(.saveAnyway, divergence: .changed, path: path, explicit: true,"))
         let next = try #require(banner.range(of: "case .useDisks:"))
         #expect(bannerKeep.lowerBound < routed.lowerBound && routed.lowerBound < next.lowerBound)
         #expect(!banner.normalized[bannerKeep.lowerBound..<next.lowerBound].contains("writeEditorDocument"),
@@ -96,6 +96,46 @@ import FileExplorer
         #expect(EditorAlerts.keepMineInformativeText.contains("the other changes are lost"))
         #expect(EditorAlerts.isConfirmed(.alertFirstButtonReturn))
         #expect(!EditorAlerts.isConfirmed(.alertSecondButtonReturn), "Cancel was read as consent")
+    }
+
+    /// **Keep Mine… replaces the version the user was asked about, and no later one** (FR48).
+    ///
+    /// The consent stamp was read AFTER the Keep Mine alert returned, so a sync installing a newer
+    /// version while the alert (or the diff) was on screen made that version the one "agreed to",
+    /// and the write deleted it as the backup, unexamined. Each door now stamps the disk when it
+    /// puts the question — ⌘S and autosave as they find the divergence, the banner at the click,
+    /// the diff as it opens — and carries that stamp to the write.
+    ///
+    /// Mutation: restore `consentedTo: EditorFileStore.stamp(ofPath: path)` in the `.saveAnyway`
+    /// arm, or drop any door's `seen:`, and this fails.
+    @Test func keepMineConsentsToTheVersionItAskedAbout() throws {
+        let apply = try Self.body("func applyDivergenceAnswer(")
+        let ask = try #require(apply.range(of: "!EditorAlerts.confirmKeepMine(name: editorDocument.name)"))
+        let reload = try #require(apply.range(of: "case .reloadFromDisk:"))
+        let tail = CodeText(String(apply.normalized[ask.upperBound..<reload.lowerBound]))
+        #expect(tail.contains("return writeEditorDocument(explicit: explicit, consentedTo: seen)"))
+        #expect(!tail.contains("EditorFileStore.stamp(ofPath:"),
+                "the consent stamp is read after the alert — a version that landed meanwhile is agreed to unseen")
+        // ⌘S: the stamp the divergence was found with is the one carried.
+        let save = try Self.body("func saveEditorDocument() -> Bool")
+        let seen = try #require(save.range(of: "let seen = EditorFileStore.stamp(ofPath: path)"))
+        let found = try #require(save.range(of: "EditorFileStore.divergence(of: seen, from: stamp)"))
+        let asked = try #require(save.range(of: "EditorAlerts.askAboutDivergence("))
+        #expect(seen.lowerBound < found.lowerBound && found.lowerBound < asked.lowerBound)
+        #expect(save.contains("divergence: divergence, path: path, explicit: true, seen: seen)"))
+        // Autosave's alert: stamped before it is put.
+        let autosave = try Self.body("private func applyAutosaveOutcome(_ outcome: EditorAutosave.Outcome)")
+        let autoSeen = try #require(autosave.range(of: "let seen = EditorFileStore.stamp(ofPath: path)"))
+        let autoAsk = try #require(autosave.range(of: "EditorAlerts.askAboutDivergence("))
+        #expect(autoSeen.lowerBound < autoAsk.lowerBound)
+        #expect(autosave.contains("divergence: divergence, path: path, explicit: false, seen: seen)"))
+        // The banner: stamped at the click, which is before the consent alert.
+        let banner = try Self.body("func answerEditorDiskBanner(_ action: EditorDiskBannerAction)")
+        #expect(banner.contains("applyDivergenceAnswer(.saveAnyway, divergence: .changed, path: path, explicit: true, seen: EditorFileStore.stamp(ofPath: path))"))
+        // The diff: stamped as it opens, carried on the review, and handed back with the answer.
+        #expect(apply.contains("EditorDivergenceReview(divergence: divergence, explicit: explicit, path: path, seen: EditorFileStore.stamp(ofPath: path))"))
+        let foot = try Self.body("func answerEditorDivergenceDiff(_ verdict: EditorDivergenceVerdict)")
+        #expect(foot.contains("path: review.path, explicit: review.explicit, seen: review.seen)"))
     }
 
     /// **The sheet says ⌘Z brings the typing back only where it does** — with the banner up, where
