@@ -10506,3 +10506,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s trashRight=%s held=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same button, with neither check (`held=0`) | RECORDED — not owed |
+
+---
+
+## The duplicate scan reads nothing under `.git`, `node_modules` or `.build` — main only
+
+The grouping stops at an ignored name, but the scan still hashed, fingerprinted and link-checked
+everything below one — a repository's objects read for digests nothing could group, every PDF in
+`node_modules` parsed, and their hard links counted in the "outside duplicate detection" note.
+`main` drops those subtrees from the files it measures (`flattenFiles(_:skipping:)`).
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s collectSkips=%s pruned=%s\n' $l \
+  "$(git show origin/$l:$S/DuplicateFinder.swift 2>/dev/null | grep -cF 'if options.ignoredNames.contains(node.name)')" \
+  "$(git show origin/$l:$S/FileSyncManager+Duplicates.swift 2>/dev/null | grep -cF 'flattenFiles(tree, skipping: options.ignoredNames)')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads pruned=1):
+# main, v5.x, v4.x, v3.x, v2.x   collectSkips=1 pruned=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same reads under ignored names (`pruned=0`) | RECORDED — not owed |

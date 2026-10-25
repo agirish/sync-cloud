@@ -218,7 +218,12 @@ extension FileSyncManager {
         // 2. Only files whose size collides with another can possibly be identical — hash just
         //    those. Everything else gets a unique placeholder so folder signatures still compute
         //    but never falsely match.
-        let allFiles = Self.flattenFiles(tree)
+        //
+        //    Nothing under an ignored name (`.git`, `node_modules`, …) is a file here: the grouping
+        //    stops at the name (`DuplicateFinder.collect`), so hashing, reading or link-checking
+        //    what lies below it is work for a digest nothing reads — a repository's objects hashed,
+        //    every PDF in `node_modules` parsed, its hard links counted in the skip note.
+        let allFiles = Self.flattenFiles(tree, skipping: options.ignoredNames)
         var sizeCount: [Int: Int] = [:]
         for f in allFiles where (f.fileSize ?? -1) >= 0 {
             sizeCount[f.fileSize!, default: 0] += 1
@@ -2548,11 +2553,13 @@ extension FileSyncManager {
     // MARK: Helpers
 
     /// Recursively collects leaf file nodes from a walked tree.
-    nonisolated static func flattenFiles(_ nodes: [FileNode]) -> [FileNode] {
+    /// `skipping` drops every node so named, with all it holds.
+    nonisolated static func flattenFiles(_ nodes: [FileNode],
+                                         skipping ignoredNames: Set<String> = []) -> [FileNode] {
         var out: [FileNode] = []
-        for n in nodes {
+        for n in nodes where !ignoredNames.contains(n.name) {
             if n.isDirectory {
-                out.append(contentsOf: flattenFiles(n.children ?? []))
+                out.append(contentsOf: flattenFiles(n.children ?? [], skipping: ignoredNames))
             } else {
                 out.append(n)
             }

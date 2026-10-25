@@ -671,7 +671,8 @@ public enum DuplicateFinder {
         // content anyone keeps, so it is dropped as if it were not there. Everything else this set
         // skips — `.git`, `node_modules`, `.build` — is content: a repository's whole history sits
         // in `.git`. Dropping it made a clone and a ZIP of its working tree "identical", and Apply
-        // recommended could trash the clone. So it is not walked (discovery never needed it), but
+        // recommended could trash the clone. So nothing below it is looked at here — the scan walks
+        // it, but hashes, reads and link-checks none of it (`flattenFiles(_:skipping:)`) — and
         // it reaches the parent as an entry of UNKNOWN identity, the treatment a directory link
         // gets below: the parent can no longer be asserted identical, and `holdsUnseenContent`
         // keeps it from being folded away as an overlapping copy.
