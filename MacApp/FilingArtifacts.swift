@@ -18,7 +18,8 @@ enum FilingArtifacts {
     /// Loads the active profile and everything keyed to it, or leaves the manager untouched.
     ///
     /// - Parameter recordingTrend: whether to stamp O16's baseline point. **Default false, and
-    ///   the default is the point.** This function is otherwise read-only, and the app's own
+    ///   the default is the point.** This function is otherwise read-only — bar the survey a
+    ///   cut-off re-derive left in the parent folder, which `active(in:)` carries in — and the app's own
     ///   binary is the test host — so `SyncCloudApp`'s launch path runs under `xcodebuild test`
     ///   too, and a stamp taken unconditionally here wrote a trend point into the developer's
     ///   real `restructure.json` on every test run. Caught by reading the file after an install:

@@ -806,6 +806,114 @@ import Testing
                 "the sweep deleted the only copy of the stopped survey's progress")
     }
 
+    /// …and the survey kept there is READ BACK, not only kept (FR17, follow-up): relaunched on
+    /// that disk, the load carries the folder's corpus and memory into the active one, and only
+    /// then does the sweep let the old folder go. Kept alone, the next refresh replayed from the
+    /// empty active folder, and the survey was on disk but lost to the app.
+    @Test func aRelaunchAfterACutSurveyRefreshReadsTheSurveyBack() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let (disk, left) = try await cutASurveyRefreshBeforeItsReplay(world)
+        let active = try #require(FilingProfileStore.activeProfileId(in: disk))
+        try #require(FilingSurveyStore.corpus(id: active, in: disk) == nil,
+                     "the cut must be before the replay wrote the corpus")
+        let stamped = try #require(FilingSurveyStore.surveyedAt(id: left, in: disk))
+
+        let loaded = try #require(FilingProfileStore.active(in: disk), "the relaunch's load")
+        #expect(loaded.id == active)
+        let memory = try #require(loaded.memory, "relaunched with no filing memory")
+        #expect(memory.folders["Tax/2013/Forms"]?.docs == 1)
+        let carried = try #require(FilingSurveyStore.corpus(id: active, in: disk),
+                                   "the corpus was kept in \(left) and never read back")
+        #expect(Set(carried.documents.keys) == ["Tax/2013/Forms/w2.pdf"])
+        #expect(carried.profileId == active)
+        #expect(FilingSurveyStore.surveyedAt(id: active, in: disk) == stamped,
+                "nothing was read again, so the survey's date stays the one it was read on")
+
+        try sweepAsTheNextReDeriveWould(disk, sparing: left)
+        #expect(!FileManager.default.fileExists(atPath: disk.appendingPathComponent(left).path),
+                "once the survey is in the active folder, the old one is superseded")
+        #expect(FilingSurveyStore.corpus(id: active, in: disk) != nil)
+    }
+
+    /// The same read-back after a cut LANDING: the corpus comes in through the landing's own
+    /// moves, found by its ledger record, so its keys name where the files are now.
+    @Test func aRelaunchAfterACutLandingReadsTheSurveyBackThroughItsMoves() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let disk = world.root.deletingLastPathComponent().appendingPathComponent("at-the-cut")
+        var copied = false
+        let watch = world.manager.$restructureApplyProgress.sink { progress in
+            guard progress?.stage == .artifacts, !copied else { return }
+            copied = (try? FileManager.default.copyItem(at: world.profiles, to: disk)) != nil
+        }
+        defer { watch.cancel() }
+        let outcome = await world.manager.applyPlan(world.manifest)
+        #expect(outcome.refusal == nil)
+        try #require(copied, "the landing never reached its replay")
+        let active = try #require(FilingProfileStore.activeProfileId(in: disk))
+        try #require(active == outcome.producedProfileId,
+                     "the cut must be after the re-point, or it tests nothing")
+        try #require(FilingSurveyStore.corpus(id: active, in: disk) == nil)
+
+        let loaded = try #require(FilingProfileStore.active(in: disk))
+        #expect(loaded.memory?.folders["Tax/2013/Forms"] != nil)
+        let carried = try #require(FilingSurveyStore.corpus(id: active, in: disk),
+                                   "the landing's survey was never read back")
+        #expect(Set(carried.documents.keys) == ["Tax/2013/Forms/w2.pdf"],
+                "the keys must follow the landing's moves, not name Federal Tax")
+    }
+
+    /// A stopped first survey's progress is read back the same way, so the next survey resumes.
+    @Test func aRelaunchAfterACutSurveyRefreshReadsAStoppedSurveysProgressBack() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let folder = try #require(world.manager.documentSurveyFolder)
+        let (disk, left) = try await cutASurveyRefreshBeforeItsReplay(world) { left in
+            try FileManager.default.removeItem(at: FilingSurveyStore.corpusURL(id: left, in: world.profiles))
+            try FileManager.default.removeItem(at: FilingSurveyStore.memoryURL(id: left, in: world.profiles))
+            try DocumentSurveyCheckpointStore.write(DocumentSurveyCheckpoint(
+                profileId: left, rootPath: folder.path, salt: "s",
+                plan: ["Tax/Outbound/o.pdf"], nextIndex: 0, read: [:], documentsUnavailable: 0,
+                startedAt: Date(timeIntervalSince1970: 1_760_000_000),
+                updatedAt: Date(timeIntervalSince1970: 1_760_000_100)), id: left, in: world.profiles)
+        }
+        let active = try #require(FilingProfileStore.activeProfileId(in: disk))
+        try #require(DocumentSurveyCheckpointStore.read(id: active, in: disk).checkpoint == nil)
+
+        _ = try #require(FilingProfileStore.active(in: disk))
+        let carried = try #require(DocumentSurveyCheckpointStore.read(id: active, in: disk).checkpoint,
+                                   "the stopped survey's progress was never read back")
+        #expect(carried.resumes(profileId: active, rootPath: folder.path, salt: "s"))
+        #expect(carried.plan == ["Tax/Outbound/o.pdf"])
+    }
+
+    /// The refresh reads it back too, for a folder whose own replay failed in the session: the
+    /// next refresh replays from the folder the app is on, so it must not find that empty.
+    @Test func aRefreshFromAFolderWithNoSurveyReadsItsParentsBack() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let (disk, _) = try await cutASurveyRefreshBeforeItsReplay(world)
+        let active = try #require(FilingProfileStore.activeProfileId(in: disk))
+        let profile = try #require(FilingProfileStore.profile(id: active, in: disk))
+        try #require(FilingSurveyStore.corpus(id: active, in: disk) == nil)
+
+        // Set up from the disk directly — not through `active(in:)`, which would read it back.
+        let manager = FileSyncManager(fileManager: world.trash)
+        manager.filingFolderProfile = profile
+        manager.filingProfilesDirectory = disk
+        manager.filingProfileDirectoryId = active
+        manager.restructureStore = RestructureStore(directory: disk, profileId: active)
+        let refreshed = await manager.refreshDerivedProfile(now: Date().addingTimeInterval(10))
+        #expect(refreshed.refusal == nil)
+        let produced = try #require(manager.filingProfileDirectoryId)
+        #expect(produced != active)
+        let corpus = try #require(FilingSurveyStore.corpus(id: produced, in: disk),
+                                  "the refresh replayed from an empty folder")
+        #expect(Set(corpus.documents.keys) == ["Tax/2013/Forms/w2.pdf"])
+        #expect(manager.filingMemory?.folders["Tax/2013/Forms"] != nil)
+    }
+
     /// Undo runs newest-first, the way ⌘Z would: a later landing on top of an earlier one blocks
     /// the earlier one's undo with a sentence — its inverse describes a tree the later landing
     /// reshaped — and undoing the later one first unblocks nothing silently.

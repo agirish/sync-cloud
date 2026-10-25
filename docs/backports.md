@@ -11122,3 +11122,28 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr30=%s fix=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR30 check (`fr30=0`) | CLOSED — does not apply |
+
+---
+
+## A survey a cut re-derive left behind is read back (FR17, follow-up) — main only
+
+FR17's sweep keeps the folder a re-derive was cut off from while it holds the survey corpus, memory
+or a stopped survey's progress the active folder lacks — but nothing read it back, so the app ran
+with no filing memory and the next refresh replayed from the empty folder. `main` carries it in
+when the profile loads and when a refresh starts, rekeyed through the landing that made the folder,
+and the sweep then lets the old folder go.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s keep=%s fix=%s\n' $l \
+  "$(git show origin/$l:$S/FilingProfileStore.swift 2>/dev/null | grep -cF 'static let surveyArtifactNames')" \
+  "$(git show origin/$l:$S/FileSyncManager+RestructureApply.swift 2>/dev/null | grep -cF 'func recoverInterruptedSurveyReplay')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads fix=1):
+# main                     keep=1 fix=0
+# v5.x, v4.x, v3.x, v2.x   keep=0 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The re-derive, without FR17's keep (`keep=0`) — FR17's section records it | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Restructure | CLOSED — does not apply |

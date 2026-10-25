@@ -447,7 +447,8 @@ extension FileSyncManager {
         // so nothing the user does can land in the gap. A cut-off re-derive now relaunches onto a
         // ledger that already names the folder it is in — and no record names the folder it left,
         // which holds the only corpus and memory until the replay writes them here; the retire
-        // sweep keeps a folder holding either while the active one lacks it. If the write then
+        // sweep keeps a folder holding either while the active one lacks it, and the next load
+        // reads them back (`recoverInterruptedSurveyReplay`). If the write then
         // fails, the copies are removed again: the index never named that folder, so they are
         // only clutter.
         let fm = fileManager
@@ -549,6 +550,11 @@ extension FileSyncManager {
         // it was.
         let replayed: (memory: FilingMemory, failure: String?)? =
             await Task.detached(priority: .userInitiated) { () -> (FilingMemory, String?)? in
+                // A replay of its own that never finished leaves the folder this one reads from
+                // empty; finish it first, or this replay finds nothing (FR17, follow-up).
+                FileSyncManager.recoverInterruptedSurveyReplay(into: oldDirectoryId,
+                                                               profile: profile,
+                                                               in: profilesDirectory)
                 // Before the corpus guard: a stopped first survey is exactly the profile that has
                 // progress and no corpus yet.
                 FileSyncManager.carrySurveyProgress(from: oldDirectoryId, to: newId,
@@ -1636,6 +1642,86 @@ extension FileSyncManager {
                     + "\(newId): \(error.localizedDescription)")
             }
         }
+    }
+
+    /// **Reads back a survey a re-derive's replay never finished carrying** (FR17, follow-up).
+    ///
+    /// A re-derive names the new folder in `profiles.json` before its corpus replay, so a quit in
+    /// the replay relaunches onto a folder with no corpus, memory or survey progress, while the
+    /// folder it was derived from still holds them — and the retire sweep keeps that folder for
+    /// exactly this reason. Nothing read it back: the next refresh replayed from the active
+    /// folder and found nothing, so the survey was kept but lost to the app. This finishes the
+    /// replay the quit cut off: when the active folder has no corpus, its `derivedFrom` folder's
+    /// progress and corpus are carried in through the manifest that turned one into the other —
+    /// the ledger record applied under that folder, or none (a survey refresh moves nothing) —
+    /// and the memory rebuilt from the rekeyed corpus. Once it is here the sweep may retire the
+    /// old folder. The corpus keeps its own `surveyedAt`: nothing was read again.
+    ///
+    /// A ledger that cannot be read carries nothing, since an unknown landing could have moved
+    /// the files the keys name. Returns whether a corpus was carried.
+    @discardableResult
+    nonisolated static func recoverInterruptedSurveyReplay(into id: String,
+                                                           profile: FolderProfile,
+                                                           in directory: URL) -> Bool {
+        // A stat, not a read: this runs on every load, and the active folder's corpus is
+        // normally there and thousands of documents long. Present but unreadable is not absent.
+        let here = FilingSurveyStore.corpusURL(id: id, in: directory).path
+        guard let parent = profile.derivedFrom, parent != id,
+              (try? FileManager.default.attributesOfItem(atPath: here)) == nil else { return false }
+        let parentCorpus = FilingSurveyStore.corpus(id: parent, in: directory)
+        let parentProgress = DocumentSurveyCheckpointStore.url(id: parent, in: directory)
+        guard parentCorpus != nil || FileManager.default.fileExists(atPath: parentProgress.path)
+        else { return false }
+
+        struct Ledger: Decodable { let applied: [RestructureStore.AppliedRecord]? }
+        let ledgerURL = directory.appendingPathComponent("\(id)/restructure.json")
+        var landed = RestructureManifest(profileId: parent, manifestId: "survey-refresh",
+                                         createdAt: FilingProfileStore.stamp(Date()),
+                                         family: ".", kind: .deadWeight, actions: [])
+        if (try? FileManager.default.attributesOfItem(atPath: ledgerURL.path)) != nil {
+            guard let data = try? Data(contentsOf: ledgerURL),
+                  let ledger = try? JSONDecoder().decode(Ledger.self, from: data) else {
+                Logger.shared.warning("Filing profiles: \(id) has no survey and \(parent) does, but "
+                    + "\(id)/restructure.json could not be read, so what moved between them is "
+                    + "unknown — the survey was not carried")
+                return false
+            }
+            if let record = ledger.applied?.last(where: {
+                $0.appliedUnderProfileId == parent && $0.undoneAt == nil
+            }) {
+                landed = record.manifest
+            }
+        }
+
+        carrySurveyProgress(from: parent, to: id, in: directory, through: landed)
+        guard let parentCorpus else { return false }
+        let rekeyed = RestructureRederive.rekeyedCorpus(parentCorpus, through: landed)
+        let corpus = FilingCorpus(profileId: id, salt: rekeyed.salt, documents: rekeyed.documents,
+                                  surveyedAt: rekeyed.surveyedAt)
+        // The stamps the parent's memory recorded, under the folders' new names. A folder whose
+        // stamp no longer matches reads as stale to the next survey, which is the safe side.
+        let renames = RestructureRederive.renameMap(of: landed)
+        var folderModified: [String: Int] = [:]
+        for (folder, entry) in FilingProfileStore.memory(id: parent, in: directory)?.folders ?? [:] {
+            if let stamp = entry.folderModified {
+                folderModified[RestructureRederive.mapped(folder, through: renames)] = stamp
+            }
+        }
+        let memory = FilingSurvey.buildMemory(corpus: corpus, folderModified: folderModified,
+                                              profileId: id)
+        do {
+            try FilingSurveyStore.write(corpus: corpus, memory: memory, previousMemory: nil, id: id,
+                                        in: directory, root: profile.root,
+                                        now: corpus.surveyedAt ?? Date())
+        } catch {
+            Logger.shared.warning("Filing profiles: could not carry \(parent)'s survey into \(id), "
+                + "which a re-derive left without one: \(error.localizedDescription)")
+            return false
+        }
+        Logger.shared.info("Filing profiles: carried \(parent)'s survey (\(corpus.documents.count) "
+            + "document(s)) into \(id) — the re-derive that made \(id) stopped before its replay"
+            + (landed.actions.isEmpty ? "" : ", rekeyed through \(landed.manifestId)"))
+        return true
     }
 
     /// A fresh profile id for a re-derivation — `reorg-<stamp>`, suffixed if the second lands in
