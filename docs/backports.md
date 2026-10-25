@@ -10759,3 +10759,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s syncFailed=%s filingFailed=%s
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | A failed filing as "Sync Failed / Couldn't sync" (`syncFailed=1`); no FR45 refusal to word | RECORDED — not owed |
+
+---
+
+## A date both conventions could have written is skipped as ambiguous (FR46, follow-up) — main only
+
+The rename pass refuses a stamp like `Statement_05062023.pdf` (May 6 or 5 June), and its skip then
+said "No month and year in the name to rename it by." of a name with a date in it. `main` asks
+`FileNameDate.ambiguity` and says both readings: "The date 05062023 in the name could be May 06 2023
+(month first) or Jun 05 2023 (day first), so it isn't renamed by it."
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr46=%s ambiguity=%s\n' $l \
+  "$(git show origin/$l:$S/FileNameDate.swift 2>/dev/null | grep -cF 'func isAmbiguousDayMonth')" \
+  "$(git show origin/$l:$S/FileNameDate.swift 2>/dev/null | grep -cF 'func ambiguity(')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads ambiguity=1):
+# main                     fr46=1 ambiguity=0
+# v5.x, v4.x, v3.x, v2.x   fr46=0 ambiguity=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR46 refusal (`fr46=0`): the stamp is read month-first; FR46's row records it | CLOSED — does not apply |

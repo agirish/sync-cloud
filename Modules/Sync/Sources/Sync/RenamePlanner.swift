@@ -143,6 +143,20 @@ public struct FolderFile: Sendable, Equatable {
 /// for a folder the profile has not seen.
 public enum RenamePlanner {
 
+    /// Why a file the miner found no date in is not renamed. **A stamp both conventions could have
+    /// written is not "no date"** (FR46): the name plainly carries one, and the reader can settle in
+    /// a second what the pass cannot — so both readings are given, in the folder's own form.
+    static func undatedReason(_ fileName: String) -> String {
+        guard let ambiguous = FileNameDate.ambiguity(fileName) else {
+            return "No month and year in the name to rename it by."
+        }
+        func said(_ date: FileNameDate.Mined) -> String {
+            OrdinalMonthName.body(month: date.month, day: date.day ?? 1, year: date.year)
+        }
+        return "The date \(ambiguous.evidence) in the name could be \(said(ambiguous.monthFirst)) "
+            + "(month first) or \(said(ambiguous.dayFirst)) (day first), so it isn’t renamed by it."
+    }
+
     /// The plan for one folder, or an empty plan when there is nothing to propose.
     ///
     /// - Parameters:
@@ -442,7 +456,7 @@ public enum RenamePlanner {
                 // of `Interest Certificate.pdf` is not a backlog, it is a folder.
                 if incoming?.path == f.path {
                     out.skips.append(RenameSkip(path: f.path, fileName: f.name,
-                                                reason: "No month and year in the name to rename it by."))
+                                                reason: Self.undatedReason(f.name)))
                 }
                 continue
             }

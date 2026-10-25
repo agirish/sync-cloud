@@ -162,6 +162,33 @@ import Testing
         #expect(targets(p).isEmpty, "an ambiguous stamp was renamed: \(targets(p))")
     }
 
+    /// **The skip says the date is ambiguous, with both readings** (FR46). The miner abstained, and
+    /// the incoming file's skip then said "No month and year in the name to rename it by" — of a
+    /// name with a perfectly visible date in it. The reader can settle in a second what the pass
+    /// cannot, so the skip names the two dates it could not choose between.
+    @Test func anAmbiguousStampIsSkippedWithBothReadings() throws {
+        let ambiguous = try #require(FileNameDate.ambiguity("Statement_05062023.pdf"))
+        #expect(ambiguous.evidence == "05062023")
+        #expect(ambiguous.monthFirst == FileNameDate.Mined(month: 5, day: 6, year: 2023, evidence: "05062023"))
+        #expect(ambiguous.dayFirst == FileNameDate.Mined(month: 6, day: 5, year: 2023, evidence: "05062023"))
+        #expect(FileNameDate.ambiguity("Statement 05-06-2023.pdf")?.dayFirst.month == 6)
+        // Not ambiguous: equal pairs, a day over 12, year-first, or no date at all.
+        #expect(FileNameDate.ambiguity("Statement_05052023.pdf") == nil)
+        #expect(FileNameDate.ambiguity("Statement_05182023.pdf") == nil)
+        #expect(FileNameDate.ambiguity("Statement_20230506.pdf") == nil)
+        #expect(FileNameDate.ambiguity("Interest Certificate.pdf") == nil)
+
+        let p = plan(["01. Jan 2023.pdf"], year: "2023", incoming: "Statement_05062023.pdf")
+        let skip = try #require(p.skips.first { $0.fileName == "Statement_05062023.pdf" },
+                                "the incoming file was not reported")
+        #expect(skip.reason.contains("May 06 2023") && skip.reason.contains("Jun 05 2023"),
+                "the skip does not give both readings: \(skip.reason)")
+        #expect(!skip.reason.contains("No month and year"), "\(skip.reason)")
+        // A name with no date still gets the plain words.
+        let none = plan(["01. Jan 2023.pdf"], year: "2023", incoming: "Interest Certificate.pdf")
+        #expect(none.skips.first?.reason == "No month and year in the name to rename it by.")
+    }
+
     // MARK: The gate — which folders the pass may touch at all
 
     @Test("A descriptive folder is never touched, however date-like its files look")

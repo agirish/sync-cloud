@@ -70,6 +70,44 @@ public enum FileNameDate {
                      year: first.year, evidence: first.evidence)
     }
 
+    /// A date the name carries that both conventions could have written (FR46): the two readings
+    /// ``mine(_:)`` refused to choose between.
+    public struct Ambiguity: Sendable, Equatable {
+        /// The stamp as it appears in the name — `05062023`, `05-06-2023`.
+        public let evidence: String
+        /// Read month-first: `05062023` is May 6.
+        public let monthFirst: Mined
+        /// Read day-first: `05062023` is 5 June.
+        public let dayFirst: Mined
+    }
+
+    /// The first year-last stamp in `fileName` whose two leading pairs could be read either way
+    /// round, or nil — so a skip can say "ambiguous" with both dates rather than "no month and
+    /// year", of a name with a date plainly in it. The same shapes ``datestamp(in:)`` and
+    /// ``delimitedDate(in:)`` abstain on.
+    public static func ambiguity(_ fileName: String) -> Ambiguity? {
+        let runs = tokenRuns((fileName as NSString).deletingPathExtension)
+        func reading(_ first: Int, _ second: Int, _ year: Int, _ evidence: String) -> Ambiguity? {
+            guard isAmbiguousDayMonth(first, second), isYear(year) else { return nil }
+            return Ambiguity(evidence: evidence,
+                             monthFirst: Mined(month: first, day: second, year: year, evidence: evidence),
+                             dayFirst: Mined(month: second, day: first, year: year, evidence: evidence))
+        }
+        for (i, run) in runs.enumerated() {
+            if run.count == 8, run.allSatisfy(\.isNumber) {
+                let d = Array(run)
+                if let found = reading(Int(String(d[0...1]))!, Int(String(d[2...3]))!,
+                                       Int(String(d[4...7]))!, String(run)) { return found }
+            }
+            guard i + 2 < runs.count else { continue }
+            let w = [run, runs[i + 1], runs[i + 2]]
+            guard w.map(\.count) == [2, 2, 4], w.allSatisfy({ $0.allSatisfy(\.isNumber) }),
+                  let a = Int(w[0]), let b = Int(w[1]), let c = Int(w[2]) else { continue }
+            if let found = reading(a, b, c, w.joined(separator: "-")) { return found }
+        }
+        return nil
+    }
+
     // MARK: Tokenising
 
     /// `stem` split into maximal runs of letters and of digits, discarding everything else.
