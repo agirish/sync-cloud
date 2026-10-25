@@ -169,7 +169,7 @@ struct SyncCloudApp: App {
     /// One per app: it installs local `NSEvent` monitors, and a second would double them.
     @StateObject private var shortcutReveal = ShortcutRevealTracker()
     /// Whether setup has been dismissed this session. App-owned (like `hasBootstrappedSession`) so a
-    /// window close + Dock reopen doesn't resurrect a form the user answered *Not now* to. @State,
+    /// window close + Dock reopen doesn't resurrect a form the user answered *Not Now* to. @State,
     /// never persisted: a dismissal lasts the session, and the form offers itself again next launch
     /// unless it was actually completed.
     @State private var setupDismissedThisSession = false

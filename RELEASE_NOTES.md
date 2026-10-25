@@ -126,9 +126,10 @@ Requires **macOS 26**, unchanged from v6.0.
   into a rename it had to skip, recreates a merged file's source folder when undoing, and gives a
   cloud-only folder a bounded time to answer instead of hanging the plan sheet.
 - **Setup** keeps a reading that lands late, for the folder it read. Once a reading is done,
-  Continue keeps it and Learn again is a button of its own. Removing a person from the roster asks
-  first, and a profile that can't be written stays on Structure with the reason and Continue without
-  saving.
+  Continue keeps it and Learn Again is a button of its own. Removing a person from the roster asks
+  first, and a profile that can't be written stays on Structure with the reason and Continue Without
+  Saving. Closing Setup keeps the answers on the open screen. Structure says when it is still
+  reading, and its button reads Skip Saving until the reading is done. Setup's buttons use Title Case.
 
 ### Edit and PDF
 

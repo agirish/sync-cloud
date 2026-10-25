@@ -19,7 +19,7 @@ struct SetupScreenCard<Content: View, Why: View>: View {
     var onBack: (() -> Void)?
     var skipTitle: String?
     var onSkip: (() -> Void)?
-    /// A second way forward beside the primary — Learn again, over a reading already in hand.
+    /// A second way forward beside the primary — Learn Again, over a reading already in hand.
     var secondaryTitle: String? = nil
     var onSecondary: (() -> Void)? = nil
     var isSecondaryDisabled = false
@@ -105,8 +105,8 @@ struct SetupScreenCard<Content: View, Why: View>: View {
             CloseButton { onDismiss() }
                 .keyboardShortcut(.cancelAction)
                 .shortcutKeycap("esc")
-                .help(ShortcutHint.tooltip("Not now", "esc"))
-                .accessibilityLabel("Not now")
+                .help(ShortcutHint.tooltip("Not Now", "esc"))
+                .accessibilityLabel("Not Now")
         }
         .padding(.horizontal, SetupSheetMetrics.inset(scale: scale))
         .padding(.vertical, 8 * scale)
@@ -146,7 +146,7 @@ struct SetupFooter: View {
     @Environment(\.appFontScale) private var fontScale
 
     /// Whether the centred lock line is drawn: **not beside a secondary button.** Structure after
-    /// a failed Save carries Back, "Continue without saving" and "Save and start reading", and the
+    /// a failed Save carries Back, "Continue Without Saving" and "Save and Start Reading", and the
     /// buttons then reach under the centre — the line, an overlay that reserves no width, sat on
     /// top of them.
     var showsPrivacyLine: Bool { privacyLine ?? (secondaryTitle == nil) }

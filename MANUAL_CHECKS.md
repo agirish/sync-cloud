@@ -336,7 +336,7 @@ open -a SyncCloud && tail -f ~/sync-cloud.log
   before and after going Back to Countries and forward again — the directory list must be identical.
   Every press of Back rebuilds the preview in memory; a new `walk-…` directory means it did not.
 - [ ] **Save writes exactly one profile**, and the log says `Setup saved profile 'walk-…'`. With the
-  reading switch on, the button reads "Save and start reading" and a survey starts; with it off it
+  reading switch on, the button reads "Save and Start Reading" and a survey starts; with it off it
   reads "Save" and nothing is read.
 - [ ] **The reading strip is on every Organize lens.** Switch through To File, Duplicates, Renames,
   Restructure, Rules and Storage while the survey runs: the line is under the header on all six,
@@ -347,8 +347,9 @@ open -a SyncCloud && tail -f ~/sync-cloud.log
   "You have not learned a folder tree yet" with a Learn button.
 - [ ] **The text-size stepper works on every screen** and moves through all ten sizes, not four.
   Check that View ▸ Text Size ▸ Bigger agrees with it afterwards.
-- [ ] **Esc persists nothing.** Press it on any screen, quit, relaunch: setup offers itself again.
-  What each screen already committed — preferences, the location list, the draft — stays.
+- [ ] **Esc keeps the answers, not the finish.** Type a name on You and press Esc, then reopen
+  setup from Help: the name is there. Quit and relaunch: setup offers itself again. ✕ and a click
+  outside do the same. A reading that was never saved is gone.
 - [ ] **Settings ▸ General ▸ Run Setup Again…** opens the sheet at Locations.
   **Settings ▸ Advanced ▸ Reset Setup…** asks first, then opens it at Welcome and makes it offer
   itself on the next launch.

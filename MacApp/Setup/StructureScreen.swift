@@ -34,7 +34,8 @@ struct StructureScreen: View {
     /// sight. `theTreeBoxNeverOutgrowsTheCard` is the measurement.
     @Environment(\.setupCardScale) private var cardScale
 
-    private var profile: FolderProfile? { model.structureProfile }
+    /// None while a reading runs — see ``SetupModel/structureShownProfile``.
+    private var profile: FolderProfile? { model.structureShownProfile }
 
     var body: some View {
         VStack(alignment: .leading, spacing: SetupRhythm.blockSpacing) {
@@ -75,6 +76,12 @@ struct StructureScreen: View {
                                   hue: hue)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .frame(height: Self.treeHeight * cardScale)
+                } else if model.structureAwaitsReading {
+                    // **The reading is still running, so this says so** — the line People and
+                    // Countries draw for the same state, in the box the tree will fill.
+                    SetupWalkStatus(model: model, foundLabel: "Read from")
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .frame(height: Self.treeHeight * cardScale, alignment: .top)
                 } else {
                     SetupNote(text: "Nothing has been learned yet.", systemImage: "folder")
                         .frame(height: Self.treeHeight * cardScale, alignment: .top)
@@ -171,7 +178,7 @@ struct StructureScreen: View {
     static let saveFailedHeading = "Couldn’t save your folder profile, so nothing was written."
 
     /// The line after the reason: the two ways on, named as the buttons name them.
-    static let saveFailedNextStep = "Try again, or continue without saving."
+    static let saveFailedNextStep = "Try again, or choose Continue Without Saving."
 
     /// One column per count, so the five of them share a rhythm. Wide enough for the longest label
     /// the screen has — "loose at the top" — measured rather than guessed; a narrower column makes
@@ -179,7 +186,11 @@ struct StructureScreen: View {
     static let statColumn: CGFloat = 118
 
     private var blurb: String {
-        model.structureIsReadOnly
+        if model.structureAwaitsReading {
+            return "SyncCloud is still reading the folder names in \(model.walkRootName). "
+                + "What it finds appears here when it’s done."
+        }
+        return model.structureIsReadOnly
             ? "This Mac already has a folder profile. Click a folder to open or close it."
             : "SyncCloud read this from the folder names in \(model.walkRootName). "
               + "Click a folder to open or close it."
@@ -239,7 +250,7 @@ struct StructureScreen: View {
     ///
     /// **The button below says what it will do**, because a button called *Looks right* once hid
     /// three side effects, one of them three hours long. With the switch on it reads "Save and
-    /// start reading"; with it off, "Save".
+    /// Start Reading"; with it off, "Save".
     private var readingToggle: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Toggle("Read documents", isOn: $model.readDocuments)

@@ -222,7 +222,7 @@ import Testing
         for skip in [nil, "Skip"] as [String?] {
             let host = NSHostingView(
                 rootView: SetupFooter(onBack: {}, skipTitle: skip, onSkip: skip == nil ? nil : {},
-                                      primaryTitle: "Save and start reading", onPrimary: {})
+                                      primaryTitle: "Save and Start Reading", onPrimary: {})
                     .environment(\.appFontScale, 1)
                     .frame(width: contentWidth)
             )
@@ -358,6 +358,49 @@ import Testing
                     "at \(size.percent)% the failure changed nothing — this measures the clean screen")
             #expect(measured <= ceiling,
                     "at \(size.percent)% Structure with a failed Save lays out at \(Int(measured))pt against a \(Int(ceiling))pt opening")
+        }
+    }
+
+    /// **Structure fits while the reading still runs** (SR5): the reading's line stands in the
+    /// tree's box, and the heading's blurb says it is still reading.
+    @Test func structureFitsWhileTheReadingRuns() async throws {
+        let settings = await manager(providerCount: Self.realisticProviderCount)
+        func model() -> SetupModel {
+            SetupModel(settings: settings, peopleStore: nil, syncManager: nil,
+                       hasFilingProfile: false, defaults: ScratchDefaults("setup-fit-d"),
+                       walk: Self.realisticWalk, startScreen: .structure)
+        }
+        let reading = model()
+        reading.walkState = .running
+        #expect(reading.structureAwaitsReading, "premise: Structure is waiting on the reading")
+        let landed = model()
+
+        func render(_ model: SetupModel, scale: CGFloat) -> (height: CGFloat, pixels: Data) {
+            let host = NSHostingView(
+                rootView: StructureScreen(model: model, hue: .blue)
+                    .environment(\.appFontScale, scale)
+                    .environment(\.setupCardScale, SetupSheetMetrics.cardScale(
+                        availableSize: Self.smallDisplayHost, scale: scale))
+                    .frame(width: width(for: .structure, scale: scale)))
+            host.layoutSubtreeIfNeeded()
+            host.frame.size = host.fittingSize
+            host.layoutSubtreeIfNeeded()
+            guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+                return (host.fittingSize.height, Data())
+            }
+            host.cacheDisplay(in: host.bounds, to: rep)
+            let bytes = rep.bitmapData.map { Data(bytes: $0, count: rep.bytesPerRow * rep.pixelsHigh) }
+            return (host.fittingSize.height, bytes ?? Data())
+        }
+        for scale in [1.0, 1.35] as [CGFloat] {
+            let ceiling = SetupSheetMetrics.contentHeight(availableSize: Self.smallDisplayHost,
+                                                          scale: scale)
+            let running = render(reading, scale: scale)
+            #expect(!running.pixels.isEmpty, "at \(Int(scale * 100))% Structure drew nothing")
+            #expect(running.pixels != render(landed, scale: scale).pixels,
+                    "at \(Int(scale * 100))% the running reading changed nothing — this measures the landed screen")
+            #expect(running.height <= ceiling,
+                    "at \(Int(scale * 100))% Structure over a running reading lays out at \(Int(running.height))pt against a \(Int(ceiling))pt opening")
         }
     }
 

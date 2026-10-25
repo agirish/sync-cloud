@@ -185,7 +185,7 @@ struct SetupWalkStatus: View {
                     .fixedSize(horizontal: false, vertical: true)
                 // Opens the picker and reads what is chosen, as Change… does — the ellipsis
                 // promised a dialog, and this only switched back to Learn.
-                Button("Try another folder…") { model.chooseWalkRoot(thenLearn: true) }
+                Button("Try Another Folder…") { model.chooseWalkRoot(thenLearn: true) }
                     .controlSize(.small)
             }
             .padding(10)

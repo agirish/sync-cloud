@@ -43,7 +43,7 @@ struct SummaryScreen: View {
                 // Organize, which has no control that learns a folder — and the Countries row
                 // below relies on this button to change them.
                 row("folder", Self.folderLine(for: model),
-                    verb: model.walkState.isDone || model.writtenReport != nil ? "Learn again" : "Learn",
+                    verb: model.walkState.isDone || model.writtenReport != nil ? "Learn Again" : "Learn",
                     help: "Go back to the Learn screen and read a folder",
                     action: { model.returnToLearn() })
                 Divider()

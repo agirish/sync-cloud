@@ -187,7 +187,7 @@ enum SetupFlow {
     /// The screen before this one, or nil at the start.
     ///
     /// **Back reaches Welcome from Locations on a first run**, which is the opposite of the form
-    /// this replaces. There, Back into Welcome would have offered *Not now* as a way out of a form
+    /// this replaces. There, Back into Welcome would have offered *Not Now* as a way out of a form
     /// whose answers were already written; here nothing is written until Structure's Save, so
     /// stepping back to the introduction costs nothing and refusing it would be the odd choice. On
     /// a re-run Welcome is not in the flow at all, so Locations has no Back.
@@ -334,7 +334,7 @@ enum SetupFlow {
         let detail: String
     }
 
-    /// What the sheet is going to ask, said before it asks — so *Get started* is a decision rather
+    /// What the sheet is going to ask, said before it asks — so *Get Started* is a decision rather
     /// than a leap. Derived from ``Screen`` so a numbered screen added without a line here fails
     /// `theWelcomeOutlineNamesEveryQuestionTheSheetAsks` rather than going unannounced.
     static let outline: [OutlineRow] = [

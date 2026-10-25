@@ -11402,3 +11402,35 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s request=%s fix=%s\n' $l \
 |---|---|---|
 | `v5.x` | `requestDownload` with the silent catch (`request=1 fix=0`) | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | The silent catch inline in `FileTreeView.swift`'s row menu | RECORDED — not owed |
+
+---
+
+## Setup: closing keeps the answers, Structure waits visibly, buttons in Title Case (SR5, ST4, ST18) — main only
+
+Three owner calls on the setup sheet. **ST4:** Esc, ✕, a click outside and Not Now committed
+nothing, so a name typed on You and closed was lost; `main` commits the open screen first
+(`commitBeforeClosing`). **SR5:** Structure opened over a reading still running said "Nothing has
+been learned yet" beside a Continue that dropped it; `main` says it is reading and its button reads
+Skip Saving until the reading lands. **ST18:** the setup buttons were sentence case ("Get started",
+"Learn again", "Continue without saving"); `main` Title Cases them.
+
+```sh
+M=MacApp
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s setup=%s esc=%s fix4=%s reading=%s fix5=%s sentence=%s\n' $l \
+  "$(git ls-tree --name-only origin/$l -- $M/SetupSheet.swift | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:$M/ContentView.swift 2>/dev/null | grep -cF 'Hide the form for the rest of this session, persisting nothing')" \
+  "$(git show origin/$l:$M/Setup/SetupModel.swift 2>/dev/null | grep -cF 'func commitBeforeClosing')" \
+  "$(git show origin/$l:$M/Setup/StructureScreen.swift 2>/dev/null | grep -cF 'Nothing has been learned yet.')" \
+  "$(git show origin/$l:$M/Setup/SetupModel.swift 2>/dev/null | grep -cF '"Skip Saving"')" \
+  "$(git show origin/$l:$M/SetupSheet.swift 2>/dev/null | grep -cF 'primary: "Get started"')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads esc=0 fix4=1 fix5=1 sentence=0):
+# main, v5.x   setup=1 esc=1 fix4=0 reading=1 fix5=0 sentence=1
+# v4.x         setup=1 esc=1 fix4=0 reading=0 fix5=0 sentence=0
+# v3.x, v2.x   setup=0 esc=0 fix4=0 reading=0 fix5=0 sentence=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The same guided sheet: closing commits nothing (`esc=1`), Structure over a running reading (`reading=1`), sentence-case buttons (`sentence=1`) | RECORDED — not owed |
+| `v4.x` | The older five-step form: closing commits nothing (`esc=1`); no Structure screen, and its own sentence-case "Not now" | RECORDED — not owed |
+| `v3.x` / `v2.x` | No setup sheet (`setup=0`) | CLOSED — does not apply |

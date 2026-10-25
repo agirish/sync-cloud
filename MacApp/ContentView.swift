@@ -298,9 +298,9 @@ struct ContentView: View {
     @AppStorage(SetupFlow.hasCompletedDefaultsKey) private var hasCompletedSetup: Bool = false
     /// Whether setup has been dismissed for the rest of this session. App-owned (a binding) for the
     /// same reason as `hasBootstrappedSession`: it has to outlive this view, because a form the
-    /// user answered *Not now* to must not come back when they reopen the window.
+    /// user answered *Not Now* to must not come back when they reopen the window.
     ///
-    /// Separate from `hasCompletedSetup`, and the difference is the whole point: *Not now* hides it
+    /// Separate from `hasCompletedSetup`, and the difference is the whole point: *Not Now* hides it
     /// for this session and leaves the persisted flag alone, so the form offers itself again on the
     /// next launch of a machine that still has not been set up.
     @Binding var setupDismissedThisSession: Bool
@@ -2754,12 +2754,14 @@ struct ContentView: View {
         .transition(.opacity)
     }
 
-    /// Hide the form for the rest of this session, persisting nothing.
+    /// Hide the form for the rest of this session, without marking setup finished.
     ///
-    /// **Nothing, deliberately.** Every answer the form collected is already written — preferences
-    /// and the source list are live settings, and the roster answers are in the draft — so there is
-    /// no "save" to perform here. What is *not* recorded is that setup was finished, which is what
-    /// lets an unanswered form offer itself again next launch.
+    /// **The answers are already kept by the time this runs.** Preferences and the location list
+    /// are live settings, and the sheet commits the open screen before calling here — Esc, ✕ and a
+    /// click outside keep what a screen change keeps (`SetupModel.commitBeforeClosing`), so a name
+    /// typed on You lands in the draft. A reading that was never saved is dropped with the sheet.
+    /// What is *not* recorded is that setup was finished, which is what lets an unanswered form
+    /// offer itself again next launch.
     private func dismissSetup() {
         setupDismissedThisSession = true
         showSetup = false

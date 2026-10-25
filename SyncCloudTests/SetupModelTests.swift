@@ -213,7 +213,7 @@ import Testing
     ///
     /// **Continue never waits**, so on a large tree Structure can open while the reading still
     /// runs. Arriving there was the only thing that rebuilt the preview, so the button turned into
-    /// "Save and start reading" over "Nothing has been learned yet."
+    /// "Save and Start Reading" over "Nothing has been learned yet."
     @Test func aReadingThatLandsOnStructureDrawsItsTree() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-land-\(UUID().uuidString)")
@@ -471,6 +471,36 @@ import Testing
         #expect(model.draft.others.isEmpty)
     }
 
+    // MARK: - Closing
+
+    /// **Closing keeps the open screen's answers, as a screen change does** (ST4).
+    ///
+    /// Esc, ✕ and a click outside committed nothing, so a name typed on You and closed was gone,
+    /// while the same name with Continue pressed first was in the draft. Asked of the draft on disk,
+    /// in a scratch folder — never the real `setup-draft.json` — because the draft is what the next
+    /// open reads. Nothing marks setup finished: the model never touches that key.
+    @Test func closingKeepsTheOpenScreensAnswers() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-close-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let draftURL = root.appendingPathComponent("setup-draft.json")
+        let defaults = ScratchDefaults("setup-model-close")
+        let model = SetupModel(settings: await settings(), peopleStore: nil, syncManager: nil,
+                               hasFilingProfile: false, defaults: defaults,
+                               startScreen: .you, draftURL: draftURL)
+        model.firstName = "Maya"
+        #expect(SetupDraftStore.read(at: draftURL) == nil, "premise: nothing is written while typing")
+
+        model.commitBeforeClosing()
+
+        let stored = try #require(SetupDraftStore.read(at: draftURL), "closing wrote no draft")
+        #expect(stored.yourName == "Maya", "closing dropped the name typed on You")
+        #expect(model.screen == .you, "closing moved the sheet")
+        #expect(!defaults.bool(forKey: SetupFlow.hasCompletedDefaultsKey),
+                "closing marked setup finished")
+    }
+
     // MARK: - Saving
 
     /// Two presses write one profile.
@@ -539,7 +569,7 @@ import Testing
         #expect(!failure.contains("could not be written —") && !failure.contains("Error Domain"),
                 "Structure shows the log's words: \(failure)")
         #expect(model.writtenReport == nil)
-        #expect(model.structureSecondaryTitle == "Continue without saving",
+        #expect(model.structureSecondaryTitle == "Continue Without Saving",
                 "a Save that keeps failing leaves Structure with no way on")
 
         // And the same press, once the write can succeed, moves on and clears the line.
@@ -550,7 +580,7 @@ import Testing
         #expect(model.writtenReport != nil, "premise: the second press wrote")
         #expect(model.screen == .workspaces)
         #expect(model.saveFailure == nil)
-        #expect(model.structureSecondaryTitle == nil, "Continue without saving outlived the failure")
+        #expect(model.structureSecondaryTitle == nil, "Continue Without Saving outlived the failure")
     }
 
     /// A model on Structure whose Save has failed once, against a profiles folder that cannot be
@@ -580,7 +610,7 @@ import Testing
     }
 
     /// **A retry keeps the last failure on screen while it writes.** It was cleared before the
-    /// write, so Structure jumped and Continue without saving vanished for the length of the press.
+    /// write, so Structure jumped and Continue Without Saving vanished for the length of the press.
     @Test(.timeLimit(.minutes(1)))
     func aRetryKeepsTheFailureUpWhileItWrites() async throws {
         let (model, root, _) = try await failedSave("retry")
@@ -588,7 +618,7 @@ import Testing
         let press = try await startSaving(model)
         #expect(model.saveFailure != nil, "the failure line was cleared before the retry finished")
         #expect(model.structureSecondaryTitle != nil,
-                "Continue without saving left the footer while the retry wrote")
+                "Continue Without Saving left the footer while the retry wrote")
         await press.value
     }
 
@@ -627,7 +657,7 @@ import Testing
         #expect(model.screen == .countries, "a Save landing on Countries carried it to \(model.screen)")
     }
 
-    /// **Continue without saving moves on and writes nothing** — offered only after a failed Save.
+    /// **Continue Without Saving moves on and writes nothing** — offered only after a failed Save.
     @Test func continuingWithoutSavingMovesOnAndWritesNothing() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-nosave-\(UUID().uuidString)")
@@ -646,7 +676,7 @@ import Testing
         #expect(model.structureSecondaryTitle != nil, "premise: the Save failed")
 
         model.continueWithoutSaving()
-        #expect(model.screen == .workspaces, "Continue without saving stayed on \(model.screen)")
+        #expect(model.screen == .workspaces, "Continue Without Saving stayed on \(model.screen)")
         #expect(model.writtenReport == nil)
         #expect(model.saveFailure == nil, "the failure line followed the sheet off Structure")
     }
@@ -670,7 +700,7 @@ import Testing
         #expect(await model.save(), "premise: the first Save wrote")
 
         #expect(!model.canWriteProfile,
-                "Structure would offer “Save and start reading” over a reading already written")
+                "Structure would offer “Save and Start Reading” over a reading already written")
         #expect(await model.save() == false, "a second Save of the same reading was let through")
         let written = try FileManager.default.contentsOfDirectory(atPath: profiles.path)
             .filter { $0.hasPrefix("walk-") }
@@ -701,7 +731,7 @@ import Testing
                                walk: Self.walk(folders: ["Finance/US/2024", "Finance/IN/2024"]),
                                onStartSurvey: { started.append($0) })
         model.confirmedCountries = ["US"]
-        #expect(model.structurePrimaryTitle == "Save and start reading")
+        #expect(model.structurePrimaryTitle == "Save and Start Reading")
         #expect(await model.save(), "premise: the first Save wrote")
         let first = try #require(model.writtenReport?.profileId)
         #expect(started.count == 1, "premise: the first Save started the reading")
@@ -726,18 +756,112 @@ import Testing
         #expect(!model.canWriteProfile, "the second Save's answers are still offered for saving")
     }
 
+    // MARK: - Structure over a reading still running
+
+    /// **While the reading runs, Structure's button is Skip Saving; once it lands, Save** (SR5).
+    ///
+    /// Continue never waits, so Structure opens before a big tree's reading lands. Its button said
+    /// Continue — a press that drops the reading — over "Nothing has been learned yet".
+    @Test func structuresButtonSaysSkipSavingUntilTheReadingLands() async throws {
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = FileManager.default.temporaryDirectory
+        let model = await self.model(syncManager: engine)
+        model.screen = .structure
+        #expect(model.structurePrimaryTitle == "Continue", "premise: nothing read, nothing running")
+
+        model.walkState = .running
+        #expect(model.structureAwaitsReading)
+        #expect(model.structurePrimaryTitle == "Skip Saving",
+                "a reading in progress is offered as \(model.structurePrimaryTitle)")
+        #expect(!model.canWriteProfile, "a reading in progress offered to write")
+
+        model.adopt(Self.walk(folders: ["Finance/US", "Family/Mother"]))
+        #expect(!model.structureAwaitsReading)
+        #expect(model.structureShownProfile != nil, "the landed reading draws no tree")
+
+        // Learn Again over that reading: the old tree is not offered as the new reading.
+        model.walkState = .running
+        #expect(model.structureProfile != nil, "premise: the last reading's preview is still built")
+        #expect(model.structureShownProfile == nil,
+                "Structure draws the last reading's tree while the new one runs")
+        model.adopt(Self.walk(folders: ["Finance/US", "Family/Mother"]))
+        #expect(model.structurePrimaryTitle == "Save and Start Reading",
+                "the landed reading is offered as \(model.structurePrimaryTitle)")
+    }
+
+    /// **On a re-run, a reading in progress is not passed off as the profile already here.**
+    ///
+    /// With no reading in hand Structure shows this Mac's own profile, read-only. While a new
+    /// reading runs it says it is reading instead.
+    @Test func aReadingInProgressHidesTheProfileAlreadyHere() async throws {
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = FileManager.default.temporaryDirectory
+        engine.filingFolderProfile = FileSyncManager.previewProfile(
+            walk: Self.walk(folders: ["Finance/US"]), registry: nil, jurisdictionValues: [])
+        let model = await self.model(syncManager: engine)
+        model.screen = .structure
+        #expect(model.structureIsReadOnly, "premise: the re-run shows this Mac's profile")
+        #expect(model.structureShownProfile != nil, "premise: and draws it")
+
+        model.walkState = .running
+        #expect(!model.structureIsReadOnly, "a reading in progress is called the profile already here")
+        #expect(model.structureShownProfile == nil, "the old profile is drawn while the reading runs")
+        #expect(model.structurePrimaryTitle == "Skip Saving")
+    }
+
+    /// **Skip Saving moves on without waiting, and writes nothing** — as Continue did.
+    @Test func skipSavingMovesOnAndWritesNothing() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-skipsave-\(UUID().uuidString)")
+        let profiles = root.appendingPathComponent("profiles")
+        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = profiles
+        let model = await self.model(syncManager: engine)
+        model.screen = .structure
+        model.walkState = .running
+
+        await model.pressStructurePrimary()
+
+        #expect(model.screen == .workspaces, "Skip Saving stayed on \(model.screen)")
+        #expect(model.walkState.isRunning, "Skip Saving stopped the reading")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: profiles.path).isEmpty,
+                "Skip Saving wrote a profile")
+    }
+
+    /// And once the reading has landed, the same press saves.
+    @Test func structuresPressSavesOnceTheReadingLands() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-pressave-\(UUID().uuidString)")
+        let profiles = root.appendingPathComponent("profiles")
+        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = profiles
+        let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
+                                     syncManager: engine)
+        model.readDocuments = false
+        model.screen = .structure
+
+        await model.pressStructurePrimary()
+
+        #expect(model.writtenReport != nil, "the press over a landed reading wrote nothing")
+        #expect(model.screen == .workspaces)
+    }
+
     // MARK: - Back to Learn
 
     /// **Over a finished reading, Learn's primary is Continue, and it keeps the reading.**
     ///
-    /// The primary was "Learn again", so going Back to Learn left only a re-read — which resets the
+    /// The primary was "Learn Again", so going Back to Learn left only a re-read — which resets the
     /// Countries ticks to the rule's picks — or Skip, which throws the reading away.
     @Test func continueOverAFinishedReadingKeepsIt() async throws {
         let engine = FileSyncManager()
         engine.filingProfilesDirectory = FileManager.default.temporaryDirectory
         let fresh = await self.model(syncManager: engine)
         #expect(fresh.learnPrimaryTitle == "Learn")
-        #expect(fresh.learnAgainTitle == nil, "Learn again is offered with nothing to read again")
+        #expect(fresh.learnAgainTitle == nil, "Learn Again is offered with nothing to read again")
 
         let model = await self.model(walk: Self.walk(folders: ["Finance/US/2024", "Legal/US/2024"]),
                                      syncManager: engine)
@@ -745,7 +869,7 @@ import Testing
         model.confirmedCountries = ["US", "IN"]
         model.screen = .learn
         #expect(model.learnPrimaryTitle == "Continue")
-        #expect(model.learnAgainTitle == "Learn again")
+        #expect(model.learnAgainTitle == "Learn Again")
 
         model.pressLearnPrimary()
         #expect(model.screen == .you)
@@ -753,7 +877,7 @@ import Testing
         #expect(model.confirmedCountries == ["US", "IN"], "the hand-set ticks were reset")
     }
 
-    /// And Learn again still reads the folder afresh, and moves on without waiting.
+    /// And Learn Again still reads the folder afresh, and moves on without waiting.
     @Test func learnAgainReadsAfreshAndMovesOn() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-again-\(UUID().uuidString)")
@@ -768,8 +892,8 @@ import Testing
         model.walkRoot = documents
         model.screen = .learn
         model.pressLearnAgain()
-        #expect(model.walkState == .running, "Learn again did not start a reading")
-        #expect(model.screen == .you, "Learn again waited for the reading")
+        #expect(model.walkState == .running, "Learn Again did not start a reading")
+        #expect(model.screen == .you, "Learn Again waited for the reading")
         // Let it land inside the fixture before the folder is removed.
         for _ in 0..<500 where model.walkState.isRunning {
             try await Task.sleep(for: .milliseconds(10))
@@ -862,7 +986,7 @@ import Testing
     /// Beside a hand-built profile the walk's is saved and left unused, and the summary says so.
     /// The reading went ahead anyway, and a reading covers the profile in use: hours spent on a
     /// folder this run of setup never pointed at, or a refusal saying those documents had been
-    /// read already — neither of them what "Save and start reading" offered.
+    /// read already — neither of them what "Save and Start Reading" offered.
     @Test func aWalkThatIsNotInUseStartsNoReading() async throws {
         let (model, started, _) = try await save(besideAHandBuiltProfile: true)
         #expect(model.walkNotInUse, "premise: the hand-built profile stayed in use")

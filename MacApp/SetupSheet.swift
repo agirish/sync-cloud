@@ -205,7 +205,8 @@ struct SetupSheet: View {
     let onOpenSettings: (SettingsView.SettingsTab) -> Void
     /// The user reached the end. The caller persists the completed flag.
     let onFinish: () -> Void
-    /// Esc, ✕, a click outside, or *Not now*. The caller does **not** persist anything.
+    /// Esc, ✕, a click outside, or *Not Now*, once the open screen's answers are committed
+    /// (``close()``). The caller does **not** mark setup finished.
     let onDismiss: () -> Void
     /// What a Start-with button on Summary asks the app to open.
     var onStartWith: (SetupStart) -> Void = { _ in }
@@ -277,7 +278,7 @@ struct SetupSheet: View {
             Rectangle()
                 .fill(Color.black.opacity(glassLevel.overlayScrimOpacity))
                 .ignoresSafeArea()
-                .onTapGesture { onDismiss() }
+                .onTapGesture { close() }
 
             card
                 // Absorb clicks on the card so they don't fall through to the dismiss backdrop.
@@ -332,8 +333,8 @@ struct SetupSheet: View {
     var screenCard: some View {
         switch model.screen {
         case .welcome:
-            frame(title: "Set up SyncCloud", primary: "Get started",
-                  skip: ("Not now", { onDismiss() })) {
+            frame(title: "Set up SyncCloud", primary: "Get Started",
+                  skip: ("Not Now", { close() })) {
                 WelcomeScreen(paneNames: paneNames, hue: glassHue)
             }
 
@@ -383,14 +384,13 @@ struct SetupSheet: View {
             // Learn was skipped there is a profile on screen and nothing to write; and after a
             // folder is changed but not read there is neither — a Save in either case is a button
             // whose whole effect is to move to the next screen, so it says Continue instead. So
-            // does a reading Save already wrote: writing it again made a second profile. The
-            // words are `structurePrimaryTitle`, so a test can read them.
+            // does a reading Save already wrote: writing it again made a second profile. While the
+            // reading still runs it says Skip Saving, and moves on without waiting. The words are
+            // `structurePrimaryTitle`, so a test can read them.
             frame(primary: model.structurePrimaryTitle,
                   // Moves on only once the profile is written: a failed write stays here and
-                  // says what failed (`saveAndContinue`).
-                  primaryAction: model.canWriteProfile ? {
-                      Task { await model.saveAndContinue() }
-                  } : nil,
+                  // says what failed (`saveAndContinue`, through `pressStructurePrimary`).
+                  primaryAction: { Task { await model.pressStructurePrimary() } },
                   primaryDisabled: model.isSaving,
                   // Only once a Save has failed: the primary stays Save so it can be retried, and
                   // this is the way on that writes nothing.
@@ -413,7 +413,7 @@ struct SetupSheet: View {
             }
 
         case .summary:
-            frame(title: "Set up SyncCloud", primary: "Start browsing",
+            frame(title: "Set up SyncCloud", primary: "Start Browsing",
                   primaryAction: { finish() }) {
                 SummaryScreen(model: model, settings: settings, hue: glassHue,
                               onChange: { tab in finish(); onOpenSettings(tab) },
@@ -480,7 +480,7 @@ struct SetupSheet: View {
             primaryTitle: primary,
             onPrimary: primaryAction ?? { if !model.advance() { finish() } },
             isPrimaryDisabled: primaryDisabled,
-            onDismiss: onDismiss,
+            onDismiss: { close() },
             content: content,
             why: why)
     }
@@ -498,6 +498,12 @@ struct SetupSheet: View {
         frame(title: title, primary: primary, primaryAction: primaryAction,
               primaryDisabled: primaryDisabled, secondary: secondary, skip: skip,
               why: { EmptyView() }, content: content)
+    }
+
+    /// Every way out that is not finishing: keeps the open screen's answers, then closes.
+    private func close() {
+        model.commitBeforeClosing()
+        onDismiss()
     }
 
     private func finish() {

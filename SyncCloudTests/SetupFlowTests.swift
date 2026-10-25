@@ -111,7 +111,7 @@ import Testing
 
     /// **Back reaches Welcome when the run includes it, and this is the reversal.** The form this
     /// replaces refused, because by its first step the user's answers were already written and a
-    /// Back into Welcome would have offered *Not now* as a way out of a form in progress. Here
+    /// Back into Welcome would have offered *Not Now* as a way out of a form in progress. Here
     /// nothing is written until Structure's Save, so stepping back to the introduction costs
     /// nothing.
     ///
@@ -745,27 +745,40 @@ import Testing
             return text
         }
         let sheet = try source("SetupSheet.swift")
-        // Learn: Continue over a reading keeps it; Learn again is the secondary.
+        // Learn: Continue over a reading keeps it; Learn Again is the secondary.
         #expect(sheet.contains("primaryAction: { model.pressLearnPrimary() }"),
                 "Learn's primary no longer goes through `pressLearnPrimary` — Continue may re-read")
         #expect(sheet.contains("secondary: model.learnAgainTitle.map"),
-                "Learn again is no longer offered as the secondary button")
+                "Learn Again is no longer offered as the secondary button")
         #expect(sheet.contains("model.pressLearnAgain()"))
         // Structure: a failed write stays put.
-        #expect(sheet.contains("Task { await model.saveAndContinue() }"),
-                "Structure's Save no longer goes through `saveAndContinue` — a failed write may move on")
+        #expect(sheet.contains("primaryAction: { Task { await model.pressStructurePrimary() } }"),
+                "Structure's primary no longer goes through `pressStructurePrimary`")
+        #expect(!sheet.contains("primaryAction: model.canWriteProfile"),
+                "Structure's primary decides for itself again, past the model's rule")
         #expect(!sheet.contains("await model.save()"),
                 "Structure calls `save()` directly again, and will move on whatever it answers")
         // A failed Save offers a way on that writes nothing.
         #expect(sheet.contains("secondary: model.structureSecondaryTitle.map"),
-                "Structure no longer offers Continue without saving after a failed Save")
+                "Structure no longer offers Continue Without Saving after a failed Save")
         #expect(sheet.contains("model.continueWithoutSaving()"))
         // And the failure is drawn where the press stays, with the two ways on.
         let structure = try source("Setup/StructureScreen.swift")
+        // A reading still running is said in the tree's box, not "Nothing has been learned yet".
+        #expect(structure.contains("} else if model.structureAwaitsReading {"),
+                "Structure no longer says it is reading while the reading runs")
+        #expect(structure.contains("private var profile: FolderProfile? { model.structureShownProfile }"),
+                "Structure draws a tree past `structureShownProfile` — an old one while a reading runs")
         #expect(structure.contains("if let failure = model.saveFailure"),
                 "Structure no longer draws a failed Save")
         #expect(structure.contains("Text(failure + \" \" + Self.saveFailedNextStep)"),
                 "the failure line no longer says what to do next")
+        // Closing — Esc, ✕, a click outside, Not Now — keeps the open screen's answers (ST4).
+        #expect(sheet.contains("model.commitBeforeClosing()\n        onDismiss()"),
+                "closing no longer commits the open screen before it closes")
+        #expect(sheet.contains(".onTapGesture { close() }"), "a click outside skips the commit")
+        #expect(sheet.contains("onDismiss: { close() },"), "Esc and ✕ skip the commit")
+        #expect(!sheet.contains("onDismiss: onDismiss"), "the chrome is handed the bare dismiss again")
         // Summary: Learn goes back to the Learn screen, not out to a Settings tab.
         #expect(try source("Setup/SummaryScreen.swift").contains("action: { model.returnToLearn() }"),
                 "Summary's Learn no longer goes back to the Learn screen")

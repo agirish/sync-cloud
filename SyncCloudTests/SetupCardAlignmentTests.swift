@@ -229,27 +229,32 @@ import Testing
     enum FooterCase: CaseIterable, Sendable {
         /// Structure with a reading to save.
         case longPrimary
-        /// Learn over a finished reading: Skip, Learn again, Continue.
+        /// Learn over a finished reading: Skip, Learn Again, Continue.
         case learnAgain
-        /// Structure after a failed Save: Continue without saving, Save and start reading.
+        /// Structure after a failed Save: Continue Without Saving, Save and Start Reading.
         case failedSave
+        /// Structure while the reading still runs: Back and Skip Saving (SR5).
+        case skipSaving
 
         @MainActor
         func footer(privacyLine: Bool? = nil) -> SetupFooter {
             switch self {
             case .longPrimary:
                 SetupFooter(onBack: {}, skipTitle: "Skip", onSkip: {},
-                            primaryTitle: "Save and start reading", onPrimary: {},
+                            primaryTitle: "Save and Start Reading", onPrimary: {},
                             privacyLine: privacyLine)
             case .learnAgain:
                 SetupFooter(onBack: {}, skipTitle: "Skip", onSkip: {},
-                            secondaryTitle: "Learn again", onSecondary: {},
+                            secondaryTitle: "Learn Again", onSecondary: {},
                             primaryTitle: "Continue", onPrimary: {}, privacyLine: privacyLine)
             case .failedSave:
                 SetupFooter(onBack: {}, skipTitle: nil, onSkip: nil,
-                            secondaryTitle: "Continue without saving", onSecondary: {},
-                            primaryTitle: "Save and start reading", onPrimary: {},
+                            secondaryTitle: "Continue Without Saving", onSecondary: {},
+                            primaryTitle: "Save and Start Reading", onPrimary: {},
                             privacyLine: privacyLine)
+            case .skipSaving:
+                SetupFooter(onBack: {}, skipTitle: nil, onSkip: nil,
+                            primaryTitle: "Skip Saving", onPrimary: {}, privacyLine: privacyLine)
             }
         }
     }
@@ -278,7 +283,7 @@ import Testing
     /// the card rather than sliding with the buttons, and is also the one way it could come to sit
     /// under one of them. Structure's long primary keeps it, with clear air required on both sides
     /// of the centre. A footer with a secondary button drops it: after a failed Save, "Continue
-    /// without saving" beside "Save and start reading" reached under the centre and the line sat
+    /// Without Saving" beside "Save and Start Reading" reached under the centre and the line sat
     /// on top of them.
     @Test(arguments: FooterCase.allCases)
     func theFooterPiecesDoNotCollide(_ footerCase: FooterCase) throws {
