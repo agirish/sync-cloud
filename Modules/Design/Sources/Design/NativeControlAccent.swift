@@ -37,7 +37,9 @@ public enum NativeControlAccent {
 public extension View {
     /// Makes every native control in this window — switches, sliders, checkboxes, radios, progress
     /// bars — fill with `hue` instead of the Mac's accent. Apply ONCE, at a window's or a panel's
-    /// root; a control's own `.tint(…)` (a segmented picker's, a prominent button's) still wins.
+    /// root; a control's own `.tint(…)` (a segmented picker's, a prominent button's) still wins, and
+    /// so does a container's — which is why a raw-accent `.tint` over anything but a button is
+    /// named in `AccentFillScanTests` (rule 7).
     func nativeControlAccent(_ hue: LiquidGlassHue) -> some View {
         modifier(NativeControlAccentModifier(color: NativeControlAccent.color(for: hue)))
     }

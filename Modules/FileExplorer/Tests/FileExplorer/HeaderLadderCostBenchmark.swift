@@ -196,7 +196,7 @@ struct HeaderLadderCostBenchmark {
     private func layoutMs<V: View>(_ make: () -> V, width: CGFloat) -> Double {
         let started = CFAbsoluteTimeGetCurrent()
         let host = NSHostingView(rootView: AnyView(
-            make().modifier(HeaderCardChrome(tint: .blue)).frame(width: width)))
+            make().modifier(HeaderCardChrome()).frame(width: width)))
         host.frame = CGRect(x: 0, y: 0, width: width, height: 200)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)

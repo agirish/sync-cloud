@@ -152,7 +152,7 @@ struct HeaderLadderTests {
 
     /// Hosts `view` under the header card's own chrome, in a real window, at `width` if given.
     private func host<V: View>(_ view: V, width: CGFloat? = nil) -> NSHostingView<AnyView> {
-        var root = AnyView(view.modifier(HeaderCardChrome(tint: .blue)))
+        var root = AnyView(view.modifier(HeaderCardChrome()))
         if let width { root = AnyView(root.frame(width: width)) }
         let host = NSHostingView(rootView: root)
         host.frame = CGRect(x: 0, y: 0, width: width ?? 4_000, height: 200)

@@ -46,12 +46,14 @@ import SwiftUI
 /// `.body`, which is the font they inherit *from here* — neither names one — and `HeaderLadderTests`
 /// has to render the row under the same environment for its measurements to mean anything. Restated
 /// by hand in either place, both would keep agreeing with a header that had moved on.
+///
+/// **No tint of its own.** It had one, the raw accent, from before the row's buttons took theirs
+/// from `.actionBar(…, tint:)` and the prominent ones from `.accentedProminent()`. All that was
+/// left for it to reach was a native control, which it would have drawn in the raw shade over the
+/// window root's deepened one (`nativeControlAccent`, DS4).
 struct HeaderCardChrome: ViewModifier {
-    let tint: Color
-
     func body(content: Content) -> some View {
         content
-            .tint(tint)
             // Match the top action bar's glass pills: capsule shape, the taller `.large` control
             // height, but the label font pinned to the top bar's ~13pt `.body` (otherwise `.large`
             // would scale the text up too). Result: same pill height AND same text size.

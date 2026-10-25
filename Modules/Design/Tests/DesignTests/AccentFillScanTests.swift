@@ -50,6 +50,12 @@ import Testing
 ///    or is named in ``unaccentedHosts`` with why. This is a rule about ROOTS rather than controls
 ///    because the accent inherits: a control is untinted exactly when no root above it set one,
 ///    and a new window or hosted panel is how one would come back.
+/// 7. **No raw-accent `.tint` over anything but a button**, outside ``rawTintExemptions``. A
+///    container's `.tint` beats the root's accent for every control under it, so a checkbox or a
+///    switch there fills with the raw shade — white on raw Amber is 2.2:1. On a `Button` it reaches
+///    only that button's label, words in the hue on purpose (Cancel in the PDF sheets). A
+///    `ViewModifier` that tints its `content` with a colour handed in is caught too: the colour is
+///    named only at the call site, where no `.tint(` is (`HeaderCardChrome` was one).
 @Suite struct AccentFillScanTests {
 
     // MARK: The rules, on any source text
@@ -158,7 +164,72 @@ import Testing
             found.append(Finding(rule: "tint style",
                                  snippet: characters.substring(with: NSRange(location: from, length: to - from))))
         }
+
+        // Rule 7: a raw-accent tint reaches only a button's own label.
+        let partners = openers(text)
+        for start in occurrences(of: ".tint(", in: text) {
+            let open = start + ".tint(".count - 1
+            guard let close = matching(text, open) else { continue }
+            let argument = String(text[(open + 1)..<close]).trimmingCharacters(in: .whitespaces)
+            guard let root = receiverRoot(text, partners, before: start) else { continue }
+            let site = "\(root.name)\(snippet(text, root.index + root.name.count, close).prefix(40))"
+            if namesRawAccent(reduced(Array(argument))), root.name != "Button" {
+                found.append(Finding(rule: "raw accent tint over a subtree", snippet: site))
+            } else if root.name == "content", argument.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) {
+                found.append(Finding(rule: "tint handed through a modifier", snippet: site))
+            }
+        }
         return found
+    }
+
+    /// The call a modifier chain hangs off, walking back from the `.` at `index` over modifiers,
+    /// their arguments and trailing closures (`label:` ones too): `Button`, `List`, `VStack`, or
+    /// `content` inside a `ViewModifier`. Nil when the chain starts with a bare `.` (`.regular.tint`).
+    static func receiverRoot(_ text: [Character], _ partners: [Int: Int], before index: Int) -> (name: String, index: Int)? {
+        func isWord(_ c: Character) -> Bool { c.isLetter || c.isNumber || c == "_" }
+        var i = index - 1
+        while true {
+            while i >= 0, text[i] == " " { i -= 1 }
+            guard i >= 0 else { return nil }
+            if text[i] == ")" || text[i] == "}" || text[i] == "]" {
+                guard let open = partners[i] else { return nil }
+                i = open - 1
+                continue
+            }
+            let isLabel = text[i] == ":"
+            if isLabel { i -= 1 }
+            guard i >= 0, isWord(text[i]) else { return nil }
+            let end = i
+            while i >= 0, isWord(text[i]) { i -= 1 }
+            if isLabel || (i >= 0 && text[i] == ".") {
+                if !isLabel { i -= 1 }
+                continue
+            }
+            return (String(text[(i + 1)...end]), i + 1)
+        }
+    }
+
+    /// Every closing bracket's opening one, skipping string literals as `matching` does.
+    static func openers(_ text: [Character]) -> [Int: Int] {
+        var partners: [Int: Int] = [:]
+        var stack: [Int] = []
+        var inString = false
+        var i = 0
+        while i < text.count {
+            let c = text[i]
+            if inString {
+                if c == "\\" { i += 2; continue }
+                if c == "\"" { inString = false }
+            } else if c == "\"" {
+                inString = true
+            } else if c == "(" || c == "{" || c == "[" {
+                stack.append(i)
+            } else if c == ")" || c == "}" || c == "]", let open = stack.popLast() {
+                partners[i] = open
+            }
+            i += 1
+        }
+        return partners
     }
 
     /// Whether `argument` names the raw accent anywhere it is not turned down to a wash. The wash
@@ -384,6 +455,24 @@ import Testing
         #expect(rules(".foregroundStyle(ProviderHue.classify(name).tint)").isEmpty)
         #expect(rules(".fill(hue?.tint.opacity(0.2) ?? .clear); .foregroundStyle(section.tint)").isEmpty)
         #expect(rules(".foregroundStyle(hue.accentColor) // was .foregroundStyle(.tint)").isEmpty)
+
+        // Rule 7, broken: a card, a list, a ternary, a chain with trailing closures and labels.
+        let subtree = "raw accent tint over a subtree"
+        #expect(rules("VStack(spacing: 10) { Toggle(\"x\", isOn: $x) }.padding(14).tint(accent)") == [subtree])
+        #expect(rules("List(selection: $s) { ForEach(rows) { row in Row(row) } }\n  .listStyle(.sidebar)\n  .tint(glassHue.accentColor)") == [subtree])
+        #expect(rules("Table(of: D.self) { TableColumn(\"N\") { Text($0.n) } } rows: { ForEach(d) { TableRow($0) } } .onChange(of: x) { _, y in go(y) } .tint(lit ? accent : nil)") == [subtree])
+        #expect(rules("Form { Slider(value: $v) }.tint((LiquidGlassHue(rawValue: raw) ?? .blue).accentColor)") == [subtree])
+        #expect(rules("func body(content: Content) -> some View { content.tint(tint).controlSize(.large) }") == ["tint handed through a modifier"])
+        // ...and kept: a button's own label, every way one is written; the deepened fill; a wash;
+        // Liquid Glass's tint; a seam; comments.
+        #expect(rules("Button(\"Cancel\") { if a { b() } else { c = false } }\n .keyboardShortcut(.cancelAction)\n .tint(glassHue.accentColor)").isEmpty)
+        #expect(rules("Button { onFix([r]) } label: { Text(\"Fix\").fontWeight(.semibold) } .buttonStyle(.borderless) .tint(accent)").isEmpty)
+        #expect(rules("Button(action: go) { Label(\"Download\", systemImage: \"icloud\") }.buttonStyle(.bordered).tint(tinted ? accent : nil)").isEmpty)
+        #expect(rules("VStack { Toggle(\"x\", isOn: $x) }.tint(hue.accentFillColor)").isEmpty)
+        #expect(rules("VStack { Toggle(\"x\", isOn: $x) }.tint(accent.opacity(0.4))").isEmpty)
+        #expect(rules(".glassEffect(.regular.tint(accent.opacity(strength)), in: Capsule())").isEmpty)
+        #expect(rules("content.tint(SegmentedAccent.tint(for: hue))").isEmpty)
+        #expect(rules("VStack { } // .tint(accent)").isEmpty)
     }
 
     // MARK: Edit
@@ -457,6 +546,21 @@ import Testing
          "the None hue means \"the Mac's accent\" — it is the one place the app asks for it"),
     ]
 
+    /// A raw-accent `.tint` over a subtree (rule 7) that is right, named with why: it colours glyphs
+    /// or a selection on purpose, and nothing under it reads the tint as a fill. A spinner takes no
+    /// tint, and a `Toggle` in a context menu is an AppKit menu item. Matched by the call the tint
+    /// hangs off and the start of its arguments; each must match exactly one site.
+    static let rawTintExemptions: [(file: String, site: String, why: String)] = [
+        ("FileTreeView.swift", "List(selection: $selection)",
+         "Tree's disclosure chevrons — its rows hold a spinner, and its Show Preview switch is a menu item"),
+        ("PaneColumnsView.swift", "List(selection: columnSelection(",
+         "Columns' chevrons — the same rows, spinner and menu item as Tree"),
+        ("DifferencesView.swift", "Table(session.queue",
+         "the review table's chrome and selection — its cells are words and glyphs"),
+        ("DifferencesView.swift", "Table(of: FileDifference.self",
+         "the differences table's sort chevrons — its cells and section headers are words and glyphs"),
+    ]
+
     /// Files whose default button is tinted by a root in another file, or never drawn by SwiftUI.
     static let hostTintedDefaults: [(file: String, why: String)] = [
         ("EditorPDFBatchSheet.swift", "PanePDFTools tints the batch sheet's root"),
@@ -489,6 +593,11 @@ import Testing
                     exempted["\(use.file) \(use.fragment)", default: 0] += 1
                     continue
                 }
+                if finding.rule == "raw accent tint over a subtree",
+                   let tint = Self.rawTintExemptions.first(where: { $0.file == name && finding.snippet.hasPrefix($0.site) }) {
+                    exempted["tint \(tint.file) \(tint.site)", default: 0] += 1
+                    continue
+                }
                 findings.append("\(name) — \(finding)")
             }
         }
@@ -512,6 +621,10 @@ import Testing
         }
         for host in Self.hostTintedDefaults {
             #expect(exempted["default \(host.file)"] == 1, "the exemption for \(host.why) (\(host.file)) matched nothing")
+        }
+        for tint in Self.rawTintExemptions {
+            let count = exempted["tint \(tint.file) \(tint.site)", default: 0]
+            #expect(count == 1, "the exemption for \(tint.why) (\(tint.file)) matched \(count) tints, not 1")
         }
         // A tripwire, so the scan cannot pass on files that no longer hold the buttons. 25 on
         // 2026-10-20: 23 outside Edit, and Edit's Save Filled Copy and Save Reordered Copy; 26 from

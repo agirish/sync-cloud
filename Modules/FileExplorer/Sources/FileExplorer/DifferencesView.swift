@@ -306,7 +306,7 @@ public struct DifferencesView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .modifier(HeaderCardChrome(tint: glassHue.accentColor))
+            .modifier(HeaderCardChrome())
             // The hairline marks the toolbar's edge against the table, so it goes with the table:
             // collapsed, the toolbar is the whole region and the frame's own outline is its edge.
             .columnHeaderRule(surfaceStyle, overContent: !collapsed)

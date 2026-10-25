@@ -87,7 +87,6 @@ struct ReviewCardView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(accent.opacity(0.4), lineWidth: 1)
         )
-        .tint(accent)
         // The card is the review's key-event anchor: focusable so the keyboard loop works the
         // moment the session starts, deliberately NOT window-level `.keyboardShortcut`s — a key
         // equivalent is consulted before the first responder and would eat Return/Space typed
