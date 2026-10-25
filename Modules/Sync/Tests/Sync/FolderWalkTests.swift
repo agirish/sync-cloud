@@ -332,8 +332,8 @@ import Testing
                 == "landing-1", "the same folder walked again keeps the last landing's Undo")
     }
 
-    /// A walk of a DIFFERENT folder still brings the roster and the verdicts, but not the Undo:
-    /// the ledger's inverse is relative to the root, and Undo would replay it under the new one.
+    /// A walk of a DIFFERENT folder still brings the roster, but not the Undo: the ledger's
+    /// inverse is relative to the root, and Undo would replay it under the new one.
     @Test @MainActor func aWalkOfAnotherFolderDoesNotOfferTheOldUndo() async throws {
         let root = try Self.scratch(), other = try Self.scratch(), profiles = try Self.scratch()
         defer {

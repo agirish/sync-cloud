@@ -8713,9 +8713,10 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s finderPkg=%s fromDisk=%s link
 Re-running Setup's Learn and Save wrote a new walk profile and pointed the app at it, but nothing
 copied `people.json`, `person-tags.json` or `restructure.json` across, so the roster read back as
 the folder-name seed, the verdicts and the last landing's Undo vanished, and the next survey refresh
-removed the old folder for good. `main` carries them on every walk that re-points (and the Undo when
-the walk covered the same root), and `retireSupersededProfiles` keeps any folder holding a curated
-file the active one lacks.
+removed the old folder for good. `main` carries them on every walk that re-points (the ledger, the
+verdicts and the Undo only when the walk covered the same root; another folder keeps its own, see
+"Each Setup folder keeps its own Restructure history"), and `retireSupersededProfiles` keeps any
+folder holding a curated file the active one lacks.
 
 ```sh
 S=Modules/Sync/Sources/Sync
@@ -10325,3 +10326,34 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s heldBack=%s rule=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No held rows at all (`heldBack=0`) | CLOSED — does not apply |
+
+---
+
+## Each Setup folder keeps its own Restructure history (FR4, follow-up) — main only
+
+FR4's carry copied `restructure.json` and `person-tags.json` on every Setup walk, so a walk of
+another folder inherited the first folder's path-keyed suppressions, answers, drafts and person
+verdicts (a suggestion hidden at `Tax/Forms` in one folder stayed hidden at `Tax/Forms` in the next).
+`main` records the folder left in `profiles/restructure-roots.json` (`RestructureRootMap`), starts
+the new folder's own ledger and verdict file or takes its earlier ones up again with its Undo —
+unless a landing in an overlapping folder has reshaped the tree since, which the card then says —
+and
+`retireSupersededProfiles` keeps every folder the map names and the profiles its landings name. The
+roster, `people.json`, still follows every walk.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s walkWrite=%s walkCarry=%s rootMap=%s\n' $l \
+  "$(git show origin/$l:$S/FileSyncManager+FolderWalk.swift 2>/dev/null | grep -cF 'func writeWalkProfile')" \
+  "$(git show origin/$l:$S/FileSyncManager+FolderWalk.swift 2>/dev/null | grep -cF 'static func carryCuratedState')" \
+  "$(git show origin/$l:$S/RestructureRootMap.swift 2>/dev/null | grep -cF 'public enum RestructureRootMap')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads rootMap=1):
+# main               walkWrite=1 walkCarry=1 rootMap=0
+# v5.x               walkWrite=1 walkCarry=0 rootMap=0
+# v4.x, v3.x, v2.x   walkWrite=0 walkCarry=0 rootMap=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The walk with no carry at all (`walkCarry=0`): nothing crosses folders; FR4's row records what it lacks | CLOSED — does not apply |
+| `v4.x` / `v3.x` / `v2.x` | No walk profile (`walkWrite=0`) | CLOSED — does not apply |

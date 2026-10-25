@@ -57,6 +57,21 @@ public final class PersonTagStore: ObservableObject {
 
     private var isPersistent: Bool { !profileId.isEmpty }
 
+    /// Writes an empty `person-tags.json` for `profileId` when nothing is at its path — for a
+    /// Setup walk of a folder with no history of its own: the verdicts are keyed by paths in the
+    /// folder walked, so another folder's must not come along, and a folder with no file would
+    /// leave the old one stranded for the retire sweep's "only copy" rule
+    /// (``RestructureRootMap/startEmptyHistory(in:profileId:)``). False when the write failed.
+    @discardableResult
+    static func startEmptyFile(in directory: URL, profileId: String) -> Bool {
+        let store = PersonTagStore(directory: directory, profileId: profileId)
+        guard (try? FileManager.default.attributesOfItem(atPath: store.fileURL.path)) == nil
+        else { return true }
+        let before = store.savedRevision
+        store.save()
+        return store.savedRevision != before
+    }
+
     // MARK: - Reading
 
     /// The verdicts, indexed for the gather.

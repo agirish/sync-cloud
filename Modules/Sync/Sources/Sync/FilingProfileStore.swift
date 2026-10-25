@@ -557,6 +557,8 @@ extension FilingProfileStore {
     /// The files in a profile's folder that the USER made, as opposed to what a walk derives:
     /// the household roster, the person verdicts, and everything Restructure remembers. They must
     /// travel with the active profile, and a folder holding the only copy of one is never retired.
+    /// The roster follows every walk; the verdicts and the ledger, keyed by paths in the folder
+    /// walked, follow their own Setup folder (``RestructureRootMap``).
     public static let curatedArtifactNames = ["people.json", "person-tags.json", "restructure.json"]
 
     /// What the document survey learned — ``FilingSurveyStore``'s corpus and memory. Not curated,
@@ -572,7 +574,7 @@ extension FilingProfileStore {
     /// after a single evening — because the refresh button gave no feedback, so it was pressed
     /// repeatedly, but the leak was there at one-per-press regardless.
     ///
-    /// **Three things are never retired, and the first two are this function's own rules rather
+    /// **Four things are never retired, and the first three are this function's own rules rather
     /// than the caller's:**
     ///
     /// - **The active profile.** Read from the index here, not passed in, so a caller that has
@@ -582,6 +584,9 @@ extension FilingProfileStore {
     ///   the safe default by construction. A profile whose file will not decode at all is kept
     ///   too: unreadable is not the same as disposable, and this is the one operation where that
     ///   distinction is unrecoverable.
+    /// - **What a Setup folder's Restructure history needs** (FR4, follow-up): every folder
+    ///   ``RestructureRootMap`` names, and every id the ledger records in those folders name. An
+    ///   unreadable map (or a ledger it names) retires nothing.
     /// - **Whatever the caller protects.** That is where domain knowledge lives: the ledger can
     ///   re-point Undo at `appliedUnderProfileId`, and `repointActiveProfile` requires the target
     ///   to still be on disk, so a landing that can still be taken back pins the profile it was
@@ -617,8 +622,14 @@ extension FilingProfileStore {
             }
             listed = rows
         }
+        // **A folder Setup walked away from keeps its history, and its Undo keeps what it needs**
+        // (FR4, follow-up): the folder the root map names for each Setup folder, and every id that
+        // folder's ledger records name — a walk back takes that ledger up and re-points its Undo
+        // at them. Kept here rather than by the caller so every sweep keeps them; a map this
+        // cannot read, or a ledger it names that cannot be read, retires nothing at all.
+        guard let mapped = RestructureRootMap.protectedProfileIds(in: directory) else { return [] }
         let candidates = listed.compactMap { $0["profileId"] as? String }
-            .filter { $0 != active && !protected.contains($0) }
+            .filter { $0 != active && !protected.contains($0) && !mapped.contains($0) }
         var retired: [String] = []
         for id in candidates.sorted() {
             let url = directory.appendingPathComponent(id)
@@ -720,6 +731,36 @@ extension FilingProfileStore {
         else { return nil }
         return probe.builtBy?.hasPrefix(FolderProfile.derivedBuiltByPrefix) == true
             ? .derived : .handBuilt
+    }
+
+    /// Just the `root` a profile file records — what ``FolderProfile/recordedRoot`` decodes.
+    private struct RootProbe: Decodable {
+        let root: String?
+        private enum Key: String, CodingKey { case root }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: Key.self)
+            root = try? c.decodeIfPresent(String.self, forKey: .root)
+        }
+    }
+
+    /// ``FolderProfile/recordedRoot`` for the profile at `id`, as the file spells it, read from
+    /// the header rather than a full decode — nil when the file records none or cannot be read.
+    static func recordedRoot(id: String, in directory: URL) -> String? {
+        guard let data = try? Data(contentsOf: profileURL(id: id, in: directory)) else { return nil }
+        return (try? JSONDecoder().decode(RootProbe.self, from: data))?.root
+    }
+
+    /// Whether two recorded folders are ONE folder (FR4) — compared standardised, with case folded
+    /// where the volume folds it, and again through links, so `~/OneDrive` and the
+    /// `~/Library/CloudStorage/…` folder it links to are one root, not two. `~` is expanded. Nil
+    /// is no folder, and never the same as anything.
+    static func namesSameRoot(_ a: String?, _ b: String?) -> Bool {
+        guard let a, let b else { return false }
+        let ea = (a as NSString).expandingTildeInPath, eb = (b as NSString).expandingTildeInPath
+        guard ea.hasPrefix("/"), eb.hasPrefix("/") else { return false }
+        return PathBoundary.resolvesToSameDirectory(
+            ea, eb, caseSensitive: FileSyncManager.volumeSupportsCaseSensitiveNames(
+                for: URL(fileURLWithPath: ea)))
     }
 
     private static func fileExistsAsDirectory(_ url: URL, fileManager: FileManaging) -> Bool {

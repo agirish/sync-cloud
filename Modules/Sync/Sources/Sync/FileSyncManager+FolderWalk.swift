@@ -233,7 +233,7 @@ extension FileSyncManager {
         let becameActive = FilingProfileStore.activeProfileId(in: directory) == profileId
         if becameActive, let previousId, previousId != profileId {
             Self.carryCuratedState(from: previousId, to: profileId, root: profile.recordedFolderPath,
-                                   in: directory)
+                                   in: directory, now: now)
         }
         let report = FolderWalkReport(foldersProfiled: profile.folders.count,
                                       profileId: profileId,
@@ -255,7 +255,8 @@ extension FileSyncManager {
         return .success(report)
     }
 
-    /// **What the user made follows the active profile to its new folder** (FR4).
+    /// **What the user made follows the active profile to its new folder** (FR4), and **each
+    /// folder Setup walks keeps its own Restructure history** (FR4, follow-up).
     ///
     /// The household roster, the person verdicts and Restructure's ledger live in
     /// `profiles/<id>/`, and a walk writes a brand-new id. Only the Restructure re-derive used to
@@ -264,15 +265,168 @@ extension FileSyncManager {
     /// gone, and the next survey refresh retired the old folder with everything in it. Copied,
     /// never moved — the old folder is what an Undo re-points to, as for a re-derive.
     ///
-    /// The last landing's Undo follows only when the walk covered the SAME folder: its inverse is
-    /// written in paths relative to the root, and Undo replays it against whatever root is current.
+    /// The roster is about people alone and follows every walk. The ledger and the verdicts are
+    /// keyed by paths relative to the folder walked (``RestructureRootMap/historyNames``), so
+    /// they follow that folder:
+    ///
+    /// - **The same folder walked again** (``FilingProfileStore/namesSameRoot(_:_:)``, links and
+    ///   case resolved): both are carried and the last landing's Undo re-pointed at the new id.
+    ///   Any ``RestructureRootMap`` entry for the folder is dropped — the new id is its latest.
+    /// - **Another folder**: the folder left is recorded in the map with the id holding its
+    ///   history, and the walk takes up the NEW folder's history if the map has one — copied in,
+    ///   with its last landing's Undo re-pointed unless a landing applied since the user left it,
+    ///   in a folder that is it or inside it or holds it, reshaped the tree that Undo describes
+    ///   (the Undo then stays withdrawn, and the log names that folder). A folder with no history
+    ///   starts an empty ledger and an empty verdict file. A copy that fails keeps the entry and
+    ///   starts empty.
+    /// - **A map that cannot be read or written** is never written over: the walk carries both
+    ///   as it did before the map existed, so nothing is lost on a read error. So does a walk
+    ///   from a profile that records no folder.
     static func carryCuratedState(from previousId: String, to newId: String,
-                                  root newRoot: String?, in directory: URL) {
-        carryProfileArtifacts(from: previousId, to: newId, in: directory, fm: FileManager.default)
-        let previousRoot = FilingProfileStore.profile(id: previousId, in: directory)?.recordedFolderPath
-        guard let newRoot, previousRoot == newRoot else { return }
+                                  root newRoot: String?, in directory: URL, now: Date = Date()) {
+        let fm = FileManager.default
+        let previousRecorded = FilingProfileStore.recordedRoot(id: previousId, in: directory)
+        let previousRoot = previousRecorded.map(RestructureRootMap.expanded)
+        if FilingProfileStore.namesSameRoot(previousRoot, newRoot) {
+            carryProfileArtifacts(from: previousId, to: newId, in: directory, fm: fm)
+            RestructureStore(directory: directory, profileId: newId)
+                .repointProduced(from: previousId, to: newId)
+            // The entry goes only when this folder now holds the history: after a failed take-up
+            // the active folder holds the empty files, and the entry is the only way back.
+            if case .loaded(var entries) = RestructureRootMap.read(in: directory),
+               let stale = RestructureRootMap.index(of: newRoot, in: entries),
+               RestructureRootMap.holdsHistory(id: newId, in: directory)
+                || !RestructureRootMap.holdsHistory(id: entries[stale].profileId, in: directory) {
+                entries.remove(at: stale)
+                do {
+                    try RestructureRootMap.write(entries, in: directory)
+                } catch {
+                    Logger.shared.warning("Restructure: could not update "
+                        + "\(RestructureRootMap.filename): \(error.localizedDescription)")
+                }
+            }
+            return
+        }
+        guard let previousRecorded, let previousRoot, previousRoot.hasPrefix("/"),
+              newRoot != nil else {
+            carryProfileArtifacts(from: previousId, to: newId, in: directory, fm: fm)
+            return
+        }
+        var entries: [RestructureRootMap.Entry]
+        switch RestructureRootMap.read(in: directory) {
+        case .unreadable(let why):
+            Logger.shared.warning("Restructure: \(RestructureRootMap.filename) \(why) — the "
+                + "Restructure history and person verdicts of \(previousRecorded) were carried to "
+                + "\(newId) as before, and the map was left as it is")
+            carryProfileArtifacts(from: previousId, to: newId, in: directory, fm: fm)
+            return
+        case .loaded(let loaded):
+            entries = loaded
+        }
+        let history = RestructureRootMap.historyNames
+        carryProfileArtifacts(from: previousId, to: newId, in: directory, fm: fm,
+                              names: FilingProfileStore.curatedArtifactNames.filter {
+                                  !history.contains($0) })
+
+        // **An entry whose folder is gone goes** (review R4): a Setup folder deleted since, or a
+        // profile folder no longer there, has no history to return to, and the entry would pin
+        // its profile folder — corpus, memory and all — for good. Only when the disk says so.
+        entries.removeAll { entry in
+            guard let why = RestructureRootMap.whyGone(entry, in: directory) else { return false }
+            Logger.shared.info("Restructure: dropped the history entry for \(entry.root) — \(why)")
+            return true
+        }
+
+        // The folder left, recorded first: until this is on disk, its history has no protection
+        // from the retire sweep but the "only copy" rule, so a failed write carries it as before.
+        // **Never displaced by an empty folder.** After a failed take-up the folder being left
+        // holds the empty files the walk started, and the entry still names the real history —
+        // replacing it would leave that history to the next sweep. **And a folder with no
+        // history is not recorded at all** (review R4): an entry would pin it for nothing.
+        if let old = RestructureRootMap.index(of: previousRoot, in: entries),
+           !RestructureRootMap.holdsHistory(id: previousId, in: directory),
+           RestructureRootMap.holdsHistory(id: entries[old].profileId, in: directory) {
+            Logger.shared.info("Restructure: kept \(entries[old].profileId) as the history of "
+                + "\(previousRecorded) — \(previousId) holds none")
+        } else {
+            if let old = RestructureRootMap.index(of: previousRoot, in: entries) { entries.remove(at: old) }
+            if RestructureRootMap.holdsHistory(id: previousId, in: directory) {
+                // What every other history held now — the folder about to be taken up among them.
+                // A landing found later that is not in this set came after the user left.
+                let seen = RestructureRootMap.landings(in: entries.map(\.profileId),
+                                                       directory: directory)
+                entries.append(.init(root: previousRecorded, profileId: previousId,
+                                     leftAt: FilingProfileStore.stamp(now), landingsSeen: seen))
+            }
+        }
+        do {
+            try RestructureRootMap.write(entries, in: directory)
+        } catch {
+            Logger.shared.warning("Restructure: could not record \(previousRecorded) in "
+                + "\(RestructureRootMap.filename): \(error.localizedDescription) — its Restructure "
+                + "history and person verdicts were carried to \(newId) as before")
+            carryProfileArtifacts(from: previousId, to: newId, in: directory, fm: fm, names: history)
+            return
+        }
+
+        let file = { (id: String, name: String) in directory.appendingPathComponent("\(id)/\(name)") }
+        guard let returning = RestructureRootMap.index(of: newRoot, in: entries),
+              history.contains(where: {
+                  fm.fileExists(atPath: file(entries[returning].profileId, $0).path) }) else {
+            if let empty = RestructureRootMap.index(of: newRoot, in: entries) {
+                // An entry whose folder holds neither file holds no history to return to.
+                let dropped = entries.remove(at: empty)
+                do {
+                    try RestructureRootMap.write(entries, in: directory)
+                } catch {
+                    Logger.shared.warning("Restructure: could not drop the empty history entry "
+                        + "for \(dropped.root) from \(RestructureRootMap.filename): "
+                        + "\(error.localizedDescription)")
+                }
+            }
+            RestructureRootMap.startEmptyHistory(in: directory, profileId: newId)
+            return
+        }
+        let entry = entries[returning]
+        var copied: [URL] = []
+        do {
+            for name in history where fm.fileExists(atPath: file(entry.profileId, name).path) {
+                try fm.copyItem(at: file(entry.profileId, name), to: file(newId, name))
+                copied.append(file(newId, name))
+            }
+        } catch {
+            // Only this walk's own copies go — the history stays whole where the entry names it.
+            for url in copied { try? fm.removeItem(at: url) }
+            Logger.shared.warning("Restructure: could not take up the Restructure history and "
+                + "person verdicts of \(entry.root) from \(entry.profileId): "
+                + "\(error.localizedDescription) — they stay there, and \(newId) starts with none")
+            RestructureRootMap.startEmptyHistory(in: directory, profileId: newId)
+            return
+        }
+        // A history with only one of the two files gets an empty other.
+        RestructureRootMap.startEmptyHistory(in: directory, profileId: newId)
+        entries.remove(at: returning)
+        do {
+            try RestructureRootMap.write(entries, in: directory)
+        } catch {
+            Logger.shared.warning("Restructure: could not update \(RestructureRootMap.filename): "
+                + "\(error.localizedDescription)")
+        }
+        Logger.shared.info("Restructure: took up the history of \(entry.root) from "
+            + "\(entry.profileId), left \(entry.leftAt)")
+        // As recorded (`~/Documents/Tax`): the overlap test expands it, and the card names it.
+        let others = entries.map { (root: $0.root, profileId: $0.profileId) }
+        if let reshaped = RestructureRootMap.laterOverlappingLanding(
+            in: entry.root, seen: entry.landingsSeen, others: others, directory: directory) {
+            Logger.shared.warning("Restructure: the last landing in \(entry.root) cannot be "
+                + "undone — a landing in \(reshaped) since \(entry.leftAt) reshaped the folders "
+                + "its Undo would move back")
+            RestructureStore(directory: directory, profileId: newId)
+                .withholdUndo(producedBy: entry.profileId, because: reshaped)
+            return
+        }
         RestructureStore(directory: directory, profileId: newId)
-            .repointProduced(from: previousId, to: newId)
+            .repointProduced(from: entry.profileId, to: newId)
     }
 
     /// What the profile would say about a walked tree, without writing anything.

@@ -178,12 +178,17 @@ public final class RestructureStore: ObservableObject {
         /// What the verifier disagreed about, in one sentence — nil when it agreed, or when it
         /// did not run.
         public var verifierNote: String?
+        /// The Setup folder whose landing has reshaped this one's tree since the user left it —
+        /// set when a walk back took this history up and withheld the Undo (review R7), so the
+        /// card can say why there is none. Nil on every other record.
+        public var undoWithheldBy: String?
 
         public init(manifest: RestructureManifest, inverse: RestructureManifest, at: String,
                     created: Int, skipped: Int, appliedUnderProfileId: String? = nil,
                     producedProfileId: String? = nil, summary: String? = nil,
                     undoneAt: String? = nil, undoSummary: String? = nil,
-                    verifiedOK: Bool? = nil, verifierNote: String? = nil) {
+                    verifiedOK: Bool? = nil, verifierNote: String? = nil,
+                    undoWithheldBy: String? = nil) {
             self.manifest = manifest
             self.inverse = inverse
             self.at = at
@@ -196,6 +201,7 @@ public final class RestructureStore: ObservableObject {
             self.undoSummary = undoSummary
             self.verifiedOK = verifiedOK
             self.verifierNote = verifierNote
+            self.undoWithheldBy = undoWithheldBy
         }
     }
 
@@ -224,6 +230,17 @@ public final class RestructureStore: ObservableObject {
     /// `restructure.json` for the active profile.
     public var fileURL: URL {
         directory.appendingPathComponent("\(profileId)/restructure.json")
+    }
+
+    /// Writes an empty ledger for `profileId` when its folder has none — for a Setup walk of a
+    /// folder with no history of its own, which must not inherit the old folder's path-keyed
+    /// state but must hold a ledger, or the retire sweep's "only copy" rule keeps every old folder
+    /// forever (FR4, follow-up). Leaves an existing file alone. False when the write failed.
+    @discardableResult
+    public static func startEmptyLedger(in directory: URL, profileId: String) -> Bool {
+        let store = RestructureStore(directory: directory, profileId: profileId)
+        guard !FileManager.default.fileExists(atPath: store.fileURL.path) else { return true }
+        return store.writeFile()
     }
 
     public init(directory: URL, profileId: String, fileManager: FileManager = .default) {
@@ -468,9 +485,22 @@ public final class RestructureStore: ObservableObject {
             changed = true
         }
         guard changed else { return }
-        Logger.shared.info("Restructure: ledger re-pointed from \(from) to \(to) after a "
-            + "re-derive that moved nothing")
+        Logger.shared.info("Restructure: ledger re-pointed from \(from) to \(to)")
         save()
+    }
+
+    /// Marks every live landing that produced `from` as one whose Undo is withheld because a
+    /// landing in `root` has reshaped the tree since (review R7) — the records
+    /// ``repointProduced(from:to:)`` would have moved, matched the same way.
+    public func withholdUndo(producedBy from: String, because root: String) {
+        var changed = false
+        for index in applied.indices where applied[index].undoneAt == nil {
+            guard (applied[index].producedProfileId
+                    ?? applied[index].appliedUnderProfileId) == from else { continue }
+            applied[index].undoWithheldBy = root
+            changed = true
+        }
+        if changed { save() }
     }
 
     /// Replaces the record with `manifestId`'s manifest — how a landing finalises its counts.

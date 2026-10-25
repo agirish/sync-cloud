@@ -1564,9 +1564,10 @@ extension FileSyncManager {
     /// Copies the per-profile artifacts the app reads into the new directory — the roster, the
     /// person verdicts, and everything Restructure remembers. Copied, never moved: the old
     /// directory is what Undo re-points to, and it keeps its own set.
-    nonisolated static func carryProfileArtifacts(from oldId: String, to newId: String,
-                                                  in directory: URL, fm: FileManaging) {
-        for name in FilingProfileStore.curatedArtifactNames {
+    nonisolated static func carryProfileArtifacts(
+        from oldId: String, to newId: String, in directory: URL, fm: FileManaging,
+        names: [String] = FilingProfileStore.curatedArtifactNames) {
+        for name in names {
             let source = directory.appendingPathComponent("\(oldId)/\(name)")
             let target = directory.appendingPathComponent("\(newId)/\(name)")
             guard fm.fileExists(atPath: source.path),

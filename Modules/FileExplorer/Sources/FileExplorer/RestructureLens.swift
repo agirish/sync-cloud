@@ -96,10 +96,20 @@ struct ReorganisationDisplay: Equatable, Identifiable {
                     // **The store's order, never the view's.** `undoableReorganisation` is the
                     // one spelling the engine and the Organize menu also read; a second copy
                     // here is how a card ends up offering an undo the engine refuses.
-                    blockedReason: record.undoneAt == nil && undoableId != nil
-                        && record.manifest.manifestId != undoableId
-                        ? RestructureLens.blockedByNewerText : nil)
+                    blockedReason: blockedReason(of: record, undoableId: undoableId))
             }
+    }
+}
+
+extension ReorganisationDisplay {
+    /// Why `record` offers no Undo, or nil when it does or is finished. A withheld Undo (a walk
+    /// back to this folder found a landing in an overlapping one since — review R7) says so,
+    /// and outranks "undo the newer first", which would not bring it back.
+    static func blockedReason(of record: RestructureStore.AppliedRecord,
+                              undoableId: String?) -> String? {
+        guard record.undoneAt == nil, record.manifest.manifestId != undoableId else { return nil }
+        if let root = record.undoWithheldBy { return RestructureLens.withheldText(by: root) }
+        return undoableId != nil ? RestructureLens.blockedByNewerText : nil
     }
 }
 
@@ -442,6 +452,13 @@ struct RestructureLens: View {
     /// first, and saying so on the card is the difference between a greyed row and a mystery.
     static let blockedByNewerText =
         "Undo the newer reorganization first — the ledger unwinds one at a time, newest back."
+
+    /// Why a landing taken up again by a walk back to its folder cannot be undone: a landing in
+    /// an overlapping folder has moved what its Undo would put back.
+    static func withheldText(by root: String) -> String {
+        "This can’t be undone any more — a reorganization in “\(root)” has moved these folders "
+            + "since you last worked in this one."
+    }
 
     /// The path a landing's card is headed with. `"."` is the profile's own spelling for the tree
     /// root, and a removal of empties scattered across the tree has no closer family than that —

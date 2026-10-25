@@ -109,6 +109,23 @@ import Testing
                 "with nothing undoable there is no newer landing to name")
     }
 
+    /// A landing whose Undo a walk back withheld (review R7) says why, on its own and when a
+    /// newer landing is undoable too — undoing that one would not bring this one back.
+    @Test func aWithheldUndoSaysWhy() throws {
+        var withheld = Self.record("old")
+        withheld.undoWithheldBy = "~/Documents/Tax"
+        let alone = ReorganisationDisplay.rows(from: [withheld], undoableId: nil,
+                                               stillHasEmptiedFolders: { _ in true })
+        let reason = RestructureLens.withheldText(by: "~/Documents/Tax")
+        #expect(alone.first?.blockedReason == reason, "a withheld Undo showed no reason")
+        #expect(reason.contains("~/Documents/Tax"))
+        let underNewer = ReorganisationDisplay.rows(from: [withheld, Self.record("new")],
+                                                    undoableId: "new",
+                                                    stillHasEmptiedFolders: { _ in true })
+        #expect(underNewer.last?.blockedReason == reason)
+        #expect(underNewer.first?.blockedReason == nil)
+    }
+
     /// The filter and the two fallbacks: a scaffold (no `appliedUnderProfileId`) is not a plan
     /// landing, an unfinished record still gets a card, and the disk probe can veto the button.
     @Test func scaffoldsAreExcludedAndAnUnfinishedRecordStillShows() throws {
