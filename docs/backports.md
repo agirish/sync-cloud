@@ -10990,3 +10990,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr25=%s fix=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR25 check (`fr25=0`) | CLOSED — does not apply |
+
+---
+
+## A pane transfer places a row the way the pane does (final review P4) — main only
+
+A pane transfer stripped the root off a row's id alone, so rows the pane showed below a folder
+symlink, or under a root spelled through a link, were refused as "not inside the source pane's
+folder". `main` falls back to `paneRelativePath`, which reads the tree's shape.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s outside=%s fix=%s\n' $l \
+  "$(git show origin/$l:$S/FileOperations.swift 2>/dev/null | grep -cF 'throw FileOperationError.itemOutsideSourceRoot')" \
+  "$(git show origin/$l:$S/FileOperations.swift 2>/dev/null | grep -cF 'placedByThePane')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads fix=5):
+# main, v5.x, v4.x, v3.x, v2.x   outside=1 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same id-only refusal (`outside=1`), by a prefix test | RECORDED — not owed |

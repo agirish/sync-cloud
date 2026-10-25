@@ -14,7 +14,9 @@ extension FileSyncManager {
             destinationDescription: "between panes",
             destinationRoot: fromLeft ? rightRoot : leftRoot,
             targetURL: Self.paneTargetURL(fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot,
-                                          leftOpenAt: paneOpenAt(true), rightOpenAt: paneOpenAt(false)),
+                                          leftOpenAt: paneOpenAt(true), rightOpenAt: paneOpenAt(false),
+                                          placedByThePane: panePlacements(of: nodes, fromLeft: fromLeft,
+                                                                          leftRoot: leftRoot, rightRoot: rightRoot)),
             direction: fromLeft ? "→ Right" : "← Left",
             fileManager: fm
         )
@@ -30,10 +32,26 @@ extension FileSyncManager {
             destinationDescription: "between panes",
             destinationRoot: fromLeft ? rightRoot : leftRoot,
             targetURL: Self.paneTargetURL(fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot,
-                                          leftOpenAt: paneOpenAt(true), rightOpenAt: paneOpenAt(false)),
+                                          leftOpenAt: paneOpenAt(true), rightOpenAt: paneOpenAt(false),
+                                          placedByThePane: panePlacements(of: nodes, fromLeft: fromLeft,
+                                                                          leftRoot: leftRoot, rightRoot: rightRoot)),
             direction: fromLeft ? "→ Right" : "← Left",
             fileManager: fm
         )
+    }
+
+    /// Where the source pane places each node below its root, for the nodes whose id is not spelled
+    /// under it (P4): below a folder symlink, under a root spelled through a link. The transfer took
+    /// the id alone and refused every such row the pane was showing as "not inside the source pane’s
+    /// folder"; `paneRelativePath` reads the tree's shape there, as "Compare only this folder" does.
+    private func panePlacements(of nodes: [FileNode], fromLeft: Bool, leftRoot: String, rightRoot: String) -> [String: String] {
+        let root = ((fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath
+        guard !root.isEmpty else { return [:] }
+        var placed: [String: String] = [:]
+        for node in nodes where PathBoundary.relativize(node.id, under: root, links: linkedFolders) == nil {
+            if let relative = paneRelativePath(of: node, isLeft: fromLeft, root: root) { placed[node.id] = relative }
+        }
+        return placed
     }
 
     /// Copies multiple files to a specific absolute destination directory path.
@@ -206,8 +224,12 @@ extension FileSyncManager {
     /// Google Drive account root, outside `My Drive`, while the pane on screen showed
     /// `My Drive/Documents`. At and above the landing folder the row keeps its name a level up,
     /// never the other pane's root (P1, P3).
+    ///
+    /// `placedByThePane` answers for a node whose id is not spelled under the root — below a folder
+    /// symlink, or under a root spelled through a link — with where the pane places it (P4).
     nonisolated static func paneTargetURL(fromLeft: Bool, leftRoot: String, rightRoot: String,
                                           leftOpenAt: String = "", rightOpenAt: String = "",
+                                          placedByThePane: [String: String] = [:],
                                           links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders)
         -> @Sendable (FileNode) throws -> URL {
         let fromRoot = ((fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath
@@ -217,7 +239,8 @@ extension FileSyncManager {
         return { node in
             guard !fromRoot.isEmpty else { throw FileOperationError.sourceRootUnavailable }
             guard !toRoot.isEmpty else { throw FileOperationError.destinationRootUnavailable }
-            guard let relativePath = PathBoundary.relativize(node.id, under: fromRoot, links: links) else {
+            guard let relativePath = PathBoundary.relativize(node.id, under: fromRoot, links: links)
+                    ?? placedByThePane[node.id] else {
                 throw FileOperationError.itemOutsideSourceRoot(itemName: node.name)
             }
             guard let anchored = PathBoundary.transferTarget(relativePath, from: fromOpenAt, to: toOpenAt) else {

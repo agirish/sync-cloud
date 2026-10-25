@@ -64,6 +64,29 @@ import Testing
 
     // MARK: - Ids the root cannot be stripped off
 
+    /// **P4: a pane transfer places a row the way the pane does.** Copying the folder two levels
+    /// below a folder link was refused — "is not inside the source pane’s folder" — because the
+    /// transfer stripped the root off the id alone. It lands at the same place in the other pane.
+    @MainActor
+    @Test func aPaneTransferCarriesARowBelowAFolderLink() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "pane-transfer-link")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let (root, _) = try Self.makeLinkedTree(under: base)
+        let m = try await Self.loaded(root: root.path, in: base)
+        m.undoManager = UndoManager()
+        m.collisionResolver = { _ in .skip }
+        m.permanentDeleteConfirmer = { _ in false }
+        let other = base.appendingPathComponent("other-pane")
+        let deeper = try #require(Self.node(["link", "sub", "deeper"], in: m.leftTree))
+        try #require(PathBoundary.relativize(deeper.id, under: root.path, links: [:]) == nil,
+                     "premise: \(deeper.id) is spelled under the root")
+
+        let copied = await m.copyItems(nodes: [deeper], fromLeft: true, leftRoot: root.path, rightRoot: other.path)
+
+        #expect(copied.map(\.id) == [deeper.id], "error: \(String(describing: m.currentError?.reason))")
+        #expect(FileManager.default.fileExists(atPath: other.appendingPathComponent("link/sub/deeper/deepest/f.txt").path))
+    }
+
     /// **Below a folder symlink.** The link and its child keep the link's spelling, and from there
     /// the listing comes back where the link leads: `T/sub/deeper`. Each level answers with the
     /// names down to it, and each answer, joined back the way a focus is, is the folder listed.
