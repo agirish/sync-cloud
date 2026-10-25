@@ -303,7 +303,8 @@ extension FileSyncManager {
             if !outcome.changed.isEmpty { parts.append("\(outcome.changed.count) changed since Verify All and left alone") }
             if !outcome.failures.isEmpty { parts.append("\(outcome.failures.count) failed") }
             if heldCount > 0 { parts.append("\(heldCount) left out (links or rows that need your decision)") }
-            banner = .warning(parts.joined(separator: "; "))
+            // The dates it did match are one undo step all the same, so the banner keeps its Undo.
+            banner = .warning(parts.joined(separator: "; "), undoable: !outcome.matched.isEmpty)
         } else {
             banner = .success("\(CountedNoun.phrase(outcome.matched.count, "file")) now match — dates set, nothing copied",
                               undoable: true)

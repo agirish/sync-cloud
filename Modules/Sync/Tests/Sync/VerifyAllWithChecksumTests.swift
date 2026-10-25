@@ -716,6 +716,32 @@ import Foundation
         #expect(try exactRescan().isEmpty, "the redone pair comes back on the next exact scan")
     }
 
+    /// A date match that matched some pairs and left others out still registered its one undo
+    /// step for the ones it matched, but its warning banner offered no Undo — the visible face of
+    /// the ⌘Z that works.
+    @MainActor
+    @Test func testAPartialDateMatchKeepsItsUndo() async throws {
+        let fixture = try makeRaceFixture()
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+        manager.undoManager = UndoManager()
+        let held = FileDifference(
+            relativePath: fixture.differed.relativePath, leftItemPath: fixture.differed.leftItemPath,
+            rightItemPath: fixture.differed.rightItemPath, type: .differentDates, action: .copyToRight,
+            description: "Sizes differ", leftFileSize: 4, rightFileSize: 5, heldBack: .sizesDifferWithoutANewerSide)
+        let stamp = FilePairStamp.read(fixture.identical, fileManager: manager.fileManager)
+        try #require(stamp.left != nil && stamp.right != nil)
+
+        await manager.bulkCopyDifferencesLeftToRight([fixture.identical, held], asOf: manager.fileOperationsEpoch,
+                                                     stamps: [fixture.identical.id: stamp])
+
+        let banner = try #require(manager.banner)
+        #expect(banner.message == "1 date matched; 1 left out (links or rows that need your decision)")
+        #expect(banner.severity == .warning)
+        #expect(banner.isUndoable, "the dates it matched are undoable, and the banner hid it")
+        #expect(manager.undoManager?.canUndo == true)
+    }
+
     /// FR41's link half: a pair whose LEFT is a symbolic link verifies identical — Verify reads the
     /// file it points to — but the left-to-right run must never write the link over the real file
     /// on the right, nor re-date anything through it. Left out, and said so.

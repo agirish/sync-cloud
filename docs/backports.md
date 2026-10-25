@@ -10552,3 +10552,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s dates=%s exact=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No date match at all (`dates=0`) | CLOSED — does not apply |
+
+---
+
+## A partial date match keeps its Undo (FR41, follow-up) — main only
+
+When "Copy to match dates" matched some pairs and left others out (changed since Verify All,
+failed, or held), it still registered one undo step for the dates it set, but its warning banner
+offered no Undo. `main` keeps the banner's Undo whenever a date was matched.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s dates=%s partialUndo=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+BulkSync.swift 2>/dev/null | grep -cF 'func matchDatesOfProvenPairs')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+BulkSync.swift 2>/dev/null | grep -cF 'undoable: !outcome.matched.isEmpty')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads partialUndo=1):
+# main                     dates=1 partialUndo=0
+# v5.x, v4.x, v3.x, v2.x   dates=0 partialUndo=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No date match at all (`dates=0`) | CLOSED — does not apply |
