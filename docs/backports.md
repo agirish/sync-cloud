@@ -10686,3 +10686,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s byName=%s listsLanding=%s\n' 
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No ambiguity refusal (`byName=0`) | CLOSED — does not apply |
+
+---
+
+## A pane swap leaves a quoted link path as it is (FR8, follow-up) — main only
+
+Swapping the panes rewrites "on left"/"on right" in each row's note, and it rewrote them inside the
+quoted path of FR8's note on a folder holding a link — a link named `notes on right` read as one that
+does not exist, and its words could pick which side the rewrite turned. `main` rewrites only outside
+“…”, as the name-conflict row's note is left whole.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s nestedLinkNote=%s quoteAware=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileDiffEngine.swift 2>/dev/null | grep -cF 'inside it is a link, so a copy would carry the link')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileDifference.swift 2>/dev/null | grep -cF 'Alternating runs: even indices outside quotes')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads quoteAware=1):
+# main                     nestedLinkNote=1 quoteAware=0
+# v5.x, v4.x, v3.x, v2.x   nestedLinkNote=0 quoteAware=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No quoted path in any row's note (`nestedLinkNote=0`) | CLOSED — does not apply |

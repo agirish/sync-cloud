@@ -385,6 +385,20 @@ import Foundation
             == "iCloud file is newer")
         #expect(FileDifference.mirroredDescription("Sizes differ") == "Sizes differ")
 
+        // FR8's note quotes a link inside the folder by its exact path: the side phrase outside the
+        // quotes turns, the path does not — and the path's own words do not choose the direction.
+        #expect(FileDifference.mirroredDescription(
+            "Folder missing on right (iCloud) — “Docs/notes on left” inside it is a link, so a copy would carry the link")
+            == "Folder missing on left (iCloud) — “Docs/notes on left” inside it is a link, so a copy would carry the link")
+        #expect(FileDifference.mirroredDescription(
+            "Folder missing on left (iCloud) — “Docs/notes on right” inside it is a link")
+            == "Folder missing on right (iCloud) — “Docs/notes on right” inside it is a link")
+        #expect(FileDifference.mirroredDescription("Folder missing on right (iCloud) — “Docs/notes on right” inside it is a link")
+            == "Folder missing on left (iCloud) — “Docs/notes on right” inside it is a link")
+        // An unclosed quote leaves the rest quoted rather than rewriting into it.
+        #expect(FileDifference.mirroredDescription("Missing on right — “a on right")
+            == "Missing on left — “a on right")
+
         let diff = FileDifference(
             relativePath: "x",
             leftItemPath: "/l/x",
