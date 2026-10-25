@@ -283,6 +283,50 @@ extension SyncError {
     }
 }
 
+extension SyncError {
+    /// ``movedButOriginalParked(originalPath:parkedPath:additional:)`` for a move-UNDO (U7): the
+    /// undo moved the item back, and what it could not put in the Trash is the item it moved back
+    /// FROM — at the destination, not at the original's place. That sentence said the move had
+    /// "reached its destination", which is the opposite of what an undo does.
+    public static func undoneButMovedItemParked(originalPath: String, parkedPath: String,
+                                                additional: Int = 0) -> SyncError {
+        let parkedName = (parkedPath as NSString).lastPathComponent
+        let originalName = (originalPath as NSString).lastPathComponent
+        let more = additional > 0
+            ? " \(CountedNoun.phrase(additional, "other item")) \(additional == 1 ? "was" : "were") left behind the same way."
+            : ""
+        return SyncError(
+            title: "Moved Back, Copy Left Behind",
+            message: "Undo moved “\(originalName)” back, but the item it moved back from could not be "
+                + "put in the Trash. To get past a Trash refusal, SyncCloud briefly renamed it inside "
+                + "its own folder — and could not rename it back. Nothing was deleted.\n\n"
+                + "It is still in that folder, now named “\(parkedName)”. That name starts with a dot, "
+                + "so Finder hides it until you show hidden files. It is a second copy of what was "
+                + "moved back: put it in the Trash, or rename it back to “\(originalName)”."
+                + more + " The details are in ~/sync-cloud.log.",
+            path: parkedPath,
+            reason: "was “\(originalName)”",
+            isRetryable: false
+        )
+    }
+
+    /// Whether this is FR36's leftover alert — a move, or its undo, that left a hidden copy behind.
+    public var isParkedOriginalLeftover: Bool {
+        title == "Moved, Original Left Behind" || title == "Moved Back, Copy Left Behind"
+    }
+
+    /// This failure, also telling the user about the leftover `leftover` reported — so a later
+    /// failure in the same operation does not replace the only word of a hidden copy (U7). Reveal
+    /// in Finder lands on the leftover, the one item that needs the user's hand.
+    public func mentioning(_ leftover: SyncError) -> SyncError {
+        SyncError(title: title,
+                  message: message + "\n\n" + leftover.message,
+                  path: leftover.path ?? path,
+                  reason: reason,
+                  isRetryable: isRetryable)
+    }
+}
+
 // MARK: - Which alert actions apply (pure decision, UI renders it)
 
 /// An abstract action an error alert can offer. Presentation (button label, role, side effect)

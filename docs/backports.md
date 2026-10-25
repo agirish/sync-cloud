@@ -11075,3 +11075,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s follows=%s noFollow=%s\n' $l 
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The following check in the delete redo (`follows=1`), and no `entryExists` | RECORDED — not owed |
+
+---
+
+## FR36's leftover alert survives a later failure, and words an undo (final review U7) — main only
+
+A failure later in the same transfer replaced FR36's "original left behind" alert, and a move-undo
+that stranded said the move had "reached its destination". `main` carries the leftover in the
+failure's alert and words the undo's own.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr36=%s fix=%s\n' $l \
+  "$(git show origin/$l:$S/SyncError.swift 2>/dev/null | grep -cF 'func movedButOriginalParked')" \
+  "$(git show origin/$l:$S/SyncError.swift 2>/dev/null | grep -cF 'func undoneButMovedItemParked')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads fix=1):
+# main                     fr36=1 fix=0
+# v5.x, v4.x, v3.x, v2.x   fr36=0 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR36 alert (`fr36=0`) | CLOSED — does not apply |

@@ -793,9 +793,18 @@ extension FileSyncManager {
             for error in result.errors.dropFirst() {
                 Logger.shared.error("\(isMove ? "Move" : "Copy") Failed: \(error.localizedDescription)")
             }
-            present(isMove
+            let failure: SyncError = isMove
                 ? .moveFailed(items: items, reason: reason)
-                : .copyFailed(items: items, reason: reason))
+                : .copyFailed(items: items, reason: reason)
+            // **The leftover alert this operation just raised is not replaced (U7).** FR36's
+            // "original left behind" is presented as the operation ends, which is before this —
+            // and `present` replaces, so a batch where one item stranded its original and another
+            // failed said only that something failed, over a hidden full-size duplicate.
+            if let leftover = currentError, leftover.isParkedOriginalLeftover {
+                present(failure.mentioning(leftover))
+            } else {
+                present(failure)
+            }
         } else if !nodes.isEmpty {
             let verb = isMove ? "Moved" : "Copied"
             // .info, not .debug: a copy/move is a data mutation that belongs in a normal-level
@@ -1064,15 +1073,19 @@ extension FileSyncManager {
     /// `Task.detached` started inside it; a strand there keeps only its log line, as before.
     final class ParkedSourceLeftovers: @unchecked Sendable {
         @TaskLocal static var current: ParkedSourceLeftovers?
+        /// Set by a move-UNDO around its own body (U7): what its cleanup parks is the item it
+        /// moved back from, and the alert must not say a move "reached its destination".
+        @TaskLocal static var undoing = false
         private let lock = NSLock()
-        private var entries: [(original: URL, parked: URL)] = []
+        private var entries: [(original: URL, parked: URL, undoing: Bool)] = []
 
         func record(original: URL, parked: URL) {
+            let undoing = Self.undoing
             lock.lock(); defer { lock.unlock() }
-            entries.append((original, parked))
+            entries.append((original, parked, undoing))
         }
 
-        var recorded: [(original: URL, parked: URL)] {
+        var recorded: [(original: URL, parked: URL, undoing: Bool)] {
             lock.lock(); defer { lock.unlock() }
             return entries
         }

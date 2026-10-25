@@ -1577,6 +1577,9 @@ extension FileSyncManager {
             let slot = target.claimFileOperationSlot()
             Task {
                 await target.enqueueFileOperation(slot: slot) {
+                    // An original parked by this undo's own cleanup is the item it moved BACK
+                    // from: the alert says so in undo's words (U7), not "reached its destination".
+                    await ParkedSourceLeftovers.$undoing.withValue(true) {
                         let items = await stateResolver.get()
 
                         // Resolve the redo params AFTER the reversal loop, from ONLY the items that
@@ -1828,6 +1831,7 @@ extension FileSyncManager {
                                     // Appended rather than folded into `leftInPlace`, whose
                                     // parenthetical would stop being true of every item it counts.
                                     + (nothingRecorded > 0 ? ", \(nothingRecorded) with nothing recorded to move back" : ""))
+                    }
                 }
             }
         }

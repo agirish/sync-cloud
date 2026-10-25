@@ -2938,9 +2938,13 @@ public class FileSyncManager: ObservableObject {
                     for extra in parked.dropFirst() {
                         Logger.shared.error("Moved, but the original \(extra.original.path) is still in its folder as \(extra.parked.lastPathComponent)")
                     }
-                    self?.present(.movedButOriginalParked(originalPath: first.original.path,
-                                                          parkedPath: first.parked.path,
-                                                          additional: parked.count - 1))
+                    self?.present(first.undoing
+                        ? .undoneButMovedItemParked(originalPath: first.original.path,
+                                                    parkedPath: first.parked.path,
+                                                    additional: parked.count - 1)
+                        : .movedButOriginalParked(originalPath: first.original.path,
+                                                  parkedPath: first.parked.path,
+                                                  additional: parked.count - 1))
                 }
                 // File operations mutate the filesystem; cached prefetched roots are stale after any write.
                 self?.dropPrefetchedTrees()

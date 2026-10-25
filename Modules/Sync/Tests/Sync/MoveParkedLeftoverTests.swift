@@ -45,6 +45,66 @@ import Foundation
         #expect(error.message.contains("data.bin"))
     }
 
+    /// **U7: a later failure in the same move does not replace the leftover's alert.** The leftover
+    /// is presented as the operation ends and the batch's failure right after it, and `present`
+    /// replaces — so only "Move Failed" was left on screen, over a hidden duplicate.
+    @MainActor
+    @Test func aFailureInTheSameMoveStillMentionsTheLeftover() async throws {
+        let fm = MockFileManager()
+        try fm.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        fm.virtualDisk["/src/data.bin"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [.size: 100], contents: nil)
+        fm.shouldFailMove = true
+        fm.trashRefusedUntilMovedIn = true
+        fm.failMoveToPathsOnce = ["/src/data.bin"]
+        let manager = FileSyncManager(fileManager: fm)
+        manager.undoManager = UndoManager()
+        let nodes = [FileNode(id: "/src/data.bin", name: "data.bin", isDirectory: false),
+                     FileNode(id: "/src/missing.bin", name: "missing.bin", isDirectory: false)]
+
+        _ = await manager.moveItems(nodes: nodes, toPath: "/dst", fileManager: fm)
+
+        let parked = try #require(fm.virtualDisk.keys.first { $0.hasPrefix("/src/.synccloud-trash-retry-") },
+                                  "the fixture no longer models a strand")
+        let error = try #require(manager.currentError)
+        #expect(error.title == "Move Failed", "premise: the second item did not fail")
+        #expect(error.message.contains((parked as NSString).lastPathComponent), "the leftover went unmentioned: \(error.message)")
+        #expect(error.path == parked)
+    }
+
+    /// **U7: an undo that strands says so in undo's words.** Move, then arm the same strand for the
+    /// undo's own cleanup — the item at the destination it moves back from.
+    @MainActor
+    @Test func aMoveUndoThatStrandsSaysItMovedBack() async throws {
+        let fm = MockFileManager()
+        try fm.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        fm.virtualDisk["/src/data.bin"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [.size: 100], contents: nil)
+        let manager = FileSyncManager(fileManager: fm)
+        manager.undoManager = UndoManager()
+        manager.permanentDeleteConfirmer = { _ in false }
+        _ = await manager.moveItems(nodes: [FileNode(id: "/src/data.bin", name: "data.bin", isDirectory: false)],
+                                    toPath: "/dst", fileManager: fm)
+        try #require(fm.virtualDisk["/dst/data.bin"] != nil && manager.currentError == nil)
+        // The moved-in item would pass `trashRefusedUntilMovedIn`, so the refusal is armed outright.
+        fm.shouldFailMove = true
+        fm.trashErrorAlways = NSError(domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError)
+        fm.failMoveToPathsOnce = ["/dst/data.bin"]
+
+        manager.undoManager?.undo()
+        await waitUntil("the undo drains") { manager.activeFileOperationsCount == 0 }
+
+        #expect(fm.virtualDisk["/src/data.bin"] != nil, "premise: the undo did not move it back: \(fm.virtualDisk.keys.sorted()) \(String(describing: manager.currentError)) \(String(describing: manager.banner))")
+        let parked = try #require(fm.virtualDisk.keys.first { $0.hasPrefix("/dst/.synccloud-trash-retry-") },
+                                  "the fixture no longer models a strand: \(fm.virtualDisk.keys.sorted())")
+        let error = try #require(manager.currentError)
+        #expect(error.title == "Moved Back, Copy Left Behind")
+        #expect(!error.message.contains("reached its destination"))
+        #expect(error.path == parked)
+    }
+
     /// The ordinary cross-volume move — the source reaches the Trash — reports nothing extra.
     @MainActor
     @Test func aMoveWhoseOriginalReachesTheTrashPresentsNothing() async throws {
