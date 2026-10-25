@@ -467,6 +467,201 @@ extension PDFFixtures {
                 "the note's text is in the copy — the note says it isn't")
     }
 
+    // MARK: Keeping the file's comments (FR57, decided 2026-10-25)
+    //
+    // Every PDF read and write below runs in the PDFKit lane, as the app's do, handing back only
+    // facts: off it, they race the package's other PDF suites.
+
+    /// A two-page Letter file whose second page carries a sticky note with its popup and a yellow
+    /// highlight across `highlight` — written by PDFKit, which gives each an appearance.
+    private func commented(_ name: String) async throws -> String {
+        let file = path(name)
+        let written = await PDFKitSerialAccess.perform { () -> Bool in
+            PDFFixtures.write(file, pages: 2)
+            guard let document = PDFDocument(url: URL(fileURLWithPath: file)), let page = document.page(at: 1) else { return false }
+            let note = PDFAnnotation(bounds: CGRect(x: 60, y: 300, width: 24, height: 24), forType: .text, withProperties: nil)
+            note.contents = "WALLABY note text"
+            note.color = .yellow
+            page.addAnnotation(note)
+            let popup = PDFAnnotation(bounds: CGRect(x: 90, y: 300, width: 150, height: 80), forType: .popup, withProperties: nil)
+            note.popup = popup
+            page.addAnnotation(popup)
+            let marker = PDFAnnotation(bounds: Self.highlight, forType: .highlight, withProperties: nil)
+            marker.color = .yellow
+            page.addAnnotation(marker)
+            return document.write(to: URL(fileURLWithPath: file))
+        }
+        try #require(written, "the fixture was not written")
+        return file
+    }
+
+    nonisolated static let highlight = CGRect(x: 300, y: 300, width: 160, height: 40)
+
+    /// **How much yellow page `index`'s own content draws across ``highlight``** — the page's
+    /// content stream alone, as `drawPDFPage` draws it, with no annotation: a comment drawn into
+    /// the page shows here, one kept as a comment does not. `-1` for a page that can't be read.
+    private func yellowInContent(_ data: Data, page index: Int) async -> Int {
+        await PDFKitSerialAccess.perform { () -> Int in
+            guard let document = CGDataProvider(data: data as CFData).flatMap(CGPDFDocument.init),
+                  let page = document.page(at: index + 1) else { return -1 }
+            let box = page.getBoxRect(.mediaBox)
+            let (w, h) = (Int(box.width), Int(box.height))
+            guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return -1 }
+            ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+            ctx.translateBy(x: -box.minX, y: -box.minY)
+            ctx.drawPDFPage(page)
+            guard let pixels = ctx.data?.assumingMemoryBound(to: UInt8.self) else { return -1 }
+            let rect = Self.highlight
+            var count = 0
+            for y in Int(rect.minY)..<Int(rect.maxY) {
+                for x in Int(rect.minX)..<Int(rect.maxX) {
+                    let at = ((h - 1 - y) * w + x) * 4
+                    if pixels[at] > 200, pixels[at + 1] > 200, pixels[at + 2] < 120 { count += 1 }
+                }
+            }
+            return count
+        }
+    }
+
+    /// One annotation as the file holds it, read by CoreGraphics rather than PDFKit (which
+    /// rewrites what it reads).
+    struct Comment: Sendable, Equatable {
+        var subtype: String
+        var contents: String?
+        /// For a popup: the subtype of the annotation its `/Parent` names.
+        var parent: String?
+    }
+
+    private func comments(_ data: Data, page index: Int) async -> [Comment] {
+        await PDFKitSerialAccess.perform { () -> [Comment] in
+            func subtype(_ annotation: CGPDFDictionaryRef) -> String? {
+                var name: UnsafePointer<CChar>?
+                return CGPDFDictionaryGetName(annotation, "Subtype", &name) ? name.map { String(cString: $0) } : nil
+            }
+            guard let document = CGDataProvider(data: data as CFData).flatMap(CGPDFDocument.init),
+                  let page = document.page(at: index + 1)?.dictionary else { return [] }
+            var annots: CGPDFArrayRef?
+            guard CGPDFDictionaryGetArray(page, "Annots", &annots), let annots else { return [] }
+            return (0..<CGPDFArrayGetCount(annots)).compactMap { i in
+                var annotation: CGPDFDictionaryRef?
+                guard CGPDFArrayGetDictionary(annots, i, &annotation), let annotation, let kind = subtype(annotation) else { return nil }
+                var contents: CGPDFStringRef?
+                var parent: CGPDFDictionaryRef?
+                return Comment(
+                    subtype: kind,
+                    contents: CGPDFDictionaryGetString(annotation, "Contents", &contents) ? contents.flatMap { CGPDFStringCopyTextString($0) as String? } : nil,
+                    parent: CGPDFDictionaryGetDictionary(annotation, "Parent", &parent) ? parent.flatMap(subtype) : nil)
+            }
+        }
+    }
+
+    /// **"Keep comments as comments" writes the file's comments into the copy as comments, and draws
+    /// none of them into its pages** — the sticky note with its text and its popup, the highlight —
+    /// while a save left as it is still draws them in. Off by default, offered on a flat file with
+    /// comments, and for that save only.
+    @Test func keepingCommentsWritesThemAsCommentsAndDrawsNoneIn() async throws {
+        #expect(EditorPDFComments.markupTypes == [
+            "Text", "FreeText", "Line", "Square", "Circle", "Polygon", "PolyLine", "Highlight", "Underline",
+            "Squiggly", "StrikeOut", "Stamp", "Caret", "Ink", "Sound", "Redact",
+        ], "the comments the card counts are not the ones the toolkit keeps")
+        let file = try await commented("Noted.pdf")
+        let source = try Data(contentsOf: URL(fileURLWithPath: file))
+        try #require(await yellowInContent(source, page: 1) == 0, "the fixture draws yellow into its page — this tests nothing")
+        let pdf = try await open(file)
+        let fill = pdf.fill
+        fill.toggle()
+        #expect(fill.offersKeepingComments && !fill.keepsComments, "not offered, or on by default")
+        func save() async throws -> Data {
+            let id = try #require(fill.place(at: CGPoint(x: 100, y: 500), page: 0))
+            fill.type("QUOKKA4471", into: id)
+            fill.endEditing()
+            guard case .wrote(let copy) = await fill.save() else { throw CancellationError() }
+            return try Data(contentsOf: URL(fileURLWithPath: copy))
+        }
+
+        // Left as it is: drawn in, as before.
+        let flat = try await save()
+        #expect(await yellowInContent(flat, page: 1) > 1000, "a save left as it is did not draw the highlight in")
+        #expect(await comments(flat, page: 1).filter { EditorPDFComments.markupTypes.contains($0.subtype) }.isEmpty,
+                "a save left as it is kept a comment")
+
+        fill.toggle()
+        fill.keepsComments = true
+        #expect(fill.formNotes.first == EditorPDFComments.commentsKeptNote, "the card still says they are drawn in")
+        let kept = try await save()
+        #expect(!fill.keepsComments, "the choice outlived its save")
+        #expect(pdf.tools.banner?.message.contains(EditorPDFComments.keptFellBackNote) == false)
+        #expect(await yellowInContent(kept, page: 1) == 0, "a kept comment is drawn into the page too")
+        let carried = await comments(kept, page: 1)
+        #expect(carried.map(\.subtype).sorted() == ["Highlight", "Popup", "Text"], "\(carried)")
+        #expect(carried.first { $0.subtype == "Text" }?.contents == "WALLABY note text", "the note's text did not come along")
+        #expect(carried.first { $0.subtype == "Popup" }?.parent == "Text", "the popup no longer belongs to its note")
+    }
+
+    /// **The choice goes back off with Discard and with another file**, as the links' does.
+    @Test func keepingCommentsLastsOneSaveOnly() async throws {
+        let pdf = try await open(try await commented("Noted.pdf"))
+        let fill = pdf.fill
+        fill.toggle()
+        fill.keepsComments = true
+        fill.discard()
+        #expect(!fill.keepsComments, "Discard kept the choice")
+        fill.keepsComments = true
+        pdf.open(path: try await commented("Other.pdf"), log: { _ in })
+        for _ in 0..<1000 where pdf.phase == .loading { await PDFKitSerialAccess.perform {} }
+        try #require(pdf.phase == .open)
+        #expect(!fill.keepsComments, "another file kept the choice")
+        // Offered only with comments to keep.
+        let plain = try await letter("Plain.pdf")
+        #expect(!plain.0.fill.offersKeepingComments, "offered on a file with no comments")
+    }
+
+    /// **Comments the toolkit could not keep are said to have been drawn in** — it draws them in
+    /// then and reports `.flatten`, as it does with an encrypted copy, which this run's stand-in for
+    /// the toolkit (called in the lane, as the toolkit is) does on purpose. The banner names it; the
+    /// copy has them drawn in.
+    @Test func commentsThatCouldNotBeKeptAreSaidToBeDrawnIn() async throws {
+        let pdf = try await open(try await commented("Noted.pdf"))
+        pdf.tools.fillAndSignHook = { input, items, _ in
+            (try PDFToolkit.fillAndSignData(inputURL: input, items: items, annotations: .flatten).data, .flatten)
+        }
+        let fill = pdf.fill
+        fill.toggle()
+        let id = try #require(fill.place(at: CGPoint(x: 100, y: 500), page: 0))
+        fill.type("QUOKKA4471", into: id)
+        fill.keepsComments = true
+        guard case .wrote(let copy) = await fill.save() else { Issue.record("the copy was not written"); return }
+        let message = try #require(pdf.tools.banner?.message)
+        #expect(message.hasPrefix("Saved “") && message.hasSuffix(". " + EditorPDFComments.keptFellBackNote), "\(message)")
+        #expect(await yellowInContent(try Data(contentsOf: URL(fileURLWithPath: copy)), page: 1) > 1000)
+    }
+
+    /// **The engine never keeps comments with a page made a picture** (FR57): the picture pass
+    /// copies the other pages through PDFKit, which rewrites a kept comment, so it draws them in.
+    /// The same run with no picture keeps them — the fixture can tell the two apart. The engine is
+    /// called in the lane, as the app calls it.
+    @Test func theEngineDrawsCommentsInWhenAPageIsMadeAPicture() async throws {
+        let file = try await commented("Pictured.pdf")
+        let item = FillSignItem(pageIndex: 0, rect: CGRect(x: 100, y: 500, width: 120, height: 20),
+                                content: .text(FillSignText(string: "QUOKKA4471", fontSize: 12, red: 0, green: 0, blue: 0)))
+        let staging = URL(fileURLWithPath: folder)
+        func copy(pictures: [Int]) async throws -> Data {
+            let data = await PDFKitSerialAccess.perform { () -> Data? in
+                guard case .bytes(let data, _)? = try? EditorPDFToolEngine.output(
+                    of: .fillAndSign([item], pictures: pictures, keepsComments: true), input: URL(fileURLWithPath: file),
+                    staging: staging, progress: nil, isCancelled: nil) else { return nil }
+                return data
+            }
+            return try #require(data, "the engine wrote nothing")
+        }
+        try #require(await yellowInContent(try await copy(pictures: []), page: 1) == 0, "kept with no picture — this tests nothing")
+        #expect(await yellowInContent(try await copy(pictures: [0]), page: 1) > 1000,
+                "kept with a page made a picture, whose pass rewrites them")
+    }
+
     /// **What changes while the copy is being written is kept, not cleared** — it is not in the copy,
     /// and clearing deleted it without a word. The save is held on its lane turn while a second item
     /// goes down, then let finish: the copy has the first words only, and both items are still there.

@@ -106,8 +106,10 @@ public enum EditorPDFTool: Equatable, Sendable {
     /// What Fill & Sign placed, as the toolkit draws it — ``EditorPDFFillSign/save()`` — and the
     /// zero-based pages then made pictures, so the words corrections cover there go (TE85).
     /// `unlinksPatches` takes every link under a correction's patch out of the copy (FR56, decided
-    /// 2026-10-25), so it no longer opens the old address under the new words.
-    case fillAndSign([FillSignItem], pictures: [Int] = [], unlinksPatches: Bool = false)
+    /// 2026-10-25), so it no longer opens the old address under the new words. `keepsComments`
+    /// keeps the file's own comments as comments rather than drawing them in (FR57, decided
+    /// 2026-10-25) — never with a page made a picture, whose pass would rewrite them.
+    case fillAndSign([FillSignItem], pictures: [Int] = [], unlinksPatches: Bool = false, keepsComments: Bool = false)
     /// **Fill & Sign on a file with its own form** (Phase 5c): the values typed into its fields, by
     /// fully qualified name, and what was placed — filled in place by `fillFormData`, so the copy's
     /// form stays fillable and the placed items become annotations rather than page content.
@@ -204,7 +206,7 @@ public enum EditorPDFTool: Equatable, Sendable {
         // otherwise (decided with the 5b mockups). The name follows the save button, which says
         // Save Corrected Copy for corrections alone and Save Filled Copy for a mix (decided
         // 2026-10-21: a mix was "(corrected)" under a Save Filled Copy button).
-        case .fillAndSign(let items, _, _):
+        case .fillAndSign(let items, _, _, _):
             if items.contains(where: Self.isSigned) { return "signed" }
             let patches = items.filter(\.isPatch).count
             return patches > 0 && items.count == 2 * patches ? "corrected" : "filled"
@@ -304,7 +306,7 @@ public enum EditorPDFTool: Equatable, Sendable {
         case .cleanMetadata(let fields): return fields.isCleared ? "clean metadata (all cleared)" : "clean metadata"
         case .protect(let restrict, _): return restrict ? "protect (restrict editing)" : "protect (lock to open)"
         case .removePassword: return "remove password"
-        case .fillAndSign(let items, let pictures, let unlinks):
+        case .fillAndSign(let items, let pictures, let unlinks, let keeps):
             // Counts only — the words and the strokes are the reader's, and never logged. A
             // correction is two of the toolkit's items, its patch and its words: counted once.
             let signatures = items.filter(Self.isSigned).count
@@ -315,6 +317,7 @@ public enum EditorPDFTool: Equatable, Sendable {
             if signatures > 0 { parts.append(signatures == 1 ? "1 signature" : "\(signatures) signatures") }
             if !pictures.isEmpty { parts.append("\(EditorPDFCopyName.pageList(pictures)) made a picture") }
             if unlinks { parts.append("links under corrections removed") }
+            if keeps { parts.append("comments kept") }
             return "fill and sign (\(parts.joined(separator: ", ")))"
         case .fillForm(let values, let items):
             // Counts only, as above: never a field's name, which can say what the form is about.
@@ -550,8 +553,9 @@ enum EditorPDFToolEngine {
 
     /// What a run produced, crossing back from the lane.
     enum Output: Sendable, Equatable {
-        /// New bytes to write.
-        case bytes(Data)
+        /// New bytes to write, and a sentence the saved banner adds — what the copy could not do as
+        /// asked (Fill & Sign's comments, FR57).
+        case bytes(Data, note: String? = nil)
         /// Compress came back with the source's own bytes: nothing was gained, so nothing is written.
         case noGain
     }
@@ -561,6 +565,7 @@ enum EditorPDFToolEngine {
     /// bytes — a private folder, never the PDF's own.
     nonisolated static func output(of tool: EditorPDFTool, input: URL,
                                    staging: URL = FileManager.default.temporaryDirectory,
+                                   fillAndSign: FillSigner = toolkitFillAndSign,
                                    progress: (@Sendable (Int, Int) -> Void)?,
                                    isCancelled: (@Sendable () -> Bool)?) throws -> Output {
         switch tool {
@@ -598,13 +603,21 @@ enum EditorPDFToolEngine {
                 options: .addPassword(restrictEditing: restrict, password: password.reveal())))
         case .removePassword(let password):
             return .bytes(try PDFToolkit.removePasswordData(inputURL: input, password: password.reveal()))
-        case .fillAndSign(let items, let pictures, let unlinks):
-            let filled = try PDFToolkit.fillAndSignData(inputURL: input, items: items)
+        case .fillAndSign(let items, let pictures, let unlinks, let keeps):
+            // **The comments kept only with no page made a picture** (FR57): the picture pass copies
+            // every page through PDFKit, which rewrites a kept comment — its `/NM` and its popup's
+            // `/Parent` go — and draws a picture page's own into it. The note card greys the choice
+            // then (`keepCommentsRefusal`); this holds it for any caller.
+            let keep = keeps && pictures.isEmpty
+            let output = try fillAndSign(input, items, keep ? .keep : .flatten)
+            let filled = output.data
+            // Asked to keep them and could not: the toolkit drew them in after all, and the banner says so.
+            let note = keep && output.annotations == .flatten ? EditorPDFComments.keptFellBackNote : nil
             // Last, on the finished copy: a page made a picture has no links left to take out.
             func unlinked(_ data: Data) throws -> Data {
                 unlinks ? try removingLinks(under: items.filter(\.isPatch), in: data, source: input) : data
             }
-            guard !pictures.isEmpty else { return .bytes(try unlinked(filled)) }
+            guard !pictures.isEmpty else { return .bytes(try unlinked(filled), note: note) }
             // **Then the chosen pages made pictures** (decision AK): the toolkit's redaction with
             // no marks, rasterizing just those pages, so the words their patches cover go from the
             // copy. It reads by URL, so the filled bytes are staged as `.arranged`'s are.
@@ -628,7 +641,7 @@ enum EditorPDFToolEngine {
             // The toolkit reads by URL, so the middle bytes go to a folder of this run's own under
             // `staging` — never beside the PDF, where a sync or a listing would see them — and the
             // folder goes on every way out. Both steps take this one lane turn.
-            guard case .bytes(let first) = try output(of: then, input: input, staging: staging,
+            guard case .bytes(let first, _) = try output(of: then, input: input, staging: staging,
                                                       progress: nil, isCancelled: nil)
             else { throw PDFOperationError.couldNotEncodeOutput }
             if isCancelled?() == true { throw CancellationError() }
@@ -679,6 +692,15 @@ enum EditorPDFToolEngine {
         return order.compactMap { at[$0] }
     }
 
+    /// Fill & Sign's flat save — the toolkit's `fillAndSignData` — and what it did with the comments.
+    typealias FillSigner = @Sendable (URL, [FillSignItem], FillSignAnnotations) throws
+        -> (data: Data, annotations: FillSignAnnotations)
+
+    nonisolated static let toolkitFillAndSign: FillSigner = { input, items, annotations in
+        let output = try PDFToolkit.fillAndSignData(inputURL: input, items: items, annotations: annotations)
+        return (output.data, output.annotations)
+    }
+
     /// The run, through the lane. `perform` takes a closure that cannot throw, so the outcome
     /// crosses back as a `Result`.
     ///
@@ -693,6 +715,7 @@ enum EditorPDFToolEngine {
                     staging: URL = FileManager.default.temporaryDirectory,
                     unchanged: (path: String, stamp: EditorFileStore.Stamp)? = nil,
                     isCloudOnly: (@Sendable (String) -> Bool)? = nil,
+                    fillAndSign: @escaping FillSigner = toolkitFillAndSign,
                     turnStarted: (@Sendable () -> Void)? = nil,
                     progress: (@Sendable (Int, Int) -> Void)? = nil,
                     isCancelled: (@Sendable () -> Bool)? = nil) async -> Result<Output, any Error> {
@@ -702,14 +725,17 @@ enum EditorPDFToolEngine {
                 return .failure(ChangedOnDisk())
             }
             if isCloudOnly?(input.path) == true { return .failure(CloudOnly()) }
-            return Result { try output(of: tool, input: input, staging: staging, progress: progress, isCancelled: isCancelled) }
+            return Result {
+                try output(of: tool, input: input, staging: staging, fillAndSign: fillAndSign,
+                           progress: progress, isCancelled: isCancelled)
+            }
         }
     }
 
-    /// The file a run was asked about changed before its lane turn came — see ``run(_:input:staging:unchanged:isCloudOnly:turnStarted:progress:isCancelled:)``.
+    /// The file a run was asked about changed before its lane turn came — see ``run(_:input:staging:unchanged:isCloudOnly:fillAndSign:turnStarted:progress:isCancelled:)``.
     struct ChangedOnDisk: Error {}
 
-    /// The file went cloud-only before the run's lane turn came — see ``run(_:input:staging:unchanged:isCloudOnly:turnStarted:progress:isCancelled:)``.
+    /// The file went cloud-only before the run's lane turn came — see ``run(_:input:staging:unchanged:isCloudOnly:fillAndSign:turnStarted:progress:isCancelled:)``.
     struct CloudOnly: Error {}
 
     /// What a run needs to know about a file before it offers anything — read in the lane the way
@@ -771,7 +797,7 @@ enum EditorPDFToolEngine {
         case .extract(let pages):
             if pages.isEmpty { return PDFOperationError.noPagesSelected.errorDescription }
             return outOfRange(pages, pageCount: pageCount)
-        case .fillAndSign(let items, let pictures, _):
+        case .fillAndSign(let items, let pictures, _, _):
             // The toolkit throws both; said here first so the lane never runs for them.
             guard items.contains(where: \.hasInk) else { return PDFOperationError.noFillSignItems.errorDescription }
             return outOfRange(items.map(\.pageIndex) + pictures, pageCount: pageCount)

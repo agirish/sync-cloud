@@ -245,7 +245,7 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
             return .failed(message)
         case .output(.noGain, _):
             return .skipped(.alreadySmall)
-        case .output(.bytes(let data), let unrestricted):
+        case .output(.bytes(let data, _), let unrestricted):
             let suffix = tool.tool(pageCount: 0).suffix
             writeStartedHook?()
             let written = await Task.detached(priority: .userInitiated) {

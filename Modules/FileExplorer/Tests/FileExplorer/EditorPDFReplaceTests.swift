@@ -971,6 +971,71 @@ enum ReplaceFixtures {
         #expect(!fill.unlinksCorrections, "the choice outlived its save")
     }
 
+    /// **"Keep comments as comments" is in the note card, bound to the choice, and greyed while a
+    /// page is saved as a picture (FR57)** — the picture pass would rewrite them — saying why.
+    /// Unticked then, whatever was chosen: ticking it draws nothing different; making the page text
+    /// again gives the choice back.
+    @Test func keepingCommentsIsGreyedWhileAPageIsAPicture() async throws {
+        let file = invoice("Commented.pdf")
+        // In the PDFKit lane, as the app's reads and writes are: off it, they race the package's
+        // other PDF suites.
+        let written = await PDFKitSerialAccess.perform { () -> Bool in
+            guard let document = PDFDocument(url: URL(fileURLWithPath: file)), let page = document.page(at: 0) else { return false }
+            let marker = PDFAnnotation(bounds: CGRect(x: 70, y: 716, width: 160, height: 24), forType: .highlight, withProperties: nil)
+            marker.color = .yellow
+            page.addAnnotation(marker)
+            return document.write(to: URL(fileURLWithPath: file))
+        }
+        try #require(written, "the fixture was not written")
+        let (pdf, id, _) = try await correcting(file)
+        let fill = pdf.fill
+        fill.type("21 Apr", into: id)
+        fill.endEditing()
+        try #require(fill.offersKeepingComments, "not offered — this tests nothing")
+        #expect(fill.keepCommentsRefusal == nil)
+        // The stack drawn whole, in a fresh host each time: at the size SwiftUI asks for, since a
+        // host's `fittingSize` comes up short of the card's wrapped lines and clips its last row.
+        func render() throws -> (NSBitmapImageRep, CGFloat) {
+            let stack = EditorPDFFillSaveStack(fill: fill, tools: pdf.tools)
+            let size = NSHostingController(rootView: stack).sizeThatFits(in: CGSize(width: 2000, height: 4000))
+            let host = NSHostingView(rootView: stack)
+            host.frame = CGRect(origin: .zero, size: CGSize(width: size.width.rounded(.up), height: size.height.rounded(.up)))
+            host.layoutSubtreeIfNeeded()
+            let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            return (rep, CGFloat(rep.pixelsWide) / host.bounds.width)
+        }
+        func drawn() throws -> [NSColor?] {
+            let (rep, _) = try render()
+            return (0..<rep.pixelsHigh).flatMap { y in (0..<rep.pixelsWide).map { rep.colorAt(x: $0, y: y) } }
+        }
+        // **The checkbox is the card's last row, bound to the choice**: ticked, the card's last 22pt
+        // draw differently — under the correction's button, which doesn't change. Measured from the
+        // bottom, since the comments' line at the top changes too.
+        func lastRow() throws -> [NSColor?] {
+            let (rep, px) = try render()
+            return (rep.pixelsHigh - Int(22 * px)..<rep.pixelsHigh).flatMap { y in (0..<rep.pixelsWide).map { rep.colorAt(x: $0, y: y) } }
+        }
+        let unticked = try lastRow()
+        fill.keepsComments = true
+        let tickedRow = try lastRow()
+        #expect(unticked.count == tickedRow.count && zip(unticked, tickedRow).filter { $0 != $1 }.count > 20,
+                "the card's last row draws the same ticked and unticked — no checkbox bound to the choice")
+        #expect(fill.keepsCommentsOnSave && fill.formNotes.contains(EditorPDFComments.commentsKeptNote))
+
+        fill.setPicture(0, true)
+        #expect(fill.keepCommentsRefusal == EditorPDFFillSign.keepCommentsPictureReason)
+        #expect(!fill.keepsCommentsOnSave, "kept with a page saved as a picture")
+        #expect(fill.formNotes.contains(EditorPDFComments.commentsFlattenedNote), "the card says they stay comments: \(fill.formNotes)")
+        let ticked = try drawn()
+        fill.keepsComments = false
+        #expect(ticked == (try drawn()), "the greyed checkbox shows the reader's tick, which the save won't follow")
+
+        fill.keepsComments = true
+        fill.setPicture(0, false)
+        #expect(fill.keepCommentsRefusal == nil && fill.keepsCommentsOnSave, "keeping the page as text did not give the choice back")
+    }
+
     /// **The engine finds a link under a patch on a turned page** — the toolkit puts links back
     /// upright, so the patch's page rect is mapped before the test — and, from macOS 27, the copy
     /// keeps the page labels the toolkit carried. Assembled by hand: a page turned 90° labelled "i",
@@ -1010,7 +1075,7 @@ enum ReplaceFixtures {
         let seen: Seen? = await PDFKitSerialAccess.perform {
             // The document, not its page: a page outliving its document reads nothing.
             func copy(unlinking: Bool) -> PDFDocument? {
-                guard case .bytes(let data)? = try? EditorPDFToolEngine.output(
+                guard case .bytes(let data, _)? = try? EditorPDFToolEngine.output(
                     of: .fillAndSign([patch], unlinksPatches: unlinking), input: input,
                     progress: nil, isCancelled: nil),
                     let document = PDFDocument(data: data), document.pageCount == 1 else { return nil }

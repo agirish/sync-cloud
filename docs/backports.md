@@ -9996,13 +9996,16 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s correction=%s linkNote=%s\n' 
 
 ---
 
-## A flat Fill & Sign save says it flattens the file's comments (FR57) — main only
+## A flat Fill & Sign save says it flattens the file's comments, or keeps them (FR57) — main only
 
 Fill & Sign without a form redraws every page and draws its annotations in, so the file's own
 review comments — sticky notes, highlights, drawings — came out as ink, and a closed sticky note's
 text was not in the copy at all, with nothing said. `main` reads the comments with the facts
 (`EditorPDFComments`) and the flat path's note card says they will be flattened, and, when there is
-a sticky note, that its text won't be kept.
+a sticky note, that its text won't be kept. It also offers "Keep comments as comments" (decided
+2026-10-25, pdf-toolkit 0.6.0's `FillSignAnnotations.keep`): off by default and for one save, it
+keeps them as comments — text, popups, replies — greyed while a page is saved as a picture, whose
+pass would rewrite them; when the toolkit cannot keep them it draws them in and the banner says so.
 
 ```sh
 for l in main v5.x v4.x v3.x v2.x; do printf '%-5s formNotes=%s comments=%s\n' $l \

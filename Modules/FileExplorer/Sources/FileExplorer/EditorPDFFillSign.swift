@@ -639,6 +639,11 @@ public final class EditorPDFFillSign: ObservableObject {
     /// by default, chosen in the note card for the next save only — a save, Discard or another file
     /// puts it back off. It is read only while ``offersUnlinking``.
     @Published public var unlinksCorrections = false
+    /// **Whether the copy keeps the file's comments as comments** (FR57, decided 2026-10-25): off
+    /// by default — they are drawn into the pages, as they always were — chosen in the note card
+    /// for the next save only, as ``unlinksCorrections`` is. It is read only while
+    /// ``offersKeepingComments`` and no page is saved as a picture (``keepCommentsRefusal``).
+    @Published public var keepsComments = false
     /// The item whose words are being typed, or `nil`.
     @Published public private(set) var editing: UUID?
     /// The Add Signature sheet, for signatures or for initials.
@@ -872,6 +877,7 @@ public final class EditorPDFFillSign: ObservableObject {
         items = []
         pictures = []
         unlinksCorrections = false
+        keepsComments = false
         replaceNote = nil
         selection = nil
         editing = nil
@@ -1394,6 +1400,27 @@ public final class EditorPDFFillSign: ObservableObject {
         + "open the old address. On macOS 26 the copy may then lose this PDF’s page labels, attached files, "
         + "viewer settings and language."
 
+    /// **Whether the note card offers to keep the file's comments as comments** (FR57): a save that
+    /// redraws the pages — no form — of a file that has some.
+    public var offersKeepingComments: Bool { !usesFormPath && comments.any }
+
+    /// **Why the choice is greyed, or `nil`** (FR57): a page saved as a picture. The picture pass
+    /// copies the other pages through PDFKit, which rewrites the kept comments — their names and
+    /// their popups' links go — and draws a picture page's own into it; so while one is chosen the
+    /// copy flattens them all, and the checkbox says why rather than vanishing under the reader.
+    public var keepCommentsRefusal: String? { picturesToSave.isEmpty ? nil : Self.keepCommentsPictureReason }
+
+    /// What the save does: keep them only when offered, chosen and not refused.
+    var keepsCommentsOnSave: Bool { offersKeepingComments && keepCommentsRefusal == nil && keepsComments }
+
+    /// The note card's checkbox and its tooltip (FR57, decided 2026-10-25), and the line under it
+    /// while a page is saved as a picture.
+    public static let keepCommentsTitle = "Keep comments as comments"
+    public static let keepCommentsHelp = "Keep this PDF’s highlights, sticky notes, drawings and other comments in the copy "
+        + "as comments, with their text, popups and replies, so they can still be edited, instead of drawing them "
+        + "into its pages. They sit over what you place. The copy keeps page labels and attached files as before."
+    static let keepCommentsPictureReason = "Comments can’t be kept while a page is saved as a picture."
+
     /// Words quoted in a note: a long passage is cut.
     static func quoted(_ words: String) -> String { words.count > 40 ? String(words.prefix(40)) + "…" : words }
 
@@ -1455,8 +1482,10 @@ public final class EditorPDFFillSign: ObservableObject {
             out.append(EditorPDFToolEngine.reason(formProblem, tool: .fillForm(values: values, items: [])))
         }
         // Without a form the pages are redrawn, and the copy loses what a redraw can't keep — the
-        // file's own comments among it (FR57).
-        guard usesFormPath else { return out + [comments.flattenedNote, tools?.droppedPartsNote].compactMap { $0 } }
+        // file's own comments among it, unless the reader keeps them (FR57).
+        guard usesFormPath else {
+            return out + [comments.note(kept: keepsCommentsOnSave), tools?.droppedPartsNote].compactMap { $0 }
+        }
         if !offersPlacing { out.append(Self.noCommentingReason + ".") }
         if !allowsFormEntry, !form.fillable.isEmpty { out.append(Self.noFormEntryReason + ".") }
         if form.hasXFA { out.append(Self.xfaNote) }
@@ -2171,7 +2200,8 @@ public final class EditorPDFFillSign: ObservableObject {
                 return .failed(reason)
             }
         } else {
-            tool = .fillAndSign(toolkit, pictures: picturesToSave, unlinksPatches: offersUnlinking && unlinksCorrections)
+            tool = .fillAndSign(toolkit, pictures: picturesToSave, unlinksPatches: offersUnlinking && unlinksCorrections,
+                                keepsComments: keepsCommentsOnSave)
         }
         let outcome = await tools.run(tool)
         if case .wrote = outcome, self.path == path {
@@ -2199,6 +2229,7 @@ public final class EditorPDFFillSign: ObservableObject {
         values = [:]
         pictures = []
         unlinksCorrections = false
+        keepsComments = false
         if items != before || values != beforeValues || pictures != beforePictures {
             register(before, beforeValues, beforePictures, "Discard")
         }

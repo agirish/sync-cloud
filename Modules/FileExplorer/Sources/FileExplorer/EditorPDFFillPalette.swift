@@ -697,7 +697,8 @@ struct EditorPDFFillSaveStack: View {
 
     /// The card: what Save would refuse and the file's caveats, then each corrected page's line —
     /// the covered words are still in the copy — with the button that makes the page a picture
-    /// (TE85, decision AK).
+    /// (TE85, decision AK), then the save's two choices: the links under corrections (FR56) and
+    /// the file's comments (FR57).
     private func card(_ notes: [String], corrections: [EditorPDFCorrectionNote]) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             ForEach(notes, id: \.self) { note in
@@ -726,6 +727,22 @@ struct EditorPDFFillSaveStack: View {
                     .controlSize(.small)
                     .help(EditorPDFFillSign.unlinkHelp)
                     .padding(.top, 4)
+            }
+            // **The file's comments, drawn in unless chosen otherwise** (FR57, decided 2026-10-25) —
+            // for this save only. Greyed, unticked and saying why while a page is saved as a
+            // picture, rather than vanishing from under a reader who ticked it.
+            if fill.offersKeepingComments {
+                let refusal = fill.keepCommentsRefusal
+                Toggle(EditorPDFFillSign.keepCommentsTitle,
+                       isOn: Binding(get: { fill.keepsComments && refusal == nil }, set: { fill.keepsComments = $0 }))
+                    .toggleStyle(.checkbox)
+                    .controlSize(.small)
+                    .disabled(refusal != nil)
+                    .help(EditorPDFFillSign.keepCommentsHelp)
+                    .padding(.top, 4)
+                if let refusal {
+                    Text(refusal).fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .scaledFont(.system(size: 10))

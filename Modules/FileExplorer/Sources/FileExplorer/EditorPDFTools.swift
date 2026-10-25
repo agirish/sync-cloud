@@ -266,6 +266,9 @@ public final class EditorPDFTools: ObservableObject {
     /// Called on the main actor with the copy's path once it has landed, before a cancel is
     /// looked at — a test's way to replace the copy before the run would take it back.
     var writeLandedHook: (@MainActor (String) -> Void)?
+    /// Called IN THE LANE in place of the toolkit's `fillAndSignData` — a test's way to have it
+    /// draw the comments in after all, as it does when it cannot keep them. `nil` in the app.
+    var fillAndSignHook: EditorPDFToolEngine.FillSigner?
     /// Where a combined run (a tool in the dragged order) keeps its middle bytes, in a folder of its
     /// own that it removes — the user's temporary folder in the app, a test's own folder in a test.
     var stagingRoot = FileManager.default.temporaryDirectory
@@ -529,6 +532,8 @@ public final class EditorPDFTools: ObservableObject {
         // The sizes the success banner quotes, known once the bytes are in hand.
         var sizes: (before: Int?, after: Int)?
 
+        // What the copy could not do as asked, for the saved banner (`Output.bytes`'s note).
+        var wroteNote: String?
         func end(_ outcome: EditorPDFToolOutcome, download: String? = nil) -> EditorPDFToolOutcome {
             // Another file is open now: what this run says is about one that is not on screen —
             // and ``detach()`` has already logged that it went.
@@ -542,7 +547,8 @@ public final class EditorPDFTools: ObservableObject {
                 if case .arranged(let order, _) = tool, arrangement == order { arrangement = nil }
                 let copyName = (copy as NSString).lastPathComponent
                 banner = EditorPDFToolBanner(
-                    message: wroteMessage(copyName, tool: tool, before: sizes?.before, after: sizes?.after),
+                    message: wroteMessage(copyName, tool: tool, before: sizes?.before, after: sizes?.after)
+                        + (wroteNote.map { ". " + $0 } ?? ""),
                     kind: .wrote(copy))
             case .nothingWritten(let message):
                 banner = EditorPDFToolBanner(message: message, kind: .note)
@@ -601,6 +607,7 @@ public final class EditorPDFTools: ObservableObject {
         let result = await EditorPDFToolEngine.run(
             tool, input: input, staging: stagingRoot,
             unchanged: shownStamp.map { (path, $0) }, isCloudOnly: isCloudOnly,
+            fillAndSign: fillAndSignHook ?? EditorPDFToolEngine.toolkitFillAndSign,
             turnStarted: { [weak self, turnHook = laneTurnHook] in
                 turnHook?()
                 Task { @MainActor in
@@ -644,7 +651,7 @@ public final class EditorPDFTools: ObservableObject {
         case .success(.noGain):
             Logger.shared.info("\(writer) wrote nothing for \(tool.logDetail) of \(logName) — no smaller than the original")
             return end(.nothingWritten(Self.noGainMessage(tool)))
-        case .success(.bytes(let data)):
+        case .success(.bytes(let data, let note)):
             let suffix = tool.suffix
             writeStartedHook?()
             let written = await Task.detached(priority: .userInitiated) {
@@ -670,7 +677,9 @@ public final class EditorPDFTools: ObservableObject {
                 sizes = (before?.size, data.count)
                 let quoted = Self.sizes(before: before?.size, after: data.count)
                 Logger.shared.info("\(writer) wrote \((copy as NSString).lastPathComponent) from \(logName) — "
-                                   + tool.logDetail + (quoted.map { ", \($0)" } ?? ""))
+                                   + tool.logDetail + (quoted.map { ", \($0)" } ?? "")
+                                   + (note == nil ? "" : " — the comments could not be kept, so they were drawn in"))
+                wroteNote = note
                 host.didWrite(copy)
                 return end(.wrote(copy))
             }

@@ -881,12 +881,14 @@ extension EditorPDFDocument {
 }
 
 /// **The review comments already on a file's pages** (FR57) — sticky notes, highlights, drawings,
-/// stamps: PDF's markup annotations. Fill & Sign without a form redraws every page and draws each
-/// visible annotation into it (the toolkit's `drawAnnotations`), so in the copy they are ink, no
-/// longer comments — and a sticky note is drawn as its icon only: its text lives in a popup the
-/// redraw never shows, so a closed note's text is not in the copy at all. Links, form widgets and
-/// attached files are not counted: the toolkit puts the first and last back, and a widget means a
-/// form, whose fill keeps every annotation in place.
+/// stamps: PDF's markup annotations. Fill & Sign without a form redraws every page and, by default,
+/// draws each visible annotation into it (the toolkit's `drawAnnotations`), so in the copy they are
+/// ink, no longer comments — and a sticky note is drawn as its icon only: its text lives in a popup
+/// the redraw never shows, so a closed note's text is not in the copy at all. The note card offers
+/// to keep them as comments instead (``EditorPDFFillSign/keepsComments``, the toolkit's
+/// `FillSignAnnotations.keep`). Links, form widgets and attached files are not counted: the toolkit
+/// puts the first and last back either way, and a widget means a form, whose fill keeps every
+/// annotation in place.
 public struct EditorPDFComments: Equatable, Sendable {
     /// Whether any page carries a comment.
     public var any: Bool
@@ -895,12 +897,10 @@ public struct EditorPDFComments: Equatable, Sendable {
 
     public static let none = EditorPDFComments(any: false, notes: false)
 
-    /// PDF's markup subtypes, as `PDFAnnotation.type` names them — less FileAttachment, which the
-    /// toolkit carries onto the copy whole.
-    static let markupTypes: Set<String> = [
-        "Text", "FreeText", "Line", "Square", "Circle", "Polygon", "PolyLine", "Highlight", "Underline",
-        "Squiggly", "StrikeOut", "Stamp", "Caret", "Ink", "Sound", "Redact",
-    ]
+    /// PDF's markup subtypes, as `PDFAnnotation.type` names them: the toolkit's kept ones, less
+    /// FileAttachment, which it carries onto the copy whole either way, and Popup, which comes only
+    /// with its parent.
+    static let markupTypes = FillSignAnnotations.keptSubtypes.subtracting(["FileAttachment", "Popup"])
 
     /// Called inside the lane only, with the facts.
     nonisolated static func read(_ pages: [PDFPage]) -> EditorPDFComments {
@@ -914,9 +914,11 @@ public struct EditorPDFComments: Equatable, Sendable {
         return out
     }
 
-    /// The note card's line for a flattening save, or `nil` with no comments.
-    var flattenedNote: String? {
+    /// The note card's line for a save — flattening them, or keeping them — or `nil` with no
+    /// comments.
+    func note(kept: Bool) -> String? {
         guard any else { return nil }
+        if kept { return Self.commentsKeptNote }
         return notes ? Self.notesFlattenedNote : Self.commentsFlattenedNote
     }
 
@@ -924,4 +926,8 @@ public struct EditorPDFComments: Equatable, Sendable {
         + "the copy’s pages, where they can’t be edited."
     static let notesFlattenedNote = "This PDF’s comments will be drawn into the copy’s pages, where they can’t be "
         + "edited — and a sticky note keeps only its icon: its text won’t be in the copy."
+    static let commentsKeptNote = "This PDF’s comments will stay comments in the copy."
+    /// The saved banner's words when the toolkit could not keep them and drew them in after all
+    /// (its `FillSignOutput.annotations` came back `.flatten`).
+    static let keptFellBackNote = "This PDF’s comments couldn’t be kept as comments, so they were drawn into the copy’s pages"
 }

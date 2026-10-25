@@ -1,13 +1,13 @@
 {
-  "originHash" : "354f1f3123dca52660614ec2d0d8282de8255d1f76521834f29d28f97d67d624",
+  "originHash" : "32ebff508d3654076346745caa8bb09ba1220af772942e01db5da27e51e4db06",
   "pins" : [
     {
       "identity" : "pdf-toolkit",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/agirish/pdf-toolkit",
       "state" : {
-        "revision" : "91a2c630bab8c384b3fd2d8fe7df3e19a5a0278b",
-        "version" : "0.5.0"
+        "revision" : "99e77f4f8478d68ed9e50ce1d3d0c0c19db6499b",
+        "version" : "0.6.0"
       }
     },
     {
