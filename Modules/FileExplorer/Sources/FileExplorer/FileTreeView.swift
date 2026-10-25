@@ -99,7 +99,8 @@ public struct FileTreeView: View, Equatable {
 
     /// Shared placement scratch space, owned by the host (one per pane). This view fills its live
     /// geometry (`rowBottoms`/`viewportHeight`) from row/viewport probes; the host reads the edge
-    /// straight from its own `body`. `nil` on the single-source rail, which has no action bar.
+    /// straight from its own `body`. The single-source rail has one too: it has no action bar, but
+    /// the result message docks at its list's edge by the bar's rule. `nil` only where no host asks.
     private let placement: PaneBarPlacement?
     /// Called when a SCROLL crossing flips the resolved edge — the host re-renders (with animation)
     /// so the bar cross-fades. Selection-driven placement needs no callback: changing the selection
@@ -1287,7 +1288,7 @@ public struct FileTreeView: View, Equatable {
     /// subtrees where a named space can't be resolved (the lookup silently degraded to global
     /// anyway, while the viewport half measured locally — the mismatched frames of reference were
     /// the premature flip). The placement math subtracts the viewport's global origin.
-    /// Withheld on the single-source rail (no action bar to place).
+    /// Withheld when no host asked for placement.
     @ViewBuilder
     private func rowPositionProbe(for node: FileNode) -> some View {
         if placement != nil {

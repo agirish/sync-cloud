@@ -196,6 +196,33 @@ private final class ManualSleeper: @unchecked Sendable {
         await waitUntil("the restarted window dismisses") { dismissCount == 1 }
     }
 
+    /// **"Save as rule…" holds the message while its offer is open** (Banner Room, CB). The offer's
+    /// popover takes the pointer off the message, so hover exit fires mid-choice — the hold must keep
+    /// the timer stopped until the popover closes, then grant the full window.
+    @MainActor
+    @Test func testAHoldOutlastsHoverExitAndReleasingItRestartsTheFullWindow() async {
+        let clock = ManualSleeper()
+        let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
+        var dismissCount = 0
+
+        scheduler.bannerChanged(to: .success("Filed “Bill.pdf” → Bills")) { dismissCount += 1 }
+        await waitUntil("the timer starts") { clock.pendingCount == 1 }
+        scheduler.hoverChanged(isHovering: true)
+        scheduler.holdChanged(isHeld: true)
+        scheduler.hoverChanged(isHovering: false)
+        #expect(scheduler.currentTimerTask == nil, "hover exit restarted the timer under an open offer")
+
+        clock.releaseAll()
+        await waitUntil("the cancelled timer finishes") { clock.pendingCount == 0 }
+        #expect(dismissCount == 0)
+
+        scheduler.holdChanged(isHeld: false)
+        await waitUntil("letting go starts a new timer") { clock.requestedDelays.count == 2 }
+        #expect(clock.requestedDelays == [Self.successDelay, Self.successDelay])
+        clock.releaseAll()
+        await waitUntil("the message leaves") { dismissCount == 1 }
+    }
+
     @MainActor
     @Test func testBannerPostedWhileHoveringStaysUntilHoverExit() async {
         let clock = ManualSleeper()

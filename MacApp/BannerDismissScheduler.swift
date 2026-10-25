@@ -50,6 +50,10 @@ final class BannerDismissScheduler {
     private var currentDelay: UInt64?
     private var dismiss: (@MainActor () -> Void)?
     private var isHovering = false
+    /// Held open by something the message opened — "Save as rule…"'s offer, whose popover takes the
+    /// pointer off the message, so hover alone would let the message (and the offer riding in it)
+    /// time out under the reader mid-choice.
+    private var isHeld = false
 
     init(delays: Delays = .standard,
          sleep: @escaping @Sendable (UInt64) async -> Void = { try? await Task.sleep(nanoseconds: $0) }) {
@@ -71,13 +75,14 @@ final class BannerDismissScheduler {
             // deliver onHover(false) for a removed view, and every ✕ click happens while
             // hovered. Without this reset the next banner would start paused and never dismiss.
             isHovering = false
+            isHeld = false
             return
         }
         guard let delay = delays.delayNanoseconds(for: banner.severity) else { return }
         currentDelay = delay
         self.dismiss = dismiss
         // A banner replaced while the pointer is over it stays paused until hover exit.
-        if !isHovering { startTimer(delay) }
+        if !isHovering && !isHeld { startTimer(delay) }
     }
 
     /// Arms this scheduler for a banner that was ALREADY on screen when it was created — call from
@@ -106,7 +111,19 @@ final class BannerDismissScheduler {
     func hoverChanged(isHovering: Bool) {
         guard isHovering != self.isHovering else { return }
         self.isHovering = isHovering
-        if isHovering {
+        pausesChanged()
+    }
+
+    /// Call while something the message opened is in use. Holding pauses the timer as hovering
+    /// does; letting go restarts the full window, unless the pointer is still over the message.
+    func holdChanged(isHeld: Bool) {
+        guard isHeld != self.isHeld else { return }
+        self.isHeld = isHeld
+        pausesChanged()
+    }
+
+    private func pausesChanged() {
+        if isHovering || isHeld {
             cancelTimer()
         } else if let delay = currentDelay {
             startTimer(delay)

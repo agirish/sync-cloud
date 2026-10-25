@@ -24,7 +24,9 @@ import Foundation
     /// re-renders alone.
     @Test func theWindowOwnsTheLensSessionWithoutObservingIt() throws {
         let source = try macAppSources()
-        #expect(source.contains("@State private var lensSession = LensWorkspaceSession()"),
+        // Internal rather than private since the result message's "Save as rule…" hands it to its
+        // own observing button (`ContentView+ResultMessage.swift`) — still `@State`, still unobserved.
+        #expect(source.contains("@State var lensSession = LensWorkspaceSession()"),
                 "the window's lens session is missing or is a @StateObject — a @StateObject here subscribes the whole window to Organize's typing")
         #expect(source.contains("session: lensSession"),
                 "the lens is no longer handed the window's session, so every narrowing resets on the next switch")

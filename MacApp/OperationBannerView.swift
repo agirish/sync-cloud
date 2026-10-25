@@ -1,11 +1,18 @@
+import AppKit
 import SwiftUI
 import Sync
 import Design
 
-/// The transient in-app completion banner. Beyond the message + close button, an undoable outcome
-/// (`banner.isUndoable`, and the undo stack still has it on top) gets a one-click **Undo** — the
-/// visible face of the ⌘Z that already works — and auto-dismissing severities get a thin countdown
-/// bar so the disappearing window is legible.
+/// The result message: what the operation you just ran did. Beyond the message + close button, an
+/// undoable outcome (`banner.isUndoable`, and the undo stack still has it on top) gets a one-click
+/// **Undo** — the visible face of the ⌘Z that already works — a finished file gets its doors
+/// (`banner.followUps`: Open in Edit, Reveal in Browse, Download), and auto-dismissing severities get
+/// a thin countdown bar so the disappearing window is legible.
+///
+/// **It lives in the pane, not over the window** (Banner Room, CA). It used to float across the
+/// window's top for five seconds, over the pane header's Delete — the button the next click was
+/// aimed at. Now each pane's file list docks it in one stack with the contextual action bar, at the
+/// edge `PaneBarPlacement` picks, so it covers neither the bar, the header nor the row acted on.
 ///
 /// A struct (not a `@ViewBuilder` on ContentView) so it can hold the countdown `@State`. The
 /// auto-dismiss timing itself still lives in `BannerDismissScheduler`; the bar only mirrors it,
@@ -21,6 +28,10 @@ struct OperationBannerView: View {
     let onUndo: () -> Void
     let onClose: () -> Void
     let onHover: (Bool) -> Void
+    /// Performs one of `banner.followUps`.
+    var onFollowUp: (OperationBanner.FollowUp) -> Void = { _ in }
+    /// A control the surface showing the message adds after its own — To File's "Save as rule…".
+    var accessory: AnyView? = nil
 
     @State private var countdown: CGFloat = 1
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -53,38 +64,69 @@ struct OperationBannerView: View {
 
     private var tint: Color { OperationBannerStyle.tint(for: banner.severity) }
 
+    /// A follow-up's button title — the words the PDF tools' own banner used for the same doors.
+    static func title(for followUp: OperationBanner.FollowUp) -> String {
+        switch followUp {
+        case .openInEdit: return "Open in Edit"
+        case .revealInBrowse: return "Reveal in Browse"
+        case .download: return "Download"
+        }
+    }
+
+    /// Its tooltip, naming the file — or how many — it goes to.
+    static func help(for followUp: OperationBanner.FollowUp) -> String {
+        func name(_ path: String) -> String { "“\((path as NSString).lastPathComponent)”" }
+        switch followUp {
+        case .openInEdit(let path): return "Open \(name(path)) in Edit"
+        case .revealInBrowse(let paths):
+            return paths.count == 1 ? "Show \(name(paths[0])) in Browse" : "Show the \(paths.count) files in Browse"
+        case .download: return "Download the file from the cloud, then try again"
+        }
+    }
+
+    /// **What VoiceOver hears when the message appears** (TE211): the message, and — when the Undo
+    /// button shows — that ⌘Z takes it back. Nothing announced it before: "Deleted “Test3.md”" and
+    /// its Undo were silent.
+    static func announcement(for banner: OperationBanner, offersUndo: Bool) -> String {
+        guard offersUndo else { return banner.message }
+        let ends = banner.message.last.map { ".!?".contains($0) } ?? false
+        return banner.message + (ends ? " " : ". ") + "Undo available, Command Z"
+    }
+
+    /// Posts the announcement. High priority, so it is spoken over whatever VoiceOver was reading —
+    /// the click that caused it.
+    static func announce(_ banner: OperationBanner, offersUndo: Bool) {
+        guard let app = NSApp else { return }
+        NSAccessibility.post(element: (app.mainWindow as NSResponder?) ?? app,
+                             notification: .announcementRequested,
+                             userInfo: [.announcement: announcement(for: banner, offersUndo: offersUndo),
+                                        .priority: NSAccessibilityPriorityLevel.high.rawValue])
+    }
+
     var body: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 10) {
-                Image(systemName: OperationBannerStyle.iconName(for: banner.severity))
-                    .scaledFont(.title3)
-                    .foregroundStyle(tint)
-                Text(banner.message)
-                    .scaledFont(.subheadline.weight(.medium))
-                    .foregroundStyle(.primary)
-                Spacer(minLength: 8)
-
-                if showsUndo {
-                    Button(action: onUndo) {
-                        HStack(spacing: 5) {
-                            Image(systemName: "arrow.uturn.backward")
-                            Text("Undo")
-                        }
-                        .scaledFont(.subheadline.weight(.semibold))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 2)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.hoverAffordance(.segment, tint: tint))
-                    .shortcutKeycap("⌘Z")
-                    .help(ShortcutHint.tooltip("Undo this operation", "⌘Z"))
-                    .accessibilityLabel("Undo this operation")
+        VStack(alignment: .leading, spacing: 8) {
+            // One row while the words and buttons fit; in a narrow pane the words wrap and the
+            // buttons drop under them, so nothing is truncated away.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    icon
+                    words
+                    Spacer(minLength: 8)
+                    buttons
+                    close
                 }
-
-                // No bar glass: a banner is not a bar, and the Undo beside this wears none.
-                CloseButton(chromeGlass: false, action: onClose)
-                    .help("Close notification")
-                    .accessibilityLabel("Close notification")
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        icon
+                        words.fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 8)
+                        close
+                    }
+                    if hasButtons {
+                        HStack(spacing: 6) { buttons }
+                            .fixedSize()
+                    }
+                }
             }
 
             if showsCountdown {
@@ -98,8 +140,8 @@ struct OperationBannerView: View {
                 .accessibilityHidden(true)
             }
         }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
         .glassCardStyle(level: glassLevel)
         .onAppear { startCountdown() }
         .onHover { hovering in
@@ -113,6 +155,67 @@ struct OperationBannerView: View {
                 startCountdown()
             }
         }
+    }
+
+    private var icon: some View {
+        Image(systemName: OperationBannerStyle.iconName(for: banner.severity))
+            .scaledFont(.title3)
+            .foregroundStyle(tint)
+    }
+
+    private var words: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(banner.message)
+                .scaledFont(.subheadline.weight(.medium))
+                .foregroundStyle(.primary)
+            if let detail = banner.detail {
+                Text(detail)
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    private var hasButtons: Bool { showsUndo || !banner.followUps.isEmpty || accessory != nil }
+
+    @ViewBuilder
+    private var buttons: some View {
+        if showsUndo {
+            Button(action: onUndo) {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.uturn.backward")
+                    Text("Undo")
+                }
+                .scaledFont(.subheadline.weight(.semibold))
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.hoverAffordance(.segment, tint: tint))
+            .shortcutKeycap("⌘Z")
+            .help(ShortcutHint.tooltip("Undo this operation", "⌘Z"))
+            .accessibilityLabel("Undo this operation")
+        }
+        ForEach(Array(banner.followUps.enumerated()), id: \.offset) { _, followUp in
+            Button { onFollowUp(followUp) } label: {
+                Text(Self.title(for: followUp))
+                    .scaledFont(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.hoverAffordance(.segment, tint: tint))
+            .help(Self.help(for: followUp))
+        }
+        if let accessory { accessory }
+    }
+
+    private var close: some View {
+        // No bar glass: a banner is not a bar, and the Undo beside this wears none.
+        CloseButton(chromeGlass: false, action: onClose)
+            .help("Close notification")
+            .accessibilityLabel("Close notification")
     }
 
     private func startCountdown() {

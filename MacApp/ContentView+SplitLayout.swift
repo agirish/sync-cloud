@@ -177,6 +177,7 @@ extension ContentView {
                 bottomPaneView
                     .frame(maxWidth: .infinity)
                     .clipped()
+                    .modifier(workspaceResultMessageHost)
             }
             .frame(width: totalWidth, height: geo.size.height)
         } else {
@@ -247,6 +248,8 @@ extension ContentView {
                 bottomPaneView
                     .frame(width: row.workspaceWidth)
                     .clipped()
+                    // The lens's result message, when the reader is working here (CA).
+                    .modifier(workspaceResultMessageHost)
                     // With the strip's own curve, so the lens header moves down beside the pane's
                     // toolbar card as the strip slides in — as Edit's document column does.
                     .designAnimation(.easeOut(duration: 0.18), value: sourcePaneShowsTabStrip)

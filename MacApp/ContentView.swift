@@ -112,7 +112,7 @@ struct ContentView: View {
     /// for a change that concerns one panel, which is the shape of cost the v5 speed batch spent
     /// itself removing. `@State` on a class stores and does not subscribe; `LensWorkspaceView`
     /// observes it and re-renders alone. Same reasoning as the `RenderMemo`s inside that view.
-    @State private var lensSession = LensWorkspaceSession()
+    @State var lensSession = LensWorkspaceSession()
 
     /// How the reader had the differences table narrowed — see `DifferencesSession`. Held on the
     /// same terms as `lensSession` above, and for the same reason: owned here so it survives the
@@ -469,7 +469,7 @@ struct ContentView: View {
     /// answer once and never invalidates, so raising Settings ▸ Text size would leave the bar
     /// claiming its labels still fit until something unrelated re-rendered it.
     @Environment(\.appFontScale) var appFontScale
-    @Environment(\.undoManager) private var undoManager
+    @Environment(\.undoManager) var undoManager
     @Environment(\.openWindow) var openWindow
 
     /// Shared geometry for the workspace bar's selected-segment fill, so the accent capsule
@@ -719,8 +719,8 @@ struct ContentView: View {
     /// Per-pane action-bar placement scratch space. `FileTreeView` fills each with live row/viewport
     /// geometry; `paneColumn` reads the resolved edge straight from `body`, so the bar's edge is
     /// known synchronously the instant the selection changes — no gate, no show-then-flip.
-    @State private var leftPlacement = PaneBarPlacement()
-    @State private var rightPlacement = PaneBarPlacement()
+    @State var leftPlacement = PaneBarPlacement()
+    @State var rightPlacement = PaneBarPlacement()
     /// Where each pane's columns were scrolled, kept HERE for the reason `leftTreeExpanded` is: this
     /// view outlives a workspace switch and the pane does not. See `PaneScrollMemory`.
     @State private var paneScrollMemory = PaneScrollMemory()
@@ -731,14 +731,24 @@ struct ContentView: View {
     /// A pure re-render trigger for SCROLL-driven edge flips: `FileTreeView` mutates the placement
     /// (a class, so no invalidation) and calls back to toggle this, which re-renders `paneColumn` so
     /// it re-reads the flipped edge — animated. Selection changes re-render on their own.
-    @State private var leftBarAtTop = false
-    @State private var rightBarAtTop = false
+    @State var leftBarAtTop = false
+    @State var rightBarAtTop = false
     /// An explicit "Get Info" target for the inspector, from a pane or differences-row right-click.
     /// Overrides the pane selection; cleared when the pane selection changes so the inspector then
     /// follows the selection again.
     @State private var infoPath: String? = nil
 
-    @State private var bannerDismissScheduler = BannerDismissScheduler()
+    @State var bannerDismissScheduler = BannerDismissScheduler()
+    /// Where the reader last clicked in Organize and Edit — their source pane, or the lens or the
+    /// editor beside it — so a result message shows where they were working (Banner Room, CA).
+    /// See `ResultMessageRoute`.
+    @State var resultMessageInPane = false
+    /// The doors a pane-launched PDF tool's or Save as PDF's result hands to its message's
+    /// follow-up buttons, for the message it was posted as. See `postPaneToolResult`.
+    @State var paneToolResultDoors: PaneToolResult?
+    /// Whether "Save as rule…"'s offer is open over its message — the message is held until it
+    /// closes (`BannerDismissScheduler.holdChanged`).
+    @State var ruleOfferIsOpen = false
 
     // Per-pane diff lookups for the tree rows, rebuilt only when the differences
     // or pane roots change (not per render — the panes re-render per file during
@@ -1239,11 +1249,13 @@ struct ContentView: View {
             // title bar is drawn — the Window menu and Mission Control. Zero-sized, in the
             // background, because it is a binding to AppKit and not a view.
             .background(WindowChromeBinder(subtitle: windowSubtitleText).frame(width: 0, height: 0))
-        // A PDF tool run from a row's menu: its sheet, and its banner at the window's foot. Ahead
-        // of the overlay chain below, so every panel in it covers the banner — and not IN the chain,
-        // because the sheet must not yield to them (see `PanePDFToolsPresenter`).
+        // A PDF tool run from a row's menu: its sheet, and its progress at the window's foot; its
+        // ending is the pane's result message (TE207). Ahead of the overlay chain below, so every
+        // panel in it covers the progress — and not IN the chain, because the sheet must not yield
+        // to them (see `PanePDFToolsPresenter`).
         .modifier(PanePDFToolsPresenter(model: panePDFTools, saveAsPDF: paneSaveAsPDF,
-                                        accent: glassHue.accentColor))
+                                        accent: glassHue.accentColor,
+                                        onResult: { postPaneToolResult($0) }))
         .overlay {
             // **The divergence diff leads, ahead of even the picker.** Everything below is
             // something the user *opened*; this is a question they are in the middle of ANSWERING.
@@ -3957,7 +3969,14 @@ struct ContentView: View {
         // Because this runs in `body`, a selection change (which re-renders here) lands the bar at
         // the correct edge in the same pass — no gate, no deferred flip.
         let placement = isLeft ? leftPlacement : rightPlacement
-        let barAtTop = placement.resolveAtTop(selection: Set(barNodes.map(\.id)))
+        // The result message, when this pane is where it shows (Banner Room, CA). It docks in ONE
+        // stack with the bar, so the edge is resolved for both: guarding the bar's selection, or —
+        // with no bar, as in Browse and after a delete — this pane's own, whose last on-screen
+        // position the placement keeps as the anchor once a delete has taken it.
+        let message = paneResultMessage(isLeft: isLeft)
+        let barAtTop = placement.resolveAtTop(
+            guarding: Set((barNodes.isEmpty ? ownNodes : barNodes).map(\.id)),
+            bar: !barNodes.isEmpty, message: message != nil)
         return VStack(spacing: 0) {
             // The tab strip, and it is a SIBLING of the header and the list — never a wrapper
             // around them. Two reasons, one of them enforced: re-nesting this VStack fails
@@ -4164,28 +4183,17 @@ struct ContentView: View {
                 // overlay is scoped to the list — NOT the whole column — so its top position lands
                 // just under the pane header, never over it. It flips to the top when a selected
                 // row is near the list's bottom, keeping the selection visible.
+                //
+                // **The result message shares the stack** (Banner Room, CA): on the bar's edge, on
+                // the list's side of it, so it never covers the bar, the header or the row acted on.
                 .overlay(alignment: barAtTop ? .top : .bottom) {
-                    if !barNodes.isEmpty {
-                        paneActionBar(isLeft: isLeft, selectionNodes: barNodes)
-                            .padding(10)
-                            // Feed the padded bar's real footprint to the placement math, so the
-                            // flip-to-top triggers exactly when a bottom bar would cover the
-                            // selected row — not at a guessed fixed band. Writes to the shared
-                            // class, so no view invalidation.
-                            .background(
-                                GeometryReader { proxy in
-                                    Color.clear
-                                        .onAppear { placement.coverage = proxy.size.height }
-                                        .onChange(of: proxy.size.height) { _, h in placement.coverage = h }
-                                }
-                            )
-                            // Re-key on the edge so a scroll-crossing flip is a clean cross-fade (old
-                            // copy fades out at one edge, new fades in at the other) rather than an
-                            // alignment snap. A selection-driven edge change carries no animation
-                            // context, so it lands instantly; a scroll flip runs inside the callback's
-                            // `withAnimation`, so it cross-fades.
-                            .id(barAtTop)
-                            .transition(.move(edge: barAtTop ? .top : .bottom).combined(with: .opacity))
+                    VStack(spacing: 0) {
+                        if barAtTop { paneBarPiece(isLeft: isLeft, barNodes: barNodes, atTop: barAtTop, placement: placement) }
+                        if let message {
+                            paneMessagePiece(isLeft: isLeft, message: message, atTop: barAtTop,
+                                             besideBar: !barNodes.isEmpty, placement: placement)
+                        }
+                        if !barAtTop { paneBarPiece(isLeft: isLeft, barNodes: barNodes, atTop: barAtTop, placement: placement) }
                     }
                 }
                 // Quick fade on appear/disappear only (keyed on presence, not the edge), so clicking
@@ -4195,6 +4203,9 @@ struct ContentView: View {
                 // it carries `.move(edge:)`, so the bar slides in from the top or bottom. Under
                 // Reduce Motion the whole insertion lands at once rather than travelling.
                 .designAnimation(.easeOut(duration: 0.11), value: barNodes.isEmpty)
+                // The message's own arrival and departure, keyed on its identity: a replacement
+                // slides in for the one it replaces. The old window-top banner's spring.
+                .designAnimation(.spring(response: 0.4, dampingFraction: 0.9), value: message?.id)
         }
         // **The pane the sidebar opens into, marked on the pane.**
         //
@@ -4219,13 +4230,20 @@ struct ContentView: View {
         // header card's chrome, the breadcrumb, a right-click. Reports and declines every press, so
         // nothing below it loses a click — see `PaneClickReporter`.
         //
-        // Compare only. The single-source workspaces have one pane, which `focusedPaneIsLeft`
-        // already floors to, so a reporter there would write a value that was never in question.
+        // The focus half is Compare only. The single-source workspaces have one pane, which
+        // `focusedPaneIsLeft` already floors to, so a reporter there would write a value that was
+        // never in question.
+        //
+        // Organize and Edit ask it too, for a different question: whether the reader is working in
+        // their source pane or in the lens or editor beside it, which is where the next result
+        // message shows (`ResultMessageRoute`).
         .overlay {
             if layoutMode == .compare {
                 PaneClickReporter {
                     syncManager.noteFocusedPane(isLeft: isLeft, because: "a click in this pane")
                 }
+            } else if contentLayout.hasCollapsibleRail {
+                PaneClickReporter { noteResultRegion(inPane: true) }
             }
         }
         // Keyed on the strip's PRESENCE, not on the tab count: a tab opening or closing while the
@@ -4424,34 +4442,17 @@ struct ContentView: View {
                 }
             }
         }
-        // The animation must live on the container (like the banner's below): inside the
+        // The animation must live on the container: inside the
         // `if let` it can't animate the overlay's own insertion/removal, so the transition
         // above never ran. Keyed on presence — Progress is a reference type whose counters
         // mutate in place, so the value itself is the wrong animation trigger anyway.
         .designAnimation(.spring(), value: syncManager.activeProgress == nil)
-        .overlay(alignment: .top) {
-            if let banner = syncManager.banner {
-                OperationBannerView(
-                    banner: banner,
-                    glassLevel: glassLevel,
-                    canUndo: undoManager?.canUndo ?? false,
-                    onUndo: {
-                        // The same reversal ⌘Z performs: this operation registered exactly one
-                        // (grouped) undo step and its banner is the newest, so it sits on top of
-                        // the stack. Clear the banner so the affordance doesn't linger post-undo.
-                        undoManager?.undo()
-                        syncManager.banner = nil
-                    },
-                    onClose: { syncManager.banner = nil },
-                    onHover: { hovering in bannerDismissScheduler.hoverChanged(isHovering: hovering) }
-                )
-                .id(banner.id)
-                .padding(.top, 8)
-                .padding(.horizontal, 16)
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .designAnimation(.spring(response: 0.4, dampingFraction: 0.9), value: syncManager.banner)
+        // **No result message up here any more** (Banner Room, CA). It floated across the window's
+        // top for five seconds, over the pane header's Delete — the next click's target — and in
+        // Compare over the seam's ⇄ and 🔗 as well. Each pane's list docks it now, in one stack with
+        // the action bar (`paneMessagePiece`), and Organize and Edit's other half has its own
+        // (`WorkspaceResultMessageHost`); `ResultMessageRoute` says which shows it.
+        //
         // A banner already showing when this view appears (the manager owns it; the scheduler
         // below is view `@State`) gets its auto-dismiss armed here, since the `onChange` never
         // fires for a value that didn't change. `adoptExistingBanner` no-ops when there's no
@@ -4466,12 +4467,15 @@ struct ContentView: View {
             bannerDismissScheduler.bannerChanged(to: newValue) {
                 syncManager.banner = nil
             }
+            resultMessageChanged(to: newValue)
             // Banners vanish with the window; when the app is in the background, mirror the
             // outcome as a system notification (General setting, default off).
             if let banner = newValue {
                 OperationNotifier.postIfEnabled(for: banner)
             }
         }
+        // "Save as rule…"'s offer holds its message open while it is up — see `holdChanged`.
+        .onChange(of: ruleOfferIsOpen) { _, isOpen in bannerDismissScheduler.holdChanged(isHeld: isOpen) }
         .onChange(of: syncManager.showHiddenFiles) { _, newValue in
             Logger.shared.info("User toggled hidden files to: \(newValue)")
         }
@@ -4853,11 +4857,9 @@ struct ContentView: View {
 
     @ViewBuilder
     private func treeView(_ pane: PaneContext) -> some View {
-        // The single-source rail is the only pane on screen: it shows no action bar, so it takes no placement
-        // scratch space and no flip callback (`placement`'s own contract), and it has no sibling to
-        // be subordinate to, so its selection wears the full-strength wash.
-
-        let isRail = layoutMode == .singleSource
+        // The single-source rail is the only pane on screen: it has no sibling to be subordinate to,
+        // so its selection wears the full-strength wash. It shows no action bar, but it does show
+        // the result message, so it takes placement scratch space like a Compare pane.
         FileTreeView(
             tree: pane.tree,
             otherTree: pane.otherTree,
@@ -4882,12 +4884,12 @@ struct ContentView: View {
             // changes the edge — it re-renders the column inside `withAnimation` so the bar
             // cross-fades. Clicking a file needs no callback: it re-renders the column on its own,
             // which lands the bar at the correct edge instantly.
-            placement: isRail ? nil : (pane.isLeft ? leftPlacement : rightPlacement),
-            onBarEdgeFlip: isRail ? nil : {
-                withAnimation(.easeInOut(duration: 0.22)) {
-                    if pane.isLeft { leftBarAtTop.toggle() } else { rightBarAtTop.toggle() }
-                }
-            },
+            //
+            // The single-source rail measures too, though it has no bar: the result message docks
+            // at its list's edge by the same rule (Banner Room, CA), and after a delete it needs
+            // the deleted row's last position, which only a pane that was measuring has.
+            placement: pane.isLeft ? leftPlacement : rightPlacement,
+            onBarEdgeFlip: paneOverlayFlip(isLeft: pane.isLeft),
             // What matched, and where the walk has got to. The pane draws its emphasis, dimming and
             // annotations from the first and reveals the hit named by the second — see
             // `FileTreeView.revealInTree` / `revealInColumns`.

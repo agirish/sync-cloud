@@ -240,7 +240,7 @@ import Testing
         "LensWorkspaceView.swift/glow": .reportsRatherThanTravels,
 
         "SetupModel.swift/screen": .overlayCrossFade,             // the same card, cross-fading
-        "ContentView.swift/pane": .overlayCrossFade,              // the bar edge flip
+        "ContentView+ResultMessage.swift/isLeft": .overlayCrossFade, // the bar + message edge flip
 
         "DifferencesView.swift/isCountPillHovered": .hoverOrPressLadder,
     ]

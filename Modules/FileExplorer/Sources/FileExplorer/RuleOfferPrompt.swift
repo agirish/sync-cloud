@@ -4,9 +4,9 @@ import Design
 
 // MARK: - Learned-rule offer/review models
 //
-// The inline "teach a rule" flow that follows a filing move, extracted verbatim from LensWorkspaceView
-// (which owns the @State driving it — everything here is plumbed via explicit params/bindings,
-// so the views stay dumb and the state machine stays in one place).
+// The "teach a rule" flow that follows a filing move. It rides in the move's result message as
+// "Save as rule…", which opens `FilingRuleOfferPanel` (Banner Room, CB); the state machine lives in
+// `LensWorkspaceSession`, and the two prompt views stay dumb, plumbed via params/bindings.
 
 /// One pending "remember this override?" prompt (G2) — the loose file just filed and the folder it
 /// went into, enough to seed an F3 rule. Identifiable so the inline prompt can animate in and out.
@@ -14,6 +14,8 @@ struct PendingRememberPrompt: Identifiable {
     let id = UUID()
     let fileName: String
     let destinationPath: String
+    /// The result message this rides in — the move's "Filed …" — and leaves with.
+    var ridesOn: UUID?
 }
 
 /// One pending "save a rule?" offer — the file just filed and the proposed Automation for files like
@@ -22,6 +24,8 @@ struct RuleOffer: Identifiable {
     let id = UUID()
     let fileName: String
     let proposal: AutomationRuleProposer.Proposal
+    /// The result message this rides in — the move's "Filed …" — and leaves with.
+    var ridesOn: UUID?
 }
 
 // MARK: - Pure helpers
@@ -39,6 +43,95 @@ enum RuleOfferLogic {
         let r = (root as NSString).standardizingPath
         let p = (absolutePath as NSString).standardizingPath
         return PathBoundary.relativize(p, under: r) ?? (absolutePath as NSString).lastPathComponent
+    }
+}
+
+// MARK: - The panel "Save as rule…" opens
+
+/// **The full offer, opened from the "Filed …" message's "Save as rule…"** (Banner Room, CB) — the
+/// rule offer when there is one, else the remember-this-override prompt. It used to sit above
+/// To File's cards, inserted after the move, which pushed the next card's "File here" down under
+/// the pointer; in a popover off the message, the cards never move.
+public struct FilingRuleOfferPanel: View {
+    @ObservedObject var session: LensWorkspaceSession
+    let syncManager: FileSyncManager
+    let accent: Color
+    /// Called once the offer is answered, so the host can close the popover.
+    let onDone: () -> Void
+
+    public init(session: LensWorkspaceSession, syncManager: FileSyncManager, accent: Color,
+                onDone: @escaping () -> Void) {
+        self.session = session
+        self.syncManager = syncManager
+        self.accent = accent
+        self.onDone = onDone
+    }
+
+    public var body: some View {
+        Group {
+            if let offer = session.pendingRuleOffer {
+                RuleOfferPromptView(
+                    offer: offer,
+                    accent: accent,
+                    variantChoice: $session.ruleVariantChoice,
+                    onSave: { session.saveOfferedRule(offer, in: syncManager); onDone() },
+                    onNotNow: { session.pendingRuleOffer = nil; onDone() }
+                )
+            } else if let prompt = session.pendingRememberPrompt {
+                RememberOverridePromptView(
+                    prompt: prompt,
+                    accent: accent,
+                    onRemember: { session.rememberOverride(prompt, in: syncManager); onDone() },
+                    onNotNow: { session.pendingRememberPrompt = nil; onDone() }
+                )
+            }
+        }
+        // The prompts carry their own inset for the list they used to sit in; here the popover's
+        // edge is the frame, so they get its padding instead.
+        .padding(.bottom, 12)
+        .frame(width: 460)
+    }
+}
+
+/// **"Save as rule…" in the "Filed …" message**, for as long as that move's offer rides in it.
+///
+/// Its own view, observing the session, because the window must not: `ContentView` owns the session
+/// without subscribing to it (`WorkspaceSessionHoistTests`), and the offer is made a moment AFTER
+/// the message appears — once the move it follows returns — so a check made in the window's body
+/// would never see it arrive. Empty while nothing rides in `bannerID`.
+public struct FilingRuleOfferButton: View {
+    @ObservedObject var session: LensWorkspaceSession
+    let bannerID: UUID
+    let syncManager: FileSyncManager
+    let accent: Color
+    /// Whether the offer's popover is open — the host holds the message while it is.
+    let onOpenChange: (Bool) -> Void
+    @State private var isOpen = false
+
+    public init(session: LensWorkspaceSession, bannerID: UUID, syncManager: FileSyncManager, accent: Color,
+                onOpenChange: @escaping (Bool) -> Void) {
+        self.session = session
+        self.bannerID = bannerID
+        self.syncManager = syncManager
+        self.accent = accent
+        self.onOpenChange = onOpenChange
+    }
+
+    public var body: some View {
+        if session.offersRule(riding: bannerID) {
+            Button("Save as rule…") { isOpen = true }
+                .scaledFont(.subheadline.weight(.semibold))
+                .buttonStyle(.hoverAffordance(.segment, tint: accent))
+                .help("Save a rule that files files like this one the same way")
+                .popover(isPresented: $isOpen, arrowEdge: .bottom) {
+                    FilingRuleOfferPanel(session: session, syncManager: syncManager, accent: accent,
+                                         onDone: { isOpen = false })
+                }
+                .onChange(of: isOpen) { _, open in onOpenChange(open) }
+                // The offer retired (or the message replaced) with the popover up takes the popover
+                // with it, and must let go of the message too.
+                .onDisappear { if isOpen { onOpenChange(false) } }
+        }
     }
 }
 

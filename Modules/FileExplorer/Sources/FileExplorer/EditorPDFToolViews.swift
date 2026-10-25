@@ -199,9 +199,9 @@ public struct EditorPDFToolsMenuItems: View {
 
 /// **What the tools are doing or did**, across the top of the PDF card: a run in flight with
 /// Stop — for the runs no sheet is showing, Rotate and Save Reordered Copy among them — or the
-/// last run's word, with Open in Edit and Reveal in Browse for a copy. **Save as PDF's banner
-/// (``PaneSaveAsPDFLayer``) says its ending in the same words and order**: Saved, Open in Edit then
-/// Reveal in Browse, Stop, and the same icons. ``EditorDiskBannerView``'s shape:
+/// last run's word, with Open in Edit and Reveal in Browse for a copy. **A pane-launched run's ending
+/// (``PaneToolResult``) offers the same doors in the same order**: Open in Edit then Reveal in
+/// Browse. ``EditorDiskBannerView``'s shape:
 /// the sentence wraps rather than truncates, and the buttons go under it in a narrow column.
 struct EditorPDFToolBannerView: View {
     @ObservedObject var tools: EditorPDFTools
@@ -248,8 +248,8 @@ struct EditorPDFToolBannerView: View {
         }
     }
 
-    /// The strip itself — also what a pane-launched batch says its ending in
-    /// (``EditorPDFBatchBannerView``), so the two read the same.
+    /// The strip itself — also what a pane-launched run shows its progress in at the window's foot
+    /// (``PanePDFToolCard``), so the two read the same.
     static func strip<Buttons: View>(symbol: String?, tint: Color, message: String,
                                      @ViewBuilder buttons: () -> Buttons) -> some View {
         let sentence = HStack(alignment: .firstTextBaseline, spacing: 6) {

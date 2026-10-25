@@ -45,6 +45,32 @@ import Sync
         #expect(!OperationBannerView.showsCountdown(autoDismissSeconds: sticky, reduceMotion: false))
     }
 
+    /// **VoiceOver hears the message when it appears** (TE211), and that ⌘Z takes it back when the
+    /// Undo button is there — nothing was announced before, so "Deleted “Test3.md”" and its Undo
+    /// were silent.
+    @Test func theAnnouncementIsTheMessageAndItsUndo() {
+        let deleted = OperationBanner.success("Deleted “Test3.md”", undoable: true)
+        #expect(OperationBannerView.announcement(for: deleted, offersUndo: true)
+                == "Deleted “Test3.md”. Undo available, Command Z")
+        #expect(OperationBannerView.announcement(for: deleted, offersUndo: false) == "Deleted “Test3.md”",
+                "Undo announced with no button to take it")
+        let sentence = OperationBanner.warning("Reclaimed 4 KB from 1 of 2 groups — the rest stay listed.", undoable: true)
+        #expect(OperationBannerView.announcement(for: sentence, offersUndo: true)
+                == "Reclaimed 4 KB from 1 of 2 groups — the rest stay listed. Undo available, Command Z")
+        // The window posts it on every new message, with the same Undo rule the button uses.
+        let window = (try? macAppFile("ContentView+ResultMessage.swift")) ?? ""
+        #expect(window.contains("OperationBannerView.announce(banner, offersUndo: banner.isUndoable && (undoManager?.canUndo ?? false))"),
+                "no announcement is posted when a message appears")
+    }
+
+    /// **A finished file's doors**, in the PDF tools' words (TE207).
+    @Test func followUpsAreTheToolsOwnDoors() {
+        #expect(OperationBannerView.title(for: .openInEdit("/a/Lease.pdf")) == "Open in Edit")
+        #expect(OperationBannerView.title(for: .revealInBrowse(["/a/Lease.pdf"])) == "Reveal in Browse")
+        #expect(OperationBannerView.help(for: .openInEdit("/a/Lease.pdf")) == "Open “Lease.pdf” in Edit")
+        #expect(OperationBannerView.help(for: .revealInBrowse(["/a", "/b"])) == "Show the 2 files in Browse")
+    }
+
     /// The call-site half of the extracted rules (a rule extracted for testability is one revert
     /// from unused): `body` must decide through `showsUndo` / `showsCountdown`, not through a
     /// re-inlined copy that this suite can no longer see.

@@ -219,9 +219,11 @@ public final class PanePDFTools: ObservableObject {
 
 // MARK: - The window's half
 
-/// **Where a pane-launched run shows itself**: its sheet over the window, and its banner at the
-/// foot of the window — the same ``EditorPDFToolSheetView`` and the same banner row Edit's card
-/// draws.
+/// **Where a pane-launched run shows itself**: its sheet over the window, its progress at the foot
+/// of the window — the same ``EditorPDFToolSheetView`` and the same strip Edit's card draws — and
+/// its ending as the pane's result message (Banner Room, TE207): each banner the run sets is handed
+/// to `onResult` as a ``PaneToolResult`` and taken off the model, so the foot only ever shows a run
+/// in progress.
 ///
 /// **A real `.sheet`, not an entry in the window's overlay chain.** The chain is a priority list
 /// of full-window panels that yield to one another — Settings or Help opening covers whatever is
@@ -230,26 +232,29 @@ public final class PanePDFTools: ObservableObject {
 /// cover it mid-run, and it is what Edit already presents these exact views in, so they look the
 /// same from a pane as from Edit's Tools menu.
 ///
-/// **Save as PDF's banner stands above the tools' in the same column** (``PaneSaveAsPDFLayer``), so
-/// the two never draw over each other at the window's foot.
+/// **Save as PDF's progress stands above the tools' in the same column** (``PaneSaveAsPDFLayer``),
+/// so the two never draw over each other at the window's foot.
 public struct PanePDFToolsPresenter: ViewModifier {
     let model: PanePDFTools
     let saveAsPDF: PaneSaveAsPDF?
     let accent: Color
+    let onResult: (PaneToolResult) -> Void
 
-    public init(model: PanePDFTools, saveAsPDF: PaneSaveAsPDF? = nil, accent: Color) {
+    public init(model: PanePDFTools, saveAsPDF: PaneSaveAsPDF? = nil, accent: Color,
+                onResult: @escaping (PaneToolResult) -> Void) {
         self.model = model
         self.saveAsPDF = saveAsPDF
         self.accent = accent
+        self.onResult = onResult
     }
 
     public func body(content: Content) -> some View {
         content.overlay(alignment: .bottom) {
             VStack(spacing: 0) {
                 if let saveAsPDF {
-                    PaneSaveAsPDFLayer(model: saveAsPDF, accent: accent)
+                    PaneSaveAsPDFLayer(model: saveAsPDF, accent: accent, onResult: onResult)
                 }
-                PanePDFToolsLayer(model: model, accent: accent)
+                PanePDFToolsLayer(model: model, accent: accent, onResult: onResult)
             }
         }
     }
@@ -260,13 +265,14 @@ public struct PanePDFToolsPresenter: ViewModifier {
 struct PanePDFToolsLayer: View {
     @ObservedObject var model: PanePDFTools
     let accent: Color
+    let onResult: (PaneToolResult) -> Void
 
     var body: some View {
         switch model.current {
         case .single(let tools):
-            PanePDFSingleLayer(tools: tools, accent: accent)
+            PanePDFSingleLayer(tools: tools, host: model.host, accent: accent, onResult: onResult)
         case .batch(let batch):
-            PanePDFBatchLayer(batch: batch, accent: accent)
+            PanePDFBatchLayer(batch: batch, accent: accent, onResult: onResult)
         case nil:
             EmptyView()
         }
@@ -275,17 +281,28 @@ struct PanePDFToolsLayer: View {
 
 struct PanePDFSingleLayer: View {
     @ObservedObject var tools: EditorPDFTools
+    /// The window's doors, which reveal a list — `tools.host` is Edit's, which reveals one path.
+    let host: PanePDFToolHost
     let accent: Color
+    let onResult: (PaneToolResult) -> Void
 
     var body: some View {
         // A stack rather than a `Group`: with nothing to say a `Group` is no view at all, and the
         // sheet below would have nothing to hang from.
         VStack(spacing: 0) {
-            // Edit's own banner — a run in flight with Cancel (Rotate opens no sheet), then the
-            // run's word with Open and Reveal in Browse.
-            if tools.banner != nil || (tools.running != nil && tools.sheet == nil) {
+            // A run in flight with Stop (Rotate opens no sheet). Its ending is the pane's result
+            // message, handed over below.
+            if tools.running != nil && tools.sheet == nil {
                 PanePDFToolCard { EditorPDFToolBannerView(tools: tools, accent: accent) }
             }
+        }
+        // `initial`: a banner set before this layer mounted — a cloud-only file refused in the same
+        // turn the run was made — is handed over too. Cleared once handed, so a remount cannot
+        // post it twice.
+        .onChange(of: tools.banner, initial: true) { _, banner in
+            guard let banner else { return }
+            onResult(PaneToolResult(banner, host: host))
+            tools.banner = nil
         }
         .background {
             Color.clear.sheet(item: $tools.sheet) { sheet in
@@ -298,13 +315,16 @@ struct PanePDFSingleLayer: View {
 struct PanePDFBatchLayer: View {
     @ObservedObject var batch: EditorPDFBatch
     let accent: Color
+    let onResult: (PaneToolResult) -> Void
 
     var body: some View {
-        // A stack rather than a `Group`, for the sheet's sake — see ``PanePDFSingleLayer``.
-        VStack(spacing: 0) {
-            if batch.banner != nil {
-                PanePDFToolCard { EditorPDFBatchBannerView(batch: batch, accent: accent) }
-            }
+        // A stack rather than a `Group`, for the sheet's sake — see ``PanePDFSingleLayer``. The run
+        // shows in its sheet; its ending is the pane's result message.
+        VStack(spacing: 0) {}
+        .onChange(of: batch.banner, initial: true) { _, banner in
+            guard let banner else { return }
+            onResult(PaneToolResult(banner, host: batch.host))
+            batch.banner = nil
         }
         .background {
             Color.clear.sheet(isPresented: $batch.showsSheet) {
@@ -319,74 +339,8 @@ struct PanePDFBatchLayer: View {
     }
 }
 
-/// **A batch's ending**, in Edit's banner strip: the summary, Reveal in Browse over the copies it
-/// wrote — and Open in Edit as well when there is just one — and under it, which files were
-/// skipped or failed and why, as Save as PDF's banner names its failures.
-struct EditorPDFBatchBannerView: View {
-    @ObservedObject var batch: EditorPDFBatch
-    let accent: Color
-
-    var body: some View {
-        if let banner = batch.banner {
-            VStack(alignment: .leading, spacing: 0) {
-                EditorPDFToolBannerView.strip(symbol: EditorPDFToolBannerView.symbol(banner.kind),
-                                              tint: banner.kind == .failure ? .red : accent,
-                                              message: banner.message) {
-                    switch banner.kind {
-                    case .wrote(let path):
-                        Button("Open in Edit") { batch.follow([path]) { batch.host.open($0[0]) } }
-                            .controlSize(.small)
-                            .help("Open the copy in Edit")
-                        Button("Reveal in Browse") { batch.follow([path]) { batch.host.reveal($0) } }
-                            .controlSize(.small)
-                            .help("Show the copy in Browse")
-                    case .wroteSeveral(let paths):
-                        Button("Reveal in Browse") { batch.follow(paths) { batch.host.reveal($0) } }
-                            .controlSize(.small)
-                            .help("Show the copies in Browse")
-                    case .note, .failure:
-                        EmptyView()
-                    }
-                    Button {
-                        batch.banner = nil
-                    } label: {
-                        Image(systemName: "xmark")
-                            .scaledFont(.system(size: 9, weight: .semibold))
-                            .frame(width: 16, height: 16)
-                    }
-                    .buttonStyle(.hoverAffordance(.glyph, tint: accent))
-                    .accessibilityLabel("Dismiss")
-                    .help("Dismiss")
-                }
-                if let detail = banner.detail {
-                    PaneSaveAsPDFLayer.detailLine(detail)
-                }
-            }
-        }
-    }
-}
-
-extension EditorPDFBatch {
-    /// **The banner's doors go to the copies still there** — Edit's banner's rule
-    /// (``EditorPDFTools/follow(_:_:)``): a copy trashed or moved since is left out, and with none
-    /// left the banner says so instead of a door that does nothing.
-    func follow(_ paths: [String], _ door: ([String]) -> Void) {
-        let here = paths.filter { FileManager.default.fileExists(atPath: $0) }
-        guard !here.isEmpty else {
-            banner = EditorPDFToolBanner(
-                message: paths.count == 1
-                    ? "“\((paths[0] as NSString).lastPathComponent)” is no longer there — it was moved or deleted."
-                    : "The copies are no longer there — they were moved or deleted.",
-                // The files it skipped or failed, and why, still stand.
-                kind: .note, detail: banner?.detail)
-            return
-        }
-        door(here)
-    }
-}
-
-/// The banner's backing at the window's foot — Edit's row draws on the card's own surface; here it
-/// floats over the panes, so it carries its own, at the scale's floating-card radius.
+/// A run's progress strip's backing at the window's foot — Edit's row draws on the card's own
+/// surface; here it floats over the panes, so it carries its own, at the scale's floating-card radius.
 struct PanePDFToolCard<Content: View>: View {
     @ViewBuilder let content: Content
 

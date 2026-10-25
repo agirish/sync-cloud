@@ -11490,3 +11490,35 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s ctrlTab=%s ctrlShiftTab=%s de
 |---|---|---|
 | `v5.x` / `v4.x` | No ⌃⇧⇥ (`ctrlShiftTab=0`), Go's two Next Tab rows; "Delete" for a trash move (`deleteLabel=1`); curly CLI output (`cliFold=0`) | RECORDED — not owed |
 | `v3.x` / `v2.x` | No tabs, so SH3 does not apply; "Delete" for a trash move; curly CLI output | RECORDED — not owed |
+
+---
+
+## Result messages in the pane, "Save as rule…", no "Press ⌘Z to undo" (CA, CB, TE207, TE211, TE216) — main only
+
+The owner's Banner Room calls of 2026-10-25. **CA:** the operation banner floated across the window's
+top for 5 s after a delete, over the pane header's Delete; it is a result message docked in the pane's
+list, in one stack with the action bar (`PaneBarPlacement` measures both), on the edge away from the
+row acted on, and in Organize and Edit over the lens or editor when that is where you clicked last.
+**CB:** To File's rule offer rides in the "Filed …" message as "Save as rule…" instead of being inserted
+above the cards. **TE207:** a pane-launched PDF tool's or Save as PDF's ending is that message, not a
+sticky card at the window's foot. **TE211:** VoiceOver announces each message. **TE216:** the Sync
+banners drop "Press ⌘Z to undo" beside an Undo button that wears the ⌘Z keycap.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s topBanner=%s pressCmdZ=%s inlineOffer=%s pdfResultCard=%s\n' $l \
+  "$(git show origin/$l:MacApp/ContentView.swift 2>/dev/null | grep -cF 'OperationBannerView(')" \
+  "$(git grep -h 'Press ⌘Z to undo\|press ⌘Z to undo' origin/$l -- 'Modules/Sync/Sources/Sync/*.swift' 2>/dev/null | grep -v '//' | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/LensWorkspaceView.swift 2>/dev/null | grep -cF 'RuleOfferPromptView(')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PanePDFTools.swift 2>/dev/null | grep -cF 'struct EditorPDFBatchBannerView')"; done
+# measured 2026-10-25, against origin, before this landed (the change reads 0 0 0 0):
+# main   topBanner=1 pressCmdZ=13 inlineOffer=1 pdfResultCard=1
+# v5.x   topBanner=1 pressCmdZ=13 inlineOffer=1 pdfResultCard=0   (no pane PDF tools)
+# v4.x   topBanner=1 pressCmdZ=12 inlineOffer=1 pdfResultCard=0
+# v3.x   topBanner=1 pressCmdZ=11 inlineOffer=0 pdfResultCard=0
+# v2.x   topBanner=1 pressCmdZ=11 inlineOffer=0 pdfResultCard=0   (its Undo button has no ⌘Z keycap)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` | The window-top banner over the pane header; the offer inserted above To File's cards; "Press ⌘Z to undo" beside the Undo keycap; no announcement | RECORDED — not owed |
+| `v3.x` / `v2.x` | The window-top banner; "Press ⌘Z to undo" (on `v2.x` the only place ⌘Z is named, so TE216 would not apply there); no announcement | RECORDED — not owed |

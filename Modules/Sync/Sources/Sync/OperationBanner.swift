@@ -23,12 +23,30 @@ public struct OperationBanner: Equatable, Sendable {
     /// Undo button, the visible face of the ⌘Z that already works. Left false for outcomes that are
     /// not a single undo (a guided-review session, a partial batch) or not undoable at all.
     public var isUndoable: Bool
+    /// A second, quieter line under the sentence — a batch naming each file it skipped, and why.
+    public var detail: String?
+    /// What the result leaves behind that the reader may want next, each drawn as a button beside
+    /// Undo. Pure data like the rest: the UI names the buttons and performs them.
+    public var followUps: [FollowUp]
 
-    public init(message: String, severity: Severity, isUndoable: Bool = false, id: UUID = UUID()) {
+    /// A door out of a finished result.
+    public enum FollowUp: Equatable, Sendable {
+        /// "Open in Edit" — the file just written.
+        case openInEdit(String)
+        /// "Reveal in Browse" — the file or files just written, selected.
+        case revealInBrowse([String])
+        /// "Download" — a file only in the cloud now, which the request could not read.
+        case download(String)
+    }
+
+    public init(message: String, severity: Severity, isUndoable: Bool = false,
+                detail: String? = nil, followUps: [FollowUp] = [], id: UUID = UUID()) {
         self.id = id
         self.message = message
         self.severity = severity
         self.isUndoable = isUndoable
+        self.detail = detail
+        self.followUps = followUps
     }
 
     public static func success(_ message: String, undoable: Bool = false) -> OperationBanner {

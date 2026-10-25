@@ -508,28 +508,52 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(batch.banner?.detail == nil, "the files Cancel never reached were named: \(String(describing: batch.banner?.detail))")
     }
 
-    /// **A batch banner's doors go to the copies still there**, as Edit's banner's do — Reveal left
-    /// a trashed copy in its list, and Open opened a path that was gone.
-    @Test func aBatchBannersDoorsSkipCopiesThatAreGone() throws {
+    /// **A pane-launched run's doors go to the copies still there**, as Edit's banner's do — Reveal
+    /// left a trashed copy in its list, and Open opened a path that was gone. The doors are the
+    /// result message's buttons now (TE207), so the rule is ``PaneToolResult/stillThere(_:exists:)``,
+    /// and the window's buttons must go through it.
+    @Test func aResultsDoorsSkipCopiesThatAreGone() throws {
         let kept = path("A (rotated).pdf"), gone = path("B (rotated).pdf")
         PDFFixtures.write(kept, pages: 1)
-        let batch = batch(.rotate(quarterTurns: 1), [])
-        var revealed: [[String]] = []
-        batch.follow([kept, gone]) { revealed.append($0) }
-        #expect(revealed == [[kept]])
+        #expect(PaneToolResult.stillThere([kept, gone]) == [kept])
         try FileManager.default.removeItem(atPath: kept)
-        batch.banner = EditorPDFToolBanner(message: "Rotated 1 file · 1 skipped", kind: .wroteSeveral([kept]),
-                                           detail: "C.pdf: it’s locked")
-        batch.follow([kept]) { revealed.append($0) }
-        #expect(revealed.count == 1, "a door opened onto a copy that is gone")
-        #expect(batch.banner?.message == "“A (rotated).pdf” is no longer there — it was moved or deleted.")
-        #expect(batch.banner?.detail == "C.pdf: it’s locked", "the files the batch skipped, and why, went with the door")
-        // And the banner's buttons go through it.
-        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/PanePDFTools.swift"), encoding: .utf8)
-        #expect(!source.contains("batch.host.reveal(paths) }"), "Reveal skips follow()")
-        #expect(source.contains("batch.follow(paths) { batch.host.reveal($0) }"))
+        #expect(PaneToolResult.stillThere([kept]).isEmpty, "a door opened onto a copy that is gone")
+        #expect(PaneToolResult.goneMessage([kept]) == "“A (rotated).pdf” is no longer there — it was moved or deleted.")
+        #expect(PaneToolResult.goneMessage([kept, gone]) == "The copies are no longer there — they were moved or deleted.")
+        // And the message's buttons go through it.
+        let window = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("MacApp/ContentView+ResultMessage.swift"),
+                                encoding: .utf8)
+        #expect(window.contains("let here = PaneToolResult.stillThere(paths)"), "the doors skip stillThere()")
+        #expect(window.contains("syncManager.banner = .warning(PaneToolResult.goneMessage(paths))"))
+    }
+
+    /// **A run's ending is a result message with its doors** (TE207): a copy offers Open in Edit and
+    /// Reveal in Browse and leaves like any success; a batch's copies offer Reveal; a note is a
+    /// warning, a failure stays; a cloud-only file adds Download. The detail line goes with it.
+    @Test func aRunsEndingBecomesAResultMessage() {
+        let host = PanePDFToolHost()
+        func message(_ kind: EditorPDFToolBanner.Kind, detail: String? = nil, download: String? = nil) -> OperationBanner {
+            PaneToolResult(EditorPDFToolBanner(message: "m", kind: kind, detail: detail, download: download),
+                           host: host).banner
+        }
+        let one = message(.wrote("/a.pdf"))
+        #expect(one.severity == .success)
+        #expect(one.followUps == [.openInEdit("/a.pdf"), .revealInBrowse(["/a.pdf"])])
+        let batch = message(.wroteSeveral(["/a.pdf", "/b.pdf"]), detail: "C.pdf: it’s locked")
+        #expect(batch.followUps == [.revealInBrowse(["/a.pdf", "/b.pdf"])])
+        #expect(batch.detail == "C.pdf: it’s locked")
+        #expect(message(.note).severity == .warning)
+        #expect(message(.failure).severity == .error)
+        #expect(message(.note, download: "/c.pdf").followUps == [.download("/c.pdf")])
+
+        let saved = PaneToolResult(SaveAsPDFBanner(message: "Saved “a.pdf” · 1 page", kind: .saved("/a.pdf")),
+                                   host: PaneSaveAsPDFHost()).banner
+        #expect(saved.severity == .success)
+        #expect(saved.followUps == [.openInEdit("/a.pdf"), .revealInBrowse(["/a.pdf"])])
+        #expect(PaneToolResult(SaveAsPDFBanner(message: "x", kind: .failure), host: PaneSaveAsPDFHost())
+            .banner.severity == .error)
     }
 
     /// **Cancel while a file's copy is being written writes nothing for it** — one file's run takes

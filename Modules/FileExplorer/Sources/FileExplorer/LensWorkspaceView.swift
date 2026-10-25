@@ -382,8 +382,9 @@ public struct LensWorkspaceView: View {
     /// card alone, and cleared when any of them is pressed again.
     @State private var refreshSurveyRefusal: (subject: String, sentence: String)?
     /// A learn-by-example rule offered after the user files a loose file — turned into an editable
-    /// Automation on Save. Deterministic complement to the AI backend. Held (inline prompt shown)
-    /// until saved or dismissed; cleared when a new scan starts.
+    /// Automation on Save. Deterministic complement to the AI backend. Rides in the move's result
+    /// message as "Save as rule…" until saved, dismissed or the message leaves; cleared when a new
+    /// scan starts.
     private var pendingRuleOffer: RuleOffer? {
         get { session.pendingRuleOffer }
         nonmutating set { session.pendingRuleOffer = newValue }
@@ -1141,6 +1142,12 @@ public struct LensWorkspaceView: View {
         // Review-after-create: the rule just learned from "Remember" (or saved from "Save rule")
         // opens in its editor so it can be checked and adjusted immediately. Cancel keeps the rule
         // exactly as created — the review is an offer, not a gate.
+        // The offer is answered from the result message's popover, which hands the rule over here.
+        .onReceive(session.$ruleAwaitingReview) { rule in
+            guard let rule else { return }
+            reviewingAutomationRule = rule
+            session.ruleAwaitingReview = nil
+        }
         .sheet(item: $reviewingAutomationRule) { rule in
             AutomationRuleEditor(
                 rule: rule,
@@ -5244,25 +5251,10 @@ public struct LensWorkspaceView: View {
                     .padding(.horizontal, 12)
                     .padding(.top, 10)
             }
-            // The teach prompt sits above every Filing state (not just the list) so it survives
-            // filing the last loose file — the card that triggered it is already gone. The rule offer
-            // (after a "File here") takes precedence over the legacy override "Remember" prompt.
-            if let offer = pendingRuleOffer {
-                RuleOfferPromptView(
-                    offer: offer,
-                    accent: glassHue.accentColor,
-                    variantChoice: $session.ruleVariantChoice,
-                    onSave: { saveProposedRule(offer) },
-                    onNotNow: { pendingRuleOffer = nil }
-                )
-            } else if let prompt = pendingRememberPrompt {
-                RememberOverridePromptView(
-                    prompt: prompt,
-                    accent: glassHue.accentColor,
-                    onRemember: { rememberOverride(prompt) },
-                    onNotNow: { pendingRememberPrompt = nil }
-                )
-            }
+            // No teach prompt here any more (Banner Room, CB). It was inserted above the cards
+            // after a move, so the next card's "File here" slid down under the pointer by the
+            // prompt's height. The offer rides in the move's "Filed …" result message as
+            // "Save as rule…" (`FilingRuleOfferPanel`), and these cards never move for it.
             Group {
                 if syncManager.isSuggestingFiles {
                     filingScanningState
@@ -5280,8 +5272,6 @@ public struct LensWorkspaceView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .designAnimation(.easeInOut(duration: 0.2), value: pendingRememberPrompt?.id)
-        .designAnimation(.easeInOut(duration: 0.2), value: pendingRuleOffer?.id)
     }
 
     /// N2 — the Automations lens. Its rules header is gone (the shared card carries New rule /
@@ -5306,26 +5296,6 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// Learns the correction as an automation (a "mentions" rule), dismisses the prompt, and opens
-    /// the learned rule for review so it can be adjusted while it's fresh. `rememberAutomationRule`
-    /// is gated at the call site by `FilingEngine.canRemember`, so it should succeed; a rare no-op
-    /// (returns nil) still just dismisses — no misleading "learned" banner, nothing to review.
-    /// The silence is deliberate in the UI only: the no-op is logged, because otherwise a user
-    /// reporting "I clicked Remember and no rule appeared" leaves no trace anywhere to diagnose.
-    private func rememberOverride(_ prompt: PendingRememberPrompt) {
-        if let rule = syncManager.rememberAutomationRule(fileName: prompt.fileName,
-                                                         destinationPath: prompt.destinationPath) {
-            let folderName = (prompt.destinationPath as NSString).lastPathComponent
-            syncManager.banner = .success("Remembered — files like “\(prompt.fileName)” will go to \(folderName).")
-            reviewingAutomationRule = rule
-        } else {
-            Logger.shared.warning(
-                "Could not learn a rule from “\(prompt.fileName)” filed into \(prompt.destinationPath): "
-                + "the name yields no distinctive words to key on. Prompt dismissed without remembering.")
-        }
-        pendingRememberPrompt = nil
-    }
-
     // MARK: Learned rules (offered after a filing move)
 
     /// After the user files a loose file, propose an editable Automation rule for files like it —
@@ -5345,23 +5315,8 @@ public struct LensWorkspaceView: View {
         else { return }
         pendingRememberPrompt = nil   // the new offer supersedes the legacy override prompt
         ruleVariantChoice = proposal.defaultVariant
-        pendingRuleOffer = RuleOffer(fileName: fileName, proposal: proposal)
-    }
-
-    /// Saves the offered rule (with the chosen phrasing) as an Automation, dismisses the offer,
-    /// and opens the saved rule for review so it can be adjusted while it's fresh.
-    private func saveProposedRule(_ offer: RuleOffer) {
-        var rule = offer.proposal.rule
-        let variant = ruleVariantChoice ?? offer.proposal.defaultVariant
-        rule.conditions = variant.conditions
-        // A phrasing can redirect — the `{person}` fan-out files each person's copy into their own
-        // folder rather than the one this example went to. Taking only the conditions would save a
-        // rule that says "everyone's OCI card" and files all of them into Daughter's folder.
-        rule.destinationTemplate = variant.destinationTemplate ?? offer.proposal.destinationTemplate
-        syncManager.upsertAutomationRule(rule)
-        syncManager.banner = .success("Rule saved — files matching “\(rule.name)” go to \(rule.destinationTemplate)")
-        pendingRuleOffer = nil
-        reviewingAutomationRule = rule
+        // Rides in the move's result message, set by the move this follows, and leaves with it.
+        pendingRuleOffer = RuleOffer(fileName: fileName, proposal: proposal, ridesOn: syncManager.banner?.id)
     }
 
     private func filingList(_ filing: [FilingSuggestion]) -> some View {
@@ -5657,7 +5612,8 @@ public struct LensWorkspaceView: View {
             if await syncManager.applyFilingSuggestion(suggestion, to: dest) == .moved, teachable {
                 pendingRuleOffer = nil   // a stale offer would otherwise hide the fresh teach prompt
                 pendingRememberPrompt = PendingRememberPrompt(fileName: suggestion.fileName,
-                                                              destinationPath: destination)
+                                                              destinationPath: destination,
+                                                              ridesOn: syncManager.banner?.id)
             }
         }
     }

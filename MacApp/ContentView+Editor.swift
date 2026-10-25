@@ -407,6 +407,8 @@ extension ContentView {
                 editorWorkspace(showsRail: editorRailIsDrawn, railWidth: column)
                     .frame(maxWidth: .infinity)
                     .clipped()
+                    // The editor's result message — its saves, its PDF tools' notes (CA).
+                    .modifier(workspaceResultMessageHost)
                     // The list's edge, where the open pane's edge is in the other arm: one handle,
                     // one width, whichever column shows.
                     .overlay(alignment: .leading) {
@@ -440,6 +442,7 @@ extension ContentView {
                     editorWorkspace(showsRail: false, railWidth: column)
                         .frame(maxWidth: .infinity)
                         .clipped()
+                        .modifier(workspaceResultMessageHost)
                         // With the strip's own curve, so the header card moves down beside the pane's
                         // toolbar card as the strip slides in, rather than a frame after it.
                         .designAnimation(.easeOut(duration: 0.18), value: sourcePaneShowsTabStrip)

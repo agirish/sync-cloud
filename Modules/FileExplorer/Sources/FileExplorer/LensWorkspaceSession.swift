@@ -1,4 +1,5 @@
 import Combine
+import Events
 import Foundation
 import Sync
 
@@ -111,7 +112,8 @@ public final class LensWorkspaceSession: ObservableObject {
     @Published var dismissedThisSession = false
 
     /// A just-made override the reader can teach as a rule: they filed a loose file somewhere other
-    /// than the suggested home. Held until taught or dismissed, and retired by a new scan.
+    /// than the suggested home. Held until taught or dismissed, or until the message it rides in
+    /// leaves, and retired by a new scan.
     @Published var pendingRememberPrompt: PendingRememberPrompt?
 
     /// A learn-by-example rule offered after filing, turned into an editable Automation on save.
@@ -119,6 +121,62 @@ public final class LensWorkspaceSession: ObservableObject {
 
     /// Which phrasing of the offered rule the reader picked.
     @Published var ruleVariantChoice: AutomationRuleProposer.Variant?
+
+    /// A rule just saved or learned from the offer, for the lens to open in its editor — the offer
+    /// is answered from the result message's popover, which cannot present the lens's sheet itself.
+    /// The lens takes it and clears it, so it is a hand-over rather than presentation state.
+    @Published var ruleAwaitingReview: AutomationRule?
+
+    /// **Whether a rule offer rides in the result message `bannerID`** (Banner Room, CB). To File's
+    /// offer used to be inserted above the cards after a move, which pushed the next card's
+    /// "File here" down under the pointer. It now rides in the "Filed …" message as "Save as rule…".
+    public func offersRule(riding bannerID: UUID) -> Bool {
+        if let offer = pendingRuleOffer { return offer.ridesOn == bannerID }
+        return pendingRememberPrompt?.ridesOn == bannerID
+    }
+
+    /// **An offer leaves with its message**: ignored, it goes when the message goes — timed out,
+    /// closed, or replaced by the next result. Call whenever the shown message changes.
+    public func retireRuleOffer(unlessRiding bannerID: UUID?) {
+        if let offer = pendingRuleOffer, offer.ridesOn != bannerID { pendingRuleOffer = nil }
+        if let prompt = pendingRememberPrompt, prompt.ridesOn != bannerID { pendingRememberPrompt = nil }
+    }
+
+    /// Saves the offered rule (with the chosen phrasing) as an Automation, retires the offer, and
+    /// hands the saved rule to the lens to open for review while it's fresh.
+    func saveOfferedRule(_ offer: RuleOffer, in syncManager: FileSyncManager) {
+        var rule = offer.proposal.rule
+        let variant = ruleVariantChoice ?? offer.proposal.defaultVariant
+        rule.conditions = variant.conditions
+        // A phrasing can redirect — the `{person}` fan-out files each person's copy into their own
+        // folder rather than the one this example went to. Taking only the conditions would save a
+        // rule that says "everyone's OCI card" and files all of them into Daughter's folder.
+        rule.destinationTemplate = variant.destinationTemplate ?? offer.proposal.destinationTemplate
+        syncManager.upsertAutomationRule(rule)
+        syncManager.banner = .success("Rule saved — files matching “\(rule.name)” go to \(rule.destinationTemplate)")
+        pendingRuleOffer = nil
+        ruleAwaitingReview = rule
+    }
+
+    /// Learns the correction as an automation (a "mentions" rule), retires the prompt, and hands the
+    /// learned rule to the lens for review. `rememberAutomationRule` is gated at the call site by
+    /// `FilingEngine.canRemember`, so it should succeed; a rare no-op (returns nil) still just
+    /// dismisses — no misleading "learned" banner, nothing to review. The silence is deliberate in
+    /// the UI only: the no-op is logged, because otherwise a user reporting "I clicked Remember and
+    /// no rule appeared" leaves no trace anywhere to diagnose.
+    func rememberOverride(_ prompt: PendingRememberPrompt, in syncManager: FileSyncManager) {
+        if let rule = syncManager.rememberAutomationRule(fileName: prompt.fileName,
+                                                         destinationPath: prompt.destinationPath) {
+            let folderName = (prompt.destinationPath as NSString).lastPathComponent
+            syncManager.banner = .success("Remembered — files like “\(prompt.fileName)” will go to \(folderName).")
+            ruleAwaitingReview = rule
+        } else {
+            Logger.shared.warning(
+                "Could not learn a rule from “\(prompt.fileName)” filed into \(prompt.destinationPath): "
+                + "the name yields no distinctive words to key on. Prompt dismissed without remembering.")
+        }
+        pendingRememberPrompt = nil
+    }
 
     // MARK: Automations
 

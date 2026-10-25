@@ -357,3 +357,24 @@ open -a SyncCloud && tail -f ~/sync-cloud.log
   confirm and none to add. The reading offer's "About 3 h for N documents" is a different claim and
   is checked against the count it names.
 
+
+## Result messages in the pane (Banner Room CA/CB/TE207/TE211, 2026-10-25)
+
+Built and installed with the screen saver up, so nobody has looked at these on screen yet. The
+placement maths and the message's layout at 250/400/560pt are covered by tests; this is what is not.
+
+- [ ] **Delete twice from the header.** In Browse, select a file near the top, click the header's
+  Delete, confirm → "Deleted …" appears at the list's foot and the header's Delete is clickable at
+  once. Select a file near the BOTTOM and delete it → the message docks at the list's top instead,
+  never over the row that took the deleted one's place.
+- [ ] **Compare: the acting pane only.** Delete in the right pane → the message is in the right
+  pane's list, beside the action bar if one is up, never over it; the left pane and the seam's ⇄/🔗
+  stay clear.
+- [ ] **To File's "Save as rule…".** File a loose file with File here → "Filed …" at the lens's foot
+  with Undo and Save as rule…; the cards did not move. Click it → the offer opens in a popover and the
+  message stays while it is open. Ignore one → the offer is gone with the message after 5 s.
+- [ ] **PDF tool from a pane.** Right-click a PDF ▸ PDF Tools ▸ Rotate All Pages → progress at the
+  window's foot, then a pane message with Open in Edit and Reveal in Browse that leaves after 5 s.
+- [ ] **Clicks still land in Edit and Organize.** Both halves now carry the click reporter: select
+  text by dragging in Edit, click a PDF's page, drag a card's button in Organize → all behave as before.
+- [ ] **VoiceOver.** With VoiceOver on, delete a file → it says "Deleted “…”. Undo available, Command Z".

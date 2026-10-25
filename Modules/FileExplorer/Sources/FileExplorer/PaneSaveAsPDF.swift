@@ -288,75 +288,47 @@ enum SaveAsPDFSummary {
 
 // MARK: - The window's half
 
-/// **Save as PDF's banner at the window's foot** — progress with Stop while it runs, then how it
-/// ended, in the strip and card the PDF tools' pane banner uses.
+/// **Save as PDF's progress at the window's foot** — with Stop while it runs, in the strip and card
+/// the PDF tools' pane progress uses. How it ended is the pane's result message (Banner Room,
+/// TE207): handed to `onResult` and taken off the model.
 struct PaneSaveAsPDFLayer: View {
     @ObservedObject var model: PaneSaveAsPDF
     let accent: Color
+    let onResult: (PaneToolResult) -> Void
 
     var body: some View {
-        if let progress = model.progress {
-            PanePDFToolCard {
-                VStack(alignment: .leading, spacing: 0) {
-                    EditorPDFToolBannerView.strip(symbol: nil, tint: accent,
-                                                  message: Self.progressMessage(progress)) {
+        // A stack, so the handover below has a view to hang from when nothing is running.
+        VStack(spacing: 0) {
+            if let progress = model.progress {
+                PanePDFToolCard {
+                    VStack(alignment: .leading, spacing: 0) {
+                        EditorPDFToolBannerView.strip(symbol: nil, tint: accent,
+                                                      message: Self.progressMessage(progress)) {
+                            if progress.total > 1 {
+                                Button("Stop") { model.stop() }
+                                    .controlSize(.small)
+                                    .help("Stop after this file — the PDFs already saved stay")
+                            }
+                        }
                         if progress.total > 1 {
-                            Button("Stop") { model.stop() }
-                                .controlSize(.small)
-                                .help("Stop after this file — the PDFs already saved stay")
+                            // No tint of its own: the window's root gives every progress bar the hue
+                            // (DS4), and a raw-accent tint here made this the one bar a shade lighter.
+                            ProgressView(value: Double(progress.done), total: Double(progress.total))
+                                .progressViewStyle(.linear)
+                                .padding(.horizontal, 14)
+                                .padding(.bottom, 8)
                         }
-                    }
-                    if progress.total > 1 {
-                        // No tint of its own: the window's root gives every progress bar the hue
-                        // (DS4), and a raw-accent tint here made this the one bar a shade lighter.
-                        ProgressView(value: Double(progress.done), total: Double(progress.total))
-                            .progressViewStyle(.linear)
-                            .padding(.horizontal, 14)
-                            .padding(.bottom, 8)
-                    }
-                    if let note = model.busyNote {
-                        Self.detailLine(note)
+                        if let note = model.busyNote {
+                            Self.detailLine(note)
+                        }
                     }
                 }
             }
-        } else if let banner = model.banner {
-            PanePDFToolCard {
-                VStack(alignment: .leading, spacing: 0) {
-                    EditorPDFToolBannerView.strip(symbol: Self.symbol(banner.kind),
-                                                  tint: banner.kind == .failure ? .red : accent,
-                                                  message: banner.message) {
-                        switch banner.kind {
-                        // The PDF tools' banner's order (``EditorPDFToolBannerView``).
-                        case .saved(let path):
-                            Button("Open in Edit") { model.host.open(path) }
-                                .controlSize(.small)
-                                .help("Open the PDF in Edit")
-                            Button("Reveal in Browse") { model.host.reveal([path]) }
-                                .controlSize(.small)
-                                .help("Show the PDF in Browse")
-                        case .savedSeveral(let paths):
-                            Button("Reveal in Browse") { model.host.reveal(paths) }
-                                .controlSize(.small)
-                                .help("Show the PDFs in Browse")
-                        case .note, .failure:
-                            EmptyView()
-                        }
-                        Button {
-                            model.banner = nil
-                        } label: {
-                            Image(systemName: "xmark")
-                                .scaledFont(.system(size: 9, weight: .semibold))
-                                .frame(width: 16, height: 16)
-                        }
-                        .buttonStyle(.hoverAffordance(.glyph, tint: accent))
-                        .accessibilityLabel("Dismiss")
-                        .help("Dismiss")
-                    }
-                    if let detail = banner.detail {
-                        Self.detailLine(detail)
-                    }
-                }
-            }
+        }
+        .onChange(of: model.banner, initial: true) { _, banner in
+            guard let banner else { return }
+            onResult(PaneToolResult(banner, host: model.host))
+            model.banner = nil
         }
     }
 
@@ -364,16 +336,6 @@ struct PaneSaveAsPDFLayer: View {
         progress.total == 1
             ? "Saving “\(progress.name)” as PDF…"
             : "Saving \(progress.total) files as PDF · \(progress.done + 1) of \(progress.total)"
-    }
-
-    /// The PDF tools' banner's icons, so the two cannot drift.
-    static func symbol(_ kind: SaveAsPDFBanner.Kind) -> String {
-        switch kind {
-        case .saved(let path): return EditorPDFToolBannerView.symbol(.wrote(path))
-        case .savedSeveral(let paths): return EditorPDFToolBannerView.symbol(.wroteSeveral(paths))
-        case .note: return EditorPDFToolBannerView.symbol(.note)
-        case .failure: return EditorPDFToolBannerView.symbol(.failure)
-        }
     }
 
     static func detailLine(_ text: String) -> some View {
