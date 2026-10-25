@@ -93,8 +93,15 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
         // Replaced in place: one update, no delete (FR58).
         #expect(store.ops == [.update, .add, .update])
         #expect(AnthropicKeychain.read(from: store) == "second-key")
+        // **The update carries the secret and nothing else** (E10). `kSecAttrAccessible` is a
+        // data-protection-keychain attribute; this item lives in the file-based keychain (no
+        // `kSecUseDataProtectionKeychain`), where changing it in `SecItemUpdate` is undocumented
+        // and is the one part of the write that could be refused. Accessibility stays as the add
+        // set it, which the test above pins.
         let attrs = try #require(store.lastUpdatedAttributes)
-        #expect(attrs[kSecAttrAccessible as String] as? String == kSecAttrAccessibleAfterFirstUnlock as String)
+        #expect(Set(attrs.keys) == [kSecValueData as String],
+                "the update asks to change more than the key: \(attrs.keys.sorted())")
+        #expect(attrs[kSecValueData as String] as? Data == Data("second-key".utf8))
     }
 
     /// **A refused write keeps the key that was stored (FR58).** The replace used to delete and

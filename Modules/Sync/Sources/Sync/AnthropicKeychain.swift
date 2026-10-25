@@ -31,13 +31,21 @@ public enum AnthropicKeychain {
     public static func store(_ key: String, in store: KeychainStore = SecItemKeychainStore()) -> OSStatus {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { delete(from: store); return errSecSuccess }
-        let attributes: [String: Any] = [
-            kSecValueData as String: Data(trimmed.utf8),
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
-        ]
-        let updated = store.update(baseQuery(), attributes: attributes)
+        let secret: [String: Any] = [kSecValueData as String: Data(trimmed.utf8)]
+        // **The update changes the secret and nothing else** (E10). These queries carry no
+        // `kSecUseDataProtectionKeychain`, so on macOS the item lives in the file-based keychain,
+        // which guards items with ACLs rather than the data-protection classes `kSecAttrAccessible`
+        // names (TN3137 describes the two implementations). What `SecItemUpdate` does when asked
+        // to CHANGE that attribute on a file-based item is not documented, and Apple DTS reports
+        // `errSecParam` for `kSecAttrAccessControl`, another data-protection attribute, sent to
+        // the file-based keychain. The update is the one write FR58 relies on, so it carries only
+        // `kSecValueData` and leaves the item's accessibility as the add set it. The add keeps the
+        // attribute: a create states it once. Checked against a fake only — the tests never touch
+        // the real login keychain.
+        let updated = store.update(baseQuery(), attributes: secret)
         guard updated == errSecItemNotFound else { return updated }
-        return store.add(baseQuery().merging(attributes) { _, new in new })
+        return store.add(baseQuery().merging(secret) { _, new in new }
+            .merging([kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock]) { _, new in new })
     }
 
     /// What a read of the stored key found — the difference `read(from:)`'s `nil` cannot express.
