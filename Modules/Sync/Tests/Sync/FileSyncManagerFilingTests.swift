@@ -240,6 +240,60 @@ private final class SnippetBox: @unchecked Sendable {
         let names = try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("Downloads").path)
         #expect(names == ["report.pdf"], "the file was renamed in place: \(names)")
         #expect(manager.filingSuggestions.isEmpty)
+        // **And it says so** (FR9): the card goes, and without a word it looks like a click that
+        // did nothing — or a file that went somewhere.
+        let banner = try #require(manager.banner, "the card vanished without a word")
+        #expect(banner.message == "“report.pdf” is already in that folder — nothing to move.")
+    }
+
+    /// **The batch counts the files already in their folders** (FR9). A suggestion naming a link
+    /// to the file's own folder files as "nothing to move", and "File all" dropped it uncounted:
+    /// two cards went, and the banner said one file was filed.
+    @MainActor
+    @Test func theBatchCountsFilesAlreadyInTheirFolder() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let here = root.appendingPathComponent("Downloads/report.pdf")
+        let away = root.appendingPathComponent("Downloads/invoice.pdf")
+        try write(here)
+        try write(away)
+        let bills = root.appendingPathComponent("Documents/Bills")
+        try FileManager.default.createDirectory(at: bills, withIntermediateDirectories: true)
+        let link = root.appendingPathComponent("Filing")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: root.appendingPathComponent("Downloads"))
+
+        let manager = FileSyncManager()
+        manager.undoManager = UndoManager()
+        let cards = [
+            FilingSuggestion(filePath: here.path, fileName: "report.pdf", size: 5000, modificationDate: nil,
+                             candidates: [FilingDestination(path: link.path, confidence: .high,
+                                                            reasons: ["by name"], newSegments: [])],
+                             providerRoot: root.path),
+            FilingSuggestion(filePath: away.path, fileName: "invoice.pdf", size: 5000, modificationDate: nil,
+                             candidates: [FilingDestination(path: bills.path, confidence: .high,
+                                                            reasons: ["by name"], newSegments: [])],
+                             providerRoot: root.path),
+        ]
+        manager.publishFilingSuggestions(cards)
+        let batch = manager.batchEligibleFilingSuggestions
+        #expect(batch.count == 2, "the fixture needs both cards batch-eligible")
+
+        await manager.applyRecommendedFiling(batch)
+
+        #expect(FileManager.default.fileExists(atPath: bills.appendingPathComponent("invoice.pdf").path))
+        let banner = try #require(manager.banner)
+        #expect(banner.message.contains("Filed 1 file") && banner.message.contains("1 was already in its folder"),
+                "the file already in its folder went uncounted: \(banner.message)")
+
+        // Only files already home: still a word, not silence.
+        let only = FilingSuggestion(filePath: here.path, fileName: "report.pdf", size: 5000, modificationDate: nil,
+                                    candidates: [FilingDestination(path: link.path, confidence: .high,
+                                                                   reasons: ["by name"], newSegments: [])],
+                                    providerRoot: root.path)
+        manager.banner = nil
+        manager.publishFilingSuggestions([only])
+        await manager.applyRecommendedFiling(manager.batchEligibleFilingSuggestions)
+        #expect(manager.banner?.message == "1 file was already in its folder — nothing to move.")
     }
 
     /// The engine side of the same rule: a case-variant of the file's own parent must not even be

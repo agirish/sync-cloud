@@ -10805,3 +10805,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr3=%s newSegment=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No package guard at all (`fr3=0`); FR3's row records it | CLOSED — does not apply |
+
+---
+
+## Filing a file into the folder it is already in says so (FR9, follow-up) — main only
+
+"File here" on a folder that resolves to the file's own (a link to it, or the folder picked with
+"Choose a folder…") returned `.notNeeded` and the card went without a word, and "File all" dropped
+it from its count. `main` says "“report.pdf” is already in that folder — nothing to move." and the
+batch counts it ("Filed 1 file; 1 was already in its folder").
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s silent=%s said=%s\n' $l \
+  "$(git show origin/$l:$S/FileSyncManager+Filing.swift 2>/dev/null | grep -cF 'case .noMoveNeeded: break')" \
+  "$(git show origin/$l:$S/FileSyncManager+Filing.swift 2>/dev/null | grep -cF 'is already in that folder')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads silent=0 said=1):
+# main, v5.x, v4.x, v3.x, v2.x   silent=1 said=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same silent no-op for the file's own folder chosen by path (`silent=1`) | RECORDED — not owed |

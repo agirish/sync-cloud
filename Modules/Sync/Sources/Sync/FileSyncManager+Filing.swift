@@ -1688,7 +1688,12 @@ extension FileSyncManager {
             Logger.shared.info("Filing: filed “\(suggestion.fileName)” → \(folderName)\(remembered ? " (remembered as a rule)" : "")")
             return .moved
         case .noMoveNeeded:
-            return .notNeeded   // the chosen folder is where the file already lives — nothing to do
+            // The chosen folder is where the file already lives — nothing to do, and SAID (FR9):
+            // the card goes either way, and without a word that reads as a click that did nothing
+            // or a file that went somewhere. The engine drops the file's own folder by its path,
+            // so this is reached through a link to it or a folder the user picked.
+            banner = .success("“\(suggestion.fileName)” is already in that folder — nothing to move.")
+            return .notNeeded
         case .failed:
             return .failed
         }
@@ -1762,25 +1767,36 @@ extension FileSyncManager {
         defer { filingBatchInFlight.remove(ObjectIdentifier(self)) }
         var moves: [MoveItemState] = []
         var failures = 0
+        // Counted, not dropped (FR9): its card leaves the list like a filed one, so a banner that
+        // left it out would count fewer files than went.
+        var alreadyHome = 0
         for s in batch {
             guard let dest = s.best else { continue }
             switch await performFiling(s, to: dest) {
             case .moved(let move): moves.append(move)
-            case .noMoveNeeded: break
+            case .noMoveNeeded: alreadyHome += 1
             case .failed: failures += 1
             }
         }
+        let home = alreadyHome == 0 ? ""
+            : "\(alreadyHome) \(alreadyHome == 1 ? "was" : "were") already in \(alreadyHome == 1 ? "its folder" : "their folders")"
         guard !moves.isEmpty else {
-            if failures > 0 { banner = .warning("Couldn’t file \(failures) file\(failures == 1 ? "" : "s").") }
+            if failures > 0 {
+                banner = .warning("Couldn’t file \(failures) file\(failures == 1 ? "" : "s")\(home.isEmpty ? "" : "; \(home)").")
+            } else if alreadyHome > 0 {
+                banner = .success("\(alreadyHome) file\(alreadyHome == 1 ? " was" : "s were") already in "
+                    + "\(alreadyHome == 1 ? "its folder" : "their folders") — nothing to move.")
+            }
             return
         }
         // One undo action reverts the whole batch, so ⌘Z is honest.
         registerMoveUndo(items: moves, actionName: "File \(CountedNoun.phrase(moves.count, "Item"))", fileManager: fileManager)
         let n = moves.count
-        Logger.shared.info("Filing: filed \(n) file(s)\(failures > 0 ? ", \(failures) couldn't be filed" : "")")
+        Logger.shared.info("Filing: filed \(n) file(s)\(failures > 0 ? ", \(failures) couldn't be filed" : "")\(alreadyHome > 0 ? ", \(alreadyHome) already in place" : "")")
+        let filed = "Filed \(n) file\(n == 1 ? "" : "s")" + (home.isEmpty ? "" : "; \(home)")
         banner = failures > 0
-            ? .warning("Filed \(n) file\(n == 1 ? "" : "s"); \(failures) couldn’t be filed. Press ⌘Z to undo", undoable: true)
-            : .success("Filed \(n) file\(n == 1 ? "" : "s"). Press ⌘Z to undo", undoable: true)
+            ? .warning("\(filed); \(failures) couldn’t be filed. Press ⌘Z to undo", undoable: true)
+            : .success("\(filed). Press ⌘Z to undo", undoable: true)
     }
 
     /// Removes a suggestion without moving anything ("Not here" / leave it).

@@ -152,7 +152,8 @@ import Foundation
         m.filingSuggestions = suggestions
 
         // A destination that IS the file's current folder: `performFiling` answers `.noMoveNeeded`,
-        // so the batch collects no moves, sets no banner, and returns before either of them.
+        // so the batch collects no moves and returns early — saying only that the files were
+        // already home (FR9), a banner the no-move exit alone sets.
         let inPlace = suggestions.map { s in
             s.replacingCandidates([FilingDestination(
                 path: URL(fileURLWithPath: s.filePath).deletingLastPathComponent().path,
@@ -160,7 +161,8 @@ import Foundation
         }
         try #require(inPlace.allSatisfy { $0.isBatchEligible })
         await m.applyRecommendedFiling(inPlace)
-        try #require(m.banner == nil, "the fixture took a banner path, so it is not the no-move exit")
+        try #require(m.banner?.message.hasSuffix("already in their folders — nothing to move.") == true,
+                     "the fixture took a move's banner path, so it is not the no-move exit: \(m.banner?.message ?? "none")")
         #expect(!m.isFilingBatchRunning, "a batch that moved nothing kept the latch")
 
         // …and the session is not disabled: a real batch still files.
