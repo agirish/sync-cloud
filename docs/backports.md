@@ -10412,3 +10412,28 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fromDisk=%s askFirst=%s stall
 |---|---|---|
 | `v5.x` | The disk view with no bounded ask at all (`askFirst=0`): it hangs rather than waits; FR21's row records that | CLOSED — does not apply |
 | `v4.x` / `v3.x` / `v2.x` | No Restructure (`fromDisk=0`) | CLOSED — does not apply |
+
+---
+
+## Setup's Save waits for a landing to finish (review R5) — main only
+
+Setup's Save could write a walk profile while a reorganization was landing. The landing's re-derive
+then published its own profile at the end of its corpus replay, over the one just saved, and the
+walk's carry copied files the landing was still writing. `main` refuses the walk's write while a
+landing is in progress (`FolderWalkFailure.landingInProgress`) and says so on the Structure screen.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s walkWrite=%s landing=%s walkGuard=%s\n' $l \
+  "$(git show origin/$l:$S/FileSyncManager+FolderWalk.swift 2>/dev/null | grep -cF 'func writeWalkProfile')" \
+  "$(git show origin/$l:$S/FileSyncManager+RestructureApply.swift 2>/dev/null | grep -cF 'restructureLandingInProgress = true')" \
+  "$(git show origin/$l:$S/FileSyncManager+FolderWalk.swift 2>/dev/null | grep -cF 'case landingInProgress')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads walkGuard=1):
+# main, v5.x         walkWrite=1 landing=3 walkGuard=0
+# v4.x, v3.x, v2.x   walkWrite=0 landing=0 walkGuard=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | Both the walk and the landing (`walkWrite=1 landing=3`), unguarded | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No walk profile (`walkWrite=0`) | CLOSED — does not apply |

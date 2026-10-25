@@ -286,6 +286,23 @@ import Testing
                 "the superseded profile was deleted — it is the only record of what was in use")
     }
 
+    /// A Save while a reorganization lands is refused and says so (review R5): the landing's
+    /// re-derive publishes its own profile when its replay ends, over whatever the walk wrote.
+    @Test @MainActor func aWalkIsRefusedWhileALandingIsInProgress() async throws {
+        let root = try Self.scratch(), profiles = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
+        try Self.tree(in: root)
+        let manager = manager(profiles: profiles)
+        manager.restructureLandingInProgress = true
+        let refused = await manager.deriveFolderProfile(root: root, now: Date(timeIntervalSince1970: 1_754_000_000))
+        #expect(refused == .failure(.landingInProgress), "\(refused)")
+        #expect(FilingProfileStore.activeProfileId(in: profiles) == nil, "a profile was written mid-landing")
+
+        manager.restructureLandingInProgress = false
+        let saved = await manager.deriveFolderProfile(root: root, now: Date(timeIntervalSince1970: 1_754_000_600))
+        #expect((try? saved.get())?.becameActive == true, "the control walk did not land")
+    }
+
     // MARK: - What the user made follows the profile (FR4)
 
     /// Writes the three files a user makes into a profile's folder, with recognisable bytes, and

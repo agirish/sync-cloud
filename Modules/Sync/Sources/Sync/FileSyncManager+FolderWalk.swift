@@ -60,6 +60,10 @@ extension FileSyncManager {
         case nothingToLearn(String)
         /// The store refused. Carries its own reason.
         case refused(String)
+        /// A reorganization is landing (review R5). Its re-derive publishes its own profile when
+        /// its corpus replay ends, over whatever a walk wrote meanwhile — and the walk's carry
+        /// would copy files the landing is still writing.
+        case landingInProgress
 
         public var description: String {
             switch self {
@@ -71,6 +75,8 @@ extension FileSyncManager {
                 return "\(path) has no folders to learn from"
             case .refused(let why):
                 return "the profile could not be written — \(why)"
+            case .landingInProgress:
+                return "a reorganization is landing, so the profile was not written"
             }
         }
 
@@ -89,6 +95,8 @@ extension FileSyncManager {
                 return "“\((path as NSString).lastPathComponent)” has no folders in it to learn from."
             case .refused(let why):
                 return why
+            case .landingInProgress:
+                return "A reorganization is landing — save once it finishes."
             }
         }
 
@@ -219,6 +227,15 @@ extension FileSyncManager {
             Logger.shared.warning("Folder walk refused: \(root.path) is readable but holds no "
                                   + "folders, and an empty profile would read as a surveyed tree")
             return .failure(.nothingToLearn(root.path))
+        }
+
+        // **Checked after the build's await, with none between here and the write** (review R5):
+        // a landing that started while the profile was being built would publish its re-derived
+        // profile over this one at the end of its replay.
+        guard !restructureLandingInProgress else {
+            Logger.shared.warning("Folder walk refused: a reorganization is landing, and its "
+                + "re-derive would replace this profile when it finishes")
+            return .failure(.landingInProgress)
         }
 
         // Read BEFORE the write re-points the index — the profile this walk may be replacing.
