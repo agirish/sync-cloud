@@ -909,6 +909,121 @@ enum ReplaceFixtures {
         #expect(links(copy) == ["https://example.com/old"], "the copy dropped the link — the note says it stays")
     }
 
+    /// **"Also remove links under corrections" leaves no link under a patch in the copy (FR56,
+    /// decided 2026-10-25)** — off by default, offered only for a correction over a link, and for
+    /// that save only. A link elsewhere on the page stays.
+    @Test func removingLinksUnderCorrectionsLeavesNoneUnderAPatch() async throws {
+        let file = invoice("Unlinked.pdf")
+        let document = try #require(PDFDocument(url: URL(fileURLWithPath: file)))
+        let original = try #require(document.page(at: 0))
+        for (rect, address) in [(CGRect(x: 258, y: 598, width: 100, height: 12), "https://example.com/old"),
+                                (CGRect(x: 70, y: 716, width: 160, height: 24), "https://example.com/kept")] {
+            let link = PDFAnnotation(bounds: rect, forType: .link, withProperties: nil)
+            link.url = URL(string: address)
+            original.addAnnotation(link)
+        }
+        try #require(document.write(to: URL(fileURLWithPath: file)))
+        func links(_ copy: String) -> [PDFAnnotation] {
+            (PDFDocument(url: URL(fileURLWithPath: copy))?.page(at: 0)?.annotations ?? []).filter { $0.type == "Link" }
+        }
+        try #require(links(file).count == 2, "the fixture has no links — this tests nothing")
+
+        // Not offered for a correction with no link under it.
+        let (plain, plainID, plainPick) = try await correcting(file, at: CGPoint(x: 100, y: 584))
+        try #require(!plainPick.overLink)
+        plain.fill.type("Client Harbour & Pike Inc", into: plainID)
+        plain.fill.endEditing()
+        #expect(!plain.fill.offersUnlinking, "offered with no link under the patch")
+
+        let (pdf, id, pick) = try await correcting(file)
+        try #require(pick.overLink, "the link under the words was not seen")
+        let fill = pdf.fill
+        fill.type("21 Apr", into: id)
+        fill.endEditing()
+        #expect(fill.offersUnlinking && !fill.unlinksCorrections, "not offered, or on by default")
+        // **The checkbox is in the note card and bound to the choice**: ticked, the card draws
+        // differently along its last row, where the box sits — under the corrections' line, which
+        // also changes, and its button, which doesn't. A fresh host each time, so nothing waits on
+        // an observation to land.
+        func box() throws -> [NSColor?] {
+            let host = NSHostingView(rootView: EditorPDFFillSaveStack(fill: fill, tools: pdf.tools))
+            host.frame = CGRect(origin: .zero, size: host.fittingSize)
+            host.layoutSubtreeIfNeeded()
+            let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            let px = CGFloat(rep.pixelsWide) / host.bounds.width
+            // Bitmap rows run down from the top: the stack's last 22pt, the width of it.
+            let rows = Int((host.bounds.height - 22) * px)..<rep.pixelsHigh
+            return rows.flatMap { y in (0..<rep.pixelsWide).map { rep.colorAt(x: $0, y: y) } }
+        }
+        let unticked = try box()
+        fill.unlinksCorrections = true
+        let ticked = try box()
+        #expect(zip(unticked, ticked).filter { $0 != $1 }.count > 20,
+                "the card's last row draws the same ticked and unticked — no checkbox bound to the choice")
+        #expect(fill.correctionNotes.first?.line.hasSuffix(" " + EditorPDFFillSign.linkRemovedNote) == true,
+                "the note still says the link stays: \(fill.correctionNotes.first?.line ?? "none")")
+        guard case .wrote(let copy) = await fill.save() else { Issue.record("the copy was not written"); return }
+        let left = links(copy)
+        #expect(!left.contains { $0.bounds.intersects(pick.cover) }, "a link under the patch is still in the copy")
+        #expect(left.compactMap { $0.url?.absoluteString } == ["https://example.com/kept"],
+                "the link away from the patch went too, or the old one stayed")
+        #expect(!fill.unlinksCorrections, "the choice outlived its save")
+    }
+
+    /// **The engine finds a link under a patch on a turned page** — the toolkit puts links back
+    /// upright, so the patch's page rect is mapped before the test — and, from macOS 27, the copy
+    /// keeps the page labels the toolkit carried. Assembled by hand: a page turned 90° labelled "i",
+    /// with one link under the patch and one away from it.
+    @Test func linksUnderAPatchGoOnATurnedPageAndTheLabelsStay() throws {
+        let file = path("Turned.pdf")
+        let stream = "BT /F1 14 Tf 100 305 Td (Old address) Tj ET"
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R /PageLabels << /Nums [0 << /S /r >>] >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Rotate 90 /Contents 4 0 R"
+                + " /Resources << /Font << /F1 5 0 R >> >> /Annots [6 0 R 7 0 R] >>",
+            "<< /Length \(stream.utf8.count) >>\nstream\n\(stream)\nendstream",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            "<< /Type /Annot /Subtype /Link /Rect [100 300 200 320] /Border [0 0 0] /A << /S /URI /URI (https://example.com/old) >> >>",
+            "<< /Type /Annot /Subtype /Link /Rect [400 600 500 620] /Border [0 0 0] /A << /S /URI /URI (https://example.com/kept) >> >>",
+        ]
+        var pdf = "%PDF-1.7\n"
+        var offsets: [Int] = []
+        for (index, body) in objects.enumerated() {
+            offsets.append(pdf.utf8.count)
+            pdf += "\(index + 1) 0 obj\n\(body)\nendobj\n"
+        }
+        let xref = pdf.utf8.count
+        pdf += "xref\n0 \(objects.count + 1)\n0000000000 65535 f \n"
+        for offset in offsets { pdf += String(format: "%010d 00000 n \n", offset) }
+        pdf += "trailer\n<< /Size \(objects.count + 1) /Root 1 0 R >>\nstartxref\n\(xref)\n%%EOF\n"
+        try Data(pdf.utf8).write(to: URL(fileURLWithPath: file))
+
+        let patch = FillSignItem(pageIndex: 0, rect: CGRect(x: 100, y: 300, width: 100, height: 20),
+                                 content: .patch(FillSignPatch(red: 1, green: 1, blue: 1)))
+        // The document, not its page: a page outliving its document reads nothing.
+        func copy(unlinking: Bool) throws -> PDFDocument {
+            guard case .bytes(let data) = try EditorPDFToolEngine.output(
+                of: .fillAndSign([patch], unlinksPatches: unlinking), input: URL(fileURLWithPath: file),
+                progress: nil, isCancelled: nil),
+                let document = PDFDocument(data: data), document.pageCount == 1 else { throw CancellationError() }
+            return document
+        }
+        func addresses(_ document: PDFDocument) -> [String] {
+            (document.page(at: 0)?.annotations ?? []).filter { $0.type == "Link" }.compactMap { $0.url?.absoluteString }.sorted()
+        }
+        let kept = try copy(unlinking: false)
+        try #require(addresses(kept) == ["https://example.com/kept", "https://example.com/old"],
+                     "the toolkit did not put both links back — this tests nothing")
+        try #require(kept.page(at: 0)?.label == "i", "the toolkit did not carry the page label — this tests nothing")
+        let unlinked = try copy(unlinking: true)
+        #expect(addresses(unlinked) == ["https://example.com/kept"], "the link under the patch on a turned page stayed")
+        if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27 {
+            #expect(unlinked.page(at: 0)?.label == "i", "the rewrite dropped the page label on macOS 27 too — the tooltip says only 26")
+        }
+    }
+
     /// **A picture chosen for a page whose correction is gone is not made.**
     @Test func aPictureGoesWithItsPagesLastCorrection() async throws {
         let (pdf, id, _) = try await correcting(invoice())

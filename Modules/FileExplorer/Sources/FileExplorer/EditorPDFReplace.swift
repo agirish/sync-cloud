@@ -501,10 +501,11 @@ public struct EditorPDFCorrection: Equatable, Sendable {
     public var plainBackground: Bool
     /// **Whether a link's hotspot reaches under the patch (FR56).** The copy keeps every link the
     /// page had — the toolkit puts them back on each page it redraws — so a correction typed over
-    /// a web address or an email still opens the OLD one. Removing the link would mean rewriting the
-    /// copy with PDFKit, which drops the page labels and attached files the toolkit carries; the
-    /// note card says so instead (``EditorPDFFillSign/correctionNotes``). A page made a picture
-    /// loses its links, so its note does not say it.
+    /// a web address or an email still opens the OLD one. The note card says so
+    /// (``EditorPDFFillSign/correctionNotes``) and offers to leave such links out
+    /// (``EditorPDFFillSign/unlinksCorrections``) — off by default, since removing one rewrites the
+    /// copy with PDFKit, which on macOS 26 drops the page labels and attached files the toolkit
+    /// carries. A page made a picture loses its links, so its note does not say it.
     public var overLink: Bool
     /// The original font's name, for the line under the retype box — `nil` when none was found.
     public var fontName: String?

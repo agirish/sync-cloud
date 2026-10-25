@@ -105,7 +105,9 @@ public enum EditorPDFTool: Equatable, Sendable {
     case removePassword(EditorPDFSecret)
     /// What Fill & Sign placed, as the toolkit draws it — ``EditorPDFFillSign/save()`` — and the
     /// zero-based pages then made pictures, so the words corrections cover there go (TE85).
-    case fillAndSign([FillSignItem], pictures: [Int] = [])
+    /// `unlinksPatches` takes every link under a correction's patch out of the copy (FR56, decided
+    /// 2026-10-25), so it no longer opens the old address under the new words.
+    case fillAndSign([FillSignItem], pictures: [Int] = [], unlinksPatches: Bool = false)
     /// **Fill & Sign on a file with its own form** (Phase 5c): the values typed into its fields, by
     /// fully qualified name, and what was placed — filled in place by `fillFormData`, so the copy's
     /// form stays fillable and the placed items become annotations rather than page content.
@@ -202,7 +204,7 @@ public enum EditorPDFTool: Equatable, Sendable {
         // otherwise (decided with the 5b mockups). The name follows the save button, which says
         // Save Corrected Copy for corrections alone and Save Filled Copy for a mix (decided
         // 2026-10-21: a mix was "(corrected)" under a Save Filled Copy button).
-        case .fillAndSign(let items, _):
+        case .fillAndSign(let items, _, _):
             if items.contains(where: Self.isSigned) { return "signed" }
             let patches = items.filter(\.isPatch).count
             return patches > 0 && items.count == 2 * patches ? "corrected" : "filled"
@@ -302,7 +304,7 @@ public enum EditorPDFTool: Equatable, Sendable {
         case .cleanMetadata(let fields): return fields.isCleared ? "clean metadata (all cleared)" : "clean metadata"
         case .protect(let restrict, _): return restrict ? "protect (restrict editing)" : "protect (lock to open)"
         case .removePassword: return "remove password"
-        case .fillAndSign(let items, let pictures):
+        case .fillAndSign(let items, let pictures, let unlinks):
             // Counts only — the words and the strokes are the reader's, and never logged. A
             // correction is two of the toolkit's items, its patch and its words: counted once.
             let signatures = items.filter(Self.isSigned).count
@@ -312,6 +314,7 @@ public enum EditorPDFTool: Equatable, Sendable {
             if corrections > 0 { parts.append(EditorPDFFillSign.corrections(corrections)) }
             if signatures > 0 { parts.append(signatures == 1 ? "1 signature" : "\(signatures) signatures") }
             if !pictures.isEmpty { parts.append("\(EditorPDFCopyName.pageList(pictures)) made a picture") }
+            if unlinks { parts.append("links under corrections removed") }
             return "fill and sign (\(parts.joined(separator: ", ")))"
         case .fillForm(let values, let items):
             // Counts only, as above: never a field's name, which can say what the form is about.
@@ -595,9 +598,13 @@ enum EditorPDFToolEngine {
                 options: .addPassword(restrictEditing: restrict, password: password.reveal())))
         case .removePassword(let password):
             return .bytes(try PDFToolkit.removePasswordData(inputURL: input, password: password.reveal()))
-        case .fillAndSign(let items, let pictures):
+        case .fillAndSign(let items, let pictures, let unlinks):
             let filled = try PDFToolkit.fillAndSignData(inputURL: input, items: items)
-            guard !pictures.isEmpty else { return .bytes(filled) }
+            // Last, on the finished copy: a page made a picture has no links left to take out.
+            func unlinked(_ data: Data) throws -> Data {
+                unlinks ? try removingLinks(under: items.filter(\.isPatch), in: data, source: input) : data
+            }
+            guard !pictures.isEmpty else { return .bytes(try unlinked(filled)) }
             // **Then the chosen pages made pictures** (decision AK): the toolkit's redaction with
             // no marks, rasterizing just those pages, so the words their patches cover go from the
             // copy. It reads by URL, so the filled bytes are staged as `.arranged`'s are.
@@ -610,7 +617,7 @@ enum EditorPDFToolEngine {
             // 4000 px on the longest side: the toolkit's own default for a redacted page.
             let options = PDFRedactionExportOptions(stripAnnotationsFromUnredactedPages: false, maxPixelDimension: 4000,
                                                     forceRasterizePages: Set(pictures))
-            return .bytes(try PDFToolkit.redactData(inputURL: middle, marks: [], options: options))
+            return .bytes(try unlinked(try PDFToolkit.redactData(inputURL: middle, marks: [], options: options)))
         case .fillForm(let values, let items):
             return .bytes(try PDFToolkit.fillFormData(inputURL: input, values: values, items: items))
         case .arranged(let order, let then):
@@ -632,6 +639,33 @@ enum EditorPDFToolEngine {
             try first.write(to: middle, options: .withoutOverwriting)
             return .bytes(try PDFToolkit.reorderData(inputURL: middle, order: Self.order(order, after: then)))
         }
+    }
+
+    /// **The copy with every link under a patch taken out** (FR56) — a link whose hotspot reaches
+    /// under any part of one, as ``EditorPDFReplacePick/overLink`` sees it. The toolkit puts each
+    /// page's links back on the page it redraws, upright at the page's corner, so a patch's page
+    /// rect is mapped to the same display space through its source page's box first.
+    ///
+    /// PDFKit writes the copy again, and on macOS 26 a PDFKit write drops the catalog parts the
+    /// toolkit carried — page labels, viewer settings, language and attached files — which is why
+    /// it is a choice, off by default (``EditorPDFFillSign/unlinkHelp``). A copy with no link under
+    /// a patch is handed back as the toolkit wrote it.
+    nonisolated static func removingLinks(under patches: [FillSignItem], in data: Data, source: URL) throws -> Data {
+        guard !patches.isEmpty, let original = PDFDocument(url: source), let copy = PDFDocument(data: data)
+        else { return data }
+        var removed = 0
+        for (index, onPage) in Dictionary(grouping: patches, by: \.pageIndex) {
+            guard let from = original.page(at: index), let page = copy.page(at: index) else { continue }
+            let box = EditorPDFPageBox(cropBox: from.bounds(for: .cropBox), rotation: from.rotation)
+            let covers = onPage.map { box.displayRect(page: $0.rect) }
+            for link in page.annotations where link.type == "Link" && covers.contains(where: link.bounds.intersects) {
+                page.removeAnnotation(link)
+                removed += 1
+            }
+        }
+        guard removed > 0 else { return data }
+        guard let written = copy.dataRepresentation() else { throw PDFOperationError.couldNotEncodeOutput }
+        return written
     }
 
     /// `order` — a permutation of the ORIGINAL's pages — as it reads in `tool`'s copy: unchanged
@@ -737,7 +771,7 @@ enum EditorPDFToolEngine {
         case .extract(let pages):
             if pages.isEmpty { return PDFOperationError.noPagesSelected.errorDescription }
             return outOfRange(pages, pageCount: pageCount)
-        case .fillAndSign(let items, let pictures):
+        case .fillAndSign(let items, let pictures, _):
             // The toolkit throws both; said here first so the lane never runs for them.
             guard items.contains(where: \.hasInk) else { return PDFOperationError.noFillSignItems.errorDescription }
             return outOfRange(items.map(\.pageIndex) + pictures, pageCount: pageCount)

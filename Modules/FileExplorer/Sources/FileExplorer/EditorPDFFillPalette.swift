@@ -718,6 +718,15 @@ struct EditorPDFFillSaveStack: View {
                 }
                 .padding(.top, notes.isEmpty && note.id == corrections.first?.id ? 0 : 4)
             }
+            // **A link under a patch, kept unless chosen otherwise** (FR56, decided 2026-10-25) —
+            // for this save only.
+            if fill.offersUnlinking {
+                Toggle(EditorPDFFillSign.unlinkTitle, isOn: $fill.unlinksCorrections)
+                    .toggleStyle(.checkbox)
+                    .controlSize(.small)
+                    .help(EditorPDFFillSign.unlinkHelp)
+                    .padding(.top, 4)
+            }
         }
         .scaledFont(.system(size: 10))
         .foregroundStyle(.secondary)

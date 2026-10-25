@@ -635,6 +635,10 @@ public final class EditorPDFFillSign: ObservableObject {
     /// **The pages to save as pictures** (TE85, decision AK): the words corrections cover there go
     /// from the copy, and so does every other word's text on the page.
     @Published public private(set) var pictures: Set<Int> = []
+    /// **Whether the copy leaves out the links under corrections** (FR56, decided 2026-10-25): off
+    /// by default, chosen in the note card for the next save only — a save, Discard or another file
+    /// puts it back off. It is read only while ``offersUnlinking``.
+    @Published public var unlinksCorrections = false
     /// The item whose words are being typed, or `nil`.
     @Published public private(set) var editing: UUID?
     /// The Add Signature sheet, for signatures or for initials.
@@ -867,6 +871,7 @@ public final class EditorPDFFillSign: ObservableObject {
     private func clear() {
         items = []
         pictures = []
+        unlinksCorrections = false
         replaceNote = nil
         selection = nil
         editing = nil
@@ -1353,8 +1358,10 @@ public final class EditorPDFFillSign: ObservableObject {
             }
             let corrections = unsaved.compactMap { $0.page == page ? $0.correction : nil }
             // A link under a patch is kept and still opens where it did (FR56) — said, since the
-            // words over it now read otherwise. A picture drops it, so the pictured line above doesn't.
-            let link = corrections.contains(where: \.overLink) ? " " + Self.linkUnderPatchNote : ""
+            // words over it now read otherwise — unless the reader chose to leave it out. A picture
+            // drops it, so the pictured line above doesn't.
+            let link = !corrections.contains(where: \.overLink) ? ""
+                : " " + (unlinksCorrections ? Self.linkRemovedNote : Self.linkUnderPatchNote)
             if corrections.count == 1 {
                 return EditorPDFCorrectionNote(
                     page: page,
@@ -1371,6 +1378,21 @@ public final class EditorPDFFillSign: ObservableObject {
     }
 
     static let linkUnderPatchNote = "A link under the patch still opens where it did."
+    static let linkRemovedNote = "The link under the patch won’t be in the copy."
+
+    /// **Whether the note card offers to leave the links under corrections out** (FR56): a
+    /// correction on a page that stays text has a link under its patch.
+    public var offersUnlinking: Bool {
+        unsaved.contains { item in
+            item.correction?.overLink == true && !picturesToSave.contains(item.page)
+        }
+    }
+
+    /// The note card's checkbox, in the owner's words (decided 2026-10-25), and its tooltip.
+    public static let unlinkTitle = "Also remove links under corrections"
+    public static let unlinkHelp = "Leave the links under your corrections out of the copy, so the new words don’t "
+        + "open the old address. On macOS 26 the copy may then lose this PDF’s page labels, attached files, "
+        + "viewer settings and language."
 
     /// Words quoted in a note: a long passage is cut.
     static func quoted(_ words: String) -> String { words.count > 40 ? String(words.prefix(40)) + "…" : words }
@@ -2149,7 +2171,7 @@ public final class EditorPDFFillSign: ObservableObject {
                 return .failed(reason)
             }
         } else {
-            tool = .fillAndSign(toolkit, pictures: picturesToSave)
+            tool = .fillAndSign(toolkit, pictures: picturesToSave, unlinksPatches: offersUnlinking && unlinksCorrections)
         }
         let outcome = await tools.run(tool)
         if case .wrote = outcome, self.path == path {
@@ -2176,6 +2198,7 @@ public final class EditorPDFFillSign: ObservableObject {
         items.removeAll()
         values = [:]
         pictures = []
+        unlinksCorrections = false
         if items != before || values != beforeValues || pictures != beforePictures {
             register(before, beforeValues, beforePictures, "Discard")
         }

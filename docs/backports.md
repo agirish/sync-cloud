@@ -11356,3 +11356,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s heldOnly=%s everyRow=%s\n' $l
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Copy to … item on a row's menu at all (`heldOnly=0`) | RECORDED — not owed |
+
+---
+
+## Cover and Retype may leave the links under corrections out (FR56, decided 2026-10-25) — main only
+
+A link under a correction's patch still opened the old address in the copy, and the note card could
+only say so. `main` offers "Also remove links under corrections" in the note card, off by default and
+for that save only; with it on, the copy has no link whose hotspot reaches under a patch.
+
+```sh
+S=Modules/FileExplorer/Sources/FileExplorer
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr56=%s fix=%s\n' $l \
+  "$(git show origin/$l:$S/EditorPDFFillSign.swift 2>/dev/null | grep -cF 'static let linkUnderPatchNote')" \
+  "$(git show origin/$l:$S/EditorPDFFillSign.swift 2>/dev/null | grep -cF 'var unlinksCorrections')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads fix=1):
+# main                     fr56=1 fix=0
+# v5.x, v4.x, v3.x, v2.x   fr56=0 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Cover and Retype (`fr56=0`) | CLOSED — does not apply |
