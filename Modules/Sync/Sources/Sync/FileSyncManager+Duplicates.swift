@@ -849,13 +849,16 @@ extension FileSyncManager {
         return done
     }
 
-    /// Why the last-moment removal gate refused a group. Two kinds because the two refusals make
-    /// different claims — see `resolveDuplicateGroup`'s banner split.
+    /// Why the last-moment removal gate refused a group. Three kinds because the three refusals
+    /// make different claims — see `resolveDuplicateGroup`'s banner split.
     enum DuplicateRemovalRefusalKind: Sendable {
         /// Something in the group measurably changed after the scan.
         case drifted
         /// A folder copy carries no scan baseline, so nothing can be proven either way.
         case missingBaseline
+        /// A copy to remove is, or holds, the copy another listed group keeps (FR10). Nothing
+        /// changed: the keepers moved under it, so "changed since the scan" would be false.
+        case holdsKeeper
     }
 
     /// Collects the removal gate's refusals across `deleteItems`' (up to two) gate invocations,
@@ -900,8 +903,10 @@ extension FileSyncManager {
         for p in paths { askedByKey[Self.canonicalRemovalPath(p), default: []].insert(p) }
         var attributed = Set<String>()
         // Every listed group's keeper as it stands NOW — after any keeper the user picked by hand,
-        // which the scan's own protection (decided once, at scan time) cannot see.
-        let liveKeepers = Set((duplicateGroups + groups).map { Self.canonicalRemovalPath($0.keeper.path) })
+        // which the scan's own protection (decided once, at scan time) cannot see — and every
+        // folder above one, built once so the FR10 check below is one lookup per copy.
+        let holdingKeepers = Self.pathsHoldingKeepers(
+            (duplicateGroups + groups).map { Self.canonicalRemovalPath($0.keeper.path) })
         for group in groups {
             let groupKeys = Set(group.recommendedRemovalPaths.map(Self.canonicalRemovalPath))
             let groupPaths = Set(groupKeys.flatMap { askedByKey[$0] ?? [] })
@@ -920,15 +925,13 @@ extension FileSyncManager {
                 culprit = drifted
             } else if let holder = group.redundantCopies.first(where: { copy in
                 let key = Self.canonicalRemovalPath(copy.path)
-                return groupKeys.contains(key)
-                    && liveKeepers.contains { $0 == key || $0.isInsideDirectory(anyOf: [key]) }
+                return groupKeys.contains(key) && holdingKeepers.contains(key)
             }) {
                 // **A copy that holds — or is — another group's keeper is never removed** (FR10).
                 // The scan protects such folders, but only against the keepers it chose; pick a
                 // different keeper in one group and another group's removal can hold it, and one
                 // Apply recommended sent every copy to the Trash. A rescan recomputes the protection.
-                Logger.shared.warning("Duplicates: refused to remove “\(holder.name)” (\(holder.path)) — it holds the copy another group keeps; rescan to recompute which copies are safe to remove")
-                kind = .drifted
+                kind = .holdsKeeper
                 culprit = holder
             }
             guard let kind, let culprit else { continue }
@@ -939,6 +942,8 @@ extension FileSyncManager {
                 Logger.shared.warning("Duplicates: refused to remove copies of “\(group.keeper.name)” (keeper \(group.keeper.path)) at the last check before removal — “\(culprit.name)” (\(culprit.path)) has no scan baseline, so it can't be proven unchanged")
             case .drifted:
                 Logger.shared.warning("Duplicates: refused to remove copies of “\(group.keeper.name)” (keeper \(group.keeper.path)) at the last check before removal — “\(culprit.name)” (\(culprit.path)) changed after the scan")
+            case .holdsKeeper:
+                Logger.shared.warning("Duplicates: refused to remove copies of “\(group.keeper.name)” (keeper \(group.keeper.path)) at the last check before removal — “\(culprit.name)” (\(culprit.path)) is or holds the copy another group keeps; rescan to recompute which copies are safe to remove")
             }
         }
         // **Fail CLOSED.** Anything left over belongs to none of the groups this gate was built
@@ -954,6 +959,27 @@ extension FileSyncManager {
             refusedPaths.formUnion(unattributed)
         }
         return refusedPaths
+    }
+
+    /// Every path that is, or holds, one of `keepers`: each keeper and every prefix of it that ends
+    /// before a `/` — exactly the set of `key`s for which a keeper `== key` or
+    /// `isInsideDirectory(anyOf: [key])`. Built ONCE per gate run, as the scan's `recordAncestors`
+    /// builds its own: asking every keeper about every copy was O(copies × keepers) on the main
+    /// actor, measured at 2.1 s for 1,000 groups and 35.6 s for 3,000.
+    ///
+    /// Walked from the longest prefix down, stopping at the first one already present — whoever
+    /// put it there also put in every shorter one.
+    nonisolated static func pathsHoldingKeepers(_ keepers: [String]) -> Set<String> {
+        var out = Set<String>()
+        for keeper in keepers {
+            out.insert(keeper)
+            var end = keeper.endIndex
+            while let slash = keeper[..<end].lastIndex(of: "/"),
+                  out.insert(String(keeper[..<slash])).inserted {
+                end = slash
+            }
+        }
+        return out
     }
 
     /// The gate closure `resolveDuplicateGroup` and `applyRecommendedDuplicates` hand to
@@ -1029,9 +1055,14 @@ extension FileSyncManager {
         // Refused whole at the last check: surface it with the same banner split as the
         // pre-checks above (the gate has already logged the specifics).
         if removed == 0, let kind = refusals.all[group.id] {
-            banner = .warning(kind == .missingBaseline
-                ? "A copy of “\(group.keeper.name)” couldn’t be fully checked against the scan — review it manually before removing."
-                : "A copy of “\(group.keeper.name)” changed since it was scanned — it may no longer be a copy. Rescan before removing it.")
+            switch kind {
+            case .missingBaseline:
+                banner = .warning("A copy of “\(group.keeper.name)” couldn’t be fully checked against the scan — review it manually before removing.")
+            case .drifted:
+                banner = .warning("A copy of “\(group.keeper.name)” changed since it was scanned — it may no longer be a copy. Rescan before removing it.")
+            case .holdsKeeper:
+                banner = .warning("A copy of “\(group.keeper.name)” holds the copy another duplicate group keeps — rescan before removing it.")
+            }
             return false
         }
         // Only drop the group and claim success if every copy actually left the disk — a declined,
@@ -1401,9 +1432,9 @@ extension FileSyncManager {
                 // Every eligible group was refused by the checks. When every refusal was a folder
                 // with no baseline, "changed since they were scanned" asserts a change nobody
                 // measured — and a rescan reproduces the nil baseline, not a fresh one.
-                banner = .warning(refused == refusedForMissingBaseline
-                    ? "These groups couldn’t be fully checked against the scan — review them individually before removing copies."
-                    : "These groups changed since they were scanned — rescan before removing copies.")
+                banner = .warning(Self.allRefusedBatchBanner(refused: refused,
+                                                             missingBaseline: refusedForMissingBaseline,
+                                                             holdsKeeper: 0))
             } else if !verifiedButEmpty.isEmpty {
                 // **Name the cause only where the cause has been checked.** Protection is the
                 // reachable reason and the useful thing to say — but an empty removal list is also
@@ -1465,6 +1496,10 @@ extension FileSyncManager {
         refusedForMissingBaseline += gateRefused.filter {
             $0.value == .missingBaseline && !refusedAfterPartialRemovalIDs.contains($0.key)
         }.count
+        // Phase 1 never refuses for this — only the gate sees the keepers as they stand now.
+        let refusedForHoldingKeeper = gateRefused.filter {
+            $0.value == .holdsKeeper && !refusedAfterPartialRemovalIDs.contains($0.key)
+        }.count
         let refusedAfterPartialRemoval = refusedAfterPartialRemovalIDs.count
         if refusedAfterPartialRemoval > 0 {
             Logger.shared.info("Duplicates: \(refusedAfterPartialRemoval) group(s) were refused at the last check after part of them had already been removed — they stay listed, and the copies already trashed stay trashed")
@@ -1476,9 +1511,9 @@ extension FileSyncManager {
             // all-refused phase 1.
             Logger.shared.info("Duplicates: the batch removed nothing — \(refused) group(s) refused, \(outcome.declined) permanent delete(s) declined")
             if outcome.declined == 0, gateRefused.count == survivors.count, !gateRefused.isEmpty {
-                banner = .warning(refused == refusedForMissingBaseline
-                    ? "These groups couldn’t be fully checked against the scan — review them individually before removing copies."
-                    : "These groups changed since they were scanned — rescan before removing copies.")
+                banner = .warning(Self.allRefusedBatchBanner(refused: refused,
+                                                             missingBaseline: refusedForMissingBaseline,
+                                                             holdsKeeper: refusedForHoldingKeeper))
             }
             return
         }
@@ -1515,7 +1550,8 @@ extension FileSyncManager {
                 // is exactly why this needs saying: severity and undoability are separate, which is
                 // why `.warning` takes the parameter at all.
                 var clauses: [String] = []
-                let drifted = refused - refusedForMissingBaseline - refusedAfterPartialRemoval
+                let drifted = refused - refusedForMissingBaseline - refusedForHoldingKeeper
+                    - refusedAfterPartialRemoval
                 if refusedAfterPartialRemoval > 0 {
                     // Deliberately NOT "left alone": part of this group is already in the Trash.
                     clauses.append("\(refusedAfterPartialRemoval) group\(refusedAfterPartialRemoval == 1 ? " was" : "s were") refused at the last check after part of \(refusedAfterPartialRemoval == 1 ? "it" : "them") had already been removed")
@@ -1526,11 +1562,32 @@ extension FileSyncManager {
                 if refusedForMissingBaseline > 0 {
                     clauses.append("\(refusedForMissingBaseline) group\(refusedForMissingBaseline == 1 ? "" : "s") couldn’t be fully checked and \(refusedForMissingBaseline == 1 ? "was" : "were") left alone")
                 }
+                if refusedForHoldingKeeper > 0 {
+                    clauses.append("\(refusedForHoldingKeeper) group\(refusedForHoldingKeeper == 1 ? " holds a copy" : "s hold copies") another group keeps and \(refusedForHoldingKeeper == 1 ? "was" : "were") left alone")
+                }
                 let refusalClause = clauses.isEmpty ? "" : " " + clauses.joined(separator: "; ") + ";"
                 banner = .warning("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) of \(eligible.count) groups —\(refusalClause) the rest stay listed." + (isUndoable ? " Press ⌘Z to undo" : ""),
                                   undoable: isUndoable)
             }
         }
+    }
+
+    /// The banner for a batch in which every group was refused, by cause — each wording claims only
+    /// what was checked. A folder with no baseline was never fully read, so "changed" asserts a
+    /// change nobody measured; a copy holding another group's keeper did not change at all (the
+    /// keepers moved under it), so "changed" is false of it outright.
+    nonisolated static func allRefusedBatchBanner(refused: Int, missingBaseline: Int,
+                                                  holdsKeeper: Int) -> String {
+        if refused == missingBaseline {
+            return "These groups couldn’t be fully checked against the scan — review them individually before removing copies."
+        }
+        if refused == holdsKeeper {
+            return "These groups hold copies other duplicate groups keep — rescan before removing copies."
+        }
+        if holdsKeeper == 0 {
+            return "These groups changed since they were scanned — rescan before removing copies."
+        }
+        return "Some of these groups hold copies other duplicate groups keep, and the rest changed or couldn’t be checked since the scan — rescan before removing copies."
     }
 
     // MARK: Overlapping merge

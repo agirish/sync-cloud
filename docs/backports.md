@@ -10461,3 +10461,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s veto=%s dotted=%s\n' $l \
 |---|---|---|
 | `v5.x` | The same dotted-name filter (`dotted=1`) | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Restructure landing (`veto=0`) | CLOSED — does not apply |
+
+---
+
+## The last check's keeper refusal is one lookup, and says what it refused (FR10, again) — main only
+
+The removal gate's FR10 check asked every listed keeper about every copy — O(copies × keepers) on
+the main actor, 2.1 s for 1,000 groups and 35.6 s for 3,000 — and filed its refusal as drift, so the
+banner and log said a copy "changed since it was scanned" when the keepers had moved under it.
+`main` builds every keeper's ancestor set once (`pathsHoldingKeepers`) and gives the refusal its
+own kind (`.holdsKeeper`), banner and log line.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s gate=%s holds=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Duplicates.swift 2>/dev/null | grep -cF 'it holds the copy another group keeps')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Duplicates.swift 2>/dev/null | grep -cF 'case holdsKeeper')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads holds>=1):
+# main               gate=1 holds=0
+# v5.x, v4.x, v3.x, v2.x   gate=0 holds=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR10 check in the gate at all (`gate=0`) | CLOSED — does not apply |
