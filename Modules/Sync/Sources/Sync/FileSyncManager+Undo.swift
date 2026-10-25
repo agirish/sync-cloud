@@ -1741,7 +1741,9 @@ extension FileSyncManager {
                             if moveVerdict != .unchanged {
                                 leftInPlace += 1
                                 await FileSyncManager.reportUndoRefusedChangedItem(of: item.to, actionName: actionName, verdict: moveVerdict, intent: .moveItBackToItsSource, on: target)
-                            } else if !sameItemAsMoved && fm.fileExists(atPath: item.from.path) {
+                            } else if !sameItemAsMoved && FileSyncManager.entryExists(at: item.from, fileManager: fm) {
+                                // `entryExists`, not `fileExists` (U6): a dangling link at the
+                                // source is an occupant, which `fileExists` reads as nothing.
                                 restoreFailures += 1
                                 await FileSyncManager.reportUndoRestoreFailure(of: item.from, from: item.to, actionName: actionName, error: FileSyncManager.restoreTargetOccupiedError, on: target)
                             } else if let trashed = item.overwritten, backupVerdict == .indeterminate {
@@ -2163,7 +2165,8 @@ extension FileSyncManager {
                         var refused = 0
                         for item in items {
                             let url = item.url
-                            guard fmLocal.fileExists(atPath: url.path) else { continue }
+                            // `entryExists` (U6): a dangling link the undo restored is still there.
+                            guard FileSyncManager.entryExists(at: url, fileManager: fmLocal) else { continue }
                             // Re-read HERE, immediately before the trash, rather than trusting the
                             // existence check: the gap between "something is at this path" and
                             // "our item is at this path" is the whole defect.
@@ -2215,7 +2218,8 @@ extension FileSyncManager {
                         // Read once, so the refusal reports the verdict that chose it.
                         let backupVerdict = FileSyncManager.trashBackupVerdict(
                             recorded: item.backupIdentity, at: item.trashedBackup, fileManager: fm)
-                        if fm.fileExists(atPath: item.original.path) {
+                        if FileSyncManager.entryExists(at: item.original, fileManager: fm) {
+                            // `entryExists` (U6): a dangling link is an occupant too.
                             // A different item now occupies the deleted item's location. Restoring
                             // from Trash here would silently replace-and-Trash it (untracked by
                             // Redo). Refuse and report; the item stays in the Trash, recoverable —

@@ -11053,3 +11053,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s redoParam=%s fix=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same redo param (`redoParam=3`) | RECORDED — not owed |
+
+---
+
+## Undo treats a dangling link as present (final review U6) — main only
+
+`fileExists` follows a link, so the delete redo skipped a dangling link its undo restored, and the
+delete- and move-undo read one at the original's place as free. `main` uses FR28's no-follow
+`entryExists` at all three.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s follows=%s noFollow=%s\n' $l \
+  "$(git show origin/$l:$S/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'fmLocal.fileExists(atPath: url.path)')" \
+  "$(git show origin/$l:$S/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'static func entryExists')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads follows=0):
+# main                     follows=1 noFollow=1
+# v5.x, v4.x, v3.x, v2.x   follows=1 noFollow=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The following check in the delete redo (`follows=1`), and no `entryExists` | RECORDED — not owed |
