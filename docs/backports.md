@@ -10734,3 +10734,28 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s keepMine=%s afterAlert=%s ask
 |---|---|---|
 | `v5.x` | Keep Mine with no consent stamp (`afterAlert=0`): every displaced version is deleted; FR48's row records what it lacks | CLOSED — does not apply |
 | `v4.x` / `v3.x` / `v2.x` | No Keep Mine (`keepMine=0`) | CLOSED — does not apply |
+
+---
+
+## A filing refusal is a filing's alert, and fits a folder the user chose — main only
+
+To File's refusals went out as "Sync Failed / Couldn't sync “invoice.pdf”", marked retryable, and the
+FR45 refusal said "the folder suggested for it was chosen for a different file" even for a folder
+picked with "Choose a folder…". `main` presents a filing failure as "Filing Failed / Couldn't file
+“invoice.pdf”" (`SyncError.filingFailed`), not retryable for a document destination (FR3) or a
+changed file (FR45), and words FR45's refusal by the file that changed.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s syncFailed=%s filingFailed=%s fr45=%s\n' $l \
+  "$(git show origin/$l:$S/FileSyncManager+Filing.swift 2>/dev/null | grep -cF 'present(.syncFailed(item: suggestion.fileName')" \
+  "$(git show origin/$l:$S/SyncError.swift 2>/dev/null | grep -cF 'func filingFailed(')" \
+  "$(git show origin/$l:$S/FileOperations+Primitives.swift 2>/dev/null | grep -cF 'case sourceChangedSinceScan')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads syncFailed=0 filingFailed=1):
+# main                           syncFailed=1 filingFailed=0 fr45=1
+# v5.x, v4.x, v3.x, v2.x         syncFailed=1 filingFailed=0 fr45=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | A failed filing as "Sync Failed / Couldn't sync" (`syncFailed=1`); no FR45 refusal to word | RECORDED — not owed |

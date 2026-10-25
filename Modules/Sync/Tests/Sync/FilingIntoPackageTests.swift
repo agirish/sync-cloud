@@ -32,5 +32,8 @@ import Testing
         #expect(try FileManager.default.contentsOfDirectory(atPath: data.path).isEmpty)
         #expect(manager.currentError?.reason?.contains("is a document, not a folder") == true,
                 "the refusal says why, not \"couldn't file this item\"")
+        // A filing's alert, and not a retryable one: the package is still a package (E3).
+        #expect(manager.currentError?.title == "Filing Failed")
+        #expect(manager.currentError?.isRetryable == false)
     }
 }

@@ -61,6 +61,26 @@ extension SyncError {
         )
     }
 
+    /// A file could not be filed (Organize ▸ To File). Its own alert rather than ``syncFailed``'s:
+    /// filing is a move within one provider, not a sync between two panes, and "Couldn't sync"
+    /// sent the reader to the wrong feature. `isRetryable` is false for a refusal that pressing the
+    /// button again cannot change — the destination is a document, or the file is no longer the
+    /// one the card was about.
+    public static func filingFailed(
+        item: String,
+        path: String?,
+        reason: String,
+        isRetryable: Bool
+    ) -> SyncError {
+        SyncError(
+            title: "Filing Failed",
+            message: "Couldn’t file “\(item)”.",
+            path: path,
+            reason: reason,
+            isRetryable: isRetryable
+        )
+    }
+
     /// A bulk run finished with several failures. Presenting one `SyncError` per failure would
     /// overwrite `currentError` each time (last one wins, the rest become log-only), so callers
     /// log every failure individually and present this single summary. `verb` is the lowercase

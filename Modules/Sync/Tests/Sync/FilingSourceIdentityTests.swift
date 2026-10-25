@@ -82,6 +82,30 @@ import Testing
                 "the alert did not say why: \(m.currentError?.reason ?? "-")")
     }
 
+    /// **The refusal is a filing's, and says nothing untrue about a folder the user picked.** It
+    /// went out as "Sync Failed / Couldn't sync “invoice.pdf”" marked retryable, and said "the
+    /// folder suggested for it was chosen for a different file" — after "Choose a folder…", where
+    /// nothing suggested it and the user chose it. Pressing the same button again cannot change a
+    /// file that is no longer the one the card was about, so it is not retryable either.
+    @Test func theRefusalIsAFilingsAndFitsAChosenFolder() async throws {
+        let (root, m, card, folder) = try await Self.scanned()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let src = URL(fileURLWithPath: card.filePath)
+        try FileManager.default.removeItem(at: src)
+        try Self.write(src, bytes: 7000, fill: 0x42)
+
+        #expect(await m.applyFilingSuggestion(card, to: folder) == .failed)
+
+        let error = try #require(m.currentError, "the refusal was not presented")
+        #expect(error.title == "Filing Failed")
+        #expect(error.message == "Couldn’t file “invoice.pdf”.")
+        #expect(!error.isRetryable, "a changed file is offered a retry that cannot succeed")
+        let reason = try #require(error.reason)
+        #expect(reason.contains("changed since the scan"))
+        #expect(!reason.contains("suggested"),
+                "the refusal calls a folder the user chose a suggestion: \(reason)")
+    }
+
     /// The other direction, so the refusal above is not a guard that refuses everything: the same
     /// card, untouched, files.
     @Test func anUntouchedFileStillFiles() async throws {

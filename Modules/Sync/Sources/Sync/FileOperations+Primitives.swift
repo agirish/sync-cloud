@@ -57,7 +57,10 @@ extension FileSyncManager {
             case .sourceChangedSincePreview:
                 return "This file changed since the preview, so it is no longer the one that rule matched. Preview again to see what it would do now."
             case .sourceChangedSinceScan:
-                return "This file changed since the scan, so the folder suggested for it was chosen for a different file. It was left where it is; scan again to see where it goes now."
+                // Worded for both ways a folder reaches the move — the card's suggestion and one the
+                // user picked with "Choose a folder…" — so it names what changed, the file, and not
+                // who chose the folder.
+                return "This file changed since the scan, so it is no longer the file that was being filed. It was left where it is; scan again to see where it goes now."
             case .folderNotAnswered(let folderName):
                 return "“\(folderName)” couldn’t be read: its contents aren’t on this Mac, and the app that syncs it didn’t answer. Open that app and try again."
             case .destinationIsADocument(let name):

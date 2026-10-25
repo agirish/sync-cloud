@@ -1827,7 +1827,7 @@ extension FileSyncManager {
         let recordedSource = suggestion.sourceIdentity
         let outcome: FilingMoveOutcome = await enqueueFileOperation {
             do {
-                guard fm.fileExists(atPath: src.path) else { return .failed(reason: nil) }
+                guard fm.fileExists(atPath: src.path) else { return .failed(reason: nil, isRetryable: true) }
                 // **And it has to still BE the file the card is about (FR45).** The existence check
                 // above says only that the path is occupied. A queue is stepped through minutes
                 // after the scan, and in that time a browser can re-download over the name or an
@@ -1889,20 +1889,26 @@ extension FileSyncManager {
                 // A vanished destination tree is a condition the user can act on ("plug the volume
                 // back in / rescan"), unlike a generic I/O failure — so it gets to say so instead
                 // of being flattened into "couldn't file this item".
-                let reason: String?
+                //
+                // A document destination and a changed file are refusals the same button cannot
+                // change on a second press (FR3, FR45), so they are not offered as retryable; a tree
+                // that went away can come back, and a plain I/O failure may not happen twice.
                 switch error as? FileOperationError {
-                case .destinationRootUnavailable?, .destinationIsADocument?, .sourceChangedSinceScan?:
-                    reason = error.localizedDescription
-                default: reason = nil
+                case .destinationIsADocument?, .sourceChangedSinceScan?:
+                    return .failed(reason: error.localizedDescription, isRetryable: false)
+                case .destinationRootUnavailable?:
+                    return .failed(reason: error.localizedDescription, isRetryable: true)
+                default:
+                    return .failed(reason: nil, isRetryable: true)
                 }
-                return .failed(reason: reason)
             }
         }
 
         switch outcome {
-        case .failed(let reason):
-            present(.syncFailed(item: suggestion.fileName, path: suggestion.filePath,
-                                reason: reason ?? "Couldn’t file this item; it was left in place."))
+        case .failed(let reason, let isRetryable):
+            present(.filingFailed(item: suggestion.fileName, path: suggestion.filePath,
+                                  reason: reason ?? "Couldn’t file this item; it was left in place.",
+                                  isRetryable: isRetryable))
             return .failed
         case .moved(let dst, let overwritten):
             filingSuggestions.removeAll { $0.id == suggestion.id }
@@ -1916,8 +1922,9 @@ extension FileSyncManager {
     private enum FilingMoveOutcome: Sendable {
         case moved(to: URL, overwritten: URL?)
         /// `reason` is user-facing when the failure is one the user can act on; nil falls back to
-        /// the generic "couldn't file this item".
-        case failed(reason: String?)
+        /// the generic "couldn't file this item". `isRetryable` is false for a refusal a second
+        /// press cannot change.
+        case failed(reason: String?, isRetryable: Bool)
     }
 
     /// The folder a filing destination's new segments hang off — the part that must ALREADY exist,
