@@ -116,6 +116,17 @@ public enum DifferenceProcessing {
         }
     }
 
+    /// Stable machine-readable name for why a row is held (`FileDifference.heldBack`), for `scan
+    /// --json`. The path a nested link sits at is in the row's `description`, not here.
+    public static func heldString(_ held: FileDifference.HeldBack) -> String {
+        switch held {
+        case .sizesDifferWithoutANewerSide: return "sizes-differ-without-a-newer-side"
+        case .folderVersusFile: return "folder-versus-file"
+        case .sourceIsSymbolicLink: return "source-is-symbolic-link"
+        case .enclosesSymbolicLink: return "encloses-symbolic-link"
+        }
+    }
+
     /// Stable machine-readable name for a sync action (used in text and JSON output).
     public static func actionString(_ action: FileDifference.SyncAction) -> String {
         switch action {

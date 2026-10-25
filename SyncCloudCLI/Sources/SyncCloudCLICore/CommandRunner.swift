@@ -105,6 +105,11 @@ public struct CommandRunner {
         let description: String
         let leftSize: Int?
         let rightSize: Int?
+        /// Whether `sync` leaves this row for the user to decide (`FileDifference.heldBack`): its
+        /// `action` is then a guess, not a plan. Always present, so a script can filter on it.
+        let needsDecision: Bool
+        /// Why, when it does — `DifferenceProcessing.heldString`; absent otherwise.
+        let heldBack: String?
     }
 
     /// Discovers providers and resolves both `-L`/`-R` values, converting resolution
@@ -187,7 +192,9 @@ public struct CommandRunner {
                     action: DifferenceProcessing.actionString($0.action),
                     description: $0.description,
                     leftSize: $0.leftFileSize,
-                    rightSize: $0.rightFileSize
+                    rightSize: $0.rightFileSize,
+                    needsDecision: $0.heldBack != nil,
+                    heldBack: $0.heldBack.map(DifferenceProcessing.heldString)
                 )
             }
             let encoder = JSONEncoder()
@@ -211,7 +218,8 @@ public struct CommandRunner {
 
             for diff in diffs {
                 let type = DifferenceProcessing.typeString(diff.type)
-                let action = DifferenceProcessing.actionString(diff.action)
+                // A held row's action is a guess `sync` will not take, so it is not printed as one.
+                let action = diff.heldBack == nil ? DifferenceProcessing.actionString(diff.action) : "needs-decision"
                 printOut("- [\(type)] [\(action)] \(diff.relativePath)")
                 printOut("    \(diff.description)")
             }

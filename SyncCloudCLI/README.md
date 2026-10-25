@@ -67,6 +67,13 @@ JSON output (useful for scripting):
 synccloud scan -L ~/OneDrive/Documents -R ~/Data/Documents --json
 ```
 
+Some rows have no direction `sync` can stand behind — two files whose sizes differ with no newer
+side, a folder against a file, a link — and `sync` leaves them for you to decide. `scan` prints
+`[needs-decision]` in place of their direction; in JSON each row carries `needsDecision`, and a
+held row also `heldBack` with the reason (`sizes-differ-without-a-newer-side`, `folder-versus-file`,
+`source-is-symbolic-link`, `encloses-symbolic-link`). Decide them in the app, from the row's
+right-click menu.
+
 ## Sync (apply changes)
 
 Sync differences (prompts for confirmation unless `--yes` is passed):

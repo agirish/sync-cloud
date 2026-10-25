@@ -10642,3 +10642,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s heldBack=%s route=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No held rows at all (`heldBack=0`) | CLOSED — does not apply |
+
+---
+
+## `scan` marks the rows `sync` leaves for a decision (FR39/FR40/FR8, follow-up) — main only
+
+`scan` printed a held row's guessed direction as if `sync` would take it, and `scan --json` had no
+field to tell a held row from a planned one. `main` prints `[needs-decision]` in place of the
+direction and gives every JSON row `needsDecision`, and a held one `heldBack` with its reason.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s heldBack=%s jsonHeld=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileDifference.swift 2>/dev/null | grep -cF 'public let heldBack')" \
+  "$(git show origin/$l:SyncCloudCLI/Sources/SyncCloudCLICore/CommandRunner.swift 2>/dev/null | grep -cF 'let needsDecision: Bool')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads jsonHeld=1):
+# main                     heldBack=1 jsonHeld=0
+# v5.x, v4.x, v3.x, v2.x   heldBack=0 jsonHeld=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No held rows at all (`heldBack=0`) | CLOSED — does not apply |

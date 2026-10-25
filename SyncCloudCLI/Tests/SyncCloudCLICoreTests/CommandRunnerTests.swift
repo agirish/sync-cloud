@@ -161,6 +161,37 @@ import Sync
         #expect(payload.first?["leftSize"] as? Int == 3)
     }
 
+    /// A held row's direction is a guess `sync` will not take, and `scan` printed it as a plan in
+    /// both forms. The text marks it, and the JSON says so in a field a script can filter on — set
+    /// on every row, so the decided row beside it reads `false` rather than nothing.
+    @Test func scanMarksTheRowsSyncLeavesForADecision() async throws {
+        let left = try makeTempRoot(), right = try makeTempRoot()
+        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let t = Date(timeIntervalSince1970: 1_700_000_000)
+        try write(left.appendingPathComponent("a-held.txt"), "left, longer", mtime: t)
+        try write(right.appendingPathComponent("a-held.txt"), "right", mtime: t)
+        try write(left.appendingPathComponent("b-plain.txt"), "abc")
+
+        let text = Recorder()
+        try await makeRunner(text).runScan(left: left.path, right: right.path,
+                                           direction: .auto, showHidden: false, ignore: [], json: false)
+        #expect(text.out.contains("- [different] [needs-decision] a-held.txt\n"), "\(text.out)")
+        #expect(text.out.contains("- [missing-on-right] [copy-to-right] b-plain.txt\n"))
+
+        let json = Recorder()
+        try await makeRunner(json).runScan(left: left.path, right: right.path,
+                                           direction: .auto, showHidden: false, ignore: [], json: true)
+        let payload = try #require(
+            try JSONSerialization.jsonObject(with: Data(json.out.utf8)) as? [[String: Any]])
+        let rows = Dictionary(uniqueKeysWithValues: payload.compactMap { row in
+            (row["relativePath"] as? String).map { ($0, row) } })
+        let held = try #require(rows["a-held.txt"]), plain = try #require(rows["b-plain.txt"])
+        #expect(held["needsDecision"] as? Bool == true)
+        #expect(held["heldBack"] as? String == "sizes-differ-without-a-newer-side")
+        #expect(plain["needsDecision"] as? Bool == false)
+        #expect(plain["heldBack"] == nil)
+    }
+
     @Test func scanHonorsTheDirectionFilter() async throws {
         let left = try makeTempRoot(), right = try makeTempRoot()
         defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
