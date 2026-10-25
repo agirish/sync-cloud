@@ -975,7 +975,7 @@ enum ReplaceFixtures {
     /// upright, so the patch's page rect is mapped before the test — and, from macOS 27, the copy
     /// keeps the page labels the toolkit carried. Assembled by hand: a page turned 90° labelled "i",
     /// with one link under the patch and one away from it.
-    @Test func linksUnderAPatchGoOnATurnedPageAndTheLabelsStay() throws {
+    @Test func linksUnderAPatchGoOnATurnedPageAndTheLabelsStay() async throws {
         let file = path("Turned.pdf")
         let stream = "BT /F1 14 Tf 100 305 Td (Old address) Tj ET"
         let objects = [
@@ -1002,25 +1002,34 @@ enum ReplaceFixtures {
 
         let patch = FillSignItem(pageIndex: 0, rect: CGRect(x: 100, y: 300, width: 100, height: 20),
                                  content: .patch(FillSignPatch(red: 1, green: 1, blue: 1)))
-        // The document, not its page: a page outliving its document reads nothing.
-        func copy(unlinking: Bool) throws -> PDFDocument {
-            guard case .bytes(let data) = try EditorPDFToolEngine.output(
-                of: .fillAndSign([patch], unlinksPatches: unlinking), input: URL(fileURLWithPath: file),
-                progress: nil, isCancelled: nil),
-                let document = PDFDocument(data: data), document.pageCount == 1 else { throw CancellationError() }
-            return document
+        // **In the PDFKit lane, as the app runs it** (`output(of:)` is "called from the lane"): run
+        // beside the package's other PDFKit suites, a write here raced their reads — PDF find and
+        // the picture-deck OCR went red in full runs. Only Sendable facts leave the lane.
+        struct Seen: Sendable { var kept: [String]; var keptLabel: String?; var unlinked: [String]; var unlinkedLabel: String? }
+        let input = URL(fileURLWithPath: file)
+        let seen: Seen? = await PDFKitSerialAccess.perform {
+            // The document, not its page: a page outliving its document reads nothing.
+            func copy(unlinking: Bool) -> PDFDocument? {
+                guard case .bytes(let data)? = try? EditorPDFToolEngine.output(
+                    of: .fillAndSign([patch], unlinksPatches: unlinking), input: input,
+                    progress: nil, isCancelled: nil),
+                    let document = PDFDocument(data: data), document.pageCount == 1 else { return nil }
+                return document
+            }
+            func addresses(_ document: PDFDocument) -> [String] {
+                (document.page(at: 0)?.annotations ?? []).filter { $0.type == "Link" }.compactMap { $0.url?.absoluteString }.sorted()
+            }
+            guard let kept = copy(unlinking: false), let unlinked = copy(unlinking: true) else { return nil }
+            return Seen(kept: addresses(kept), keptLabel: kept.page(at: 0)?.label,
+                        unlinked: addresses(unlinked), unlinkedLabel: unlinked.page(at: 0)?.label)
         }
-        func addresses(_ document: PDFDocument) -> [String] {
-            (document.page(at: 0)?.annotations ?? []).filter { $0.type == "Link" }.compactMap { $0.url?.absoluteString }.sorted()
-        }
-        let kept = try copy(unlinking: false)
-        try #require(addresses(kept) == ["https://example.com/kept", "https://example.com/old"],
+        let facts = try #require(seen, "the engine wrote no one-page copy")
+        try #require(facts.kept == ["https://example.com/kept", "https://example.com/old"],
                      "the toolkit did not put both links back — this tests nothing")
-        try #require(kept.page(at: 0)?.label == "i", "the toolkit did not carry the page label — this tests nothing")
-        let unlinked = try copy(unlinking: true)
-        #expect(addresses(unlinked) == ["https://example.com/kept"], "the link under the patch on a turned page stayed")
+        try #require(facts.keptLabel == "i", "the toolkit did not carry the page label — this tests nothing")
+        #expect(facts.unlinked == ["https://example.com/kept"], "the link under the patch on a turned page stayed")
         if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27 {
-            #expect(unlinked.page(at: 0)?.label == "i", "the rewrite dropped the page label on macOS 27 too — the tooltip says only 26")
+            #expect(facts.unlinkedLabel == "i", "the rewrite dropped the page label on macOS 27 too — the tooltip says only 26")
         }
     }
 
