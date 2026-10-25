@@ -816,11 +816,11 @@ public enum EditorFileStore {
         // **``refusal(forName:in:)`` again, not just the existence half of it.** The naming row
         // asks it for the inline hint, but this is `public` and that is a convention rather than a
         // check — and the two rules the hint carries are not cosmetic. `completedName` passes a
-        // leading dot through untouched, which is true of `..` as well, and `write` then resolves
-        // the path with `resolvingSymlinksInPath`, which collapses `..` LEXICALLY: a name of
+        // leading dot through untouched, which is true of `..` as well, and `createNew` installs at
+        // the path exactly as it is joined, `..` and all, which the kernel follows: a name of
         // `../escape` creates the file in the parent folder and hands back a path the document then
-        // holds as its identity. Re-asking here is what closes that, and it closes the create race
-        // in the same call.
+        // holds as its identity. Re-asking here is what closes that; the exclusive create below
+        // closes the race between asking and creating.
         if let refusal = refusal(forName: typed, in: folder) {
             throw Failure(message: refusal)
         }
