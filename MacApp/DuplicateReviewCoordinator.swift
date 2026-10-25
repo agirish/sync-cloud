@@ -530,11 +530,14 @@ struct DuplicateReviewCoordinator {
     /// a dialog that said only "The left copy is kept." Merge exists for exactly this: it copies
     /// what the keeper lacks into it first. So the plain trash refuses and points there.
     ///
-    /// Two sources, either one enough. The scan's `uniqueItemCount` compares content, but against
-    /// the group's keeper as the scan chose it, and goes stale when the user re-aims the keeper;
-    /// the baselines' path-and-size difference is computed against the left copy actually on
-    /// screen. Refusing on either is the conservative reading — a merge of a copy that turns out
-    /// to hold nothing new trashes it the same way.
+    /// Two sources, either one enough, because each sees what the other cannot. The scan's
+    /// `uniqueItemCount` compares CONTENT, by hash, so it catches a file at the same path and size
+    /// whose bytes differ; the baselines compare PATH and size, so they catch a file the keeper
+    /// holds only under another name. (The count cannot go stale under a keeper re-pick here: only
+    /// folder groups reach this review, a folder copy's count is non-zero only on an overlapping
+    /// group, overlapping groups offer no keeper choice, and the left copy is always the group's
+    /// keeper.) Refusing on either is the conservative reading — a merge of a copy that turns out to
+    /// hold nothing new trashes it the same way.
     nonisolated static func uniqueItemsRefusal(_ review: DuplicateCompareContext)
         -> (banner: String, log: String)? {
         let onlyRight = itemsOnlyInRightCopy(review)
@@ -594,6 +597,11 @@ struct DuplicateReviewCoordinator {
             Logger.shared.warning(refusal.log)
             return
         }
+        // **Another group's decision holds it** — the copy sits inside a folder another group is
+        // keeping, or is or holds a group's current keeper. The Compare Copies pair and the group
+        // flows refuse both; this button checked neither, so a keeper picked by hand on the card
+        // could be the folder trashed here. Read from the live results, and again in the gate.
+        if syncManager.refuseRemovalIfHeld(copyAt: review.deletePath) { return }
         guard confirmTrashRightCopy(review) else {
             Logger.shared.info("User declined trashing the right duplicate copy \(review.deletePath)")
             return
@@ -651,6 +659,7 @@ struct DuplicateReviewCoordinator {
             // the seam that did not.
             let outcome = await sm.deleteItems(at: [review.deletePath], fileManager: fm,
                                                removalGate: { about in
+                if await sm.refuseRemovalIfHeld(copyAt: review.deletePath) { return Set(about) }
                 let gateVerdict = await Self.assessReviewedPair(review, fileManager: fm)
                 switch gateVerdict {
                 case .matches, .deleteVanished:

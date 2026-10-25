@@ -832,9 +832,10 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.appliedPlans.isEmpty)
     }
 
-    /// The scan's own count is enough on its own: after the user re-aims a keeper the baselines
-    /// can agree on every path while `uniqueItemCount` still says the copy holds content the
-    /// keeper lacks — so a count of 12 refuses even over matching baselines. And the control:
+    /// The scan's own count is enough on its own: the baselines compare path and size, so a file
+    /// edited to the same size agrees on every path while `uniqueItemCount`, which compares
+    /// content, still says the copy holds something the keeper lacks — so a count of 12 refuses
+    /// even over matching baselines. And the control:
     /// matching baselines with a count of 0 are not refused, so the rule is not refusing every
     /// folder review (the success path above is the end-to-end proof of that).
     @Test func theScansUniqueCountRefusesOnItsOwn() {
@@ -847,6 +848,110 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         let refusal = DuplicateReviewCoordinator.uniqueItemsRefusal(review)
         #expect(refusal?.banner.contains("holds 12 items the left one doesn’t") == true)
         #expect(refusal?.log.contains(review.deletePath) == true)
+    }
+
+    /// The count reaches the review at all: `compareCopies` is the only place it is read off the
+    /// copy, and `DuplicateCompareContext` defaults it to 0 — so dropping the argument would leave
+    /// `uniqueItemsRefusal`'s first source silently reading 0 for every review.
+    @Test func compareCopiesCarriesTheRightCopysUniqueCount() throws {
+        let harness = Harness()
+        let delete = DuplicateCopy(
+            id: "/scan/root/Backup/Docs", name: "Docs", isDirectory: true, size: 1234, itemCount: 3,
+            modificationDate: nil, uniqueItemCount: 12, depth: 1, isRecommendedKeeper: false)
+        harness.coordinator.compareCopies(keep: duplicateCopy(path: "/scan/root/Docs", keeper: true),
+                                          delete: delete)
+        #expect(try #require(harness.duplicateReview).deleteUniqueItemCount == 12)
+    }
+
+    /// Two real folders, identical, with real baselines — a review that WOULD trash the right copy
+    /// — and the Duplicates list as `groups(keep, copy)` builds it.
+    private func heldReviewFixture(
+        _ groups: (_ keep: URL, _ copy: URL, _ root: URL) -> [DuplicateGroup]
+    ) async throws -> (harness: Harness, review: DuplicateCompareContext, copy: URL, cleanup: () -> Void) {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dup-review-held-\(UUID().uuidString)")
+        let trash = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dup-review-held-trash-\(UUID().uuidString)")
+        let keep = root.appendingPathComponent("Docs")
+        let copy = root.appendingPathComponent("Backup/Docs")
+        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: keep.appendingPathComponent("a.txt"))
+        try Data("x".utf8).write(to: copy.appendingPathComponent("a.txt"))
+        let harness = Harness(fileManager: ScratchTrash(folder: trash))
+        harness.lensProviderRoot = root.path
+        let ignored = DuplicateFinderOptions.defaultIgnoredNames
+        let keepSnapshot = await FileSyncManager.folderContentSnapshot(
+            ofPath: keep.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let deleteSnapshot = await FileSyncManager.folderContentSnapshot(
+            ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
+        harness.syncManager.duplicateGroups = groups(keep, copy, root)
+        harness.workspace = .compare
+        harness.trashConfirmAnswer = true
+        return (harness, review, copy, {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: trash)
+        })
+    }
+
+    /// **A right copy inside a folder another group keeps is refused**, as the Compare Copies pair
+    /// refuses it (`copyProtected`) — this button checked neither that nor the keeper below, so it
+    /// trashed what the recommended removal would never have offered.
+    @Test func aRightCopyInsideAKeptFolderIsRefusedBeforeAsking() async throws {
+        let fixture = try await heldReviewFixture { keep, copy, _ in
+            [DuplicateGroup(
+                matchType: .identical, name: "Docs", isDirectory: true,
+                copies: [duplicateCopy(path: keep.path, keeper: true),
+                         DuplicateCopy(id: copy.path, name: "Docs", isDirectory: true, size: 1234,
+                                       itemCount: 3, modificationDate: nil, uniqueItemCount: 0,
+                                       depth: 1, isRecommendedKeeper: false,
+                                       isProtectedFromRemoval: true)],
+                reclaimableBytes: 0)]
+        }
+        defer { fixture.cleanup() }
+
+        fixture.harness.coordinator.trashRightCopy(fixture.review)
+        await settleTheTrashTask()
+
+        #expect(fixture.harness.trashConfirmedFor.isEmpty, "the user was asked to confirm a refused trash")
+        #expect(FileManager.default.fileExists(atPath: fixture.copy.appendingPathComponent("a.txt").path),
+                "a copy inside a kept folder was trashed")
+        let message = fixture.harness.syncManager.banner?.message ?? ""
+        #expect(message.contains("sits inside a folder another duplicate group is keeping"), "banner: \(message)")
+        #expect(fixture.harness.duplicateReview == fixture.review)
+    }
+
+    /// **A right copy holding another group's keeper is refused** — the gate's FR10 check, which the
+    /// group flows apply and this button did not. Here the copy holds the keeper of a file group.
+    @Test func aRightCopyHoldingAnotherGroupsKeeperIsRefusedBeforeAsking() async throws {
+        let fixture = try await heldReviewFixture { keep, copy, root in
+            let file = { (path: String, keeper: Bool) in
+                DuplicateCopy(id: path, name: "a.txt", isDirectory: false, size: 1, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 0, depth: 2,
+                              isRecommendedKeeper: keeper)
+            }
+            return [
+                DuplicateGroup(matchType: .identical, name: "Docs", isDirectory: true,
+                               copies: [duplicateCopy(path: keep.path, keeper: true),
+                                        duplicateCopy(path: copy.path, keeper: false)],
+                               reclaimableBytes: 1234),
+                DuplicateGroup(matchType: .identical, name: "a.txt", isDirectory: false,
+                               copies: [file(copy.appendingPathComponent("a.txt").path, true),
+                                        file(root.appendingPathComponent("Other/a.txt").path, false)],
+                               reclaimableBytes: 1)]
+        }
+        defer { fixture.cleanup() }
+
+        fixture.harness.coordinator.trashRightCopy(fixture.review)
+        await settleTheTrashTask()
+
+        #expect(fixture.harness.trashConfirmedFor.isEmpty, "the user was asked to confirm a refused trash")
+        #expect(FileManager.default.fileExists(atPath: fixture.copy.appendingPathComponent("a.txt").path),
+                "the folder holding another group's keeper was trashed")
+        let message = fixture.harness.syncManager.banner?.message ?? ""
+        #expect(message.contains("holds the copy another duplicate group keeps"), "banner: \(message)")
+        #expect(fixture.harness.duplicateReview == fixture.review)
     }
 
     /// **The permanent-delete branch, driven for real** — which only became possible when

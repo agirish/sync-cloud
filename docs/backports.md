@@ -10484,3 +10484,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s gate=%s holds=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR10 check in the gate at all (`gate=0`) | CLOSED — does not apply |
+
+---
+
+## Trash right copy refuses a copy another group's decision holds — main only
+
+The Compare review's "Trash right copy" checked neither that the right folder sits inside a folder
+another group keeps (`isProtectedFromRemoval`) nor that it is, or holds, a group's current keeper,
+so it could trash what the recommended removal never offers — a keeper picked by hand on the card
+included. `main` refuses both before asking and again at the removal gate, in the Compare Copies
+pair's wording (`refuseRemovalIfHeld`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s trashRight=%s held=%s\n' $l \
+  "$(git show origin/$l:MacApp/DuplicateReviewCoordinator.swift 2>/dev/null | grep -cF 'func trashRightCopy')" \
+  "$(git show origin/$l:MacApp/DuplicateReviewCoordinator.swift 2>/dev/null | grep -cF 'refuseRemovalIfHeld')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads held=2):
+# main, v5.x, v4.x, v3.x, v2.x   trashRight=1 held=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same button, with neither check (`held=0`) | RECORDED — not owed |

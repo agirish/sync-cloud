@@ -1236,9 +1236,61 @@ extension FileSyncManager {
             banner = .warning("This group is keeping “\(groupKeeperName)”, not “\(keeper.name)” — so “\(copy.name)” can’t be trashed against it here. Compare against the copy being kept, or resolve the whole group.")
             Logger.shared.warning("Duplicates: refused to trash \(copy.path) — the removal named \(keeper.path) as the keeper, but the live group keeps a different copy, so nothing here was verified against the copy this group is actually keeping")
         case .copyProtected:
-            banner = .warning("“\(copy.name)” sits inside a folder another duplicate group is keeping — removing it here would undo that. Resolve that group first.")
-            Logger.shared.warning("Duplicates: refused to trash \(copy.path) — it is inside a folder another group is keeping, which the recommended removal also excludes")
+            let wording = Self.removalHoldWording(.insideKeptFolder, name: copy.name, path: copy.path)
+            banner = .warning(wording.banner)
+            Logger.shared.warning(wording.log)
         }
+    }
+
+    /// Why another group's decision forbids removing one copy outright. The single-copy removals
+    /// (the Compare Copies pair, and the Compare review's "Trash right copy") ask it; the group
+    /// flows have their own forms of both checks (`recommendedRemovalPaths` and the gate's FR10).
+    public enum DuplicateRemovalHold: Sendable, Equatable {
+        /// The copy sits inside a folder another group is keeping
+        /// (``DuplicateCopy/isProtectedFromRemoval``).
+        case insideKeptFolder
+        /// The copy is, or holds, a listed group's CURRENT keeper — the gate's FR10 check, which
+        /// sees a keeper picked by hand where the scan's protection cannot.
+        case holdsKeeper
+    }
+
+    /// The hold on the copy at `path`, read from the LIVE results — protection and keepers are
+    /// facts about the current grouping, which a rescan or a keeper re-pick moves under a surface
+    /// that stayed open. A copy flagged protected in ANY group it sits in is held: the flag says
+    /// where it lives, not which group asks.
+    public func removalHold(onCopyAt path: String) -> DuplicateRemovalHold? {
+        if duplicateGroups.contains(where: { group in
+            group.copies.contains { $0.path == path && $0.isProtectedFromRemoval }
+        }) {
+            return .insideKeptFolder
+        }
+        let keepers = Self.pathsHoldingKeepers(
+            duplicateGroups.map { Self.canonicalRemovalPath($0.keeper.path) })
+        return keepers.contains(Self.canonicalRemovalPath(path)) ? .holdsKeeper : nil
+    }
+
+    /// The banner and log line for a hold — one wording for every single-copy removal.
+    nonisolated static func removalHoldWording(_ hold: DuplicateRemovalHold, name: String,
+                                               path: String) -> (banner: String, log: String) {
+        switch hold {
+        case .insideKeptFolder:
+            return ("“\(name)” sits inside a folder another duplicate group is keeping — removing it here would undo that. Resolve that group first.",
+                    "Duplicates: refused to trash \(path) — it is inside a folder another group is keeping, which the recommended removal also excludes")
+        case .holdsKeeper:
+            return ("“\(name)” holds the copy another duplicate group keeps — rescan before removing it.",
+                    "Duplicates: refused to trash \(path) — it is or holds the copy another group keeps; rescan to recompute which copies are safe to remove")
+        }
+    }
+
+    /// Posts the banner and log line and returns true when a hold forbids removing the copy at
+    /// `path`; false, posting nothing, when none does.
+    @discardableResult
+    public func refuseRemovalIfHeld(copyAt path: String) -> Bool {
+        guard let hold = removalHold(onCopyAt: path) else { return false }
+        let wording = Self.removalHoldWording(hold, name: (path as NSString).lastPathComponent, path: path)
+        banner = .warning(wording.banner)
+        Logger.shared.warning(wording.log)
+        return true
     }
 
     /// The gate ``resolveDuplicateCopy(_:keeper:)`` hands to `deleteItems`, over one pair.
