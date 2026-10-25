@@ -10782,3 +10782,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr46=%s ambiguity=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR46 refusal (`fr46=0`): the stamp is read month-first; FR46's row records it | CLOSED — does not apply |
+
+---
+
+## To File never creates a folder named like a package (FR3, follow-up) — main only
+
+FR3's guard asks the disk whether a destination is or sits inside a package, and a folder the filing
+would still create has nothing on disk to ask — so a new segment `Notes.rtfd` or `Helper.app` was
+made as a plain folder, which Finder then shows as one document with the file inside it. `main`
+refuses a new segment whose extension is a package type's (`newPackageSegment(of:fileManager:)`).
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr3=%s newSegment=%s\n' $l \
+  "$(git show origin/$l:$S/FileSyncManager+Filing.swift 2>/dev/null | grep -cF 'func enclosingPackage(of')" \
+  "$(git show origin/$l:$S/FileSyncManager+Filing.swift 2>/dev/null | grep -cF 'func newPackageSegment(')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads newSegment=1):
+# main                     fr3=1 newSegment=0
+# v5.x, v4.x, v3.x, v2.x   fr3=0 newSegment=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No package guard at all (`fr3=0`); FR3's row records it | CLOSED — does not apply |

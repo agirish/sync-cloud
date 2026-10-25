@@ -1,5 +1,6 @@
 import Events
 import Foundation
+import UniformTypeIdentifiers
 
 /// Filing — suggests where loose files belong within one provider and moves them there. Loose
 /// files come from a folder the user points at; destinations can be anywhere in the provider
@@ -1800,6 +1801,24 @@ extension FileSyncManager {
         return nil
     }
 
+    /// The outermost folder in `url`'s path that does not exist yet and whose name's extension is
+    /// a package type's — `Notes.rtfd`, `Helper.app`, a `.numbers` where Numbers declares it — or
+    /// nil (FR3). The folders that exist are ``enclosingPackage(of:)``'s to ask.
+    nonisolated static func newPackageSegment(of url: URL, fileManager: FileManaging) -> String? {
+        var current = url.standardizedFileURL
+        var found: String?
+        while current.path != "/", !current.path.isEmpty, !fileManager.fileExists(atPath: current.path) {
+            let ext = current.pathExtension
+            if !ext.isEmpty,
+               UTType.types(tag: ext, tagClass: .filenameExtension, conformingTo: nil)
+                .contains(where: { $0.conforms(to: .package) }) {
+                found = current.lastPathComponent
+            }
+            current = current.deletingLastPathComponent()
+        }
+        return found
+    }
+
     /// The move + list-drop (no undo registration — the caller registers, so a batch is one undo).
     private func performFiling(_ suggestion: FilingSuggestion, to destination: FilingDestination) async -> FilingOutcome {
         let fm = fileManager
@@ -1862,6 +1881,12 @@ extension FileSyncManager {
                 // answer, a folder the user typed — ends.
                 if let document = Self.enclosingPackage(of: destFolder) {
                     throw FileOperationError.destinationIsADocument(name: document.lastPathComponent)
+                }
+                // …and so is a folder the filing would CREATE under a package's name: `Notes.rtfd`
+                // made as a plain folder is one document to Finder the moment it exists, with the
+                // file inside it. Nothing is on disk to ask yet, so the extension is asked.
+                if let document = Self.newPackageSegment(of: destFolder, fileManager: fm) {
+                    throw FileOperationError.destinationIsADocument(name: document)
                 }
                 try fm.createDirectory(at: destFolder, withIntermediateDirectories: true)
                 // **Gated on the card having offered a rename.** The scan's proposal is what the
