@@ -389,6 +389,11 @@ public enum FolderSurveyBuilder {
     /// into. Dot-files are excluded from both — `.DS_Store` is not a document and would put every
     /// folder's `fileCount` one over what the survey recorded — and so are symlinks.
     ///
+    /// **A package is a file here** (review R3): a `.pages`, a `.band`, a Photos library is one
+    /// document to the person using it, as Restructure's disk view already lists it. Descended
+    /// into, its insides became surveyed folders, and a finding about `Song.band/Media` could be
+    /// planned — a move of a document's insides.
+    ///
     /// **Filenames are sorted here, not left in walk order**, because only the first
     /// ``fileNameSample`` of them reach the anchors: `FileManager` promises no enumeration order,
     /// so an unsorted walk would give the same folder different anchors on different runs — and the
@@ -398,7 +403,7 @@ public enum FolderSurveyBuilder {
         var files: [String] = []
         var folders: [FileNode] = []
         for node in children where isSurveyed(node) {
-            if node.isDirectory { folders.append(node) } else { files.append(node.name) }
+            if node.isDirectory && !node.isPackage { folders.append(node) } else { files.append(node.name) }
         }
         return (files.sorted(), folders)
     }
@@ -429,6 +434,6 @@ public enum FolderSurveyBuilder {
     /// then never gave an entry to, so the blast radius shown to the user was for a tree the survey
     /// does not walk.
     public static func isSurveyedFolder(_ node: FileNode) -> Bool {
-        node.isDirectory && isSurveyed(node) && node.isUnexplored != true
+        node.isDirectory && !node.isPackage && isSurveyed(node) && node.isUnexplored != true
     }
 }

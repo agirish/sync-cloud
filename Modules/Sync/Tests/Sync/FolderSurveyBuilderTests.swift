@@ -64,6 +64,21 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
         #expect(profile.folders["Box/.hidden"] == nil)
     }
 
+    /// A package is one document (review R3): counted as a file in its folder, and its insides
+    /// never surveyed — a finding about `Song.key/Data` would plan a move of a document's insides.
+    @Test func aPackageIsADocumentAndItsInsidesAreNotSurveyed() throws {
+        let package = FileNode(id: "/x/Song.key", name: "Song.key", isDirectory: true,
+                               children: [dir("Data", [dir("Media", [file("a.png")])])],
+                               kind: "com.apple.iwork.keynote.key")
+        try #require(package.isPackage, "the premise: the walk's kind reads as a package")
+        let profile = build([dir("Music", [package, dir("Live", [file("b.mp3")])])])
+        #expect(Set(profile.folders.keys) == [".", "Music", "Music/Live"],
+                "a package's insides were surveyed: \(profile.folders.keys.sorted())")
+        #expect(profile.folders["Music"]?.fileCount == 1, "the package is a document in its folder")
+        #expect(profile.folders["Music"]?.subfolderCount == 1)
+        #expect(!FolderSurveyBuilder.isSurveyedFolder(package))
+    }
+
     @Test func anUnexploredFolderIsCountedButNotDescribed() {
         let capped = FileNode(id: "/x/Deep", name: "Deep", isDirectory: true, children: [],
                               isUnexplored: true)

@@ -140,8 +140,16 @@ public struct RestructureTreeView {
             let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .isPackageKey]
             // A package asked about by its own path is a document, not a folder with a listing —
             // or the pair route (a mirrored inbox's `TODO/Return.pages` → `Return.pages`) would
-            // merge one document's insides into another's after all.
-            if (try? url.resourceValues(forKeys: [.isPackageKey]))?.isPackage == true { return nil }
+            // merge one document's insides into another's after all. **And so is any path INSIDE
+            // one** (review R3): `Song.band/Media` is a piece of a document, and a plan through it
+            // would move the document's insides. Every folder from the root down is asked.
+            var walkedDown = [root]
+            for component in path.split(separator: "/") {
+                walkedDown.append(walkedDown[walkedDown.count - 1].appendingPathComponent(String(component)))
+            }
+            if walkedDown.contains(where: {
+                (try? $0.resourceValues(forKeys: [.isPackageKey]))?.isPackage == true
+            }) { return nil }
             guard contentsFrom.waitForContentsBlocking(of: url) else { return nil }
             guard let urls = try? fileManager.contentsOfDirectory(
                 at: url, includingPropertiesForKeys: keys, options: [])

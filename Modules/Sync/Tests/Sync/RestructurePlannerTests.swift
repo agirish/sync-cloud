@@ -984,6 +984,22 @@ private struct FakeTree {
         #expect(view.files("F") == ["Return.pages"])
     }
 
+    /// Nothing INSIDE a package is a folder either (review R3): a plan through `Return.pages/Data`
+    /// would move a document's insides. The view lists no path below one — unknown, which the
+    /// planner refuses on — while a plain folder beside it still lists.
+    @Test func theDiskViewListsNothingInsideAPackage() throws {
+        let root = try Self.makeDiskTree(["F/Return.pages/Data/Sub/a.png", "F/Plain/Sub/b.pdf"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let isPackage = try root.appendingPathComponent("F/Return.pages")
+            .resourceValues(forKeys: [.isPackageKey]).isPackage
+        try #require(isPackage == true, "the premise: .pages is a package here")
+        let view = RestructureTreeView.fromDisk(root: root)
+        #expect(view.childFolders("F/Return.pages/Data") == nil, "a package's insides were listed")
+        #expect(view.files("F/Return.pages/Data/Sub") == nil, "a package's insides were listed")
+        #expect(view.childFolders("F/Plain") == ["Sub"])
+        #expect(view.files("F/Plain/Sub") == ["b.pdf"])
+    }
+
     /// The names the enumeration reports are the names the old path-based listing reported —
     /// byte for byte, decomposed spellings included. The two Foundation calls are different APIs
     /// and a normalising difference between them would silently repoint every derived operation.

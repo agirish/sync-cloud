@@ -10357,3 +10357,31 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s walkWrite=%s walkCarry=%s roo
 |---|---|---|
 | `v5.x` | The walk with no carry at all (`walkCarry=0`): nothing crosses folders; FR4's row records what it lacks | CLOSED — does not apply |
 | `v4.x` / `v3.x` / `v2.x` | No walk profile (`walkWrite=0`) | CLOSED — does not apply |
+
+---
+
+## Restructure never plans inside a package, and the survey never surveys one (review R3) — main only
+
+The survey descended into packages, so a `.band`, a `.pages` or a Photos library had its insides
+surveyed as folders, and Restructure's disk view refused only a path that was itself a package — a
+finding about `Song.band/Media` could be planned, moving a document's insides. `main` counts a
+package as one document in its folder (`FolderSurveyBuilder.partition`, `isSurveyedFolder`) and the
+disk view lists no path with a package anywhere above it.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fromDisk=%s survey=%s surveyPkg=%s\n' $l \
+  "$(git show origin/$l:$S/RestructurePlanner.swift 2>/dev/null | grep -cF 'public static func fromDisk')" \
+  "$(git show origin/$l:$S/FolderSurveyBuilder.swift 2>/dev/null | grep -cF 'static func partition')" \
+  "$(git show origin/$l:$S/FolderSurveyBuilder.swift 2>/dev/null | grep -cF '!node.isPackage')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads surveyPkg=2):
+# main, v5.x   fromDisk=1 survey=1 surveyPkg=0
+# v4.x         fromDisk=0 survey=1 surveyPkg=0
+# v3.x, v2.x   fromDisk=0 survey=0 surveyPkg=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | Both: a survey that descends into packages and the disk view (`fromDisk=1`) | RECORDED — not owed |
+| `v4.x` | The survey half; no Restructure (`fromDisk=0`), so nothing plans a move inside one | RECORDED — not owed |
+| `v3.x` / `v2.x` | No folder survey (`survey=0`) | CLOSED — does not apply |
