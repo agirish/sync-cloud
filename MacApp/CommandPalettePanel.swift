@@ -408,7 +408,8 @@ final class CommandPalettePanelController: ObservableObject {
         // hiding it. A belt that hides a window already being dismissed buys nothing, and a comment
         // promising a safety net that is not there is worse than having no net.
         panel.collectionBehavior = [.fullScreenAuxiliary, .moveToActiveSpace]
-        panel.contentView = NSHostingView(rootView: AnyView(content))
+        // Its own window, so the main window's root accent does not reach it (DS4).
+        panel.contentView = NSHostingView(rootView: AnyView(content.nativeControlAccent()))
 
         // A child window rides the host: it moves, resizes and orders with it, so the list cannot
         // come adrift of the field it hangs from.

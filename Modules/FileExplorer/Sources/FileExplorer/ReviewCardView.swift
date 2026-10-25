@@ -251,7 +251,7 @@ struct ReviewCardView: View {
             Spacer(minLength: 12)
             Text("\(model.directionText) · \(model.directionDetail)")
                 .scaledFont(.caption.weight(.medium))
-                .foregroundStyle(accent)
+                .foregroundStyle(.primary)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
                 .background(Capsule(style: .continuous).fill(accent.opacity(0.14)))
@@ -278,7 +278,7 @@ struct ReviewCardView: View {
                     let tint: Color = model.sourceIsOlder ? SemanticColor.warning : SemanticColor.success
                     Text(deltaText)
                         .scaledFont(.caption.weight(.semibold))
-                        .foregroundStyle(tint)
+                        .foregroundStyle(.primary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
                         .background(Capsule(style: .continuous).fill(tint.opacity(0.14)))

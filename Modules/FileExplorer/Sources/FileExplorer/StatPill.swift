@@ -106,7 +106,7 @@ struct StatPill: View {
                         // strength. The rule is a non-text indicator, so it may take
                         // `dimmedOnFillOpacity`; the text after it may not.
                         Rectangle()
-                            .fill((semantic?.content ?? color).opacity(AccentLabel.dimmedOnFillOpacity))
+                            .fill((semantic?.content ?? PillVariant.labelInk(for: color)).opacity(AccentLabel.dimmedOnFillOpacity))
                             .frame(width: 1, height: 11)
                         Text(detail)
                             .scaledFont(PillVariant.standard.labelFont)
@@ -114,7 +114,7 @@ struct StatPill: View {
                             // One line always: this rides in a header row whose height is pinned,
                             // and a wrapping capsule would push the pill past it.
                             .lineLimit(1)
-                            .modifier(DetailRunCapsule(style: detailStyle, ring: semantic?.content ?? color))
+                            .modifier(DetailRunCapsule(style: detailStyle, ring: semantic?.content ?? PillVariant.labelInk(for: color)))
                     }
                     if let trailingSystemImage {
                         Image(systemName: trailingSystemImage)
@@ -124,13 +124,13 @@ struct StatPill: View {
                             // rule exists to stamp out (it drops white-on-Graphite under the 3:1
                             // floor). Applied on the flat-fill path too: those pairs start at 7.7:1
                             // and 9.3:1, so the extra 0.15 of strength buys nothing there.
-                            .foregroundStyle((semantic?.content ?? color).opacity(AccentLabel.dimmedOnFillOpacity))
+                            .foregroundStyle((semantic?.content ?? PillVariant.labelInk(for: color)).opacity(AccentLabel.dimmedOnFillOpacity))
                             // Cross-fade the right↔left flip instead of a hard swap; runs inside
                             // whatever withAnimation the toggling button wraps around the state change.
                             .contentTransition(.symbolEffect(.replace))
                     }
                 }
-                .foregroundStyle(semantic?.content ?? color)
+                .foregroundStyle(semantic?.content ?? PillVariant.labelInk(for: color))
                 .modifier(StatPillSurface(semantic: semantic, tint: color))
                 .fixedSize()
             } else {

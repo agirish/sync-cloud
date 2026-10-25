@@ -89,8 +89,9 @@ public extension View {
     /// Makes a `.segmented` picker's selection follow the APP's accent instead of the system's.
     ///
     /// Apply it to the picker itself, not to a container: `.tint` inherits through the environment,
-    /// and a container would also recolour the toggles, checkboxes and the Tint slider that share
-    /// these screens — which is deliberately not wanted.
+    /// and a container would also turn every bordered and borderless button's words the hue. The
+    /// toggles, checkboxes and the Tint slider beside these pickers take the window's hue from its
+    /// root instead, through `nativeControlAccent` (DS4), which leaves buttons' words alone.
     func accentedSegments(_ hue: LiquidGlassHue) -> some View {
         tint(SegmentedAccent.tint(for: hue))
     }

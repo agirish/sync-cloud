@@ -43,7 +43,8 @@ struct PreviewEditorView: NSViewRepresentable {
     var initialSourceOffset: Int?
     /// Bumped to open the find bar — the header's magnifying glass, as over Source.
     var findRequest: Int = 0
-    /// The window's hue, which links wear here as they do in read-only Preview (ED5).
+    /// The window's hue, which links wear here as they do in read-only Preview (ED5) — in the shade
+    /// ``linkInk(_:)`` makes of it, not raw (FE2).
     var linkColor: Color = LiquidGlassHue.stored().accentColor
     /// Text ▸ Check Spelling While Typing, followed here as Source follows it (review V10).
     @AppStorage(EditorTextSettings.checksSpellingKey) private var checksSpelling: Bool
@@ -56,9 +57,17 @@ struct PreviewEditorView: NSViewRepresentable {
         let coordinator = Coordinator(session: PreviewEditSession(source: source, undoManager: undoManager,
                                                                   style: .init(scale: fontScale),
                                                                   documentFolder: documentFolder,
-                                                                  linkColor: NSColor(linkColor)))
+                                                                  linkColor: Self.linkInk(linkColor)))
         coordinator.linkHue = linkColor
         return coordinator
+    }
+
+    /// **What a link is drawn in: read-only Preview's shade of the hue (FE2)** —
+    /// `MarkdownBlockView.linkInk`'s rule, as an `NSColor` that picks its shade in the appearance
+    /// it is drawn in. The text view keeps the colour across a switch between light and dark, and
+    /// one resolved up front would stay the light shade in dark.
+    static func linkInk(_ hue: Color) -> NSColor {
+        NSColor(ChromeInk.bodyText(hue))
     }
 
     /// **What the text view draws over a link: the session's ink, and AppKit's own rest (ED5).** An
@@ -130,7 +139,7 @@ struct PreviewEditorView: NSViewRepresentable {
         // each time: a page redecorated on every update would be a whole page per keystroke.
         if coordinator.linkHue != linkColor {
             coordinator.linkHue = linkColor
-            coordinator.session.linkColor = NSColor(linkColor)
+            coordinator.session.linkColor = Self.linkInk(linkColor)
         }
         if let view = coordinator.textView,
            (view.linkTextAttributes?[.foregroundColor] as? NSColor) != coordinator.session.linkColor {

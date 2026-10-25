@@ -335,7 +335,7 @@ struct OrganizeScopeChipTests {
                 Text(ScopeChipLabel.folderCountText(12))
                     .scaledFont(.system(size: 10.5)).monospacedDigit().foregroundStyle(.secondary)
             }
-            .foregroundStyle(Color.blue)
+            .foregroundStyle(.primary)   // the chip's words are label colour (DS1)
             .padding(.horizontal, 7)
             .padding(.vertical, 2)
             .background(Capsule().fill(Color.blue.opacity(0.14)))

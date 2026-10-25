@@ -318,6 +318,8 @@ struct SetupSheet: View {
     private var card: some View {
         screenCard
             .frame(width: cardWidth, height: cardHeight)
+            // Setup's switches and checkboxes take the window's hue, not the Mac's accent (DS4).
+            .nativeControlAccent(glassHue)
             .contentSurface(hue: glassHue, tint: surfaceTint)
             .groundedGlassCard(level: glassLevel)
             .overlayPanelShadow()

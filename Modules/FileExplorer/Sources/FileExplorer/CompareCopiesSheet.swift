@@ -1982,7 +1982,7 @@ struct CompareKeeperHeaderRow: View {
     private var keepingChip: some View {
         Label("Keeping this", systemImage: "checkmark.circle.fill")
             .scaledFont(.system(size: 11.5, weight: .semibold))
-            .foregroundStyle(accent)
+            .foregroundStyle(.primary)
             .padding(.horizontal, 9).padding(.vertical, 3)
             .background { Capsule().fill(accent.opacity(0.13)) }
     }

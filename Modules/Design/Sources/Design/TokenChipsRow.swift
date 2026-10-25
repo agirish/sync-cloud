@@ -72,7 +72,8 @@ public struct TokenChipsRow: View {
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 2)
-        .foregroundStyle(tint)
+        // The word and its ✕ in label colour; the tint stays in the wash and the hairline (DS1).
+        .foregroundStyle(PillVariant.labelInk(for: tint))
         .background(Capsule().fill(tint.opacity(item.isActive ? 0.16 : 0.08)))
         .overlay(Capsule().strokeBorder(tint.opacity(0.35), lineWidth: 0.5))
         .help(item.isActive ? "Active filter" : "Overridden by a later filter of the same kind")

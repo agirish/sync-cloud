@@ -19,8 +19,11 @@ import Testing
 /// is showing it. These pin the marking and the call site that uses it.
 @Suite struct RiskyNameMarkingTests {
 
+    private static let errorWash = SemanticColor.error.opacity(PillVariant.fillOpacity)
+
     private func markerCount(_ name: String) -> Int {
-        RenamePassLens.marked(name).runs.filter { $0.foregroundColor == SemanticColor.error }.count
+        // A marker is the run with the error WASH: its glyph is the name's own ink (DS1).
+        RenamePassLens.marked(name).runs.filter { $0.backgroundColor == Self.errorWash }.count
     }
 
     /// The invisible cases — the ones the row exists for.
@@ -64,11 +67,13 @@ import Testing
     /// wears. One rule, two tints, decided by the caller.
     @Test func markersWearTheSectionsErrorTier() throws {
         let marked = RenamePassLens.marked("Reports ")
-        let marker = try #require(marked.runs.first { $0.foregroundColor == SemanticColor.error })
-        #expect(marker.backgroundColor == SemanticColor.error.opacity(PillVariant.fillOpacity),
-                "the marker lost its wash — the glyph alone is easy to miss at 13pt")
-        #expect(marked.runs.contains { $0.foregroundColor == nil },
-                "every run is tinted — the name's own characters are being drawn as markers")
+        let marker = try #require(marked.runs.first { $0.backgroundColor == Self.errorWash },
+                                  "the marker lost its error wash — the glyph alone is easy to miss at 13pt")
+        // The glyph in the name's own ink, the colour only in the wash (DS1): a red ␣ on a red wash
+        // was the coloured-word-on-its-own-wash pairing the owner's call retired.
+        #expect(marker.foregroundColor == nil, "the marker's glyph is tinted: \(String(describing: marker.foregroundColor))")
+        #expect(marked.runs.contains { $0.backgroundColor == nil },
+                "every run is washed — the name's own characters are being drawn as markers")
     }
 
     /// **The call site, because a rule nothing calls is the state this bug was already in.**

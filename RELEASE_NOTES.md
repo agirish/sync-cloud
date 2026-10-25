@@ -153,6 +153,9 @@ Requires **macOS 26**, unchanged from v6.0.
   Reorganization — curly quotes and apostrophes, Title Case on menus, and counts that read "1 item"
   and "1,200 files". Settings search still finds "colour". The reversible delete is Move to Trash
   everywhere.
+- **Color you can read.** Links in both Markdown Previews use a shade of the accent that reads in
+  light and dark. A colored pill's words are black or white, with the color in its fill. Switches,
+  checkboxes, sliders and progress bars take the app's accent, not the Mac's.
 - **⌘. cancels the progress dialog.** Esc doesn't, since it clears the selection.
 - **VoiceOver** names the Sources switch, the swap-panes button, the inspector's close button and a
   tab's source; decorative logos are hidden from it; and ages are read in words.

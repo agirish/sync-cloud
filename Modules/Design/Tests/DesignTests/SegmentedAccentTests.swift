@@ -59,7 +59,12 @@ import Testing
             #expect(ratio >= 4.5, "a prominent button's white label on \(hue.rawValue) is only \(ratio):1")
         }
         #expect(srgb(ProminentAccent.tint(for: .none)) == srgb(LiquidGlassHue.none.accentFillColor))
-        #expect(srgb(ProminentAccent.tint(for: .none)) != srgb(Color.accentColor),
+        // By component, as `noneIsTheSystemAccentUntouched` compares: an `NSColor` inequality also
+        // holds for one colour with and without HDR headroom metadata, so it could not fail.
+        let prominent = srgb(ProminentAccent.tint(for: .none)), system = srgb(Color.accentColor)
+        #expect(abs(prominent.redComponent - system.redComponent) > 0.01
+                || abs(prominent.greenComponent - system.greenComponent) > 0.01
+                || abs(prominent.blueComponent - system.blueComponent) > 0.01,
                 "at None a prominent button is the stock accent, a second blue beside the deepened lit tools")
     }
 
@@ -87,7 +92,14 @@ import Testing
     /// and that is what is asserted; the separate check that named hues DO move uses Amber, a
     /// literal, so it means the same thing everywhere.
     @Test func noneIsTheSystemAccentUntouched() {
-        #expect(srgb(SegmentedAccent.tint(for: .none)) == srgb(Color.accentColor),
+        // Compared by component, to float precision: `.none` reads AppKit's accent (so a window
+        // root's accent above it cannot recolour it), and SwiftUI's copy of the same colour carries
+        // HDR headroom metadata and single-precision components — 0.478431 against 0.4784314 —
+        // that make the two `NSColor`s unequal for one colour.
+        let none = srgb(SegmentedAccent.tint(for: .none)), system = srgb(Color.accentColor)
+        #expect(abs(none.redComponent - system.redComponent) < 0.001
+                && abs(none.greenComponent - system.greenComponent) < 0.001
+                && abs(none.blueComponent - system.blueComponent) < 0.001,
                 "`.none` must hand the system accent over verbatim, so it draws what macOS draws")
         // ...it is genuinely the system's, not the palette's own Blue...
         #expect(srgb(SegmentedAccent.tint(for: .none)) != srgb(SegmentedAccent.tint(for: .blue)))

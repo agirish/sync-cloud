@@ -50,8 +50,11 @@ public enum LiquidGlassHue: String, CaseIterable, Identifiable, Sendable {
     /// Accent color used for the hue selector swatch.
     public var accentColor: Color {
         switch self {
-        // Defer to the system accent so controls keep the user's macOS accent color.
-        case .none: return Color.accentColor
+        // Defer to the system accent so controls keep the user's macOS accent color — read from
+        // AppKit rather than as SwiftUI's `Color.accentColor`, which resolves to whatever accent the
+        // environment carries: under a window root's `nativeControlAccent` (DS4) that is the
+        // window's hue, and the None swatch on a Coral window drew Coral.
+        case .none: return Color(nsColor: .controlAccentColor)
         case .blue: return Color(red: 0.2, green: 0.5, blue: 1.0)
         case .cyan: return Color(red: 0.25, green: 0.75, blue: 1.0)
         case .teal: return Color(red: 0.2, green: 0.65, blue: 0.65)

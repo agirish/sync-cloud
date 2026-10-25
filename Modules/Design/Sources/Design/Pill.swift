@@ -16,6 +16,21 @@ public enum PillVariant: Equatable, Sendable {
 
     /// Fill opacity applied to the tint — shared by both variants (and `StatusBadge`).
     public static let fillOpacity: Double = 0.14
+
+    /// **What a coloured pill's words and glyph are drawn in: label colour, never the tint (DS1).**
+    ///
+    /// The word used to wear its own colour on a wash of that colour, and in light that is
+    /// unreadable — measured on the review: yellow 1.4:1, green about 1.9:1, orange about 2:1, red
+    /// about 2.8:1, against the 4.5:1 text needs. The colour now lives only in the wash, the
+    /// standard variant's hairline, and any separate dot; the word is `.primary` — black in light,
+    /// white in dark. A NEUTRAL pill (`tint: .secondary`) was never a coloured word, and keeps its
+    /// quieter secondary ink.
+    ///
+    /// Every pill drawn from these parts takes its ink here, and so does each hand-built one that
+    /// sits on a coloured wash; `PillLabelInkScanTests` holds the app's sources to it.
+    public static func labelInk(for tint: Color) -> Color {
+        tint == .secondary ? .secondary : .primary
+    }
     /// Stroke opacity of the standard variant's hairline border.
     public static let strokeOpacity: Double = 0.45
     /// Stroke width of the standard variant's hairline border.
@@ -61,7 +76,8 @@ public extension View {
 }
 
 /// The ready-made pill for the common case: an optional SF Symbol plus one run of text,
-/// tinted throughout. Numeric text opts into `monospacedDigit` so counts don't jiggle.
+/// the tint in the wash and the words in label colour (`PillVariant.labelInk(for:)`). Numeric text
+/// opts into `monospacedDigit` so counts don't jiggle.
 public struct Pill: View {
     /// Gap between the pill's runs (icon / number / label). Part of the C1 geometry contract
     /// like the paddings on `PillVariant`: hand-assembled pills that mirror this recipe (the
@@ -113,7 +129,7 @@ public struct Pill: View {
                     .scaledFont(variant.labelFont)
             }
         }
-        .foregroundStyle(tint)
+        .foregroundStyle(PillVariant.labelInk(for: tint))
         .pillSurface(variant, tint: tint)
         .fixedSize()
     }

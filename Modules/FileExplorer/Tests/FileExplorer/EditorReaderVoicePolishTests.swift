@@ -321,7 +321,9 @@ import FileExplorerTestSupport
 
     /// **Rendered and read back: the link is the hue, never system blue** — AppKit paints its own
     /// `linkTextAttributes` over a link's colour, so the run's colour alone was not what was drawn.
-    @Test func editablePreviewDrawsLinksInTheHue() throws {
+    /// And in the hue's READABLE shade (FE2): in light the deepest warm pixel is the deepened coral,
+    /// where the raw accent drew it at more than twice that luminance.
+    @Test(arguments: [false, true]) func editablePreviewDrawsLinksInTheHue(dark: Bool) throws {
         let text = "[Coral coral coral coral coral coral](https://example.com/a)\n"
         let source = EditorSourceStorage(text: text)
         let view = PreviewEditorView(source: source, undoManager: UndoManager(), fontScale: 2,
@@ -330,28 +332,50 @@ import FileExplorerTestSupport
         host.frame = NSRect(x: 0, y: 0, width: 520, height: 200)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         window.contentView = host
         defer { window.close() }
         host.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         let textView = try #require(Self.previewTextView(in: host), "no editable Preview mounted")
-        #expect((textView.linkTextAttributes?[.foregroundColor] as? NSColor) == Self.coral,
-                "the text view paints links in \(String(describing: textView.linkTextAttributes?[.foregroundColor]))")
+        // The colour the text view paints links in, resolved in this window's appearance.
+        let painted = try #require(textView.linkTextAttributes?[.foregroundColor] as? NSColor)
+        var ink = NSColor.white, expected = NSColor.white
+        NSAppearance(named: dark ? .darkAqua : .aqua)!.performAsCurrentDrawingAppearance {
+            ink = painted.usingColorSpace(.sRGB) ?? .white
+            expected = NSColor(ChromeInk.bodyText(dark ? .dark : .light, LiquidGlassHue.coral.accentColor))
+                .usingColorSpace(.sRGB) ?? .white
+        }
+        #expect(abs(ink.redComponent - expected.redComponent) < 0.002
+                && abs(ink.greenComponent - expected.greenComponent) < 0.002
+                && abs(ink.blueComponent - expected.blueComponent) < 0.002,
+                "the text view paints links in \(ink), not the readable coral \(expected)")
         textView.layoutSubtreeIfNeeded()
         let bounds = textView.visibleRect
         let rep = try #require(textView.bitmapImageRepForCachingDisplay(in: bounds))
         textView.cacheDisplay(in: bounds, to: rep)
         // Read as-is — `colorAt` tags sRGB numbers as calibrated; converting them moves every one.
         var warm = 0, blue = 0
+        var deepest: CGFloat = 1
         for y in 0..<rep.pixelsHigh { for x in 0..<rep.pixelsWide {
             guard let c = rep.colorAt(x: x, y: y) else { continue }
-            if c.redComponent > c.blueComponent + 0.25 { warm += 1 }
+            if c.redComponent > c.blueComponent + 0.25 {
+                warm += 1
+                if c.alphaComponent > 0.99 {
+                    deepest = min(deepest, AccentLabel.relativeLuminance(
+                        red: c.redComponent, green: c.greenComponent, blue: c.blueComponent))
+                }
+            }
             if c.blueComponent > c.redComponent + 0.25 { blue += 1 }
         } }
-        print("[ED5] link pixels: warm \(warm) · blue \(blue)")
+        print("[ED5/FE2] \(dark ? "dark" : "light") link pixels: warm \(warm) · blue \(blue) · deepest L \(deepest)")
         #expect(warm > 200, "the link's coral ink is not drawn (\(warm) warm pixels)")
         #expect(blue < 20, "the link is drawn in system blue (\(blue) blue pixels)")
+        if !dark {
+            // The glyph cores are the deepened coral (L 0.14); raw coral is L 0.34.
+            #expect(abs(deepest - AccentFill.textLuminance) < 0.03,
+                    "the link's deepest ink is L \(deepest), not the readable coral's \(AccentFill.textLuminance)")
+        }
     }
 
     private static func previewTextView(in view: NSView) -> PreviewTextView? {

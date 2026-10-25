@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The ink the app's chrome draws its glyphs and labels in — the pane nav cluster, the action
@@ -65,6 +66,23 @@ public enum ChromeInk {
     /// sentences.
     public static func bodyText(_ scheme: ColorScheme, _ color: Color) -> Color {
         scheme == .dark ? AccentFill.lightenedForText(color) : AccentFill.deepenedForText(color)
+    }
+
+    /// `bodyText(_:_:)` decided by the appearance the colour is DRAWN in rather than one read up
+    /// front — for AppKit text, which holds an `NSColor` across appearance changes. Editable
+    /// Preview's links (FE2) are the case: an `NSTextView` keeps its runs' colours, and a colour
+    /// resolved for light when the page was built would stay deepened after a switch to dark.
+    public static func bodyText(_ color: Color) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            var resolved: NSColor?
+            appearance.performAsCurrentDrawingAppearance {
+                resolved = NSColor(color).usingColorSpace(.sRGB)
+            }
+            guard let srgb = resolved else { return NSColor(color) }
+            return dark ? AccentFill.lightened(srgb, to: AccentFill.darkTextLuminance)
+                        : AccentFill.deepened(srgb, to: AccentFill.textLuminance)
+        })
     }
 
     /// The optional-tint form, for a control whose dark treatment is not a flat colour but a

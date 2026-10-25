@@ -11434,3 +11434,29 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s setup=%s esc=%s fix4=%s readi
 | `v5.x` | The same guided sheet: closing commits nothing (`esc=1`), Structure over a running reading (`reading=1`), sentence-case buttons (`sentence=1`) | RECORDED — not owed |
 | `v4.x` | The older five-step form: closing commits nothing (`esc=1`); no Structure screen, and its own sentence-case "Not now" | RECORDED — not owed |
 | `v3.x` / `v2.x` | No setup sheet (`setup=0`) | CLOSED — does not apply |
+
+---
+
+## Colour calls: Preview links, pill words, native controls (FE2, DS1, DS4) — main only
+
+The owner's three colour calls of 2026-10-25. **FE2**: Markdown Preview's links, read-only and
+editable, drew the raw accent (2.2–3.7:1 on white); they take `ChromeInk.bodyText`. **DS1**: a
+coloured pill's words drew the pill's own colour on a wash of it (1.4:1 for yellow in light); they
+are label colour, the colour only in the wash. **DS4**: switches, sliders, checkboxes and progress
+bars drew the Mac's accent; each window's root sets `nativeControlAccent`.
+
+```sh
+E=Modules/FileExplorer/Sources/FileExplorer; D=Modules/Design/Sources/Design
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fe2=%s ds1=%s ds4=%s\n' $l \
+  "$(git show origin/$l:$E/MarkdownBlockView.swift 2>/dev/null | grep -cF 'piece.foregroundColor = accent')" \
+  "$(git show origin/$l:$D/Pill.swift 2>/dev/null | grep -cF '.foregroundStyle(tint)')" \
+  "$(git show origin/$l:$D/NativeControlAccent.swift 2>/dev/null | grep -cF 'func nativeControlAccent(')"; done
+# measured 2026-10-25, against origin, before this landed (the fixes read fe2=0 ds1=0 ds4=2):
+# main, v5.x               fe2=1 ds1=1 ds4=0
+# v4.x, v3.x, v2.x         fe2=0 ds1=1 ds4=0   (no Markdown preview: MarkdownBlockView.swift absent)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | Raw-accent links in both Previews, tinted pill words, the Mac's accent on native controls | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | Tinted pill words and the Mac's accent on native controls; no Markdown preview | RECORDED — not owed |

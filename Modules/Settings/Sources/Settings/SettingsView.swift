@@ -368,6 +368,9 @@ public struct SettingsView: View {
             }
         }
         .frame(width: sheetSize.width, height: sheetSize.height)
+        // The sheet's switches, the Tint and text-size sliders and its checkboxes take the hue
+        // being picked here, not the Mac's accent (DS4) — and follow it as it changes.
+        .nativeControlAccent(selectedHue)
     }
 
     /// The right-hand column: the selected tab, or the search results standing in for it.
@@ -3535,8 +3538,8 @@ private struct KeptNameLabel: View {
                 if cell.isMarker {
                     // Caution, matching the Rename lens's markers and the risky-names pill — the
                     // whole risky-name vocabulary sits in one tier.
+                    // The marker in the name's own ink; the caution is the wash behind it (DS1).
                     Text(cell.glyph)
-                        .foregroundStyle(SemanticColor.caution)
                         .background(SemanticColor.caution.opacity(PillVariant.fillOpacity))
                 } else {
                     Text(cell.glyph)

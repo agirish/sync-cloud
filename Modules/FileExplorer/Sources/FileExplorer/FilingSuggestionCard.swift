@@ -227,7 +227,7 @@ struct FilingSuggestionCard: View {
                             .scaledFont(.system(size: 8, weight: .bold))
                             .padding(.horizontal, 4).padding(.vertical, 1)
                             .background(Capsule().fill(hueAccent.opacity(PillVariant.fillOpacity)))
-                            .foregroundStyle(hueAccent)
+                            .foregroundStyle(.primary)
                     }
                 }
             }
@@ -382,7 +382,7 @@ struct FilingSuggestionCard: View {
                     .scaledFont(.system(size: 11, weight: .semibold))
                     .padding(.horizontal, 5).padding(.vertical, 1)
                     .background(Capsule(style: .continuous).fill(SemanticColor.success.opacity(0.14)))
-                    .foregroundStyle(SemanticColor.success)
+                    .foregroundStyle(.primary)
                 Text(evidenceTail(dest)).scaledFont(.system(size: 12)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

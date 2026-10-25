@@ -102,7 +102,8 @@ final class PreviewEditSession {
 
     /// **The ink a link wears: the window's hue, as read-only Preview draws it (ED5)** — not
     /// `NSColor.linkColor`, which flipped every link between the two each time Edit in Preview was
-    /// turned on or off. The view hands in its own; a new one redecorates the page.
+    /// turned on or off. The view hands in its own (`PreviewEditorView.linkInk`, the hue in a shade
+    /// that reads as text — FE2); a new one redecorates the page.
     var linkColor: NSColor {
         didSet {
             guard linkColor != oldValue else { return }
@@ -113,7 +114,7 @@ final class PreviewEditSession {
 
     init(source: EditorSourceStorage, undoManager: UndoManager?,
          style: MarkdownProjection.Style = MarkdownProjection.Style(), documentFolder: String? = nil,
-         linkColor: NSColor = NSColor(LiquidGlassHue.stored().accentColor)) {
+         linkColor: NSColor = PreviewEditorView.linkInk(LiquidGlassHue.stored().accentColor)) {
         self.source = source
         self.undoManager = undoManager
         self.linkColor = linkColor

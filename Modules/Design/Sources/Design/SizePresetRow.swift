@@ -41,7 +41,7 @@ public struct SizePresetRow: View {
     @Binding private var fontSize: FontSize
     @Binding private var density: ListDensity
     private let style: Style
-    /// The chosen tile's words, wash and border wear the hue the user picked — on the setup sheet
+    /// The chosen tile's wash and border wear the hue the user picked — on the setup sheet
     /// that is the swatch just clicked, a row below.
     @AppStorage(LiquidGlass.hueKey) private var hueRaw: String = LiquidGlassHue.blue.rawValue
     private var accent: Color { (LiquidGlassHue(rawValue: hueRaw) ?? .blue).accentColor }
@@ -94,7 +94,7 @@ public struct SizePresetRow: View {
                 if style == .named {
                     Text(preset.densityName)
                         .scaledFont(.system(size: 10))
-                        .foregroundStyle(isSelected ? accent : Color.secondary)
+                        .foregroundStyle(isSelected ? Color.primary : Color.secondary)
                 }
             }
             // **Shrink rather than truncate.** Five tiles each carrying an eleven-character word
@@ -104,7 +104,9 @@ public struct SizePresetRow: View {
             // width every tile draws at full size.
             .lineLimit(1)
             .minimumScaleFactor(Self.minimumLabelScale)
-            .foregroundStyle(isSelected ? accent : Color.primary)
+            // Label colour on the chosen tile too: the hue is its wash and border, and a word in the
+            // hue on a wash of it read at 2.7:1 on Green (DS1).
+            .foregroundStyle(Color.primary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, style == .specimen ? 4 : 6)
             .padding(.horizontal, 4)

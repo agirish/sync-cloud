@@ -157,7 +157,7 @@ struct RenamePassLens: View {
         for cell in InvisibleNameMarking.cells(for: name) {
             var piece = AttributedString(cell.glyph)
             if cell.isMarker {
-                piece.foregroundColor = SemanticColor.error
+                // The marker in the name's own ink; the error is the wash behind it (DS1).
                 piece.backgroundColor = SemanticColor.error.opacity(PillVariant.fillOpacity)
             }
             out.append(piece)

@@ -5071,7 +5071,7 @@ public struct LensWorkspaceView: View {
                     .foregroundStyle(.tertiary).lineLimit(1)
                 Text("reclaim").scaledFont(.caption).foregroundStyle(.secondary)
                 Text("71 KB").scaledFont(.caption.monospaced().weight(.semibold))
-                    .foregroundStyle(SemanticColor.success)
+                    .foregroundStyle(.primary)
                     .pillSurface(.mini, tint: SemanticColor.success)
             }
             LensSetupSampleRow {

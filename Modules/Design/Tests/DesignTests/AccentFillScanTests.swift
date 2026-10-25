@@ -31,8 +31,9 @@ import Testing
 ///    as `.actionBar`. Six such files painted the system blue beside the user's hue (2026-10-21). A
 ///    file can only be read whole here, so a root tinted in ANOTHER file is named in
 ///    ``hostTintedDefaults``.
-/// 3. **No `controlAccentColor` at all.** It is the system's accent, not the app's, so anything
-///    drawn in it ignores the hue the user picked.
+/// 3. **No `controlAccentColor`** outside `systemAccentExemptions` — the None hue, which IS the
+///    Mac's accent. It is the system's accent, not the app's, so anything else drawn in it ignores
+///    the hue the user picked.
 /// 4. **No SwiftUI `Color.accentColor` either** — the same system accent, drawn or as a default
 ///    argument — outside `systemAccentExemptions`. Help's words, Settings' size tiles and a dozen
 ///    colour defaults drew it in a green window until this rule found them. A colour parameter
@@ -42,6 +43,13 @@ import Testing
 ///    `Table` row host passes it down. The guided setup drew 22 words and glyphs in `.tint` under
 ///    a root that set none, so they stayed the Mac's blue on a Coral sheet (2026-10-21). Name the
 ///    hue's `accentColor` instead.
+/// 6. **Every window root sets the native controls' accent** (DS4). A switch, a slider, a checkbox
+///    or a progress bar fills with whatever accent its environment carries, and with none set that
+///    is the Mac's. So each scene's root, each panel the owner named (Settings, Help, Setup) and
+///    each `NSHostingView`/`NSHostingController` the app builds takes `.nativeControlAccent(…)`,
+///    or is named in ``unaccentedHosts`` with why. This is a rule about ROOTS rather than controls
+///    because the accent inherits: a control is untinted exactly when no root above it set one,
+///    and a new window or hosted panel is how one would come back.
 @Suite struct AccentFillScanTests {
 
     // MARK: The rules, on any source text
@@ -437,10 +445,15 @@ import Testing
         ("SetupArtwork.swift", ".fill(AnyShapeStyle(accent))", "the Edit tour page's 2pt caret"),
     ]
 
-    /// A use of SwiftUI's system accent that is right, named with why. Each must match exactly one
-    /// finding, so a stale entry fails too.
+    /// A use of the system accent (rules 3 and 4) that is right, named with why. Each must match
+    /// exactly one finding, so a stale entry fails too.
+    ///
+    /// The None hue reads AppKit's `controlAccentColor` rather than SwiftUI's `Color.accentColor`:
+    /// the latter resolves to the accent the environment carries, which a window root's
+    /// `nativeControlAccent` (rule 6) sets to the window's hue — so the None swatch drew Coral on a
+    /// Coral window.
     static let systemAccentExemptions: [(file: String, fragment: String, why: String)] = [
-        ("LiquidGlassStyle.swift", "case .none: return Color.accentColor",
+        ("LiquidGlassStyle.swift", "return Color(nsColor: .controlAccentColor)",
          "the None hue means \"the Mac's accent\" — it is the one place the app asks for it"),
     ]
 
@@ -452,7 +465,7 @@ import Testing
     /// **Every filled control in the app carries its label at AA, in the app's accent.** The five
     /// rules over every shipping source. Exempt from rule 1: the marks above, and nothing else — a
     /// fill whose label flips to dark ink on light hues is a second button family, not a fix.
-    /// Exempt from rule 4: `systemAccentExemptions`.
+    /// Exempt from rules 3 and 4: `systemAccentExemptions`.
     @Test func theAppFillsWithTheDeepenedAccent() throws {
         var findings: [String] = []
         var exempted: [String: Int] = [:]
@@ -471,7 +484,7 @@ import Testing
                     exempted["\(mark.file) \(mark.fill)", default: 0] += 1
                     continue
                 }
-                if finding.rule == "system accent",
+                if finding.rule == "system accent" || finding.rule == "controlAccentColor",
                    let use = Self.systemAccentExemptions.first(where: { $0.file == name && finding.snippet.contains($0.fragment) }) {
                     exempted["\(use.file) \(use.fragment)", default: 0] += 1
                     continue
@@ -504,6 +517,105 @@ import Testing
         // 2026-10-20: 23 outside Edit, and Edit's Save Filled Copy and Save Reordered Copy; 26 from
         // 2026-10-21 with the empty page's New Note (TE58).
         #expect(prominent == 26, "expected 26 .borderedProminent buttons in the app, found \(prominent)")
+    }
+
+    // MARK: Rule 6 — every root sets the native controls' accent (DS4)
+
+    static let rootAccent = ".nativeControlAccent("
+
+    /// The roots in `source` that set no native-control accent: each scene's content closure, and
+    /// each hosting view's `rootView:` argument. Returned as the opening text, to name the site.
+    static func unaccentedRoots(in source: String) -> [String] {
+        let text = Array(stripComments(source))
+        var found: [String] = []
+        // A scene: `Window("…", id: …) { … }` or `WindowGroup(…) { … }` — the closure is the root.
+        for opener in ["Window(", "WindowGroup(", "WindowGroup {"] {
+            for start in occurrences(of: opener, in: text) {
+                if start > 0, text[start - 1].isLetter || text[start - 1].isNumber || text[start - 1] == "_" || text[start - 1] == "." { continue }
+                var i = start + opener.count - 1
+                if text[i] == "(" {
+                    guard let close = matching(text, i) else { continue }
+                    i = close + 1
+                }
+                while i < text.count, text[i] == " " { i += 1 }
+                guard i < text.count, text[i] == "{", let end = matching(text, i) else { continue }
+                if occurrences(of: rootAccent, in: Array(text[i...end])).isEmpty {
+                    found.append(String(text[start..<min(text.count, start + 50)]))
+                }
+            }
+        }
+        // A hosting view the app builds: its `rootView:` argument is the root.
+        for opener in ["NSHostingView(rootView:", "NSHostingController(rootView:"] {
+            for start in occurrences(of: opener, in: text) {
+                let open = start + opener.firstIndex(of: "(")!.utf16Offset(in: opener)
+                guard let close = matching(text, open) else { continue }
+                if occurrences(of: rootAccent, in: Array(text[open...close])).isEmpty {
+                    found.append(String(text[start..<min(text.count, start + 50)]))
+                }
+            }
+        }
+        return found
+    }
+
+    /// A root that rightly sets no accent, named with why: it hosts nothing a person operates.
+    /// Each must match exactly one root, so a stale entry fails too.
+    static let unaccentedHosts: [(file: String, root: String, why: String)] = [
+        ("DocumentPDF.swift", "NSHostingView(rootView: root)", "a document laid out for printing — no controls"),
+        ("PaneColumnsView.swift", "NSHostingView(rootView: VStack", "column rows measured offscreen, never shown"),
+    ]
+
+    /// The panels the owner named, which sit inside the main window but set their own accent so
+    /// that a render of one, or a host that ever shows it elsewhere, still carries the hue.
+    static let accentedPanels = ["SettingsView.swift", "HelpBook.swift", "SetupSheet.swift"]
+
+    @Test func rule6CatchesAnUnaccentedRootAndPassesAnAccentedOne() {
+        #expect(Self.unaccentedRoots(in: "Window(\"Log\", id: \"log\") { LogViewer().appFontSizeFromSettings() }").count == 1)
+        #expect(Self.unaccentedRoots(in: "WindowGroup { ContentView() }").count == 1)
+        #expect(Self.unaccentedRoots(in: "WindowGroup(id: \"w\") { ContentView().nativeControlAccent() }").isEmpty)
+        #expect(Self.unaccentedRoots(in: "Window(\"Log\", id: \"log\") { LogViewer().nativeControlAccent() }").isEmpty)
+        #expect(Self.unaccentedRoots(in: "panel.contentView = NSHostingView(rootView: AnyView(content))").count == 1)
+        #expect(Self.unaccentedRoots(in: "panel.contentView = NSHostingView(rootView: AnyView(content.nativeControlAccent()))").isEmpty)
+        #expect(Self.unaccentedRoots(in: "let c = NSHostingController(rootView: Sheet())").count == 1)
+        #expect(Self.unaccentedRoots(in: "// Window(\"x\", id: \"y\") { Bare() }").isEmpty)
+        #expect(Self.unaccentedRoots(in: "NSWindow(contentRect: r, styleMask: [], backing: .buffered, defer: false)").isEmpty)
+    }
+
+    /// **Every root in the app sets the native controls' accent**, less the named hosts — and the
+    /// owner's three panels set their own.
+    @Test func everyRootSetsTheNativeControlsAccent() throws {
+        var findings: [String] = []
+        var exempted: [String: Int] = [:]
+        var roots = 0
+        var panels: Set<String> = []
+        for file in try Self.appSources() {
+            let source = try String(contentsOf: file, encoding: .utf8)
+            let name = file.lastPathComponent
+            let stripped = Array(Self.stripComments(source))
+            roots += ["Window(\"", "NSHostingView(rootView:", "NSHostingController(rootView:"]
+                .map { Self.occurrences(of: $0, in: stripped).count }.reduce(0, +)
+            if Self.accentedPanels.contains(name), !Self.occurrences(of: Self.rootAccent, in: stripped).isEmpty {
+                panels.insert(name)
+            }
+            for root in Self.unaccentedRoots(in: source) {
+                if let host = Self.unaccentedHosts.first(where: { $0.file == name && root.hasPrefix($0.root) }) {
+                    exempted["\(host.file) \(host.root)", default: 0] += 1
+                    continue
+                }
+                findings.append("\(name) — \(root)")
+            }
+        }
+        #expect(findings.isEmpty, """
+            A window or hosted view sets no native-control accent, so its switches, sliders, \
+            checkboxes and progress bars fill with the Mac's accent rather than the app's hue. Add \
+            `.nativeControlAccent()` at its root (DS4):
+            \(findings.joined(separator: "\n"))
+            """)
+        for host in Self.unaccentedHosts {
+            #expect(exempted["\(host.file) \(host.root)"] == 1, "the exemption for \(host.why) (\(host.file)) matched \(exempted["\(host.file) \(host.root)"] ?? 0) roots, not 1")
+        }
+        #expect(panels == Set(Self.accentedPanels), "panels setting no accent of their own: \(Set(Self.accentedPanels).subtracting(panels).sorted())")
+        // A tripwire: the four scenes and three hosting views of 2026-10-25.
+        #expect(roots >= 7, "only \(roots) window and hosting roots found — is the scan reading MacApp?")
     }
 
     /// Every Swift file the shipping app is built from: each module's `Sources`, plus `MacApp`.

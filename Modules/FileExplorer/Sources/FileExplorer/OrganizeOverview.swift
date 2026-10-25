@@ -137,7 +137,7 @@ struct RailItemLabel: View {
                 Text(Self.badgeText(count))
                     .scaledFont(.system(size: 10, weight: .bold))
                     .monospacedDigit()
-                    .foregroundStyle(accent)
+                    .foregroundStyle(.primary)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
                     .background(Capsule().fill(accent.opacity(0.16)))
@@ -269,7 +269,9 @@ struct ScopeChipLabel: View {
                     .accessibilityLabel("Scope paused on this lens")
             }
         }
-        .foregroundStyle(isSuspended ? AnyShapeStyle(.secondary) : AnyShapeStyle(accent))
+        // Label colour when live: the accent is the wash, and a word in the accent on a wash of it
+        // does not read (DS1).
+        .foregroundStyle(isSuspended ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
         .padding(.horizontal, 7)
         .padding(.vertical, 2)
         // Neutral while suspended: the accent wash is what makes the chip read as *live narrowing*,

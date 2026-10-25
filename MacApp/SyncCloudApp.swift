@@ -694,6 +694,9 @@ struct SyncCloudApp: App {
                     .environmentObject(Logger.shared)
                     .environmentObject(settings)
                     .appFontSizeFromSettings()
+                    // The window's switches, sliders, checkboxes and progress bars — Settings, Help
+                    // and Setup among them, which are panels in it — take the app's hue (DS4).
+                    .nativeControlAccent()
                     .selectionLensAppearanceFromDefaults()
                     // Outermost, so every badged control in the window sees the same reveal state
                     // in the same render pass — the badges have to arrive together or the effect
@@ -965,6 +968,7 @@ struct SyncCloudApp: App {
         Window("Keyboard Shortcuts", id: "keyboard-shortcuts") {
             ShortcutsReferenceView()
                 .appFontSizeFromSettings()
+                .nativeControlAccent()
                 .selectionLensAppearanceFromDefaults()
         }
         .windowResizability(.contentSize)
@@ -979,6 +983,7 @@ struct SyncCloudApp: App {
                 LogViewer()
                     .environmentObject(Logger.shared)
                     .appFontSizeFromSettings()
+                    .nativeControlAccent()
                     .selectionLensAppearanceFromDefaults()
             }
         }
@@ -1020,6 +1025,7 @@ struct SyncCloudApp: App {
                 )
                 .environmentObject(Logger.shared)
                 .appFontSizeFromSettings()
+                .nativeControlAccent()
                 .selectionLensAppearanceFromDefaults()
             }
         }

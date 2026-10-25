@@ -941,7 +941,7 @@ private struct DestinationResultRow: View {
                 if isRecent {
                     Text("Recent")
                         .scaledFont(.system(size: 9.5, weight: .medium))
-                        .foregroundStyle(isHighlighted ? onAccent : accent)
+                        .foregroundStyle(isHighlighted ? onAccent : Color.primary)
                         .padding(.horizontal, 6).padding(.vertical, 1)
                         .background(Capsule().fill((isHighlighted ? onAccent : accent).opacity(0.16)))
                 }

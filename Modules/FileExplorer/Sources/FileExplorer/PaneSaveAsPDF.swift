@@ -307,9 +307,10 @@ struct PaneSaveAsPDFLayer: View {
                         }
                     }
                     if progress.total > 1 {
+                        // No tint of its own: the window's root gives every progress bar the hue
+                        // (DS4), and a raw-accent tint here made this the one bar a shade lighter.
                         ProgressView(value: Double(progress.done), total: Double(progress.total))
                             .progressViewStyle(.linear)
-                            .tint(accent)
                             .padding(.horizontal, 14)
                             .padding(.bottom, 8)
                     }

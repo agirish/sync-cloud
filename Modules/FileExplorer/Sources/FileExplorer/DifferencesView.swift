@@ -1350,7 +1350,7 @@ public struct DifferencesView: View {
             Text("Reviewing \(session.position) of \(session.total)")
                 .scaledFont(PillVariant.standard.numberFont)
                 .monospacedDigit()
-                .foregroundStyle(glassHue.accentColor)
+                .foregroundStyle(.primary)
         }
         .pillSurface(.standard, tint: glassHue.accentColor)
         .fixedSize()

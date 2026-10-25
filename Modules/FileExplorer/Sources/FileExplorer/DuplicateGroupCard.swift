@@ -297,7 +297,7 @@ struct DuplicateGroupCard: View {
             if reclaimWearsPill {
                 Text(reclaimFigure)
                     .scaledFont(.system(size: 11.5, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(SemanticColor.success)
+                    .foregroundStyle(.primary)
                     .pillSurface(.mini, tint: SemanticColor.success)
             } else {
                 Text(reclaimFigure)
@@ -324,7 +324,7 @@ struct DuplicateGroupCard: View {
             if reclaimWearsPill {
                 Text(reclaimFigure)
                     .scaledFont(.system(size: 12, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(SemanticColor.success)
+                    .foregroundStyle(.primary)
                     .pillSurface(.mini, tint: SemanticColor.success)
                     .frame(minWidth: digitsWidth, alignment: .trailing)
             } else {

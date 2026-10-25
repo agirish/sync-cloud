@@ -33,6 +33,8 @@ struct MarkdownBlockView: View {
     /// concatenation in ``styled(_:)`` builds `Text` VALUES, which the `View`-level `.scaledFont`
     /// modifier cannot reach — those need the `Text` overload, and it takes the scale by hand.
     @Environment(\.appFontScale) private var fontScale
+    /// Which shade of the hue a link is drawn in — see ``linkInk(_:accent:)``.
+    @Environment(\.colorScheme) private var colorScheme
 
     /// What the block is being drawn onto, and therefore the two things it may not assume.
     ///
@@ -302,11 +304,23 @@ struct MarkdownBlockView: View {
     /// place, since a resolved font could only be one or the other.
     private func styled(_ line: MarkdownText) -> Text {
         var result = AttributedString()
-        for run in line.runs { result.append(attributed(run)) }
+        for run in line.runs {
+            result.append(Self.attributed(run, accent: accent, scheme: colorScheme, fontScale: fontScale))
+        }
         return Text(result)
     }
 
-    private func attributed(_ run: MarkdownRun) -> AttributedString {
+    /// **A link is the window's hue, in a shade that reads as text (FE2).** The raw accent measured
+    /// 3.7:1 on white at Blue, 2.7:1 at Green and Coral and 2.2:1 at Amber, against the 4.5:1 body
+    /// text needs. `ChromeInk.bodyText` is the path the app's other coloured sentences take: deepened
+    /// in light, lifted in dark, the hue kept. Editable Preview draws its links with the same rule
+    /// (`PreviewEditorView`), so turning Edit in Preview on or off does not change a link's colour.
+    static func linkInk(_ scheme: ColorScheme, accent: Color) -> Color {
+        ChromeInk.bodyText(scheme, accent)
+    }
+
+    static func attributed(_ run: MarkdownRun, accent: Color, scheme: ColorScheme,
+                           fontScale: CGFloat) -> AttributedString {
         var piece = AttributedString(run.text)
         if run.isCode {
             // Scaled like everything around it. A bare `.font(.system(size:))` here left inline
@@ -327,7 +341,7 @@ struct MarkdownBlockView: View {
         //
         // A `#fragment` is intercepted rather than opened: see `openLink`.
         if let link = run.link {
-            piece.foregroundColor = accent
+            piece.foregroundColor = linkInk(scheme, accent: accent)
             if let url = URL(string: link) { piece.link = url }
         }
         return piece

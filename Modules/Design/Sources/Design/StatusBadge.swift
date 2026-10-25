@@ -18,9 +18,10 @@ public struct StatusBadge: View {
                 .fill(color)
                 .frame(width: 6, height: 6)
             
+            // The word in label colour, the meaning in the dot and the wash (DS1).
             Text(isValid ? "Valid path" : "Invalid path")
                 .scaledFont(.system(size: 10, weight: .semibold))
-                .foregroundStyle(color)
+                .foregroundStyle(PillVariant.labelInk(for: color))
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)

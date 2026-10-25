@@ -87,8 +87,13 @@ import Testing
     @Test func testAPlainTintedPillStillTakesTheSharedPillPath() throws {
         // Guard the other direction: the many plain lens pills must not be dragged onto the
         // composed surface by this change. Two tints that differ only in hue must still differ.
-        let warning = modalFill(try render(pill(trailing: nil, semantic: nil, tint: SemanticColor.warning)))
-        let info = modalFill(try render(pill(trailing: nil, semantic: nil, tint: SemanticColor.info)))
+        // Over an opaque white ground, so the 14% wash composites to an opaque colour the modal read
+        // counts. The pill's words are label colour now (DS1), so on a bare window the only opaque
+        // pixels were the black words — the same in both tints — and the tint lives in the wash.
+        let warning = modalFill(try render(pill(trailing: nil, semantic: nil, tint: SemanticColor.warning)
+            .background(Color.white)))
+        let info = modalFill(try render(pill(trailing: nil, semantic: nil, tint: SemanticColor.info)
+            .background(Color.white)))
         #expect(distance(warning, info) > 0.02,
                 "the plain tinted pills stopped carrying their tint: \(warning) vs \(info)")
     }

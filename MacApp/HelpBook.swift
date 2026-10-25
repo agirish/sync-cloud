@@ -1038,6 +1038,8 @@ struct HelpOverlay: View {
     @ViewBuilder
     private func card(available: CGSize) -> some View {
         HelpView(available: available, openAt: openAt, onClose: onClose)
+            // Help's own controls take the window's hue, not the Mac's accent (DS4).
+            .nativeControlAccent(glassHue)
             .contentSurface(hue: glassHue, tint: surfaceTint)
             // No hairline overlay here: `groundedGlassCard` now draws it for BOTH schemes. Adding
             // one on top put a second border over the dark specular edge.

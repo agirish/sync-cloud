@@ -975,7 +975,7 @@ private struct AutomationRuleCard: View {
                 if completeConditions.count > 1 {
                     Text(rule.matchMode == .all ? "ALL" : "ANY")
                         .scaledFont(.system(size: 9, weight: .bold)).kerning(0.4)
-                        .foregroundStyle(accent)
+                        .foregroundStyle(.primary)
                         .padding(.horizontal, 6).padding(.vertical, 3)
                         .background(Capsule().fill(accent.opacity(0.14)))
                 }
@@ -1044,7 +1044,7 @@ private struct DestinationPill: View {
                 .scaledFont(.system(size: 11, weight: .medium, design: .monospaced))
                 .lineLimit(1).truncationMode(.middle)
         }
-        .foregroundStyle(template.isEmpty ? Color.secondary : accent)
+        .foregroundStyle(template.isEmpty ? Color.secondary : Color.primary)
         .padding(.horizontal, 8).padding(.vertical, 3)
         .background(Capsule().fill((template.isEmpty ? Color.primary : accent).opacity(PillVariant.fillOpacity)))
     }
