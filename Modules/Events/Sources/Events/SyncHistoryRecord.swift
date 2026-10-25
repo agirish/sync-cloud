@@ -17,12 +17,17 @@ public enum SyncAction: String, Codable, Sendable, CaseIterable {
     /// file took the source's modification date, and no byte was copied.
     case matchDates
 
-    /// A short human label for the UI ("Copy" / "Move" / "Delete" / "Match Dates").
+    /// A short human label for the UI ("Copy" / "Move" / "Move to Trash" / "Match Dates").
+    ///
+    /// **A `.delete` is a move to the Trash, so it says so** (FD2), as the row menu, the banner and
+    /// Edit ▸ Undo already do. The one delete that is not — an item removed outright on a disk with
+    /// no Trash — is told apart per record: `SyncHistoryRecord.actionLabel`. The raw value stays
+    /// `delete`: it is what the history file and its CSV/JSON exports carry.
     public var label: String {
         switch self {
         case .copy: return "Copy"
         case .move: return "Move"
-        case .delete: return "Delete"
+        case .delete: return "Move to Trash"
         case .matchDates: return "Match Dates"
         }
     }
@@ -98,4 +103,14 @@ public struct SyncHistoryRecord: Codable, Sendable, Identifiable {
         self.backupPath = backupPath
         self.direction = direction
     }
+
+    /// **A delete that did not reach the Trash** — removed outright on a disk with no Trash, after
+    /// the permanent-delete question was answered yes. `deleteItems` records the Trash location of
+    /// every item it trashed in `backupPath` and leaves it nil for exactly these, so the record
+    /// itself tells the two apart.
+    public var isPermanentDelete: Bool { action == .delete && backupPath == nil }
+
+    /// The row's label: `action.label`, except "Delete" for a permanent delete (FD2) — "Move to
+    /// Trash" there would promise a way back that is not there.
+    public var actionLabel: String { isPermanentDelete ? "Delete" : action.label }
 }

@@ -152,7 +152,12 @@ Requires **macOS 26**, unchanged from v6.0.
 - **One spelling, one case, one count.** The app's words use US spelling — color, gray,
   Reorganization — curly quotes and apostrophes, Title Case on menus, and counts that read "1 item"
   and "1,200 files". Settings search still finds "colour". The reversible delete is Move to Trash
-  everywhere.
+  everywhere, Sync History included. Progress windows are titled in sentence case, Edit's empty page
+  offers New Text File, and reading fewer than 200 documents is offered as "A few minutes", not
+  "About 3 h". The command-line tool prints plain ASCII punctuation, and prints file names exactly as
+  they are on disk.
+- **⌃⇧⇥ goes to the previous tab**, the reverse of ⌃⇥, and the Go menu lists Next Tab and Previous
+  Tab once each.
 - **Color you can read.** Links in both Markdown Previews use a shade of the accent that reads in
   light and dark. A colored pill's words are black or white, with the color in its fill. Switches,
   checkboxes, sliders and progress bars take the app's accent, not the Mac's.

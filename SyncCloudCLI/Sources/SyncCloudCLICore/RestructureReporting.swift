@@ -73,10 +73,10 @@ public enum RestructureReporting {
                 return "No profiles directory. SyncCloud has never surveyed a tree on this "
                     + "machine — run the app's setup once, or pass --profiles-dir."
             case .noActiveProfile(let directory):
-                return "No active profile in \(directory). Run the app's setup once to derive "
+                return "No active profile in \(CLIOutput.verbatim(directory)). Run the app's setup once to derive "
                     + "one, or pass --profiles-dir at a directory whose profiles.json names one."
             case .unreadableProfile(let id, let directory):
-                return "The active profile '\(id)' in \(directory) could not be read. "
+                return "The active profile '\(CLIOutput.verbatim(id))' in \(CLIOutput.verbatim(directory)) could not be read. "
                     + "The lens would show its setup card for the same reason."
             }
         }
@@ -170,7 +170,7 @@ public enum RestructureReporting {
             lines.append("\(output.findings.count) structure finding(s) in "
                          + "\(output.folderCount) folders:")
             for finding in output.findings {
-                lines.append("  [\(finding.kind)] \(finding.subject)\(detailSuffix(finding))")
+                lines.append("  [\(finding.kind)] \(CLIOutput.verbatim(finding.subject))\(detailSuffix(finding))")
             }
         }
         lines.append("Crowding: \(output.crowding.passThrough.count) pass-through · "
@@ -183,26 +183,26 @@ public enum RestructureReporting {
         if let schemes = finding.schemes { return " — \(schemes.count) schemes" }
         if let scaffold = finding.scaffold {
             let shape = scaffold.isEmpty ? "no shared shape to copy"
-                                         : "scaffold \(scaffold.joined(separator: ", "))"
+                                         : "scaffold \(scaffold.map(CLIOutput.verbatim).joined(separator: ", "))"
             return " — \(count(finding.looseFiles ?? 0, "file")), no folders yet (\(shape))"
         }
         if let target = finding.target {
-            return " — hides the year \(target)"
+            return " — hides the year \(CLIOutput.verbatim(target))"
                 + ((finding.targetExists ?? false) ? ", which exists beside it" : "")
         }
         // Before the bare-counterpart branch: duplicatedTaxonomy also carries a counterpart, and
         // falling through would print it as an echo — the wrong claim, minus its evidence count.
         if let matched = finding.matchedDocuments, let counterpart = finding.counterpart {
-            return " — \(count(matched, "document")) also in \(counterpart)"
+            return " — \(count(matched, "document")) also in \(CLIOutput.verbatim(counterpart))"
         }
         if let counterpart = finding.counterpart {
-            return " — echoes \(counterpart)"
+            return " — echoes \(CLIOutput.verbatim(counterpart))"
         }
-        if let destination = finding.destination { return " — mirrors \(destination)" }
+        if let destination = finding.destination { return " — mirrors \(CLIOutput.verbatim(destination))" }
         if let seriesFolders = finding.seriesFolders {
             return " — \(count(finding.looseFiles ?? 0, "file")) above \(seriesFolders) year folders"
         }
-        if let container = finding.container { return " — belongs in \(container)" }
+        if let container = finding.container { return " — belongs in \(CLIOutput.verbatim(container))" }
         return ""
     }
 

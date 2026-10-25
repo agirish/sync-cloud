@@ -111,11 +111,13 @@ public struct SyncHistoryView: View {
         }
     }
 
-    private static let actionOptions: [(label: String, action: SyncAction?)] = [
+    /// The Action filter's choices. `.delete` is "Moves to Trash" (FD2), as its rows say; it also
+    /// keeps the rare permanent delete, whose row says "Delete".
+    static let actionOptions: [(label: String, action: SyncAction?)] = [
         ("All Actions", nil),
         ("Copies", .copy),
         ("Moves", .move),
-        ("Deletes", .delete),
+        ("Moves to Trash", .delete),
         ("Date Matches", .matchDates),
     ]
 
@@ -406,7 +408,8 @@ struct SyncHistoryRow: View {
     }
 
     private var actionPill: some View {
-        Pill(.mini, tint: actionColor, text: record.action.label)
+        // The record's own label, so a permanent delete still says "Delete" (FD2).
+        Pill(.mini, tint: actionColor, text: record.actionLabel)
     }
 
     private func directionText(_ direction: String) -> some View {

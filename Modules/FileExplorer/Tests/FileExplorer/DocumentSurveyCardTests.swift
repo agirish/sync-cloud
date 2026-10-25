@@ -41,6 +41,14 @@ import Testing
                 "the offer does not say the commitment can be taken back")
     }
 
+    /// **A small library is offered in minutes** (FC7) — the card says the figure through
+    /// `DocumentSurveyCost`, so a dozen documents no longer cost "About 3 h".
+    @Test func theOfferForAFewDocumentsSaysAFewMinutes() {
+        let detail = DocumentSurveyCardText.detail(for: .offered(documents: 12))
+        #expect(detail.contains("A few minutes for 12 documents, in the background."), "\(detail)")
+        #expect(!detail.contains("3 h"))
+    }
+
     /// **The count is optional, and the copy has to hold up without it.** Knowing how many
     /// documents would be read means walking the whole tree, which is not something to do every
     /// time Organize opens — and the cheap numbers lying around are the wrong ones: the profile's

@@ -138,7 +138,7 @@ private let providers = [
                 value: "nope", label: "Right", providers: providers,
                 fileManager: StubFileManager(directories: []))
         } throws: { error in
-            (error as? ProviderResolutionError)?.message.contains("'nope' for Right") == true
+            (error as? ProviderResolutionError).map { CLIOutput.stripped($0.message) }?.contains("'nope' for Right") == true
         }
     }
 
@@ -376,8 +376,9 @@ private let providers = [
                                                      providers: twins, fileManager: fm)
             Issue.record("an ambiguous display name resolved to \(resolved.id) instead of being refused")
         } catch let error as ProviderResolutionError {
-            #expect(error.message == "'Photos' for Right matches 2 providers by name: "
-                + "'folder-a' (/a/Photos), 'folder-b' (/b/Photos). "
+            let v = CLIOutput.verbatim
+            #expect(error.message == "'\(v("Photos"))' for Right matches 2 providers by name: "
+                + "'\(v("folder-a"))' (\(v("/a/Photos"))), '\(v("folder-b"))' (\(v("/b/Photos"))). "
                 + "Pass one of those ids (see `synccloud providers`) or the folder's path to say which.")
         } catch {
             Issue.record("expected ProviderResolutionError, got \(error)")
@@ -402,7 +403,7 @@ private let providers = [
             _ = try resolveProviderOrPath(value: "OneDrive", label: "Left", providers: twins, fileManager: fm)
             Issue.record("an ambiguous display name was resolved instead of refused")
         } catch let error as ProviderResolutionError {
-            #expect(error.message.contains("'od-a' (/a/Documents), 'od-b' (/b/Documents)."),
+            #expect(CLIOutput.stripped(error.message).contains("'od-a' (/a/Documents), 'od-b' (/b/Documents)."),
                     "\(error.message)")
         } catch {
             Issue.record("expected ProviderResolutionError, got \(error)")

@@ -1,0 +1,107 @@
+@testable import SyncCloud
+import Design
+import Testing
+import AppKit
+
+/// **Go shows one row per tab step, and the ⌃ chords still answer** (SH3).
+///
+/// Read off the running app's `NSApp.mainMenu` — the test host is the app — and off a menu built
+/// here, where the ⌃⇥ item can be made to read "Next Tab" without driving Browse into two tabs.
+@MainActor
+@Suite struct GoMenuDuplicatesTests {
+
+    final class Target: NSObject {
+        var fired = 0
+        @objc func hit(_ sender: NSMenuItem) { fired += 1 }
+    }
+
+    static func item(_ title: String, _ chord: AppChord, _ target: Target? = nil) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: #selector(Target.hit(_:)), keyEquivalent: chord.appKitKeyEquivalent)
+        item.keyEquivalentModifierMask = chord.appKitModifierMask
+        item.target = target
+        return item
+    }
+
+    /// A real ⌃⇥ / ⌃⇧⇥ key-down, its characters filled in by the keyboard layout — ⌃⇧⇥ arrives as
+    /// backtab (U+0019), not a tab, which a hand-built event would get wrong.
+    static func tabKey(shift: Bool) throws -> NSEvent {
+        let cg = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 48, keyDown: true))
+        cg.flags = shift ? [.maskControl, .maskShift] : .maskControl
+        return try #require(NSEvent(cgEvent: cg))
+    }
+
+    /// The Go menu's tail as `GoMenuDuplicates` meets it in Browse with two tabs.
+    func browseShapedMenu(_ target: Target) -> (menu: NSMenu, next: NSMenuItem, previousControl: NSMenuItem,
+                                                separator: NSMenuItem, control: NSMenuItem) {
+        let menu = NSMenu(title: "Go")
+        let next = Self.item("Next Tab", .nextTab, target)
+        let previousControl = Self.item("Previous Tab", .previousTabControl, target)
+        let separator = NSMenuItem.separator()
+        let control = Self.item(NextTabCommand.title, .switchPaneFocus, target)
+        for item in [next, Self.item("Previous Tab", .previousTab, target), previousControl, separator, control] {
+            menu.addItem(item)
+        }
+        return (menu, next, previousControl, separator, control)
+    }
+
+    /// The twins go, their keys stay: the ⌃ items are hidden and still fire on their chords. A
+    /// hidden item answers no key unless `allowsKeyEquivalentWhenHidden` is set — measured — so the
+    /// key half is driven, not assumed.
+    @Test func theTwinsAreHiddenAndTheirKeysStillFire() throws {
+        let target = Target()
+        let m = browseShapedMenu(target)
+        GoMenuDuplicates.apply(to: m.menu)
+
+        #expect(!m.next.isHidden, "the visible Next Tab went too")
+        #expect(m.control.isHidden, "Next Tab ⌃⇥ is still drawn beside Next Tab ⇧⌘]")
+        #expect(m.previousControl.isHidden, "Previous Tab ⌃⇧⇥ is still drawn beside Previous Tab ⇧⌘[")
+        #expect(m.separator.isHidden, "a separator is left over nothing at the foot of the menu")
+        #expect(m.menu.items.filter { !$0.isHidden && !$0.isSeparatorItem }.map(\.title) == ["Next Tab", "Previous Tab"])
+
+        #expect(m.menu.performKeyEquivalent(with: try Self.tabKey(shift: false)))
+        #expect(m.menu.performKeyEquivalent(with: try Self.tabKey(shift: true)))
+        #expect(target.fired == 2, "a hidden ⌃ item no longer answers its chord")
+    }
+
+    /// **In Compare ⌃⇥ is its own item** — "Focus <pane>" — and is drawn, its separator with it.
+    /// SwiftUI retitles the item in place, so the rule has to undo itself as well as apply.
+    @Test func inCompareTheControlTabItemIsDrawn() {
+        let m = browseShapedMenu(Target())
+        GoMenuDuplicates.apply(to: m.menu)
+        m.control.title = "Focus Dropbox"
+        GoMenuDuplicates.apply(to: m.menu)
+        #expect(!m.control.isHidden, "the pane switch is hidden in Compare")
+        #expect(!m.separator.isHidden)
+        #expect(m.previousControl.isHidden, "Previous Tab ⌃⇧⇥ is a twin in every workspace")
+    }
+
+    /// **The app's own Go menu carries the pair, and the hook is installed**: Previous Tab ⌃⇧⇥ sits
+    /// hidden under Previous Tab ⇧⌘[, both ⌃ items keep their keys live, and retitling the live ⌃⇥
+    /// item to Next Tab hides it at once — which only the launch-time observer can do.
+    @Test func theAppsGoMenuCarriesThePairAndKeepsItCurrent() throws {
+        let go = try #require(GoMenuDuplicates.goMenu, "the app has no Go menu — this check would be vacuous")
+        func find(_ chord: AppChord) -> NSMenuItem? {
+            go.items.first {
+                $0.keyEquivalent == chord.appKitKeyEquivalent
+                    && $0.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask) == chord.appKitModifierMask
+            }
+        }
+        let next = try #require(find(.nextTab))
+        let previous = try #require(find(.previousTab))
+        let previousControl = try #require(find(.previousTabControl), "nothing in Go registers ⌃⇧⇥")
+        let control = try #require(find(.switchPaneFocus))
+        #expect(next.title == "Next Tab" && !next.isHidden)
+        #expect(previous.title == "Previous Tab" && !previous.isHidden)
+        #expect(previousControl.title == "Previous Tab")
+        #expect(go.index(of: previousControl) == go.index(of: previous) + 1, "⌃⇧⇥ is not beside its twin")
+        #expect(previousControl.isHidden, "Previous Tab is drawn twice")
+        #expect(previousControl.allowsKeyEquivalentWhenHidden && control.allowsKeyEquivalentWhenHidden)
+
+        let original = control.title
+        defer { control.title = original }
+        control.title = NextTabCommand.title
+        #expect(control.isHidden, "the ⌃⇥ item read Next Tab and stayed drawn — the observer is not installed")
+        control.title = "Focus Dropbox"
+        #expect(!control.isHidden)
+    }
+}

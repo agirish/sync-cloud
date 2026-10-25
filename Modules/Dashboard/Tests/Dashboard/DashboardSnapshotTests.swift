@@ -200,6 +200,13 @@ import Events
     /// back the room and puts the first pill at the edge, as in the default set below. The
     /// track is still a horizontal `ScrollView` (built for arrangements up to `maxItems`, 16), so a
     /// longer bar scrolls rather than losing items.
+    ///
+    /// **At the suite's tolerance a 24pt shift of the whole row passed** (SNAP, measured
+    /// 2026-10-25): the old 18pt head zone plus its 6pt slot, put back, moved every pill 24pt and
+    /// both images stayed green at `precision: 0.99`. So these two pin `0.999` — a shifted row
+    /// differs on about 0.7–1.9% of the 1200×1090 canvas, this Mac's re-render on about 0.001%,
+    /// and `0.999` sits between: the shift is about eight times over it, the noise a hundred under.
+    /// Machine-pinned like the rest of the suite, so CI never reads it.
     @Test func paneBarCustomizeSheet() {
         let defaults = ScratchDefaults("DashboardSnapshotTests-customize")
         defaults.set(PaneBarArrangement.default.encoded, forKey: PaneBar.arrangementKey)
@@ -209,7 +216,8 @@ import Events
                 availableHere: [.viewMode, .backForward, .scan, .newFolder, .sort, .hiddenFiles, .preview])
                 .defaultAppStorage(defaults),
             size: CGSize(width: 600, height: 545),
-            named: "customize-sheet")
+            named: "customize-sheet",
+            precision: 0.999, perceptualPrecision: 0.98)
     }
 
     /// The same sheet with a bar item held over the palette — the remove target, lit.
@@ -228,7 +236,8 @@ import Events
                 showingRemoveTarget: true)
                 .defaultAppStorage(defaults),
             size: CGSize(width: 600, height: 545),
-            named: "customize-sheet-removing")
+            named: "customize-sheet-removing",
+            precision: 0.999, perceptualPrecision: 0.98)
     }
 
     /// - Parameter previewEnabled: the preview toggle's state, passed straight in as the binding the

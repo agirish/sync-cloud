@@ -323,9 +323,17 @@ while using the thing rather than while reading it.
 
 ---
 
-## 14. ⌃⇧⇥ does not cycle tabs backwards
+## 14. ~~⌃⇧⇥ does not cycle tabs backwards~~ — **DONE**
 
-**Today:** ⌃⇥ cycles to the next tab **in Browse only** — `switchPaneFocus` keeps it in Compare,
+**Landed (SH3, owner decision 2026-10-25):** ⌃⇧⇥ is Previous Tab — the same step as ⇧⌘[,
+wherever ⇧⌘[ is live, Compare included (`AppChord.previousTabControl`). The symmetry worry below
+was settled by the owner's framing rather than by inventing a reverse pane switch: ⌃⇧⇥ is Previous
+Tab's second chord, and ⌃⇥ keeps its two meanings. The Go menu shows one row per step: the ⌃⇥ item
+(as Next Tab) and the ⌃⇧⇥ item are hidden behind Next Tab ⇧⌘] and Previous Tab ⇧⌘[ with their keys
+live (`GoMenuDuplicates`). The decision asked for AppKit alternates; `isAlternate` folds only items
+sharing a key equivalent, which ⇧⌘] and ⌃⇥ do not, so hiding is the fallback the decision named.
+
+**Was:** ⌃⇥ cycled to the next tab **in Browse only** — `switchPaneFocus` keeps it in Compare,
 where two panes exist to switch between. Its shifted partner ⌃⇧⇥ is registered nowhere: there is no
 backwards cycle on that chord in either workspace. ⇧⌘[ and ⇧⌘] do cycle both directions everywhere,
 so nothing is unreachable — this is a missing *second* way, not a missing capability.

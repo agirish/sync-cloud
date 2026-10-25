@@ -45,7 +45,26 @@ import Testing
     }
 }
 
+/// The summary's lines as printed, markers stripped and nothing folded — what these tests compare.
+private func plain(_ lines: [String]) -> [String] { lines.map(CLIOutput.stripped) }
+
 @Suite struct SyncSummaryTests {
+
+    /// **Every path in the summary is marked verbatim, and no reason is** (FC10): the path prints
+    /// as it is on disk, and the sentence after it folds.
+    @Test func theSummaryMarksEachPathButNotItsReason() {
+        var tally = SyncTally()
+        tally.recordSkipped(relativePath: "Bob’s “notes” ", reason: .nameViolation,
+                            detail: "Dropbox doesn’t allow names ending with a space.")
+        tally.recordSkipped(relativePath: "Report – Final.pdf", reason: .collision)
+        let s = syncSummary(tally: tally, strategy: .skip)
+        #expect(s.stdoutLines.contains(
+            "  \(CLIOutput.verbatim("Bob’s “notes” ")) — Dropbox doesn’t allow names ending with a space."))
+        #expect(s.stdoutLines.contains("  \(CLIOutput.verbatim("Report – Final.pdf"))"))
+        #expect(s.stdoutLines.map(CLIOutput.ascii).contains(
+            "  Bob’s “notes”  - Dropbox doesn't allow names ending with a space."))
+    }
+
 
     private func tally(
         copied: Int = 0, replaced: Int = 0, skipped: [String] = [],
@@ -63,30 +82,30 @@ import Testing
 
     @Test func testCleanRunIsOneLineAndExitsZero() {
         let s = syncSummary(tally: tally(copied: 3), strategy: .replace)
-        #expect(s.stdoutLines == ["Sync complete. Copied: 3, Skipped: 0, Failed: 0."])
+        #expect(plain(s.stdoutLines) == ["Sync complete. Copied: 3, Skipped: 0, Failed: 0."])
         #expect(s.stderrLines.isEmpty)
         #expect(!s.exitNonzero)
     }
 
     @Test func testFailuresGoToStderrAndExitNonzero() {
         let s = syncSummary(tally: tally(copied: 1, failed: 2), strategy: .replace)
-        #expect(s.stdoutLines.first == "Sync complete. Copied: 1, Skipped: 0, Failed: 2.")
+        #expect(plain(s.stdoutLines).first == "Sync complete. Copied: 1, Skipped: 0, Failed: 2.")
         #expect(s.stderrLines == ["2 file(s) failed to sync (errors above); exiting with a non-zero status."])
         #expect(s.exitNonzero)
     }
 
     @Test func testSkipStrategySkipsExplainTheFix() {
         let s = syncSummary(tally: tally(skipped: ["a.txt", "b/c.txt"]), strategy: .skip)
-        #expect(s.stdoutLines.contains(
+        #expect(plain(s.stdoutLines).contains(
             "Skipped 2 file(s) (existing files left untouched; use --strategy replace to update them):"))
-        #expect(s.stdoutLines.suffix(2) == ["  a.txt", "  b/c.txt"])
+        #expect(plain(s.stdoutLines).suffix(2) == ["  a.txt", "  b/c.txt"])
         #expect(s.stderrLines == ["2 file(s) already existed at the destination and were not synced; exiting with a non-zero status."])
         #expect(s.exitNonzero, "a file left uncopied is a partial sync, whatever skipped it")
     }
 
     @Test func testReplacedCountMentionsTrashRecovery() {
         let s = syncSummary(tally: tally(copied: 4, replaced: 2), strategy: .replace)
-        #expect(s.stdoutLines.contains(
+        #expect(plain(s.stdoutLines).contains(
             "Replaced 2 existing file(s); previous versions are recoverable from the Trash (exact paths in ~/sync-cloud.log)."))
     }
 
@@ -99,13 +118,13 @@ import Testing
                          nameSkipped: [("Swimming ", "Dropbox doesn't allow names ending with a space.")]),
             strategy: .skip
         )
-        #expect(s.stdoutLines.contains(
+        #expect(plain(s.stdoutLines).contains(
             "Skipped 1 file(s) (existing files left untouched; use --strategy replace to update them):"))
-        #expect(s.stdoutLines.contains("  kept.txt"))
-        #expect(s.stdoutLines.contains(
+        #expect(plain(s.stdoutLines).contains("  kept.txt"))
+        #expect(plain(s.stdoutLines).contains(
             "Skipped 1 file(s) (name not allowed by the destination provider):"))
-        #expect(s.stdoutLines.contains("  Swimming  — Dropbox doesn't allow names ending with a space."))
-        #expect(s.stdoutLines.first == "Sync complete. Copied: 0, Skipped: 2, Failed: 0.")
+        #expect(plain(s.stdoutLines).contains("  Swimming  — Dropbox doesn't allow names ending with a space."))
+        #expect(plain(s.stdoutLines).first == "Sync complete. Copied: 0, Skipped: 2, Failed: 0.")
         #expect(s.stderrLines == [
             "1 file(s) already existed at the destination and were not synced; exiting with a non-zero status.",
             "1 file(s) have names the destination provider does not allow and were not synced; exiting with a non-zero status.",
@@ -120,18 +139,18 @@ import Testing
             tally: tally(copied: 2, nameSkipped: [("a b ", "OneDrive doesn't allow names beginning or ending with a space.")]),
             strategy: .replace
         )
-        #expect(!s.stdoutLines.joined().contains("destination already existed"))
-        #expect(s.stdoutLines.contains(
+        #expect(!plain(s.stdoutLines).joined().contains("destination already existed"))
+        #expect(plain(s.stdoutLines).contains(
             "Skipped 1 file(s) (name not allowed by the destination provider):"))
-        #expect(s.stdoutLines.contains("  a b  — OneDrive doesn't allow names beginning or ending with a space."))
+        #expect(plain(s.stdoutLines).contains("  a b  — OneDrive doesn't allow names beginning or ending with a space."))
     }
 
     @Test func testNameViolationSkipWithoutDetailFallsBackToTheBarePath() {
         // Defensive: no current caller omits the detail, but a missing one must degrade to the
         // old bare-path line, never print a dangling " — ".
         let s = syncSummary(tally: tally(nameSkipped: [("Swimming ", nil)]), strategy: .replace)
-        #expect(s.stdoutLines.contains("  Swimming "))
-        #expect(!s.stdoutLines.joined().contains(" — "))
+        #expect(plain(s.stdoutLines).contains("  Swimming "))
+        #expect(!plain(s.stdoutLines).joined().contains(" — "))
     }
 
     /// FR43, owner decision 2026-10-25. `0` only when every planned file was copied: a skip of any
@@ -155,13 +174,13 @@ import Testing
             let s = syncSummary(tally: t, strategy: .skip)
             #expect(s.exitNonzero, "\(reason) skip exited 0")
             #expect(s.stderrLines == [line], "\(reason)")
-            #expect(s.stdoutLines.first == "Sync complete. Copied: 2, Skipped: 1, Failed: 0.")
+            #expect(plain(s.stdoutLines).first == "Sync complete. Copied: 2, Skipped: 1, Failed: 0.")
         }
     }
 
     @Test func testNoSkipExplanationWhenNothingSkipped() {
         let s = syncSummary(tally: tally(copied: 1), strategy: .skip)
-        #expect(s.stdoutLines.count == 1)
+        #expect(plain(s.stdoutLines).count == 1)
     }
 
     /// Golden snapshot of the FULL summary for one mixed run — copies (some replacing, i.e. both
@@ -180,7 +199,7 @@ import Testing
                          failed: 1),
             strategy: .skip
         )
-        #expect(s.stdoutLines == [
+        #expect(plain(s.stdoutLines) == [
             "Sync complete. Copied: 3, Skipped: 4, Failed: 1.",
             "Replaced 2 existing file(s); previous versions are recoverable from the Trash (exact paths in ~/sync-cloud.log).",
             "Skipped 2 file(s) (existing files left untouched; use --strategy replace to update them):",

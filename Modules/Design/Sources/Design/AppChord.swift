@@ -241,6 +241,10 @@ public extension AppChord {
     /// ⇧⌘] / ⇧⌘[, so the unshifted pair stays pane back/forward.
     static let nextTab = AppChord("]", [.shift, .command])
     static let previousTab = AppChord("[", [.shift, .command])
+    /// Previous Tab's second chord, ⌃⇧⇥ — the reverse of ⌃⇥ (SH3). It does what ⇧⌘[ does,
+    /// wherever ⇧⌘[ does it; its Go menu item is hidden behind Previous Tab ⇧⌘[ with its key
+    /// left live (`GoMenuDuplicates`). Free for the reason ⌃⇥ is: no window tabs to claim it.
+    static let previousTabControl = AppChord(.tab, [.control, .shift])
     /// View ▸ Tab Bar. ⇧⌘T is Finder's, and it is free here — Reopen Closed Tab therefore has no
     /// chord at all rather than an ⌥ one, which would be the single kind that can fire through the
     /// ⌥-hold reveal (see `foldAllDifferences`).
@@ -414,7 +418,7 @@ public extension AppChord {
         folderSidebar, hiddenFiles, previewColumn,
         deleteSelection, switchPaneFocus,
         openSelectedFolder, enclosingFolder,
-        newTab, closeTab, nextTab, previousTab, tabBar,
+        newTab, closeTab, nextTab, previousTab, previousTabControl, tabBar,
         reviewDifferences, verifyDifferences, differencesList, foldAllDifferences, compareTwoFiles,
         copyToLeft, copyToRight, moveToLeft, moveToRight,
         textBigger, textSmaller, textDefaultSize,

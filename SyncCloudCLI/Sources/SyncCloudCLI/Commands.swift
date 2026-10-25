@@ -59,7 +59,7 @@ func pendingMigrationSourceNames() -> String? {
         defaults: UserDefaults(suiteName: SettingsManager.appSuiteName) ?? .standard,
         domainName: SettingsManager.appSuiteName)
     guard !pending.isEmpty else { return nil }
-    return pending.keys.sorted().joined(separator: ", ")
+    return pending.keys.sorted().map(CLIOutput.verbatim).joined(separator: ", ")
 }
 
 /// `providers` warns instead of refusing.
@@ -74,7 +74,7 @@ func pendingMigrationSourceNames() -> String? {
 /// stderr, so a script piping the listing still gets a clean stdout.
 func warnIfMigrationPending() {
     guard let names = pendingMigrationSourceNames() else { return }
-    FileHandle.standardError.write(Data((
+    FileHandle.standardError.write(Data(CLIOutput.ascii(
         "warning: SyncCloud's stored folder locations for \(names) are from an older layout. "
         + "The roots below are the ones discovery finds now; launch SyncCloud.app once to move "
         + "your stored folder positions onto them before running scan or sync.\n"
@@ -115,9 +115,11 @@ func flushingLogToDisk<T>(_ body: () async throws -> T) async rethrows -> T {
         // this CLI can see. Translating to ArgumentParser's types stays here, since Core must not
         // depend on ArgumentParser.
         switch CLIExitMapping.outcome(for: error) {
-        case .validationFailure(let message): throw ValidationError(message)
+        // ArgumentParser prints this message itself, so it is folded here (FC10): it is often a
+        // shared sentence, curly in the app.
+        case .validationFailure(let message): throw ValidationError(CLIOutput.ascii(message))
         case .syncFailure: throw ExitCode.failure
-        case .rethrow: throw error
+        case .rethrow: throw CLIOutput.foldedForPrinting(error)
         }
     }
 }
@@ -215,7 +217,7 @@ struct Restructure: AsyncParsableCommand {
     @Flag(name: .long, help: "Emit the full report as JSON (stable format; includes the crowding path lists the text summary only counts).")
     var json: Bool = false
 
-    @Option(name: .long, help: "Profiles directory to read instead of the app's own — for fixtures and other machines' surveys.",
+    @Option(name: .long, help: "Profiles directory to read instead of the app's own - for fixtures and other machines' surveys.",
             completion: .directory)
     var profilesDir: String?
 
@@ -238,8 +240,9 @@ struct Restructure: AsyncParsableCommand {
             } catch let failure as RestructureReporting.Failure {
                 throw CLIValidationError(message: failure.errorDescription ?? "\(failure)")
             }
+            // The text report folded to ASCII punctuation (FC10); the JSON left as written.
             print(json ? try RestructureReporting.renderJSON(output)
-                       : RestructureReporting.renderText(output))
+                       : CLIOutput.ascii(RestructureReporting.renderText(output)))
         }
     }
 }

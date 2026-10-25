@@ -11,9 +11,17 @@ import Foundation
 /// figure invites arithmetic the estimate cannot support.
 public enum DocumentSurveyCost {
 
-    /// `"About 3 h for 6,140 documents."`
+    /// **Below this many documents the read takes minutes, not hours** (FC7), so the sentence says
+    /// "A few minutes" — "About 3 h" over a dozen documents overstated the cost by a hundredfold.
+    public static let fewMinutesBelow = 200
+
+    /// `"About 3 h for 6,140 documents."` — or, under `fewMinutesBelow`, `"A few minutes for 12 documents."`
     public static func phrase(documents: Int) -> String {
-        "About 3 h for \(documentCount(documents))."
+        "\(duration(documents)) for \(documentCount(documents))."
+    }
+
+    private static func duration(_ n: Int) -> String {
+        n < fewMinutesBelow ? "A few minutes" : "About 3 h"
     }
 
     private static func documentCount(_ n: Int) -> String {
@@ -22,6 +30,6 @@ public enum DocumentSurveyCost {
 
     /// The same figure as the survey card's offer draws it, in the middle of its sentence.
     public static func offerClause(documents: Int) -> String {
-        "About 3 h for \(documentCount(documents)), in the background."
+        "\(duration(documents)) for \(documentCount(documents)), in the background."
     }
 }

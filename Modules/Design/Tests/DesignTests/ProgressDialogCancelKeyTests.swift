@@ -47,7 +47,7 @@ import Testing
 
     private func cancellable() -> Progress {
         let progress = Progress(totalUnitCount: 7363)
-        progress.localizedDescription = "Copying 7,363 Items"
+        progress.localizedDescription = "Copying 7,363 items"
         progress.isCancellable = true
         progress.completedUnitCount = 3336
         return progress

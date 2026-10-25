@@ -177,7 +177,7 @@ import Foundation
     /// `deleteItems` after it — and that call ran unconditionally, so a fold completed BEFORE the
     /// user pressed Cancel was trashed AFTER it. Measured at 6fe2c8c7 on a Trash-less volume: the
     /// Cancel was answered by a modal permanent-delete alert the user never asked for
-    /// (`permanentDeletePrompts=[["A-…"]]`), and a second "Moving N Items to the Trash" progress dialog with
+    /// (`permanentDeletePrompts=[["A-…"]]`), and a second "Moving N items to the Trash" progress dialog with
     /// its own, different Cancel appeared behind it. Before the restructure a Cancel stopped
     /// further trashing, because each fold was trashed inside the loop.
     ///

@@ -855,9 +855,12 @@ struct SyncCloudApp: App {
                 Divider()
                 NextTabCommand()            // ⇧⌘]
                 PreviousTabCommand()        // ⇧⌘[
+                // Hidden behind the item above, its key live (SH3, `GoMenuDuplicates`).
+                PreviousTabControlCommand() // ⌃⇧⇥
                 Divider()
                 // ⌃⇥ — the other pane in Compare, the next tab in Browse. One key, one item, and
-                // a title that names which of the two it is about to do (`PaneFocusSwitch`).
+                // a title that names which of the two it is about to do (`PaneFocusSwitch`). As
+                // Next Tab it is hidden behind Next Tab ⇧⌘], its key live (SH3, `GoMenuDuplicates`).
                 SwitchPaneFocusCommand()    // ⌃⇥
             }
             // Compare ▸ the differences header's two bulk actions. Their availability is the
@@ -1148,6 +1151,9 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         let version = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"
         Logger.shared.info("SyncCloud \(version) (build \(build)) launched")
+
+        // The Go menu's ⌃⇥ / ⌃⇧⇥ twins: hidden behind their ⇧⌘ items, keys live (SH3).
+        GoMenuDuplicates.install()
 
         // How this build is signed, on the very next line — ad-hoc means its first launch waits
         // behind the Documents-access dialog, which is the whole of speed audit P16 and was

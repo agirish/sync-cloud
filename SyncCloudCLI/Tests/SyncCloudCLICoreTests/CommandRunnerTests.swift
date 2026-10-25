@@ -72,7 +72,7 @@ import Sync
     @Test func scanRejectsAnUnknownProviderOrPathAsValidation() async throws {
         let rec = Recorder()
         let runner = makeRunner(rec)
-        await #expect(throws: CLIValidationError(message: "Path or provider 'no-such-provider' for Left could not be found.")) {
+        await #expect(throws: CLIValidationError(message: "Path or provider '\(CLIOutput.verbatim("no-such-provider"))' for Left could not be found.")) {
             try await runner.runScan(left: "no-such-provider", right: "/tmp",
                                      direction: .auto, showHidden: false, ignore: [], json: false)
         }
@@ -86,7 +86,7 @@ import Sync
         let rec = Recorder()
         let runner = makeRunner(rec, providers: [provider])
         await #expect(throws: CLIValidationError(message:
-            "Root '\(missingRoot)' of provider 'Dropbox' (Right) does not exist. The provider may be unmounted or signed out.")) {
+            "Root '\(CLIOutput.verbatim(missingRoot))' of provider 'Dropbox' (Right) does not exist. The provider may be unmounted or signed out.")) {
             try await runner.runScan(left: "/tmp", right: "dropbox",
                                      direction: .auto, showHidden: false, ignore: [], json: false)
         }
@@ -95,7 +95,7 @@ import Sync
     @Test func syncSurfacesTheSameValidationErrors() async throws {
         let rec = Recorder()
         let runner = makeRunner(rec)
-        await #expect(throws: CLIValidationError(message: "Path or provider 'nope' for Right could not be found.")) {
+        await #expect(throws: CLIValidationError(message: "Path or provider '\(CLIOutput.verbatim("nope"))' for Right could not be found.")) {
             try await runner.runSync(left: "/tmp", right: "nope",
                                      direction: .auto, showHidden: false, ignore: [],
                                      strategy: .replace, yes: true, failFast: false, verify: false)
@@ -190,6 +190,57 @@ import Sync
         #expect(held["heldBack"] as? String == "sizes-differ-without-a-newer-side")
         #expect(plain["needsDecision"] as? Bool == false)
         #expect(plain["heldBack"] == nil)
+    }
+
+    /// **A file's name is printed as it is on disk, in the text listing and the JSON** (FC10). The
+    /// fold is for the tool's own words: "Bob’s.txt" folded to "Bob's.txt" names a file that does
+    /// not exist when pasted back into a shell. The names are curly so a fold would show, and the
+    /// JSON is checked for the markers that keep them unfolded — they must never reach it.
+    @Test func scanPrintsFileNamesVerbatimInTextAndJSON() async throws {
+        let left = try makeTempRoot(), right = try makeTempRoot()
+        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        try write(left.appendingPathComponent("Bob’s.txt"), "abc")
+        try write(left.appendingPathComponent("“Report – Final”.pdf"), "def")
+
+        let text = Recorder()
+        try await makeRunner(text).runScan(left: left.path, right: right.path,
+                                           direction: .auto, showHidden: false, ignore: [], json: false)
+        #expect(text.out.contains("- [missing-on-right] [copy-to-right] Bob’s.txt\n"), "\(text.out)")
+        #expect(text.out.contains("- [missing-on-right] [copy-to-right] “Report – Final”.pdf\n"), "\(text.out)")
+        #expect(!text.out.contains("\u{E000}") && !text.out.contains("\u{E001}"), "a marker was printed")
+
+        let json = Recorder()
+        try await makeRunner(json).runScan(left: left.path, right: right.path,
+                                           direction: .auto, showHidden: false, ignore: [], json: true)
+        #expect(!json.out.contains("\u{E000}") && !json.out.contains("\u{E001}"), "a marker reached the JSON")
+        let payload = try #require(
+            try JSONSerialization.jsonObject(with: Data(json.out.utf8)) as? [[String: Any]], "\(json.out)")
+        #expect(Set(payload.compactMap { $0["relativePath"] as? String }) == ["Bob’s.txt", "“Report – Final”.pdf"])
+    }
+
+    /// **The name stays curly while the words around it fold** (FC10): a name Dropbox refuses is
+    /// printed as it is on disk, in the stderr line and the summary, and the reason — a shared
+    /// sentence, curly in the app — and the summary's " — " come out as ASCII.
+    @Test func syncPrintsASkippedNameVerbatimAndFoldsItsReason() async throws {
+        let left = try makeTempRoot(), right = try makeTempRoot()
+        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        try write(left.appendingPathComponent("Bob’s “Report – Final” "), "splash")
+        let dropbox = CloudProvider(id: "dropbox-test", displayName: "Dropbox", imageName: "folder",
+                                    rootPath: right.path, type: .dropBox)
+        let rec = Recorder()
+        await #expect(throws: CLISyncFailuresError()) {
+            try await makeRunner(rec, providers: [dropbox]).runSync(
+                left: left.path, right: "dropbox-test",
+                direction: .auto, showHidden: false, ignore: [],
+                strategy: .replace, yes: true, failFast: false, verify: false)
+        }
+        #expect(rec.err.hasPrefix(
+            "Skipping Bob’s “Report – Final” : Dropbox doesn't allow names ending with a space. Dropbox would not upload it.\n"),
+            "\(rec.err)")
+        #expect(rec.out.contains("  Bob’s “Report – Final”  - Dropbox doesn't allow names ending with a space.\n"),
+                "\(rec.out)")
+        #expect(!rec.out.contains("\u{E000}") && !rec.err.contains("\u{E000}")
+                && !rec.out.contains("\u{E001}") && !rec.err.contains("\u{E001}"), "a marker was printed")
     }
 
     @Test func scanHonorsTheDirectionFilter() async throws {
@@ -377,11 +428,15 @@ import Sync
 
         // Exactly one copy: the valid name. The violating one is skipped BEFORE any write.
         #expect(rec.copies.map(\.source.lastPathComponent) == ["normal.txt"])
-        #expect(rec.err == "Skipping Swimming : \(expectedReason) Dropbox would not upload it.\n"
+        // **The reason is printed with ASCII punctuation** (FC10): the shared sentence is curly in
+        // the app, and the tool folds it where it writes — stderr and stdout alike.
+        #expect(expectedReason == "Dropbox doesn’t allow names ending with a space.", "the premise: a curly reason")
+        #expect(rec.err == "Skipping Swimming : Dropbox doesn't allow names ending with a space. Dropbox would not upload it.\n"
                 + "1 file(s) have names the destination provider does not allow and were not synced; exiting with a non-zero status.\n")
         #expect(rec.out.contains("Sync complete. Copied: 1, Skipped: 1, Failed: 0."))
         #expect(rec.out.contains("Skipped 1 file(s) (name not allowed by the destination provider):"))
-        #expect(rec.out.contains("  Swimming  — \(expectedReason)"))
+        #expect(rec.out.contains("  Swimming  - Dropbox doesn't allow names ending with a space."))
+        #expect(!rec.out.contains("’") && !rec.err.contains("’") && !rec.out.contains("—"))
     }
 
     // MARK: sync — the right→left direction
@@ -435,10 +490,10 @@ import Sync
         // Exactly one copy: the valid name. The reserved one is refused BEFORE any write, even
         // though the RIGHT (source) side — an ordinary folder — has no name rules at all.
         #expect(rec.copies.map(\.source.lastPathComponent) == ["normal.txt"])
-        #expect(rec.err == "Skipping CON.txt: \(expectedReason) OneDrive (Personal) would not upload it.\n"
+        #expect(rec.err == "Skipping CON.txt: \(CLIOutput.ascii(expectedReason)) OneDrive (Personal) would not upload it.\n"
                 + "1 file(s) have names the destination provider does not allow and were not synced; exiting with a non-zero status.\n")
         #expect(rec.out.contains("Sync complete. Copied: 1, Skipped: 1, Failed: 0."))
-        #expect(rec.out.contains("  CON.txt — \(expectedReason)"))
+        #expect(rec.out.contains("  CON.txt - \(CLIOutput.ascii(expectedReason))"))
     }
 
     @Test func syncLeftwardValidatesTheDestinationSpellingNotTheSourceOne() async throws {
@@ -508,7 +563,7 @@ import Sync
                 "a path-addressed OneDrive root must refuse the reserved name, not copy it")
         // The message names the ad-hoc "Right" label, not "OneDrive (Personal)" — proof the root
         // resolved down the PATH branch and still inherited the account's provider type.
-        #expect(rec.err == "Skipping CON.txt: \(expectedReason) Right would not upload it.\n"
+        #expect(rec.err == "Skipping CON.txt: \(CLIOutput.ascii(expectedReason)) Right would not upload it.\n"
                 + "1 file(s) have names the destination provider does not allow and were not synced; exiting with a non-zero status.\n")
         #expect(rec.out.contains("Sync complete. Copied: 1, Skipped: 1, Failed: 0."))
     }
@@ -739,7 +794,7 @@ import Sync
         // about whether the run explained the skip at the end.
         #expect(rec.out.contains("""
         Skipped 1 file(s) that changed after the plan was shown; re-run sync to see the current plan:
-          a-moved.txt — the destination changed after the plan was shown
+          a-moved.txt - the destination changed after the plan was shown
         """), "\(rec.out)")
         #expect(rec.err.contains(
             "Skipping a-moved.txt: the destination changed after the plan was shown. "
@@ -789,7 +844,8 @@ import Sync
         }
 
         #expect(rec.copies.map(\.source.lastPathComponent) == ["b-missing.txt"])
-        let note = "Sizes differ but the dates match within the 1 s tolerance — choose which to keep"
+        // The em dash folded to a hyphen where the tool prints it (FC10).
+        let note = "Sizes differ but the dates match within the 1 s tolerance - choose which to keep"
         #expect(rec.out.contains("""
         Planned operations (1):
           Left : \(left.path) [Left]
@@ -804,7 +860,7 @@ import Sync
         #expect(rec.out.contains("Sync complete. Copied: 1, Skipped: 1, Failed: 0."), "\(rec.out)")
         #expect(rec.out.hasSuffix("""
         Left 1 item(s) for you to decide, each with its reason:
-          a-held.txt — \(note)
+          a-held.txt - \(note)
 
         """), "\(rec.out)")
         #expect(rec.err == "1 item(s) need your decision and were not synced; exiting with a non-zero status.\n")
@@ -832,7 +888,7 @@ import Sync
         #expect(rec.copies.isEmpty, "the link was handed to the copy: \(rec.copies)")
         #expect(rec.out.hasPrefix("Nothing to sync automatically.\n"), "\(rec.out)")
         #expect(rec.out.contains("""
-        - Linked [missing-on-right] Folder missing on right (Right) — it is a link, so a copy would be a link too, not what it points to
+        - Linked [missing-on-right] Folder missing on right (Right) - it is a link, so a copy would be a link too, not what it points to
         """), "\(rec.out)")
         #expect(rec.out.contains("Sync complete. Copied: 0, Skipped: 1, Failed: 0."), "\(rec.out)")
         #expect(rec.err == "1 item(s) need your decision and were not synced; exiting with a non-zero status.\n",

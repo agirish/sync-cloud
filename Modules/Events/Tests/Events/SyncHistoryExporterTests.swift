@@ -26,6 +26,28 @@ import Foundation
         )
     }
 
+    /// **A trash move is labelled "Move to Trash"; only a permanent delete says "Delete"** (FD2),
+    /// told apart by the Trash location the record keeps. The raw value stays `delete`, so the
+    /// history file and the CSV/JSON a script reads are unchanged.
+    @Test func aDeleteIsLabelledByWhetherItReachedTheTrash() throws {
+        let trashed = SyncHistoryRecord(runId: UUID(), action: .delete, sourcePath: "/src/a.txt",
+                                        backupPath: "/Users/me/.Trash/a.txt")
+        let permanent = SyncHistoryRecord(runId: UUID(), action: .delete, sourcePath: "/Volumes/X/b.txt")
+        #expect(SyncAction.delete.label == "Move to Trash")
+        #expect(trashed.actionLabel == "Move to Trash")
+        #expect(!trashed.isPermanentDelete)
+        #expect(permanent.actionLabel == "Delete")
+        #expect(permanent.isPermanentDelete)
+        // A copy or move with no backup is not a delete of any kind.
+        #expect(sampleRecord(action: .copy).actionLabel == "Copy")
+        #expect(sampleRecord(action: .move).actionLabel == "Move")
+
+        #expect(SyncAction.delete.rawValue == "delete")
+        let csvRow = try #require(SyncHistoryExporter.csv([trashed]).split(separator: "\n").dropFirst().first)
+        #expect(csvRow.contains(",delete,"), "\(csvRow)")
+        #expect(!csvRow.contains("Trash,"), "the CSV printed the label, not the raw value: \(csvRow)")
+    }
+
     @Test func testCSVHasHeaderAndOneRowPerRecord() {
         let records = [sampleRecord(), sampleRecord(action: .delete, dest: nil, direction: nil)]
         let csv = SyncHistoryExporter.csv(records)

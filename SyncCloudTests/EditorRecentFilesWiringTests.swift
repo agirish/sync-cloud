@@ -56,7 +56,7 @@ import FileExplorer
     }
 
     /// **The page and the menu open through the hand-off**, so the pane follows the file — the
-    /// page handed the shared store, and New Note ⌘N's closure (`theHeaderPlusIsHandedTheNewFileChordItself`).
+    /// page handed the shared store, and New Text File ⌘N's closure (`theHeaderPlusIsHandedTheNewFileChordItself`).
     @Test func thePageAndTheMenuOpenThroughTheHandOff() throws {
         let workspace = try EditorHeaderDoorsWiringTests.memberBody("func editorWorkspace(showsRail: Bool, railWidth: CGFloat",
                                                                    in: EditorHeaderDoorsWiringTests.editor())

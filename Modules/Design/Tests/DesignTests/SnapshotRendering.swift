@@ -27,11 +27,17 @@ import SwiftUI
 ///   it: the same instant renders a different string once the machine changes zone, which is
 ///   what sank two Dashboard references on 2026-09-05 (see SNAPSHOTS.md)
 /// - nothing async (QuickLook thumbnails, network images) inside the snapshotted tree
+///
+/// `precision` and `perceptualPrecision` default to the suite-wide tolerance. A caller tightens
+/// them only where a small control's shift must fail: at the default, 1% of the canvas may
+/// differ, which a control under ~1% of it fits inside (SNAP, the customize sheet).
 @MainActor
 func assertViewSnapshot<V: View>(
     of view: V,
     size: CGSize,
     named name: String,
+    precision: Float = 0.99,
+    perceptualPrecision: Float = 0.98,
     fileID: StaticString = #fileID,
     file filePath: StaticString = #filePath,
     testName: String = #function,
@@ -45,7 +51,7 @@ func assertViewSnapshot<V: View>(
             of: image,
             // Sub-1.0 precision + perceptual tolerance absorb anti-aliasing jitter without
             // letting a real color/layout change through.
-            as: .image(precision: 0.99, perceptualPrecision: 0.98),
+            as: .image(precision: precision, perceptualPrecision: perceptualPrecision),
             named: "\(name)-\(variant)",
             fileID: fileID,
             file: filePath,

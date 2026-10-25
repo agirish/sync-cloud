@@ -117,7 +117,7 @@ public func syncSummary(tally: SyncTally, strategy: CollisionStrategy) -> (
             ? "existing files left untouched; use --strategy replace to update them"
             : "destination already existed"
         out.append("Skipped \(collisionSkips.count) file(s) (\(reason)):")
-        out.append(contentsOf: collisionSkips.map { "  \($0.relativePath)" })
+        out.append(contentsOf: collisionSkips.map { "  \(CLIOutput.verbatim($0.relativePath))" })
     }
     let nameSkips = tally.skippedItems.filter { $0.reason == .nameViolation }
     if !nameSkips.isEmpty {
@@ -128,7 +128,7 @@ public func syncSummary(tally: SyncTally, strategy: CollisionStrategy) -> (
         // to the bare path, described by the heading.
         out.append("Skipped \(nameSkips.count) file(s) (name not allowed by the destination provider):")
         out.append(contentsOf: nameSkips.map { item in
-            "  \(item.relativePath)\(item.detail.map { " — \($0)" } ?? "")"
+            "  \(CLIOutput.verbatim(item.relativePath))\(item.detail.map { " — \($0)" } ?? "")"
         })
     }
     // Reported apart from the two above for the same reason they are reported apart from each
@@ -139,7 +139,7 @@ public func syncSummary(tally: SyncTally, strategy: CollisionStrategy) -> (
     if !staleSkips.isEmpty {
         out.append("Skipped \(staleSkips.count) file(s) that changed after the plan was shown; re-run sync to see the current plan:")
         out.append(contentsOf: staleSkips.map { item in
-            "  \(item.relativePath)\(item.detail.map { " — \($0)" } ?? "")"
+            "  \(CLIOutput.verbatim(item.relativePath))\(item.detail.map { " — \($0)" } ?? "")"
         })
     }
     // Apart from the rest because no re-run or flag resolves these: each is a choice only the
@@ -148,7 +148,7 @@ public func syncSummary(tally: SyncTally, strategy: CollisionStrategy) -> (
     if !heldSkips.isEmpty {
         out.append("Left \(heldSkips.count) item(s) for you to decide, each with its reason:")
         out.append(contentsOf: heldSkips.map { item in
-            "  \(item.relativePath)\(item.detail.map { " — \($0)" } ?? "")"
+            "  \(CLIOutput.verbatim(item.relativePath))\(item.detail.map { " — \($0)" } ?? "")"
         })
     }
     var err: [String] = []

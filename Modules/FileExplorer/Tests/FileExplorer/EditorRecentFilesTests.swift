@@ -198,11 +198,11 @@ import FileExplorerTestSupport
         #expect(files[3].folderName == "iCloud Drive")
     }
 
-    /// The page's sentence, as decided: where New Note's file goes, then ⌘O from the chord itself.
-    @Test func theCaptionSaysWhereNewNoteGoesThenHowToOpenAnother() {
+    /// The page's sentence, as decided: where New Text File's file goes, then ⌘O from the chord itself.
+    @Test func theCaptionSaysWhereNewTextFileGoesThenHowToOpenAnother() {
         let open = AppChord.openInEditor.display
         #expect(EditorRecentFilesPage<EmptyView>.caption(folderName: "Recipes")
-                == "New Note asks for a name, then makes the file in Recipes. To open a different file, select a text file "
+                == "New Text File asks for a name, then makes the file in Recipes. To open a different file, select a text file "
                 + "or a PDF file in Browse, Compare or Organize and press \(open).")
         // No folder to name: ⌘N goes to Notes, and the sentence says so.
         #expect(EditorRecentFilesPage<EmptyView>.caption(folderName: "").contains("makes the file in Notes."))
@@ -229,7 +229,7 @@ import FileExplorerTestSupport
         let code = try ChromeGlassWiringTests.source("EditorWorkspaceView.swift")
         #expect(code.contains("EditorRecentFilesPage(recents: recentFiles, open: onOpenRecent, newNote: onNewTextFile,"),
                 "the page is not handed the host's open and ⌘N's closure")
-        #expect(code.contains("newNoteFolder: newFileFolderLabel,"), "New Note names a folder other than the ＋'s")
+        #expect(code.contains("newNoteFolder: newFileFolderLabel,"), "New Text File names a folder other than the ＋'s")
         // A row's right-click: the body never runs offscreen, so its one act is read off the code.
         let page = try ChromeGlassWiringTests.source("EditorRecentFilesPage.swift")
         #expect(page.contains("Button(Self.removeTitle) { recents.remove(path: file.path) }"),

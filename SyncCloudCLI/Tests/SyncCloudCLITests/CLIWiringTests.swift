@@ -200,6 +200,27 @@ import SyncCloudCLICore
         }
     }
 
+    /// **What ArgumentParser prints for us is folded to ASCII punctuation** (FC10): a validation
+    /// message, and the message of an error it prints as `Error: …`.
+    @Test func theMessagesArgumentParserPrintsAreFolded() async {
+        do {
+            try await flushingLogToDisk { throw CLIValidationError(message: "No active profile in Bob’s “Profiles”…") }
+            Issue.record("nothing was thrown")
+        } catch let error as ValidationError {
+            #expect(error.message == "No active profile in Bob's \"Profiles\"...")
+        } catch {
+            Issue.record("threw \(error) instead of ArgumentParser's ValidationError")
+        }
+
+        struct Curly: LocalizedError { var errorDescription: String? { "The file “a.txt” couldn’t be opened." } }
+        do {
+            try await flushingLogToDisk { throw Curly() }
+            Issue.record("nothing was thrown")
+        } catch {
+            #expect((error as? LocalizedError)?.errorDescription == "The file \"a.txt\" couldn't be opened.")
+        }
+    }
+
     @Test func syncFailuresBecomeExitCodeFailure() async {
         await #expect(throws: ExitCode.failure) {
             try await flushingLogToDisk { throw CLISyncFailuresError() }

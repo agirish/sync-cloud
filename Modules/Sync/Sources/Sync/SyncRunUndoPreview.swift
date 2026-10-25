@@ -37,6 +37,10 @@ public struct SyncRunUndoPreview: Sendable {
 
     /// Human count grouped by action, zero buckets omitted — e.g. "8 copies, 2 moves". Empty when
     /// there are no records.
+    ///
+    /// **A `.delete` here is always a move to the Trash** (FD2): a delete run is paired for Undo
+    /// Last Run only when every item reached the Trash (`deleteItems`), so the preview never holds
+    /// a permanent delete, and says "moves to the Trash" rather than "deletes".
     public var actionSummary: String {
         var counts: [SyncAction: Int] = [:]
         for r in records { counts[r.action, default: 0] += 1 }
@@ -46,10 +50,10 @@ public struct SyncRunUndoPreview: Sendable {
             switch action {
             case .copy: (singular, plural) = ("copy", "copies")
             case .move: (singular, plural) = ("move", "moves")
-            case .delete: (singular, plural) = ("delete", "deletes")
+            case .delete: (singular, plural) = ("move to the Trash", "moves to the Trash")
             case .matchDates: (singular, plural) = ("date match", "date matches")
             }
-            return "\(n) \(n == 1 ? singular : plural)"        // "2 copies", "1 move", "3 date matches"
+            return "\(n) \(n == 1 ? singular : plural)"        // "2 copies", "3 moves to the Trash", "1 date match"
         }.joined(separator: ", ")
     }
 
@@ -63,7 +67,7 @@ public struct SyncRunUndoPreview: Sendable {
             let src = (rec.sourcePath as NSString).lastPathComponent
             switch rec.action {
             case .delete:
-                lines.append("  •  Restore “\(src)” from the Trash")
+                lines.append("  •  Put back “\(src)” from the Trash")
             case .matchDates:
                 let dest = rec.destPath.map { ($0 as NSString).lastPathComponent } ?? src
                 lines.append("  •  Put back the date of “\(dest)”")
@@ -97,7 +101,7 @@ public struct SyncRunUndoPreview: Sendable {
             clauses.append("moved files go back to where they were")
         }
         if present.contains(.delete) {
-            clauses.append("deleted items are restored from the Trash")
+            clauses.append("items moved to the Trash are put back")
         }
         if present.contains(.matchDates) {
             clauses.append("files whose dates were matched get their own dates back, unless changed since")

@@ -349,7 +349,8 @@ extension FileSyncManager {
 
         let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
         if let progress {
-            progress.localizedDescription = "\(isMove ? "Moving" : "Copying") \(CountedNoun.phrase(Int(total), "Item"))"
+            // Sentence case, as Finder titles its progress (FD7) — the undo name stays Title Case.
+            progress.localizedDescription = "\(isMove ? "Moving" : "Copying") \(CountedNoun.phrase(Int(total), "item"))"
             progress.isCancellable = true
         }
 
@@ -1387,7 +1388,7 @@ extension FileSyncManager {
         if let progress {
             // What happens: a no-Trash volume asks first, in its own alert, before anything is
             // deleted outright.
-            progress.localizedDescription = "Moving \(CountedNoun.phrase(Int(total), "Item")) to the Trash"
+            progress.localizedDescription = "Moving \(CountedNoun.phrase(Int(total), "item")) to the Trash"
             progress.isCancellable = true
         }
 

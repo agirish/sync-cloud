@@ -192,6 +192,13 @@ import EventsTestSupport
         _ = await manager.deleteItems(at: ["/src/b.txt", "/src/c.txt"], fileManager: mockFM)
         // Part of this batch is gone for good, so the banner may not say "to the Trash".
         #expect(manager.banner?.message == "Deleted 2 items")
+        // **Sync History tells the two apart from the record itself** (FD2): the item that reached
+        // the Trash reads "Move to Trash", the one deleted outright "Delete" — and run 1's single
+        // trashed item "Move to Trash".
+        let labels = manager.syncHistoryStore.records.map(\.actionLabel)
+        #expect(labels.count == 3, "\(labels)")
+        #expect(labels.first == "Move to Trash")
+        #expect(labels.dropFirst().sorted() == ["Delete", "Move to Trash"])
 
         // The stack top is run 2's partial group; run 1's pairing must be dead, not matching
         // the colliding name.
@@ -319,14 +326,23 @@ import EventsTestSupport
         #expect(detail.components(separatedBy: "  •  ").count - 1 == 3)
     }
 
-    @Test func confirmationDetailPhrasesDeletesAsRestoreFromTrash() {
+    /// **A delete run is a move to the Trash, and Undo Last Run says so** (FD2): "3 moves to the
+    /// Trash … put back", where it said "3 deletes … restored from the Trash".
+    @Test func confirmationDetailPhrasesTrashMovesAsPutBack() {
         let run = UUID()
-        let rec = SyncHistoryRecord(runId: run, action: .delete, sourcePath: "/a/old.txt")
-        let detail = SyncRunUndoPreview(actionName: "Delete", records: [rec]).confirmationDetail()
-        #expect(detail.hasPrefix("This reverses 1 operation from the last run (1 delete):"))
-        #expect(detail.contains("Restore"))
-        #expect(detail.contains("old.txt"))
-        #expect(detail.contains("from the Trash"))
+        let recs = ["old.txt", "older.txt"].map {
+            SyncHistoryRecord(runId: run, action: .delete, sourcePath: "/a/\($0)", backupPath: "/Users/me/.Trash/\($0)")
+        }
+        let detail = SyncRunUndoPreview(actionName: "Move 2 Items to Trash", records: recs).confirmationDetail()
+        #expect(detail == """
+            This reverses 2 operations from the last run (2 moves to the Trash):
+              •  Put back “old.txt” from the Trash
+              •  Put back “older.txt” from the Trash
+
+            Items moved to the Trash are put back. You can redo this afterward.
+            """)
+        let one = SyncRunUndoPreview(actionName: "Move to Trash", records: [recs[0]])
+        #expect(one.actionSummary == "1 move to the Trash")
     }
 
     /// FR29: the closing note says what THIS run's undo does. A copy-only run used to be told
@@ -344,7 +360,7 @@ import EventsTestSupport
         let move = SyncHistoryRecord(runId: run, action: .move, sourcePath: "/a/m.txt", destPath: "/dest/dir/m.txt")
         let delete = SyncHistoryRecord(runId: run, action: .delete, sourcePath: "/a/old.txt")
         let mixed = SyncRunUndoPreview(actionName: "Sync run", records: [delete, move, copy]).confirmationDetail()
-        #expect(mixed.components(separatedBy: "\n").last == "The copies it made go to the Trash, and any file a copy replaced is put back; moved files go back to where they were; deleted items are restored from the Trash. You can redo this afterward.")
+        #expect(mixed.components(separatedBy: "\n").last == "The copies it made go to the Trash, and any file a copy replaced is put back; moved files go back to where they were; items moved to the Trash are put back. You can redo this afterward.")
 
         let moveOnly = SyncRunUndoPreview(actionName: "Sync run", records: [move]).confirmationDetail()
         #expect(moveOnly.components(separatedBy: "\n").last == "Moved files go back to where they were. You can redo this afterward.")

@@ -11460,3 +11460,30 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fe2=%s ds1=%s ds4=%s\n' $l \
 |---|---|---|
 | `v5.x` | Raw-accent links in both Previews, tinted pill words, the Mac's accent on native controls | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | Tinted pill words and the Mac's accent on native controls; no Markdown preview | RECORDED — not owed |
+
+---
+
+## Go's ⌃ tab twins, Sync History's Move to Trash, the CLI's ASCII punctuation (SH3, FD2, FC10) — main only
+
+Three owner decisions of 2026-10-25. **SH3:** ⌃⇧⇥ is Previous Tab, and Go hides Next Tab ⌃⇥ and
+Previous Tab ⌃⇧⇥ behind their ⇧⌘ twins with the keys live (`GoMenuDuplicates`). **FD2:** Sync
+History labels a trashed `.delete` "Move to Trash" — row, Action filter, Undo Last Run — and keeps
+"Delete" for a record with no Trash location; the raw value `delete` and the exports are unchanged.
+**FC10:** the `synccloud` tool folds ’ ‘ “ ” … – — to ASCII in its own words; paths, file names and JSON print as they are.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s ctrlTab=%s ctrlShiftTab=%s deleteLabel=%s cli=%s cliFold=%s\n' $l \
+  "$(git show origin/$l:Modules/Design/Sources/Design/AppChord.swift 2>/dev/null | grep -cF 'static let switchPaneFocus = AppChord(.tab, .control)')" \
+  "$(git show origin/$l:Modules/Design/Sources/Design/AppChord.swift 2>/dev/null | grep -cF 'AppChord(.tab, [.control, .shift])')" \
+  "$(git show origin/$l:Modules/Events/Sources/Events/SyncHistoryRecord.swift 2>/dev/null | grep -cF 'case .delete: return "Delete"')" \
+  "$(git ls-tree -r --name-only origin/$l -- SyncCloudCLI/Sources/SyncCloudCLICore/CommandRunner.swift | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:SyncCloudCLI/Sources/SyncCloudCLICore/CommandRunner.swift 2>/dev/null | grep -cF 'CLIOutput.ascii')"; done
+# measured 2026-10-25, against origin, before this landed (the change reads ctrlShiftTab=1 deleteLabel=0 cliFold=2):
+# main, v5.x, v4.x   ctrlTab=1 ctrlShiftTab=0 deleteLabel=1 cli=1 cliFold=0
+# v3.x, v2.x         ctrlTab=0 ctrlShiftTab=0 deleteLabel=1 cli=1 cliFold=0   (no AppChord.swift, no tabs)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` | No ⌃⇧⇥ (`ctrlShiftTab=0`), Go's two Next Tab rows; "Delete" for a trash move (`deleteLabel=1`); curly CLI output (`cliFold=0`) | RECORDED — not owed |
+| `v3.x` / `v2.x` | No tabs, so SH3 does not apply; "Delete" for a trash move; curly CLI output | RECORDED — not owed |

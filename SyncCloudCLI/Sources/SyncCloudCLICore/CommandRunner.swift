@@ -86,14 +86,27 @@ public struct CommandRunner {
         }
     }
 
+    /// The environment with its two writers folded to ASCII punctuation (`CLIOutput`, FC10) —
+    /// so every line the runner writes is folded, whoever wrote the sentence.
     let env: Environment
+    /// The caller's own stdout writer, unfolded: only for `scan --json`, whose paths and syntax a
+    /// fold would corrupt.
+    private let writeRawOut: (String) -> Void
 
     public init(environment: Environment) {
-        self.env = environment
+        var folded = environment
+        let out = environment.writeOut, err = environment.writeErr
+        folded.writeOut = { out(CLIOutput.ascii($0)) }
+        folded.writeErr = { err(CLIOutput.ascii($0)) }
+        self.env = folded
+        self.writeRawOut = out
     }
 
     /// `print(line)` — one stdout line, newline appended.
     private func printOut(_ line: String) { env.writeOut(line + "\n") }
+
+    /// A path or on-disk name in a text line: printed as it is, never folded (`CLIOutput`).
+    private func name(_ path: String) -> String { CLIOutput.verbatim(path) }
 
     // MARK: Shared plumbing
 
@@ -202,26 +215,26 @@ public struct CommandRunner {
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(payload)
             if let jsonString = String(data: data, encoding: .utf8) {
-                printOut(jsonString)
+                writeRawOut(jsonString + "\n")
             }
         } else {
             if diffs.isEmpty {
                 printOut("No differences found between")
-                printOut("  Left : \(leftURL.path)")
-                printOut("  Right: \(rightURL.path)")
+                printOut("  Left : \(name(leftURL.path))")
+                printOut("  Right: \(name(rightURL.path))")
                 return
             }
 
             printOut("Differences (\(diffs.count)):")
-            printOut("  Left : \(leftURL.path) [\(leftProvider.displayName)]")
-            printOut("  Right: \(rightURL.path) [\(rightProvider.displayName)]")
+            printOut("  Left : \(name(leftURL.path)) [\(leftProvider.displayName)]")
+            printOut("  Right: \(name(rightURL.path)) [\(rightProvider.displayName)]")
             printOut("")
 
             for diff in diffs {
                 let type = DifferenceProcessing.typeString(diff.type)
                 // A held row's action is a guess `sync` will not take, so it is not printed as one.
                 let action = diff.heldBack == nil ? DifferenceProcessing.actionString(diff.action) : "needs-decision"
-                printOut("- [\(type)] [\(action)] \(diff.relativePath)")
+                printOut("- [\(type)] [\(action)] \(name(diff.relativePath))")
                 printOut("    \(diff.description)")
             }
         }
@@ -288,7 +301,7 @@ public struct CommandRunner {
         func printHeldRows() {
             printOut("Left for you to decide (\(heldRows.count)), not synced:")
             for diff in heldRows {
-                printOut("- \(diff.relativePath) [\(DifferenceProcessing.typeString(diff.type))] \(diff.description)")
+                printOut("- \(name(diff.relativePath)) [\(DifferenceProcessing.typeString(diff.type))] \(diff.description)")
             }
         }
         var tally = SyncTally()
@@ -297,8 +310,8 @@ public struct CommandRunner {
         }
         if diffs.isEmpty {
             printOut("Nothing to sync automatically.")
-            printOut("  Left : \(leftURL.path) [\(leftProvider.displayName)]")
-            printOut("  Right: \(rightURL.path) [\(rightProvider.displayName)]")
+            printOut("  Left : \(name(leftURL.path)) [\(leftProvider.displayName)]")
+            printOut("  Right: \(name(rightURL.path)) [\(rightProvider.displayName)]")
             printOut("")
             printHeldRows()
             printOut("")
@@ -316,12 +329,12 @@ public struct CommandRunner {
         // saw — and a `-L`/`-R` value that resolved somewhere unexpected (a provider named like
         // another, a stale override) read exactly like the intended run. These two lines are the
         // only place the folders that are about to be written are shown before the write.
-        printOut("  Left : \(leftURL.path) [\(leftProvider.displayName)]")
-        printOut("  Right: \(rightURL.path) [\(rightProvider.displayName)]")
+        printOut("  Left : \(name(leftURL.path)) [\(leftProvider.displayName)]")
+        printOut("  Right: \(name(rightURL.path)) [\(rightProvider.displayName)]")
         printOut("")
         for diff in diffs {
             let arrow = diff.action == .copyToRight ? "→" : "←"
-            printOut("- \(diff.relativePath) \(arrow) [\(DifferenceProcessing.typeString(diff.type))]")
+            printOut("- \(name(diff.relativePath)) \(arrow) [\(DifferenceProcessing.typeString(diff.type))]")
         }
         if !heldRows.isEmpty {
             printOut("")
@@ -355,7 +368,7 @@ public struct CommandRunner {
             let targetRoot = diff.action == .copyToRight ? rightURL : leftURL
             let validatedRelativePath = DifferenceProcessing.targetRelativePath(for: diff, targetRoot: targetRoot)
             if let violation = ProviderNameRules.violation(inRelativePath: validatedRelativePath, for: targetProvider.type) {
-                env.writeErr("Skipping \(diff.relativePath): \(violation.reason) \(targetProvider.displayName) would not upload it.\n")
+                env.writeErr("Skipping \(name(diff.relativePath)): \(violation.reason) \(targetProvider.displayName) would not upload it.\n")
                 // Carry the rule text into the tally so the stdout summary can list
                 // "path — reason" inline (the stderr line above scrolls away / can be redirected).
                 tally.recordSkipped(relativePath: diff.relativePath, reason: .nameViolation,
@@ -382,7 +395,7 @@ public struct CommandRunner {
             if let side = planStamps[diff.id]?.sideThatChanged(of: diff, fileManager: fm) {
                 let sourceSide: FilePairStamp.Side = diff.action == .copyToRight ? .left : .right
                 let reason = "the \(side == sourceSide ? "source" : "destination") changed after the plan was shown"
-                env.writeErr("Skipping \(diff.relativePath): \(reason). Re-run sync to see the current plan.\n")
+                env.writeErr("Skipping \(name(diff.relativePath)): \(reason). Re-run sync to see the current plan.\n")
                 tally.recordSkipped(relativePath: diff.relativePath, reason: .changedSincePlan,
                                     detail: reason)
                 continue
@@ -405,8 +418,9 @@ public struct CommandRunner {
                 tally.recordCopied(replacedExisting: replaced)
             } catch {
                 tally.recordFailed()
-                let message = "Failed to sync \(diff.relativePath): \(error.localizedDescription)"
-                await env.logError(message)
+                let message = "Failed to sync \(name(diff.relativePath)): \(error.localizedDescription)"
+                // The app's log takes the line as written: no fold, and no markers.
+                await env.logError(CLIOutput.stripped(message))
                 env.writeErr(message + "\n")
 
                 if failFast {
@@ -440,10 +454,10 @@ public struct CommandRunner {
 
         printOut("Discovered providers:")
         for provider in providers {
-            printOut("- \(provider.id)")
+            printOut("- \(name(provider.id))")
             printOut("    name : \(provider.displayName)")
             printOut("    type : \(provider.type.rawValue)")
-            printOut("    path : \(provider.rootPath)")
+            printOut("    path : \(name(provider.rootPath))")
         }
     }
 }

@@ -966,7 +966,7 @@ struct PaneFocusSwitch {
 
     /// Browse's form: the chord cycles this pane's tabs, and the item says so.
     static func nextTab(run: @escaping () -> Void) -> PaneFocusSwitch {
-        PaneFocusSwitch(targetName: "", overrideTitle: "Next Tab", run: run)
+        PaneFocusSwitch(targetName: "", overrideTitle: NextTabCommand.title, run: run)
     }
 
     /// The menu item's title. A rule rather than an inline ternary because it is the ONLY resting
@@ -2696,21 +2696,42 @@ struct CloseTabCommand: View {
 }
 
 struct NextTabCommand: View {
+    /// Also the ⌃⇥ item's title in Browse, which is how `GoMenuDuplicates` knows that item is
+    /// this one's twin.
+    static let title = "Next Tab"
+
     @FocusedValue(\.cycleTab) private var cycle
 
     var body: some View {
-        Button("Next Tab") { cycle?(true) }
+        Button(Self.title) { cycle?(true) }
             .keyboardShortcut(AppChord.nextTab.key, modifiers: AppChord.nextTab.modifiers)
             .disabled(cycle == nil)
     }
 }
 
 struct PreviousTabCommand: View {
+    static let title = "Previous Tab"
+
     @FocusedValue(\.cycleTab) private var cycle
 
     var body: some View {
-        Button("Previous Tab") { cycle?(false) }
+        Button(Self.title) { cycle?(false) }
             .keyboardShortcut(AppChord.previousTab.key, modifiers: AppChord.previousTab.modifiers)
+            .disabled(cycle == nil)
+    }
+}
+
+/// Go ▸ Previous Tab on ⌃⇧⇥ (SH3): the same step as Previous Tab ⇧⌘[, on the reverse of ⌃⇥.
+///
+/// **Hidden, with its key live** — `GoMenuDuplicates` hides it behind Previous Tab ⇧⌘[, since
+/// AppKit folds an alternate only into an item with the same key. It is a menu item at all because
+/// a menu item is what makes a chord answer from anywhere in the window.
+struct PreviousTabControlCommand: View {
+    @FocusedValue(\.cycleTab) private var cycle
+
+    var body: some View {
+        Button(PreviousTabCommand.title) { cycle?(false) }
+            .keyboardShortcut(AppChord.previousTabControl.key, modifiers: AppChord.previousTabControl.modifiers)
             .disabled(cycle == nil)
     }
 }

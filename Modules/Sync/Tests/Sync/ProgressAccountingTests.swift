@@ -17,6 +17,7 @@ import Combine
         private let inner: MockFileManager
         var copyGate: DispatchSemaphore?
         var moveGate: DispatchSemaphore?
+        var trashGate: DispatchSemaphore?
         private let timeoutLock = NSLock()
         private var timedOut = false
 
@@ -62,6 +63,7 @@ import Combine
             try inner.createDirectory(at: url, withIntermediateDirectories: createIntermediates, attributes: attributes)
         }
         func trashItem(at url: URL, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+            park(trashGate)
             try inner.trashItem(at: url, resultingItemURL: outResultingURL)
         }
         func removeItem(at URL: URL) throws {
@@ -104,7 +106,7 @@ import Combine
             await manager.copyItems(nodes: [nodeA], fromLeft: true, leftRoot: "/srcA", rightRoot: "/dstA", fileManager: copyFM)
         }
         await waitUntil("copy progress becomes visible") {
-            manager.activeProgress?.localizedDescription == "Copying 1 Item"
+            manager.activeProgress?.localizedDescription == "Copying 1 item"
         }
 
         // Queue a move behind it.
@@ -114,13 +116,13 @@ import Combine
         await waitUntil("move operation is enqueued") { manager.activeFileOperationsCount == 2 }
 
         // The queued move must not replace the running copy's progress.
-        #expect(manager.activeProgress?.localizedDescription == "Copying 1 Item")
+        #expect(manager.activeProgress?.localizedDescription == "Copying 1 item")
 
         // Finish the copy; its completion must not blank out the move's progress once the move starts.
         copyFM.copyGate?.signal()
         _ = await opA.value
         await waitUntil("move progress becomes visible") {
-            manager.activeProgress?.localizedDescription == "Moving 1 Item"
+            manager.activeProgress?.localizedDescription == "Moving 1 item"
         }
 
         moveFM.moveGate?.signal()
@@ -132,6 +134,31 @@ import Combine
         #expect(inner.virtualDisk["/dstA/a.txt"] != nil)
         #expect(inner.virtualDisk["/dstB/b.txt"] != nil)
         #expect(inner.virtualDisk["/srcB/b.txt"] == nil)
+    }
+
+    /// **A move to the Trash titles its progress in sentence case, as Finder does** (FD7):
+    /// "Moving 3 items to the Trash", where it said "Moving 3 Items to the Trash". The undo name
+    /// it registers is a menu item and stays Title Case.
+    @MainActor
+    @Test(.parksThreads(3)) func aMoveToTheTrashTitlesItsProgressInSentenceCase() async throws {
+        let inner = MockFileManager()
+        try inner.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            inner.virtualDisk["/dst/\(name)"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        }
+        let trashFM = GatedFileManager(inner: inner)
+        trashFM.trashGate = DispatchSemaphore(value: 0)
+        let manager = FileSyncManager()
+        manager.undoManager = UndoManager()
+
+        let op = Task { await manager.deleteItems(at: ["/dst/a.txt", "/dst/b.txt", "/dst/c.txt"], fileManager: trashFM) }
+        await waitUntil("trash progress becomes visible") { manager.activeProgress != nil }
+        #expect(manager.activeProgress?.localizedDescription == "Moving 3 items to the Trash")
+
+        for _ in 0..<3 { trashFM.trashGate?.signal() }
+        _ = await op.value
+        try #require(!trashFM.releasedByTimeout, "the trash gate timed out: the delete was never actually held in flight")
+        #expect(manager.undoManager?.undoActionName == "Move 3 Items to Trash")
     }
 
     @MainActor
@@ -255,7 +282,7 @@ import Combine
             )
         }
         await waitUntil("move progress becomes visible") {
-            manager.activeProgress?.localizedDescription == "Moving 2 Items"
+            manager.activeProgress?.localizedDescription == "Moving 2 items"
         }
         let progress = try #require(manager.activeProgress)
 

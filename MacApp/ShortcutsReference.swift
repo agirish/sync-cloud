@@ -223,8 +223,9 @@ enum ShortcutsReference {
             Item(keys: "⇧⌘ ] / ⇧⌘ [", action: "Next / previous tab"),
             // The split is stated, because one chord doing two things is exactly what a reference
             // is for: ⌃⇥ has always been the pane switch, and Browse has one pane for it to switch
-            // between. The Go menu's item names whichever it will do.
-            Item(keys: "⌃ ⇥", action: "Next tab in Browse — the other pane in Compare"),
+            // between. The Go menu's item names whichever it will do. ⌃⇧⇥ (SH3) is Previous Tab
+            // everywhere — paired on one row, so the reference keeps its height.
+            Item(keys: "⌃ ⇥ / ⌃⇧ ⇥", action: "Next / previous tab — in Compare, ⌃⇥ is the other pane"),
             Item(keys: "⇧⌘ T", action: "Show or hide the tab bar"),
             // **No ⌘-double-click row.** One sat here from v4.1, and v5.3 shipped it after the gesture
             // it described had gone with the column row's tap gesture (`2e26a50f`, see

@@ -280,8 +280,9 @@ enum SetupFlow {
     ///
     /// **It does not say how long any of this takes, by decision.** A version of this sentence
     /// promised "about two minutes" over a flow with a tree walk and an optional hours-long read
-    /// in it. The reading offer's own "About 3 h for N documents" is a different claim — it is
-    /// about work the user is choosing, measured from a real count — and it stays.
+    /// in it. The reading offer's own "About 3 h for N documents" ("A few minutes" under 200) is a
+    /// different claim — it is about work the user is choosing, measured from a real count — and
+    /// it stays.
     static var welcomeQuestionsHeading: String {
         "\(spelled(questionCount)) questions, then a look at what it found"
     }

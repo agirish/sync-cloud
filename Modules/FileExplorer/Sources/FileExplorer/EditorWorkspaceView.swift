@@ -1905,7 +1905,7 @@ public struct EditorWorkspaceView: View {
         } else if document.path == nil {
             Group {
                 if let recentFiles, let onOpenRecent {
-                    // The files Edit opened last, and New Note (TE58) — or, with none remembered,
+                    // The files Edit opened last, and New Text File (TE58) — or, with none remembered,
                     // the one sentence below.
                     EditorRecentFilesPage(recents: recentFiles, open: onOpenRecent, newNote: onNewTextFile,
                                           newNoteFolder: newFileFolderLabel,

@@ -2,7 +2,7 @@ import SwiftUI
 import Design
 
 /// **Edit's empty page once it has files to offer** (TE58): the files Edit opened last, a New
-/// Note button, and one sentence on the other ways in.
+/// Text File button, and one sentence on the other ways in.
 ///
 /// With nothing remembered — a first launch, or after Clear Menu — the page is `fallback`, the
 /// sentence it has always been.
@@ -12,9 +12,9 @@ struct EditorRecentFilesPage<Fallback: View>: View {
     let open: (String) -> Void
     /// **⌘N's closure itself**, as the header's ＋ is — `nil` draws no button.
     let newNote: (() -> Void)?
-    /// Where New Note makes its file, by the name the ＋'s tooltip uses.
+    /// Where New Text File makes its file, by the name the ＋'s tooltip uses.
     let newNoteFolder: String
-    /// The page's way to the folded list (TE77), kept beside New Note.
+    /// The page's way to the folded list (TE77), kept beside New Text File.
     let showTextFiles: (() -> Void)?
     let accent: Color
     @ViewBuilder let fallback: () -> Fallback
@@ -23,21 +23,22 @@ struct EditorRecentFilesPage<Fallback: View>: View {
     /// The list's width, for whether the folder column fits.
     @State private var listWidth: CGFloat = 0
 
-    /// The page's heading and its New Note button.
+    /// The page's heading and its New Text File button (ED7): the file it makes is a text file, as
+    /// File ▸ New Text File and ⌘N call it — not a note.
     static var title: String { "Recent" }
-    static var newNoteTitle: String { "New Note" }
+    static var newTextFileTitle: String { "New Text File" }
     static var removeTitle: String { "Remove from Recents" }
 
-    /// **What the page says under its buttons** — where New Note's file goes, then ⌘O. Its own
+    /// **What the page says under its buttons** — where New Text File's file goes, then ⌘O. Its own
     /// words rather than `emptyCaption`'s: the list above is how to open a file again, so this says
-    /// how to open one that is not in it. It names no file: New Note opens a naming row filled with
+    /// how to open one that is not in it. It names no file: New Text File opens a naming row filled with
     /// the first free name (`Untitled 2.md` when `Untitled.md` is taken), not a file made outright.
     static func caption(folderName: String) -> String {
-        "New Note asks for a name, then makes the file in \(folder(folderName)). To open a different file, select a text file "
+        "New Text File asks for a name, then makes the file in \(folder(folderName)). To open a different file, select a text file "
             + "or a PDF file in Browse, Compare or Organize and press \(AppChord.openInEditor.display)."
     }
 
-    /// The folder New Note names — Notes, where ⌘N goes with no folder in the pane.
+    /// The folder New Text File names — Notes, where ⌘N goes with no folder in the pane.
     static func folder(_ name: String) -> String {
         name.isEmpty ? EditorRecentFiles.notesFallbackName : name
     }
@@ -140,7 +141,7 @@ struct EditorRecentFilesPage<Fallback: View>: View {
             HStack(spacing: 8) {
                 if let newNote {
                     Button(action: newNote) {
-                        Label(Self.newNoteTitle, systemImage: "plus")
+                        Label(Self.newTextFileTitle, systemImage: "plus")
                             .scaledFont(.system(size: 12, weight: .medium))
                     }
                     .buttonStyle(.borderedProminent)
@@ -168,6 +169,6 @@ struct EditorRecentFilesPage<Fallback: View>: View {
 }
 
 extension EditorRecentFiles {
-    /// Where New Note goes with no folder to name — `EditorNewFileFolder.notesName` in the app.
+    /// Where New Text File goes with no folder to name — `EditorNewFileFolder.notesName` in the app.
     nonisolated static let notesFallbackName = "Notes"
 }
