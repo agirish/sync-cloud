@@ -10528,3 +10528,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s collectSkips=%s pruned=%s\n' 
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same reads under ignored names (`pruned=0`) | RECORDED — not owed |
+
+---
+
+## Matched dates land to the nanosecond (FR41, follow-up) — main only
+
+"Copy to match dates" set the right file's date with `setAttributes`, which rounds to the
+microsecond: at the "Exact match" tolerance most matched pairs still differed by up to 6e-7 s and
+came back on the next scan, and Redo after an Undo found nearly every file "changed since" and left
+it alone. `main` writes the date with `utimensat` to the nanosecond
+(`FileManaging.setModificationDate`), for the match, its Undo and its Redo, and the Undo log says
+how many files changed since and how many could not be re-dated.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s dates=%s exact=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+BulkSync.swift 2>/dev/null | grep -cF 'func matchDatesOfProvenPairs')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileManaging.swift 2>/dev/null | grep -cF 'func setModificationDate')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads exact=3):
+# main                     dates=1 exact=0
+# v5.x, v4.x, v3.x, v2.x   dates=0 exact=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No date match at all (`dates=0`) | CLOSED — does not apply |

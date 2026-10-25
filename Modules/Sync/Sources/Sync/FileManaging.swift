@@ -12,6 +12,12 @@ public protocol FileManaging: Sendable {
     func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool
     func attributesOfItem(atPath path: String) throws -> [FileAttributeKey : Any]
     func setAttributes(_ attributes: [FileAttributeKey : Any], ofItemAtPath path: String) throws
+    /// Sets `path`'s modification date so that it reads back as exactly `date` — the write a date
+    /// match needs, where a scan at the "Exact match" tolerance compares the two dates exactly.
+    /// `setAttributes` rounds to the microsecond, so a date set through it reads back up to 6e-7 s
+    /// off and the pair still differs. Does not follow a symbolic link. The default (every test
+    /// double) is `setAttributes`, which stores the `Date` as given.
+    func setModificationDate(_ date: Date, ofItemAtPath path: String) throws
     func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool, attributes: [FileAttributeKey : Any]?) throws
     func copyItem(at srcURL: URL, to dstURL: URL) throws
     /// `copyItem(at:to:)` that can be abandoned part-way — see `CopyObserver`. Throws
@@ -75,6 +81,10 @@ extension FileManaging {
 
     public func isDataless(at url: URL) -> Bool { false }
 
+    public func setModificationDate(_ date: Date, ofItemAtPath path: String) throws {
+        try setAttributes([.modificationDate: date], ofItemAtPath: path)
+    }
+
     public func installReplacement(at destinationURL: URL, withItemAt stagedURL: URL, backupItemName: String) throws -> URL? {
         try replaceItem(at: destinationURL, withItemAt: stagedURL, backupItemName: backupItemName)
     }
@@ -98,6 +108,23 @@ extension FileManager: FileManaging {
             path.map { stat($0, &info) } ?? -1
         }
         return status == 0 && info.st_flags & UInt32(SF_DATALESS) != 0
+    }
+
+    /// `utimensat` to the nanosecond, the access date left alone. Foundation reads a date as
+    /// `Double(tv_sec - 978307200) + Double(tv_nsec) / 1e9` since the reference date, so splitting
+    /// `date` the same way and rounding to the nanosecond gives back the very `Date` on the next
+    /// read — measured on every one of 20,000 random dates past 2001-02 (a date within weeks of
+    /// 2001-01-01 carries more precision than a nanosecond and can come back a hair off).
+    public func setModificationDate(_ date: Date, ofItemAtPath path: String) throws {
+        let interval = date.timeIntervalSinceReferenceDate
+        var seconds = interval.rounded(.down)
+        var nanoseconds = ((interval - seconds) * 1e9).rounded()
+        if nanoseconds >= 1e9 { seconds += 1; nanoseconds -= 1e9 }
+        var times = [timespec(tv_sec: 0, tv_nsec: Int(UTIME_OMIT)),
+                     timespec(tv_sec: Int(seconds) + 978_307_200, tv_nsec: Int(nanoseconds))]
+        guard utimensat(AT_FDCWD, path, &times, AT_SYMLINK_NOFOLLOW) == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSFilePathErrorKey: path])
+        }
     }
 
     public func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL, backupItemName: String) throws -> URL? {

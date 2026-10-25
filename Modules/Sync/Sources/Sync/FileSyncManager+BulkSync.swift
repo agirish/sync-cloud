@@ -270,7 +270,9 @@ extension FileSyncManager {
                     continue
                 }
                 do {
-                    try activeFM.setAttributes([.modificationDate: leftDate], ofItemAtPath: diff.rightItemPath)
+                    // Exact, not `setAttributes`: that rounds to the microsecond, and at the
+                    // "Exact match" tolerance a pair 6e-7 s apart still differs on the next scan.
+                    try activeFM.setModificationDate(leftDate, ofItemAtPath: diff.rightItemPath)
                 } catch {
                     failures.append((diff, error))
                     continue
@@ -297,7 +299,7 @@ extension FileSyncManager {
         }
         let leftOut = outcome.changed.count + outcome.failures.count + heldCount
         if leftOut > 0 {
-            var parts = ["\(outcome.matched.count) dates matched"]
+            var parts = ["\(CountedNoun.phrase(outcome.matched.count, "date")) matched"]
             if !outcome.changed.isEmpty { parts.append("\(outcome.changed.count) changed since Verify All and left alone") }
             if !outcome.failures.isEmpty { parts.append("\(outcome.failures.count) failed") }
             if heldCount > 0 { parts.append("\(heldCount) left out (links or rows that need your decision)") }
@@ -322,22 +324,29 @@ extension FileSyncManager {
             Task {
                 await target.enqueueFileOperation(slot: slot) {
                     var reset = 0
-                    var leftAlone = 0
+                    var changed = 0
+                    var unwritable = 0
                     for item in items {
                         let expected = restoringPrevious ? item.matched : item.previous
                         let goal = restoringPrevious ? item.previous : item.matched
                         guard let now = FileEndpointStamp.read(atPath: item.url.path, fileManager: fm),
                               now.size == item.size, now.modified == expected else {
-                            leftAlone += 1
+                            changed += 1
                             continue
                         }
-                        if (try? fm.setAttributes([.modificationDate: goal], ofItemAtPath: item.url.path)) != nil {
+                        // Exact, so the inverse step's `now.modified == expected` holds on the
+                        // file this one leaves: `setAttributes` rounds to the microsecond, and a
+                        // Redo after an Undo then found ~9 in 10 files "changed since".
+                        if (try? fm.setModificationDate(goal, ofItemAtPath: item.url.path)) != nil {
                             reset += 1
                         } else {
-                            leftAlone += 1
+                            unwritable += 1
                         }
                     }
-                    Logger.shared.info("\(restoringPrevious ? "Undo" : "Redo") (\(actionName)): re-dated \(reset) of \(items.count) file(s), \(leftAlone) left alone (changed since or unwritable)")
+                    var outcome = "re-dated \(reset) of \(items.count) file(s)"
+                    if changed > 0 { outcome += ", \(changed) left alone — changed since" }
+                    if unwritable > 0 { outcome += ", \(unwritable) could not be re-dated" }
+                    Logger.shared.info("\(restoringPrevious ? "Undo" : "Redo") (\(actionName)): \(outcome)")
                 }
             }
         }

@@ -661,6 +661,61 @@ import Foundation
         #expect(restored == leftDate.addingTimeInterval(86_400), "⌘Z did not restore the right file's own date")
     }
 
+    /// "Copy to match dates" at the "Exact match" tolerance, with dates finer than a microsecond —
+    /// what any file saved on APFS carries. `setAttributes` rounds to the microsecond, so the
+    /// right file's matched date read back up to 6e-7 s off the left's and the pair came back on
+    /// the very next scan; its Undo put the right file's date back just as far off, so the Redo
+    /// then found the file "changed since" and left it alone.
+    @MainActor
+    @Test func testMatchedDatesFinerThanAMicrosecondStayMatchedThroughUndoAndRedo() async throws {
+        let fixture = try makeRaceFixture()
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+        manager.undoManager = UndoManager()
+        let leftURL = URL(fileURLWithPath: fixture.identical.leftItemPath)
+        func setTimespec(_ url: URL, seconds: Int, nanoseconds: Int) throws {
+            var times = [timespec(tv_sec: 0, tv_nsec: Int(UTIME_OMIT)), timespec(tv_sec: seconds, tv_nsec: nanoseconds)]
+            try #require(utimensat(AT_FDCWD, url.path, &times, 0) == 0)
+        }
+        func date(_ url: URL) throws -> Date {
+            try #require(FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date)
+        }
+        // What the next scan sees: the pair's row at the exact tolerance, if any.
+        func exactRescan() throws -> [String] {
+            let leftRoot = leftURL.deletingLastPathComponent(), rightRoot = fixture.rightIdenticalURL.deletingLastPathComponent()
+            let provider = { (path: String) in CloudProvider(id: path, displayName: path, imageName: "folder", rootPath: path, type: .iCloud) }
+            return FileDiffEngine.computeDifferences(
+                left: provider(leftRoot.path), leftURL: leftRoot, right: provider(rightRoot.path), rightURL: rightRoot,
+                leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftRoot),
+                rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightRoot),
+                dateToleranceSeconds: 0
+            ).map(\.relativePath).filter { $0 == "same.txt" }
+        }
+        try setTimespec(leftURL, seconds: 1_600_000_000, nanoseconds: 123_456_789)
+        try setTimespec(fixture.rightIdenticalURL, seconds: 1_600_086_400, nanoseconds: 987_654_321)
+        let leftDate = try date(leftURL)
+        let rightDateBefore = try date(fixture.rightIdenticalURL)
+        try #require(try exactRescan() == ["same.txt"], "the premise: the pair differs at the exact tolerance")
+
+        await manager.verifyAllWithChecksum()
+        try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
+        await manager.confirmVerifiedCopy()?.value
+
+        #expect(try date(fixture.rightIdenticalURL) == leftDate, "the matched date did not land exactly")
+        #expect(try exactRescan().isEmpty, "the matched pair comes back on the next exact scan")
+
+        try #require(manager.undoManager?.canUndo == true)
+        manager.undoManager?.undo()
+        await waitUntil("the date-match undo drains") { manager.activeFileOperationsCount == 0 }
+        #expect(try date(fixture.rightIdenticalURL) == rightDateBefore, "⌘Z did not put the right file's own date back exactly")
+
+        try #require(manager.undoManager?.canRedo == true)
+        manager.undoManager?.redo()
+        await waitUntil("the date-match redo drains") { manager.activeFileOperationsCount == 0 }
+        #expect(try date(fixture.rightIdenticalURL) == leftDate, "Redo left the right file alone as “changed since”")
+        #expect(try exactRescan().isEmpty, "the redone pair comes back on the next exact scan")
+    }
+
     /// FR41's link half: a pair whose LEFT is a symbolic link verifies identical — Verify reads the
     /// file it points to — but the left-to-right run must never write the link over the real file
     /// on the right, nor re-date anything through it. Left out, and said so.
