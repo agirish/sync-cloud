@@ -1684,7 +1684,7 @@ extension FileSyncManager {
             }
             registerMoveUndo(items: [move], actionName: "File \(suggestion.fileName)", fileManager: fileManager)
             let folderName = (destination.path as NSString).lastPathComponent
-            banner = .success("Filed “\(suggestion.fileName)” → \(folderName). Press ⌘Z to undo", undoable: true)
+            banner = .success("Filed “\(suggestion.fileName)” → \(folderName)", undoable: true)
             Logger.shared.info("Filing: filed “\(suggestion.fileName)” → \(folderName)\(remembered ? " (remembered as a rule)" : "")")
             return .moved
         case .noMoveNeeded:
@@ -1795,8 +1795,8 @@ extension FileSyncManager {
         Logger.shared.info("Filing: filed \(n) file(s)\(failures > 0 ? ", \(failures) couldn't be filed" : "")\(alreadyHome > 0 ? ", \(alreadyHome) already in place" : "")")
         let filed = "Filed \(n) file\(n == 1 ? "" : "s")" + (home.isEmpty ? "" : "; \(home)")
         banner = failures > 0
-            ? .warning("\(filed); \(failures) couldn’t be filed. Press ⌘Z to undo", undoable: true)
-            : .success("\(filed). Press ⌘Z to undo", undoable: true)
+            ? .warning("\(filed); \(failures) couldn’t be filed", undoable: true)
+            : .success(filed, undoable: true)
     }
 
     /// Removes a suggestion without moving anything ("Not here" / leave it).

@@ -268,9 +268,7 @@ import EventsTestSupport
 
         #expect(ok == true)
         #expect(FileManager.default.fileExists(atPath: pair.redundant.path) == false)
-        #expect(manager.banner?.message.contains("⌘Z") == true,
-                "a genuinely reversible merge stopped offering its undo")
-        #expect(manager.banner?.isUndoable == true)
+        #expect(manager.banner?.isUndoable == true, "a genuinely reversible merge stopped offering its undo")
         #expect(trash.names == [rName], "the redundant copy never reached the test's own Trash")
     }
 
@@ -364,7 +362,7 @@ import EventsTestSupport
         try #require(!gate.releasedByTimeout,
                      "the walk resumed by timeout, not by this test — the park was never actually held")
         #expect(ok == true, "once the walk resolves, the merge completes normally")
-        #expect(manager.banner?.message.contains("⌘Z") == true)
+        #expect(manager.banner?.isUndoable == true)
         #expect(gate.trash.names == [rName], "the redundant copy never reached the test's own Trash")
     }
 }

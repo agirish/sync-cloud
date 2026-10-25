@@ -592,9 +592,8 @@ extension FileSyncManager {
             ? .warning("Filed \(n) file\(n == 1 ? "" : "s")."
                        + (failures > 0 ? " \(failures) couldn’t be filed." : "")
                        + (rootUnavailable > 0 ? " " + FileOperationError.destinationRootUnavailable.localizedDescription : "")
-                       + changedNote
-                       + " Press ⌘Z to undo", undoable: true)
-            : .success("Filed \(n) file\(n == 1 ? "" : "s"). Press ⌘Z to undo", undoable: true)
+                       + changedNote, undoable: true)
+            : .success("Filed \(n) file\(n == 1 ? "" : "s")", undoable: true)
         return (n, failures)
     }
 }

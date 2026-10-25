@@ -97,13 +97,13 @@ import EventsTestSupport
         #expect(try names(in: bucket) == ["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf"])
         // ONE grouped undo for the whole pass: a single ⌘Z puts all three back, not just the last.
         #expect(undo.canUndo)
-        // **The ⌘Z sentence and the `undoable:` flag must agree.** The flag is what
-        // `invalidateUndoableBanner` reads to retire the offer once another operation registers
-        // its own undo; defaulted to false, this banner outlived its step and kept telling the
-        // user to press ⌘Z after that shortcut had come to mean the OTHER operation. Asserting the
-        // prose alone would pass on the broken version, so both are checked.
+        // **The `undoable:` flag is the whole offer.** It shows the message's Undo button, which
+        // wears the ⌘Z keycap — so the sentence no longer says "Press ⌘Z to undo" (TE216) — and it
+        // is what `invalidateUndoableBanner` reads to retire the offer once another operation
+        // registers its own undo; defaulted to false, this banner outlived its step and kept
+        // offering ⌘Z after that shortcut had come to mean the OTHER operation.
         let banner = try #require(manager.banner)
-        #expect(banner.message.contains("⌘Z"))
+        #expect(!banner.message.contains("⌘Z"), "the Undo button says ⌘Z; the sentence repeats it: \(banner.message)")
         #expect(banner.isUndoable, "the ⌘Z offer is not flagged, so nothing retires it: \(banner.message)")
 
         undo.undo()
@@ -311,7 +311,7 @@ import EventsTestSupport
         // Named in the negative too — " 2" is the specific wrong answer, and the one a later scan
         // would then carry as though a user had typed it.
         #expect(!(try names(in: bucket).contains("07. Jul 2016 2.pdf")))
-        #expect(manager.banner?.message == "Renamed 1 file. Press ⌘Z to undo")
+        #expect(manager.banner?.message == "Renamed 1 file")
     }
 
     /// The mover underneath the pass, on a REAL case-insensitive volume.
@@ -497,7 +497,7 @@ import EventsTestSupport
         #expect(fm.virtualDisk["/prov/2021/02. Mar 2021.pdf"] != nil,
                 "March stays where the pass put it rather than overwriting the stranger")
         #expect(manager.banner?.message
-                == "Renamed 1 file. Press ⌘Z to undo. A renumbering of 4 files failed part-way "
+                == "Renamed 1 file. A renumbering of 4 files failed part-way "
                  + "and 1 file couldn’t be put back — check the folder.")
         // Still undoable: the stranded file is the whole reason it has to be.
         #expect(undo.canUndo)
@@ -550,7 +550,7 @@ import EventsTestSupport
             .filter { !$0.hasPrefix(".") }.sorted()
         #expect(after == ["01. Mar 2021.pdf", "03. May 2021.pdf", "2. Apr 2021.pdf"])
         // Reported as one failure, and NOT as an abandoned renumbering — there was none.
-        #expect(manager.banner?.message == "Renamed 2 files; 1 couldn’t be renamed. Press ⌘Z to undo")
+        #expect(manager.banner?.message == "Renamed 2 files; 1 couldn’t be renamed")
     }
 
 
@@ -559,13 +559,13 @@ import EventsTestSupport
     @MainActor
     @Test func theOutcomeSentenceStaysHonestAboutWhatItDidNotDo() {
         #expect(FileSyncManager.renameOutcome(renamed: 3, stale: 0, failed: 0)
-                == "Renamed 3 files. Press ⌘Z to undo")
+                == "Renamed 3 files")
         #expect(FileSyncManager.renameOutcome(renamed: 1, stale: 0, failed: 0)
-                == "Renamed 1 file. Press ⌘Z to undo")
+                == "Renamed 1 file")
         // A pass that renamed something AND skipped something must say both — a bare success
         // sentence over a partial pass is the report this feature most needs not to make.
         #expect(FileSyncManager.renameOutcome(renamed: 2, stale: 1, failed: 0)
-                == "Renamed 2 files; 1 had already changed. Press ⌘Z to undo")
+                == "Renamed 2 files; 1 had already changed")
         #expect(FileSyncManager.renameOutcome(renamed: 0, stale: 4, failed: 0)
                 == "4 files had already changed — nothing renamed.")
         #expect(FileSyncManager.renameOutcome(renamed: 0, stale: 0, failed: 2)
@@ -578,7 +578,7 @@ import EventsTestSupport
         #expect(FileSyncManager.renameOutcome(renamed: 0, stale: 0, failed: 0, abandoned: 4)
                 == "A renumbering of 4 files couldn’t be completed, so the folder was left as it was.")
         #expect(FileSyncManager.renameOutcome(renamed: 2, stale: 0, failed: 0, abandoned: 3)
-                == "Renamed 2 files. Press ⌘Z to undo. A renumbering of 3 files couldn’t be "
+                == "Renamed 2 files. A renumbering of 3 files couldn’t be "
                  + "completed, so the folder was left as it was.")
         // The loud one. A file the rollback could not put back is the ONLY way a half-applied
         // renumbering survives the pass, so the sentence names it and sends the user to look.

@@ -98,7 +98,7 @@ import EventsTestSupport
         await manager.applyRecommendedDuplicates([g1, g2])
         try #require(mockFM.virtualDisk["/b/x"] == nil)
         try #require(mockFM.virtualDisk["/b/y"] == nil)
-        #expect(manager.banner?.message.contains("⌘Z") == true)
+        #expect(manager.banner?.isUndoable == true)
         await closeTheUndoEventGroup(manager.undoManager)
 
         // ONE undo brings the WHOLE batch back…

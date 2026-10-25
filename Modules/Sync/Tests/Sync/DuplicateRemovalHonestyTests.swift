@@ -81,7 +81,6 @@ import Events
 
         #expect(ok == true)
         #expect(mockFM.virtualDisk["/b/x"] == nil)
-        #expect(manager.banner?.message.contains("⌘Z") == true)
         #expect(manager.banner?.isUndoable == true)
     }
 
@@ -116,11 +115,11 @@ import Events
         let message = try #require(manager.banner?.message)
         #expect(message.contains("of 2 groups"),
                 "not the partial branch — the banner reads “\(message)”, so the flag below is not the one under test")
-        #expect(message.contains("⌘Z"),
-                "the partial banner made no undo offer at all, so there is nothing here that needs to expire")
-        // THE INVARIANT: an offer that is made must also be retractable.
+        // THE INVARIANT: an offer that is made must also be retractable. The flag IS the offer —
+        // it shows the Undo button — and `invalidateUndoableBanner` retires it by the same flag.
         #expect(manager.banner?.isUndoable == true,
-                "the banner offers ⌘Z but is not marked undoable, so invalidateUndoableBanner leaves it up after the stack moves on and the offer starts pointing at another operation")
+                "the partial banner made no undo offer, so its Undo button is missing — or, offered by prose alone, invalidateUndoableBanner would leave it up after the stack moves on")
+        #expect(!message.contains("⌘Z"), "the Undo button says ⌘Z; the sentence repeats it (TE216)")
     }
 
     // MARK: The outcome type itself

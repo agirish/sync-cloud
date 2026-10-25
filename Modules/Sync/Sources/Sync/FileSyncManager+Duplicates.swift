@@ -1083,8 +1083,7 @@ extension FileSyncManager {
             // Only promise ⌘Z when the delete can actually be taken back. On a Trash-less volume
             // these files were destroyed permanently and nothing was registered, so the promise
             // sent ⌘Z at whatever was previously on top of the stack.
-            banner = .success("Reclaimed \(Self.formatBytes(bytes))" + (outcome.isUndoable ? " — press ⌘Z to undo" : ""),
-                              undoable: outcome.isUndoable)
+            banner = .success("Reclaimed \(Self.formatBytes(bytes))", undoable: outcome.isUndoable)
         }
         Logger.shared.info("Duplicates: removed \(paths.count) redundant copy(ies) of “\(group.keeper.name)”, reclaimed \(Self.formatBytes(bytes))")
         return true
@@ -1384,8 +1383,7 @@ extension FileSyncManager {
             : "Duplicates: permanently deleted the compared copy \(copy.path), keeping \(keeper.path), reclaimed \(Self.formatBytes(bytes))")
         removeResolvedDuplicateCopy(atPath: copy.path)
         if currentError == nil {
-            banner = .success("Reclaimed \(Self.formatBytes(bytes))" + (outcome.isUndoable ? " — press ⌘Z to undo" : ""),
-                              undoable: outcome.isUndoable)
+            banner = .success("Reclaimed \(Self.formatBytes(bytes))", undoable: outcome.isUndoable)
         }
         return true
     }
@@ -1594,15 +1592,15 @@ extension FileSyncManager {
             // offer, because the one restore-undo can only bring back the trashed subset.
             let isUndoable = outcome.permanentlyDeleted == 0 && outcome.trashed > 0
             if done.count == eligible.count, refused == 0, outcome.declined == 0 {
-                banner = .success("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) group\(done.count == 1 ? "" : "s")" + (isUndoable ? " — press ⌘Z to undo" : ""),
+                banner = .success("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) group\(done.count == 1 ? "" : "s")",
                                   undoable: isUndoable)
             } else {
                 // Partial (refused groups, a declined fallback, a cancelled dialog): claim only
                 // what landed, and say what was REFUSED rather than burying it in "the rest stay
                 // listed" — a group the batch skipped on purpose is information, not leftovers.
                 // `undoable:` as well as the sentence. The flag is what `invalidateUndoableBanner`
-                // reads to retire the offer when the undo stack moves on — without it the "Press
-                // ⌘Z to undo" here outlives the step it points at, and the next operation makes it
+                // reads to retire the offer when the undo stack moves on — without it the Undo
+                // button here outlives the step it points at, and the next operation makes it
                 // an instruction to reverse the WRONG one. That a warning is normally left standing
                 // is exactly why this needs saying: severity and undoability are separate, which is
                 // why `.warning` takes the parameter at all.
@@ -1623,7 +1621,7 @@ extension FileSyncManager {
                     clauses.append("\(refusedForHoldingKeeper) group\(refusedForHoldingKeeper == 1 ? " holds a copy" : "s hold copies") another group keeps and \(refusedForHoldingKeeper == 1 ? "was" : "were") left alone")
                 }
                 let refusalClause = clauses.isEmpty ? "" : " " + clauses.joined(separator: "; ") + ";"
-                banner = .warning("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) of \(eligible.count) groups —\(refusalClause) the rest stay listed." + (isUndoable ? " Press ⌘Z to undo" : ""),
+                banner = .warning("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) of \(eligible.count) groups —\(refusalClause) the rest stay listed.",
                                   undoable: isUndoable)
             }
         }
@@ -2210,8 +2208,7 @@ extension FileSyncManager {
         // reclaim paths already follow through `DeleteOutcome.isUndoable`, stated here because the
         // merge builds its registration by hand and so has to answer the question itself.
         let registeredUndo = !anyPermanentlyDeleted && (registersCopyUndo || trashedForUndo != nil)
-        banner = .success("Merged “\(group.name)” — folded \(totalFolded) file\(totalFolded == 1 ? "" : "s") into \(group.keeper.name)."
-                          + (registeredUndo ? " Press ⌘Z to undo" : ""),
+        banner = .success("Merged “\(group.name)” — folded \(totalFolded) file\(totalFolded == 1 ? "" : "s") into \(group.keeper.name).",
                           undoable: registeredUndo)
         Logger.shared.info("Duplicates: merged “\(group.name)” — folded \(totalFolded) file(s) into \(group.keeper.name)")
         if anyPermanentlyDeleted {

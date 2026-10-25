@@ -191,13 +191,13 @@ import Foundation
         #expect(!FileManager.default.fileExists(atPath: riskyURL.path))   // renamed away
         #expect(manager.riskyNames.isEmpty)                                // fixed row dropped
         #expect(manager.banner?.severity == .success)
-        // **The ⌘Z sentence and the `undoable:` flag must agree.** The flag is what
-        // `invalidateUndoableBanner` reads to retire the offer once another operation registers
-        // its own undo; defaulted to false, this banner outlived its step and kept telling the
-        // user to press ⌘Z after that shortcut had come to mean the OTHER operation. Asserting the
-        // prose alone would pass on the broken version, so both are checked.
+        // **The `undoable:` flag is the whole offer.** It shows the message's Undo button, which
+        // wears the ⌘Z keycap — so the sentence no longer says "Press ⌘Z to undo" (TE216) — and it
+        // is what `invalidateUndoableBanner` reads to retire the offer once another operation
+        // registers its own undo; defaulted to false, this banner outlived its step and kept
+        // offering ⌘Z after that shortcut had come to mean the OTHER operation.
         let banner = try #require(manager.banner)
-        #expect(banner.message.contains("⌘Z"))
+        #expect(!banner.message.contains("⌘Z"), "the Undo button says ⌘Z; the sentence repeats it: \(banner.message)")
         #expect(banner.isUndoable, "the ⌘Z offer is not flagged, so nothing retires it: \(banner.message)")
 
     }
