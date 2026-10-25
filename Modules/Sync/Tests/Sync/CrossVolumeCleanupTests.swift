@@ -79,31 +79,6 @@ import Testing
         }
     }
 
-    /// The other half: a locked entry anywhere inside is refused before anything is copied — the
-    /// original could not be removed after the copy lands.
-    @Test func aMoveByCopyOfAFolderHoldingALockedFileIsRefusedFirst() throws {
-        let base = try makeCanonicalTempRoot(prefix: "p2-locked")
-        let source = base.appendingPathComponent("src/Photos")
-        let locked = source.appendingPathComponent("deep/b.txt")
-        defer {
-            try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: locked.path)
-            try? FileManager.default.removeItem(at: base)
-        }
-        try folder(at: source.appendingPathComponent("deep"), files: ["b.txt": "b"])
-        try Data("a".utf8).write(to: source.appendingPathComponent("a.txt"))
-        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: locked.path)
-        let destination = base.appendingPathComponent("dst/Photos")
-        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-
-        #expect(throws: FileSyncManager.FileOperationError.itemIsLocked(name: "b.txt")) {
-            try FileSyncManager.safeMoveItem(at: source, to: destination, fileManager: FileManager.default,
-                                             caseSensitiveVolume: false, crossVolume: true)
-        }
-        #expect(!FileManager.default.fileExists(atPath: destination.path))
-        #expect(names(in: destination.deletingLastPathComponent()).isEmpty, "a staging copy was left behind")
-        #expect(names(in: source) == ["a.txt", "deep"])
-    }
-
     /// **P8: a staging item that will not go is logged, with its path.** The last removal was a
     /// `try?`, so a hidden full-size copy left beside the destination left no line anywhere.
     @MainActor

@@ -10935,8 +10935,7 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s reanchor=%s fix=%s\n' $l \
 
 On a volume with no Trash a move-by-copy removes its original outright; a folder's `removeItem`
 stops part-way, and the cleanup then removed the destination copy (or reverted a Replace over it),
-losing data. `main` keeps both for a folder and says the original may be partly removed, and refuses
-a move-by-copy whose tree holds a locked entry before copying.
+losing data. `main` keeps both for a folder and says the original may be partly removed.
 
 ```sh
 S=Modules/Sync/Sources/Sync

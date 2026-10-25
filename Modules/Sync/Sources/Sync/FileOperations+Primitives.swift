@@ -472,10 +472,9 @@ extension FileSyncManager {
 
             defer { removeStaging(tempURL, fileManager: fileManager) }
 
-            // No lock to restore (P7): a locked original is refused above, and a locked entry
-            // inside one by the staging itself, so a move's staged copy never carries one.
-            try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer,
-                      refusingLockedEntries: true)
+            // No lock to restore (P7): a locked original is refused above, so a move's staged copy
+            // never carries one on its top item. Entries inside keep their own locks, as copied.
+            try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer)
             try fileManager.moveItem(at: tempURL, to: destinationURL)
 
             // Cleanup source: try trash first, fall back to direct remove if the volume has no Trash.
@@ -554,8 +553,7 @@ extension FileSyncManager {
             try fileManager.moveItem(at: sourceURL, to: tempURL)
         } catch {
             // Unlocked, like the plain move's: no lock comes back to restore (P7).
-            try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer,
-                      refusingLockedEntries: true)
+            try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer)
             sourceConsumed = false
         }
 
@@ -723,15 +721,9 @@ extension FileSyncManager {
     /// clear. Only the STAGED copy's own flags are touched — never the source's — and the lock goes
     /// back on the installed item (``restoreLock(_:on:fileManager:)``), so the copy is locked like
     /// its original.
-    ///
-    /// `refusingLockedEntries` is a move's (P2): its original must be removed once the copy lands,
-    /// and a locked entry inside a folder cannot be — on a volume with no Trash, the removal stops
-    /// part-way. So a locked entry anywhere in the tree refuses the move before anything is copied.
     @discardableResult
-    private nonisolated static func stage(_ sourceURL: URL, to tempURL: URL, fileManager: FileManaging, observer: CopyObserver?,
-                                          refusingLockedEntries: Bool = false) throws -> StagedLock {
-        try requireContentsOnThisMac(sourceURL, fileManager: fileManager, observer: observer,
-                                     refusingLockedEntries: refusingLockedEntries)
+    private nonisolated static func stage(_ sourceURL: URL, to tempURL: URL, fileManager: FileManaging, observer: CopyObserver?) throws -> StagedLock {
+        try requireContentsOnThisMac(sourceURL, fileManager: fileManager, observer: observer)
         if let observer {
             try fileManager.copyItem(at: sourceURL, to: tempURL, observer: observer)
         } else {
@@ -759,8 +751,7 @@ extension FileSyncManager {
     /// and a folder one — with each dataless folder asked for first, which materializes it, and
     /// then walked in turn. A folder that answers is on disk for the copy that follows. A link is
     /// not followed (the copy copies the link); a file needs nothing. Cancel is heard per entry.
-    nonisolated static func requireContentsOnThisMac(_ source: URL, fileManager: FileManaging, observer: CopyObserver?,
-                                                     refusingLockedEntries: Bool = false) throws {
+    nonisolated static func requireContentsOnThisMac(_ source: URL, fileManager: FileManaging, observer: CopyObserver?) throws {
         guard entryKind(at: source, fileManager: fileManager) == .typeDirectory else { return }
         func walk(_ folder: URL) throws {
             if fileManager.isDataless(at: folder),
@@ -772,9 +763,6 @@ extension FileSyncManager {
             for case let entry as URL in entries {
                 if let observer, !observer.shouldContinue() {
                     throw CocoaError(.userCancelled, userInfo: [NSFilePathErrorKey: source.path])
-                }
-                if refusingLockedEntries, isLocked(entry, fileManager: fileManager) {
-                    throw FileOperationError.itemIsLocked(name: entry.lastPathComponent)
                 }
                 guard entry.hasDirectoryPath, fileManager.isDataless(at: entry) else { continue }
                 entries.skipDescendants()
