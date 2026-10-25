@@ -340,13 +340,23 @@ extension FileSyncManager {
     /// the destination, which asks nobody: copy `report.pdf` to `Shared/`, ⌘Z, save a different
     /// `Shared/report.pdf` in another app, ⌘⇧Z — the new file went to the Trash without a word.
     ///
-    /// Shallow, like the move chain's identities: the refusal guards a replace that would send the
-    /// occupant to the Trash, and an occupant the undo left there is the one case let through.
+    /// **Deep for a folder** (U2), as every Trash backup's identity is: the occupant is the original
+    /// the first operation replaced, put back by the undo, and the redo sends it to the Trash again.
+    /// Shallow, its identity was the folder's own date and child count, which the `.DS_Store` Finder
+    /// writes into a folder the user merely opens moves — and the redo refused the untouched
+    /// original. Recorded deep at the undo (`redoOccupantIdentity`), so read deep here; for a file
+    /// the two are the same read.
     nonisolated static func redoDestinationVerdict(recorded: ItemIdentity, at destination: URL,
                                                    fileManager fm: FileManaging) -> DriftVerdict {
         let current = ItemIdentity.snapshot(at: destination, fileManager: fm)
         if current == .absent { return .unchanged }
-        return ItemIdentity.compare(recorded: recorded, current: current)
+        return recorded.drift(at: destination, fileManager: fm)
+    }
+
+    /// What an undo left at a redo's destination, as ``redoDestinationVerdict(recorded:at:fileManager:)``
+    /// reads it back: deep, OS noise ignored.
+    nonisolated static func redoOccupantIdentity(at destination: URL, fileManager fm: FileManaging) -> ItemIdentity {
+        ItemIdentity.deepSnapshot(at: destination, fileManager: fm)
     }
 
     /// Surfaces a redo refused by ``redoDestinationVerdict(recorded:at:fileManager:)``: the item at
@@ -1170,7 +1180,7 @@ extension FileSyncManager {
                         func redoParams() -> [CopyRedoParam] {
                             undoneCopies.map { copy in
                                 (source: copy.source, destination: copy.destination,
-                                 destinationIdentity: ItemIdentity.snapshot(at: copy.destination, fileManager: fm))
+                                 destinationIdentity: FileSyncManager.redoOccupantIdentity(at: copy.destination, fileManager: fm))
                             }
                         }
                         // Destinations THIS run already put into their pre-batch state. A batch
@@ -1790,11 +1800,12 @@ extension FileSyncManager {
                         //
                         // The destination is read in the same pass, for the same reason: it holds
                         // what this undo left there — an original it restored, or nothing — and the
-                        // redo may replace only that (FR25).
+                        // redo may replace only that (FR25). Deep, unlike the source: the redo
+                        // sends that original to the Trash (U2, `redoDestinationVerdict`).
                         let reversedParams: [MoveRedoParam] = movedBackPairs.map { pair in
                             (from: pair.from, to: pair.to,
                              sourceIdentity: ItemIdentity.snapshot(at: pair.from, fileManager: fm),
-                             destinationIdentity: ItemIdentity.snapshot(at: pair.to, fileManager: fm),
+                             destinationIdentity: FileSyncManager.redoOccupantIdentity(at: pair.to, fileManager: fm),
                              emptiedByMerge: pair.emptiedByMerge)
                         }
                         await redoParamResolver.resolve(reversedParams)

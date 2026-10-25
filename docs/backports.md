@@ -10969,3 +10969,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr23=%s fix=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR23 redirect (`fr23=0`) | CLOSED — does not apply |
+
+---
+
+## A redo's folder occupant is read deep (final review U2) — main only
+
+FR25's redo check read the original the undo had put back with the shallow identity, so a folder the
+user merely opened in Finder refused the redo. `main` records and reads it deep, OS noise ignored.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr25=%s fix=%s\n' $l \
+  "$(git show origin/$l:$S/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'func redoDestinationVerdict')" \
+  "$(git show origin/$l:$S/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'func redoOccupantIdentity')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads fix=1):
+# main                     fr25=1 fix=0
+# v5.x, v4.x, v3.x, v2.x   fr25=0 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR25 check (`fr25=0`) | CLOSED — does not apply |

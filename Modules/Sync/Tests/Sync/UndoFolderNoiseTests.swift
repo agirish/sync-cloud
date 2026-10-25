@@ -37,6 +37,40 @@ import Testing
         try Data("finder".utf8).write(to: folder.appendingPathComponent(".DS_Store"))
     }
 
+    /// **U2.** Copy or move a folder over `Shared/Photos` with Replace, ⌘Z — the original is back —
+    /// open it in Finder, ⌘⇧Z. The redo replaces it again: it is still the item the undo put back.
+    @MainActor
+    @Test(arguments: [false, true])
+    func aRedoStillReplacesAFolderOriginalTheUserOnlyOpened(isMove: Bool) async throws {
+        let base = try makeCanonicalTempRoot(prefix: "u2-\(isMove ? "move" : "copy")")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let source = base.appendingPathComponent("src/Photos")
+        let destination = base.appendingPathComponent("Shared/Photos")
+        try folder(source, holding: "new.txt", "new")
+        try folder(destination, holding: "old.txt", "old")
+        let manager = makeManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
+        let disk = ScratchTrash(in: base)
+        let node = FileNode(id: source.path, name: "Photos", isDirectory: true)
+        if isMove {
+            await manager.moveItems(nodes: [node], toPath: destination.deletingLastPathComponent().path, fileManager: disk)
+        } else {
+            await manager.copyItems(nodes: [node], toPath: destination.deletingLastPathComponent().path, fileManager: disk)
+        }
+        try #require(text(destination.appendingPathComponent("new.txt")) == "new")
+
+        manager.undoManager?.undo()
+        await waitUntil("the undo puts the original back") { self.text(destination.appendingPathComponent("old.txt")) == "old" }
+        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        try openInFinder(destination)
+        manager.banner = nil
+
+        manager.undoManager?.redo()
+        await waitUntil("the redo re-applies") { self.text(destination.appendingPathComponent("new.txt")) == "new" }
+        await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
+        #expect(manager.banner == nil, "got \(String(describing: manager.banner?.message))")
+    }
+
     /// **U3.** Move `A/f` and `B/f` into `D` with Replace: B's replaces A's, which FR23's record now
     /// finds in the Trash. Look at it there, then ⌘Z: both go home.
     @MainActor
@@ -48,16 +82,16 @@ import Testing
         try folder(b, holding: "x.txt", "from B")
         let landing = base.appendingPathComponent("D")
         try FileManager.default.createDirectory(at: landing, withIntermediateDirectories: true)
-        let bin = base.appendingPathComponent(".Trash")
         let manager = makeManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        let disk = LocalTrashFileManager(bin: bin)
+        let disk = ScratchTrash(in: base)
         let nodes = [a, b].map { FileNode(id: $0.path, name: "f", isDirectory: true) }
 
         await manager.moveItems(nodes: nodes, toPath: landing.path, fileManager: disk)
         try #require(text(landing.appendingPathComponent("f/x.txt")) == "from B", "premise: the second move replaced the first")
-        let inTrash = try #require(try FileManager.default.contentsOfDirectory(at: bin, includingPropertiesForKeys: nil).first,
-                                   "premise: the replaced item is not in the Trash")
+        let slot = try #require(try FileManager.default.contentsOfDirectory(at: disk.folder, includingPropertiesForKeys: nil).first,
+                                "premise: the replaced item is not in the Trash")
+        let inTrash = try #require(try FileManager.default.contentsOfDirectory(at: slot, includingPropertiesForKeys: nil).first)
         try openInFinder(inTrash)
         await Task.yield()
 
@@ -82,7 +116,7 @@ import Testing
         try FileManager.default.createDirectory(at: landing, withIntermediateDirectories: true)
         let manager = makeManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        let disk = LocalTrashFileManager(bin: base.appendingPathComponent(".Trash"))
+        let disk = ScratchTrash(in: base)
         let nodes = [a, b].map { FileNode(id: $0.path, name: "f.txt", isDirectory: false) }
 
         await manager.moveItems(nodes: nodes, toPath: landing.path, fileManager: disk)
@@ -93,20 +127,5 @@ import Testing
         #expect(records.map(\.destPath) == [landing.appendingPathComponent("f.txt").path,
                                             landing.appendingPathComponent("f.txt").path],
                 "got \(records.map(\.destPath))")
-    }
-}
-
-/// The real disk, with a Trash of the test's own: `trashItem` moves the item into `bin` under a
-/// unique name and hands that location back, as the real one does — so an undo can restore from it,
-/// and nothing reaches the user's Trash.
-final class LocalTrashFileManager: FileManager, @unchecked Sendable {
-    let bin: URL
-    init(bin: URL) { self.bin = bin; super.init() }
-
-    override func trashItem(at url: URL, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-        try createDirectory(at: bin, withIntermediateDirectories: true)
-        let target = bin.appendingPathComponent("\(UUID().uuidString.prefix(8)) \(url.lastPathComponent)")
-        try moveItem(at: url, to: target)
-        outResultingURL?.pointee = target as NSURL
     }
 }
