@@ -339,7 +339,7 @@ import Sync
     /// ⌘→ and the bulk context menu leave held rows out of a multi-row selection exactly as the
     /// header does — and when exactly one held row survives, nothing reaches `syncFile`. The one
     /// exception is a held row the user selected ALONE and asked to copy, which goes the way its
-    /// guess points (the row's own menu copies it either way — `DifferenceRowMenu.heldCopyDirections`).
+    /// guess points (the row's own menu copies it either way — `DifferenceRowMenu.copyDirections`).
     @Test func testTheChordAndBulkMenuLeaveHeldRowsOutOfASelection() {
         let guess = FileDifference(relativePath: "guess.txt", leftItemPath: "/l/guess.txt",
                                    rightItemPath: "/r/guess.txt", type: .differentDates,

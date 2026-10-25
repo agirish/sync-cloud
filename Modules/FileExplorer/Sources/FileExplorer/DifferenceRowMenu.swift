@@ -63,24 +63,45 @@ public enum DifferenceRowMenu {
             .map(\.side)
     }
 
-    /// The directions a HELD row's own Copy to … items offer (`FileDifference.heldBack`), right
-    /// first as the bulk menu orders them; empty for every other row.
+    /// The directions a row's own Copy to … items offer, right first as the bulk menu orders them:
+    /// each direction whose source side exists.
     ///
-    /// **A held row's suggested direction is a guess, so the choice is the user's, and this is
-    /// where they make it.** Its note says "choose which to keep", but nothing else lets them: every
-    /// bulk run leaves the row out, and ⌘← / ⌘→ and the Review card copy only the way the guess
-    /// points — keeping the other file had no path at all. So each direction whose source side
-    /// exists is offered: both for two files whose sizes differ with no newer side and for a folder
-    /// against a file; only the existing side for a folder missing on one side that holds a link.
+    /// **Every row, not only a held one** (owner decision 2026-10-25). These began as the one place
+    /// a HELD row's "choose which to keep" is made — every bulk run leaves it out, and ⌘← / ⌘→ and
+    /// the Review card copy only the way its guess points — and a row with a clear direction is as
+    /// much the user's to copy either way. So: both directions for a pair that exists on both sides
+    /// (two files, a folder against a file, a name conflict), only the existing side for a row
+    /// missing on one side.
     ///
     /// **A row copying FROM a link offers neither** (`.sourceIsSymbolicLink`): a copy would be a
     /// link too, whichever way the user wanted it, so `syncFile` refuses it and its note says why.
-    public static func heldCopyDirections(for difference: FileDifference) -> [FileDifference.SyncAction] {
-        guard let held = difference.heldBack, held != .sourceIsSymbolicLink else { return [] }
+    /// The engine checks the link only for the side its suggestion copies from, so the item
+    /// re-checks the side the user picked when it fires (`row(_:copiedTo:isSymbolicLink:)`).
+    public static func copyDirections(for difference: FileDifference) -> [FileDifference.SyncAction] {
+        guard difference.heldBack != .sourceIsSymbolicLink else { return [] }
         var directions: [FileDifference.SyncAction] = []
         if difference.type != .missingOnLeft { directions.append(.copyToRight) }
         if difference.type != .missingOnRight { directions.append(.copyToLeft) }
         return directions
+    }
+
+    /// The row a Copy to … item hands `syncFile`: `live` redirected the chosen way
+    /// (`FileDifference.redirected(to:)`), and held as `.sourceIsSymbolicLink` when the side it now
+    /// copies FROM is a link — so `syncFile` refuses it with the reason it gives every link row,
+    /// rather than writing the link over the real file. `isSymbolicLink` is asked of that side's
+    /// path and must not follow a final link.
+    public static func row(_ live: FileDifference, copiedTo direction: FileDifference.SyncAction,
+                           isSymbolicLink: (String) -> Bool) -> FileDifference {
+        let row = live.redirected(to: direction)
+        let source = direction == .copyToRight ? row.leftItemPath : row.rightItemPath
+        guard row.heldBack != .sourceIsSymbolicLink, isSymbolicLink(source) else { return row }
+        return FileDifference(
+            id: row.id, relativePath: row.relativePath, leftItemPath: row.leftItemPath,
+            rightItemPath: row.rightItemPath, type: row.type, action: row.action,
+            description: row.description, isSyncing: row.isSyncing,
+            leftFileSize: row.leftFileSize, rightFileSize: row.rightFileSize,
+            enclosedItemCount: row.enclosedItemCount, leftIsDirectory: row.leftIsDirectory,
+            rightIsDirectory: row.rightIsDirectory, heldBack: .sourceIsSymbolicLink)
     }
 
     /// Whether this difference is hidden by the current ignore set. Uses the same

@@ -114,7 +114,7 @@ enum DifferencesShortcutRules {
     /// to copy is theirs to copy — but only the way its guess points, since this filters on
     /// `action`, and not at all when it copies FROM a link, which `syncFile` refuses. So the held
     /// rows' wording points to the row's right-click menu, not here: that copies a held row either
-    /// way its sides allow (`DifferenceRowMenu.heldCopyDirections`). One selected id, not one
+    /// way its sides allow (`DifferenceRowMenu.copyDirections`). One selected id, not one
     /// surviving row: a selection of two whose other row has gone from the screen was not a pick
     /// of the one left.
     ///

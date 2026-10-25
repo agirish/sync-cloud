@@ -11332,3 +11332,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s heldBack=%s fix=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No held rows at all (`heldBack=0`) | CLOSED — does not apply |
+
+---
+
+## Every Compare row's menu copies it either way its sides allow (owner decision) — main only
+
+Only a held row's right-click menu had Copy to … items. `main` gives every row one per direction
+whose source exists (`DifferenceRowMenu.copyDirections`), with the usual confirmation; a row copying
+from a link offers none, and one whose picked side is a link on disk is refused by `syncFile` with
+the link reason (`DifferenceRowMenu.row(_:copiedTo:isSymbolicLink:)`), since the engine checks only
+the side its suggestion copies from.
+
+```sh
+F=Modules/FileExplorer/Sources/FileExplorer/DifferenceRowMenu.swift
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s heldOnly=%s everyRow=%s\n' $l \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF 'func heldCopyDirections')" \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF 'func copyDirections')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads everyRow=1):
+# main                     heldOnly=1 everyRow=0
+# v5.x, v4.x, v3.x, v2.x   heldOnly=0 everyRow=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Copy to … item on a row's menu at all (`heldOnly=0`) | RECORDED — not owed |

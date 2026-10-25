@@ -167,7 +167,7 @@ import Sync
                 "an empty folder against a text file offers the folder")
     }
 
-    // MARK: A held row's Copy to … items
+    // MARK: A row's Copy to … items
 
     private func held(_ type: FileDifference.DifferenceType, _ reason: FileDifference.HeldBack?,
                       action: FileDifference.SyncAction = .copyToRight) -> FileDifference {
@@ -181,7 +181,7 @@ import Sync
     /// as well as one pointing right, so an answer keyed on `action` cannot pass.
     @Test func aHeldPairOffersBothDirectionsWhicheverWayItsGuessPoints() {
         for action in [FileDifference.SyncAction.copyToRight, .copyToLeft] {
-            #expect(DifferenceRowMenu.heldCopyDirections(
+            #expect(DifferenceRowMenu.copyDirections(
                 for: held(.differentDates, .sizesDifferWithoutANewerSide, action: action)) == [.copyToRight, .copyToLeft])
         }
     }
@@ -190,28 +190,84 @@ import Sync
     @Test func aFolderAgainstAFileOffersBothDirections() throws {
         let row = try EngineRows().folderAgainstFile(folderHasContents: true)
         try #require(row.heldBack == .folderVersusFile, "the premise: the engine holds this row")
-        #expect(DifferenceRowMenu.heldCopyDirections(for: row) == [.copyToRight, .copyToLeft])
+        #expect(DifferenceRowMenu.copyDirections(for: row) == [.copyToRight, .copyToLeft])
     }
 
     /// A folder missing on one side that holds a link has one side to copy from.
     @Test func aMissingFolderHoldingALinkOffersOnlyTheSideThatExists() {
-        #expect(DifferenceRowMenu.heldCopyDirections(
+        #expect(DifferenceRowMenu.copyDirections(
             for: held(.missingOnRight, .enclosesSymbolicLink(path: "docs/lib"))) == [.copyToRight])
-        #expect(DifferenceRowMenu.heldCopyDirections(
+        #expect(DifferenceRowMenu.copyDirections(
             for: held(.missingOnLeft, .enclosesSymbolicLink(path: "docs/lib"), action: .copyToLeft)) == [.copyToLeft])
     }
 
-    /// A row copying FROM a link offers neither — the copy would be a link too, whichever way —
-    /// and an unheld row offers none: its direction is not a guess, and the header and ⌘← / ⌘→
-    /// already copy it.
-    @Test func aLinkSourceRowAndAnUnheldRowOfferNothing() {
-        #expect(DifferenceRowMenu.heldCopyDirections(for: held(.differentDates, .sourceIsSymbolicLink)).isEmpty)
-        #expect(DifferenceRowMenu.heldCopyDirections(for: held(.differentDates, nil)).isEmpty)
+    /// **Every row offers its directions, not only a held one** (owner decision 2026-10-25): a pair
+    /// on both sides offers both, whichever way its suggestion points, and a row missing on one side
+    /// offers the side that exists. A row copying FROM a link still offers neither — the copy would
+    /// be a link too, whichever way.
+    @Test func everyRowOffersItsDirectionsAndALinkSourceRowNone() {
+        for type in [FileDifference.DifferenceType.differentDates, .nameConflict] {
+            for action in [FileDifference.SyncAction.copyToRight, .copyToLeft] {
+                #expect(DifferenceRowMenu.copyDirections(for: held(type, nil, action: action)) == [.copyToRight, .copyToLeft],
+                        "\(type) \(action)")
+            }
+        }
+        #expect(DifferenceRowMenu.copyDirections(for: held(.missingOnRight, nil)) == [.copyToRight])
+        #expect(DifferenceRowMenu.copyDirections(for: held(.missingOnLeft, nil, action: .copyToLeft)) == [.copyToLeft])
+        #expect(DifferenceRowMenu.copyDirections(for: held(.differentDates, .sourceIsSymbolicLink)).isEmpty)
+    }
+
+    /// **The side the user picks is checked for a link when the item fires.** The engine holds a
+    /// row only when the side its SUGGESTION copies from is a link; "Copy to iCloud" on a row whose
+    /// right file is a link would copy FROM it and write the link over the real left file. Real
+    /// disk, through `syncFile`, with the same `attributesOfItem` read the menu item makes: refused
+    /// with the link reason before its prompt is even asked. The prompt answers No, so a regression
+    /// writes nothing (and sends nothing to the real Trash); the control is the suggested
+    /// direction, which is not held.
+    @MainActor
+    @Test func copyingFromALinkTheEngineDidNotHoldIsRefused() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.resolvingSymlinksInPath()
+            .appendingPathComponent("RowCopyLink-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
+        let left = root.appendingPathComponent("Left"), right = root.appendingPathComponent("Right")
+        for dir in [left, right] { try fm.createDirectory(at: dir, withIntermediateDirectories: true) }
+        let target = root.appendingPathComponent("elsewhere.txt")
+        try Data("elsewhere".utf8).write(to: target)
+        try Data("real, newer".utf8).write(to: left.appendingPathComponent("notes.txt"))
+        try fm.createSymbolicLink(at: right.appendingPathComponent("notes.txt"), withDestinationURL: target)
+        let row = FileDifference(relativePath: "notes.txt",
+                                 leftItemPath: left.appendingPathComponent("notes.txt").path,
+                                 rightItemPath: right.appendingPathComponent("notes.txt").path,
+                                 type: .differentDates, action: .copyToRight, description: "Mac file is newer")
+        let isLink: (String) -> Bool = { path in
+            (try? fm.attributesOfItem(atPath: path))?[.type] as? FileAttributeType == .typeSymbolicLink
+        }
+
+        let against = DifferenceRowMenu.row(row, copiedTo: .copyToLeft, isSymbolicLink: isLink)
+        #expect(against.heldBack == .sourceIsSymbolicLink)
+        #expect(against.action == .copyToLeft)
+        #expect(against.id == row.id)
+        let manager = FileSyncManager()
+        var asked = false
+        manager.transferConfirmer = { _ in asked = true; return false }
+        manager.collisionResolver = { _ in .skip }
+        let copied = await manager.syncFile(against)
+        #expect(!copied)
+        #expect(!asked, "the copy from a link reached its confirmation prompt")
+        #expect(try String(contentsOf: left.appendingPathComponent("notes.txt"), encoding: .utf8) == "real, newer",
+                "the link was copied over the real left file")
+        #expect(manager.banner?.message == "“notes.txt” is a link, so a copy would be a link too, not what it points to — nothing was copied")
+
+        let with = DifferenceRowMenu.row(row, copiedTo: .copyToRight, isSymbolicLink: isLink)
+        #expect(with.heldBack == nil, "the suggested way copies from the real file and is not refused")
+        #expect(with.action == .copyToRight)
     }
 
     /// The rule is one revert from unused, so the menu's wiring is read at source level: the row
-    /// menu asks the rule, and the item it builds copies the LIVE row redirected the chosen way.
-    @Test func theRowMenuOffersAndSendsTheHeldDirections() throws {
+    /// menu asks the rule, and the item it builds copies the LIVE row redirected the chosen way,
+    /// with the side it copies from read for a link.
+    @Test func theRowMenuOffersAndSendsTheRowDirections() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/FileExplorer/DifferencesView.swift")
@@ -219,14 +275,20 @@ import Sync
                                   "cannot read DifferencesView.swift — every check below would be vacuous")
         let menu = try #require(source.range(of: "private func singleRowMenu(")
             .map { String(source[$0.lowerBound...].prefix(1_200)) }, "singleRowMenu is gone — this scan measures nothing")
-        #expect(menu.contains("DifferenceRowMenu.heldCopyDirections(for: difference)"),
-                "the row menu no longer asks which directions a held row offers")
-        #expect(menu.contains("heldCopyButton(id: id, direction: .copyToRight)")
-                && menu.contains("heldCopyButton(id: id, direction: .copyToLeft)"))
-        #expect(source.contains("Task { await syncManager.syncFile(live.redirected(to: direction)) }"),
-                "the item no longer copies the live row in the direction picked")
-        #expect(source.contains("DifferenceRowMenu.heldCopyDirections(for: live).contains(direction)"),
+        #expect(menu.contains("DifferenceRowMenu.copyDirections(for: difference)"),
+                "the row menu no longer asks which directions a row offers")
+        #expect(menu.contains("rowCopyButton(id: id, direction: .copyToRight)")
+                && menu.contains("rowCopyButton(id: id, direction: .copyToLeft)"))
+        let fire = try #require(source.range(of: "private func copyRowFromMenu(")
+            .map { String(source[$0.lowerBound...].prefix(1_200)) }, "copyRowFromMenu is gone")
+        #expect(fire.contains("DifferenceRowMenu.copyDirections(for: live).contains(direction)"),
                 "the item no longer re-checks the live row when it fires")
+        #expect(fire.contains("DifferenceRowMenu.row(live, copiedTo: direction)"),
+                "the item no longer redirects the live row through the link check")
+        #expect(fire.contains("(try? fm.attributesOfItem(atPath: path))?[.type] as? FileAttributeType == .typeSymbolicLink"),
+                "the item no longer reads the source side for a link")
+        #expect(fire.contains("Task { await syncManager.syncFile(row) }"),
+                "the item no longer copies the checked row")
     }
 
     // MARK: Ignore toggle
