@@ -5,6 +5,154 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v6.1 — DRAFT, not released
+
+> What is on `main` since v6.0. It may still change before v6.1 is cut, and nothing here is
+> installable from a release yet.
+
+**Safer with your files.** v6.1 adds no new workspace. It closes the ways the tools that move,
+merge, remove and undo could lose a file, and holds back what they cannot stand behind. Duplicates
+and Restructure treat an app or a Keynote file as one item; a removal never takes the last copy; ⌘Z
+puts back only what it moved; and Compare leaves a row whose direction is a guess for you to decide.
+Setup keeps each folder's own Restructure history, Edit keeps a version that arrives while it saves,
+and the app's words are spelled, cased and counted one way throughout.
+
+Requires **macOS 26**, unchanged from v6.0.
+
+### Packages and repositories stay whole
+
+- **A package is one item.** Duplicates no longer groups, trashes or merges the files inside a
+  `.key`, `.pages`, `.app` or `.photoslibrary` bundle: the package counts as one item, and a copy
+  holding one is never folded away. Restructure moves packages, and links that resolve, whole; the
+  survey counts a package as one document; and no plan reaches inside one. Organize never files a
+  document into a package, and won't create a folder named like one, such as "Notes.rtfd".
+- **A repository is not a copy of its working tree.** `.git`, `node_modules` and `.build` are still
+  left out of the comparison, but they now count toward their folder's identity. So a repository
+  and an unzipped copy of its files are never called identical, and Apply recommended can't trash
+  the repository. The scan no longer reads the files under them.
+
+### A removal never takes the last copy
+
+- **Overlapping groups keep a keeper.** A folder that holds, or sits inside, another group's keeper
+  is protected, including a keeper you picked by hand, and the last check before removal refuses it
+  with a reason of its own. One Apply recommended can no longer send every copy to the Trash.
+- **A copy holding what couldn't be read is kept.** A merge whose copy holds a folder it couldn't
+  read — permission denied, or a cloud folder whose app didn't answer in time — is refused, naming
+  the folder. Trash right copy refuses a copy holding items the left one lacks, and points to Merge
+  into keeper.
+- **A folder that isn't empty stays.** Restructure no longer trashes a drained folder still holding
+  `.env`, `.gitignore` or an Office lock file; only macOS's own files, such as `.DS_Store`, are
+  ignored. Undoing New Folder leaves the folder in place if anything is still inside it.
+
+### Undo puts back what it moved, and only that
+
+- **⌘Z restores from the Trash only what it put there.** Each backup's identity is recorded when its
+  undo is registered and checked before the restore. A different file that has since taken the same
+  name in the Trash stays there, and the banner names it.
+- **The harder undos work.** Two files moved onto one name with Replace; a moved link that dangles
+  where it lands; the copy of a file locked in Finder; a merge's emptied source folder, which now
+  comes back with its tags, icon and dates; a source folder trashed since the move, which is
+  recreated. A redo refuses to replace anything its undo didn't leave at the destination.
+- **Undo Last Run says what it will do** — a copy run's copies go to the Trash, a move run's files
+  go back — and confirms it is undoing the run you picked.
+- **A move that leaves its original behind says so.** When a move's cleanup can't remove the
+  original and leaves it under a hidden name, an alert now names the leftover; before, only the log
+  did.
+
+### Moving and copying
+
+- **Replace refuses the folder an item is inside**, as Finder does. Pasting Photos/Photos into the
+  folder above it and answering Replace no longer trashes the outer folder with everything in it.
+  Keep Both and Merge still work.
+- **A move to another disk keeps the original until the copy is complete**, and honors Cancel. On a
+  disk with no Trash, a folder that can't be fully removed keeps both copies, and the alert says the
+  original may be partly removed.
+- **Files locked in Finder.** A locked file can be copied, and the copy keeps the lock; your own file
+  is never unlocked. Moving a locked item is refused before anything is written, and the hidden
+  staging copies a locked file used to leave behind are cleared.
+- **A sync's Replace takes the source's metadata**, so a script made executable at the source is
+  executable after a sync. Edit's saves keep the original file's, as before.
+- **A copy asks a cloud-only folder's app first**, with a deadline, and refuses at the first folder
+  that doesn't answer, instead of holding every later file operation behind it.
+- **Copy or Move to the other pane lands where that pane opens.** A file from Dropbox's Documents
+  lands in Google Drive's My Drive, not at the account root outside it, and rows under iCloud's
+  linked Documents are no longer refused as outside the pane.
+
+### Compare leaves its guesses to you
+
+- **A row whose direction is a guess is held out of bulk runs**: sizes that differ while the dates
+  are within the tolerance or missing, a folder against a file, and a row whose source is a symbolic
+  link. Sync All and `synccloud sync` leave such rows out and say how many; the header reads "2 need
+  your decision"; the Review card leads with the row's note; and the row's right-click menu offers a
+  Copy to … item for each way its sides allow.
+- **Copy to match dates sets dates, not bytes**, for pairs Verify has read in full and found
+  identical: the right file takes the left one's modification date, to the nanosecond, as one
+  undoable step. A pair with a link on either side is left out.
+- **Verify reads again a file whose date was put back.** Its cache of file contents is now keyed on
+  the file's number and status-change time as well as its path, date and size, so an edit that
+  restores the date and keeps the size (`touch -r`, `rsync -t`, `exiftool -P`) is not taken for
+  the old file.
+- **The command line.** `-L` and `-R` match a provider's exact id first and refuse a display name
+  two providers share, listing each one's id and folder; the sync plan prints both folders before
+  the prompt. `scan` prints `[needs-decision]` for a held row, and `--json` gives every row
+  `needsDecision`. A sync that skips a file changed after the plan exits 1.
+
+### Organize and Setup
+
+- **Undo This Reorganization… asks first**, naming what the landing did, and a banner reports every
+  outcome. Restructure records each step as it runs, so a landing cut off partway can say what ran.
+- **Keep separate and Never Suggest This Again can be taken back**: ⌘Z and a banner undo the last
+  one, and Show them again brings back older ones. Closing the Restructure plan sheet keeps a
+  changed plan, and Discard Plan drops it.
+- **Each Setup folder keeps its own Restructure history.** Walking a different folder starts with
+  none, or takes back that folder's own; the roster follows every walk. An old profile folder is
+  never removed while it holds something the active one lacks.
+- **Filing refuses what it can't stand behind**: a file that changed since the scan; a date stamp
+  either convention could have written — "05062023" could be May 6 or June 5, and the skip names
+  both; a folder name from the model that the provider won't sync; and a destination that is the
+  file's own folder through a link, where it now says the file is already there. Its refusals come
+  under "Filing Failed", not "Sync Failed".
+- **A versions group needs a real version marker.** "invoice.pdf", "invoice (1).pdf" and "invoice
+  (2).pdf" — three months' bills — no longer form a group offering to trash two of them.
+- **Restructure** matches subfolders regardless of case, skips the merges planned into a rename it
+  had to skip, recreates a merged file's source folder when undoing, and gives a cloud-only folder a
+  bounded time to answer instead of hanging the plan sheet.
+- **Setup** keeps a reading that lands late, for the folder it read. Once a reading is done,
+  Continue keeps it and Learn again is a button of its own. Removing a person from the roster asks
+  first, and a profile that can't be written stays on Structure with the reason and Continue without
+  saving.
+
+### Edit and PDF
+
+- **A version that arrives while Edit is saving is kept**, beside the file as "(other version)", and
+  the save says so. Keep Mine replaces only the version it asked about. Autosave no longer asks about
+  its own write, and typing during a slow write is saved.
+- **Fill & Sign keeps your work** when a sync app renames the open PDF aside for a moment, and a PDF
+  tool runs against the version of the file it started on.
+- **PDF copies say more about what they lose.** Protect, a form's Clean Metadata and Fill & Sign's
+  form save now say when the copy drops tags for screen readers, layers or color output intent, as
+  the other tools did. A correction typed over a link says the link still opens, and Fill & Sign's
+  flat save says it flattens the file's comments.
+- **The status line** no longer shows the previous file's counts or Line/Col after a switch.
+
+### Words, keys and VoiceOver
+
+- **One spelling, one case, one count.** The app's words use US spelling — color, gray,
+  Reorganization — curly quotes and apostrophes, Title Case on menus, and counts that read "1 item"
+  and "1,200 files". Settings search still finds "colour". The reversible delete is Move to Trash
+  everywhere.
+- **⌘. cancels the progress dialog.** Esc doesn't, since it clears the selection.
+- **VoiceOver** names the Sources switch, the swap-panes button, the inspector's close button and a
+  tab's source; decorative logos are hidden from it; and ages are read in words.
+- **Settings.** Replacing the Anthropic key no longer deletes the old one first, and a refused save
+  keeps the typed key. Clear, Clear History and Remove ask first.
+
+### Known limitations
+
+- Storage reports saved by v6.0 have no totals, and ask for a rescan.
+- The first Verify and the first duplicate scan after upgrading read their files again: the cache
+  entries v6.0 wrote no longer match.
+
 ## v6.0
 
 **Edit opens PDFs, and changes them as new copies.** A PDF opens in Edit through the same doors a

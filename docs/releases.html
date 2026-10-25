@@ -135,6 +135,87 @@
 
 <div class="timeline">
 
+  <article class="rel draft">
+    <div class="rel-head"><span class="v">v6.1</span><span class="tag draft">In development</span></div>
+    <p class="lede"><b>Not released yet</b> &#8212; this is what is on <code>main</code> since v6.0, and it may still change before v6.1 is cut. <b>Safer with your files.</b> v6.1 adds no new workspace. It closes the ways the tools that move, merge, remove and undo could lose a file, and holds back what they cannot stand behind. Duplicates and Restructure treat an app or a Keynote file as one item; a removal never takes the last copy; ⌘Z puts back only what it moved; and Compare leaves a row whose direction is a guess for you to decide. Setup keeps each folder's own Restructure history, Edit keeps a version that arrives while it saves, and the app's words are spelled, cased and counted one way throughout. Requires <b>macOS 26</b>, unchanged from v6.0.</p>
+    <div class="grp">
+      <h3>Packages and repositories stay whole</h3>
+      <ul class="flist">
+        <li><span class="ic">&#128230;</span><span><b>A package is one item.</b> Duplicates no longer groups, trashes or merges the files inside a <code>.key</code>, <code>.pages</code>, <code>.app</code> or <code>.photoslibrary</code> bundle: the package counts as one item, and a copy holding one is never folded away. Restructure moves packages, and links that resolve, whole; the survey counts a package as one document; and no plan reaches inside one. Organize never files a document into a package, and won't create a folder named like one, such as "Notes.rtfd".</span></li>
+        <li><span class="ic">&#128230;</span><span><b>A repository is not a copy of its working tree.</b> <code>.git</code>, <code>node_modules</code> and <code>.build</code> are still left out of the comparison, but they now count toward their folder's identity. So a repository and an unzipped copy of its files are never called identical, and Apply recommended can't trash the repository. The scan no longer reads the files under them.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>A removal never takes the last copy</h3>
+      <ul class="flist">
+        <li><span class="ic">🛡</span><span><b>Overlapping groups keep a keeper.</b> A folder that holds, or sits inside, another group's keeper is protected, including a keeper you picked by hand, and the last check before removal refuses it with a reason of its own. One Apply recommended can no longer send every copy to the Trash.</span></li>
+        <li><span class="ic">🛡</span><span><b>A copy holding what couldn't be read is kept.</b> A merge whose copy holds a folder it couldn't read — permission denied, or a cloud folder whose app didn't answer in time — is refused, naming the folder. Trash right copy refuses a copy holding items the left one lacks, and points to Merge into keeper.</span></li>
+        <li><span class="ic">🛡</span><span><b>A folder that isn't empty stays.</b> Restructure no longer trashes a drained folder still holding <code>.env</code>, <code>.gitignore</code> or an Office lock file; only macOS's own files, such as <code>.DS_Store</code>, are ignored. Undoing New Folder leaves the folder in place if anything is still inside it.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Undo puts back what it moved, and only that</h3>
+      <ul class="flist">
+        <li><span class="ic">↺</span><span><b>⌘Z restores from the Trash only what it put there.</b> Each backup's identity is recorded when its undo is registered and checked before the restore. A different file that has since taken the same name in the Trash stays there, and the banner names it.</span></li>
+        <li><span class="ic">↺</span><span><b>The harder undos work.</b> Two files moved onto one name with Replace; a moved link that dangles where it lands; the copy of a file locked in Finder; a merge's emptied source folder, which now comes back with its tags, icon and dates; a source folder trashed since the move, which is recreated. A redo refuses to replace anything its undo didn't leave at the destination.</span></li>
+        <li><span class="ic">↺</span><span><b>Undo Last Run says what it will do</b> — a copy run's copies go to the Trash, a move run's files go back — and confirms it is undoing the run you picked.</span></li>
+        <li><span class="ic">↺</span><span><b>A move that leaves its original behind says so.</b> When a move's cleanup can't remove the original and leaves it under a hidden name, an alert now names the leftover; before, only the log did.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Moving and copying</h3>
+      <ul class="flist">
+        <li><span class="ic">&#128193;</span><span><b>Replace refuses the folder an item is inside</b>, as Finder does. Pasting Photos/Photos into the folder above it and answering Replace no longer trashes the outer folder with everything in it. Keep Both and Merge still work.</span></li>
+        <li><span class="ic">&#128193;</span><span><b>A move to another disk keeps the original until the copy is complete</b>, and honors Cancel. On a disk with no Trash, a folder that can't be fully removed keeps both copies, and the alert says the original may be partly removed.</span></li>
+        <li><span class="ic">&#128193;</span><span><b>Files locked in Finder.</b> A locked file can be copied, and the copy keeps the lock; your own file is never unlocked. Moving a locked item is refused before anything is written, and the hidden staging copies a locked file used to leave behind are cleared.</span></li>
+        <li><span class="ic">&#128193;</span><span><b>A sync's Replace takes the source's metadata</b>, so a script made executable at the source is executable after a sync. Edit's saves keep the original file's, as before.</span></li>
+        <li><span class="ic">&#128193;</span><span><b>A copy asks a cloud-only folder's app first</b>, with a deadline, and refuses at the first folder that doesn't answer, instead of holding every later file operation behind it.</span></li>
+        <li><span class="ic">&#128193;</span><span><b>Copy or Move to the other pane lands where that pane opens.</b> A file from Dropbox's Documents lands in Google Drive's My Drive, not at the account root outside it, and rows under iCloud's linked Documents are no longer refused as outside the pane.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Compare leaves its guesses to you</h3>
+      <ul class="flist">
+        <li><span class="ic">&#9878;</span><span><b>A row whose direction is a guess is held out of bulk runs</b>: sizes that differ while the dates are within the tolerance or missing, a folder against a file, and a row whose source is a symbolic link. Sync All and <code>synccloud sync</code> leave such rows out and say how many; the header reads "2 need your decision"; the Review card leads with the row's note; and the row's right-click menu offers a Copy to … item for each way its sides allow.</span></li>
+        <li><span class="ic">&#9878;</span><span><b>Copy to match dates sets dates, not bytes</b>, for pairs Verify has read in full and found identical: the right file takes the left one's modification date, to the nanosecond, as one undoable step. A pair with a link on either side is left out.</span></li>
+        <li><span class="ic">&#9878;</span><span><b>Verify reads again a file whose date was put back.</b> Its cache of file contents is now keyed on the file's number and status-change time as well as its path, date and size, so an edit that restores the date and keeps the size (<code>touch -r</code>, <code>rsync -t</code>, <code>exiftool -P</code>) is not taken for the old file.</span></li>
+        <li><span class="ic">&#9878;</span><span><b>The command line.</b> <code>-L</code> and <code>-R</code> match a provider's exact id first and refuse a display name two providers share, listing each one's id and folder; the sync plan prints both folders before the prompt. <code>scan</code> prints <code>[needs-decision]</code> for a held row, and <code>--json</code> gives every row <code>needsDecision</code>. A sync that skips a file changed after the plan exits 1.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Organize and Setup</h3>
+      <ul class="flist">
+        <li><span class="ic">▤</span><span><b>Undo This Reorganization… asks first</b>, naming what the landing did, and a banner reports every outcome. Restructure records each step as it runs, so a landing cut off partway can say what ran.</span></li>
+        <li><span class="ic">▤</span><span><b>Keep separate and Never Suggest This Again can be taken back</b>: ⌘Z and a banner undo the last one, and Show them again brings back older ones. Closing the Restructure plan sheet keeps a changed plan, and Discard Plan drops it.</span></li>
+        <li><span class="ic">▤</span><span><b>Each Setup folder keeps its own Restructure history.</b> Walking a different folder starts with none, or takes back that folder's own; the roster follows every walk. An old profile folder is never removed while it holds something the active one lacks.</span></li>
+        <li><span class="ic">▤</span><span><b>Filing refuses what it can't stand behind</b>: a file that changed since the scan; a date stamp either convention could have written — "05062023" could be May 6 or June 5, and the skip names both; a folder name from the model that the provider won't sync; and a destination that is the file's own folder through a link, where it now says the file is already there. Its refusals come under "Filing Failed", not "Sync Failed".</span></li>
+        <li><span class="ic">▤</span><span><b>A versions group needs a real version marker.</b> "invoice.pdf", "invoice (1).pdf" and "invoice (2).pdf" — three months' bills — no longer form a group offering to trash two of them.</span></li>
+        <li><span class="ic">▤</span><span><b>Restructure</b> matches subfolders regardless of case, skips the merges planned into a rename it had to skip, recreates a merged file's source folder when undoing, and gives a cloud-only folder a bounded time to answer instead of hanging the plan sheet.</span></li>
+        <li><span class="ic">▤</span><span><b>Setup</b> keeps a reading that lands late, for the folder it read. Once a reading is done, Continue keeps it and Learn again is a button of its own. Removing a person from the roster asks first, and a profile that can't be written stays on Structure with the reason and Continue without saving.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Edit and PDF</h3>
+      <ul class="flist">
+        <li><span class="ic">&#128196;</span><span><b>A version that arrives while Edit is saving is kept</b>, beside the file as "(other version)", and the save says so. Keep Mine replaces only the version it asked about. Autosave no longer asks about its own write, and typing during a slow write is saved.</span></li>
+        <li><span class="ic">&#128196;</span><span><b>Fill &amp; Sign keeps your work</b> when a sync app renames the open PDF aside for a moment, and a PDF tool runs against the version of the file it started on.</span></li>
+        <li><span class="ic">&#128196;</span><span><b>PDF copies say more about what they lose.</b> Protect, a form's Clean Metadata and Fill &amp; Sign's form save now say when the copy drops tags for screen readers, layers or color output intent, as the other tools did. A correction typed over a link says the link still opens, and Fill &amp; Sign's flat save says it flattens the file's comments.</span></li>
+        <li><span class="ic">&#128196;</span><span><b>The status line</b> no longer shows the previous file's counts or Line/Col after a switch.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Words, keys and VoiceOver</h3>
+      <ul class="flist">
+        <li><span class="ic">&#9000;</span><span><b>One spelling, one case, one count.</b> The app's words use US spelling — color, gray, Reorganization — curly quotes and apostrophes, Title Case on menus, and counts that read "1 item" and "1,200 files". Settings search still finds "colour". The reversible delete is Move to Trash everywhere.</span></li>
+        <li><span class="ic">&#9000;</span><span><b>⌘. cancels the progress dialog.</b> Esc doesn't, since it clears the selection.</span></li>
+        <li><span class="ic">&#9000;</span><span><b>VoiceOver</b> names the Sources switch, the swap-panes button, the inspector's close button and a tab's source; decorative logos are hidden from it; and ages are read in words.</span></li>
+        <li><span class="ic">&#9000;</span><span><b>Settings.</b> Replacing the Anthropic key no longer deletes the old one first, and a refused save keeps the typed key. Clear, Clear History and Remove ask first.</span></li>
+      </ul>
+    </div>
+    <p class="known"><b>Known limitations.</b> Storage reports saved by v6.0 have no totals, and ask for a rescan. The first Verify and the first duplicate scan after upgrading read their files again: the cache entries v6.0 wrote no longer match.</p>
+    <p class="chlog">Changes so far: <a href="https://github.com/agirish/sync-cloud/compare/v6.0...main">v6.0...main</a></p>
+  </article>
+
   <article class="rel">
     <div class="rel-head"><span class="v">v6.0</span><span class="tag latest">Latest</span></div>
     <p class="lede"><b>Edit opens PDFs, and changes them as new copies.</b> A PDF opens in Edit through the same doors a text file uses. Its pages and bookmarks are in the side column, its page number and zoom float over the pages, it can be laid out as a book, and Find searches it. Its tools rotate, reorder, extract and delete pages, compress the file, clean its metadata and add or remove a password, and Fill &amp; Sign fills in a form and signs it from a palette over the page. Each change is written to a new PDF beside the original; the file you opened is never modified. Word, Excel, PowerPoint, RTF, Markdown and <code>.txt</code> files can be saved as PDFs too. Around the PDFs, Edit's side column gets one control, its filter searches inside files, its folder line becomes a menu, Unified becomes one box, the sidebar's Recents can show the folders you come back to, and the accent colour you pick reaches the whole app. Requires <b>macOS 26</b>, unchanged from the 5.x line.</p>
