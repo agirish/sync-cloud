@@ -159,7 +159,13 @@ extension FileSyncManager {
         // the inner folder in and sent the outer one to the Trash with every other item it held,
         // and ⌘Z could not move it back (FR30); Finder refuses the same drop. Keep Both picks a new
         // name, and a Merge (`merging`) moves only the children — flattening is what it is for.
-        let dstWithSlash = dst.hasSuffix("/") ? dst : dst + "/"
+        //
+        // **The destination ENTRY, not where it leads (P5).** A Replace swaps out the entry at the
+        // destination; when that is a link to the source's ancestor, the link goes and the folder
+        // it points at is untouched. Resolved through the link, it read as "the destination holds
+        // the source" and refused. Its parent is still resolved, like the nesting check's source.
+        let holding = entryResolvedPath(for: destination)
+        let dstWithSlash = holding.hasSuffix("/") ? holding : holding + "/"
         let holdsSource = caseSensitiveVolume
             ? nestingSrc.hasPrefix(dstWithSlash)
             : nestingSrc.range(of: dstWithSlash, options: [.anchored, .caseInsensitive]) != nil

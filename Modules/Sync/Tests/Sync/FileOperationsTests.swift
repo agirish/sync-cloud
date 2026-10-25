@@ -177,6 +177,26 @@ import Foundation
         #expect(mockFM.virtualDisk["/dst/data.bin"] == nil)
     }
     
+    /// P5. Replacing a LINK that points at the source's ancestor replaces the link, not the folder
+    /// it leads to — so it is not "a folder the source sits in", and FR30 does not refuse it. The
+    /// real folder in the same place still is refused.
+    @Test func aLinkToTheSourcesFolderCanBeReplaced() throws {
+        let base = try makeCanonicalTempRoot(prefix: "p5")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let photos = base.appendingPathComponent("T/Photos")
+        try FileManager.default.createDirectory(at: photos, withIntermediateDirectories: true)
+        let source = photos.appendingPathComponent("a.txt")
+        try Data("a".utf8).write(to: source)
+        let link = base.appendingPathComponent("Elsewhere/Photos")
+        try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: photos)
+
+        try FileSyncManager.validateFileOperation(source: source, destination: link, caseSensitiveVolume: false)
+        #expect(throws: FileSyncManager.FileOperationError.destinationContainsSource) {
+            try FileSyncManager.validateFileOperation(source: source, destination: photos, caseSensitiveVolume: false)
+        }
+    }
+
     /// FR30. Pasting `/T/Photos/Photos` into `/T` targets `/T/Photos` — the source's own parent.
     /// Answering Replace swapped the inner folder in and trashed the outer one with everything
     /// else it held. The validation refuses that shape, on either case spelling, and nothing else.

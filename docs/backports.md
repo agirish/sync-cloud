@@ -11101,3 +11101,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr36=%s fix=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR36 alert (`fr36=0`) | CLOSED — does not apply |
+
+---
+
+## A Replace may take a link to the folder an item is in (final review P5) — main only
+
+FR30 asked whether the destination holds the source with the destination resolved through its link,
+so replacing a link that points at the source's folder — which replaces only the link — was refused.
+`main` reads the destination entry.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr30=%s fix=%s\n' $l \
+  "$(git show origin/$l:$S/FileOperations+Primitives.swift 2>/dev/null | grep -cF 'let holdsSource')" \
+  "$(git show origin/$l:$S/FileOperations+Primitives.swift 2>/dev/null | grep -cF 'let holding = entryResolvedPath(for: destination)')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads fix=1):
+# main                     fr30=1 fix=0
+# v5.x, v4.x, v3.x, v2.x   fr30=0 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR30 check (`fr30=0`) | CLOSED — does not apply |
