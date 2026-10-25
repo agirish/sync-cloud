@@ -10946,3 +10946,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s revert=%s fix=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The same revert (`revert=1`) | RECORDED — not owed |
+
+---
+
+## A move FR23 redirected into the Trash is read as Trash (final review U3, U8) — main only
+
+FR23's redirected record — the earlier item a later move of the batch replaced — had the shallow
+undo identity, so Finder's `.DS_Store` in it in the Trash refused ⌘Z, and Sync History recorded the
+Trash path as its destination. `main` reads it deep and by file number, as FR35's folders are, and
+records where the user moved it.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr23=%s fix=%s\n' $l \
+  "$(git show origin/$l:$S/FileOperations.swift 2>/dev/null | grep -cF 'moveIndicesByFoldedDestination[folded]')" \
+  "$(git show origin/$l:$S/FileOperations.swift 2>/dev/null | grep -cF 'redirectedIntoTrash')"; done
+# measured 2026-10-24, against origin, before this landed (the fix reads fix=6):
+# main                     fr23=2 fix=0
+# v5.x, v4.x, v3.x, v2.x   fr23=0 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR23 redirect (`fr23=0`) | CLOSED — does not apply |

@@ -1043,8 +1043,11 @@ extension FileSyncManager {
     ///
     /// `mergeEmptiedFolders` names, by their Trash location (`to`), the items that are source
     /// folders a merge emptied and trashed (FR35); see `MoveRedoParam.emptiedByMerge`.
+    /// `redirectedIntoTrash` names, the same way, the items a later move of the same batch replaced
+    /// into the Trash (FR23).
     @discardableResult
-    func registerMoveUndo(items: [MoveItemState], mergeEmptiedFolders: Set<URL> = [], actionName: String,
+    func registerMoveUndo(items: [MoveItemState], mergeEmptiedFolders: Set<URL> = [],
+                          redirectedIntoTrash: Set<URL> = [], actionName: String,
                           fileManager fm: FileManaging = FileManager.default) -> Task<Void, Never> {
         // Snapshots each moved item's identity HERE, at registration time — the move has already
         // happened, so the item this undo is responsible for is on disk — so the handler can
@@ -1092,10 +1095,16 @@ extension FileSyncManager {
         // in the Trash moves — and ⌘Z then refused the original folder as "changed since". And
         // its own file number, because its contents are the same as any other empty folder's
         // (`mergeEmptiedFolderIdentity`).
+        //
+        // **An item a later move of the batch replaced into the Trash is held the same way (U3).**
+        // FR23 points its record at where the replace put it, so it is a Trash item like any
+        // backup, and the shallow identity read above refused its ⌘Z once Finder had written a
+        // `.DS_Store` into it there. Deep and by file number, as FR35's folders are: OS noise
+        // ignored, and the item itself rather than any folder with the same contents.
         return Task.detached(priority: .userInitiated) {
             let withBackups: [MoveUndoItemState] = enriched.map { item in
                 (from: item.from, to: item.to, overwritten: item.overwritten,
-                 movedIdentity: item.emptiedByMerge
+                 movedIdentity: item.emptiedByMerge || redirectedIntoTrash.contains(item.to)
                     ? FileSyncManager.mergeEmptiedFolderIdentity(item.to, fileManager: fm) : item.movedIdentity,
                  overwrittenIdentity: FileSyncManager.backupIdentity(item.overwritten, fileManager: fm),
                  emptiedByMerge: item.emptiedByMerge)

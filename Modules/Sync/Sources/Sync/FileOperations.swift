@@ -330,12 +330,12 @@ extension FileSyncManager {
             progress.isCancellable = true
         }
 
-        let result = await enqueueFileOperation(alreadyCounted: true) { [weak self, progress] () -> (errors: [Error], transferred: [(from: URL, to: URL, overwritten: URL?)], identityWalks: [Task<CopyIdentityReading, Never>], alreadyThere: Int, mergedNodeIDs: Set<String>, trashedMergeSources: [(before: Int, item: MoveItemState)]) in
-            guard self != nil else { return ([], [], [], 0, [], []) }
+        let result = await enqueueFileOperation(alreadyCounted: true) { [weak self, progress] () -> (errors: [Error], transferred: [(from: URL, to: URL, overwritten: URL?)], identityWalks: [Task<CopyIdentityReading, Never>], alreadyThere: Int, mergedNodeIDs: Set<String>, trashedMergeSources: [(before: Int, item: MoveItemState)], redirectedIntoTrash: [URL: URL]) in
+            guard self != nil else { return ([], [], [], 0, [], [], [:]) }
             // One stat, before any I/O: a missing destination root fails the whole operation
             // rather than being recreated by the per-item intermediate-directory pass below.
             guard !destinationRootPath.isEmpty, fm.fileExists(atPath: destinationRootPath) else {
-                return ([FileOperationError.destinationRootUnavailable], [], [], 0, [], [])
+                return ([FileOperationError.destinationRootUnavailable], [], [], 0, [], [], [:])
             }
             // Publish progress only once this operation actually starts; setting it at enqueue
             // time would clobber the progress of an operation still running ahead in the queue.
@@ -373,6 +373,10 @@ extension FileSyncManager {
             // `targetItems`: these are not transfers, and nothing that counts or records the
             // batch's transfers may see them.
             var trashedMergeSources: [(before: Int, item: MoveItemState)] = []
+            // Move records FR23 redirected into the Trash: where each now is → where it landed
+            // first. Its undo reads it the way it reads any Trash backup (U3), and Sync History
+            // names the destination the user moved it to, not the Trash (U8).
+            var redirectedIntoTrash: [URL: URL] = [:]
             // Children a merge skipped — by an answer, or a `.DS_Store` the destination keeps — so its
             // log line can say what it did NOT do as well as what it did.
             var mergeSkipped = 0
@@ -401,6 +405,7 @@ extension FileSyncManager {
                         // Only a replace that kept the old item somewhere can be followed.
                         guard sameOnDiskName, let trashed else { stillThere.append(i); continue }
                         overwritten = targetItems[i].overwritten
+                        redirectedIntoTrash[trashed] = targetItems[i].to
                         targetItems[i] = (from: targetItems[i].from, to: trashed, overwritten: nil)
                     }
                     // A redirected record no longer lives at this name, so it leaves the index.
@@ -671,7 +676,7 @@ extension FileSyncManager {
                     progress?.completedUnitCount = Int64(index + 1)
                 }
             }
-            return (taskErrors, targetItems, identityWalks, alreadyThere, mergedNodeIDs, trashedMergeSources)
+            return (taskErrors, targetItems, identityWalks, alreadyThere, mergedNodeIDs, trashedMergeSources, redirectedIntoTrash)
         }
 
         let transferred = result.transferred
@@ -692,7 +697,9 @@ extension FileSyncManager {
                     runId: runId,
                     action: recordAction,
                     sourcePath: item.from.path,
-                    destPath: item.to.path,
+                    // Where the user moved it, for a record FR23 redirected into the Trash (U8):
+                    // Undo Last Run listed it as "Move “f.txt” → .Trash".
+                    destPath: (result.redirectedIntoTrash[item.to] ?? item.to).path,
                     sizeBytes: size,
                     checksum: nil,
                     backupPath: item.overwritten?.path,
@@ -705,6 +712,7 @@ extension FileSyncManager {
             if isMove {
                 self.registerMoveUndo(items: Self.undoItems(transferred, restoringFirst: result.trashedMergeSources),
                                       mergeEmptiedFolders: Set(result.trashedMergeSources.map(\.item.to)),
+                                      redirectedIntoTrash: Set(result.redirectedIntoTrash.keys),
                                       actionName: "Move \(CountedNoun.phrase(transferred.count, "Item"))", fileManager: fm)
                 recordTransferHistory()
             } else {
