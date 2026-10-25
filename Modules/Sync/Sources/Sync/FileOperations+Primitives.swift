@@ -459,10 +459,11 @@ extension FileSyncManager {
 
             defer { removeStaging(tempURL, fileManager: fileManager) }
 
-            let lock = try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer,
-                                 refusingLockedEntries: true)
+            // No lock to restore (P7): a locked original is refused above, and a locked entry
+            // inside one by the staging itself, so a move's staged copy never carries one.
+            try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer,
+                      refusingLockedEntries: true)
             try fileManager.moveItem(at: tempURL, to: destinationURL)
-            restoreLock(lock, on: destinationURL, fileManager: fileManager)
 
             // Cleanup source: try trash first, fall back to direct remove if the volume has no Trash.
             do {
@@ -535,13 +536,13 @@ extension FileSyncManager {
         // copies and unlinks by itself rather than throwing — or a rename that failed: copy, and
         // remember the original still needs cleanup.
         var sourceConsumed = true
-        var lock: StagedLock = [:]
         do {
             if crossVolume { throw POSIXError(.EXDEV) }
             try fileManager.moveItem(at: sourceURL, to: tempURL)
         } catch {
-            lock = try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer,
-                             refusingLockedEntries: true)
+            // Unlocked, like the plain move's: no lock comes back to restore (P7).
+            try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer,
+                      refusingLockedEntries: true)
             sourceConsumed = false
         }
 
@@ -603,7 +604,6 @@ extension FileSyncManager {
             }
             throw replaceError
         }
-        restoreLock(lock, on: destinationURL, fileManager: fileManager)
 
         // Cross-volume: the source was copied, not consumed, so remove the original now that the
         // destination holds its data. Trash first; fall back to a permanent remove.
@@ -714,6 +714,7 @@ extension FileSyncManager {
     /// `refusingLockedEntries` is a move's (P2): its original must be removed once the copy lands,
     /// and a locked entry inside a folder cannot be — on a volume with no Trash, the removal stops
     /// part-way. So a locked entry anywhere in the tree refuses the move before anything is copied.
+    @discardableResult
     private nonisolated static func stage(_ sourceURL: URL, to tempURL: URL, fileManager: FileManaging, observer: CopyObserver?,
                                           refusingLockedEntries: Bool = false) throws -> StagedLock {
         try requireContentsOnThisMac(sourceURL, fileManager: fileManager, observer: observer,
