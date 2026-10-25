@@ -14,10 +14,26 @@ User-facing changes, newest first. For the full commit history see the
 merge, remove and undo could lose a file, and holds back what they cannot stand behind. Duplicates
 and Restructure treat an app or a Keynote file as one item; a removal never takes the last copy; ⌘Z
 puts back only what it moved; and Compare leaves a row whose direction is a guess for you to decide.
-Setup keeps each folder's own Restructure history, Edit keeps a version that arrives while it saves,
-and the app's words are spelled, cased and counted one way throughout.
+A long copy or merge no longer locks the window: its progress sits in the toolbar, and its result
+shows in the pane it was about. Setup keeps each folder's own Restructure history, Edit keeps a
+version that arrives while it saves, and the app's words are spelled, cased and counted one way
+throughout.
 
 Requires **macOS 26**, unchanged from v6.0.
+
+### Long runs leave the window usable
+
+- **Progress moves to the toolbar.** A copy, move, trash, Compare sync, Verify All or duplicate merge
+  no longer puts a progress dialog over the window that takes every click until it ends. A capsule
+  in the middle of the toolbar shows the run's progress and count, and the current file when you
+  point at it; its stop button or ⌘. stops it, and Esc doesn't, since Esc clears the selection. Pane
+  PDF tools and Save as PDF show their progress there too. While a run goes on you can browse,
+  preview, undo and keep working in Edit's document; what would write files is grayed, with a
+  tooltip saying what to wait for.
+- **Results show in the pane.** The message about what just happened docks with the pane's action
+  bar instead of floating across the top of the window, where it covered the header's Delete.
+  Compare shows it in the pane that acted, and VoiceOver announces each one. A message with an Undo
+  button no longer also says "Press ⌘Z to undo".
 
 ### Packages and repositories stay whole
 
@@ -140,14 +156,22 @@ Requires **macOS 26**, unchanged from v6.0.
   tool runs against the version of the file it started on.
 - **PDF copies say more about what they lose.** Protect, a form's Clean Metadata and Fill & Sign's
   form save now say when the copy drops tags for screen readers, layers or color output intent, as
-  the other tools did, and Fill & Sign's flat save says it flattens the file's comments.
+  the other tools did.
+- **Keep a PDF's comments.** Fill & Sign on a PDF with no form drew the file's review comments into
+  the copy as ink. The note card now offers "Keep comments as comments", off by default and for
+  that save only, which carries each comment across whole, with its text, popup and replies; the
+  saved message says when one couldn't be kept and was drawn in.
+- **Save as PDF reads a picture slide on the CPU** when the Mac's Neural Engine refuses the request,
+  instead of saving the slide with no words to search.
 - **Remove the links under a correction.** A correction typed over a link leaves the link working
   in the copy unless you turn on "Also remove links under corrections" in the note card, off by
   default and for that save only. On macOS 26 that copy loses the page labels, attached files,
   viewer settings and language the other copies keep.
-- **The status line** no longer shows the previous file's counts or Line/Col after a switch.
+- **The text holds still.** The "changed on disk" banner floats over the foot of the text instead of
+  pushing every line down. The status line no longer shows the previous file's counts or Line/Col
+  after a switch, and keeps Line/Col in place while "That change needs Source." is showing.
 
-### Words, keys and VoiceOver
+### Around the app
 
 - **One spelling, one case, one count.** The app's words use US spelling — color, gray,
   Reorganization — curly quotes and apostrophes, Title Case on menus, and counts that read "1 item"
@@ -162,7 +186,8 @@ Requires **macOS 26**, unchanged from v6.0.
   light and dark. A colored pill's words are black or white, with the color in its fill. Switches,
   checkboxes, sliders and progress bars take the app's accent, not the Mac's, unless the accent is
   None.
-- **⌘. cancels the progress dialog.** Esc doesn't, since it clears the selection.
+- **The tab strip stays under the pointer** when you close down to one tab from it, and slides away
+  once the pointer leaves, so the pane doesn't jump up under you. ⌘W still hides it at once.
 - **VoiceOver** names the Sources switch, the swap-panes button, the inspector's close button and a
   tab's source; decorative logos are hidden from it; and ages are read in words.
 - **Settings.** Replacing the Anthropic key no longer deletes the old one first, and a refused save
