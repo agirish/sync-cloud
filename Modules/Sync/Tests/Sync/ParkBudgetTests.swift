@@ -278,6 +278,11 @@ import Testing
             // `OneThreadExecutor`'s wait for its probe job: on `DispatchQueue.global()`, which
             // overcommits, never the pool; bounded at 5 s. The parks it measures are `ParkGate`'s,
             // and every test that uses it declares `.parksAThread`.
+            // A volume that never answers, for `RestructureRootMap.whyGone`'s bound (review C11): on
+            // `DispatchQueue.global`, never the pool; released by the test's `defer`, bounded at 10 s.
+            "RestructureRootHistoryTests.swift": [
+                "probe: { _, _ in _ = stuck.wait(timeout: .now() + 10); return true })",
+            ],
             "UnansweredListingTests.swift": [
                 "DispatchQueue.global().async { done.resume(returning: ran.wait(timeout: .now() + 5) == .success) }",
             ],

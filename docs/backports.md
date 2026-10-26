@@ -12062,3 +12062,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s merge=%s folderColl=%s\n' $l 
 | `v5.x` | The file-only collision test (`landed.files.contains`), exact case | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Restructure | CLOSED — does not apply |
 
+---
+
+## iCloud Drive folders keep their history entry; the gone check is bounded (review C11) — main only
+
+R4 drops a map entry whose Setup folder is gone, sparing a volume or provider folder that is
+missing — but not iCloud Drive, whose whole local tree goes on sign-out, so its folders read as
+deleted and their history was retired. And the check stat'ed each folder on the main actor during
+Save, where a network volume that stopped answering hung it. `main` never counts a folder in
+`~/Library/Mobile Documents` as gone, and asks the disk on another thread for at most two seconds.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s whyGone=%s icloud=%s\n' $l \
+  "$(git show origin/$l:$S/RestructureRootMap.swift 2>/dev/null | grep -cF 'static func whyGone')" \
+  "$(git show origin/$l:$S/RestructureRootMap.swift 2>/dev/null | grep -cF 'Mobile Documents')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads icloud=2):
+# main                     whyGone=1 icloud=0
+# v5.x, v4.x, v3.x, v2.x   whyGone=0 icloud=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No per-folder history map (`whyGone=0`) | CLOSED — does not apply |

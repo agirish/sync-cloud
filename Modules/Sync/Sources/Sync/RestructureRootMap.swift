@@ -114,32 +114,53 @@ public enum RestructureRootMap {
 
     // MARK: - An entry with nothing left to return to
 
-    /// Why `entry` names nothing any more — its Setup folder was deleted, or its profile folder
+    /// Why `entry` names nothing anymore — its Setup folder was deleted, or its profile folder
     /// is gone — or nil while either may still be there (review R4).
     ///
     /// **Gone only when the disk says so.** A folder that cannot be asked about (permissions, an
     /// I/O error) is not gone, and neither is one whose parent is missing — a volume that is not
     /// mounted, a cloud folder whose provider is signed out — nor a volume or provider folder
-    /// itself: those come back, and their history with them.
-    static func whyGone(_ entry: Entry, in directory: URL) -> String? {
+    /// itself: those come back, and their history with them. **Nor anything in iCloud Drive**
+    /// (`~/Library/Mobile Documents`, review C11): signing out takes the whole local tree away at
+    /// any depth, and signing back in brings it back.
+    ///
+    /// **And only when the disk answers in time** (review C11): this runs on the main actor during
+    /// Setup's Save, and a stat of a network volume that has stopped answering does not return.
+    /// The folder is asked on another thread for at most `deadline`; no answer is not gone.
+    static func whyGone(_ entry: Entry, in directory: URL, deadline: DispatchTimeInterval = .seconds(2),
+                        probe: @escaping @Sendable (_ root: String, _ parent: String) -> Bool
+                            = { isGone($0) && isDirectory($1) }) -> String? {
         if isGone(directory.appendingPathComponent(entry.profileId).path) {
             return "its profile folder \(entry.profileId) is gone"
         }
         let root = expanded(entry.root)
         let parent = (root as NSString).deletingLastPathComponent
         let comesBack = ["/Volumes", expanded("~/Library/CloudStorage")]
-        guard root.hasPrefix("/"), !comesBack.contains(parent), isGone(root),
-              isDirectory(parent) else { return nil }
-        return "the folder is gone"
+        let iCloudDrive = expanded("~/Library/Mobile Documents")
+        guard root.hasPrefix("/"), !comesBack.contains(parent),
+              root != iCloudDrive, !root.hasPrefix(iCloudDrive + "/") else { return nil }
+        final class Answer: @unchecked Sendable { var gone = false }
+        let answer = Answer()
+        let answered = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            answer.gone = probe(root, parent)
+            answered.signal()
+        }
+        guard answered.wait(timeout: .now() + deadline) == .success else {
+            Logger.shared.warning("Restructure: \(entry.root) did not answer in time — its history "
+                + "entry is kept")
+            return nil
+        }
+        return answer.gone ? "the folder is gone" : nil
     }
 
     /// `lstat` answers "no such file" — not any other error.
-    private static func isGone(_ path: String) -> Bool {
+    static func isGone(_ path: String) -> Bool {
         var info = stat()
         return lstat(path, &info) != 0 && errno == ENOENT
     }
 
-    private static func isDirectory(_ path: String) -> Bool {
+    static func isDirectory(_ path: String) -> Bool {
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
             && isDirectory.boolValue

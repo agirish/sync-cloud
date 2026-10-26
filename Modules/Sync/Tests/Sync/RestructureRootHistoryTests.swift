@@ -636,6 +636,45 @@ import Testing
         #expect(FilingProfileStore.profile(id: c0, in: profiles) != nil)
     }
 
+    /// iCloud Drive comes back (review C11): a folder in it missing — iCloud signed out — is not
+    /// gone, at any depth, so its history entry and profile folder stay.
+    @Test func aFolderInICloudDriveIsNeverGone() throws {
+        let profiles = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: profiles) }
+        try FileManager.default.createDirectory(at: profiles.appendingPathComponent("p"),
+                                                withIntermediateDirectories: true)
+        let drive = RestructureRootMap.expanded("~/Library/Mobile Documents")
+        var isDirectory: ObjCBool = false
+        try #require(FileManager.default.fileExists(atPath: drive, isDirectory: &isDirectory)
+                     && isDirectory.boolValue, "premise: this Mac has iCloud Drive's folder")
+        let missing = "~/Library/Mobile Documents/missing-\(UUID().uuidString)"
+        #expect(RestructureRootMap.whyGone(.init(root: missing, profileId: "p", leftAt: "x"),
+                                           in: profiles) == nil,
+                "a folder in iCloud Drive was taken for deleted")
+        // Control: the same missing folder in an ordinary parent is gone.
+        let ordinary = profiles.appendingPathComponent("missing").path
+        #expect(RestructureRootMap.whyGone(.init(root: ordinary, profileId: "p", leftAt: "x"),
+                                           in: profiles) != nil)
+    }
+
+    /// A folder whose volume does not answer is not gone, and the Save does not wait on it
+    /// (review C11): the probe is bounded.
+    @Test func aFolderThatDoesNotAnswerIsNotGoneAndIsNotWaitedOn() throws {
+        let profiles = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: profiles) }
+        try FileManager.default.createDirectory(at: profiles.appendingPathComponent("p"),
+                                                withIntermediateDirectories: true)
+        let stuck = DispatchSemaphore(value: 0)
+        defer { stuck.signal() }
+        let started = ContinuousClock.now
+        let why = RestructureRootMap.whyGone(
+            .init(root: profiles.appendingPathComponent("gone").path, profileId: "p", leftAt: "x"),
+            in: profiles, deadline: .milliseconds(200),
+            probe: { _, _ in _ = stuck.wait(timeout: .now() + 10); return true })
+        #expect(why == nil, "a folder that never answered was taken for deleted")
+        #expect(ContinuousClock.now - started < .seconds(5), "the probe was not bounded")
+    }
+
     // MARK: - An unreadable map
 
     /// A map this build cannot read is never written over: the walk carries the ledger as it did
