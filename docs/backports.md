@@ -11911,3 +11911,30 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s p2=%s alert=%s undo=%s\n' $l 
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No P2 partial-removal case (`p2=0`) | CLOSED — does not apply |
+
+---
+
+## A folder's history survives a failed take-up or map write (review C1, C2) — main only
+
+When a walk back to a folder could not copy its Restructure history in, the folder started empty
+and the map kept naming the history — until the user made anything there: the next walk away, or
+of the same folder, then replaced or dropped that entry and the sweep retired the real history. And
+when the map itself could not be written, the walk switched folders anyway and carried the old
+folder's history into the new one, which the next walk away then recorded as the new folder's own.
+`main` marks an entry whose history was not taken up (`takeUpFailedAt`), never displaces it, tries
+the copy again on the next walk of that folder, and says so on Setup's Summary; and it records the
+folder left before `profiles.json` is re-pointed, refusing the Save with a sentence if it cannot.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s rootMap=%s marked=%s\n' $l \
+  "$(git show origin/$l:$S/RestructureRootMap.swift 2>/dev/null | grep -cF 'public enum RestructureRootMap')" \
+  "$(git show origin/$l:$S/RestructureRootMap.swift 2>/dev/null | grep -cF 'takeUpFailedAt')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads marked=3):
+# main                     rootMap=1 marked=0
+# v5.x, v4.x, v3.x, v2.x   rootMap=0 marked=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No per-folder history map (`rootMap=0`) | CLOSED — does not apply |

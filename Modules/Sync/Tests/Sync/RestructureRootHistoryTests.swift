@@ -308,8 +308,9 @@ import Testing
 
     /// When the folder's history cannot be copied back, the walk starts an empty ledger and the
     /// map keeps naming where the history is — and keeps naming it through what follows: a walk of
-    /// the same folder and a walk away both meet an empty ledger, and neither may displace the
-    /// entry, or the next sweep takes the history. Once the copy can be made, it comes back.
+    /// the same folder (which tries the copy again, and fails again) and a walk away both meet an
+    /// empty ledger, and neither may displace the entry, or the next sweep takes the history. Once
+    /// the copy can be made, it comes back.
     @Test func aFailedCopyKeepsTheEntryUntilTheHistoryComesBack() async throws {
         let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
         defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
@@ -325,7 +326,6 @@ import Testing
 
         let a1 = try await walk(m, a, at: 2)
 
-        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: held.path)
         #expect(FileManager.default.fileExists(
             atPath: profiles.appendingPathComponent("\(a1)/restructure.json").path),
                 "a failed copy left the folder with no ledger of its own")
@@ -341,10 +341,125 @@ import Testing
         _ = try await walk(m, b, at: 4)
         #expect(namesA0(), "walking away from an empty ledger displaced the entry naming the history")
 
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: held.path)
         let a4 = try await walk(m, a, at: 5)
         #expect(Self.ledger(a4, profiles).isSuppressed(Self.forms),
                 "the history never came back once it could be copied")
         #expect(!namesA0())
+    }
+
+    /// The walk that takes up the folder's history, and the report Setup reads.
+    private func walkReport(_ manager: FileSyncManager, _ root: URL,
+                            at step: Int) async throws -> FileSyncManager.FolderWalkReport {
+        let report = try #require(try? (await manager.deriveFolderProfile(
+            root: root, now: Self.time(step))).get())
+        try #require(report.becameActive)
+        return report
+    }
+
+    /// A failed take-up, then the user goes on working in the folder (review C1). The history
+    /// made since is history too — so the walk away used to replace the entry naming the REAL
+    /// history with the folder that started empty, and the sweep then retired the real one. The
+    /// entry stays until the history is taken up; the walk back brings it back; and Setup was
+    /// told on screen, not only in the log.
+    @Test func historyMadeAfterAFailedTakeUpDoesNotDisplaceTheEntry() async throws {
+        let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
+        defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
+        try Self.tree(in: a)
+        try Self.tree(in: b)
+        let m = manager(profiles)
+        let a0 = try await walk(m, a, at: 0)
+        Self.ledger(a0, profiles).suppress(Self.forms)
+        let left = try await walkReport(m, b, at: 1)
+        #expect(left.historyNotice == nil, "a walk with nothing to take up said something failed")
+        let held = profiles.appendingPathComponent("\(a0)/restructure.json")
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: held.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: held.path) }
+        let failed = try await walkReport(m, a, at: 2)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: held.path)
+        let notice = try #require(failed.historyNotice, "the failed take-up was said only in the log")
+        #expect(notice.contains("“\(a.lastPathComponent)”"), "the sentence does not name the folder")
+        // What the user made in the folder after it started empty.
+        Self.ledger(failed.profileId, profiles).suppress(Self.receipts)
+
+        _ = try await walk(m, b, at: 3)
+        let retired = try FilingProfileStore.retireSupersededProfiles(protecting: [], in: profiles)
+        #expect(!retired.contains(a0), "the sweep retired the folder holding the real history")
+
+        let back = try await walk(m, a, at: 4)
+        #expect(Self.ledger(back, profiles).isSuppressed(Self.forms),
+                "the folder's history was lost to what it gathered after a failed take-up")
+    }
+
+    /// The same, walking the SAME folder again: the take-up is tried again rather than the entry
+    /// dropped because the folder now holds something (review C1).
+    @Test func aWalkOfTheSameFolderRetriesAFailedTakeUp() async throws {
+        let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
+        defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
+        try Self.tree(in: a)
+        try Self.tree(in: b)
+        let m = manager(profiles)
+        let a0 = try await walk(m, a, at: 0)
+        Self.ledger(a0, profiles).suppress(Self.forms)
+        try Self.land(a0, under: a0, at: 0, in: profiles)
+        _ = try await walk(m, b, at: 1)
+        let held = profiles.appendingPathComponent("\(a0)/restructure.json")
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: held.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: held.path) }
+        let a1 = try await walk(m, a, at: 2)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: held.path)
+        Self.ledger(a1, profiles).suppress(Self.receipts)
+
+        let again = try await walkReport(m, a, at: 3)
+
+        let retried = Self.ledger(again.profileId, profiles)
+        #expect(retried.isSuppressed(Self.forms), "the same-folder walk never retried the take-up")
+        #expect(retried.undoableReorganisation(currentProfileId: again.profileId)?
+                    .manifest.manifestId == "landing-1", "the retried take-up did not re-point Undo")
+        #expect(again.historyNotice == nil)
+        #expect(RestructureRootMap.read(in: profiles) == .loaded([]),
+                "the entry stayed after its history was taken up")
+    }
+
+    // MARK: - A map that cannot be written
+
+    /// The folder left is recorded in the map BEFORE the index names the new one (review C2).
+    /// With the map unwritable, the walk used to switch anyway and carry the old folder's history
+    /// into the new one "as before" — the next walk away then recorded that borrowed history as
+    /// the new folder's own, over the entry naming its real one. Now the Save is refused, with a
+    /// sentence, and nothing moves.
+    @Test func aMapThatCannotBeWrittenRefusesTheSave() async throws {
+        let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
+        defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
+        try Self.tree(in: a)
+        try Self.tree(in: b)
+        let m = manager(profiles)
+        let a0 = try await walk(m, a, at: 0)
+        Self.ledger(a0, profiles).suppress(Self.forms)
+        let b0 = try await walk(m, b, at: 1)
+        Self.ledger(b0, profiles).suppress(Self.receipts)
+        let a1 = try await walk(m, a, at: 2)
+        let map = RestructureRootMap.url(in: profiles)
+        try #require(FileManager.default.fileExists(atPath: map.path))
+        // Readable, and a write over it fails: an atomic rename cannot replace an immutable file.
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: map.path)
+        defer { try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: map.path) }
+        try #require(RestructureRootMap.read(in: profiles) != .loaded([]), "premise: the map reads")
+
+        let refused = await m.deriveFolderProfile(root: b, now: Self.time(3))
+
+        guard case .failure(.refused(let why)) = refused else {
+            Issue.record("the walk switched folders though the folder left could not be recorded: \(refused)")
+            return
+        }
+        #expect(why.contains("“\(a.lastPathComponent)”"), "the refusal does not name the folder")
+        #expect(FilingProfileStore.activeProfileId(in: profiles) == a1, "the walk switched anyway")
+
+        try FileManager.default.setAttributes([.immutable: false], ofItemAtPath: map.path)
+        let b1 = try await walk(m, b, at: 4)
+        let back = Self.ledger(b1, profiles)
+        #expect(back.isSuppressed(Self.receipts), "the folder's own history did not come back")
+        #expect(!back.isSuppressed(Self.forms), "the other folder's history came along")
     }
 
     /// The point the app stamps into the active ledger after every Setup walk
@@ -372,6 +487,13 @@ import Testing
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: held.path) }
         let a1 = try await walk(m, a, at: 2)
         try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: held.path)
+        // An entry from before a failed take-up was marked (review C1): only the history test
+        // tells it from a stale one, and that test must not count a trend point.
+        guard case .loaded(var unmarked) = RestructureRootMap.read(in: profiles) else {
+            Issue.record("the map did not read"); return
+        }
+        for index in unmarked.indices { unmarked[index].takeUpFailedAt = nil }
+        try RestructureRootMap.write(unmarked, in: profiles)
         Self.stampTrend(a1, profiles, at: 2)
         try #require(!Self.ledger(a1, profiles).trend.isEmpty, "the fixture must stamp a trend point")
         func namesA0() -> Bool {

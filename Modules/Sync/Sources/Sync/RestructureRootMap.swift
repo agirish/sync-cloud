@@ -38,13 +38,19 @@ public enum RestructureRootMap {
         /// Undo over a tree a later landing had reshaped. Nil in an entry that predates it, and
         /// then every landing counts as later — the cautious side, which only withholds an Undo.
         public var landingsSeen: [String]?
+        /// When a walk back to this folder could not copy its history in (review C1) — the
+        /// folder then started empty, and this entry is the only way back to the history. Such
+        /// an entry is never dropped or replaced by a walk of the folder or away from it; the
+        /// next walk of the folder tries the copy again. Nil on every other entry.
+        public var takeUpFailedAt: String?
 
         public init(root: String, profileId: String, leftAt: String,
-                    landingsSeen: [String]? = nil) {
+                    landingsSeen: [String]? = nil, takeUpFailedAt: String? = nil) {
             self.root = root
             self.profileId = profileId
             self.leftAt = leftAt
             self.landingsSeen = landingsSeen
+            self.takeUpFailedAt = takeUpFailedAt
         }
     }
 

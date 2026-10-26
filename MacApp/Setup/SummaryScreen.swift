@@ -65,6 +65,11 @@ struct SummaryScreen: View {
             if model.walkNotInUse {
                 SetupNote(text: SetupFlow.walkNotInUse, systemImage: "exclamationmark.triangle")
             }
+            // A folder whose earlier Restructure history could not be brought back (review C1):
+            // said here, where the folder was just saved, not only in the log.
+            if let notice = model.writtenReport?.historyNotice {
+                SetupNote(text: notice, systemImage: "exclamationmark.triangle")
+            }
 
             if let manager = model.syncManager {
                 SetupSurveyRow(manager: manager,
