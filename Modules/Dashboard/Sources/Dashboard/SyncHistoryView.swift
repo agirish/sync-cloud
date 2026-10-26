@@ -111,13 +111,13 @@ public struct SyncHistoryView: View {
         }
     }
 
-    /// The Action filter's choices. `.delete` is "Moves to Trash" (FD2), as its rows say; it also
-    /// keeps the rare permanent delete, whose row says "Delete".
+    /// The Action filter's choices. `.delete` is "Moves to Trash & Deletes" (FD2, RD7): its rows say
+    /// Move to Trash, except the rare permanent delete, whose row says Delete and is listed too.
     static let actionOptions: [(label: String, action: SyncAction?)] = [
         ("All Actions", nil),
         ("Copies", .copy),
         ("Moves", .move),
-        ("Moves to Trash", .delete),
+        ("Moves to Trash & Deletes", .delete),
         ("Date Matches", .matchDates),
     ]
 

@@ -197,6 +197,7 @@ struct EditorStatusLine: View, Equatable {
             if let goToLine {
                 EditorGoToLineField(lineCount: goToLine.lineCount, onGo: goToLine.onGo,
                                     onCancel: { goToLine.isPresented.wrappedValue = false })
+                    .presentedNativeControlAccent()
             }
         }
     }

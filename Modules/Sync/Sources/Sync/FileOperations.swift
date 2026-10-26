@@ -1394,14 +1394,14 @@ extension FileSyncManager {
             progress.runLockReason = Progress.runLockReason(waitingFor: "the move to the Trash")
         }
 
-        let result = await enqueueFileOperation { [weak self, progress, prunedPaths, swallowedByAncestor] () -> (errors: [Error], items: [(original: URL, trashed: URL?)], declined: Int, refused: Int) in
+        let result = await enqueueFileOperation { [weak self, progress, prunedPaths, swallowedByAncestor] () -> (errors: [Error], items: [(original: URL, trashed: URL?, reachedTrash: Bool)], declined: Int, refused: Int) in
             guard self != nil else { return ([], [], 0, 0) }
             // Publish progress only once this operation actually starts (see copyItems above).
             if let progress {
                 await MainActor.run { [weak self] in self?.activeProgress = progress }
             }
             var taskErrors: [Error] = []
-            var trashedItems: [(original: URL, trashed: URL?)] = []
+            var trashedItems: [(original: URL, trashed: URL?, reachedTrash: Bool)] = []
             var trashFailures: [URL] = []
             var refused = 0
 
@@ -1471,7 +1471,7 @@ extension FileSyncManager {
                     var trashedURL: NSURL? = nil
                     do {
                         try fm.trashItem(at: url, resultingItemURL: &trashedURL)
-                        trashedItems.append((original: url, trashed: trashedURL as? URL))
+                        trashedItems.append((original: url, trashed: trashedURL as? URL, reachedTrash: true))
                     } catch {
                         // **The refusal gets a second, out-of-process attempt before it becomes a
                         // failure.** `trashItem` moves the item from THIS process, so it needs this
@@ -1491,7 +1491,7 @@ extension FileSyncManager {
                                 Logger.shared.info(
                                     "Delete: \(path) was refused in-process and moved to the Trash "
                                     + "by the system service instead")
-                                trashedItems.append((original: url, trashed: moved))
+                                trashedItems.append((original: url, trashed: moved, reachedTrash: true))
                                 resolved = true
                             } else if midTransfer(url) {
                                 // **The third attempt is declined while the provider is still
@@ -1515,7 +1515,7 @@ extension FileSyncManager {
                                         "Delete: \(path) was refused in-process AND by the system "
                                         + "Trash service, and reached the Trash after being "
                                         + "re-registered by a move in place")
-                                    trashedItems.append((original: url, trashed: destination))
+                                    trashedItems.append((original: url, trashed: destination, reachedTrash: true))
                                     resolved = true
                                 case .parkedAndNotRestored(let parkedURL):
                                     // Nothing was deleted, but the item is no longer at the path
@@ -1586,7 +1586,7 @@ extension FileSyncManager {
                     for url in toRemove {
                         do {
                             try fm.removeItem(at: url)
-                            trashedItems.append((original: url, trashed: nil))
+                            trashedItems.append((original: url, trashed: nil, reachedTrash: false))
                         } catch {
                             taskErrors.append(error)
                         }
@@ -1621,7 +1621,18 @@ extension FileSyncManager {
             // Distinguish recoverable (Trash) from irreversible (permanent) deletes: a permanent
             // delete happens only on Trash-less volumes after the user confirmed, and cannot be
             // undone — it deserves a named, warning-level record, not a lumped debug line.
-            let permanentlyDeleted = items.filter { $0.trashed == nil }
+            //
+            // **Told apart by whether the item reached the Trash, not by whether a location came
+            // back** (RD2): the Trash can take an item and report no location for it
+            // (`trashAfterReregistering`'s `.trashed(nil)`, or `trashItem` leaving its result
+            // nil). Such an item is recoverable from the Trash by hand; only the location is
+            // missing, so ⌘Z cannot restore it, and calling it permanently deleted was false.
+            let permanentlyDeleted = items.filter { !$0.reachedTrash }
+            let trashedWithoutLocation = items.filter { $0.reachedTrash && $0.trashed == nil }
+            if !trashedWithoutLocation.isEmpty {
+                let names = trashedWithoutLocation.map { $0.original.lastPathComponent }.joined(separator: ", ")
+                Logger.shared.warning("Moved \(trashedWithoutLocation.count) item(s) to Trash, but the system reported no Trash location, so Undo cannot restore them (recover them from the Trash): \(names)")
+            }
             if permanentlyDeleted.isEmpty {
                 Logger.shared.info("Moved \(items.count) item(s) to Trash")
             } else {
@@ -1707,7 +1718,8 @@ extension FileSyncManager {
                     sizeBytes: size,
                     checksum: nil,
                     backupPath: item.trashed?.path,
-                    direction: nil
+                    direction: nil,
+                    reachedTrash: item.reachedTrash
                 )
             }
             // Pair with the undo stack only when EVERY removed item reached the Trash — that's

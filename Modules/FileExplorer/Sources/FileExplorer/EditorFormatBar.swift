@@ -637,11 +637,13 @@ struct EditorFormatBar: View, Equatable {
                     .foregroundStyle(.secondary)
             }
         }
-        .foregroundStyle(lit ? accent : .primary)
+        // Label colour lit or not; the wash below is the lit state (DS1). The accent as words on
+        // its own 0.18 wash computes to 2.3:1 for Green and 1.9:1 for Amber on white.
+        .foregroundStyle(.primary)
         .padding(.leading, padded ? 6 : 0)
         .padding(.trailing, padded ? (word == nil ? 5 : 8) : 0)
         .frame(minWidth: box, minHeight: box, maxHeight: box)
-        // Lit: the accent ink on a soft accent wash, as the header's Expand wears it.
+        // Lit: a soft accent wash, as the header's Expand wears it.
         .background(RoundedRectangle(cornerRadius: Radius.chip).fill(lit ? accent.opacity(0.18) : .clear))
         // Greyed where it would do nothing, or break the table the caret is in (TE76).
         .opacity(offered ? 1 : 0.35)

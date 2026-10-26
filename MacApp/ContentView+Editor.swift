@@ -1173,8 +1173,9 @@ extension ContentView {
     /// **Download, from Edit** (TE96) — the Files list's row menu, the file name's menu and the
     /// Download button on a refused card. Browse's own verb first (`CloudDownloadRequest`), so the
     /// left pane's row watches its cloud badge clear as it does for Browse's Download; then the
-    /// fetch-then-open wait the external open uses (`ExternalOpen.fetch`), which also reaches the
-    /// providers Browse's verb cannot.
+    /// fetch-then-open wait the external open uses (`ExternalOpen.fetch`), whose one-byte read
+    /// reaches a provider even where Browse's verb is refused (it serves iCloud and, measured,
+    /// Google Drive; Dropbox and OneDrive are not measured).
     ///
     /// **The file opens when it arrives only if Edit is still showing its refusal** — the rule
     /// ``fetchExternalOpenFromCloud(_:)`` keeps: a reader who has moved on is not moved back. A row
@@ -1186,8 +1187,13 @@ extension ContentView {
         let opensOnArrival = editorOpenPath == path && editorOpenIsRefused
         Logger.shared.info("[edit] Download of \(path) from Edit\(opensOnArrival ? " — it opens when it arrives" : "")")
         // The pane Edit shows is the left one, in the window's layout — File ▸ Download's token.
+        //
+        // **A refusal does nothing here, not Browse's reveal in Finder.** The fetch below already
+        // reaches every provider and opens the file in Edit when it lands; Finder brought forward
+        // over Edit, beside a note promising the file opens here, was two answers to one press.
         CloudDownloadRequest.requestDownload(path: path, name: name,
-                                             from: PaneToken(isLeft: true, isSingleSource: layoutMode == .singleSource))
+                                             from: PaneToken(isLeft: true, isSingleSource: layoutMode == .singleSource),
+                                             whenUnavailable: { _ in })
         let note = OperationBanner.warning(opensOnArrival ? "Downloading “\(name)” — it opens here when it arrives."
                                                           : "Downloading “\(name)”…")
         syncManager.banner = note

@@ -111,6 +111,77 @@ import Testing
         #expect(Self.count(rep, near: Self.coral) == 0, "the None swatch took the window's Coral")
     }
 
+    /// Presents `content` as a sheet from a window whose root sets `hue`, and renders the SHEET's
+    /// window. The parent is ordered in — a sheet presents only from a visible window — and buried
+    /// under everything, so it never stands over the owner's screen.
+    static func renderSheet(_ content: some View, root hue: LiquidGlassHue) throws -> NSBitmapImageRep {
+        let presenter = Color.clear
+            .frame(width: 320, height: 160)
+            .sheet(isPresented: .constant(true)) {
+                // The sheet is its own window, with its own active state: an inactive one draws
+                // its controls grey whatever the accent.
+                content.padding(16).frame(width: size.width, height: 60, alignment: .leading)
+                    .environment(\.controlActiveState, .key)
+            }
+            .nativeControlAccent(hue)
+            .environment(\.controlActiveState, .key)
+            .environment(\.colorScheme, .light)
+        let host = NSHostingView(rootView: presenter)
+        host.frame = CGRect(x: 0, y: 0, width: 320, height: 160)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .aqua)
+        window.colorSpace = .sRGB
+        window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.minimumWindow)))
+        window.contentView = host
+        window.orderFront(nil)
+        defer {
+            if let sheet = window.attachedSheet { window.endSheet(sheet) }
+            window.orderOut(nil)
+            window.close()
+        }
+        #expect(window.level.rawValue == Int(CGWindowLevelForKey(.minimumWindow)), "the presenter is not buried")
+        let deadline = Date().addingTimeInterval(10)
+        while window.attachedSheet == nil, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        let sheet = try #require(window.attachedSheet, "the sheet never presented")
+        let view = try #require(sheet.contentView)
+        #expect(sheet.level.rawValue <= window.level.rawValue, "the sheet is not buried with its parent: level \(sheet.level.rawValue)")
+        sheet.colorSpace = .sRGB
+        view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        view.layoutSubtreeIfNeeded()
+        let rep = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: rep)
+        return rep
+    }
+
+    /// **A control in a sheet takes the presenting window's hue** (RC1). The accent colour a root
+    /// sets stops at a presentation, so a sheet's slider drew the Mac's accent on a Coral window;
+    /// `presentedNativeControlAccent` carries the root's hue across. The hue is the presenter's,
+    /// not the stored one — Settings and Setup set their own — so the test picks one that is not
+    /// stored.
+    @Test func aControlInASheetTakesThePresentersHue() throws {
+        let hue: LiquidGlassHue = LiquidGlassHue.stored() == .coral ? .green : .coral
+        let fill = hue.accentFillColor
+        let slider = Slider(value: .constant(0.6)).frame(width: 200)
+        let carried = try Self.renderSheet(slider.presentedNativeControlAccent(), root: hue)
+        #expect(Self.count(carried, near: fill) > 60, "the sheet's slider is not \(hue.displayName)")
+        #expect(Self.count(carried, near: Self.systemAccent) < 5, "the sheet's slider still shows the Mac's accent")
+        // ...and without it the sheet's slider is the Mac's, so the probe sees the bug it guards.
+        let bare = try Self.renderSheet(slider, root: hue)
+        #expect(Self.count(bare, near: fill) == 0, "a bare sheet's slider took the hue — the probe proves nothing")
+        #expect(Self.count(bare, near: Self.systemAccent) > 60, "a bare sheet's slider is not the Mac's accent")
+    }
+
+    /// At None a sheet keeps the Mac's accent too — the carried hue sets nothing.
+    @Test func aSheetUnderNoneKeepsTheMacsAccent() throws {
+        let slider = Slider(value: .constant(0.6)).frame(width: 200)
+        let rep = try Self.renderSheet(slider.presentedNativeControlAccent(), root: LiquidGlassHue.none)
+        #expect(Self.count(rep, near: Self.systemAccent) > 60, "the sheet's slider at None is not the Mac's accent")
+    }
+
     /// `.none` sets nothing: the slider is the Mac's accent, exactly as with no root at all.
     @Test func noneLeavesTheMacsAccent() throws {
         let slider = Slider(value: .constant(0.6)).frame(width: 200)

@@ -752,8 +752,13 @@ import Testing
                 "Learn Again is no longer offered as the secondary button")
         #expect(sheet.contains("model.pressLearnAgain()"))
         // Structure: a failed write stays put.
-        #expect(sheet.contains("primaryAction: { Task { await model.pressStructurePrimary() } }"),
+        #expect(sheet.contains("Task { await model.pressStructurePrimary(shownSkipSaving: shownSkipSaving) }"),
                 "Structure's primary no longer goes through `pressStructurePrimary`")
+        // What the button said is captured as it is drawn, from the title it drew (SR5).
+        #expect(sheet.contains("let primary = model.structurePrimaryTitle\n            frame(primary: primary,"),
+                "Structure's button draws one title and the press reads another")
+        #expect(sheet.contains("{ [shownSkipSaving = primary == SetupModel.skipSavingTitle] in"),
+                "a Skip Saving press is decided when the Task runs, not when the button was drawn")
         #expect(!sheet.contains("primaryAction: model.canWriteProfile"),
                 "Structure's primary decides for itself again, past the model's rule")
         #expect(!sheet.contains("await model.save()"),
@@ -765,8 +770,15 @@ import Testing
         // And the failure is drawn where the press stays, with the two ways on.
         let structure = try source("Setup/StructureScreen.swift")
         // A reading still running is said in the tree's box, not "Nothing has been learned yet".
-        #expect(structure.contains("} else if model.structureAwaitsReading {"),
-                "Structure no longer says it is reading while the reading runs")
+        #expect(structure.contains("} else if model.structureShowsWalkStatus {"),
+                "Structure no longer says it is reading, or that the reading failed")
+        // And draws nothing that explains or counts a tree it does not have (SR5).
+        #expect(structure.contains("let counts = Self.counts(model)"),
+                "Structure's stats row counts past `counts(_:)` — zeros or old counts while it reads")
+        #expect(structure.contains(".disabled(!model.structureReadingSwitchIsEnabled)"),
+                "the reading switch is live past `structureReadingSwitchIsEnabled`")
+        #expect(structure.components(separatedBy: "} else if !model.structureShowsWalkStatus {").count - 1 == 2,
+                "Structure draws its lens or its grey-words legend over a reading it does not have")
         #expect(structure.contains("private var profile: FolderProfile? { model.structureShownProfile }"),
                 "Structure draws a tree past `structureShownProfile` — an old one while a reading runs")
         #expect(structure.contains("if let failure = model.saveFailure"),
@@ -779,6 +791,12 @@ import Testing
         #expect(sheet.contains(".onTapGesture { close() }"), "a click outside skips the commit")
         #expect(sheet.contains("onDismiss: { close() },"), "Esc and ✕ skip the commit")
         #expect(!sheet.contains("onDismiss: onDismiss"), "the chrome is handed the bare dismiss again")
+        // And every teardown without a close: a panel ranking above setup, the window closing
+        // (both hosted in `SetupSheetTeardownTests`), and quitting, which that suite must not post.
+        #expect(sheet.contains(".onDisappear { model.commitBeforeClosing() }"),
+                "taking the sheet down no longer commits the open screen")
+        #expect(sheet.contains("NSApplication.willTerminateNotification)) { _ in\n            model.commitBeforeClosing()"),
+                "quitting with setup open no longer commits the open screen")
         // Summary: Learn goes back to the Learn screen, not out to a Settings tab.
         #expect(try source("Setup/SummaryScreen.swift").contains("action: { model.returnToLearn() }"),
                 "Summary's Learn no longer goes back to the Learn screen")

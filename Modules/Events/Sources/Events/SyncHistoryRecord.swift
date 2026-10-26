@@ -79,6 +79,13 @@ public struct SyncHistoryRecord: Codable, Sendable, Identifiable {
     /// The sync direction in the two-pane model ("→ Right" / "← Left"), when meaningful; nil
     /// for a delete or a transfer to an arbitrary folder.
     public let direction: String?
+    /// **Whether a `.delete` reached the Trash** (RD2), recorded by `deleteItems`. Its own field
+    /// because `backupPath` cannot say it: the Trash can take an item and report no location, and
+    /// such an item is in the Trash all the same. nil for every other action, and in a record
+    /// written before the field existed, which then falls back to `backupPath` (see
+    /// `isPermanentDelete`). Optional, so older files decode and older builds read newer ones;
+    /// the JSON export carries it as `reachedTrash`, the CSV export does not.
+    public let reachedTrash: Bool?
 
     public init(
         id: UUID = UUID(),
@@ -90,7 +97,8 @@ public struct SyncHistoryRecord: Codable, Sendable, Identifiable {
         sizeBytes: Int? = nil,
         checksum: String? = nil,
         backupPath: String? = nil,
-        direction: String? = nil
+        direction: String? = nil,
+        reachedTrash: Bool? = nil
     ) {
         self.id = id
         self.runId = runId
@@ -102,13 +110,16 @@ public struct SyncHistoryRecord: Codable, Sendable, Identifiable {
         self.checksum = checksum
         self.backupPath = backupPath
         self.direction = direction
+        self.reachedTrash = reachedTrash
     }
 
     /// **A delete that did not reach the Trash** — removed outright on a disk with no Trash, after
-    /// the permanent-delete question was answered yes. `deleteItems` records the Trash location of
-    /// every item it trashed in `backupPath` and leaves it nil for exactly these, so the record
-    /// itself tells the two apart.
-    public var isPermanentDelete: Bool { action == .delete && backupPath == nil }
+    /// the permanent-delete question was answered yes. Read from `reachedTrash`, which
+    /// `deleteItems` records for every item; a record from before that field falls back to
+    /// `backupPath == nil`, which also reads an item trashed with no reported location as deleted.
+    public var isPermanentDelete: Bool {
+        action == .delete && !(reachedTrash ?? (backupPath != nil))
+    }
 
     /// The row's label: `action.label`, except "Delete" for a permanent delete (FD2) — "Move to
     /// Trash" there would promise a way back that is not there.

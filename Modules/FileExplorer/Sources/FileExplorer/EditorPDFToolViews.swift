@@ -40,7 +40,7 @@ struct EditorPDFToolsMenu: View {
         .accessibilityLabel("PDF Tools")
         .accessibilityInputLabels(EditorSpokenNames.names(word: "Tools", label: "PDF Tools"))
         .sheet(item: $tools.sheet) { sheet in
-            EditorPDFToolSheetView(tools: tools, sheet: sheet)
+            EditorPDFToolSheetView(tools: tools, sheet: sheet).presentedNativeControlAccent()
         }
     }
 }

@@ -154,7 +154,7 @@ struct EditorPDFFillPalette: View {
                 .onGeometryChange(for: CGSize.self) { $0.size } action: { onSize($0) }
                 .onDisappear { onSize(.zero) }
                 .sheet(item: $fill.addingSignature) { kind in
-                    EditorPDFAddSignatureSheet(fill: fill, kind: kind)
+                    EditorPDFAddSignatureSheet(fill: fill, kind: kind).presentedNativeControlAccent()
                 }
         }
     }

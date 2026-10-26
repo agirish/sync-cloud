@@ -31,7 +31,7 @@ import Testing
         SetupModel(settings: await settings(), peopleStore: nil, syncManager: syncManager,
                    hasFilingProfile: false,
                    defaults: ScratchDefaults("setup-model-d"),
-                   walk: walk)
+                   walk: walk, draftURL: nil)
     }
 
     private static func walk(folders: [String], files: [String] = []) -> SetupWalk {
@@ -409,7 +409,7 @@ import Testing
         store.add(displayName: "Maya")
         let model = SetupModel(settings: await settings(), peopleStore: store, syncManager: nil,
                                hasFilingProfile: true, defaults: ScratchDefaults("setup-model-d"),
-                               walk: nil)
+                               walk: nil, draftURL: nil)
         #expect(model.rosterNames == ["Maya"], "premise: the roster is what the chips show")
 
         model.requestRemovePerson(named: "Maya")
@@ -728,7 +728,7 @@ import Testing
         var started: [URL] = []
         let model = SetupModel(settings: await settings(), peopleStore: nil, syncManager: engine,
                                hasFilingProfile: false, defaults: ScratchDefaults("setup-model-d"),
-                               walk: Self.walk(folders: ["Finance/US/2024", "Finance/IN/2024"]),
+                               walk: Self.walk(folders: ["Finance/US/2024", "Finance/IN/2024"]), draftURL: nil,
                                onStartSurvey: { started.append($0) })
         model.confirmedCountries = ["US"]
         #expect(model.structurePrimaryTitle == "Save and Start Reading")
@@ -822,7 +822,7 @@ import Testing
         model.screen = .structure
         model.walkState = .running
 
-        await model.pressStructurePrimary()
+        await model.pressStructurePrimary(shownSkipSaving: model.structurePrimaryTitle == SetupModel.skipSavingTitle)
 
         #expect(model.screen == .workspaces, "Skip Saving stayed on \(model.screen)")
         #expect(model.walkState.isRunning, "Skip Saving stopped the reading")
@@ -844,10 +844,133 @@ import Testing
         model.readDocuments = false
         model.screen = .structure
 
-        await model.pressStructurePrimary()
+        await model.pressStructurePrimary(shownSkipSaving: model.structurePrimaryTitle == SetupModel.skipSavingTitle)
 
         #expect(model.writtenReport != nil, "the press over a landed reading wrote nothing")
         #expect(model.screen == .workspaces)
+    }
+
+    /// **A press made under Skip Saving moves on without saving, even if the reading has landed
+    /// since** (SR5).
+    ///
+    /// The sheet runs the press in a `Task`, so a reading that lands on the main actor between the
+    /// render that drew "Skip Saving" and the press used to make it a Save — with the switch on,
+    /// Save and Start Reading: hours of reading under a button that said it would skip.
+    @Test func aPressUnderSkipSavingNeverSavesTheReadingThatLandedSince() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-skiprace-\(UUID().uuidString)")
+        let profiles = root.appendingPathComponent("profiles")
+        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = profiles
+        var started: [URL] = []
+        let model = SetupModel(settings: await settings(), peopleStore: nil, syncManager: engine,
+                               hasFilingProfile: false, defaults: ScratchDefaults("setup-model-d"),
+                               startScreen: .structure, draftURL: nil,
+                               onStartSurvey: { started.append($0) })
+        model.walkState = .running
+        let drawn = model.structurePrimaryTitle
+        #expect(drawn == "Skip Saving", "premise: the button was drawn as Skip Saving")
+
+        // The reading lands after the button was drawn and before the press runs.
+        model.adopt(Self.walk(folders: ["Finance/US", "Family/Mother"]))
+        #expect(model.structurePrimaryTitle == "Save and Start Reading",
+                "premise: a press decided now would save and start reading")
+
+        await model.pressStructurePrimary(shownSkipSaving: drawn == SetupModel.skipSavingTitle)
+
+        #expect(model.screen == .workspaces, "Skip Saving stayed on \(model.screen)")
+        #expect(model.writtenReport == nil, "a press under Skip Saving saved")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: profiles.path).isEmpty,
+                "a press under Skip Saving wrote a profile")
+        #expect(started.isEmpty, "a press under Skip Saving started reading the documents")
+    }
+
+    // MARK: - Structure over a reading that failed
+
+    /// **A reading that fails on Structure is said there** (SR5).
+    ///
+    /// The "Reading names…" line went, and Structure showed "Nothing has been learned yet", this
+    /// Mac's profile read-only, or — after Learn Again — the last reading's tree under "SyncCloud
+    /// read this from …". None said it failed. Now the walk's status line stands in the tree's box,
+    /// the counts are dashes, the switch is off limits, and the button is Continue: nothing to
+    /// save, nothing pending to skip.
+    @Test func aReadingThatFailsOnStructureIsSaidThere() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-failed-\(UUID().uuidString)")
+        let profiles = root.appendingPathComponent("profiles")
+        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = profiles
+        let model = SetupModel(settings: await settings(), peopleStore: nil, syncManager: engine,
+                               hasFilingProfile: false, defaults: ScratchDefaults("setup-model-d"),
+                               walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
+                               startScreen: .structure, draftURL: nil)
+        #expect(model.structureShownProfile != nil, "premise: the landed reading draws its tree")
+
+        // Learn Again, and the new reading fails while Structure is on screen.
+        model.walkState = .running
+        model.walkState = .failed("The folder could not be read.")
+        #expect(model.structureProfile != nil, "premise: the last reading's preview is still built")
+        #expect(model.structureShowsWalkStatus, "a failed reading is not said on Structure")
+        #expect(model.structureShownProfile == nil,
+                "Structure draws the last reading's tree over the one that failed")
+        #expect(!model.structureIsReadOnly)
+        #expect(model.structurePrimaryTitle == "Continue",
+                "a failed reading is offered as \(model.structurePrimaryTitle)")
+        #expect(StructureScreen.counts(model)
+                    == .init(folders: nil, files: nil, loose: nil, people: 0, countries: nil),
+                "Structure counts a reading that failed")
+        #expect(!model.structureReadingSwitchIsEnabled,
+                "the reading switch offers a reading after a Save that cannot happen")
+
+        await model.pressStructurePrimary(shownSkipSaving: false)
+        #expect(model.screen == .workspaces, "Continue stayed on \(model.screen)")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: profiles.path).isEmpty,
+                "Continue over a failed reading wrote a profile")
+    }
+
+    /// On a re-run, a failed reading is said rather than passing this Mac's profile off as it.
+    @Test func aFailedReadingHidesTheProfileAlreadyHere() async throws {
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = FileManager.default.temporaryDirectory
+        engine.filingFolderProfile = FileSyncManager.previewProfile(
+            walk: Self.walk(folders: ["Finance/US"]), registry: nil, jurisdictionValues: [])
+        let model = await self.model(syncManager: engine)
+        model.screen = .structure
+        #expect(model.structureIsReadOnly, "premise: the re-run shows this Mac's profile")
+
+        model.walkState = .failed("The folder could not be read.")
+        #expect(!model.structureIsReadOnly, "a failed reading is called the profile already here")
+        #expect(model.structureShownProfile == nil, "the old profile is drawn over the failed reading")
+    }
+
+    /// **While the reading runs, Structure counts nothing and the switch waits** (SR5).
+    ///
+    /// The stats row said 0 folders and 0 files — or, after Learn Again, the last reading's counts —
+    /// and the "Read documents" switch stayed live with a tooltip about what happens after a Save
+    /// the screen could not make. The people are the roster's either way, so they stay.
+    @Test func whileTheReadingRunsStructureCountsNothingAndTheSwitchWaits() async throws {
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = FileManager.default.temporaryDirectory
+        let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
+                                     syncManager: engine)
+        model.screen = .structure
+        model.draft.others = [SetupDraft.DraftPerson(displayName: "Maya")]
+        let landed = StructureScreen.counts(model)
+        #expect((landed.folders ?? 0) > 0 && landed.people == 1,
+                "premise: the landed reading has counts to hide")
+        #expect(model.structureReadingSwitchIsEnabled, "premise: the switch is live over a reading")
+
+        // Learn Again: the last reading's counts must not stand for the new one.
+        model.walkState = .running
+        #expect(StructureScreen.counts(model)
+                    == .init(folders: nil, files: nil, loose: nil, people: 1, countries: nil),
+                "Structure counts a reading still running")
+        #expect(!model.structureReadingSwitchIsEnabled,
+                "the reading switch is live while the reading runs")
     }
 
     // MARK: - Back to Learn
@@ -973,7 +1096,7 @@ import Testing
         var started: [URL] = []
         let model = SetupModel(settings: await settings(), peopleStore: nil, syncManager: engine,
                                hasFilingProfile: besideAHandBuiltProfile,
-                               defaults: ScratchDefaults("setup-model-d"), walk: walk,
+                               defaults: ScratchDefaults("setup-model-d"), walk: walk, draftURL: nil,
                                onStartSurvey: { started.append($0) })
         #expect(model.readDocuments, "premise: reading the documents was asked for")
         await model.save()

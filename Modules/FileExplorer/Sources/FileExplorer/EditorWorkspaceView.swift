@@ -1461,9 +1461,10 @@ public struct EditorWorkspaceView: View {
                         .frame(width: 18, height: 18)
                 }
             }
-            .foregroundStyle(railIsHidden ? accent : .primary)
-            // The soft accent wash is the lit state; the hover style paints its own wash over it,
+            // Label colour lit or not: the soft accent wash is the lit state (DS1), and the accent
+            // as words on it read at 2.3:1 on Green. The hover style paints its own wash over it,
             // which reads as the pressed preview it is.
+            .foregroundStyle(.primary)
             .background(Capsule().fill(railIsHidden ? accent.opacity(0.18) : .clear))
             .contentShape(Capsule())
         }
@@ -2521,7 +2522,7 @@ public struct EditorWorkspaceView: View {
                         .scaledFont(.system(size: 12, weight: .medium))
                 }
                 .buttonStyle(.bordered)
-                .tint(accent)
+                .buttonWordsTint(accent)
                 .shortcutKeycap(AppChord.editorTextFiles.display)
                 .help(ShortcutHint.tooltip(Self.showTextFilesHelp, AppChord.editorTextFiles.display))
             }
@@ -2561,7 +2562,7 @@ public struct EditorWorkspaceView: View {
                 .scaledFont(.system(size: 12, weight: .medium))
         }
         .buttonStyle(.bordered)
-        .tint(tinted ? accent : nil)
+        .buttonWordsTint(tinted ? accent : nil)
         .help(button.help)
     }
 
@@ -2620,7 +2621,7 @@ extension EditorWorkspaceView {
                 .scaledFont(.system(size: 12, weight: .medium))
         }
         .buttonStyle(.bordered)
-        .tint(accent)
+        .buttonWordsTint(accent)
         .help(downloadHelp)
     }
 }

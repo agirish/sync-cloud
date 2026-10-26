@@ -126,6 +126,7 @@ public struct FilingRuleOfferButton: View {
                 .popover(isPresented: $isOpen, arrowEdge: .bottom) {
                     FilingRuleOfferPanel(session: session, syncManager: syncManager, accent: accent,
                                          onDone: { isOpen = false })
+                        .presentedNativeControlAccent()
                 }
                 .onChange(of: isOpen) { _, open in onOpenChange(open) }
                 // The offer retired (or the message replaced) with the popover up takes the popover
@@ -223,7 +224,8 @@ struct RuleOfferPromptView: View {
                                 // unselected-chip treatment).
                                 .background(Capsule().fill(on ? accent.opacity(0.14) : Color.primary.opacity(0.06)))
                                 .overlay(Capsule().strokeBorder(on ? accent.opacity(0.5) : Color.clear, lineWidth: 0.5))
-                                .foregroundStyle(on ? accent : Color.secondary)
+                                // Label-colour words; the accent is the wash and hairline (DS1).
+                                .foregroundStyle(on ? Color.primary : Color.secondary)
                         }
                         .buttonStyle(.hoverAffordance(on ? .filled : .segment, tint: accent))
                         .help("Choose this phrasing — \(variant.summary)")

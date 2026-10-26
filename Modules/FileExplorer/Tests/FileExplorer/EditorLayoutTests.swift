@@ -839,7 +839,9 @@ import FileExplorerTestSupport
         }
     }
 
-    /// **The button really lights — ink AND wash — and lighting it moves nothing else.**
+    /// **The button really lights — its wash — and lighting it moves nothing else.** Its word and
+    /// glyph stay label colour lit or not (DS1, RB2): the accent as words on its own wash read at
+    /// 2.3:1 on Green.
     ///
     /// The wash is counted on its own: pixels of the accent's soft tint (light, blue-leaning, not
     /// white and not the saturated ink) inside the Expand button's ring, as an area in square
@@ -902,7 +904,8 @@ import FileExplorerTestSupport
         }
         let unlitStart = try #require(wordStart(off) { r, g, b in max(r, g, b) < 0.6 },
                                       "no word found after the arrow in the unlit button")
-        let litStart = try #require(wordStart(on) { r, g, b in r < 0.45 && b > 0.8 },
+        // Label colour lit too: the dark ink the unlit word is found by, not the accent.
+        let litStart = try #require(wordStart(on) { r, g, b in max(r, g, b) < 0.6 },
                                     "no word found after the arrow in the lit button")
         #expect(abs(litStart - unlitStart) < 1.5,
                 "lit, the word begins \(litStart)pt into the button against \(unlitStart)pt unlit — “Files” is not where “Expand” was")

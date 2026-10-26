@@ -85,11 +85,44 @@ public enum ChromeInk {
         })
     }
 
+    /// **A button's words in a colour** — the `.tint` for a `.bordered` or `.borderless` button,
+    /// which draws its tint as the label's TEXT, on a bezel or on nothing.
+    ///
+    /// Light deepens the colour to body-text depth (`bodyText`); dark takes label colour, as
+    /// `label(_:light:)` does for all chrome. **Measured on the rendered bezel** (`ButtonWordInkTests`):
+    /// a light `.bordered` bezel paints 0.92 grey, where the raw hue as words measured 1.74:1 (Cyan)
+    /// to 4.26:1 (Indigo) and the text depth measures 4.64:1 for every hue. The dark bezel paints
+    /// 0.19, and no shade of the hue the app has clears 4.5:1 on it for every hue — the text depth,
+    /// tuned to the 0.13 sheet, gives Blue and Purple 3.98:1 — so the words go white there, and the
+    /// hue stays in light. Always a colour, never no tint: an UNTINTED button under a sheet's root
+    /// tint (`accentedProminent`) draws its words in that deepened fill, measured 2.9:1 on the dark
+    /// bezel at Green and 3.8:1 on the light one.
+    public static func buttonWords(_ scheme: ColorScheme, _ color: Color) -> Color {
+        label(scheme, light: bodyText(scheme, color))
+    }
+
     /// The optional-tint form, for a control whose dark treatment is not a flat colour but a
     /// *fallback to the standard label hierarchy* — `PaneBreadcrumb`'s root crumb, which without a
     /// tint distinguishes the current folder from its ancestors by `.primary` vs `.secondary`.
     /// Returning nil hands it back to that hierarchy instead of flattening both to one white.
     public static func tint(_ scheme: ColorScheme, light: Color?) -> Color? {
         scheme == .dark ? nil : light
+    }
+}
+
+public extension View {
+    /// Tints a `.bordered` or `.borderless` button's words with `color` at a depth they read at on
+    /// the bezel — `ChromeInk.buttonWords`, for the appearance the button is drawn in. Nil leaves the
+    /// button untinted. The raw hue as a button's `.tint` is refused by `AccentFillScanTests` (rule 7).
+    func buttonWordsTint(_ color: Color?) -> some View {
+        modifier(ButtonWordsTint(color: color))
+    }
+}
+
+private struct ButtonWordsTint: ViewModifier {
+    let color: Color?
+    @Environment(\.colorScheme) private var colorScheme
+    func body(content: Content) -> some View {
+        content.tint(color.map { ChromeInk.buttonWords(colorScheme, $0) })
     }
 }

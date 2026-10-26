@@ -1138,7 +1138,7 @@ public struct LensWorkspaceView: View {
         // on quoting "last run ~$0.18" from a record the user had just erased through this very
         // sheet — the one invalidation the cached spend needed and did not have. `SettingsView`
         // presents the same sheet the same way.
-        .sheet(isPresented: $showSpendHistory, onDismiss: refreshFilingSpend) { FilingSpendHistoryView() }
+        .sheet(isPresented: $showSpendHistory, onDismiss: refreshFilingSpend) { FilingSpendHistoryView().presentedNativeControlAccent() }
         // Review-after-create: the rule just learned from "Remember" (or saved from "Save rule")
         // opens in its editor so it can be checked and adjusted immediately. Cancel keeps the rule
         // exactly as created — the review is an offer, not a gate.
@@ -1160,6 +1160,7 @@ public struct LensWorkspaceView: View {
                 },
                 onCancel: { reviewingAutomationRule = nil }
             )
+            .presentedNativeControlAccent()
         }
         // A fresh scan starts a fresh session: forget any files filed against the previous results,
         // so the "All filed" terminal state is only earned by this scan's work. The search resets
@@ -3496,7 +3497,7 @@ public struct LensWorkspaceView: View {
         // over folders already in the Trash. On this stable anchor the sheet outlives the
         // branch switch.
         .sheet(item: $planningFinding) { finding in
-            planSheet(for: finding)
+            planSheet(for: finding).presentedNativeControlAccent()
         }
         // A menu verb, carried out HERE. Resolved against the findings as they stand now rather
         // than as they stood when the menu was drawn — a menu item is enabled at draw time and
@@ -3513,6 +3514,7 @@ public struct LensWorkspaceView: View {
                 isStanding: request.isStanding,
                 onRemove: { paths in await removeEmptied(paths, for: request) },
                 onClose: { removalRequest = nil })
+            .presentedNativeControlAccent()
         }
     }
 

@@ -211,7 +211,7 @@ struct RenamePassLens: View {
                             .fontWeight(.semibold)
                     }
                     .buttonStyle(.borderless)
-                    .tint(accent)
+                    .buttonWordsTint(accent)
                     .disabled(syncManager.isApplyingRenames || syncManager.isSuggestingFiles)
                     .lockedDuringRun()
                     .help("Rename to a name every provider can store, as one undoable change")
@@ -242,7 +242,7 @@ struct RenamePassLens: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .tint(SemanticColor.error)
+                .buttonWordsTint(SemanticColor.error)
                 .layoutPriority(1)
                 .fixedSize()
                 .disabled(syncManager.isApplyingRenames || syncManager.isSuggestingFiles)
@@ -292,7 +292,7 @@ struct RenamePassLens: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .tint(section.category == .pad ? accent : tint(section.category))
+                .buttonWordsTint(section.category == .pad ? accent : tint(section.category))
                 .layoutPriority(1)
                 .fixedSize()
                 .disabled(syncManager.isApplyingRenames || syncManager.isSuggestingFiles)
@@ -388,7 +388,7 @@ struct RenamePassLens: View {
                             .fontWeight(.semibold)
                     }
                     .buttonStyle(.borderless)
-                    .tint(accent)
+                    .buttonWordsTint(accent)
                     .disabled(syncManager.isApplyingRenames || syncManager.isSuggestingFiles)
                     .lockedDuringRun()
                     .help("Apply every rename in this folder, as one undoable change")

@@ -8,7 +8,7 @@ import AppKit
 /// Read off the running app's `NSApp.mainMenu` — the test host is the app — and off a menu built
 /// here, where the ⌃⇥ item can be made to read "Next Tab" without driving Browse into two tabs.
 @MainActor
-@Suite struct GoMenuDuplicatesTests {
+@Suite(.serialized) struct GoMenuDuplicatesTests {
 
     final class Target: NSObject {
         var fired = 0
@@ -103,5 +103,48 @@ import AppKit
         #expect(control.isHidden, "the ⌃⇥ item read Next Tab and stayed drawn — the observer is not installed")
         control.title = "Focus Dropbox"
         #expect(!control.isHidden)
+    }
+
+    /// The live Go menu's ⌃⇥ item, taken out of the menu and retitled Next Tab while out — so no
+    /// notification the hook watches has seen it — and the closure that puts everything back.
+    ///
+    /// **The live item, not a new one**: the main menu clears the key of an item added with a
+    /// chord another item already has (measured: a second ⌃⇥ arrives with an empty key), so only
+    /// re-adding the one ⌃⇥ item models a SwiftUI rebuild.
+    private func detachedControlTab() throws -> (go: NSMenu, item: NSMenuItem, index: Int, restore: () -> Void) {
+        let go = try #require(GoMenuDuplicates.goMenu, "the app has no Go menu — this check would be vacuous")
+        let item = try #require(go.items.first {
+            $0.keyEquivalent == AppChord.switchPaneFocus.appKitKeyEquivalent
+                && $0.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask)
+                    == AppChord.switchPaneFocus.appKitModifierMask
+        }, "nothing in Go registers ⌃⇥")
+        let index = go.index(of: item), original = item.title
+        go.removeItem(item)
+        item.title = NextTabCommand.title
+        item.isHidden = false
+        return (go, item, index, {
+            if item.menu == nil { go.insertItem(item, at: index) }
+            item.title = original
+            GoMenuDuplicates.apply(to: go)
+        })
+    }
+
+    /// **An item SwiftUI adds to the live Go menu is hidden as it arrives** — the
+    /// `didAddItemNotification` half of the hook, posted inside `insertItem` (measured). SwiftUI
+    /// rebuilds Go's items on a workspace switch, and a rebuilt Next Tab ⌃⇥ is a new item no
+    /// change notification ever names.
+    ///
+    /// The `didBeginTrackingNotification` half has no test: every way of making a twin here —
+    /// adding it, retitling it, with Go's `menuChangedMessagesEnabled` off, or from another thread
+    /// — had the add or change notification hide it first (measured 2026-10-26), so tracking
+    /// could never be the observer that did.
+    @Test func aNextTabItemAddedToTheLiveGoMenuIsHidden() throws {
+        let (go, item, index, restore) = try detachedControlTab()
+        defer { restore() }
+        try #require(!item.isHidden, "the premise: the item is drawn before it is added")
+        go.insertItem(item, at: index)
+        try #require(item.keyEquivalent == AppChord.switchPaneFocus.appKitKeyEquivalent, "re-adding cleared the ⌃⇥ key")
+        #expect(item.isHidden, "a Next Tab ⌃⇥ added to Go stayed drawn — didAddItem is not observed")
+        #expect(item.allowsKeyEquivalentWhenHidden)
     }
 }

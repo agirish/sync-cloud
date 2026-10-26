@@ -359,6 +359,7 @@ public struct PaneHeader: View {
             .contextMenu { barContextMenu() }
             .sheet(isPresented: $isCustomizing) {
                 PaneBarCustomizeSheet(availableHere: Set(availableItems))
+                    .presentedNativeControlAccent()
             }
             PaneBreadcrumb(
                 rootPath: rootPath,

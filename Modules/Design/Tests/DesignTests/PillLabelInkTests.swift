@@ -19,11 +19,16 @@ import Testing
             + LiquidGlassHue.allCases.map { ("hue \($0.displayName)", $0.accentColor) }
     }
 
+    /// The coloured tints: every one but the neutral grey, which is the quiet case below.
+    static var colouredTints: [(String, Color)] { tints.filter { $0.0 != "neutral" } }
+
     @Test func aColouredPillsWordsAreLabelColourAndANeutralOneStaysQuiet() {
-        for (name, tint) in Self.tints {
+        for (name, tint) in Self.colouredTints {
             #expect(PillVariant.labelInk(for: tint) == .primary, "\(name)'s words are not label colour")
         }
         #expect(PillVariant.labelInk(for: .secondary) == .secondary, "a neutral pill went loud")
+        // The log's DEBUG pill is the neutral semantic grey: quieter than ERROR, as it was (RB5).
+        #expect(PillVariant.labelInk(for: SemanticColor.neutral) == .secondary, "the neutral grey pill went loud")
     }
 
     static func resolved(_ color: Color, dark: Bool) -> NSColor {
@@ -60,7 +65,7 @@ import Testing
     /// **The words on the wash, every tint, both appearances, at 4.5:1 or better** — label colour
     /// at its own alpha over the tint's wash over the ground, as the pill composites it.
     @Test func theWordsReadOnTheirWashInBothAppearances() {
-        for (name, tint) in Self.tints {
+        for (name, tint) in Self.colouredTints {
             for dark in [false, true] {
                 let wash = Self.over(Self.resolved(tint, dark: dark), alpha: PillVariant.fillOpacity, Self.ground(dark: dark))
                 let ink = Self.over(Self.resolved(PillVariant.labelInk(for: tint), dark: dark), wash)
@@ -183,5 +188,93 @@ import Testing
         }
         #expect(chroma < 0.12, "the caution pill's words are tinted: \(extreme.c)")
         #expect(washChroma > 0.06, "the caution pill's wash carries no colour")
+    }
+}
+
+/// **Two of the five components the first source scan could not see, rendered on their own**
+/// (RB1): StatusBadge inks its child `Text`, and the size tiles a `VStack` inside a button's label.
+/// Each is read back for its words — the darkest pixel in light, the brightest in dark — which in
+/// label colour is a near-neutral black or white, and in the tint would be the tint: the dot and
+/// the tile's border are lighter (in light) and darker (in dark) than the words, so they never win.
+@MainActor
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct ComponentWordInkRenderTests {
+
+    static func render(_ view: some View, size: CGSize, dark: Bool) throws -> NSBitmapImageRep {
+        let host = NSHostingView(rootView: view
+            .frame(width: size.width, height: size.height)
+            .background(dark ? Color(red: 0.13, green: 0.13, blue: 0.13) : Color(red: 0.96, green: 0.96, blue: 0.96))
+            .environment(\.colorScheme, dark ? .dark : .light))
+        host.frame = CGRect(origin: .zero, size: size)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        window.colorSpace = .sRGB
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        window.close()
+        return rep
+    }
+
+    /// The words' pixel in the columns `xs` (a fraction of the width): its luminance and chroma.
+    static func words(_ rep: NSBitmapImageRep, dark: Bool, xs: ClosedRange<CGFloat> = 0...1) -> (l: CGFloat, chroma: CGFloat) {
+        var best: (l: CGFloat, chroma: CGFloat) = (dark ? 0 : 1, 0)
+        let from = Int(xs.lowerBound * CGFloat(rep.pixelsWide))
+        let to = max(from + 1, Int(xs.upperBound * CGFloat(rep.pixelsWide)))
+        for y in 0..<rep.pixelsHigh { for x in from..<to {
+            let c = PillLabelInkRenderTests.pixel(rep, x, y)
+            let l = AccentLabel.relativeLuminance(red: c.0, green: c.1, blue: c.2)
+            if dark ? l > best.l : l < best.l { best = (l, max(c.0, c.1, c.2) - min(c.0, c.1, c.2)) }
+        } }
+        return best
+    }
+
+    static func expectLabelColour(_ ink: (l: CGFloat, chroma: CGFloat), dark: Bool, _ name: String) {
+        if dark {
+            #expect(ink.l > 0.6, "\(name)'s brightest ink is L \(ink.l), not white")
+        } else {
+            #expect(ink.l < 0.08, "\(name)'s darkest ink is L \(ink.l), not black")
+        }
+        #expect(ink.chroma < 0.12, "\(name)'s words are tinted: chroma \(ink.chroma)")
+    }
+
+    @Test(arguments: [false, true]) func statusBadgesWordsAreLabelColour(dark: Bool) throws {
+        for valid in [true, false] {
+            let rep = try Self.render(StatusBadge(isValid: valid).environment(\.appFontScale, 1.6),
+                                      size: CGSize(width: 200, height: 40), dark: dark)
+            Self.expectLabelColour(Self.words(rep, dark: dark), dark: dark, "the \(valid ? "valid" : "invalid") badge")
+        }
+    }
+
+    private struct Row: View {
+        @State var fontSize: FontSize = .small
+        @State var density: ListDensity = .compact
+        var body: some View { SizePresetRow(fontSize: $fontSize, density: $density, style: .named) }
+    }
+
+    /// The first tile is the chosen one. Its two words are read inside its wash and border: no
+    /// pixel of them is in a colour. The extreme pixel alone cannot say so — the tile's second word
+    /// is label colour either way, and wins it — so this counts the coloured ink in rows that are
+    /// not the border's: a border row is coloured across the tile, a word's row only in places.
+    @Test(arguments: [false, true]) func theChosenSizeTilesWordsAreLabelColour(dark: Bool) throws {
+        let rep = try Self.render(Row().appFontSize(.medium).padding(8), size: CGSize(width: 440, height: 70), dark: dark)
+        // The first of five tiles, its border's columns left out.
+        let from = Int(0.05 * CGFloat(rep.pixelsWide)), to = Int(0.18 * CGFloat(rep.pixelsWide))
+        var coloured = 0
+        for y in 0..<rep.pixelsHigh {
+            var row = 0
+            for x in from..<to {
+                let c = PillLabelInkRenderTests.pixel(rep, x, y)
+                let chroma = max(c.0, c.1, c.2) - min(c.0, c.1, c.2)
+                // Ink, not the wash: far enough from the ground to be a glyph's, and coloured.
+                let l = AccentLabel.relativeLuminance(red: c.0, green: c.1, blue: c.2)
+                if chroma > 0.3, dark ? l > 0.05 : l < 0.5 { row += 1 }
+            }
+            if row < (to - from) * 7 / 10 { coloured += row }
+        }
+        #expect(coloured < 5, "the chosen size tile's words have \(coloured) coloured pixels")
+        // ...and its words are drawn, in label colour.
+        Self.expectLabelColour(Self.words(rep, dark: dark, xs: 0.05...0.18), dark: dark, "the chosen size tile")
     }
 }

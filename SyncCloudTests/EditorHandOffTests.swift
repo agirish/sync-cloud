@@ -352,6 +352,10 @@ import FileExplorer
         let body = CodeText(try declarationBody(of: "func downloadFromEdit(_ path: String) {", in: editor))
         #expect(body.contains("CloudDownloadRequest.requestDownload(path: path, name: name,"),
                 "Edit's Download no longer asks through Browse's verb")
+        // A refusal must not reveal the file in Finder: the fetch below reaches every provider and
+        // opens it here, so Finder over Edit beside that promise was a second answer (RA1).
+        #expect(body.contains("whenUnavailable: { _ in })"),
+                "Edit's Download takes Browse's reveal-in-Finder fallback, over the fetch it already starts")
         #expect(body.contains("await ExternalOpen.fetch(path, timeout: Self.editDownloadWait)"),
                 "Edit's Download no longer waits for the file, or waits only the external open's minute")
         // Download was asked for here, and the note promises the file opens when it arrives: a

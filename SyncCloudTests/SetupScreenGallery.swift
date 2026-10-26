@@ -78,7 +78,7 @@ import Testing
                         glassLevel: .frosted, surfaceTint: 0, availableSize: host,
                         hasFilingProfile: false,
                         defaults: ScratchDefaults("render-d"),
-                        walk: SetupSheetFitTests.realisticWalk, startScreen: screen,
+                        walk: SetupSheetFitTests.realisticWalk, startScreen: screen, draftURL: nil,
                         onOpenSettings: { _ in }, onFinish: {}, onDismiss: {})
                     let w = host.width, h = host.height
                     // The whole sheet, not just the card: `onAppear` on the sheet is what runs
@@ -123,7 +123,7 @@ import Testing
             settings: settings, peopleStore: people, glassHue: .blue, glassLevel: .frosted,
             surfaceTint: 0, availableSize: host, hasFilingProfile: false,
             defaults: ScratchDefaults("render-m"),
-            walk: SetupSheetFitTests.realisticWalk, startScreen: .welcome,
+            walk: SetupSheetFitTests.realisticWalk, startScreen: .welcome, draftURL: nil,
             onOpenSettings: { _ in }, onFinish: {}, onDismiss: {})
         print("[gallery] ceiling \(Int(ceiling))")
         // **Measured at every text size, not just the default.** The card's width scales with the

@@ -73,7 +73,7 @@ import SyncCloudCLICore
     /// next verb is the one this is for.
     @Test func everyCommandExitsThroughTheLogFlushAndErrorLadder() throws {
         let source = try Self.commandsSource()
-        for call in ["runScan", "runSync", "runProviders", "RestructureReporting.report"] {
+        for call in ["runScan", "runSync", "runProviders", "RestructureReporting.run"] {
             let body = try #require(Self.runBody(before: call, in: source),
                                     "cannot find the run body that calls \(call)")
             #expect(body.contains("flushingLogToDisk"),
@@ -89,10 +89,10 @@ import SyncCloudCLICore
     @Test func theFlushScanCanActuallyFail() throws {
         let unwrapped = """
             func run() async throws {
-                let output = try RestructureReporting.report(profilesDirectory: nil)
+                try RestructureReporting.run(profilesDirectory: nil, json: false) { print($0) }
             }
             """
-        let body = try #require(Self.runBody(before: "RestructureReporting.report",
+        let body = try #require(Self.runBody(before: "RestructureReporting.run",
                                              in: unwrapped))
         #expect(!body.contains("flushingLogToDisk"),
                 "the scan cannot distinguish a wrapped body from an unwrapped one")
@@ -200,14 +200,18 @@ import SyncCloudCLICore
         }
     }
 
-    /// **What ArgumentParser prints for us is folded to ASCII punctuation** (FC10): a validation
-    /// message, and the message of an error it prints as `Error: …`.
-    @Test func theMessagesArgumentParserPrintsAreFolded() async {
+    /// **A validation message keeps its names; an error ArgumentParser prints as `Error: …` is
+    /// folded to ASCII punctuation** (FC10). A validation message is this tool's own ASCII words
+    /// around a path or provider name, which must print as typed; the other is someone else's
+    /// sentence.
+    @Test func validationKeepsItsNamesAndAnErrorArgumentParserPrintsIsFolded() async {
         do {
-            try await flushingLogToDisk { throw CLIValidationError(message: "No active profile in Bob’s “Profiles”…") }
+            try await flushingLogToDisk {
+                throw CLIValidationError(message: "Path or provider 'Mom’s “Files” – 2…' for Left could not be found.")
+            }
             Issue.record("nothing was thrown")
         } catch let error as ValidationError {
-            #expect(error.message == "No active profile in Bob's \"Profiles\"...")
+            #expect(error.message == "Path or provider 'Mom’s “Files” – 2…' for Left could not be found.")
         } catch {
             Issue.record("threw \(error) instead of ArgumentParser's ValidationError")
         }

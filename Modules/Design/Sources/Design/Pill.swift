@@ -23,13 +23,14 @@ public enum PillVariant: Equatable, Sendable {
     /// unreadable — measured on the review: yellow 1.4:1, green about 1.9:1, orange about 2:1, red
     /// about 2.8:1, against the 4.5:1 text needs. The colour now lives only in the wash, the
     /// standard variant's hairline, and any separate dot; the word is `.primary` — black in light,
-    /// white in dark. A NEUTRAL pill (`tint: .secondary`) was never a coloured word, and keeps its
-    /// quieter secondary ink.
+    /// white in dark. A NEUTRAL pill — `tint: .secondary`, or `SemanticColor.neutral`'s grey, the
+    /// log's DEBUG — was never a coloured word, and keeps its quieter secondary ink: drawn `.primary`,
+    /// DEBUG read as loud as ERROR beside it.
     ///
     /// Every pill drawn from these parts takes its ink here, and so does each hand-built one that
     /// sits on a coloured wash; `PillLabelInkScanTests` holds the app's sources to it.
     public static func labelInk(for tint: Color) -> Color {
-        tint == .secondary ? .secondary : .primary
+        tint == .secondary || tint == SemanticColor.neutral ? .secondary : .primary
     }
     /// Stroke opacity of the standard variant's hairline border.
     public static let strokeOpacity: Double = 0.45

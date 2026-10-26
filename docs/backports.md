@@ -11389,7 +11389,10 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr56=%s fix=%s\n' $l \
 The row menu's and File ▸ Download's Download did nothing on screen when the system refused the
 request — only a log line — while the preview's Download and Compare Copies revealed the file in
 Finder. `main` reveals it there too. The same session measured that the request works for Google
-Drive's File Provider placeholders (2026-10-25), so the comments no longer say it is iCloud-only.
+Drive's File Provider placeholders (2026-10-25), so the comments no longer say it is iCloud-only;
+Dropbox and OneDrive are not measured. Edit's Download (`downloadFromEdit`, which no maintenance
+line has) passes no fallback, because its own fetch reaches every provider and opens the file in
+Edit — a reveal over Edit was a second answer. The preview's Download now calls the shared verb.
 
 ```sh
 P=Modules/FileExplorer/Sources/FileExplorer/CloudDownloadRequest.swift
@@ -11417,24 +11420,35 @@ been learned yet" beside a Continue that dropped it; `main` says it is reading a
 Skip Saving until the reading lands. **ST18:** the setup buttons were sentence case ("Get started",
 "Learn again", "Continue without saving"); `main` Title Cases them.
 
+The review of that change (RA2–RA5) went further on `main`. Every other teardown commits too — a
+panel ranking above setup (Settings, Help, a destination pick), the window closing, quitting
+(`teardown`). A press under Skip Saving never saves a reading that landed after the button was
+drawn. A reading that fails on Structure is said there with Try Another Folder…, and while one runs
+or after it fails Structure dashes the reading's counts, hides its lens and legend, and holds the
+reading switch (`failed`).
+
 ```sh
 M=MacApp
-for l in main v5.x v4.x v3.x v2.x; do printf '%-5s setup=%s esc=%s fix4=%s reading=%s fix5=%s sentence=%s\n' $l \
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s setup=%s esc=%s fix4=%s reading=%s fix5=%s sentence=%s teardown=%s failed=%s\n' $l \
   "$(git ls-tree --name-only origin/$l -- $M/SetupSheet.swift | wc -l | tr -d ' ')" \
   "$(git show origin/$l:$M/ContentView.swift 2>/dev/null | grep -cF 'Hide the form for the rest of this session, persisting nothing')" \
   "$(git show origin/$l:$M/Setup/SetupModel.swift 2>/dev/null | grep -cF 'func commitBeforeClosing')" \
   "$(git show origin/$l:$M/Setup/StructureScreen.swift 2>/dev/null | grep -cF 'Nothing has been learned yet.')" \
   "$(git show origin/$l:$M/Setup/SetupModel.swift 2>/dev/null | grep -cF '"Skip Saving"')" \
-  "$(git show origin/$l:$M/SetupSheet.swift 2>/dev/null | grep -cF 'primary: "Get started"')"; done
-# measured 2026-10-25, against origin, before this landed (the fix reads esc=0 fix4=1 fix5=1 sentence=0):
+  "$(git show origin/$l:$M/SetupSheet.swift 2>/dev/null | grep -cF 'primary: "Get started"')" \
+  "$(git show origin/$l:$M/SetupSheet.swift 2>/dev/null | grep -cF 'model.commitBeforeClosing() }')" \
+  "$(git show origin/$l:$M/Setup/SetupModel.swift 2>/dev/null | grep -cF 'var structureShowsWalkStatus')"; done
+# measured 2026-10-25, against origin, before ST4/SR5 landed (the fix reads esc=0 fix4=1 fix5=2 sentence=0):
 # main, v5.x   setup=1 esc=1 fix4=0 reading=1 fix5=0 sentence=1
 # v4.x         setup=1 esc=1 fix4=0 reading=0 fix5=0 sentence=0
 # v3.x, v2.x   setup=0 esc=0 fix4=0 reading=0 fix5=0 sentence=0
+# teardown and failed measured 2026-10-25 before the review's fixes landed: 0 on every line
+# (the fixes read teardown=1 failed=1)
 ```
 
 | Line | Carries | Status |
 |---|---|---|
-| `v5.x` | The same guided sheet: closing commits nothing (`esc=1`), Structure over a running reading (`reading=1`), sentence-case buttons (`sentence=1`) | RECORDED — not owed |
+| `v5.x` | The same guided sheet: closing commits nothing (`esc=1`, `teardown=0`), Structure over a running or failed reading (`reading=1`, `failed=0`), sentence-case buttons (`sentence=1`) | RECORDED — not owed |
 | `v4.x` | The older five-step form: closing commits nothing (`esc=1`); no Structure screen, and its own sentence-case "Not now" | RECORDED — not owed |
 | `v3.x` / `v2.x` | No setup sheet (`setup=0`) | CLOSED — does not apply |
 
@@ -11442,54 +11456,73 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s setup=%s esc=%s fix4=%s readi
 
 ## Colour calls: Preview links, pill words, native controls (FE2, DS1, DS4) — main only
 
-The owner's three colour calls of 2026-10-25. **FE2**: Markdown Preview's links, read-only and
-editable, drew the raw accent (2.2–3.7:1 on white); they take `ChromeInk.bodyText`. **DS1**: a
+The owner's three colour calls of 2026-10-25. **FE2**: Markdown Preview's links drew the raw accent
+read-only (2.2–3.7:1 on white) and AppKit's link blue editable; both take `ChromeInk.bodyText`. **DS1**: a
 coloured pill's words drew the pill's own colour on a wash of it (1.4:1 for yellow in light); they
 are label colour, the colour only in the wash. **DS4**: switches, sliders, checkboxes and progress
 bars drew the Mac's accent; each window's root sets `nativeControlAccent`.
 
 ```sh
 E=Modules/FileExplorer/Sources/FileExplorer; D=Modules/Design/Sources/Design
-for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fe2=%s ds1=%s ds4=%s\n' $l \
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fe2=%s editLink=%s ds1=%s ds4=%s\n' $l \
   "$(git show origin/$l:$E/MarkdownBlockView.swift 2>/dev/null | grep -cF 'piece.foregroundColor = accent')" \
+  "$(git show origin/$l:$E/PreviewEditSession.swift 2>/dev/null | grep -cF 'value: NSColor.linkColor')" \
   "$(git show origin/$l:$D/Pill.swift 2>/dev/null | grep -cF '.foregroundStyle(tint)')" \
   "$(git show origin/$l:$D/NativeControlAccent.swift 2>/dev/null | grep -cF 'func nativeControlAccent(')"; done
-# measured 2026-10-25, against origin, before this landed (the fixes read fe2=0 ds1=0 ds4=2):
-# main, v5.x               fe2=1 ds1=1 ds4=0
-# v4.x, v3.x, v2.x         fe2=0 ds1=1 ds4=0   (no Markdown preview: MarkdownBlockView.swift absent)
+# measured 2026-10-25, against origin, before this landed (the fixes read fe2=0 editLink=0 ds1=0 ds4=2):
+# main, v5.x               fe2=1 editLink=1 ds1=1 ds4=0
+# v4.x, v3.x, v2.x         fe2=0 editLink=0 ds1=1 ds4=0   (no Markdown preview: neither file exists)
 ```
 
 | Line | Carries | Status |
 |---|---|---|
-| `v5.x` | Raw-accent links in both Previews, tinted pill words, the Mac's accent on native controls | RECORDED — not owed |
+| `v5.x` | Raw-accent links in read-only Preview and AppKit's link blue in editable Preview, tinted pill words, the Mac's accent on native controls | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | Tinted pill words and the Mac's accent on native controls; no Markdown preview | RECORDED — not owed |
 
 ---
 
-## Go's ⌃ tab twins, Sync History's Move to Trash, the CLI's ASCII punctuation (SH3, FD2, FC10) — main only
+## Go's ⌃ tab twins, Sync History's Move to Trash, the CLI's ASCII punctuation, the reading estimate, progress titles (SH3, FD2, FC10, FC7, FD7) — main only
 
-Three owner decisions of 2026-10-25. **SH3:** ⌃⇧⇥ is Previous Tab, and Go hides Next Tab ⌃⇥ and
-Previous Tab ⌃⇧⇥ behind their ⇧⌘ twins with the keys live (`GoMenuDuplicates`). **FD2:** Sync
-History labels a trashed `.delete` "Move to Trash" — row, Action filter, Undo Last Run — and keeps
-"Delete" for a record with no Trash location; the raw value `delete` and the exports are unchanged.
-**FC10:** the `synccloud` tool folds ’ ‘ “ ” … – — to ASCII in its own words; paths, file names and JSON print as they are.
+Owner decisions of 2026-10-25, with the review fixes that followed (RD1, RD2, RD8, RE1–RE7).
+**SH3:** ⌃⇧⇥ is Previous Tab, and Go hides Next Tab ⌃⇥ and Previous Tab ⌃⇧⇥ behind their ⇧⌘
+twins with the keys live (`GoMenuDuplicates`). **FD2:** Sync History labels a trashed `.delete`
+"Move to Trash" — row, Action filter ("Moves to Trash & Deletes"), Undo Last Run — and keeps
+"Delete" for an item that did not reach the Trash, which `deleteItems` now records per item
+(`SyncHistoryRecord.reachedTrash`, optional; an older record falls back to `backupPath == nil`).
+An item the Trash took with no location reported is no longer called deleted by its row, the
+banner or the log. The raw value `delete` and the CSV columns are unchanged; the JSON export gains
+`reachedTrash`. **FC10:** the `synccloud` tool writes its own words in ASCII and folds only the
+shared sentences it prints (a row's description, a name rule, a copy's error, an error
+ArgumentParser prints), keeping any name such a sentence quotes; every path, file name, provider id
+and display name is interpolated raw, and JSON is never folded. **FC7:** the offer to read
+documents scales its estimate from the measured 1.76 s per document — "A few minutes" under 200,
+tens of minutes below an hour, whole hours above — and a walk that found none offers no read.
+**FD7:** the copy, move and trash progress titles are sentence case ("Moving 7,363 items to the
+Trash").
 
 ```sh
-for l in main v5.x v4.x v3.x v2.x; do printf '%-5s ctrlTab=%s ctrlShiftTab=%s deleteLabel=%s cli=%s cliFold=%s\n' $l \
-  "$(git show origin/$l:Modules/Design/Sources/Design/AppChord.swift 2>/dev/null | grep -cF 'static let switchPaneFocus = AppChord(.tab, .control)')" \
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s ctrlShiftTab=%s deleteLabel=%s reachedTrash=%s verbatim=%s sharedFold=%s survey=%s perDoc=%s titleCaseItems=%s\n' $l \
   "$(git show origin/$l:Modules/Design/Sources/Design/AppChord.swift 2>/dev/null | grep -cF 'AppChord(.tab, [.control, .shift])')" \
   "$(git show origin/$l:Modules/Events/Sources/Events/SyncHistoryRecord.swift 2>/dev/null | grep -cF 'case .delete: return "Delete"')" \
-  "$(git ls-tree -r --name-only origin/$l -- SyncCloudCLI/Sources/SyncCloudCLICore/CommandRunner.swift | wc -l | tr -d ' ')" \
-  "$(git show origin/$l:SyncCloudCLI/Sources/SyncCloudCLICore/CommandRunner.swift 2>/dev/null | grep -cF 'CLIOutput.ascii')"; done
-# measured 2026-10-25, against origin, before this landed (the change reads ctrlShiftTab=1 deleteLabel=0 cliFold=2):
-# main, v5.x, v4.x   ctrlTab=1 ctrlShiftTab=0 deleteLabel=1 cli=1 cliFold=0
-# v3.x, v2.x         ctrlTab=0 ctrlShiftTab=0 deleteLabel=1 cli=1 cliFold=0   (no AppChord.swift, no tabs)
+  "$(git show origin/$l:Modules/Events/Sources/Events/SyncHistoryRecord.swift 2>/dev/null | grep -cF 'public let reachedTrash: Bool?')" \
+  "$(git show origin/$l:SyncCloudCLI/Sources/SyncCloudCLICore/CLIOutput.swift 2>/dev/null | grep -cF 'func verbatim')" \
+  "$(git show origin/$l:SyncCloudCLI/Sources/SyncCloudCLICore/CommandRunner.swift 2>/dev/null | grep -cF 'CLIOutput.ascii(violation.reason)')" \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Design/Sources/Design/DocumentSurveyCost.swift | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:Modules/Design/Sources/Design/DocumentSurveyCost.swift 2>/dev/null | grep -cF 'secondsPerDocument')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileOperations.swift 2>/dev/null | grep -cF '\(total) Items"')"; done
+# measured 2026-10-25, against origin, before the review fixes landed (they read reachedTrash=1
+# verbatim=0 sharedFold=1 perDoc=3 on main; SH3, FD2's labels and FD7 were already on main):
+# main         ctrlShiftTab=1 deleteLabel=0 reachedTrash=0 verbatim=1 sharedFold=0 survey=1 perDoc=0 titleCaseItems=0
+# v5.x         ctrlShiftTab=0 deleteLabel=1 reachedTrash=0 verbatim=0 sharedFold=0 survey=1 perDoc=0 titleCaseItems=2
+# v4.x         ctrlShiftTab=0 deleteLabel=1 reachedTrash=0 verbatim=0 sharedFold=0 survey=0 perDoc=0 titleCaseItems=2
+# v3.x, v2.x   ctrlShiftTab=0 deleteLabel=1 reachedTrash=0 verbatim=0 sharedFold=0 survey=0 perDoc=0 titleCaseItems=2
 ```
 
 | Line | Carries | Status |
 |---|---|---|
-| `v5.x` / `v4.x` | No ⌃⇧⇥ (`ctrlShiftTab=0`), Go's two Next Tab rows; "Delete" for a trash move (`deleteLabel=1`); curly CLI output (`cliFold=0`) | RECORDED — not owed |
-| `v3.x` / `v2.x` | No tabs, so SH3 does not apply; "Delete" for a trash move; curly CLI output | RECORDED — not owed |
+| `v5.x` | No ⌃⇧⇥ (`ctrlShiftTab=0`), Go's two Next Tab rows; "Delete" for every trash move (`deleteLabel=1`); curly CLI punctuation, names printed raw (`verbatim=0 sharedFold=0`); "About 3 h" for any document count, a dozen included (`perDoc=0`); "Moving/Copying N Items" and "Deleting N Items" progress titles (`titleCaseItems=2`) | RECORDED — not owed |
+| `v4.x` | As `v5.x` for SH3, FD2, FC10 and FD7; no document read (`survey=0`), so FC7 does not apply | RECORDED — not owed |
+| `v3.x` / `v2.x` | No tabs, so SH3 does not apply; "Delete" for a trash move; curly CLI punctuation; no document read; Title Case progress titles | RECORDED — not owed |
 
 ---
 

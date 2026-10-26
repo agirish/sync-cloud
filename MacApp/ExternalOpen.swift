@@ -287,8 +287,10 @@ enum ExternalOpen {
     }
 
     /// Fetches a file that is still in the cloud, by reading one byte of it — the read that makes
-    /// any File Provider (iCloud Drive, Dropbox, OneDrive, Google Drive) download it, where the
-    /// download API covers iCloud alone. Returns whether the content is local afterwards.
+    /// any File Provider (iCloud Drive, Dropbox, OneDrive, Google Drive) download it. The download
+    /// API is narrower: it serves iCloud and was measured working on Google Drive (2026-10-25), but
+    /// Dropbox and OneDrive are not measured, and where it refuses this read still works. Returns
+    /// whether the content is local afterwards.
     ///
     /// **Bounded, and off the main thread.** The read blocks until the provider delivers, and a
     /// provider that never answers must not keep the window waiting; after `timeout` this answers

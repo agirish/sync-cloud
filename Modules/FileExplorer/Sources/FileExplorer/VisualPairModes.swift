@@ -312,7 +312,8 @@ struct PageStrip: View, Equatable {
                 Text("\(index + 1)")
                     .scaledFont(.system(size: 10.5, weight: isCurrent ? .semibold : .regular,
                                         design: .monospaced))
-                    .foregroundStyle(isCurrent ? accent : Color.secondary)
+                    // Label-colour words; the accent is the current chip's wash (DS1).
+                    .foregroundStyle(isCurrent ? Color.primary : Color.secondary)
                 if let dot = state.dot {
                     // Shape and colour both, from the meaning — see `PageDiffState.Dot.symbol`.
                     Image(systemName: dot.symbol)

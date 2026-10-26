@@ -331,6 +331,9 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     private var _movedInto: Set<String> = []
 
     public var shouldFailTrash: Bool = false
+    /// When set, `trashItem` moves the item to the Trash but reports no resulting location — the
+    /// platform's nil `resultingItemURL`, which `deleteItems` must not read as a permanent delete.
+    public var trashReportsNoLocation: Bool = false
     /// When set, the next `trashItem` throws this specific error (then clears), letting tests pin
     /// how a particular failure — e.g. a transient EBUSY vs. an unsupported-volume error — is
     /// classified by `deleteItems`. Checked before `shouldFailTrash`.
@@ -391,7 +394,7 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
             try removeItem(at: url)
             trashedPaths.append(trashedTarget.path)
 
-            outResultingURL?.pointee = trashedTarget as NSURL
+            if !trashReportsNoLocation { outResultingURL?.pointee = trashedTarget as NSURL }
         }
     }
 

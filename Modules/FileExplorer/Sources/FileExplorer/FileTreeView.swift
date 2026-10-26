@@ -1655,9 +1655,9 @@ struct FileContextMenu: View {
                 // On tabs, the Info sidebar and the Differences rows already; the row was the one
                 // place a path could not be copied from (BR15).
                 SharedFileMenuItems.copyPath(singleNode.id)
-                // Materialize a cloud-only placeholder. Works for iCloud and, measured on Google
-                // Drive, for File Provider clouds; a refused request reveals the file in Finder
-                // rather than doing nothing.
+                // Materialize a cloud-only placeholder. Works for iCloud and was measured working
+                // on Google Drive; Dropbox and OneDrive are not measured. A refused request
+                // reveals the file in Finder rather than doing nothing.
                 // The row's own ☁ answer when it has one, which is what the row is showing; a
                 // fresh `lstat` otherwise. This body runs for every visible row on every render, so
                 // it asks the filesystem only for a file the row has not.

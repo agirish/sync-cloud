@@ -240,6 +240,12 @@ struct SetupSheet: View {
          wasAskedFor: Bool = false,
          /// A screen to open on, overriding both of the above — see `SetupModel.init`.
          startScreen: SetupFlow.Screen? = nil,
+         /// Where the draft lives. Handed in only by a test that mounts the sheet: taking the sheet
+         /// down commits the open screen, and a test must never write the real draft.
+         draftURL: URL? = SetupDraftStore.defaultURL(),
+         /// A model to host instead of building one — for a test that types into it and then
+         /// takes the sheet away.
+         model: SetupModel? = nil,
          onProfileWritten: @escaping () -> Void = {},
          onStartSurvey: @escaping (URL) -> Void = { _ in },
          onOpenSettings: @escaping (SettingsView.SettingsTab) -> Void,
@@ -255,10 +261,10 @@ struct SetupSheet: View {
         self.onFinish = onFinish
         self.onDismiss = onDismiss
         self.onStartWith = onStartWith
-        _model = StateObject(wrappedValue: SetupModel(
+        _model = StateObject(wrappedValue: model ?? SetupModel(
             settings: settings, peopleStore: peopleStore, syncManager: syncManager,
             hasFilingProfile: hasFilingProfile, defaults: defaults, walk: walk,
-            startScreen: startScreen ?? (wasAskedFor ? .welcome : nil),
+            startScreen: startScreen ?? (wasAskedFor ? .welcome : nil), draftURL: draftURL,
             onProfileWritten: onProfileWritten, onStartSurvey: onStartSurvey))
     }
 
@@ -290,6 +296,17 @@ struct SetupSheet: View {
         .onAppear {
             model.onOpen()
             focusFirstFieldIfNeeded()
+        }
+        // **Every teardown keeps the open screen's answers, not only the ways out the card draws**
+        // (ST4). ContentView's overlays are one if/else, and Settings (⌘,), Help (⌘?) and a
+        // destination pick rank above setup, so opening one destroys this view and its model with
+        // no `close()` — as closing the window does — and setup reopened on a fresh model with the
+        // name typed on You gone. Quitting tears nothing down, so it is heard on its own.
+        // Committing again after `close()` or `finish()` changes nothing: a screen's commit writes
+        // what its fields hold, and applying the draft is idempotent.
+        .onDisappear { model.commitBeforeClosing() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+            model.commitBeforeClosing()
         }
         .onChange(of: settings.availableProviders.map(\.id)) { _, _ in
             model.reconcilePrimary()
@@ -389,10 +406,15 @@ struct SetupSheet: View {
             // does a reading Save already wrote: writing it again made a second profile. While the
             // reading still runs it says Skip Saving, and moves on without waiting. The words are
             // `structurePrimaryTitle`, so a test can read them.
-            frame(primary: model.structurePrimaryTitle,
+            let primary = model.structurePrimaryTitle
+            frame(primary: primary,
                   // Moves on only once the profile is written: a failed write stays here and
-                  // says what failed (`saveAndContinue`, through `pressStructurePrimary`).
-                  primaryAction: { Task { await model.pressStructurePrimary() } },
+                  // says what failed (`saveAndContinue`, through `pressStructurePrimary`). **What
+                  // the button said is captured as it is drawn**, so a reading that lands before
+                  // the Task runs cannot turn a Skip Saving press into a Save.
+                  primaryAction: { [shownSkipSaving = primary == SetupModel.skipSavingTitle] in
+                      Task { await model.pressStructurePrimary(shownSkipSaving: shownSkipSaving) }
+                  },
                   primaryDisabled: model.isSaving,
                   // Only once a Save has failed: the primary stays Save so it can be retried, and
                   // this is the way on that writes nothing.

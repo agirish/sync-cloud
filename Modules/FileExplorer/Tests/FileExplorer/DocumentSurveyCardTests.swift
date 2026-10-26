@@ -35,7 +35,7 @@ import Testing
     @Test func theOfferSaysWhatItCostsAndWhatItBuys() {
         let detail = DocumentSurveyCardText.detail(for: .offered(documents: 7558))
         #expect(detail.contains("7,558"), "the offer does not say how many documents")
-        #expect(detail.contains("3 h"), "the offer does not say how long")
+        #expect(detail.contains("About 4 h for 7,558 documents"), "the offer does not say how long: \(detail)")
         #expect(detail.lowercased().contains("background"))
         #expect(detail.lowercased().contains("pausable"),
                 "the offer does not say the commitment can be taken back")
@@ -47,6 +47,21 @@ import Testing
         let detail = DocumentSurveyCardText.detail(for: .offered(documents: 12))
         #expect(detail.contains("A few minutes for 12 documents, in the background."), "\(detail)")
         #expect(!detail.contains("3 h"))
+    }
+
+    /// **A walk that found no document offers no read of them** (RD8): the card says there is
+    /// nothing to read, prices nothing, and its verb looks again rather than offering to read.
+    @MainActor @Test func aWalkThatFoundNothingOffersNoRead() throws {
+        let detail = DocumentSurveyCardText.detail(for: .offered(documents: 0))
+        #expect(detail.hasSuffix("No document here is in a format this app can open, so there is nothing to read yet."),
+                "\(detail)")
+        #expect(!detail.contains("0 documents") && !detail.contains("A few minutes"), "\(detail)")
+
+        let card = DocumentSurveyCard(state: .offered(documents: 0), accent: .blue, onStart: {})
+        #expect(card.verbs.map(\.title) == ["Look again"])
+        // The control: one document is still offered as a read.
+        let one = DocumentSurveyCard(state: .offered(documents: 1), accent: .blue, onStart: {})
+        #expect(one.verbs.map(\.title) == ["Read my documents"])
     }
 
     /// **The count is optional, and the copy has to hold up without it.** Knowing how many

@@ -378,6 +378,49 @@ import FileExplorerTestSupport
         }
     }
 
+    /// **A hue changed while a document is open repaints its links in the NEW hue's readable
+    /// shade** (RB3) — the `update` path, which a first mount never runs. Mounted at Coral, handed
+    /// Green through a new root view, and read back off the same text view.
+    @Test func aHueChangeWithThePageOpenRepaintsLinksInTheReadableShade() throws {
+        let source = EditorSourceStorage(text: "See [the plan](https://example.com/plan) today.\n")
+        let undo = UndoManager()
+        func page(_ hue: LiquidGlassHue) -> AnyView {
+            AnyView(PreviewEditorView(source: source, undoManager: undo, linkColor: hue.accentColor)
+                .frame(width: 420, height: 160))
+        }
+        let host = NSHostingView(rootView: page(.coral))
+        host.frame = NSRect(x: 0, y: 0, width: 420, height: 160)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .aqua)
+        window.contentView = host
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        let mounted = try #require(Self.previewTextView(in: host), "no editable Preview mounted")
+
+        host.rootView = page(.green)
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        let textView = try #require(Self.previewTextView(in: host), "the page went away on a hue change")
+        #expect(textView === mounted, "the hue change remade the text view, so `update` was not what ran")
+        func light(_ color: NSColor) -> NSColor {
+            var out = NSColor.white
+            NSAppearance(named: .aqua)!.performAsCurrentDrawingAppearance { out = color.usingColorSpace(.sRGB) ?? .white }
+            return out
+        }
+        let painted = light(try #require(textView.linkTextAttributes?[.foregroundColor] as? NSColor))
+        let expected = light(NSColor(ChromeInk.bodyText(.light, LiquidGlassHue.green.accentColor)))
+        let raw = light(NSColor(LiquidGlassHue.green.accentColor))
+        func same(_ a: NSColor, _ b: NSColor) -> Bool {
+            abs(a.redComponent - b.redComponent) < 0.002 && abs(a.greenComponent - b.greenComponent) < 0.002
+                && abs(a.blueComponent - b.blueComponent) < 0.002
+        }
+        // Green is one the deepening moves, so the raw accent cannot pass for the readable shade.
+        #expect(!same(raw, expected), "the premise: raw Green is already its readable shade")
+        #expect(same(painted, expected), "after the change links paint in \(painted), not the readable green \(expected)")
+    }
+
     private static func previewTextView(in view: NSView) -> PreviewTextView? {
         if let found = view as? PreviewTextView { return found }
         for sub in view.subviews { if let found = previewTextView(in: sub) { return found } }

@@ -223,6 +223,7 @@ public struct AutomationsLens: View {
                 },
                 onCancel: { editingRule = nil }
             )
+            .presentedNativeControlAccent()
         }
     }
 

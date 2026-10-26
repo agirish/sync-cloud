@@ -10,8 +10,8 @@ import Events
 
     @Test func theActionFilterNamesTrashMoves() {
         #expect(SyncHistoryView.actionOptions.map(\.label)
-                == ["All Actions", "Copies", "Moves", "Moves to Trash", "Date Matches"])
-        #expect(SyncHistoryView.actionOptions.first { $0.label == "Moves to Trash" }?.action == .delete)
+                == ["All Actions", "Copies", "Moves", "Moves to Trash & Deletes", "Date Matches"])
+        #expect(SyncHistoryView.actionOptions.first { $0.label == "Moves to Trash & Deletes" }?.action == .delete)
     }
 
     /// The row's pill reads the record's label, not the action's, so a permanent delete still

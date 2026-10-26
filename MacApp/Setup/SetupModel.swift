@@ -346,7 +346,9 @@ final class SetupModel: ObservableObject {
         return true
     }
 
-    /// What closing the sheet keeps — Esc, ✕, a click outside, or Not Now.
+    /// What closing the sheet keeps — Esc, ✕, a click outside, or Not Now, and every teardown
+    /// without one: Settings, Help or a destination pick opening over it, the window closing, and
+    /// quitting (`SetupSheet`'s `onDisappear` and its termination observer).
     ///
     /// **The open screen's answers, exactly as a screen change keeps them.** Closing used to commit
     /// nothing, so a name typed on You and closed with Esc was gone, while the same name with
@@ -855,10 +857,11 @@ final class SetupModel: ObservableObject {
     /// Whether Structure is showing a profile it cannot write to — a re-run where Learn was
     /// skipped. Its Save writes nothing, and the loose-file view is hidden.
     ///
-    /// **Not while a reading runs**: then Structure says it is reading (``structureAwaitsReading``)
-    /// rather than offering the profile this Mac already has as the answer.
+    /// **Not while a reading runs, nor after it failed**: then Structure says so
+    /// (``structureShowsWalkStatus``) rather than offering the profile this Mac already has as the
+    /// answer.
     var structureIsReadOnly: Bool {
-        !structureAwaitsReading && preview == nil && structureProfile != nil
+        !structureShowsWalkStatus && preview == nil && structureProfile != nil
     }
 
     /// Whether Structure is open on a reading that is still running (SR5).
@@ -869,11 +872,28 @@ final class SetupModel: ObservableObject {
     /// — until the reading lands and the button becomes Save.
     var structureAwaitsReading: Bool { walkState.isRunning }
 
-    /// The profile Structure draws its tree and counts from — none while a reading runs, so the
-    /// screen says it is reading rather than describing a profile the reading is about to replace.
+    /// Whether Structure draws the reading's status in place of the tree: while it runs, and once
+    /// it has failed.
+    ///
+    /// **A failed reading is said, not drawn over.** It used to leave "Nothing has been learned
+    /// yet", this Mac's old profile read-only, or — after Learn Again — the last reading's tree
+    /// under "SyncCloud read this from …", none of which said the reading had failed. The line
+    /// People and Countries draw for it carries the reason and Try Another Folder….
+    var structureShowsWalkStatus: Bool { structureAwaitsReading || walkFailureReason != nil }
+
+    /// The profile Structure draws its tree and counts from — none while a reading runs or after
+    /// it failed, so the screen says so rather than describing a profile the reading was to
+    /// replace. After Learn Again the preview still holds the last reading's tree until the new one
+    /// lands; this is what keeps it off screen.
     var structureShownProfile: FolderProfile? {
-        structureAwaitsReading ? nil : structureProfile
+        structureShowsWalkStatus ? nil : structureProfile
     }
+
+    /// Whether Structure's "Read documents" switch can be flipped.
+    ///
+    /// **Not while the reading runs or after it failed**: there is nothing to save, and the switch
+    /// promises a reading "after you save". Nor over a read-only profile, whose Save writes nothing.
+    var structureReadingSwitchIsEnabled: Bool { !structureIsReadOnly && !structureShowsWalkStatus }
 
     /// Whether Structure's button has a profile to write.
     ///
@@ -898,22 +918,35 @@ final class SetupModel: ObservableObject {
     /// **"Skip Saving" while the reading is still running** (SR5): the press moves on without
     /// waiting, as Continue always has, and nothing is written — so the button says that, rather
     /// than a Continue that reads as if the reading went with it.
+    ///
+    /// **"Continue" over a reading that failed**: there is nothing to save and nothing pending to
+    /// skip, so the press only moves on — what Continue means everywhere else on this screen.
     var structurePrimaryTitle: String {
-        if structureAwaitsReading { return "Skip Saving" }
+        if structureAwaitsReading { return Self.skipSavingTitle }
         guard canWriteProfile else { return "Continue" }
         return savesStartReading ? "Save and Start Reading" : "Save"
     }
 
+    static let skipSavingTitle = "Skip Saving"
+
     /// Structure's primary press: Save when there is a reading to write, otherwise on without
     /// writing — Skip Saving over a reading still running, Continue over nothing to write.
-    func pressStructurePrimary() async {
+    ///
+    /// - Parameter shownSkipSaving: whether the button pressed said Skip Saving — read when the
+    ///   button was drawn, not when this runs. **A press under Skip Saving never saves** (SR5): the
+    ///   sheet runs this in a `Task`, and a reading that landed on the main actor between the
+    ///   render and the press turned it into Save — with the switch on, Save and Start Reading,
+    ///   hours of reading under a button that said it would skip.
+    func pressStructurePrimary(shownSkipSaving: Bool) async {
+        if shownSkipSaving {
+            Logger.shared.info("Setup: Skip Saving on Structure while the folder was still being "
+                               + "read — moved on without waiting; nothing was saved")
+            _ = advance()
+            return
+        }
         if canWriteProfile {
             await saveAndContinue()
             return
-        }
-        if structureAwaitsReading {
-            Logger.shared.info("Setup: Skip Saving on Structure while the folder was still being "
-                               + "read — moved on without waiting; nothing was saved")
         }
         _ = advance()
     }

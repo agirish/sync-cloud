@@ -85,6 +85,8 @@ import Testing
             availableSize: Self.smallDisplayHost,
             hasFilingProfile: hasFilingProfile,
             walk: walk,
+            // No draft: a mounted sheet commits the open screen when it is taken down.
+            draftURL: nil,
             onOpenSettings: { _ in },
             onFinish: {},
             onDismiss: {}
@@ -332,7 +334,7 @@ import Testing
         func model() -> SetupModel {
             SetupModel(settings: settings, peopleStore: nil, syncManager: engine,
                        hasFilingProfile: false, defaults: ScratchDefaults("setup-fit-d"),
-                       walk: Self.realisticWalk, startScreen: .structure)
+                       walk: Self.realisticWalk, startScreen: .structure, draftURL: nil)
         }
         let failed = model()
         await failed.save()
@@ -368,40 +370,85 @@ import Testing
         func model() -> SetupModel {
             SetupModel(settings: settings, peopleStore: nil, syncManager: nil,
                        hasFilingProfile: false, defaults: ScratchDefaults("setup-fit-d"),
-                       walk: Self.realisticWalk, startScreen: .structure)
+                       walk: Self.realisticWalk, startScreen: .structure, draftURL: nil)
         }
         let reading = model()
         reading.walkState = .running
         #expect(reading.structureAwaitsReading, "premise: Structure is waiting on the reading")
         let landed = model()
 
-        func render(_ model: SetupModel, scale: CGFloat) -> (height: CGFloat, pixels: Data) {
-            let host = NSHostingView(
-                rootView: StructureScreen(model: model, hue: .blue)
-                    .environment(\.appFontScale, scale)
-                    .environment(\.setupCardScale, SetupSheetMetrics.cardScale(
-                        availableSize: Self.smallDisplayHost, scale: scale))
-                    .frame(width: width(for: .structure, scale: scale)))
-            host.layoutSubtreeIfNeeded()
-            host.frame.size = host.fittingSize
-            host.layoutSubtreeIfNeeded()
-            guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
-                return (host.fittingSize.height, Data())
-            }
-            host.cacheDisplay(in: host.bounds, to: rep)
-            let bytes = rep.bitmapData.map { Data(bytes: $0, count: rep.bytesPerRow * rep.pixelsHigh) }
-            return (host.fittingSize.height, bytes ?? Data())
-        }
         for scale in [1.0, 1.35] as [CGFloat] {
             let ceiling = SetupSheetMetrics.contentHeight(availableSize: Self.smallDisplayHost,
                                                           scale: scale)
-            let running = render(reading, scale: scale)
+            let running = renderStructure(reading, scale: scale)
+            let other = renderStructure(landed, scale: scale)
             #expect(!running.pixels.isEmpty, "at \(Int(scale * 100))% Structure drew nothing")
-            #expect(running.pixels != render(landed, scale: scale).pixels,
+            #expect(running.pixels != other.pixels,
                     "at \(Int(scale * 100))% the running reading changed nothing — this measures the landed screen")
             #expect(running.height <= ceiling,
                     "at \(Int(scale * 100))% Structure over a running reading lays out at \(Int(running.height))pt against a \(Int(ceiling))pt opening")
+            // **No lens, no grey words, no legend while it runs** — they explain a tree there is
+            // none of yet. The box the tree fills is the same fixed height either way, so the
+            // screen is shorter by those three; drawn, the two come within a line of each other.
+            #expect(other.height - running.height >= 40,
+                    "at \(Int(scale * 100))% Structure over a running reading is \(Int(running.height))pt against \(Int(other.height))pt landed — it still draws the tree's lens and legend")
         }
+    }
+
+    /// **Structure fits over a reading that failed, and says so** (SR5): the failure's line, its
+    /// reason and Try Another Folder… stand in the tree's box, where the last reading's tree stood.
+    @Test func structureFitsOverAFailedReading() async throws {
+        let settings = await manager(providerCount: Self.realisticProviderCount)
+        func model() -> SetupModel {
+            SetupModel(settings: settings, peopleStore: nil, syncManager: nil,
+                       hasFilingProfile: false, defaults: ScratchDefaults("setup-fit-d"),
+                       walk: Self.realisticWalk, startScreen: .structure, draftURL: nil)
+        }
+        // Learn Again over a reading, and the new one failed: the preview still holds the old tree.
+        let failed = model()
+        failed.walkState = .failed("The folder “Documents” couldn’t be opened because you don’t "
+                                   + "have permission to see its contents.")
+        #expect(failed.structureProfile != nil, "premise: the last reading's tree is still built")
+        let running = model()
+        running.walkState = .running
+
+        for scale in [1.0, 1.35] as [CGFloat] {
+            let ceiling = SetupSheetMetrics.contentHeight(availableSize: Self.smallDisplayHost,
+                                                          scale: scale)
+            let drawn = renderStructure(failed, scale: scale)
+            let landed = renderStructure(model(), scale: scale)
+            #expect(!drawn.pixels.isEmpty, "at \(Int(scale * 100))% Structure drew nothing")
+            #expect(drawn.pixels != landed.pixels,
+                    "at \(Int(scale * 100))% the failed reading is drawn as the last reading's tree")
+            // **The pixels alone are satisfied by the blurb**, which names the failure whatever
+            // the box below it draws: measured, a model that drew the old tree there still
+            // differed. The lens and legend go with the tree, so the screen is shorter by them.
+            #expect(landed.height - drawn.height >= 40,
+                    "at \(Int(scale * 100))% Structure over a failed reading is \(Int(drawn.height))pt against \(Int(landed.height))pt landed — it still draws the old tree's lens and legend")
+            #expect(drawn.pixels != renderStructure(running, scale: scale).pixels,
+                    "at \(Int(scale * 100))% the failed reading is drawn as one still running")
+            #expect(drawn.height <= ceiling,
+                    "at \(Int(scale * 100))% Structure over a failed reading lays out at \(Int(drawn.height))pt against a \(Int(ceiling))pt opening")
+        }
+    }
+
+    /// Structure alone, laid out at its fitting height and photographed.
+    private func renderStructure(_ model: SetupModel, scale: CGFloat) -> (height: CGFloat, pixels: Data) {
+        let host = NSHostingView(
+            rootView: StructureScreen(model: model, hue: .blue)
+                .environment(\.appFontScale, scale)
+                .environment(\.setupCardScale, SetupSheetMetrics.cardScale(
+                    availableSize: Self.smallDisplayHost, scale: scale))
+                .frame(width: width(for: .structure, scale: scale)))
+        host.layoutSubtreeIfNeeded()
+        host.frame.size = host.fittingSize
+        host.layoutSubtreeIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+            return (host.fittingSize.height, Data())
+        }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        let bytes = rep.bitmapData.map { Data(bytes: $0, count: rep.bytesPerRow * rep.pixelsHigh) }
+        return (host.fittingSize.height, bytes ?? Data())
     }
 
     /// **The welcome card fits too, and nothing measured it before.**

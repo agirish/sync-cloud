@@ -86,27 +86,27 @@ public struct CommandRunner {
         }
     }
 
-    /// The environment with its two writers folded to ASCII punctuation (`CLIOutput`, FC10) —
-    /// so every line the runner writes is folded, whoever wrote the sentence.
     let env: Environment
-    /// The caller's own stdout writer, unfolded: only for `scan --json`, whose paths and syntax a
-    /// fold would corrupt.
-    private let writeRawOut: (String) -> Void
 
     public init(environment: Environment) {
-        var folded = environment
-        let out = environment.writeOut, err = environment.writeErr
-        folded.writeOut = { out(CLIOutput.ascii($0)) }
-        folded.writeErr = { err(CLIOutput.ascii($0)) }
-        self.env = folded
-        self.writeRawOut = out
+        self.env = environment
     }
 
     /// `print(line)` — one stdout line, newline appended.
     private func printOut(_ line: String) { env.writeOut(line + "\n") }
 
-    /// A path or on-disk name in a text line: printed as it is, never folded (`CLIOutput`).
-    private func name(_ path: String) -> String { CLIOutput.verbatim(path) }
+    /// **A row's description as the text output prints it**: a shared sentence, so folded to
+    /// ASCII punctuation (`CLIOutput`, FC10), with every name it can quote kept as it is on disk —
+    /// both providers' display names, each side's leaf (a name-conflict row quotes both
+    /// spellings), and the link a held folder encloses.
+    private func printable(_ diff: FileDifference, left: CloudProvider, right: CloudProvider) -> String {
+        var names = [left.displayName, right.displayName,
+                     String(TreeShape.leaf(of: diff.relativePath)),
+                     (diff.leftItemPath as NSString).lastPathComponent,
+                     (diff.rightItemPath as NSString).lastPathComponent]
+        if case .enclosesSymbolicLink(let path) = diff.heldBack { names.append(path) }
+        return CLIOutput.ascii(diff.description, keeping: names)
+    }
 
     // MARK: Shared plumbing
 
@@ -215,27 +215,27 @@ public struct CommandRunner {
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(payload)
             if let jsonString = String(data: data, encoding: .utf8) {
-                writeRawOut(jsonString + "\n")
+                printOut(jsonString)
             }
         } else {
             if diffs.isEmpty {
                 printOut("No differences found between")
-                printOut("  Left : \(name(leftURL.path))")
-                printOut("  Right: \(name(rightURL.path))")
+                printOut("  Left : \(leftURL.path)")
+                printOut("  Right: \(rightURL.path)")
                 return
             }
 
             printOut("Differences (\(diffs.count)):")
-            printOut("  Left : \(name(leftURL.path)) [\(leftProvider.displayName)]")
-            printOut("  Right: \(name(rightURL.path)) [\(rightProvider.displayName)]")
+            printOut("  Left : \(leftURL.path) [\(leftProvider.displayName)]")
+            printOut("  Right: \(rightURL.path) [\(rightProvider.displayName)]")
             printOut("")
 
             for diff in diffs {
                 let type = DifferenceProcessing.typeString(diff.type)
                 // A held row's action is a guess `sync` will not take, so it is not printed as one.
                 let action = diff.heldBack == nil ? DifferenceProcessing.actionString(diff.action) : "needs-decision"
-                printOut("- [\(type)] [\(action)] \(name(diff.relativePath))")
-                printOut("    \(diff.description)")
+                printOut("- [\(type)] [\(action)] \(diff.relativePath)")
+                printOut("    \(printable(diff, left: leftProvider, right: rightProvider))")
             }
         }
     }
@@ -301,17 +301,18 @@ public struct CommandRunner {
         func printHeldRows() {
             printOut("Left for you to decide (\(heldRows.count)), not synced:")
             for diff in heldRows {
-                printOut("- \(name(diff.relativePath)) [\(DifferenceProcessing.typeString(diff.type))] \(diff.description)")
+                printOut("- \(diff.relativePath) [\(DifferenceProcessing.typeString(diff.type))] \(printable(diff, left: leftProvider, right: rightProvider))")
             }
         }
         var tally = SyncTally()
         for diff in heldRows {
-            tally.recordSkipped(relativePath: diff.relativePath, reason: .needsDecision, detail: diff.description)
+            tally.recordSkipped(relativePath: diff.relativePath, reason: .needsDecision,
+                                detail: printable(diff, left: leftProvider, right: rightProvider))
         }
         if diffs.isEmpty {
             printOut("Nothing to sync automatically.")
-            printOut("  Left : \(name(leftURL.path)) [\(leftProvider.displayName)]")
-            printOut("  Right: \(name(rightURL.path)) [\(rightProvider.displayName)]")
+            printOut("  Left : \(leftURL.path) [\(leftProvider.displayName)]")
+            printOut("  Right: \(rightURL.path) [\(rightProvider.displayName)]")
             printOut("")
             printHeldRows()
             printOut("")
@@ -329,12 +330,12 @@ public struct CommandRunner {
         // saw — and a `-L`/`-R` value that resolved somewhere unexpected (a provider named like
         // another, a stale override) read exactly like the intended run. These two lines are the
         // only place the folders that are about to be written are shown before the write.
-        printOut("  Left : \(name(leftURL.path)) [\(leftProvider.displayName)]")
-        printOut("  Right: \(name(rightURL.path)) [\(rightProvider.displayName)]")
+        printOut("  Left : \(leftURL.path) [\(leftProvider.displayName)]")
+        printOut("  Right: \(rightURL.path) [\(rightProvider.displayName)]")
         printOut("")
         for diff in diffs {
             let arrow = diff.action == .copyToRight ? "→" : "←"
-            printOut("- \(name(diff.relativePath)) \(arrow) [\(DifferenceProcessing.typeString(diff.type))]")
+            printOut("- \(diff.relativePath) \(arrow) [\(DifferenceProcessing.typeString(diff.type))]")
         }
         if !heldRows.isEmpty {
             printOut("")
@@ -368,11 +369,13 @@ public struct CommandRunner {
             let targetRoot = diff.action == .copyToRight ? rightURL : leftURL
             let validatedRelativePath = DifferenceProcessing.targetRelativePath(for: diff, targetRoot: targetRoot)
             if let violation = ProviderNameRules.violation(inRelativePath: validatedRelativePath, for: targetProvider.type) {
-                env.writeErr("Skipping \(name(diff.relativePath)): \(violation.reason) \(targetProvider.displayName) would not upload it.\n")
+                // The rule is a shared sentence, curly in the app, so it is folded (FC10).
+                let reason = CLIOutput.ascii(violation.reason)
+                env.writeErr("Skipping \(diff.relativePath): \(reason) \(targetProvider.displayName) would not upload it.\n")
                 // Carry the rule text into the tally so the stdout summary can list
-                // "path — reason" inline (the stderr line above scrolls away / can be redirected).
+                // "path - reason" inline (the stderr line above scrolls away / can be redirected).
                 tally.recordSkipped(relativePath: diff.relativePath, reason: .nameViolation,
-                                    detail: violation.reason)
+                                    detail: reason)
                 continue
             }
 
@@ -395,7 +398,7 @@ public struct CommandRunner {
             if let side = planStamps[diff.id]?.sideThatChanged(of: diff, fileManager: fm) {
                 let sourceSide: FilePairStamp.Side = diff.action == .copyToRight ? .left : .right
                 let reason = "the \(side == sourceSide ? "source" : "destination") changed after the plan was shown"
-                env.writeErr("Skipping \(name(diff.relativePath)): \(reason). Re-run sync to see the current plan.\n")
+                env.writeErr("Skipping \(diff.relativePath): \(reason). Re-run sync to see the current plan.\n")
                 tally.recordSkipped(relativePath: diff.relativePath, reason: .changedSincePlan,
                                     detail: reason)
                 continue
@@ -418,14 +421,17 @@ public struct CommandRunner {
                 tally.recordCopied(replacedExisting: replaced)
             } catch {
                 tally.recordFailed()
-                let message = "Failed to sync \(name(diff.relativePath)): \(error.localizedDescription)"
-                // The app's log takes the line as written: no fold, and no markers.
-                await env.logError(CLIOutput.stripped(message))
-                env.writeErr(message + "\n")
+                // The error is a shared sentence, often Cocoa's quoting the file or its folder, so
+                // it is folded with every name along both paths kept (FC10). The app's log takes
+                // the line as written, unfolded, like every other line in it.
+                let names = sourceURL.pathComponents + targetURL.pathComponents
+                await env.logError("Failed to sync \(diff.relativePath): \(error.localizedDescription)")
+                env.writeErr("Failed to sync \(diff.relativePath): "
+                             + "\(CLIOutput.ascii(error.localizedDescription, keeping: names))\n")
 
                 if failFast {
                     env.writeErr("Aborting due to --fail-fast.\n")
-                    throw error
+                    throw CLIOutput.foldedForPrinting(error, keeping: names)
                 }
             }
         }
@@ -454,10 +460,10 @@ public struct CommandRunner {
 
         printOut("Discovered providers:")
         for provider in providers {
-            printOut("- \(name(provider.id))")
+            printOut("- \(provider.id)")
             printOut("    name : \(provider.displayName)")
             printOut("    type : \(provider.type.rawValue)")
-            printOut("    path : \(name(provider.rootPath))")
+            printOut("    path : \(provider.rootPath)")
         }
     }
 }

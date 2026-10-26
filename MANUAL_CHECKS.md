@@ -338,6 +338,16 @@ open -a SyncCloud && tail -f ~/sync-cloud.log
 - [ ] **Save writes exactly one profile**, and the log says `Setup saved profile 'walk-…'`. With the
   reading switch on, the button reads "Save and Start Reading" and a survey starts; with it off it
   reads "Save" and nothing is read.
+- [ ] **Structure over a reading in progress counts nothing.** Learn a big folder and Continue to
+  Structure at once: "Reading names…" in the tree's box, dashes for folders, files, loose files and
+  countries, no lens picker or gray-words legend, a greyed-out "Read documents" switch, and Skip
+  Saving. Press Skip Saving just as the reading lands: the log says `Skip Saving on Structure`, and
+  no `walk-…` profile is written. Learn Again over a finished reading shows the same, never the old
+  tree.
+- [ ] **A reading that fails says so on Structure.** On a Mac with a folder profile, run setup
+  again from Help, Learn a scratch folder made unreadable with `chmod 000`, and Continue to
+  Structure: it shows "Couldn’t read that folder" with the reason and Try Another Folder…, not this
+  Mac's profile read-only, and its button is Continue. Restore the folder's permissions after.
 - [ ] **The reading strip is on every Organize lens.** Switch through To File, Duplicates, Renames,
   Restructure, Rules and Storage while the survey runs: the line is under the header on all six,
   with Pause and Stop. Quit and relaunch mid-survey: it comes back as the interrupted strip with
@@ -348,13 +358,17 @@ open -a SyncCloud && tail -f ~/sync-cloud.log
 - [ ] **The text-size stepper works on every screen** and moves through all ten sizes, not four.
   Check that View ▸ Text Size ▸ Bigger agrees with it afterwards.
 - [ ] **Esc keeps the answers, not the finish.** Type a name on You and press Esc, then reopen
-  setup from Help: the name is there. Quit and relaunch: setup offers itself again. ✕ and a click
-  outside do the same. A reading that was never saved is gone.
+  setup from Help: the name is there. On a Mac that hasn't been set up yet (no folder profile),
+  quit and relaunch: setup offers itself again. ✕ and a click outside do the same. A reading that
+  was never saved is gone.
+- [ ] **Every other way out keeps the answers too.** Type a new name on You, then press ⌘, and
+  close Settings; reopen setup from Help: the name is there. Repeat with ⌘?, with closing the
+  window, and with ⌘Q and a relaunch.
 - [ ] **Settings ▸ General ▸ Run Setup Again…** opens the sheet at Locations.
   **Settings ▸ Advanced ▸ Reset Setup…** asks first, then opens it at Welcome and makes it offer
   itself on the next launch.
 - [ ] **Do not time it.** Setup claims no duration anywhere, by decision, so there is no number to
-  confirm and none to add. The reading offer's "About 3 h for N documents" is a different claim and
+  confirm and none to add. The reading offer's "About N h (or min) for N documents" is a different claim and
   is checked against the count it names.
 
 
@@ -379,6 +393,30 @@ placement maths and the message's layout at 250/400/560pt are covered by tests; 
 - [ ] **Clicks still land in Edit and Organize.** Both halves now carry the click reporter: select
   text by dragging in Edit, click a PDF's page, drag a card's button in Organize → all behave as before.
 - [ ] **VoiceOver.** With VoiceOver on, delete a file → it says "Deleted “…”. Undo available, Command Z".
+
+## Native controls in the app's accent (DS4, 2026-10-25)
+
+Switches and progress bars render grey offscreen, so no test can see their fill; the slider and the
+checkbox are render-tested inline and in a sheet, nothing else is. Do each step twice: Settings ▸
+Appearance ▸ Accent **Coral**, then **None**. Under Coral every control below fills with the deepened
+coral the segmented pickers use; under None, with the Mac's own accent (System Settings ▸
+Appearance), and nothing coral is left.
+
+- [ ] **A switch.** Any switch in Settings, on → its track is the accent.
+- [ ] **A checkbox.** Any checkbox in Settings (General, a provider's options), ticked → its box is
+  the accent, the tick white.
+- [ ] **A slider.** Settings ▸ Appearance ▸ Tint → the filled part of the track is the accent, the
+  same colour as the selected Coral swatch's ring, not blue.
+- [ ] **A progress bar.** Start a long run (Organize ▸ Duplicates ▸ Merge into keeper on a large
+  group) → the toolbar capsule's bar (`ProgressCapsule`) fills with the accent.
+- [ ] **A sheet's checkbox.** Organize ▸ Restructure, Plan… on a finding → the Plan sheet's
+  checkboxes are the accent, not blue. (Sheets take the hue through `presentedNativeControlAccent`;
+  before it they kept the Mac's accent on every hued window.)
+- [ ] **The other windows.** Open Sync History, the Activity Log and Keyboard Shortcuts → any switch,
+  checkbox, slider or progress bar in them is the accent too.
+- [ ] **Button words stay readable.** In both appearances, a bordered button whose words wear the
+  accent (Edit's Show Text Files, the PDF tool sheets' Cancel) reads clearly on its bezel; in dark
+  its words are white.
 
 ## Long runs in the toolbar capsule (Banner Room BZ/TE205/TE206, 2026-10-25)
 

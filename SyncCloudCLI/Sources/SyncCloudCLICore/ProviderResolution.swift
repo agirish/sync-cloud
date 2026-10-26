@@ -41,9 +41,9 @@ func matchingProvider(
     among providers: [CloudProvider]
 ) throws -> CloudProvider? {
     func refusal(_ candidates: [CloudProvider], by what: String, remedy: String) -> ProviderResolutionError {
-        let listed = candidates.map { "'\(CLIOutput.verbatim($0.id))' (\(CLIOutput.verbatim($0.landingPath)))" }.joined(separator: ", ")
+        let listed = candidates.map { "'\($0.id)' (\($0.landingPath))" }.joined(separator: ", ")
         return ProviderResolutionError(
-            message: "'\(CLIOutput.verbatim(value))' for \(label) matches \(candidates.count) providers by \(what): \(listed). \(remedy)")
+            message: "'\(value)' for \(label) matches \(candidates.count) providers by \(what): \(listed). \(remedy)")
     }
     let byID = providers.filter { $0.id == value }
     if byID.count > 1 {
@@ -97,17 +97,17 @@ public func resolveProviderOrPath(
         if fileManager.fileExists(atPath: asPath, isDirectory: &isDirectory), isDirectory.boolValue,
            canonicalPath(asPath) != canonicalPath(expandPath(provider.rootPath)) {
             throw ProviderResolutionError(
-                message: "'\(CLIOutput.verbatim(value))' for \(label) names both the provider '\(provider.displayName)' "
-                    + "(\(CLIOutput.verbatim(provider.rootPath))) and a directory at \(CLIOutput.verbatim(asPath)). "
-                    + "Use '\(CLIOutput.verbatim("./" + value))' or an absolute path for the directory, "
+                message: "'\(value)' for \(label) names both the provider '\(provider.displayName)' "
+                    + "(\(provider.rootPath)) and a directory at \(asPath). "
+                    + "Use './\(value)' or an absolute path for the directory, "
                     + "or rename the directory to address the provider by name.")
         }
         try requireDirectory(
             atPath: expandPath(provider.rootPath),
             fileManager: fileManager,
-            missingMessage: "Root '\(CLIOutput.verbatim(provider.rootPath))' of provider '\(provider.displayName)' (\(label)) does not exist. "
+            missingMessage: "Root '\(provider.rootPath)' of provider '\(provider.displayName)' (\(label)) does not exist. "
                 + "The provider may be unmounted or signed out.",
-            notDirectoryMessage: "Root '\(CLIOutput.verbatim(provider.rootPath))' of provider '\(provider.displayName)' (\(label)) is not a directory."
+            notDirectoryMessage: "Root '\(provider.rootPath)' of provider '\(provider.displayName)' (\(label)) is not a directory."
         )
         // **Then the folder the run will actually scan**, which is not the one above. A source's
         // root is the account, and `CommandRunner` scans `landingPath` — so this pre-flight cleared
@@ -123,10 +123,10 @@ public func resolveProviderOrPath(
             try requireDirectory(
                 atPath: expandPath(provider.landingPath),
                 fileManager: fileManager,
-                missingMessage: "Provider '\(provider.displayName)' (\(label)) opens at '\(CLIOutput.verbatim(provider.openAt))', "
-                    + "which does not exist under its root '\(CLIOutput.verbatim(provider.rootPath))'. "
+                missingMessage: "Provider '\(provider.displayName)' (\(label)) opens at '\(provider.openAt)', "
+                    + "which does not exist under its root '\(provider.rootPath)'. "
                     + "Change the source's opening folder in Settings, or pass the folder as a path.",
-                notDirectoryMessage: "Provider '\(provider.displayName)' (\(label)) opens at '\(CLIOutput.verbatim(provider.openAt))', "
+                notDirectoryMessage: "Provider '\(provider.displayName)' (\(label)) opens at '\(provider.openAt)', "
                     + "which is not a directory."
             )
         }
@@ -136,8 +136,8 @@ public func resolveProviderOrPath(
     try requireDirectory(
         atPath: expanded,
         fileManager: fileManager,
-        missingMessage: "Path or provider '\(CLIOutput.verbatim(value))' for \(label) could not be found.",
-        notDirectoryMessage: "Path '\(CLIOutput.verbatim(expanded))' for \(label) is not a directory."
+        missingMessage: "Path or provider '\(value)' for \(label) could not be found.",
+        notDirectoryMessage: "Path '\(expanded)' for \(label) is not a directory."
     )
     // A path has no provider identity of its own, so take the type from whichever discovered
     // provider contains it (see `CloudProvider.inferredType`). Both the destination name guard

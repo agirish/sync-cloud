@@ -2582,7 +2582,7 @@ struct IntelligenceSettingsTab: View {
         // spend reads are small `UserDefaults` blobs and stay where they are.
         .task { savedSuggestionCount = await syncManager?.filingVerdictCacheCount() ?? 0 }
         .sheet(isPresented: $showSpendHistory, onDismiss: refreshSpend) {
-            FilingSpendHistorySheet()
+            FilingSpendHistorySheet().presentedNativeControlAccent()
         }
     }
 
@@ -2939,6 +2939,7 @@ struct PeopleList: View {
                              editing = nil
                          },
                          onCancel: { editing = nil })
+                .presentedNativeControlAccent()
         }
         .alert(PersonRemoval.title(confirmingRemoval?.displayName ?? ""),
                isPresented: Binding(get: { confirmingRemoval != nil },

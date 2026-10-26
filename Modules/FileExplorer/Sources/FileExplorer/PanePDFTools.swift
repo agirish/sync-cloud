@@ -303,7 +303,7 @@ struct PanePDFSingleLayer: View {
         }
         .background {
             Color.clear.sheet(item: $tools.sheet) { sheet in
-                EditorPDFToolSheetView(tools: tools, sheet: sheet)
+                EditorPDFToolSheetView(tools: tools, sheet: sheet).presentedNativeControlAccent()
             }
         }
     }
@@ -331,6 +331,7 @@ struct PanePDFBatchLayer: View {
                     .frame(minWidth: EditorPDFBatchSheet.minWidth, idealWidth: EditorPDFBatchSheet.idealWidth)
                     // Deepened: its default button lays a white label on the tint.
                     .accentedProminent()
+                    .presentedNativeControlAccent()
             }
         }
     }

@@ -113,8 +113,8 @@ import Testing
             ("EditorPDFFindBar.swift", ".shortcutKeycap(forward ? AppChord.findNext.display : AppChord.findPrevious.display, compact: true) .disabled(find.matches.isEmpty)"),
             ("EditorPDFFindBar.swift", ".shortcutKeycap(\"esc\", compact: true) .accessibilityLabel(\"Close Find\")"),
             ("EditorRecentFilesPage.swift", ".accentedProminent() .shortcutKeycap(AppChord.newTextFile.display)"),
-            ("EditorRecentFilesPage.swift", ".tint(accent) .shortcutKeycap(AppChord.editorTextFiles.display)"),
-            ("EditorWorkspaceView.swift", ".tint(accent) .shortcutKeycap(AppChord.editorTextFiles.display)"),
+            ("EditorRecentFilesPage.swift", ".buttonWordsTint(accent) .shortcutKeycap(AppChord.editorTextFiles.display)"),
+            ("EditorWorkspaceView.swift", ".buttonWordsTint(accent) .shortcutKeycap(AppChord.editorTextFiles.display)"),
             ("EditorDivergenceDiffOverlay.swift", "Button(\"Cancel\") { onAnswer(.cancel) } .buttonStyle(.bordered) .shortcutKeycap(\"esc\")"),
         ]
         for (file, code) in wiring {

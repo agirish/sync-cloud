@@ -97,4 +97,51 @@ import Testing
         #expect(distance(warning, info) > 0.02,
                 "the plain tinted pills stopped carrying their tint: \(warning) vs \(info)")
     }
+
+    /// **The composed pill's words are label colour on its tint's wash (DS1, RB1).** Its wash is
+    /// drawn inside `StatPillSurface`, out of the source scan's reach, so the words are read off a
+    /// render: the darkest pixel in light, the brightest in dark, near-neutral black or white —
+    /// where the caution yellow they once wore sits near L 0.6 with a strong cast.
+    @Test(arguments: [false, true]) func theComposedPillsWordsAreLabelColour(dark: Bool) throws {
+        let pill = pill(trailing: "chevron.right", semantic: nil, tint: SemanticColor.caution)
+            .padding(6)
+            .background(dark ? Color(white: 0.13) : Color(white: 0.96))
+            .environment(\.colorScheme, dark ? .dark : .light)
+            .environment(\.appFontScale, 1.6)
+        let host = NSHostingView(rootView: AnyView(pill))
+        host.frame = CGRect(origin: .zero, size: host.fittingSize)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        window.colorSpace = .sRGB
+        window.contentView = host
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        // Raw bytes: `colorAt` tags sRGB numbers as calibrated. Two reads, because one cannot say
+        // it alone. The extreme pixel is the words' ink when they are drawn in label colour — but
+        // the trailing chevron and the rolling count keep a label-colour pixel whatever the words
+        // wear, so it would win either way. So also count the strongly coloured pixels: the words
+        // in the caution yellow are chroma near 1, the hairline (the tint at 0.45) and the wash
+        // under 0.6.
+        var best: (l: CGFloat, chroma: CGFloat) = (dark ? 0 : 1, 0)
+        var coloured = 0
+        var p = [Int](repeating: 0, count: 4)
+        for y in 0..<rep.pixelsHigh { for x in 0..<rep.pixelsWide {
+            rep.getPixel(&p, atX: x, y: y)
+            let (r, g, b) = (CGFloat(p[0]) / 255, CGFloat(p[1]) / 255, CGFloat(p[2]) / 255)
+            let l = AccentLabel.relativeLuminance(red: r, green: g, blue: b)
+            let chroma = max(r, g, b) - min(r, g, b)
+            if dark ? l > best.l : l < best.l { best = (l, chroma) }
+            if chroma > 0.7 { coloured += 1 }
+        } }
+        #expect(coloured < 5, "the pill's words are tinted: \(coloured) strongly coloured pixels")
+        if dark {
+            #expect(best.l > 0.6, "the pill's brightest ink is L \(best.l), not white")
+        } else {
+            #expect(best.l < 0.08, "the pill's darkest ink is L \(best.l), not black")
+        }
+        #expect(best.chroma < 0.12, "the pill's extreme ink is tinted: chroma \(best.chroma)")
+    }
 }

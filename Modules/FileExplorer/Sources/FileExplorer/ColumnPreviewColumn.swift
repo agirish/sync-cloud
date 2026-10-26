@@ -656,23 +656,16 @@ struct ColumnPreviewColumn: View {
 
     /// Asks the provider for the file's content, then watches for it to arrive.
     ///
-    /// `MaterializationStatus.download` works for iCloud and, measured on Google Drive, for File
-    /// Provider clouds too. When it throws, the fallback is Finder, which can reach the provider's
-    /// own extension.
+    /// **The row menu's own verb, not a copy of it.** On success it is exactly the handshake the
+    /// row menu's Download uses: the post hands the watch to the pane, which forgets the memo's
+    /// pre-download answer, polls once for the whole app, and drops its latch when the content
+    /// lands or the attempts run out. This column re-probes off that latch (`isAwaitingDownload`)
+    /// instead of running a second poll — two watches meant two `forget`s, and each one invalidates
+    /// every in-flight badge stat in both panes. A refused request reveals the file in Finder, as
+    /// this column always did.
     private func requestDownload() {
-        let path = item.path
-        do {
-            try MaterializationStatus.download(atPath: path)
-            // Exactly the handshake the row menu's Download uses: hand the watch to the pane, which
-            // forgets the memo's pre-download answer, polls once for the whole app, and drops its
-            // latch when the content lands or the attempts run out. This column re-probes off that
-            // latch (`isAwaitingDownload`) instead of running a second poll — two watches meant
-            // two `forget`s, and each one invalidates every in-flight badge stat in both panes.
-            CloudDownloadRequest.post(path: path, from: paneToken, through: downloadChannel)
-        } catch {
-            Logger.shared.warning("[preview] download refused for \(path): \(error.localizedDescription) — revealing in Finder")
-            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
-        }
+        CloudDownloadRequest.requestDownload(path: item.path, name: item.name, from: paneToken,
+                                             through: downloadChannel)
     }
 }
 

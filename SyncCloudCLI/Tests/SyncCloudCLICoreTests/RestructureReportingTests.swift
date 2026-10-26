@@ -67,8 +67,6 @@ import Foundation
     @Test func theJSONFormatIsStableAndSorted() throws {
         let output = try RestructureReporting.report(profilesDirectory: makeProfilesDirectory())
         let json = try RestructureReporting.renderJSON(output)
-        // The verbatim markers belong to the text rendering only (FC10).
-        #expect(!json.contains("\u{E000}") && !json.contains("\u{E001}"), "a marker reached the JSON")
         #expect(json.contains("\"schemaVersion\" : 1"))
         #expect(json.contains("\"kind\" : \"backlog\""))
         #expect(json.contains("\"subject\" : \"Dental/2025\""))
@@ -82,9 +80,8 @@ import Foundation
     @Test func theTextRenderingSummarisesWithoutDumpingPaths() throws {
         let output = try RestructureReporting.report(profilesDirectory: makeProfilesDirectory())
         let text = RestructureReporting.renderText(output)
-        // Folder names from the surveyed tree are marked verbatim, so they print unfolded (FC10).
-        #expect(text.contains("[backlog] \(CLIOutput.verbatim("Dental/2025"))"))
-        #expect(text.contains("scaffold \(CLIOutput.verbatim("Claims"))"))
+        #expect(text.contains("[backlog] Dental/2025"))
+        #expect(text.contains("scaffold Claims"))
         #expect(text.contains("1 empty"))
         #expect(!text.contains("Empty\n"), "the text summary counts crowding, --json lists it")
     }
@@ -131,7 +128,7 @@ import Foundation
             subject: "Archive/Forms",
             detail: .duplicatedTaxonomy(counterpart: "Work/Acme/Forms", matchedDocuments: 5))
         let suffix = RestructureReporting.detailSuffix(RestructureReporting.finding(for: finding))
-        #expect(suffix == " — 5 documents also in \(CLIOutput.verbatim("Work/Acme/Forms"))")
+        #expect(suffix == " - 5 documents also in Work/Acme/Forms")
         #expect(!suffix.contains("echoes"))
     }
 }

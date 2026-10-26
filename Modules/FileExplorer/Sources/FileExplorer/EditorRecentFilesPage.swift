@@ -158,7 +158,7 @@ struct EditorRecentFilesPage<Fallback: View>: View {
                             .scaledFont(.system(size: 12, weight: .medium))
                     }
                     .buttonStyle(.bordered)
-                    .tint(accent)
+                    .buttonWordsTint(accent)
                     .shortcutKeycap(AppChord.editorTextFiles.display)
                     .help(ShortcutHint.tooltip(EditorWorkspaceView.showTextFilesHelp,
                                                AppChord.editorTextFiles.display))

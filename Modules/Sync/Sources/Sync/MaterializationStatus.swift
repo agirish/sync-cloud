@@ -106,10 +106,10 @@ public enum MaterializationStatus {
     }
 
     /// Asks the system to fetch a dataless file's content, returning at once while it fetches in the
-    /// background. `startDownloadingUbiquitousItem` serves File Provider clouds as well as iCloud:
-    /// measured 2026-10-25 on a real Google Drive placeholder, it did not throw and the content was
-    /// on disk within a second. When it does throw, callers fall back to revealing the item in
-    /// Finder.
+    /// background. `startDownloadingUbiquitousItem` is not iCloud-only: measured 2026-10-25 on a real
+    /// Google Drive placeholder, it did not throw and the content was on disk within a second.
+    /// Dropbox and OneDrive have not been measured. When it does throw, callers fall back to
+    /// revealing the item in Finder.
     ///
     /// **Read the result with a fresh URL.** `URL` caches resource values, so polling
     /// `ubiquitousItemDownloadingStatus` on the same instance kept saying "not downloaded" after the

@@ -135,6 +135,13 @@ public enum DocumentSurveyCardText {
                 return opening + "It runs in the background over a few hours and can be paused. "
                     + "It counts the documents first and says how many before it opens any."
             }
+            // **A walk that found nothing to read offers no read** (RD8). "A few minutes for 0
+            // documents, in the background" priced a read of nothing; the count is what the walk
+            // found, so the card says that and offers to look again once some are added.
+            guard documents > 0 else {
+                return opening + "No document here is in a format this app can open, so there is "
+                    + "nothing to read yet."
+            }
             // The figure itself lives in ``DocumentSurveyCost``: setup's Structure screen offers
             // the same read, and one number worded twice becomes two promises.
             return opening + DocumentSurveyCost.offerClause(documents: documents)
@@ -332,6 +339,14 @@ struct DocumentSurveyCard: View {
     /// the rightmost control, and it looks exactly like every other card's primary.
     var verbs: [OverviewCardAction] {
         switch state {
+        case .offered(.some(0)):
+            // Nothing to read, so nothing offered to read: the same walk, asked again after
+            // documents are added (RD8).
+            return onStart.map {
+                [OverviewCardAction(title: "Look again", rank: .primary,
+                                    help: "Count the documents here again — for after you add some "
+                                        + "this app can open", run: $0)]
+            } ?? []
         case .offered:
             return onStart.map {
                 [OverviewCardAction(title: "Read my documents", rank: .primary,

@@ -115,12 +115,11 @@ struct EditorPDFToolSheetFrame<Content: View>: View {
                     if tools.running != nil { tools.cancelRun() } else { tools.sheet = nil }
                 }
                 .keyboardShortcut(.cancelAction)
-                // **Cancel's words keep the raw accent.** The sheet is tinted with the deepened fill,
-                // for the default button's white label and the radios' dots; Cancel draws the tint as
-                // TEXT: on Green's dark bezel the deepened one measures 3.4:1, the raw one 5.8:1. (On
-                // the light bezel the raw one is 2.3:1, as it was before the fill — a matter of
-                // accent-coloured words, not of fills.)
-                .tint((LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor)
+                // **Cancel's words take the hue at a depth they read at.** The sheet is tinted with
+                // the deepened fill, for the default button's white label and the radios' dots;
+                // Cancel draws the tint as TEXT, and on Green's dark bezel the deepened one measures
+                // 3.4:1, the raw one 2.3:1 on the light bezel. `buttonWordsTint` clears 4.5:1 in both.
+                .buttonWordsTint((LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor)
                 Button(action, action: run)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canRun || tools.running != nil)

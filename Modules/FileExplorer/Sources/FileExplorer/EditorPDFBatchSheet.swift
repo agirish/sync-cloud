@@ -45,8 +45,8 @@ struct EditorPDFBatchSheet: View {
                     if batch.isRunning { batch.cancel() } else { batch.showsSheet = false }
                 }
                 .keyboardShortcut(.cancelAction)
-                // Its words keep the raw accent — see `EditorPDFToolSheetFrame`.
-                .tint((LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor)
+                // Its words take the hue at a depth they read at — see `EditorPDFToolSheetFrame`.
+                .buttonWordsTint((LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor)
                 if !isRotate {
                     Button(actionTitle, action: go)
                         .keyboardShortcut(.defaultAction)

@@ -49,13 +49,17 @@ import Testing
 ///    each `NSHostingView`/`NSHostingController` the app builds takes `.nativeControlAccent(…)`,
 ///    or is named in ``unaccentedHosts`` with why. This is a rule about ROOTS rather than controls
 ///    because the accent inherits: a control is untinted exactly when no root above it set one,
-///    and a new window or hosted panel is how one would come back.
-/// 7. **No raw-accent `.tint` over anything but a button**, outside ``rawTintExemptions``. A
-///    container's `.tint` beats the root's accent for every control under it, so a checkbox or a
-///    switch there fills with the raw shade — white on raw Amber is 2.2:1. On a `Button` it reaches
-///    only that button's label, words in the hue on purpose (Cancel in the PDF sheets). A
-///    `ViewModifier` that tints its `content` with a colour handed in is caught too: the colour is
-///    named only at the call site, where no `.tint(` is (`HeaderCardChrome` was one).
+///    and a new window or hosted panel is how one would come back. A `.sheet`, `.popover`,
+///    `.fullScreenCover` or `.inspector` is a root too: the accent a window's root sets stops at a
+///    presentation, so each one's content takes `.presentedNativeControlAccent()`, or is named in
+///    ``unaccentedPresentations`` with why.
+/// 7. **No raw-accent `.tint` at all**, outside ``rawTintExemptions``. A container's `.tint`
+///    beats the root's accent for every control under it, so a checkbox or a switch there fills
+///    with the raw shade — white on raw Amber is 2.2:1. On a `Button` it colours the label's WORDS,
+///    and the raw hue as words measured 2.3:1 on the light bezel at Green (`ButtonWordInkTests`):
+///    a button's words take `.buttonWordsTint(…)`, which deepens them in light and whitens them in
+///    dark. A `ViewModifier` that tints its `content` with a colour handed in is caught too: the
+///    colour is named only at the call site, where no `.tint(` is (`HeaderCardChrome` was one).
 @Suite struct AccentFillScanTests {
 
     // MARK: The rules, on any source text
@@ -165,7 +169,7 @@ import Testing
                                  snippet: characters.substring(with: NSRange(location: from, length: to - from))))
         }
 
-        // Rule 7: a raw-accent tint reaches only a button's own label.
+        // Rule 7: no raw-accent tint — over a subtree's controls, or as a button's words.
         let partners = openers(text)
         for start in occurrences(of: ".tint(", in: text) {
             let open = start + ".tint(".count - 1
@@ -173,8 +177,9 @@ import Testing
             let argument = String(text[(open + 1)..<close]).trimmingCharacters(in: .whitespaces)
             guard let root = receiverRoot(text, partners, before: start) else { continue }
             let site = "\(root.name)\(snippet(text, root.index + root.name.count, close).prefix(40))"
-            if namesRawAccent(reduced(Array(argument))), root.name != "Button" {
-                found.append(Finding(rule: "raw accent tint over a subtree", snippet: site))
+            if namesRawAccent(reduced(Array(argument))) {
+                found.append(Finding(rule: root.name == "Button" ? "raw accent tint on a button's words"
+                                                                 : "raw accent tint over a subtree", snippet: site))
             } else if root.name == "content", argument.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) {
                 found.append(Finding(rule: "tint handed through a modifier", snippet: site))
             }
@@ -400,8 +405,9 @@ import Testing
 
         // Rule 2.
         #expect(rules("Button(\"Save\") {}.buttonStyle(.borderedProminent).disabled(x)") == ["untinted .borderedProminent"])
+        // Rule 7 sees the raw hue on the button too.
         #expect(rules("Button(\"Save\") { go() } .buttonStyle(.borderedProminent) .tint(accent)")
-                == [".borderedProminent tinted past the seam"])
+                == [".borderedProminent tinted past the seam", "raw accent tint on a button's words"])
         #expect(rules("Button(\"Save\") { go() } .buttonStyle(.borderedProminent) .tint(accentFill)")
                 == [".borderedProminent tinted past the seam"])
         #expect(rules("Button(\"Save\") { go() } .buttonStyle(.borderedProminent) .accentedProminent() .tint(.red)")
@@ -463,11 +469,20 @@ import Testing
         #expect(rules("Table(of: D.self) { TableColumn(\"N\") { Text($0.n) } } rows: { ForEach(d) { TableRow($0) } } .onChange(of: x) { _, y in go(y) } .tint(lit ? accent : nil)") == [subtree])
         #expect(rules("Form { Slider(value: $v) }.tint((LiquidGlassHue(rawValue: raw) ?? .blue).accentColor)") == [subtree])
         #expect(rules("func body(content: Content) -> some View { content.tint(tint).controlSize(.large) }") == ["tint handed through a modifier"])
-        // ...and kept: a button's own label, every way one is written; the deepened fill; a wash;
-        // Liquid Glass's tint; a seam; comments.
-        #expect(rules("Button(\"Cancel\") { if a { b() } else { c = false } }\n .keyboardShortcut(.cancelAction)\n .tint(glassHue.accentColor)").isEmpty)
-        #expect(rules("Button { onFix([r]) } label: { Text(\"Fix\").fontWeight(.semibold) } .buttonStyle(.borderless) .tint(accent)").isEmpty)
-        #expect(rules("Button(action: go) { Label(\"Download\", systemImage: \"icloud\") }.buttonStyle(.bordered).tint(tinted ? accent : nil)").isEmpty)
+        // A button's words, every way one is written (RC3): the raw hue as words is 2.3:1 on the
+        // light bezel.
+        let words = "raw accent tint on a button's words"
+        #expect(rules("Button(\"Cancel\") { if a { b() } else { c = false } }\n .keyboardShortcut(.cancelAction)\n .tint(glassHue.accentColor)") == [words])
+        #expect(rules("Button { onFix([r]) } label: { Text(\"Fix\").fontWeight(.semibold) } .buttonStyle(.borderless) .tint(accent)") == [words])
+        #expect(rules("Button(action: go) { Label(\"Download\", systemImage: \"icloud\") }.buttonStyle(.bordered).tint(tinted ? accent : nil)") == [words])
+        #expect(rules("Button { go() } label: { Text(\"Rename all\") }.buttonStyle(.bordered).controlSize(.small).tint(c == .pad ? accent : tint(c))") == [words])
+        #expect(rules("Button(\"Cancel\") {}.tint((LiquidGlassHue(rawValue: raw) ?? .blue).accentColor)") == [words])
+        // ...and kept: the words at a depth they read at, every way one is written; the deepened
+        // fill; a wash; Liquid Glass's tint; a seam; comments.
+        #expect(rules("Button(\"Cancel\") { if a { b() } else { c = false } }\n .keyboardShortcut(.cancelAction)\n .buttonWordsTint(glassHue.accentColor)").isEmpty)
+        #expect(rules("Button { onFix([r]) } label: { Text(\"Fix\") } .buttonStyle(.borderless) .buttonWordsTint(accent)").isEmpty)
+        #expect(rules("Button(action: go) { Label(\"Download\", systemImage: \"icloud\") }.buttonStyle(.bordered).buttonWordsTint(tinted ? accent : nil)").isEmpty)
+        #expect(rules("Button(\"Fix all\") {}.buttonStyle(.bordered).tint(SemanticColor.error)").isEmpty)
         #expect(rules("VStack { Toggle(\"x\", isOn: $x) }.tint(hue.accentFillColor)").isEmpty)
         #expect(rules("VStack { Toggle(\"x\", isOn: $x) }.tint(accent.opacity(0.4))").isEmpty)
         #expect(rules(".glassEffect(.regular.tint(accent.opacity(strength)), in: Capsule())").isEmpty)
@@ -635,6 +650,11 @@ import Testing
     // MARK: Rule 6 — every root sets the native controls' accent (DS4)
 
     static let rootAccent = ".nativeControlAccent("
+    static let presentedAccent = ".presentedNativeControlAccent("
+
+    /// The presentations whose content is a window of its own, which the root's accent does not
+    /// reach (measured in `NativeControlAccentRenderTests.aControlInASheetTakesThePresentersHue`).
+    static let presentations = [".sheet(", ".popover(", ".fullScreenCover(", ".inspector("]
 
     /// The roots in `source` that set no native-control accent: each scene's content closure, and
     /// each hosting view's `rootView:` argument. Returned as the opening text, to name the site.
@@ -653,6 +673,27 @@ import Testing
                 while i < text.count, text[i] == " " { i += 1 }
                 guard i < text.count, text[i] == "{", let end = matching(text, i) else { continue }
                 if occurrences(of: rootAccent, in: Array(text[i...end])).isEmpty {
+                    found.append(String(text[start..<min(text.count, start + 50)]))
+                }
+            }
+        }
+        // A presentation: the accent stops at it, so its content closure is a root of its own.
+        // `.sheet(.compress)`, an enum case with no closure after it, is not one.
+        for opener in presentations {
+            for start in occurrences(of: opener, in: text) {
+                let open = start + opener.count - 1
+                guard let close = matching(text, open) else { continue }
+                var i = close + 1
+                while i < text.count, text[i] == " " { i += 1 }
+                let body: [Character]
+                if i < text.count, text[i] == "{", let end = matching(text, i) {
+                    body = Array(text[i...end])
+                } else if let label = occurrences(of: "content: {", in: Array(text[open...close])).first {
+                    body = Array(text[(open + label)...close])
+                } else {
+                    continue
+                }
+                if occurrences(of: rootAccent, in: body).isEmpty, occurrences(of: presentedAccent, in: body).isEmpty {
                     found.append(String(text[start..<min(text.count, start + 50)]))
                 }
             }
@@ -677,6 +718,15 @@ import Testing
         ("PaneColumnsView.swift", "NSHostingView(rootView: VStack", "column rows measured offscreen, never shown"),
     ]
 
+    /// A presentation that rightly sets no accent, named with why: nothing in it fills with one.
+    /// Each must match exactly one presentation, so a stale entry fails too.
+    static let unaccentedPresentations: [(file: String, site: String, why: String)] = [
+        ("PreviewEditToggle.swift", ".popover(isPresented: $showsIntro",
+         "editable Preview's first-use note — words and a plain Got It button"),
+        ("EditorFormatBar.swift", ".popover(isPresented: $showsStyles",
+         "the paragraph styles list — plain buttons, its tick drawn in the accent it is handed"),
+    ]
+
     /// The panels the owner named, which sit inside the main window but set their own accent so
     /// that a render of one, or a host that ever shows it elsewhere, still carries the hue.
     static let accentedPanels = ["SettingsView.swift", "HelpBook.swift", "SetupSheet.swift"]
@@ -691,6 +741,21 @@ import Testing
         #expect(Self.unaccentedRoots(in: "let c = NSHostingController(rootView: Sheet())").count == 1)
         #expect(Self.unaccentedRoots(in: "// Window(\"x\", id: \"y\") { Bare() }").isEmpty)
         #expect(Self.unaccentedRoots(in: "NSWindow(contentRect: r, styleMask: [], backing: .buffered, defer: false)").isEmpty)
+        // A presentation, broken: each kind, a closure over several lines, a `content:` argument.
+        #expect(Self.unaccentedRoots(in: ".sheet(item: $planning) { finding in planSheet(for: finding) }").count == 1)
+        #expect(Self.unaccentedRoots(in: ".sheet(isPresented: $x, onDismiss: done) {\n  Spend()\n}").count == 1)
+        #expect(Self.unaccentedRoots(in: "Color.clear.popover(isPresented: $open, arrowEdge: .bottom) { Panel() }").count == 1)
+        #expect(Self.unaccentedRoots(in: ".fullScreenCover(isPresented: $x) { Cover() }").count == 1)
+        #expect(Self.unaccentedRoots(in: ".inspector(isPresented: $x) { Form { Toggle(\"a\", isOn: $a) } }").count == 1)
+        #expect(Self.unaccentedRoots(in: ".sheet(isPresented: $x, content: { Spend() })").count == 1)
+        // ...and kept: the helper, a hue in scope, an enum case named `sheet`, a comment.
+        #expect(Self.unaccentedRoots(in: ".sheet(item: $planning) { finding in planSheet(for: finding).presentedNativeControlAccent() }").isEmpty)
+        #expect(Self.unaccentedRoots(in: ".popover(isPresented: $open) {\n Panel()\n .presentedNativeControlAccent()\n}").isEmpty)
+        #expect(Self.unaccentedRoots(in: ".sheet(isPresented: $x) { Spend().nativeControlAccent(hue) }").isEmpty)
+        #expect(Self.unaccentedRoots(in: ".sheet(isPresented: $x, content: { Spend().presentedNativeControlAccent() })").isEmpty)
+        #expect(Self.unaccentedRoots(in: "out.append(.init(title: \"Compress…\", action: .sheet(.compress), dividerBefore: true))").isEmpty)
+        #expect(Self.unaccentedRoots(in: "case .sheet(let sheet): open(sheet)").isEmpty)
+        #expect(Self.unaccentedRoots(in: "// .sheet(isPresented: $x) { Bare() }").isEmpty)
     }
 
     /// **Every root in the app sets the native controls' accent**, less the named hosts — and the
@@ -700,12 +765,14 @@ import Testing
         var exempted: [String: Int] = [:]
         var roots = 0
         var panels: Set<String> = []
+        var presented = 0
         for file in try Self.appSources() {
             let source = try String(contentsOf: file, encoding: .utf8)
             let name = file.lastPathComponent
             let stripped = Array(Self.stripComments(source))
             roots += ["Window(\"", "NSHostingView(rootView:", "NSHostingController(rootView:"]
                 .map { Self.occurrences(of: $0, in: stripped).count }.reduce(0, +)
+            presented += Self.occurrences(of: Self.presentedAccent, in: stripped).count
             if Self.accentedPanels.contains(name), !Self.occurrences(of: Self.rootAccent, in: stripped).isEmpty {
                 panels.insert(name)
             }
@@ -714,21 +781,31 @@ import Testing
                     exempted["\(host.file) \(host.root)", default: 0] += 1
                     continue
                 }
+                if let shown = Self.unaccentedPresentations.first(where: { $0.file == name && root.hasPrefix($0.site) }) {
+                    exempted["\(shown.file) \(shown.site)", default: 0] += 1
+                    continue
+                }
                 findings.append("\(name) — \(root)")
             }
         }
         #expect(findings.isEmpty, """
-            A window or hosted view sets no native-control accent, so its switches, sliders, \
-            checkboxes and progress bars fill with the Mac's accent rather than the app's hue. Add \
-            `.nativeControlAccent()` at its root (DS4):
+            A window, hosted view, sheet or popover sets no native-control accent, so its switches, \
+            sliders, checkboxes and progress bars fill with the Mac's accent rather than the app's \
+            hue. Add `.nativeControlAccent()` at a window's root, and \
+            `.presentedNativeControlAccent()` to a presentation's content (DS4):
             \(findings.joined(separator: "\n"))
             """)
         for host in Self.unaccentedHosts {
             #expect(exempted["\(host.file) \(host.root)"] == 1, "the exemption for \(host.why) (\(host.file)) matched \(exempted["\(host.file) \(host.root)"] ?? 0) roots, not 1")
         }
+        for shown in Self.unaccentedPresentations {
+            #expect(exempted["\(shown.file) \(shown.site)"] == 1, "the exemption for \(shown.why) (\(shown.file)) matched \(exempted["\(shown.file) \(shown.site)"] ?? 0) presentations, not 1")
+        }
         #expect(panels == Set(Self.accentedPanels), "panels setting no accent of their own: \(Set(Self.accentedPanels).subtracting(panels).sorted())")
         // A tripwire: the four scenes and three hosting views of 2026-10-25.
         #expect(roots >= 7, "only \(roots) window and hosting roots found — is the scan reading MacApp?")
+        // ...and the fourteen presentations of 2026-10-25 that carry the hue.
+        #expect(presented >= 14, "only \(presented) presentations carry the hue — is the scan reading the modules?")
     }
 
     /// Every Swift file the shipping app is built from: each module's `Sources`, plus `MacApp`.

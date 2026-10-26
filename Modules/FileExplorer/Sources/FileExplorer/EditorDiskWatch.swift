@@ -652,13 +652,14 @@ public final class EditorDiskWatch: ObservableObject {
     /// The newer version is a cloud placeholder: ask for it, and look again when it lands — or once
     /// ``downloadPatience`` has passed, whichever comes first.
     ///
-    /// **iCloud is asked through its own API** (``MaterializationStatus/download(atPath:)``), which
-    /// hands the request to the daemon and returns at once; nothing is read, and the landing is
+    /// **The download API is asked first** (``MaterializationStatus/download(atPath:)``), which
+    /// hands the request to the system and returns at once; nothing is read, and the landing is
     /// noticed by a cheap `lstat` every ``downloadPoll`` (materialising a file sends no event).
+    /// It serves iCloud, and was measured working on a Google Drive placeholder (2026-10-25);
+    /// Dropbox and OneDrive have not been measured.
     ///
-    /// **Any other provider has no such API**, and the only way to ask it is to read a byte — which
-    /// waits on the provider, and a provider that is not running (OneDrive, 2026-10-02) makes it
-    /// wait forever. So the read runs on a queue of its own, never the shared pool autosave's write
+    /// **When the API refuses, the only way left to ask is to read a byte** — which waits on the
+    /// provider, and a provider that is not running (OneDrive, 2026-10-02) makes it wait forever. So the read runs on a queue of its own, never the shared pool autosave's write
     /// needs, and **the download stays out until that read returns**: the patience runs out into a
     /// look, not into a second read. At most one read per path is ever blocked, and since the queue
     /// is serial, at most one thread in all.
@@ -694,8 +695,8 @@ public final class EditorDiskWatch: ObservableObject {
         }
     }
 
-    /// Asks a provider with no download API for the file, by reading a byte of it — once per path,
-    /// on ``downloadQueue``.
+    /// Asks a provider whose download API refused for the file, by reading a byte of it — once per
+    /// path, on ``downloadQueue``.
     private func readToDownload(_ path: String) {
         guard !readsOut.contains(path) else { return }
         readsOut.insert(path)

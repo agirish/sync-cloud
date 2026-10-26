@@ -50,8 +50,9 @@ public enum SegmentedAccent {
     ///
     /// **`.none` is the deliberate exception: it takes the RAW system accent, undeepened.** The
     /// whole meaning of `.none` in the accent picker is "no app accent — the stock macOS look", and
-    /// `LiquidGlassHue.none.accentColor` IS `Color.accentColor`, so handing it over untouched makes
-    /// the control identical to the one macOS would draw by itself. Deepening it instead — which is
+    /// `LiquidGlassHue.none.accentColor` IS the Mac's accent — AppKit's `controlAccentColor`, read
+    /// directly so a window root's `nativeControlAccent` cannot turn it into the window's hue — so
+    /// handing it over untouched makes the control identical to the one macOS would draw by itself. Deepening it instead — which is
     /// what this did first — bought AA contrast at the cost of the one thing the setting is FOR:
     /// the selection came out about 7% darker than a stock control (system blue (0, 0.478, 1.0) →
     /// (0, 0.445, 0.933)), which is a change to the appearance of "no change".

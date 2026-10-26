@@ -71,12 +71,12 @@ public enum RestructureReporting {
             switch self {
             case .noProfilesDirectory:
                 return "No profiles directory. SyncCloud has never surveyed a tree on this "
-                    + "machine — run the app's setup once, or pass --profiles-dir."
+                    + "machine - run the app's setup once, or pass --profiles-dir."
             case .noActiveProfile(let directory):
-                return "No active profile in \(CLIOutput.verbatim(directory)). Run the app's setup once to derive "
+                return "No active profile in \(directory). Run the app's setup once to derive "
                     + "one, or pass --profiles-dir at a directory whose profiles.json names one."
             case .unreadableProfile(let id, let directory):
-                return "The active profile '\(CLIOutput.verbatim(id))' in \(CLIOutput.verbatim(directory)) could not be read. "
+                return "The active profile '\(id)' in \(directory) could not be read. "
                     + "The lens would show its setup card for the same reason."
             }
         }
@@ -96,6 +96,19 @@ public enum RestructureReporting {
             throw Failure.unreadableProfile(id: id, directory: directory.path)
         }
         return output(for: profile, id: id)
+    }
+
+    /// **The `restructure` command's body**: the report, rendered as JSON or text, handed to
+    /// `write` — so a test reads exactly what the command prints. A failure to find or read the
+    /// profile becomes the usage error the shell prints, with the failure's own sentence.
+    public static func run(profilesDirectory: URL?, json: Bool, write: (String) -> Void) throws {
+        let output: Output
+        do {
+            output = try report(profilesDirectory: profilesDirectory)
+        } catch let failure as Failure {
+            throw CLIValidationError(message: failure.errorDescription ?? "\(failure)")
+        }
+        write(json ? try renderJSON(output) : renderText(output))
     }
 
     static func output(for profile: FolderProfile, id: String) -> Output {
@@ -164,13 +177,13 @@ public enum RestructureReporting {
     public static func renderText(_ output: Output) -> String {
         var lines: [String] = []
         if output.findings.isEmpty {
-            lines.append("The tree agrees with itself — no structure findings "
+            lines.append("The tree agrees with itself - no structure findings "
                          + "(\(output.folderCount) folders).")
         } else {
             lines.append("\(output.findings.count) structure finding(s) in "
                          + "\(output.folderCount) folders:")
             for finding in output.findings {
-                lines.append("  [\(finding.kind)] \(CLIOutput.verbatim(finding.subject))\(detailSuffix(finding))")
+                lines.append("  [\(finding.kind)] \(finding.subject)\(detailSuffix(finding))")
             }
         }
         lines.append("Crowding: \(output.crowding.passThrough.count) pass-through · "
@@ -180,29 +193,29 @@ public enum RestructureReporting {
     }
 
     static func detailSuffix(_ finding: Output.Finding) -> String {
-        if let schemes = finding.schemes { return " — \(schemes.count) schemes" }
+        if let schemes = finding.schemes { return " - \(schemes.count) schemes" }
         if let scaffold = finding.scaffold {
             let shape = scaffold.isEmpty ? "no shared shape to copy"
-                                         : "scaffold \(scaffold.map(CLIOutput.verbatim).joined(separator: ", "))"
-            return " — \(count(finding.looseFiles ?? 0, "file")), no folders yet (\(shape))"
+                                         : "scaffold \(scaffold.joined(separator: ", "))"
+            return " - \(count(finding.looseFiles ?? 0, "file")), no folders yet (\(shape))"
         }
         if let target = finding.target {
-            return " — hides the year \(CLIOutput.verbatim(target))"
+            return " - hides the year \(target)"
                 + ((finding.targetExists ?? false) ? ", which exists beside it" : "")
         }
         // Before the bare-counterpart branch: duplicatedTaxonomy also carries a counterpart, and
         // falling through would print it as an echo — the wrong claim, minus its evidence count.
         if let matched = finding.matchedDocuments, let counterpart = finding.counterpart {
-            return " — \(count(matched, "document")) also in \(CLIOutput.verbatim(counterpart))"
+            return " - \(count(matched, "document")) also in \(counterpart)"
         }
         if let counterpart = finding.counterpart {
-            return " — echoes \(CLIOutput.verbatim(counterpart))"
+            return " - echoes \(counterpart)"
         }
-        if let destination = finding.destination { return " — mirrors \(CLIOutput.verbatim(destination))" }
+        if let destination = finding.destination { return " - mirrors \(destination)" }
         if let seriesFolders = finding.seriesFolders {
-            return " — \(count(finding.looseFiles ?? 0, "file")) above \(seriesFolders) year folders"
+            return " - \(count(finding.looseFiles ?? 0, "file")) above \(seriesFolders) year folders"
         }
-        if let container = finding.container { return " — belongs in \(CLIOutput.verbatim(container))" }
+        if let container = finding.container { return " - belongs in \(container)" }
         return ""
     }
 

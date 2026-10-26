@@ -3,73 +3,73 @@ import Foundation
 /// **What the command-line tool prints is plain ASCII punctuation** (FC10): a terminal, a pipe
 /// into `grep`, or a log a script greps should not have to match `’` where it typed `'`.
 ///
-/// The app's own strings stay curly — this tool shares many of them (a provider's name rules, a
-/// sync error's sentence) — so the fold happens once, here, at the output boundary: every line
-/// `CommandRunner` writes, and what the shell prints itself, goes through `ascii(_:)`.
+/// **The tool's own words are written in ASCII; only a shared sentence is folded.** The app's
+/// strings stay curly, and this tool drops some of them into its lines: a row's description, a
+/// provider's name rule, a Cocoa error. Each such site passes the sentence through `ascii(_:)`
+/// before interpolating it. Everything else — every path, file name, provider id and display
+/// name — is interpolated raw, so it prints exactly as it is on disk and pastes back into a shell
+/// or a `-L`/`-R` as the same name. The design is fail-safe: a missed `ascii` leaves a curly
+/// quote in a line, which is cosmetic; a fold over a name would print a different name, and
+/// "Mom’s Files" folded to "Mom's Files" is one `-L` then refuses.
+///
+/// **A shared sentence that quotes a name keeps the name** (`ascii(_:keeping:)`): a row's
+/// description names both providers and may quote both on-disk spellings or a link inside a
+/// folder; a Cocoa error quotes the file. The caller lists the names it knows the sentence can
+/// carry, and only the words around them fold.
 ///
 /// **JSON is not folded.** `scan --json` and `restructure --json` are the stable, machine-read
 /// formats: their paths must be the real paths, and a folded `“` would land as a bare `"` inside a
 /// JSON string and break the document.
 ///
-/// **Nor is a name from disk.** The fold is for the tool's own words; a path or a file name is
-/// what someone pastes back into a shell, and "Bob’s.txt" folded to "Bob's.txt" names a file that
-/// does not exist. Every path or on-disk name a text line interpolates is wrapped in
-/// `verbatim(_:)`, and `ascii(_:)` leaves what is inside the wrap alone. The wrap is built only
-/// where text output is rendered, never into the values the JSON writers encode.
-///
-/// **Known limit:** a sentence that arrives already worded — a shared Sync message, or a Cocoa
-/// error such as "The file “a’s.txt” couldn’t be opened." — still folds the name inside it, because
-/// there the name cannot be told apart from the words around it.
+/// **Known limit:** a shared sentence that quotes a name the caller did not list folds that name.
+/// The one such case today is a Cocoa error that quotes a file under a display name other than its
+/// on-disk leaf, as Finder shows it.
 public enum CLIOutput {
-    /// The typographic characters folded, and what each becomes.
-    static let folds: [Character: String] = [
-        "\u{2019}": "'", "\u{2018}": "'",     // ’ ‘
-        "\u{201C}": "\"", "\u{201D}": "\"",   // “ ”
-        "\u{2026}": "...",                    // …
-        "\u{2013}": "-", "\u{2014}": "-",     // – —
-    ]
 
-    /// The two private-use characters `verbatim(_:)` puts around a name. Private use, so no file
-    /// name or sentence of the app's carries them by accident; stripped from everything printed.
-    static let verbatimStart: Unicode.Scalar = "\u{E000}"
-    static let verbatimEnd: Unicode.Scalar = "\u{E001}"
-
-    /// `name` marked to be printed exactly as it is — a path or an on-disk name, which `ascii(_:)`
-    /// must not fold. The markers are stripped wherever the text is printed.
-    public static func verbatim(_ name: String) -> String {
-        String(Character(verbatimStart)) + name + String(Character(verbatimEnd))
-    }
-
-    /// `text` with curly quotes and apostrophes, the ellipsis and the dashes folded to ASCII —
-    /// outside any `verbatim(_:)` wrap — and the wrap's markers removed.
-    ///
-    /// Read scalar by scalar, not by `Character`: a name beginning with a combining mark would
-    /// otherwise join the opening marker into one grapheme, and the marker would leak. A start
-    /// marker with no end leaves the rest of the text unfolded; an end marker with no start is
-    /// dropped. Either way no marker is printed.
+    /// `text` with curly quotes and apostrophes, the ellipsis and the en and em dashes folded to
+    /// ASCII. Everything else passes through, the arrows and `·` the tool draws included.
     public static func ascii(_ text: String) -> String {
-        render(text, folding: true)
+        ascii(text, keeping: [])
     }
 
-    /// `text` with the `verbatim(_:)` markers removed and nothing folded — for what leaves the
-    /// tool other than as printed text, such as the line it writes to the app's log.
-    public static func stripped(_ text: String) -> String {
-        render(text, folding: false)
-    }
-
-    private static func render(_ text: String, folding: Bool) -> String {
+    /// `text` folded as `ascii(_:)` does, except inside any occurrence of one of `names`, which is
+    /// left exactly as it is. Matched scalar by scalar, so a name matches only its own spelling —
+    /// not a canonically equivalent one, which is a different name on disk.
+    public static func ascii(_ text: String, keeping names: [String]) -> String {
+        // Most lines have nothing to fold: every folded character is at or above U+2013.
+        guard text.unicodeScalars.contains(where: { $0.value >= 0x2013 }) else { return text }
+        let scalars = Array(text.unicodeScalars)
+        var kept = [Bool](repeating: false, count: scalars.count)
+        for name in names {
+            let target = Array(name.unicodeScalars)
+            // A name with nothing foldable in it would come out the same either way.
+            guard !target.isEmpty, target.count <= scalars.count,
+                  target.contains(where: { folded($0) != nil }) else { continue }
+            for start in 0...(scalars.count - target.count)
+            where scalars[start..<(start + target.count)].elementsEqual(target) {
+                for i in start..<(start + target.count) { kept[i] = true }
+            }
+        }
         var out = String.UnicodeScalarView()
-        var depth = 0
-        for scalar in text.unicodeScalars {
-            if scalar == verbatimStart { depth += 1; continue }
-            if scalar == verbatimEnd { depth = max(0, depth - 1); continue }
-            if folding, depth == 0, let folded = folds[Character(scalar)] {
-                out.append(contentsOf: folded.unicodeScalars)
+        for (i, scalar) in scalars.enumerated() {
+            if !kept[i], let ascii = folded(scalar) {
+                out.append(contentsOf: ascii.unicodeScalars)
             } else {
                 out.append(scalar)
             }
         }
         return String(out)
+    }
+
+    /// What one typographic scalar folds to, or nil when it is printed as it is.
+    private static func folded(_ scalar: Unicode.Scalar) -> String? {
+        switch scalar.value {
+        case 0x2018, 0x2019: return "'"       // ‘ ’
+        case 0x201C, 0x201D: return "\""      // “ ”
+        case 0x2026: return "..."             // …
+        case 0x2013, 0x2014: return "-"       // – —
+        default: return nil
+        }
     }
 
     /// **An error ArgumentParser will print, with its message folded.** A command body's error
@@ -79,7 +79,11 @@ public enum CLIOutput {
     /// `LocalizedError`'s description, else an `NSError`'s — and, when folding changes it, returns
     /// an error carrying the folded message instead; otherwise the error itself. Either way the
     /// exit code is the same: ArgumentParser exits 1 for any error not its own.
-    public static func foldedForPrinting(_ error: Error) -> Error {
+    ///
+    /// An error already folded is passed on as itself, so the runner can fold a copy's error with
+    /// the file's names kept and the shell's second pass leaves them alone.
+    public static func foldedForPrinting(_ error: Error, keeping names: [String] = []) -> Error {
+        if error is FoldedError { return error }
         let message: String
         if let described = (error as? LocalizedError)?.errorDescription {
             message = described
@@ -88,7 +92,7 @@ public enum CLIOutput {
         } else {
             return error
         }
-        let folded = ascii(message)
+        let folded = ascii(message, keeping: names)
         return folded == message ? error : FoldedError(errorDescription: folded)
     }
 

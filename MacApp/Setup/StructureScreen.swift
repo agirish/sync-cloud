@@ -47,7 +47,9 @@ struct StructureScreen: View {
                 SetupNote(text: "This is the folder profile this Mac already has. Learn a folder "
                           + "again to replace it — nothing here is written.",
                           systemImage: "info.circle")
-            } else {
+            } else if !model.structureShowsWalkStatus {
+                // No lens while the reading runs or after it failed: there is no tree to view
+                // either way.
                 Picker("", selection: $lens) {
                     ForEach(Lens.allCases) { Text($0.title).tag($0) }
                 }
@@ -76,9 +78,9 @@ struct StructureScreen: View {
                                   hue: hue)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .frame(height: Self.treeHeight * cardScale)
-                } else if model.structureAwaitsReading {
-                    // **The reading is still running, so this says so** — the line People and
-                    // Countries draw for the same state, in the box the tree will fill.
+                } else if model.structureShowsWalkStatus {
+                    // **The reading is still running, or failed, so this says so** — the line
+                    // People and Countries draw for the same states, in the box the tree will fill.
                     SetupWalkStatus(model: model, foundLabel: "Read from")
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                         .frame(height: Self.treeHeight * cardScale, alignment: .top)
@@ -102,7 +104,8 @@ struct StructureScreen: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityElement(children: .combine)
-                } else {
+                } else if !model.structureShowsWalkStatus {
+                    // The grey words and their legend explain a tree, and there is none yet.
                     Text(lens == .folders
                          ? "Gray words are how each folder’s name was read. Nothing inside the files has "
                            + "been read — the switch below starts that."
@@ -190,6 +193,10 @@ struct StructureScreen: View {
             return "SyncCloud is still reading the folder names in \(model.walkRootName). "
                 + "What it finds appears here when it’s done."
         }
+        if model.walkFailureReason != nil {
+            return "SyncCloud couldn’t read the folder names in \(model.walkRootName), so there "
+                + "is nothing to save. Try another folder, or continue without one."
+        }
         return model.structureIsReadOnly
             ? "This Mac already has a folder profile. Click a folder to open or close it."
             : "SyncCloud read this from the folder names in \(model.walkRootName). "
@@ -203,24 +210,60 @@ struct StructureScreen: View {
         // at 86, 67, 158 and 84pt apart — the gaps are whatever each label happens to be wide, and
         // "loose at the top" is two words longer than the rest, so the row reads as five unrelated
         // figures rather than as one strip of counts.
-        HStack(alignment: .top, spacing: 0) {
-            stat(folderCount, "folder", "folders")
-            stat(fileCount, "file", "files")
-            // The walk's own count, not the routing's: "loose at the top" is a fact about the
-            // folder, and it must not change because routing was capped or has not run.
-            stat(model.walkState.walk?.looseFileNames.count ?? model.looseRoutes.count,
-                 "loose at the top", "loose at the top")
-            stat(model.rosterNames.count, "person", "people")
-            stat(model.confirmedCountries.count, "country", "countries")
+        let counts = Self.counts(model)
+        return HStack(alignment: .top, spacing: 0) {
+            stat(counts.folders, "folder", "folders")
+            stat(counts.files, "file", "files")
+            stat(counts.loose, "loose at the top", "loose at the top")
+            stat(counts.people, "person", "people")
+            stat(counts.countries, "country", "countries")
             Spacer(minLength: 0)
         }
     }
 
-    /// One count and its label — `one` for exactly one, `many` for any other number.
-    private func stat(_ value: Int, _ one: String, _ many: String) -> some View {
+    /// The five counts, nil for one there is no reading to give.
+    struct Counts: Equatable {
+        var folders: Int?
+        var files: Int?
+        var loose: Int?
+        var people: Int
+        var countries: Int?
+    }
+
+    /// What the stats row says.
+    ///
+    /// **Dashes for what the reading counts, while it runs or after it failed** — 0 folders and
+    /// 0 files, or the last reading's counts after Learn Again, said something no reading had
+    /// found. The people are the roster's, whatever the reading does; the countries are reset from
+    /// what the reading proposes when it lands, so they wait for it too.
+    static func counts(_ model: SetupModel) -> Counts {
+        let people = model.rosterNames.count
+        guard !model.structureShowsWalkStatus else {
+            return Counts(folders: nil, files: nil, loose: nil, people: people, countries: nil)
+        }
+        let walk = model.walkState.walk
+        let profile = model.structureShownProfile
+        return Counts(
+            // Folders below the root — the walk's own count where there is one, the profile's
+            // otherwise.
+            folders: walk?.folderCount ?? max((profile?.folders.count ?? 1) - 1, 0),
+            files: walk?.fileCount ?? (profile?.folders.values.reduce(0) { $0 + $1.fileCount } ?? 0),
+            // The walk's own count, not the routing's: "loose at the top" is a fact about the
+            // folder, and it must not change because routing was capped or has not run.
+            loose: walk?.looseFileNames.count ?? model.looseRoutes.count,
+            people: people,
+            countries: model.confirmedCountries.count)
+    }
+
+    /// What a count with no reading behind it draws.
+    static let unknownCount = "—"
+
+    /// One count and its label — `one` for exactly one, `many` for any other number, and a dash
+    /// over the plural for a count there is no reading to give.
+    private func stat(_ value: Int?, _ one: String, _ many: String) -> some View {
         let label = value == 1 ? one : many
         return VStack(alignment: .leading, spacing: 0) {
-            Text(value.formatted())
+            Text(value?.formatted() ?? Self.unknownCount)
                 .scaledFont(.title3.weight(.semibold))
                 .monospacedDigit()
             Text(label)
@@ -230,18 +273,7 @@ struct StructureScreen: View {
         }
         .frame(width: Self.statColumn, alignment: .leading)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(value.formatted()) \(label)")
-    }
-
-    /// Folders below the root — the walk's own count where there is one, the profile's otherwise.
-    private var folderCount: Int {
-        if let walk = model.walkState.walk { return walk.folderCount }
-        return max((profile?.folders.count ?? 1) - 1, 0)
-    }
-
-    private var fileCount: Int {
-        model.walkState.walk?.fileCount
-            ?? (profile?.folders.values.reduce(0) { $0 + $1.fileCount } ?? 0)
+        .accessibilityLabel(value.map { "\($0.formatted()) \(label)" } ?? "\(label) not known yet")
     }
 
     // MARK: - The offer
@@ -256,8 +288,10 @@ struct StructureScreen: View {
             Toggle("Read documents", isOn: $model.readDocuments)
                 .toggleStyle(.switch)
                 .controlSize(.small)
-                .help("Read page one of each document in the background after you save")
-                .disabled(model.structureIsReadOnly)
+                .help(model.structureShowsWalkStatus
+                      ? "Available once SyncCloud has read the folder names"
+                      : "Read page one of each document in the background after you save")
+                .disabled(!model.structureReadingSwitchIsEnabled)
             Text(readingDetail)
                 .scaledFont(.caption)
                 .foregroundStyle(.secondary)

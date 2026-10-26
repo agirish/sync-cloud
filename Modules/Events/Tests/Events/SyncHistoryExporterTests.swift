@@ -48,6 +48,51 @@ import Foundation
         #expect(!csvRow.contains("Trash,"), "the CSV printed the label, not the raw value: \(csvRow)")
     }
 
+    /// **An item the Trash took with no location reported is a move to the Trash, not a delete**
+    /// (RD2). `deleteItems` records whether each item reached the Trash, so the label no longer
+    /// guesses from the missing location; a record that says it did not reach the Trash is
+    /// "Delete" whatever its `backupPath`.
+    @Test func reachingTheTrashDecidesTheLabelNotTheLocation() throws {
+        let noLocation = SyncHistoryRecord(runId: UUID(), action: .delete, sourcePath: "/src/a.txt",
+                                           backupPath: nil, reachedTrash: true)
+        #expect(noLocation.actionLabel == "Move to Trash")
+        #expect(!noLocation.isPermanentDelete)
+        let removed = SyncHistoryRecord(runId: UUID(), action: .delete, sourcePath: "/Volumes/X/b.txt",
+                                        reachedTrash: false)
+        #expect(removed.actionLabel == "Delete")
+        #expect(removed.isPermanentDelete)
+
+        // The JSON export carries the field and reads it back; the CSV's columns are unchanged.
+        let json = SyncHistoryExporter.json([noLocation])
+        #expect(json.contains("\"reachedTrash\" : true"), "\(json)")
+        let decoded = try SyncHistoryExporter.jsonDecoder().decode([SyncHistoryRecord].self, from: Data(json.utf8))
+        #expect(decoded.first?.reachedTrash == true)
+        #expect(decoded.first?.actionLabel == "Move to Trash")
+        #expect(SyncHistoryExporter.csv([noLocation]).hasPrefix(
+            "Timestamp,Action,Direction,Source,Destination,Size (bytes),Checksum,Backup,Run ID\n"))
+    }
+
+    /// **A record written before the field existed still decodes, and falls back to the location**:
+    /// with a Trash location it is a move to the Trash, without one a delete — what it said before.
+    @Test func aRecordWithoutTheFieldFallsBackToTheLocation() throws {
+        func decoded(_ backup: String?) throws -> SyncHistoryRecord {
+            let backupField = backup.map { #""backupPath" : "\#($0)","# } ?? ""
+            let old = """
+                [{ "id" : "\(UUID().uuidString)", "runId" : "\(UUID().uuidString)",
+                   "timestamp" : "2026-10-01T10:00:00Z", "action" : "delete",
+                   \(backupField) "sourcePath" : "/src/a.txt" }]
+                """
+            return try #require(try SyncHistoryExporter.jsonDecoder()
+                .decode([SyncHistoryRecord].self, from: Data(old.utf8)).first)
+        }
+        let trashed = try decoded("/Users/me/.Trash/a.txt")
+        #expect(trashed.reachedTrash == nil)
+        #expect(trashed.actionLabel == "Move to Trash")
+        let permanent = try decoded(nil)
+        #expect(permanent.reachedTrash == nil)
+        #expect(permanent.actionLabel == "Delete")
+    }
+
     @Test func testCSVHasHeaderAndOneRowPerRecord() {
         let records = [sampleRecord(), sampleRecord(action: .delete, dest: nil, direction: nil)]
         let csv = SyncHistoryExporter.csv(records)

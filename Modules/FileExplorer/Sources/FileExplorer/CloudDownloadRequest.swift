@@ -93,10 +93,11 @@ public struct CloudDownloadRequest: Equatable, Sendable {
     /// and the menu bar's item would have been a second copy of the try, the two log lines and the
     /// post — three chances to drift, on the path that decides whether a badge ever clears.
     ///
-    /// **It works for File Provider clouds too, not only iCloud.** Measured 2026-10-25 on a real
-    /// Google Drive placeholder: `startDownloadingUbiquitousItem` returned without throwing and the
-    /// file was on disk within a second. This comment, ROADMAP and DEFERRED_ENHANCEMENTS used to say
-    /// the call throws outside iCloud; nothing had ever measured it.
+    /// **It is not iCloud-only, but only one other provider has been measured.** 2026-10-25, on a
+    /// real Google Drive placeholder: `startDownloadingUbiquitousItem` returned without throwing and
+    /// the file was on disk within a second. Dropbox and OneDrive have not been measured. This
+    /// comment, ROADMAP and DEFERRED_ENHANCEMENTS used to say the call throws outside iCloud;
+    /// nothing had ever measured it.
     ///
     /// **When it does throw, the request is not silent.** It used to leave only a log line, so the
     /// row menu's and File ▸ Download's click did nothing on screen. It now reveals the file in

@@ -27,8 +27,9 @@ import UniformTypeIdentifiers
 ///
 /// **What no test here can reach, and why.** Clicking the column's own Download button. It renders
 /// only for a `.cloudOnly` probe, and `requestDownload` then calls
-/// `MaterializationStatus.download` — which throws for every provider but iCloud and falls back to
-/// `NSWorkspace.activateFileViewerSelecting`, i.e. it opens Finder on the test machine. So the
+/// `MaterializationStatus.download` — which throws for a file that is not a real cloud placeholder,
+/// as every fixture here is, and falls back to `NSWorkspace.activateFileViewerSelecting`, i.e. it
+/// opens Finder on the test machine. So the
 /// button's `paneToken` argument is proven by the type system (no default to fall back to) and its
 /// value by the derivation test, not by a click.
 ///
@@ -454,5 +455,21 @@ import UniformTypeIdentifiers
             placement: nil, onBarEdgeFlip: nil, onQuickLook: { _ in },
             onBackgroundDeselect: { _ in })
         #expect(view.paneToken == expected)
+    }
+
+    /// **The column's Download is the row menu's verb, sent from its pane on its pane's channel.**
+    /// It was a copy of that verb's try, post and reveal — the drift `requestDownload` was written
+    /// to end. Its click is out of reach (see the suite's note), so the call is pinned by source.
+    @Test func thePreviewsDownloadIsTheRowMenusVerb() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/ColumnPreviewColumn.swift")
+        let source = try String(contentsOf: url, encoding: .utf8)
+        let flat = source.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        #expect(flat.contains("CloudDownloadRequest.requestDownload(path: item.path, name: item.name, "
+                              + "from: paneToken, through: downloadChannel)"),
+                "the preview's Download no longer goes through the shared verb, from its pane, on its channel")
+        #expect(!source.contains("MaterializationStatus.download("),
+                "the preview asks for the download itself again, beside the shared verb")
     }
 }

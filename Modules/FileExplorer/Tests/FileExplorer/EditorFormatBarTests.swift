@@ -497,7 +497,10 @@ import EventsTestSupport
         rig.window.makeFirstResponder(text)
         // The bar's band: under the header, above the first line of text.
         let band: ClosedRange<CGFloat> = LiquidGlass.headerHeight...(LiquidGlass.headerHeight + 44)
-        let accent = Pixel.near(.blue, within: 40)
+        // A lit button is its accent WASH: its words and glyph are label colour (DS1, RB2), so
+        // the wash is what is counted — the accent's soft tint, light and blue-leaning, as
+        // `theExpandButtonLightsWhenTheRailIsHidden` reads the header's.
+        let accent: Pixel.Match = { r, g, b in b > 242 && (153...237).contains(r) && g > r }
         let perPoint = { () -> CGFloat in let rep = rig.capture(); return CGFloat(rep.pixelsWide * rep.pixelsHigh) / (size.width * size.height) }()
 
         /// The band's accent, in square points.
@@ -554,8 +557,8 @@ import EventsTestSupport
         print("[format-lit] item \(item) · paragraph \(paragraph) · caret \(atWord) · word \(word) · split \(split) · again \(again) · bar-on \(barOn) · collapsed \(collapsed) (pt²)")
     }
 
-    /// See ``aCaretOnAListItemLightsBulletedListInTheMountedBar``: one lit button's wash and ink,
-    /// in square points, clear the floor; an unlit bar draws no accent at all.
+    /// See ``aCaretOnAListItemLightsBulletedListInTheMountedBar``: one lit button's wash, in square
+    /// points, clears the floor; an unlit bar draws no accent at all.
     static let litAccentFloor: CGFloat = 10
     static let unlitAccentCeiling: CGFloat = 2.5
 

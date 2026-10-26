@@ -72,7 +72,7 @@ import Sync
     @Test func scanRejectsAnUnknownProviderOrPathAsValidation() async throws {
         let rec = Recorder()
         let runner = makeRunner(rec)
-        await #expect(throws: CLIValidationError(message: "Path or provider '\(CLIOutput.verbatim("no-such-provider"))' for Left could not be found.")) {
+        await #expect(throws: CLIValidationError(message: "Path or provider 'no-such-provider' for Left could not be found.")) {
             try await runner.runScan(left: "no-such-provider", right: "/tmp",
                                      direction: .auto, showHidden: false, ignore: [], json: false)
         }
@@ -86,7 +86,7 @@ import Sync
         let rec = Recorder()
         let runner = makeRunner(rec, providers: [provider])
         await #expect(throws: CLIValidationError(message:
-            "Root '\(CLIOutput.verbatim(missingRoot))' of provider 'Dropbox' (Right) does not exist. The provider may be unmounted or signed out.")) {
+            "Root '\(missingRoot)' of provider 'Dropbox' (Right) does not exist. The provider may be unmounted or signed out.")) {
             try await runner.runScan(left: "/tmp", right: "dropbox",
                                      direction: .auto, showHidden: false, ignore: [], json: false)
         }
@@ -95,7 +95,7 @@ import Sync
     @Test func syncSurfacesTheSameValidationErrors() async throws {
         let rec = Recorder()
         let runner = makeRunner(rec)
-        await #expect(throws: CLIValidationError(message: "Path or provider '\(CLIOutput.verbatim("nope"))' for Right could not be found.")) {
+        await #expect(throws: CLIValidationError(message: "Path or provider 'nope' for Right could not be found.")) {
             try await runner.runSync(left: "/tmp", right: "nope",
                                      direction: .auto, showHidden: false, ignore: [],
                                      strategy: .replace, yes: true, failFast: false, verify: false)
@@ -194,8 +194,7 @@ import Sync
 
     /// **A file's name is printed as it is on disk, in the text listing and the JSON** (FC10). The
     /// fold is for the tool's own words: "Bob’s.txt" folded to "Bob's.txt" names a file that does
-    /// not exist when pasted back into a shell. The names are curly so a fold would show, and the
-    /// JSON is checked for the markers that keep them unfolded — they must never reach it.
+    /// not exist when pasted back into a shell. The names are curly so a fold would show.
     @Test func scanPrintsFileNamesVerbatimInTextAndJSON() async throws {
         let left = try makeTempRoot(), right = try makeTempRoot()
         defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
@@ -207,40 +206,168 @@ import Sync
                                            direction: .auto, showHidden: false, ignore: [], json: false)
         #expect(text.out.contains("- [missing-on-right] [copy-to-right] Bob’s.txt\n"), "\(text.out)")
         #expect(text.out.contains("- [missing-on-right] [copy-to-right] “Report – Final”.pdf\n"), "\(text.out)")
-        #expect(!text.out.contains("\u{E000}") && !text.out.contains("\u{E001}"), "a marker was printed")
 
         let json = Recorder()
         try await makeRunner(json).runScan(left: left.path, right: right.path,
                                            direction: .auto, showHidden: false, ignore: [], json: true)
-        #expect(!json.out.contains("\u{E000}") && !json.out.contains("\u{E001}"), "a marker reached the JSON")
         let payload = try #require(
             try JSONSerialization.jsonObject(with: Data(json.out.utf8)) as? [[String: Any]], "\(json.out)")
         #expect(Set(payload.compactMap { $0["relativePath"] as? String }) == ["Bob’s.txt", "“Report – Final”.pdf"])
     }
 
-    /// **The name stays curly while the words around it fold** (FC10): a name Dropbox refuses is
-    /// printed as it is on disk, in the stderr line and the summary, and the reason — a shared
-    /// sentence, curly in the app — and the summary's " — " come out as ASCII.
-    @Test func syncPrintsASkippedNameVerbatimAndFoldsItsReason() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
-        try write(left.appendingPathComponent("Bob’s “Report – Final” "), "splash")
-        let dropbox = CloudProvider(id: "dropbox-test", displayName: "Dropbox", imageName: "folder",
-                                    rootPath: right.path, type: .dropBox)
-        let rec = Recorder()
-        await #expect(throws: CLISyncFailuresError()) {
-            try await makeRunner(rec, providers: [dropbox]).runSync(
-                left: left.path, right: "dropbox-test",
-                direction: .auto, showHidden: false, ignore: [],
-                strategy: .replace, yes: true, failFast: false, verify: false)
+    /// **Every name prints exactly as it is; only the words around it are ASCII** (FC10, RE3).
+    /// Every root, file name and provider id and display name below carries `Q’Q` and `R–R`, and
+    /// every surface that prints one is run: scan's listing, a sync that fails a copy, skips a
+    /// stale row and a name the destination refuses and holds a row, `providers`, and
+    /// `restructure`'s text and its failure. Each output must carry the tokens as written, never
+    /// `Q'Q` or `R-R`, and nothing else curly — so a missed fold of a shared sentence and a fold
+    /// over a name both turn it red.
+    @Test func namesPrintVerbatimWhileTheToolsWordsAreASCII() async throws {
+        let base = try makeTempRoot()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let left = base.appendingPathComponent("Q’Q R–R left"), right = base.appendingPathComponent("Q’Q R–R right")
+        let outside = base.appendingPathComponent("outside")
+        try write(outside.appendingPathComponent("o.txt"), "outside")
+        let leftProvider = CloudProvider(id: "Q’Q-R–R-left", displayName: "Q’Q R–R Left", imageName: "folder",
+                                         rootPath: left.path, type: .localFolder)
+        let rightProvider = CloudProvider(id: "Q’Q-R–R-dropbox", displayName: "Q’Q R–R Dropbox", imageName: "folder",
+                                          rootPath: right.path, type: .dropBox)
+        let providers = [leftProvider, rightProvider]
+
+        let old = Date(timeIntervalSince1970: 1_700_000_000)
+        try write(left.appendingPathComponent("Q’Q R–R a.txt"), "copies")
+        try write(left.appendingPathComponent("Q’Q R–R fail.txt"), "fails")
+        try write(left.appendingPathComponent("Q’Q R–R stale.txt"), "planned")
+        try write(left.appendingPathComponent("Q’Q R–R trail "), "Dropbox refuses the name")
+        // A name-conflict row: the description quotes both on-disk spellings (RE2).
+        try write(left.appendingPathComponent("Q’Q R–R n.txt "), "newer")
+        try write(right.appendingPathComponent("Q’Q R–R n.txt"), "older", mtime: old)
+        // A held folder: the description quotes the link inside it (RE2).
+        try write(left.appendingPathComponent("Q’Q R–R dir/inside.txt"), "kept")
+        try FileManager.default.createSymbolicLink(
+            at: left.appendingPathComponent("Q’Q R–R dir/Q’Q R–R link"), withDestinationURL: outside)
+
+        let folded = ["Q'Q", "R-R"]
+        func expectVerbatim(_ output: String, _ surface: String, sourceLocation: SourceLocation = #_sourceLocation) {
+            #expect(output.contains("Q’Q") && output.contains("R–R"), "\(surface): no token printed\n\(output)",
+                    sourceLocation: sourceLocation)
+            for form in folded {
+                #expect(!output.contains(form), "\(surface): a name was folded to \(form)\n\(output)",
+                        sourceLocation: sourceLocation)
+            }
+            let words = output.replacingOccurrences(of: "Q’Q", with: "").replacingOccurrences(of: "R–R", with: "")
+            let curly = words.unicodeScalars.filter { "‘’“”…–—".unicodeScalars.contains($0) }
+            #expect(curly.isEmpty, "\(surface): the tool's words carry \(String(String.UnicodeScalarView(curly)))\n\(output)",
+                    sourceLocation: sourceLocation)
         }
-        #expect(rec.err.hasPrefix(
-            "Skipping Bob’s “Report – Final” : Dropbox doesn't allow names ending with a space. Dropbox would not upload it.\n"),
-            "\(rec.err)")
-        #expect(rec.out.contains("  Bob’s “Report – Final”  - Dropbox doesn't allow names ending with a space.\n"),
-                "\(rec.out)")
-        #expect(!rec.out.contains("\u{E000}") && !rec.err.contains("\u{E000}")
-                && !rec.out.contains("\u{E001}") && !rec.err.contains("\u{E001}"), "a marker was printed")
+
+        // scan
+        let scan = Recorder()
+        try await makeRunner(scan, providers: providers).runScan(
+            left: leftProvider.id, right: rightProvider.id,
+            direction: .auto, showHidden: false, ignore: [], json: false)
+        expectVerbatim(scan.out, "scan")
+        #expect(scan.out.contains("  Left : \(left.path) [Q’Q R–R Left]\n"), "\(scan.out)")
+        #expect(scan.out.contains("""
+            - [missing-on-right] [copy-to-right] Q’Q R–R a.txt
+                Missing on right (Q’Q R–R Dropbox)
+
+            """), "\(scan.out)")
+        #expect(scan.out.contains("""
+            - [name-conflict] [copy-to-right] Q’Q R–R n.txt\u{20}
+                Names differ by a trailing space: "Q’Q R–R n.txt " (Q’Q R–R Left) vs "Q’Q R–R n.txt" (Q’Q R–R Dropbox)
+
+            """), "\(scan.out)")
+        let heldNote = "Folder missing on right (Q’Q R–R Dropbox) - \"Q’Q R–R dir/Q’Q R–R link\" inside it is a "
+            + "link, so a copy would carry the link, not what it points to"
+        #expect(scan.out.contains("- [missing-on-right] [needs-decision] Q’Q R–R dir\n    \(heldNote)\n"), "\(scan.out)")
+
+        // sync: one copy fails, one row goes stale at the prompt, one name is refused, one is held
+        let sync = Recorder()
+        let stale = left.appendingPathComponent("Q’Q R–R stale.txt")
+        let runner = makeRunner(sync, providers: providers, readLine: {
+            try? Data("rewritten at the prompt".utf8).write(to: stale)
+            return "y"
+        }, performFileSync: { source, target, _ in
+            guard source.lastPathComponent != "Q’Q R–R fail.txt" else {
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError, userInfo: [
+                    NSLocalizedDescriptionKey: "The file “Q’Q R–R fail.txt” couldn’t be opened."])
+            }
+            sync.copies.append((source, target))
+            return false
+        })
+        await #expect(throws: CLISyncFailuresError()) {
+            try await runner.runSync(left: leftProvider.id, right: rightProvider.id,
+                                     direction: .auto, showHidden: false, ignore: [],
+                                     strategy: .replace, yes: false, failFast: false, verify: false)
+        }
+        expectVerbatim(sync.out, "sync stdout")
+        expectVerbatim(sync.err, "sync stderr")
+        #expect(Set(sync.copies.map(\.source.lastPathComponent)) == ["Q’Q R–R a.txt", "Q’Q R–R n.txt "])
+        #expect(sync.out.contains("  Right: \(right.path) [Q’Q R–R Dropbox]\n"), "\(sync.out)")
+        #expect(sync.out.contains("- Q’Q R–R a.txt → [missing-on-right]\n"), "\(sync.out)")
+        #expect(sync.out.contains("- Q’Q R–R dir [missing-on-right] \(heldNote)\n"), "\(sync.out)")
+        #expect(sync.out.contains("""
+            Skipped 1 file(s) (name not allowed by the destination provider):
+              Q’Q R–R trail  - Dropbox doesn't allow names ending with a space.
+            Skipped 1 file(s) that changed after the plan was shown; re-run sync to see the current plan:
+              Q’Q R–R stale.txt - the source changed after the plan was shown
+            Left 1 item(s) for you to decide, each with its reason:
+              Q’Q R–R dir - \(heldNote)
+
+            """), "\(sync.out)")
+        #expect(sync.err.contains("Failed to sync Q’Q R–R fail.txt: The file \"Q’Q R–R fail.txt\" couldn't be opened.\n"),
+                "\(sync.err)")
+        #expect(sync.err.contains("Skipping Q’Q R–R stale.txt: the source changed after the plan was shown. "
+                                  + "Re-run sync to see the current plan.\n"), "\(sync.err)")
+        #expect(sync.err.contains("Skipping Q’Q R–R trail : Dropbox doesn't allow names ending with a space. "
+                                  + "Q’Q R–R Dropbox would not upload it.\n"), "\(sync.err)")
+        // The app's log takes the line as written, unfolded, like every other line in it.
+        #expect(sync.loggedErrors == ["Failed to sync Q’Q R–R fail.txt: The file “Q’Q R–R fail.txt” couldn’t be opened."])
+
+        // providers
+        let listing = Recorder()
+        await makeRunner(listing, providers: providers).runProviders()
+        expectVerbatim(listing.out, "providers")
+        #expect(listing.out.contains("""
+            - Q’Q-R–R-dropbox
+                name : Q’Q R–R Dropbox
+                type : Dropbox
+                path : \(right.path)
+
+            """), "\(listing.out)")
+
+        // restructure: its text, and the failure that names the directory
+        let profiles = base.appendingPathComponent("Q’Q R–R profiles")
+        try write(profiles.appendingPathComponent("profiles.json"),
+                  #"{ "schemaVersion": 1, "activeProfileId": "q’q" }"#)
+        try write(profiles.appendingPathComponent("q’q/folder-profile.json"), """
+            {
+              "schemaVersion": 1, "profileId": "q’q", "root": "~/Q’Q R–R",
+              "folders": [
+                { "path": "Q’Q R–R", "fileCount": 0, "subfolderCount": 3, "anchors": [], "axes": {} },
+                { "path": "Q’Q R–R/2023", "fileCount": 0, "subfolderCount": 1, "anchors": [], "axes": {} },
+                { "path": "Q’Q R–R/2023/R–R Claims", "fileCount": 4, "subfolderCount": 0, "anchors": [], "axes": {} },
+                { "path": "Q’Q R–R/2024", "fileCount": 0, "subfolderCount": 1, "anchors": [], "axes": {} },
+                { "path": "Q’Q R–R/2024/R–R Claims", "fileCount": 2, "subfolderCount": 0, "anchors": [], "axes": {} },
+                { "path": "Q’Q R–R/2025", "fileCount": 2, "subfolderCount": 0, "anchors": [], "axes": {} }
+              ]
+            }
+            """)
+        var restructure = ""
+        try RestructureReporting.run(profilesDirectory: profiles, json: false) { restructure += $0 }
+        expectVerbatim(restructure, "restructure")
+        #expect(restructure.contains("  [backlog] Q’Q R–R/2025 - 2 files, no folders yet (scaffold R–R Claims)\n"),
+                "\(restructure)")
+        let unread = base.appendingPathComponent("Q’Q R–R empty")
+        try FileManager.default.createDirectory(at: unread, withIntermediateDirectories: true)
+        do {
+            try RestructureReporting.run(profilesDirectory: unread, json: false) { _ in }
+            Issue.record("a directory with no profiles.json was reported on")
+        } catch let error as CLIValidationError {
+            expectVerbatim(error.message, "restructure failure")
+            #expect(error.message.hasPrefix("No active profile in \(unread.path). "), "\(error.message)")
+        }
     }
 
     @Test func scanHonorsTheDirectionFilter() async throws {

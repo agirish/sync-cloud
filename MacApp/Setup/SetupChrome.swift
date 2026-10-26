@@ -257,7 +257,10 @@ struct SetupCrumbStrip: View {
                         Text("\(number)")
                             .scaledFont(.caption2.weight(.semibold))
                             .monospacedDigit()
-                            .foregroundStyle(isCurrent ? AnyShapeStyle(tint) : AnyShapeStyle(.tertiary))
+                            // Label colour, as the name beside it: the tint is the current step's
+                            // wash, and a number in the tint on it is a coloured word on its own
+                            // wash (DS1).
+                            .foregroundStyle(isCurrent ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
                     }
                     Text(screen.displayName)
                         .scaledFont(.caption.weight(isCurrent ? .semibold : .regular))

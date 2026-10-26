@@ -5,16 +5,25 @@ import SwiftUI
 // Switches, sliders, checkboxes, radio groups and linear progress bars fill with the ACCENT
 // COLOUR their environment carries. Nothing in the app set one, so they drew the Mac's accent: a
 // blue Tint slider right under the Coral swatch, blue switches on a Green window. The owner's call
-// (DS4 = B): every native control takes the window's hue, switches included, from one root
-// modifier per window rather than one per control.
+// (DS4 = B): every native control takes the window's hue, switches included, from a root
+// modifier rather than one per control.
+//
+// **Where the roots are: every window, and every presentation in one.** The accent colour
+// inherits down a window's views and stops at a `.sheet` or a `.popover`, whose content is a window
+// of its own: a slider in a sheet under a Coral root renders the Mac's accent and no Coral
+// (`aControlInASheetTakesThePresentersHue`), so the restructure Plan sheet's checkboxes and the
+// signature sheet's controls drew blue on a hued window. Each scene, each hosting view and each panel the owner named takes
+// `nativeControlAccent`; each presentation's content takes `presentedNativeControlAccent`, which
+// carries the presenter's hue across. `AccentFillScanTests` (rule 6) holds both.
 //
 // **Why the root sets the accent colour and not `.tint`.** Measured offscreen with a red root on
 // every control in the app's vocabulary (`NativeControlAccentTests`): `.tint` reaches the
 // checkbox, the slider and the radio group — and also every `.bordered` and `.borderless`
 // button's LABEL and a menu picker's text, which it turns the hue. Those are words, and the hue as
 // words on a button's bezel measured 3.4:1 (deepened Green, dark) and 2.3:1 (raw Green, light) in
-// the PDF sheets, where one Cancel button already wears it on purpose (`EditorPDFToolSheetFrame`).
-// The accent colour reaches the same controls and leaves the buttons' words in label colour. The
+// the PDF sheets. A button whose words should wear the hue takes `buttonWordsTint`, which clears
+// 4.5:1 on the bezel in both appearances (`ButtonWordInkTests`). The accent colour reaches the same
+// controls and leaves the buttons' words in label colour. The
 // API is marked deprecated in favour of `.tint` — whose wider reach is exactly what has to be
 // avoided here — so it is called through `LegacyAccentColor`, once, in this file.
 //
@@ -36,17 +45,29 @@ public enum NativeControlAccent {
 
 public extension View {
     /// Makes every native control in this window — switches, sliders, checkboxes, radios, progress
-    /// bars — fill with `hue` instead of the Mac's accent. Apply ONCE, at a window's or a panel's
-    /// root; a control's own `.tint(…)` (a segmented picker's, a prominent button's) still wins, and
-    /// so does a container's — which is why a raw-accent `.tint` over anything but a button is
-    /// named in `AccentFillScanTests` (rule 7).
+    /// bars — fill with `hue` instead of the Mac's accent. Apply at a window's or a panel's root; it
+    /// does not reach into a sheet or a popover, whose content takes `presentedNativeControlAccent`.
+    /// A control's own `.tint(…)` (a segmented picker's, a prominent button's) still wins, and so
+    /// does a container's — which is why a raw-accent `.tint` is named in `AccentFillScanTests`
+    /// (rule 7).
     func nativeControlAccent(_ hue: LiquidGlassHue) -> some View {
         modifier(NativeControlAccentModifier(color: NativeControlAccent.color(for: hue)))
+            .environment(\.nativeControlHue, hue)
     }
 
     /// The same, for a root handed no hue: reads the stored one, and follows it when it changes.
     func nativeControlAccent() -> some View {
         modifier(StoredHueNativeControlAccent())
+    }
+
+    /// **The presenting window's hue, carried into a sheet or a popover.** Apply to the content
+    /// inside every `.sheet`, `.popover` and the like: the accent colour a root sets does not cross
+    /// into a presentation — a slider in a sheet under a Coral root renders the Mac's accent — though
+    /// an environment value does. The root hands its hue
+    /// down as one, and this reapplies it, so a sheet under Settings' or Setup's own hue keeps that
+    /// hue rather than the stored one. A presentation with no root above it reads the stored hue.
+    func presentedNativeControlAccent() -> some View {
+        modifier(PresentedNativeControlAccent())
     }
 }
 
@@ -61,6 +82,26 @@ private struct StoredHueNativeControlAccent: ViewModifier {
     @AppStorage(LiquidGlass.hueKey) private var hueRaw: String = LiquidGlassHue.blue.rawValue
     func body(content: Content) -> some View {
         content.nativeControlAccent(LiquidGlassHue(rawValue: hueRaw) ?? .blue)
+    }
+}
+
+private struct PresentedNativeControlAccent: ViewModifier {
+    @Environment(\.nativeControlHue) private var carried
+    @AppStorage(LiquidGlass.hueKey) private var hueRaw: String = LiquidGlassHue.blue.rawValue
+    func body(content: Content) -> some View {
+        content.nativeControlAccent(carried ?? LiquidGlassHue(rawValue: hueRaw) ?? .blue)
+    }
+}
+
+/// The hue the nearest `nativeControlAccent` root set — nil above every root.
+private struct NativeControlHueKey: EnvironmentKey {
+    static let defaultValue: LiquidGlassHue? = nil
+}
+
+private extension EnvironmentValues {
+    var nativeControlHue: LiquidGlassHue? {
+        get { self[NativeControlHueKey.self] }
+        set { self[NativeControlHueKey.self] = newValue }
     }
 }
 
