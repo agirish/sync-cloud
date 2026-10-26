@@ -557,6 +557,35 @@ import FileExplorerTestSupport
         #expect(rig.document.text == "Hello there world\n", "⌘Z in the file pane reached the document")
     }
 
+    /// **Typing undo is not the file operations' stack, by the rule the run lock reads** (Banner
+    /// Room, CF): while the document's text view has the keyboard, the stack `undo:` reaches is the
+    /// document's, so greying the file operations' undo during a long run leaves Edit's typing undo
+    /// alone; with the file pane focused it is the window's, the one that waits. Read both ways
+    /// through `UndoStackReached` — what `RunUndoGate` asks — then sent, so the rule and AppKit agree.
+    @Test func typingUndoAndTheFileOperationsAreSeparateStacks() async throws {
+        let rig = try Rig("Hello world\n", mode: .edit)
+        defer { withExtendedLifetime(rig) {} }
+        let window = rig.probe.window
+        let operations = try await rig.registerFileOperation()
+        try await rig.type(" there", at: 5)
+        let files = try #require(window.undoManager)
+        let typing = UndoStackReached.stack(for: UndoStackReached.target(of: Selector(("undo:")), in: window))
+        #expect(typing === rig.undo, "⌘Z in the document reaches \(String(describing: typing)), not its own stack")
+        #expect(typing !== files, "⌘Z in the document reaches the file operations' stack")
+        await rig.undoAndSettle(expecting: "Hello world\n")
+        #expect(operations.undone == 0, "⌘Z in the document undid a file operation")
+
+        let pane = Pane(frame: NSRect(x: 0, y: 0, width: 120, height: 120))
+        rig.probe.host.addSubview(pane)
+        window.makeFirstResponder(pane)
+        try #require(rig.firstResponder === pane, "fixture: the stand-in pane did not take the keyboard")
+        let fileOps = UndoStackReached.stack(for: UndoStackReached.target(of: Selector(("undo:")), in: window))
+        #expect(fileOps === files, "⌘Z in the file pane reaches \(String(describing: fileOps)), not the window's stack")
+        rig.sendUndo()
+        _ = await LayoutPumpWait.pump(window, upTo: 2) { operations.undone == 1 }
+        #expect(operations.undone == 1)
+    }
+
     /// A stand-in for the file pane: a view that takes the keyboard and answers no ⌘Z of its own.
     final class Pane: NSView {
         override var acceptsFirstResponder: Bool { true }

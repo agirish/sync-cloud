@@ -11615,6 +11615,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s strip=%s held=%s\n' $l \
 
 ---
 
+## Undo waits for a long run (CF) — main only
+
+The owner's call CF of 2026-10-26, reversing `be85be02e`'s "undo stays live". During a copy,
+move, Compare sync, Verify All or duplicate merge, Edit ▸ Undo, ⌘Z, the result message's Undo and
+Sync History's Undo Last Run grey with the run's reason ("Wait for the merge to finish"), for the
+file operations' stack only (`RunUndoGate`); Edit's typing undo goes on. On the older lines the
+progress dialog's scrim took clicks but not ⌘Z, so a file operation could be undone mid-run there.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s gate=%s\n' $l \
+  "$(git show origin/$l:MacApp/RunUndoGate.swift 2>/dev/null | grep -c 'final class RunUndoGate')"; done
+# measured 2026-10-25, against origin, before this landed (the change reads gate=1):
+# main, v5.x, v4.x, v3.x, v2.x   gate=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | ⌘Z live under the progress dialog during a run | RECORDED — not owed |
+
+---
+
 ## Edit's read-only note, its notice, and a menu's Close Tab move nothing (TE210/213/214 follow-ups) — main only
 
 The three jumps `25750ef4d`, `54a7620f1` and `b20505319` left. Edit's read-only note was a row above

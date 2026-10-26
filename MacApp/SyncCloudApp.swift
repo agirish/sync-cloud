@@ -1027,6 +1027,7 @@ struct SyncCloudApp: App {
                     }
                 )
                 .environmentObject(Logger.shared)
+                .modifier(RunWriteLockFromManager(syncManager: syncManager))
                 .appFontSizeFromSettings()
                 .nativeControlAccent()
                 .selectionLensAppearanceFromDefaults()
@@ -1156,6 +1157,8 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         GoMenuDuplicates.install()
         // Where a right-click menu stood, so a Close Tab chosen from it keeps the strip (TE214).
         PaneMenuOrigin.shared.install()
+        // Edit ▸ Undo and ⌘Z wait while a long run is going, on the file operations' stack (CF).
+        RunUndoGate.shared.install()
 
         // How this build is signed, on the very next line — ad-hoc means its first launch waits
         // behind the Documents-access dialog, which is the whole of speed audit P16 and was
@@ -1640,5 +1643,17 @@ final class GlassLogLinePending: @unchecked Sendable {
     func release() {
         lock.lock(); defer { lock.unlock() }
         pending = false
+    }
+}
+
+/// **The main window's run lock, in a window of its own** — Sync History's Undo Last Run waits
+/// during a long run as Edit ▸ Undo does (Banner Room, CF). Observes the manager here, so the scene
+/// body does not.
+private struct RunWriteLockFromManager: ViewModifier {
+    @ObservedObject var syncManager: FileSyncManager
+
+    func body(content: Content) -> some View {
+        content.environment(\.runWriteLock,
+                            syncManager.activeProgress.map { $0.runLockReason ?? Progress.genericRunLockReason })
     }
 }

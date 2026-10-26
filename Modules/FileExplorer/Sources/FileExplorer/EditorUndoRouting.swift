@@ -200,3 +200,31 @@ enum EditorUndoCommands {
         }
     }
 }
+
+/// **The stack Edit ▸ Undo acts on when sent to a responder** — this file's rule, as AppKit applies
+/// it, for whoever must know before sending: the run lock greys Undo only when it would step the
+/// file operations' stack, and Edit's typing undo goes on (`RunUndoGate`, Banner Room CF).
+public enum UndoStackReached {
+
+    /// A responder that answers `undo:` itself — the anchor, Fill & Sign's overlay, editable
+    /// Preview — acts on the stack it names. The window acts on a text view's when one that allows
+    /// undo has the keyboard: the stack its delegate returns, else the window's. For anything else
+    /// it acts on its own.
+    @MainActor
+    public static func stack(for target: Any?) -> UndoManager? {
+        guard let window = target as? NSWindow else { return (target as? NSResponder)?.undoManager }
+        if let text = window.firstResponder as? NSTextView, text.allowsUndo {
+            return text.delegate?.undoManager?(for: text) ?? window.undoManager
+        }
+        return window.undoManager
+    }
+
+    /// The responder `action` reaches from `window`'s keyboard holder, up the chain — what
+    /// `NSApp.target(forAction:)` answers for the key window.
+    @MainActor
+    public static func target(of action: Selector, in window: NSWindow) -> NSResponder? {
+        var responder = window.firstResponder
+        while let candidate = responder, !candidate.responds(to: action) { responder = candidate.nextResponder }
+        return responder
+    }
+}

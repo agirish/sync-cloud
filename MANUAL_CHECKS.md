@@ -399,6 +399,16 @@ and key refusals are tested; this is what is not.
 - [ ] **Narrow window.** Drag the window to its narrowest (760pt) during a run → the capsule is a ring
   with its ✕, still in the toolbar, with Settings, Activity Log and Info still visible beside it.
 
+## Undo waits for a long run (Banner Room CF, 2026-10-26)
+
+- [ ] **⌘Z waits.** Delete a file (its message offers Undo), then start a duplicate merge before the
+  message goes → the message's Undo greys and says "Wait for the merge to finish" on hover; Edit ▸
+  Undo is greyed with the same tooltip; ⌘Z in the file list puts that sentence in a message and
+  the file stays in the Trash. When the merge ends, the message's Undo (if still up) and ⌘Z put it back.
+- [ ] **Typing undo goes on.** During a merge, type in a document in Edit, then ⌘Z → the typing is
+  undone. Edit ▸ Undo reads "Undo Typing" and is live.
+- [ ] **Sync History.** During a run, Window ▸ Sync History → Undo Last Run… is greyed with the reason.
+
 ## Nothing jumps in Edit or the tab strip (TE210/213/214 follow-ups, 2026-10-26)
 
 - [ ] **Read-only note.** Open a text file in Edit, then from Terminal overwrite it with binary bytes

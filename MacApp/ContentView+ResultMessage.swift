@@ -139,6 +139,8 @@ extension ContentView {
             glassLevel: glassLevel,
             canUndo: undoManager?.canUndo ?? false,
             onUndo: {
+                // Greyed during a run (CF); refused here too, should a press slip past the grey.
+                guard !refusedWhileRunLocked() else { return }
                 // The same reversal ⌘Z performs: this operation registered exactly one
                 // (grouped) undo step and its banner is the newest, so it sits on top of
                 // the stack. Clear the banner so the affordance doesn't linger post-undo.
@@ -194,7 +196,8 @@ extension ContentView {
         lensSession.retireRuleOffer(unlessRiding: banner?.id)
         if paneToolResultDoors?.banner.id != banner?.id { paneToolResultDoors = nil }
         guard let banner else { return }
-        OperationBannerView.announce(banner, offersUndo: banner.isUndoable && (undoManager?.canUndo ?? false))
+        OperationBannerView.announce(banner, offersUndo: banner.isUndoable && (undoManager?.canUndo ?? false)
+                                     && runWriteLockReason == nil)
     }
 }
 

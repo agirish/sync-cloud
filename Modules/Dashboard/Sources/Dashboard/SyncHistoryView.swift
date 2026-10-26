@@ -188,6 +188,8 @@ public struct SyncHistoryView: View {
             .controlSize(.small)
             .chromeHover()
             .disabled(store.records.isEmpty)
+            // Waits while a long run is going, as the main window's undo does (CF).
+            .lockedDuringRun()
             .help("Reverse the most recent sync run")
 
             Menu {

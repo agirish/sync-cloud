@@ -194,6 +194,9 @@ struct OperationBannerView: View {
             }
             .buttonStyle(.hoverAffordance(.segment, tint: tint))
             .shortcutKeycap("⌘Z")
+            // Greyed while a long run is going, as ⌘Z is (Banner Room, CF): a message up when a
+            // run starts keeps its button, greyed, and has it back when the run ends.
+            .lockedDuringRun()
             .help(ShortcutHint.tooltip("Undo this operation", "⌘Z"))
             .accessibilityLabel("Undo this operation")
         }

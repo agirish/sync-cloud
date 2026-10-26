@@ -69,7 +69,7 @@ public class FileActionHandler {
     /// every write control during a run, but some routes to these methods are keys rather than
     /// controls — ⌫ in a list, ⌘V, ↩ to rename, the palette's New Folder — and a key cannot be
     /// greyed. They land here and are told in the banner what a greyed control says in its tooltip.
-    /// Undo is not routed here and stays live, as it always has during Verify All.
+    /// Undo waits too (CF), but is not routed here: ⌘Z is the window's, refused by `RunUndoGate`.
     private func refusedWhileRunning() -> Bool {
         guard let run = syncManager.activeProgress else { return false }
         let reason = run.runLockReason ?? Progress.genericRunLockReason

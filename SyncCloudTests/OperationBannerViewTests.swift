@@ -57,10 +57,11 @@ import Sync
         let sentence = OperationBanner.warning("Reclaimed 4 KB from 1 of 2 groups — the rest stay listed.", undoable: true)
         #expect(OperationBannerView.announcement(for: sentence, offersUndo: true)
                 == "Reclaimed 4 KB from 1 of 2 groups — the rest stay listed. Undo available, Command Z")
-        // The window posts it on every new message, with the same Undo rule the button uses.
+        // The window posts it on every new message, with the same Undo rule the button uses — and
+        // no Undo while a long run greys it (CF).
         let window = (try? macAppFile("ContentView+ResultMessage.swift")) ?? ""
-        #expect(window.contains("OperationBannerView.announce(banner, offersUndo: banner.isUndoable && (undoManager?.canUndo ?? false))"),
-                "no announcement is posted when a message appears")
+        #expect(window.contains("OperationBannerView.announce(banner, offersUndo: banner.isUndoable && (undoManager?.canUndo ?? false)\n                                     && runWriteLockReason == nil)"),
+                "no announcement is posted when a message appears, or it offers an Undo a run has greyed")
     }
 
     /// **A finished file's doors**, in the PDF tools' words (TE207).

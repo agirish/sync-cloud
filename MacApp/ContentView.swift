@@ -4539,6 +4539,16 @@ struct ContentView: View {
                 OperationNotifier.postIfEnabled(for: banner)
             }
         }
+        // Edit ▸ Undo and ⌘Z wait during a run, on the file operations' stack only (CF).
+        .onChange(of: runWriteLockReason, initial: true) { _, reason in
+            let gate = RunUndoGate.shared
+            gate.reason = reason
+            gate.fileStack = { [weak manager = syncManager] in manager?.undoManager }
+            gate.refuse = { [weak manager = syncManager] reason in
+                Logger.shared.info("Undo refused while a run is going — \(reason)")
+                manager?.banner = .warning(reason)
+            }
+        }
         // "Save as rule…"'s offer holds its message open while it is up — see `holdChanged`.
         .onChange(of: ruleOfferIsOpen) { _, isOpen in bannerDismissScheduler.holdChanged(isHeld: isOpen) }
         .onChange(of: syncManager.showHiddenFiles) { _, newValue in

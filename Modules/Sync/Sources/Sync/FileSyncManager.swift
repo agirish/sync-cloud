@@ -292,6 +292,9 @@ public class FileSyncManager: ObservableObject {
     /// The advice names the main window because ⌘Z pressed in Sync History acts on that window's
     /// own (empty) undo stack; the file operations' stack is the main window's.
     public var lastSyncRunUndoRefusal: String? {
+        // **A long run going is the first reason** (Banner Room, CF): undo waits for it, as every
+        // other write does, whatever the stack holds.
+        if let run = activeProgress { return run.runLockReason ?? Progress.genericRunLockReason }
         guard lastSyncRunUndoPreview == nil else { return nil }
         guard let undoManager, undoManager.canUndo else {
             return "There’s no recent sync run to undo — the undo history resets when SyncCloud restarts."
@@ -322,10 +325,11 @@ public class FileSyncManager: ObservableObject {
     /// - Returns: The refusal, or nil when it asked (whatever the answer was).
     @discardableResult
     public func undoLastSyncRunAskingFirst(confirm: (SyncRunUndoPreview) -> Bool) -> String? {
-        guard let preview = lastSyncRunUndoPreview else { return loggedRunUndoRefusal() }
+        guard activeProgress == nil, let preview = lastSyncRunUndoPreview else { return loggedRunUndoRefusal() }
         guard confirm(preview) else { return nil }
-        // Re-read, not `preview`: the confirm is a modal, and the stack is only trusted as of now.
-        guard let current = lastSyncRunUndoPreview else { return loggedRunUndoRefusal() }
+        // Re-read, not `preview`: the confirm is a modal, and the stack is only trusted as of now —
+        // a run may have started behind it, too.
+        guard activeProgress == nil, let current = lastSyncRunUndoPreview else { return loggedRunUndoRefusal() }
         // …and it must still be the run the alert listed: a second "Sync run" finishing behind the
         // modal re-arms the pairing under the same name (FR26), and Undo would reverse a run the alert
         // never listed.

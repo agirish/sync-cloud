@@ -1399,7 +1399,8 @@ struct ShortcutValuePublisher: ViewModifier {
     /// greyed beside them: New Folder, New Text File, Move to Trash, Rename, Copy to… /
     /// Move to…, Fix Name, Set Up Like Its Siblings, Undo This Reorganization, and a pane's PDF
     /// Tools and Save as PDF. A chord live while its button is greyed is a mouse/keyboard split the
-    /// suspension below exists to prevent. Undo, Edit's own saves and Edit's PDF tools stay live.
+    /// suspension below exists to prevent. Edit's own saves and Edit's PDF tools stay live; Edit ▸
+    /// Undo waits too, for the file operations' stack only, through `RunUndoGate` (CF).
     var writesLocked: Bool = false
 
     /// True while the destination picker is up. The picker is a full-window overlay that

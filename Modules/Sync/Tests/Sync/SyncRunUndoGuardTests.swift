@@ -301,6 +301,47 @@ import EventsTestSupport
         #expect(manager.lastSyncRunUndoPreview == nil)       // consumed
     }
 
+    // MARK: a long run going (Banner Room, CF)
+
+    /// **Undo Last Run waits for a long run, and says which**, without asking: a run on the stack's
+    /// top it would otherwise reverse stays put, and the reason is the run's own lock sentence.
+    @Test func historyClickDuringARunWaitsAndSaysWhy() {
+        let manager = isolatedManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
+        let marker = Marker()
+        registerRun(manager, name: "Sync run", marker: marker)
+        manager.recordSyncHistory([record(run: UUID())])
+        let run = Progress(totalUnitCount: 10)
+        run.runLockReason = Progress.runLockReason(waitingFor: "the merge")
+        manager.activeProgress = run
+
+        var asked = 0
+        #expect(manager.undoLastSyncRunAskingFirst(confirm: { _ in asked += 1; return true })
+                == "Wait for the merge to finish")
+        #expect(asked == 0, "it asked to reverse a run while another was going")
+        #expect(marker.undone == false)
+        #expect(manager.lastSyncRunUndoRefusal == "Wait for the merge to finish")
+
+        manager.activeProgress = nil
+        #expect(manager.undoLastSyncRunAskingFirst(confirm: { _ in true }) == nil)
+        #expect(marker.undone == true, "the run's end did not let the undo through")
+    }
+
+    /// **A run that starts behind the confirmation** stops the reversal the alert agreed to.
+    @Test func aRunStartedBehindTheConfirmationStopsTheReversal() {
+        let manager = isolatedManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
+        let marker = Marker()
+        registerRun(manager, name: "Sync run", marker: marker)
+        manager.recordSyncHistory([record(run: UUID())])
+        let refusal = manager.undoLastSyncRunAskingFirst(confirm: { _ in
+            manager.activeProgress = Progress(totalUnitCount: 1)
+            return true
+        })
+        #expect(refusal == Progress.genericRunLockReason)
+        #expect(marker.undone == false)
+    }
+
     // MARK: preview formatting (pure)
 
     @Test func actionSummaryCountsByActionOmittingZeroBuckets() {
