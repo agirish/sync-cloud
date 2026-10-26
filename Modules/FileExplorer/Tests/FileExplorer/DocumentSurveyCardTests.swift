@@ -58,10 +58,10 @@ import Testing
         #expect(!detail.contains("0 documents") && !detail.contains("A few minutes"), "\(detail)")
 
         let card = DocumentSurveyCard(state: .offered(documents: 0), accent: .blue, onStart: {})
-        #expect(card.verbs.map(\.title) == ["Look again"])
+        #expect(card.verbs.map(\.title) == ["Look Again"])
         // The control: one document is still offered as a read.
         let one = DocumentSurveyCard(state: .offered(documents: 1), accent: .blue, onStart: {})
-        #expect(one.verbs.map(\.title) == ["Read my documents"])
+        #expect(one.verbs.map(\.title) == ["Read My Documents"])
     }
 
     /// **The count is optional, and the copy has to hold up without it.** Knowing how many
@@ -308,7 +308,7 @@ import Testing
                                           onStartOver: { calls.log.append("start over") },
                                           onResume: { calls.log.append("resume") })
             card.confirmStartOver = { asked = ($0, $1); return answer }
-            let verb = try #require(card.verbs.first { $0.title == "Start over" })
+            let verb = try #require(card.verbs.first { $0.title == "Start Over" })
 
             verb.run()
 
@@ -337,11 +337,11 @@ import Testing
                             pause: .init(sentence: "Paused — the Mac is running hot.",
                                          resumesOnItsOwn: true)),
             accent: .blue, onResume: {}, onStop: {})
-        let resumeNow = try #require(paused.verbs.first { $0.title == "Resume now" })
+        let resumeNow = try #require(paused.verbs.first { $0.title == "Resume Now" })
         #expect(resumeNow.help?.isEmpty == false)
         let interrupted = DocumentSurveyCard(state: .interrupted(done: 1, total: 2), accent: .blue,
                                              onStartOver: {}, onResume: {})
-        let startOver = try #require(interrupted.verbs.first { $0.title == "Start over" })
+        let startOver = try #require(interrupted.verbs.first { $0.title == "Start Over" })
         #expect(startOver.help?.isEmpty == false)
     }
 }

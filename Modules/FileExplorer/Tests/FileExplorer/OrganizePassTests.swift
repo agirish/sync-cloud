@@ -139,7 +139,7 @@ import SwiftUI
             #expect(pass.runTitle.split(separator: " ").count >= 2,
                     "\(pass.rawValue)'s button says “\(pass.runTitle)” — too little on its own")
         }
-        #expect(OrganizePass.file.runTitle == "Run the file pass")
+        #expect(OrganizePass.file.runTitle == "Run the File Pass")
     }
 
     /// No glyph draws digits beside a count — the same deny-list `OrganizeLens.symbol` carries,

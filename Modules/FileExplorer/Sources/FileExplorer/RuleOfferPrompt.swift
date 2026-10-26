@@ -119,7 +119,7 @@ public struct FilingRuleOfferButton: View {
 
     public var body: some View {
         if session.offersRule(riding: bannerID) {
-            Button("Save as rule…") { isOpen = true }
+            Button("Save as Rule…") { isOpen = true }
                 .scaledFont(.subheadline.weight(.semibold))
                 .buttonStyle(.hoverAffordance(.segment, tint: accent))
                 .help("Save a rule that files files like this one the same way")
@@ -163,7 +163,7 @@ struct RememberOverridePromptView: View {
                     .lineLimit(2)
             }
             Spacer(minLength: 8)
-            Button("Not now", action: onNotNow)
+            Button("Not Now", action: onNotNow)
                 .controlSize(.small)
             Button("Remember", action: onRemember)
                 .buttonStyle(.borderedProminent)
@@ -240,10 +240,10 @@ struct RuleOfferPromptView: View {
             }
             Spacer(minLength: 8)
             VStack(spacing: 5) {
-                Button("Save rule", action: onSave)
+                Button("Save Rule", action: onSave)
                     .buttonStyle(.borderedProminent).accentedProminent().controlSize(.small)
                     .chromeHover()
-                Button("Not now", action: onNotNow)
+                Button("Not Now", action: onNotNow)
                     .controlSize(.small)
             }
         }

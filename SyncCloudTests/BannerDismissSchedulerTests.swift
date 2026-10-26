@@ -196,7 +196,7 @@ private final class ManualSleeper: @unchecked Sendable {
         await waitUntil("the restarted window dismisses") { dismissCount == 1 }
     }
 
-    /// **"Save as rule…" holds the message while its offer is open** (Banner Room, CB). The offer's
+    /// **"Save as Rule…" holds the message while its offer is open** (Banner Room, CB). The offer's
     /// popover takes the pointer off the message, so hover exit fires mid-choice — the hold must keep
     /// the timer stopped until the popover closes, then grant the full window.
     @MainActor

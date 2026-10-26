@@ -95,7 +95,7 @@ struct PreviewEditToggle: View {
                     Spacer()
                     // No default-button key: a key equivalent here would take ⏎ from every field in
                     // the window (`BareKeyEquivalentScanTests`). A popover closes on esc or a click away.
-                    Button("Got it") { showsIntro = false }
+                    Button("Got It") { showsIntro = false }
                 }
             }
             .padding(14)

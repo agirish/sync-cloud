@@ -104,7 +104,7 @@ import Testing
     /// **Read off the render**: under a sheet's deepened root tint, a Cancel tinted with
     /// `buttonWordsTint` paints its words at the floor. The same Cancel with no tint of its own
     /// takes the root's deepened fill as its words and misses it — measured 2.9:1 dark, 3.8:1
-    /// light — so the probe can see the case the PDF sheets' Cancel is in.
+    /// light — so the probe can see the case the PDF sheets' Cancel was in.
     @Test(arguments: [false, true]) func aTintedButtonsWordsPaintAtTheFloor(dark: Bool) throws {
         let hue = LiquidGlassHue.green
         let bezel = try Self.bezel(dark: dark)

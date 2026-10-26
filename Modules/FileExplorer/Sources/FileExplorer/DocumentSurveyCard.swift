@@ -343,13 +343,13 @@ struct DocumentSurveyCard: View {
             // Nothing to read, so nothing offered to read: the same walk, asked again after
             // documents are added (RD8).
             return onStart.map {
-                [OverviewCardAction(title: "Look again", rank: .primary,
+                [OverviewCardAction(title: "Look Again", rank: .primary,
                                     help: "Count the documents here again — for after you add some "
                                         + "this app can open", run: $0)]
             } ?? []
         case .offered:
             return onStart.map {
-                [OverviewCardAction(title: "Read my documents", rank: .primary,
+                [OverviewCardAction(title: "Read My Documents", rank: .primary,
                                     help: "Read page one of every document here, on this Mac — in the "
                                         + "background, and it can be paused", run: $0)]
             } ?? []
@@ -371,7 +371,7 @@ struct DocumentSurveyCard: View {
             } else if pause == nil, let onPause {
                 actions.append(OverviewCardAction(title: "Pause", rank: .primary, run: onPause))
             } else if pause != nil, let onResume {
-                actions.append(OverviewCardAction(title: "Resume now", help: Self.resumeNowHelp,
+                actions.append(OverviewCardAction(title: "Resume Now", help: Self.resumeNowHelp,
                                                   run: onResume))
             }
             return actions
@@ -388,7 +388,7 @@ struct DocumentSurveyCard: View {
                 // asks first, and only a yes reaches the verb that discards it.
                 let confirm = confirmStartOver
                 actions.append(OverviewCardAction(
-                    title: "Start over",
+                    title: "Start Over",
                     help: "Forget what’s been read and read every document again, from the first",
                     run: { if confirm(done, total) { onStartOver() } }))
             }

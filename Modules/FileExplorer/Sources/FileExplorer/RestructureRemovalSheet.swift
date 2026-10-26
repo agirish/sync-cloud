@@ -63,10 +63,10 @@ struct RestructureRemovalSheet: View {
                 + "named in the log."
         } else if skippedCount > 0 {
             sentence = "Moved \(removed) folder\(removed == 1 ? "" : "s") to the Trash; "
-                + "\(skippedCount) skipped (named in the log). Undo this reorganization on "
+                + "\(skippedCount) skipped (named in the log). Undo This Reorganization on "
                 + "the removal’s own card puts the moved ones back."
         } else {
-            sentence = "Moved to the Trash — Undo this reorganization on the removal’s own "
+            sentence = "Moved to the Trash — Undo This Reorganization on the removal’s own "
                 + "card puts them back, even after a quit."
         }
         // A survey-refresh failure after a successful trashing composes with the landing,
@@ -158,7 +158,7 @@ struct RestructureRemovalSheet: View {
     }
 
     private var removeTitle: String {
-        "Move \(ticked.count) folder\(ticked.count == 1 ? "" : "s") to Trash"
+        "Move \(ticked.count) Folder\(ticked.count == 1 ? "" : "s") to Trash"
     }
 
     private func seed() {

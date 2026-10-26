@@ -108,7 +108,7 @@ public struct DocumentSurveyStrip: View {
             } else if let pause, pause.resumesOnItsOwn, let onResume {
                 // The card's word for the same click: it reads through a pause that would
                 // otherwise clear by itself, rather than undoing a Pause.
-                actions.append(OverviewCardAction(title: "Resume now",
+                actions.append(OverviewCardAction(title: "Resume Now",
                                                   help: DocumentSurveyCard.resumeNowHelp,
                                                   run: onResume))
             } else if let onResume {

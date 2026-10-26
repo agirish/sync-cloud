@@ -2448,7 +2448,7 @@ public struct LensWorkspaceView: View {
         let batch = filing.filter { $0.isBatchEligible }
         if !batch.isEmpty {
             Button { applyRecommendedFiling(batch) } label: {
-                Label("File all \(batch.count) confident", systemImage: "arrow.right.circle.fill")
+                Label("File All \(batch.count) Confident", systemImage: "arrow.right.circle.fill")
             }
             .buttonStyle(.borderedProminent)
             .accentedProminent(glassHue)
@@ -2617,7 +2617,7 @@ public struct LensWorkspaceView: View {
                 if let movedTitle {
                     Label(movedTitle, systemImage: movedIcon)
                 } else {
-                    Label(reaimClearsScope ? "Organize everything" : "Organize “\(scanTargetName)”",
+                    Label(reaimClearsScope ? "Organize Everything" : "Organize “\(scanTargetName)”",
                           systemImage: reaimClearsScope ? "square.stack.3d.up.slash" : movedIcon)
                 }
             }
@@ -3274,7 +3274,7 @@ public struct LensWorkspaceView: View {
         let batch = groups.filter { $0.isRecommendedForBatch }
         if !batch.isEmpty {
             Button { applyRecommended(batch) } label: {
-                Label("Apply \(batch.count) recommended", systemImage: "checkmark.circle.fill")
+                Label("Apply \(batch.count) Recommended", systemImage: "checkmark.circle.fill")
             }
             .buttonStyle(.borderedProminent)
             .accentedProminent(glassHue)
@@ -3313,7 +3313,7 @@ public struct LensWorkspaceView: View {
         let files = plans.reduce(0) { $0 + $1.steps.count }
         if files > 0 {
             Button { onApplyRenames(plans) } label: {
-                Label("Rename \(files) file\(files == 1 ? "" : "s")", systemImage: "checkmark.circle.fill")
+                Label("Rename \(files) File\(files == 1 ? "" : "s")", systemImage: "checkmark.circle.fill")
             }
             .buttonStyle(.borderedProminent)
             .accentedProminent(glassHue)
@@ -3342,7 +3342,7 @@ public struct LensWorkspaceView: View {
             let help = "Renames \(scope) to its cloud-safe form. Never overwrites an existing "
                 + "file, and the whole pass undoes with a single ⌘Z."
             Button { onNormalizeNames(risky) } label: {
-                Label("Fix all \(risky.count)", systemImage: "checkmark.circle.fill")
+                Label("Fix All \(risky.count)", systemImage: "checkmark.circle.fill")
             }
             .buttonStyle(.borderedProminent)
             .accentedProminent(glassHue)
@@ -3373,7 +3373,7 @@ public struct LensWorkspaceView: View {
         // Reuses the host's existing rule-editor sheet (the one "Remember" opens a learned rule
         // in), so a blank rule and a taught rule are reviewed through exactly one editor.
         Button { reviewingAutomationRule = AutomationRule(name: "") } label: {
-            Label("New rule", systemImage: AutomationsGlyph.newRule)
+            Label("New Rule", systemImage: AutomationsGlyph.newRule)
         }
         .chromeButtonStyle(glassLevel)
         .controlSize(.small)
@@ -3396,7 +3396,7 @@ public struct LensWorkspaceView: View {
             automationsState.viewingResults = true
             onPreviewAutomations(nil)
         } label: {
-            Label("Preview all", systemImage: AutomationsGlyph.preview)
+            Label("Preview All", systemImage: AutomationsGlyph.preview)
         }
         .buttonStyle(.borderedProminent)
         .accentedProminent(glassHue)
@@ -3455,7 +3455,7 @@ public struct LensWorkspaceView: View {
                             tint: SemanticColor.success,
                             title: "Nothing to rename",
                             message: "Every name follows the convention its folder keeps, and none carries a character a cloud would mangle.",
-                            secondary: .init("Scan again", systemImage: "arrow.clockwise",
+                            secondary: .init("Scan Again", systemImage: "arrow.clockwise",
                                              handler: onFindFilingSuggestions)
                         )
                     } else if rows.renames.isEmpty, fixRows.isEmpty {
@@ -5169,10 +5169,10 @@ public struct LensWorkspaceView: View {
             // says so — and offers the way back, as the list's own foot does.
             caption: kept > 0 ? Self.keptSeparateSentence(kept) : nil,
             primary: kept > 0
-                ? .init("Show them again", systemImage: "eye",
+                ? .init("Show Them Again", systemImage: "eye",
                         help: Self.keptSeparateHelp) { showKeptSeparateAgain() }
                 : nil,
-            secondary: .init("Scan again", systemImage: "arrow.clockwise", handler: onFindDuplicates)
+            secondary: .init("Scan Again", systemImage: "arrow.clockwise", handler: onFindDuplicates)
         )
     }
 
@@ -5188,7 +5188,7 @@ public struct LensWorkspaceView: View {
                 Text(Self.keptSeparateSentence(kept))
                     .scaledFont(.system(size: 11))
                     .foregroundStyle(.secondary)
-                Button("Show them again") { showKeptSeparateAgain() }
+                Button("Show Them Again") { showKeptSeparateAgain() }
                     .scaledFont(.system(size: 11, weight: .semibold))
                     .buttonStyle(.plain)
                     .foregroundStyle(glassHue.accentColor)
@@ -5478,7 +5478,7 @@ public struct LensWorkspaceView: View {
         LensSetupCard(
             intro: LensIntros.renames(providerName: providerName),
             accent: glassHue.accentColor,
-            triggerTitle: "Run the file pass",
+            triggerTitle: "Run the File Pass",
             triggerSymbol: "folder.badge.gearshape",
             triggerHelp: "One walk of the tree answers To File and this backlog. Free, and on-device.",
             samplesTitle: "What a finding looks like",
@@ -5534,7 +5534,7 @@ public struct LensWorkspaceView: View {
                 tint: SemanticColor.success,
                 title: "All filed",
                 message: "Every loose file in \(filingFolderName) is in its home now. Undo any move with ⌘Z, or scan again after adding more.",
-                secondary: .init("Scan again", systemImage: "arrow.clockwise", handler: onFindFilingSuggestions)
+                secondary: .init("Scan Again", systemImage: "arrow.clockwise", handler: onFindFilingSuggestions)
             )
         } else if dismissedThisSession {
             // Handled, but not by filing: the user cleared every suggestion with "Not here". Don't
@@ -5544,7 +5544,7 @@ public struct LensWorkspaceView: View {
                 tint: .secondary,
                 title: "Suggestions cleared",
                 message: "You set aside every suggestion in \(filingFolderName). Scan again to look afresh, or add more files first.",
-                secondary: .init("Scan again", systemImage: "arrow.clockwise", handler: onFindFilingSuggestions)
+                secondary: .init("Scan Again", systemImage: "arrow.clockwise", handler: onFindFilingSuggestions)
             )
         } else {
             // Neutral: the scan found nothing loose to begin with.
@@ -5553,7 +5553,7 @@ public struct LensWorkspaceView: View {
                 tint: .secondary,
                 title: "Nothing loose to file",
                 message: "No files in \(filingFolderName) need a home right now.",
-                secondary: .init("Scan again", systemImage: "arrow.clockwise", handler: onFindFilingSuggestions)
+                secondary: .init("Scan Again", systemImage: "arrow.clockwise", handler: onFindFilingSuggestions)
             )
         }
     }

@@ -190,7 +190,7 @@ struct DuplicateReviewCoordinator {
                 .controlSize(.small)
                 .chromeHover()
             Button(role: .destructive) { trashRightCopy(review) } label: {
-                Label("Trash right copy", systemImage: "trash")
+                Label("Trash Right Copy", systemImage: "trash")
             }
             .buttonStyle(.borderedProminent)
             .accentedProminent()
@@ -541,7 +541,7 @@ struct DuplicateReviewCoordinator {
         }.sorted()
     }
 
-    /// **"Trash right copy" never trashes something only the right copy has (FR13).** The card
+    /// **"Trash Right Copy" never trashes something only the right copy has (FR13).** The card
     /// offers Compare copies for every group, overlapping ones included, and this button checked
     /// only that the pair was unchanged since the scan. On an overlapping group whose right copy
     /// is "12 unique here" it sent the whole folder — those twelve with it — to the Trash, under
@@ -566,10 +566,10 @@ struct DuplicateReviewCoordinator {
         let examples = onlyRight.prefix(2).map { "“\(($0 as NSString).lastPathComponent)”" }
         let named = examples.isEmpty ? "" : " (\(examples.joined(separator: ", "))\(onlyRight.count > 2 ? ", …" : ""))"
         return (
-            banner: "The right copy holds \(items) the left one doesn’t\(named), so trashing it would lose them. Use Merge into keeper on the Duplicates card instead — it copies them across first.",
+            banner: "The right copy holds \(items) the left one doesn’t\(named), so trashing it would lose them. Use Merge into Keeper on the Duplicates card instead — it copies them across first.",
             log: "Refused to trash \(review.deletePath): it holds \(items) the left copy \(review.keepPath) lacks"
                 + (onlyRight.isEmpty ? "" : " — \(onlyRight.prefix(5).joined(separator: ", "))\(onlyRight.count > 5 ? ", …" : "")")
-                + "; Merge into keeper keeps them")
+                + "; Merge into Keeper keeps them")
     }
 
     /// Posts the banner AND the log line for a refusing verdict — both sides, both wordings.
@@ -735,7 +735,7 @@ struct DuplicateCompareContext: Equatable, Sendable {
     let groupName: String
     let keepPath: String
     let deletePath: String
-    /// What the duplicate scan measured about EACH copy, so "Trash right copy" can apply the
+    /// What the duplicate scan measured about EACH copy, so "Trash Right Copy" can apply the
     /// engine's full drift gate to both ends via `PaneLogic.duplicateCopyMatchesScan`.
     ///
     /// **The delete candidate's facts are the ones this used to be missing**, and they are the

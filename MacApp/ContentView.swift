@@ -5357,7 +5357,7 @@ struct ContentView: View {
                             tint: .green,
                             title: "Everything is in sync",
                             message: "No differences found between the two panes’ folders.",
-                            secondary: .init("Scan again", systemImage: "arrow.clockwise",
+                            secondary: .init("Scan Again", systemImage: "arrow.clockwise",
                                              help: "Scan both panes’ folders again and compare them") { forceRefreshAction() }
                         )
                     } else {

@@ -384,8 +384,8 @@ placement maths and the message's layout at 250/400/560pt are covered by tests; 
 - [ ] **Compare: the acting pane only.** Delete in the right pane → the message is in the right
   pane's list, beside the action bar if one is up, never over it; the left pane and the seam's ⇄/🔗
   stay clear.
-- [ ] **To File's "Save as rule…".** File a loose file with File here → "Filed …" at the lens's foot
-  with Undo and Save as rule…; the cards did not move. Click it → the offer opens in a popover and the
+- [ ] **To File's "Save as Rule…".** File a loose file with File Here → "Filed …" at the lens's foot
+  with Undo and Save as Rule…; the cards did not move. Click it → the offer opens in a popover and the
   message stays while it is open. Ignore one → the offer is gone with the message after 5 s.
 - [ ] **PDF tool from a pane.** Right-click a PDF ▸ PDF Tools ▸ Rotate All Pages → progress at the
   toolbar's capsule while it runs (BZ, 2026-10-25), then a pane message with Open in Edit and Reveal
@@ -407,7 +407,7 @@ Appearance), and nothing coral is left.
   the accent, the tick white.
 - [ ] **A slider.** Settings ▸ Appearance ▸ Tint → the filled part of the track is the accent, the
   same colour as the selected Coral swatch's ring, not blue.
-- [ ] **A progress bar.** Start a long run (Organize ▸ Duplicates ▸ Merge into keeper on a large
+- [ ] **A progress bar.** Start a long run (Organize ▸ Duplicates ▸ Merge into Keeper on a large
   group) → the toolbar capsule's bar (`ProgressCapsule`) fills with the accent.
 - [ ] **A sheet's checkbox.** Organize ▸ Restructure, Plan… on a finding → the Plan sheet's
   checkboxes are the accent, not blue. (Sheets take the hue through `presentedNativeControlAccent`;
@@ -424,7 +424,7 @@ Built and installed with the screen locked, so nobody has seen the capsule in th
 capsule's two rungs are snapshot-tested, the toolbar's width ladder is swept, and the lock's chords
 and key refusals are tested; this is what is not.
 
-- [ ] **Merge, then read.** Organize ▸ Duplicates, Merge into keeper on a large overlapping group →
+- [ ] **Merge, then read.** Organize ▸ Duplicates, Merge into Keeper on a large overlapping group →
   no dimming; the capsule in the toolbar's middle says "Merging “…”" with a bar and a count, and the
   current file while the pointer is over it. Browse another folder, select a file, open Preview and
   Quick Look (Space) — all work while it runs.

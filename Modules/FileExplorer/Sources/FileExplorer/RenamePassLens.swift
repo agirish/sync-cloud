@@ -236,7 +236,7 @@ struct RenamePassLens: View {
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 Button { onFix(riskyNames) } label: {
-                    Text("Fix all \(riskyNames.count)")
+                    Text("Fix All \(riskyNames.count)")
                         .scaledFont(.caption)
                         .fontWeight(.semibold)
                 }
@@ -286,7 +286,7 @@ struct RenamePassLens: View {
                 Button {
                     onApply(section.plans)
                 } label: {
-                    Text("Rename all \(section.fileCount)")
+                    Text("Rename All \(section.fileCount)")
                         .scaledFont(.caption)
                         .fontWeight(.semibold)
                 }

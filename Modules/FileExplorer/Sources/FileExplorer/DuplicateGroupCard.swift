@@ -734,8 +734,8 @@ struct DuplicateGroupCard: View {
                     } else {
                         Label(mergeCopiesNothing
                                   ? (group.redundantCopies.count == 1
-                                     ? "Trash the folded copy" : "Trash the folded copies")
-                                  : "Merge into keeper",
+                                     ? "Trash the Folded Copy" : "Trash the Folded Copies")
+                                  : "Merge into Keeper",
                               systemImage: mergeCopiesNothing ? "trash" : "arrow.triangle.merge")
                     }
                 }
@@ -759,7 +759,7 @@ struct DuplicateGroupCard: View {
             .chromeHover()
             .controlSize(.small)
             Button(action: onKeepSeparate) {
-                Label("Keep separate", systemImage: "lock")
+                Label("Keep Separate", systemImage: "lock")
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .contentShape(Rectangle())
             }
@@ -787,9 +787,9 @@ struct DuplicateGroupCard: View {
 
     private var applyTitle: String {
         switch group.matchType {
-        case .versions: return "Keep newest, Trash older"
-        case .sameText: return group.copies.count > 2 ? "Keep one, Trash the rest" : "Trash the other copy"
-        default: return group.copies.count > 2 ? "Keep one, Trash the rest" : "Trash redundant copy"
+        case .versions: return "Keep Newest, Trash Older"
+        case .sameText: return group.copies.count > 2 ? "Keep One, Trash the Rest" : "Trash the Other Copy"
+        default: return group.copies.count > 2 ? "Keep One, Trash the Rest" : "Trash Redundant Copy"
         }
     }
 
@@ -810,7 +810,7 @@ struct DuplicateGroupCard: View {
             Button {
                 if let other = group.redundantCopies.first { onCompareCopies(group.keeper, other) }
             } label: {
-                Label("Compare copies", systemImage: "rectangle.split.2x1")
+                Label("Compare Copies", systemImage: "rectangle.split.2x1")
             }
             .chromeHover()
             .controlSize(.small)

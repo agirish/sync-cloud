@@ -405,7 +405,7 @@ import Sync
         // which is the shape of defect a green suite is least likely to catch.
         let view = try Self.source("LensWorkspaceView.swift")
         #expect(view.contains("private var reaimClearsScope: Bool"))
-        #expect(view.contains("reaimClearsScope ? \"Organize everything\""))
+        #expect(view.contains("reaimClearsScope ? \"Organize Everything\""))
         // And the promise must be swapped with the label, not left behind on it. (`movedTitle`
         // short-circuits both — see the Storage test below — so the swap is gated on its absence.)
         #expect(view.contains(".help(movedTitle == nil && reaimClearsScope"))

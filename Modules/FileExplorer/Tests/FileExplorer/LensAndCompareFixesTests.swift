@@ -165,9 +165,9 @@ import SwiftUI
     @Test func buttonsThatActAtOnceCarryNoEllipsis() throws {
         let cases: [(file: String, now: String, was: String)] = [
             ("DifferencesView.swift", "Remaining \\(copyable)\",", "Remaining \\(copyable)…"),
-            ("RestructurePlanSheet.swift", "\"Export plan\" : \"Export \\(group.count) plans\"",
-             "Export plan…"),
-            ("RestructurePairMergeSheet.swift", "Button(\"Save for later\")", "Save for later…"),
+            ("RestructurePlanSheet.swift", "\"Export Plan\" : \"Export \\(group.count) Plans\"",
+             "Export Plan…"),
+            ("RestructurePairMergeSheet.swift", "Button(\"Save for Later\")", "Save for Later…"),
             ("FileTreeView.swift", "Label(\"Fix Name\", systemImage: RiskyNameGlyph.lens)", "Fix Name…"),
         ]
         for (file, now, was) in cases {
@@ -252,7 +252,7 @@ import SwiftUI
         #expect(sheet.contains("control: CompareKeeperControl.control(isKeeper: isKeeper, marker: marker),"),
                 "the pane header no longer asks CompareKeeperControl what to draw")
         #expect(!sheet.contains(".disabled(marker == .inert)"),
-                "the header draws a disabled “Keep this instead” where there is no choice")
+                "the header draws a disabled “Keep This Instead” where there is no choice")
     }
 
     // MARK: DS2 — warning and success sentences take the readable ink

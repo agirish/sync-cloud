@@ -3,7 +3,7 @@ import Foundation
 import Sync
 @testable import SyncCloud
 
-/// **"Trash right copy" checks the copy it destroys.**
+/// **"Trash Right Copy" checks the copy it destroys.**
 ///
 /// The context carried `keepPath`, `keepIsDirectory`, `keepScannedSize` — and nothing about the
 /// delete candidate beyond its path, so the check the comment claimed ("mirrors the FULL gate the

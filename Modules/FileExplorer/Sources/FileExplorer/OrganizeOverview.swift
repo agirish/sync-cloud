@@ -750,7 +750,7 @@ struct OrganizeOverview: View {
     /// the row inside its host card and the standalone card it falls back to. They were spelling
     /// `Set up…` as a literal apiece, which is a rename away from two screens offering the same
     /// action under different words.
-    static let nudgeVerbTitle = "Set up…"
+    static let nudgeVerbTitle = "Set Up…"
     static let nudgeVerbHelp = "Opens Restructure on the first folder with this gap."
 
     static func nudgeDismissal(_ nudge: BacklogNudge) -> OverviewCardDismiss {
@@ -947,7 +947,7 @@ struct OrganizeOverview: View {
             subtitle: Self.inboxSubtitle(shortcut.looseFileCount),
             accent: accent,
             actions: [OverviewCardAction(
-                title: "Point Organize here", rank: .primary,
+                title: "Point Organize Here", rank: .primary,
                 help: "Point Organize at the inbox. Every lens narrows to it, and it stays until "
                     + "you change it.",
                 run: shortcut.apply)],

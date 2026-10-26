@@ -347,7 +347,7 @@ struct RestructurePairMergeSheet: View {
             // about what it offers.
             let manifest = try? plan.get()
             // No ellipsis (LN13): it saves at once, with no panel.
-            Button("Save for later") { if let manifest { export(manifest) } }
+            Button("Save for Later") { if let manifest { export(manifest) } }
                 .scaledFont(.system(size: 11))
                 .keyboardShortcut(.defaultAction)
                 .accentedProminent()
@@ -390,7 +390,7 @@ struct RestructurePairMergeSheet: View {
         // `operationCount`, not `actions.count`: keeps are the signature block. Counting them
         // put "Apply 2 operations" under a card reading "Review 1 operation".
         let count = manifest.operationCount
-        return "Apply \(count) operation\(count == 1 ? "" : "s")"
+        return "Apply \(count) Operation\(count == 1 ? "" : "s")"
     }
 
     private static func outcomeText(_ outcome: Outcome) -> String {

@@ -441,29 +441,29 @@ struct FilingSuggestionCard: View {
             if let best, suggestion.hasConfidentHome {
                 // The typed name, when the user typed one — see `newFolderNameField`.
                 Button { onFileHere(best.renamingNewFolder(to: editedFolderName)) } label: {
-                    Label("File here", systemImage: "arrow.right.circle")
+                    Label("File Here", systemImage: "arrow.right.circle")
                 }
                     .buttonStyle(.borderedProminent).accentedProminent().controlSize(.small)
                     .chromeHover()
                     .lockedDuringRun()
-                Button(action: onChooseFolder) { Label("Choose a folder…", systemImage: "folder") }
+                Button(action: onChooseFolder) { Label("Choose a Folder…", systemImage: "folder") }
                     .controlSize(.small)
                     .lockedDuringRun()
             } else {
-                Button(action: onChooseFolder) { Label("Choose a folder…", systemImage: "folder") }
+                Button(action: onChooseFolder) { Label("Choose a Folder…", systemImage: "folder") }
                     .buttonStyle(.borderedProminent).accentedProminent().controlSize(.small)
                     .chromeHover()
                     .lockedDuringRun()
             }
             if best != nil, let onTryAnother {
-                Button(action: onTryAnother) { Label("Try another folder", systemImage: "arrow.triangle.2.circlepath") }
+                Button(action: onTryAnother) { Label("Try Another Folder", systemImage: "arrow.triangle.2.circlepath") }
                     .controlSize(.small)
                     .disabled(isTryAnotherBusy)
                     .help("Reject this folder and suggest a different one — remembered for next time")
             }
             if let onReadScan {
                 Button(action: onReadScan) {
-                    Label(isReadScanBusy ? "Reading…" : "Read scan",
+                    Label(isReadScanBusy ? "Reading…" : "Read Scan",
                           systemImage: "text.viewfinder")
                 }
                 .controlSize(.small)
@@ -478,7 +478,7 @@ struct FilingSuggestionCard: View {
             Button(action: onReveal) { Label("Reveal", systemImage: RevealGlyph.inFinder) }
                 .controlSize(.small)
             Button(action: onNotHere) {
-                Label("Set aside", systemImage: "xmark")
+                Label("Set Aside", systemImage: "xmark")
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .contentShape(Rectangle())
             }

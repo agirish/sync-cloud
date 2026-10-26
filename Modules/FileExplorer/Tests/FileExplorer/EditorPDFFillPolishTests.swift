@@ -584,4 +584,59 @@ import Sync
                           #""Show all files""#, #""Type a value…""#],
                 "\(found)")
     }
+
+    /// **Every button the app writes is in Title Case**, as Setup's are (ST18) — the cards, the
+    /// lenses, the sheets and the alerts, in `MacApp/` and every package. Organize's filing card
+    /// said “Try another folder” and the rule offer “Not now” beside Title Case neighbours
+    /// (2026-10-26). Mutation: put back “Not now” in RuleOfferPrompt, or “Look again” in
+    /// DocumentSurveyCard, and this names the line.
+    @Test func everyButtonInTheAppIsInTitleCase() throws {
+        let found = try AppCopyScan.buttonTitleViolations(exemptions: AppCopyScan.buttonExemptions)
+        #expect(found.isEmpty, "\(found.map { "\($0.path):\($0.line): \($0.text)" }.joined(separator: "\n"))")
+        // Each exemption still has something to exempt — a stale one would hide the next title.
+        let all = try AppCopyScan.buttonTitleViolations(exemptions: [])
+        for exemption in AppCopyScan.buttonExemptions {
+            #expect(all.contains { exemption.covers($0) }, "the exemption for \(exemption.reason) covers nothing")
+        }
+        // A tripwire, so the scan cannot pass by reading no buttons at all.
+        let read = try AppCopyScan.sourceFiles().reduce(0) { $0 + AppCopyScan.buttonTitles(in: $1.code).count }
+        #expect(read > 300, "the button scan read only \(read) titles — is it reading the right calls?")
+        #expect(AppCopyScan.isTitleCase("Copy 12 to iCloud") && AppCopyScan.isTitleCase(#"Show \(n) Folder\(s)"#))
+        #expect(!AppCopyScan.isTitleCase(#"Apply to \(n) famil\(y)"#) && !AppCopyScan.isTitleCase(#"Show \(n) more"#))
+    }
+
+    /// The button scan's reach: a titled button, a ternary, a label in a trailing closure or a
+    /// `label:` closure, the app's builders and an alert — and not a toggle, a link, a disclosure
+    /// header, a comment, a title held in a constant, or a brand spelled with its capital second.
+    @Test func theButtonScanReadsButtonsAndOnlyButtons() {
+        let code = """
+            struct Card: View {
+                var body: some View {
+                    Text("A sentence here is fine")
+                    Button("Not now") {}
+                    // Button("Not this one")
+                    Button(busy ? "Reading…" : "Read scan") {}
+                    Button(action: go) { Label("Try another folder", systemImage: "arrow") }
+                    Button { go() } label: { Text("Save for later") }
+                    Button(role: .destructive) { trash() } label: { Label("Trash right copy", systemImage: "trash") }
+                    Toggle("Show hidden files", isOn: $on)
+                    Link("Learn more", destination: url)
+                    DisclosureGroup("More options") { Text("Some words") }
+                    Button(Self.title) {}
+                    Button("Copy 12 to iCloud") {}
+                }
+                let a = OverviewCardAction(title: "Look again", rank: .primary, run: {})
+                let b = OverviewCardAction(
+                    title: "Start over", run: {})
+                let c = LensSetupCard(triggerTitle: "Analyze storage")
+                let d = EmptyStateView(title: "No matches here", primary: .init("Scan again") {})
+                func e() { alert.addButton(withTitle: "Quit anyway") }
+            }
+            """
+        let found = AppCopyScan.buttonTitleViolations(in: code, path: "X.swift").map(\.text)
+        #expect(found == [#""Not now""#, #""Read scan""#, #""Try another folder""#, #""Save for later""#,
+                          #""Trash right copy""#, #""Look again""#, #""Start over""#, #""Analyze storage""#,
+                          #""Scan again""#, #""Quit anyway""#],
+                "\(found)")
+    }
 }

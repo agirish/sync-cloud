@@ -192,14 +192,17 @@ enum AppCopyScan {
     static let minorWords: Set<String> = ["a", "an", "and", "as", "at", "but", "by", "for", "from", "in",
                                           "into", "nor", "of", "on", "onto", "or", "the", "to", "via", "with", "vs"]
 
-    /// Whether `title` (a literal's body) is in Title Case. Interpolations count as a word that is.
+    /// Whether `title` (a literal's body) is in Title Case. An interpolation is a word of its own
+    /// that is — but not the end of one written beside it: "famil\(…)" is a lowercase word, so the
+    /// interpolation is set apart with spaces. A name whose capital comes second (iCloud, macOS) is
+    /// capitalized as it is spelled.
     static func isTitleCase(_ title: String) -> Bool {
-        let flat = title.replacingOccurrences(of: #"\\\((?:[^()]|\([^()]*\))*\)"#, with: "X", options: .regularExpression)
+        let flat = title.replacingOccurrences(of: #"\\\((?:[^()]|\([^()]*\))*\)"#, with: " X ", options: .regularExpression)
         let words = flat.split(whereSeparator: { !($0.isLetter || $0 == "’" || $0 == "'" || $0 == "-") })
             .filter { $0.first?.isLetter == true }
         for (index, word) in words.enumerated() {
             if index > 0, minorWords.contains(word.lowercased()) { continue }
-            if word.first?.isLowercase == true { return false }
+            if word.first?.isLowercase == true, !word.dropFirst().contains(where: \.isUppercase) { return false }
         }
         return true
     }
@@ -246,6 +249,101 @@ enum AppCopyScan {
         .init(file: "Modules/FileExplorer/Sources/FileExplorer/EditorPDFFillSignMenuItems.swift", contains: #") pt""#, reason: "a point size: “12 pt” is a unit"),
         .init(file: "Modules/FileExplorer/Sources/FileExplorer/EditorPDFFillPalette.swift", contains: #") pt""#, reason: "a point size: “12 pt” is a unit"),
     ]
+
+    // MARK: Title Case on buttons
+
+    /// Buttons whose titles a person reads that are not in Title Case, anywhere in the app — Setup's
+    /// were made so (ST18), and Organize's cards, Restructure's and Duplicates' verbs and the rule
+    /// offer's Not Now followed (2026-10-26). A title is the first argument's literal of a
+    /// `Button(`, or each branch of a ternary there; the first literal of a `Label(` or `Text(` in
+    /// a button's label — the trailing closure of a `Button(action:)`, or its `label:` closure; and
+    /// a title handed to one of the app's own button builders, ``buttonTitleArguments``. Not a
+    /// `Toggle`, a `Link` or a `DisclosureGroup`: their words are sentence case. Multi-word literals
+    /// only, as the menu scan reads them.
+    static func buttonTitleViolations(exemptions: [Exemption]) throws -> [Literal] {
+        try sourceFiles().flatMap { buttonTitleViolations(in: $0.code, path: $0.path) }
+            .filter { literal in !exemptions.contains { $0.covers(literal) } }
+    }
+
+    /// The same, in one file's code.
+    static func buttonTitleViolations(in code: String, path: String) -> [Literal] {
+        let lines = LineIndex(Array(strippedComments(code).utf8))
+        return buttonTitles(in: code)
+            .filter { $0.text.contains(" ") && !isTitleCase(String($0.text.dropFirst().dropLast())) }
+            .map { Literal(path: path, line: lines.line(of: $0.offset), text: $0.text) }
+    }
+
+    /// Every button title literal in `code`, in order, each once.
+    static func buttonTitles(in code: String) -> [(offset: Int, text: String)] {
+        let b = Array(strippedComments(code).utf8)
+        var titles: [(Int, String)] = []
+        for call in calls(of: buttonCall, in: b, 0..<b.count) {
+            let open = call - 1
+            var labels: [Range<Int>] = []
+            var after = open
+            if b[open] == UInt8(ascii: "(") {
+                let own = firstArgumentTitles(b, from: call)
+                titles += own
+                let close = closingBracket(b, from: open)
+                labels += calls(of: labelClosure, in: b, call..<close).map { $0..<closingBracket(b, from: $0 - 1) }
+                after = close + 1
+                // `Button(action: run) { Label(…) }`: with no title of its own, the trailing
+                // closure is the label.
+                if own.isEmpty, let trailing = trailingClosure(b, after: after) {
+                    labels.append(trailing)
+                    after = trailing.upperBound + 1
+                }
+            } else {
+                // `Button { run() } label: { … }`: the first closure is the action.
+                after = closingBracket(b, from: open) + 1
+            }
+            var k = after
+            while k < b.count, b[k] == UInt8(ascii: " ") || b[k] == newline { k += 1 }
+            if b[k...].starts(with: Array("label:".utf8)), let label = trailingClosure(b, after: k + "label:".count) {
+                labels.append(label)
+            }
+            for label in labels {
+                for text in calls(of: labelTextCall, in: b, label) { titles += firstArgumentTitles(b, from: text) }
+            }
+        }
+        for argument in calls(of: buttonTitleArguments, in: b, 0..<b.count) {
+            titles += firstArgumentTitles(b, from: argument)
+        }
+        var seen = Set<Int>()
+        return titles.filter { seen.insert($0.0).inserted }.sorted { $0.0 < $1.0 }.map { (offset: $0.0, text: $0.1) }
+    }
+
+    /// Titles that a builder makes into a button: an Organize card's verbs, a lens card's trigger
+    /// and its second verb, an empty state's two, the Activity log's paging, an `NSAlert`'s.
+    private static let buttonTitleArguments = try! NSRegularExpression(pattern:
+        #"\b(?:OverviewCardAction|SecondaryAction)\s*\(\s*title:|\btriggerTitle:|\b(?:primary|secondary):\s*\.init\("#
+        + #"|\bhistoryActionButton\(|\baddButton\s*\(\s*withTitle:"#)
+    private static let buttonCall = try! NSRegularExpression(pattern: #"\bButton\s*[({]"#)
+    private static let labelTextCall = try! NSRegularExpression(pattern: #"\b(?:Label|Text)\s*\("#)
+
+    /// The `{ … }` that follows `index` past whitespace, as the range inside its braces.
+    private static func trailingClosure(_ b: [UInt8], after index: Int) -> Range<Int>? {
+        var k = index
+        while k < b.count, b[k] == UInt8(ascii: " ") || b[k] == newline { k += 1 }
+        guard k < b.count, b[k] == UInt8(ascii: "{") else { return nil }
+        return (k + 1)..<closingBracket(b, from: k)
+    }
+
+    /// Buttons whose words stay sentence case: each is not a verb on a bezel but a fold drawn as
+    /// accent words, the way a disclosure is, a count, or a suggestion written as a sentence.
+    static let buttonExemptions: [Exemption] = {
+        let fold = "a fold drawn as accent words, like a disclosure — not a verb on a bezel"
+        return [
+            .init(file: "Modules/FileExplorer/Sources/FileExplorer/LensWorkspaceView.swift", contains: #""Show fewer""#, reason: fold),
+            .init(file: "Modules/FileExplorer/Sources/FileExplorer/LensWorkspaceView.swift", contains: #"fold) more""#, reason: fold),
+            .init(file: "Modules/FileExplorer/Sources/FileExplorer/RenamePassLens.swift", contains: #""Show fewer""#, reason: fold),
+            .init(file: "Modules/FileExplorer/Sources/FileExplorer/RenamePassLens.swift", contains: #"stepsBeforeFold) more""#, reason: fold),
+            .init(file: "Modules/FileExplorer/Sources/FileExplorer/DifferencesView.swift", contains: #"count) selected""#,
+                  reason: "a count beside a clear glyph — the selection chip says what is selected, not a verb"),
+            .init(file: "Modules/Dashboard/Sources/Dashboard/DashboardViews.swift", contains: "everything that is theirs",
+                  reason: "the search field's person offer, a suggestion row read as a sentence, as the palette's rows are"),
+        ]
+    }()
 
     // MARK: Reading the sources
 

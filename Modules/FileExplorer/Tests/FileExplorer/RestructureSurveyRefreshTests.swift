@@ -88,7 +88,7 @@ import Testing
         let elseBranch = try #require(text.range(of: "} else if !scaffold.isEmpty, let onScaffold {",
                                                  range: landed.lowerBound..<text.endIndex))
         let branch = text[landed.lowerBound..<elseBranch.lowerBound]
-        #expect(branch.contains("Button(\"Update the survey\") { onRefreshSurvey"),
+        #expect(branch.contains("Button(\"Update the Survey\") { onRefreshSurvey"),
                 "the button lives in the scaffolded branch")
         #expect(!text[elseBranch.lowerBound...].prefix(600).contains("onRefreshSurvey(finding.subject)"),
                 "and not in the not-yet-scaffolded one")
@@ -137,8 +137,8 @@ import Testing
         let lens = try Self.lensSource()
         #expect(lens.contains("var isRefreshing: Bool"),
                 "the lens cannot show a busy state it is never told about")
-        #expect(lens.contains("Button(isRefreshing ? \"Updating the survey…\" : \"Update the survey\")"),
-                "Update the survey must say when it is already updating")
+        #expect(lens.contains("Button(isRefreshing ? \"Updating the Survey…\" : \"Update the Survey\")"),
+                "Update the Survey must say when it is already updating")
         #expect(lens.contains(".disabled(isRefreshing)"),
                 "Rescan must refuse the second press rather than collecting a refusal for it")
         #expect(lens.contains("isBusy: isRefreshing"),

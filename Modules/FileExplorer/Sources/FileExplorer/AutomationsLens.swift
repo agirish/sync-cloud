@@ -307,7 +307,7 @@ public struct AutomationsLens: View {
             LensSetupCard(
                 intro: LensIntros.rules(providerName: providerName),
                 accent: accent,
-                triggerTitle: "New rule",
+                triggerTitle: "New Rule",
                 triggerSymbol: AutomationsGlyph.newRule,
                 triggerHelp: "Write a rule — a condition and where matching files belong. Nothing "
                     + "runs until you preview it.",
@@ -391,7 +391,7 @@ public struct AutomationsLens: View {
                     tint: .secondary,
                     title: "No files matched your rules",
                     message: "Nothing in \((report.root as NSString).lastPathComponent) matched an enabled rule. Adjust a rule or preview a different folder.",
-                    secondary: .init("Back to rules", systemImage: "chevron.left", handler: { state.viewingResults = false })
+                    secondary: .init("Back to Rules", systemImage: "chevron.left", handler: { state.viewingResults = false })
                 )
             } else {
                 ScrollView {
@@ -427,7 +427,7 @@ public struct AutomationsLens: View {
                 .scaledFont(.system(size: 13, weight: .semibold))
                 .lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 8)
-            Button(action: { runPreview(only: nil) }) { Label("Preview again", systemImage: "arrow.clockwise") }
+            Button(action: { runPreview(only: nil) }) { Label("Preview Again", systemImage: "arrow.clockwise") }
                 .chromeButtonStyle(glassLevel)
                 .controlSize(.small)
                 .chromeHover(tint: accent)

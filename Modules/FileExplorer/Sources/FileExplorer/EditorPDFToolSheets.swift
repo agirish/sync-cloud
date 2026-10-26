@@ -29,10 +29,10 @@ struct EditorPDFToolSheetView: View {
         .padding(20)
         // A floor, not a fixed width: at the Large text size the radio rows and captions need more.
         .frame(minWidth: 400, idealWidth: 420)
-        // The sheet's tint. Its default button is AppKit's, which lays a white label on the tint,
-        // so this is the deepened accent (`accentedProminent`), as are the radios' fills. Cancel's
-        // words take the raw accent back (``EditorPDFToolSheetFrame``).
-        .accentedProminent()
+        // **No tint at the root.** A sheet-wide `.tint` reached every `.bordered` button inside and
+        // drew its words in the deepened fill, 2.9:1 on the dark bezel at Green. The default button
+        // takes the fill itself (``EditorPDFToolSheetFrame``); the radios and progress bars take the
+        // presenter's hue through `presentedNativeControlAccent`, which leaves words alone.
     }
 }
 
@@ -115,14 +115,17 @@ struct EditorPDFToolSheetFrame<Content: View>: View {
                     if tools.running != nil { tools.cancelRun() } else { tools.sheet = nil }
                 }
                 .keyboardShortcut(.cancelAction)
-                // **Cancel's words take the hue at a depth they read at.** The sheet is tinted with
-                // the deepened fill, for the default button's white label and the radios' dots;
-                // Cancel draws the tint as TEXT, and on Green's dark bezel the deepened one measures
-                // 3.4:1, the raw one 2.3:1 on the light bezel. `buttonWordsTint` clears 4.5:1 in both.
+                // **Cancel's words take the hue at a depth they read at.** A `.bordered` button draws
+                // its tint as TEXT: the deepened fill measures 3.4:1 on Green's dark bezel, the raw
+                // one 2.3:1 on the light bezel. `buttonWordsTint` clears 4.5:1 in both.
                 .buttonWordsTint((LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor)
                 Button(action, action: run)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canRun || tools.running != nil)
+                    // AppKit lays a white label on the default button's fill, so the deepened accent
+                    // — on this button alone, so the sheet's other buttons keep their words in label
+                    // colour.
+                    .accentedProminent()
             }
         }
     }

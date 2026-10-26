@@ -354,7 +354,7 @@ struct RestructureLens: View {
             Text(Self.hiddenSentence(hiddenCount))
                 .scaledFont(.system(size: 11))
                 .foregroundStyle(.secondary)
-            Button("Show them again") { onShowHidden?() }
+            Button("Show Them Again") { onShowHidden?() }
                 .scaledFont(.system(size: 11, weight: .semibold))
                 .buttonStyle(.plain)
                 .foregroundStyle(accent)
@@ -412,7 +412,7 @@ struct RestructureLens: View {
             if record.undoneAt == nil {
                 HStack(spacing: 14) {
                     if record.canUndo, let onUndoReorganisation {
-                        Button("Undo this reorganization…") {
+                        Button("Undo This Reorganization…") {
                             onUndoReorganisation(record.manifestId)
                         }
                         .scaledFont(.system(size: 11, weight: .semibold))
@@ -424,7 +424,7 @@ struct RestructureLens: View {
                               + "re-points the survey back — it survives a quit, and it is not ⌘Z.")
                     }
                     if record.hasEmptiedFolders, let onRemoveEmptied {
-                        Button("Remove emptied folders…") { onRemoveEmptied(record.manifestId) }
+                        Button("Remove Emptied Folders…") { onRemoveEmptied(record.manifestId) }
                             .scaledFont(.system(size: 11, weight: .semibold))
                             .buttonStyle(.plain)
                             .foregroundStyle(accent)
@@ -751,7 +751,7 @@ struct RestructureLens: View {
             if Self.offersStandingRemoval(weightClass, pathCount: paths.count,
                                           hasHandler: onRemoveStandingEmpties != nil),
                let onRemoveStandingEmpties {
-                Button("Remove empty folders…") { onRemoveStandingEmpties() }
+                Button("Remove Empty Folders…") { onRemoveStandingEmpties() }
                     .scaledFont(.system(size: 11, weight: .semibold))
                     .buttonStyle(.plain)
                     .foregroundStyle(accent)
@@ -952,7 +952,7 @@ struct RestructureLens: View {
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                         if let onRefreshSurvey {
-                            Button("Update the survey") { onRefreshSurvey(finding.subject) }
+                            Button("Update the Survey") { onRefreshSurvey(finding.subject) }
                                 .scaledFont(.system(size: 11, weight: .semibold))
                                 .buttonStyle(.plain)
                                 .foregroundStyle(accent)
@@ -968,7 +968,7 @@ struct RestructureLens: View {
                         }
                     }
                 } else if !scaffold.isEmpty, let onScaffold {
-                    Button("Set up like its siblings") { onScaffold(finding) }
+                    Button("Set Up Like Its Siblings") { onScaffold(finding) }
                         .scaledFont(.system(size: 11, weight: .semibold))
                         .buttonStyle(.plain)
                         .foregroundStyle(accent)
@@ -978,7 +978,7 @@ struct RestructureLens: View {
                               + "⌘Z — then opens To File scoped here for the flat files.")
                 }
                 if let onHandOff {
-                    Button("File these…") { onHandOff(finding) }
+                    Button("File These…") { onHandOff(finding) }
                         .scaledFont(.system(size: 11, weight: .semibold))
                         .buttonStyle(.plain)
                         .foregroundStyle(accent)
@@ -989,7 +989,7 @@ struct RestructureLens: View {
             }
         case .looseAboveSeries:
             if let onHandOff {
-                Button("File these…") { onHandOff(finding) }
+                Button("File These…") { onHandOff(finding) }
                     .scaledFont(.system(size: 11, weight: .semibold))
                     .buttonStyle(.plain)
                     .foregroundStyle(accent)
@@ -1045,7 +1045,7 @@ struct RestructureLens: View {
 
     static func planTriggerTitle(planned: PlannedPlanInfo?) -> String {
         guard let planned else { return "Plan…" }
-        return "Review \(planned.operations) operation\(planned.operations == 1 ? "" : "s")"
+        return "Review \(planned.operations) Operation\(planned.operations == 1 ? "" : "s")"
     }
 
     private func kindTag(_ kind: FindingKind) -> some View {
@@ -1509,7 +1509,7 @@ struct RestructureLens: View {
         LensSetupCard(
             intro: LensIntros.restructure(providerName: providerName),
             accent: accent,
-            triggerTitle: "Set up the survey",
+            triggerTitle: "Set Up the Survey",
             triggerSymbol: "gearshape",
             // These three are REQUIRED by `LensSetupCard` and, with `onStart: nil` below, are
             // never rendered — the card draws its trigger, and that trigger's `.help`, only
@@ -1580,7 +1580,7 @@ struct RestructureLens: View {
             onStart: onReview,
             secondary: onUpdateSurvey.map {
                 LensSetupCard.SecondaryAction(
-                    title: isRefreshing ? "Updating the survey…" : "Update the survey",
+                    title: isRefreshing ? "Updating the Survey…" : "Update the Survey",
                     symbol: "arrow.clockwise",
                     help: isRefreshing
                         ? "Re-reading the tree now — this takes a few seconds."
@@ -1606,8 +1606,8 @@ struct RestructureLens: View {
     /// no findings of its own can still have ancestor ones, and those do render. "Check the
     /// shapes" is deliberately the one wording that is true of both.
     static func revealTitle(findingCount: Int) -> String {
-        guard findingCount > 0 else { return "Check the shapes" }
-        return "Show \(findingCount) finding\(findingCount == 1 ? "" : "s")"
+        guard findingCount > 0 else { return "Check the Shapes" }
+        return "Show \(findingCount) Finding\(findingCount == 1 ? "" : "s")"
     }
 
     /// Says where the answer came from, so "update" is a choice rather than a guess.
@@ -1642,7 +1642,7 @@ struct RestructureLens: View {
                 // The remedy beside the warning: a caution with nothing to do about it is a
                 // caution people learn to scroll past.
                 if stale, let onUpdateSurvey {
-                    Button(isRefreshing ? "Updating the survey…" : "Update the survey") { onUpdateSurvey() }
+                    Button(isRefreshing ? "Updating the Survey…" : "Update the Survey") { onUpdateSurvey() }
                         .scaledFont(.system(size: 11, weight: .semibold))
                         .buttonStyle(.plain)
                         // Not the accent while it is running: an accented control reads as

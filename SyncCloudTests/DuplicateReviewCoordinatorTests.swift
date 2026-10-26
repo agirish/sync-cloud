@@ -784,7 +784,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.syncManager.banner?.isUndoable == true)
     }
 
-    /// **"Trash right copy" refuses a right copy holding what the left lacks (FR13).** An
+    /// **"Trash Right Copy" refuses a right copy holding what the left lacks (FR13).** An
     /// overlapping group's card offers Compare copies too, and the button checked only that the
     /// pair was unchanged since the scan — so a right folder "1 unique here" went to the Trash with
     /// its unique file inside, under a dialog that said only "The left copy is kept." Real folders,
@@ -825,7 +825,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         let message = harness.syncManager.banner?.message ?? ""
         #expect(message.contains("holds 1 item the left one doesn’t"), "banner: \(message)")
         #expect(message.contains("only-here.txt"), "banner: \(message)")
-        #expect(message.contains("Merge into keeper"), "banner: \(message)")
+        #expect(message.contains("Merge into Keeper"), "banner: \(message)")
         #expect(FileManager.default.fileExists(atPath: copy.appendingPathComponent("only-here.txt").path))
         #expect(harness.duplicateReview == review)
         #expect(harness.workspace == .compare)
@@ -914,7 +914,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
 
     /// **An identical group's copy is trashed whatever its dates say (D1).** `cp -R` and most
     /// downloads give a copy new dates, and the date comparison FR13 added refused every such
-    /// pair — pointing at "Merge into keeper", which an identical group's card does not offer. The
+    /// pair — pointing at "Merge into Keeper", which an identical group's card does not offer. The
     /// scan hashed both trees and found the same content, so the dates are not evidence. Real
     /// folders, the same bytes dated a year apart, run to the end: the right copy leaves the disk.
     @Test func anIdenticalGroupsCopyWithOtherDatesIsTrashed() async throws {
@@ -963,7 +963,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.trashConfirmedFor == [copy.path], "the trash was refused before asking")
         #expect(FileManager.default.fileExists(atPath: trash.appendingPathComponent("Docs/a.txt").path))
         #expect(FileManager.default.fileExists(atPath: keep.appendingPathComponent("a.txt").path))
-        #expect(harness.syncManager.banner?.message.contains("Merge into keeper") != true,
+        #expect(harness.syncManager.banner?.message.contains("Merge into Keeper") != true,
                 "banner: \(harness.syncManager.banner?.message ?? "")")
     }
 

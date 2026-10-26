@@ -39,7 +39,7 @@ struct FilingSetupCard: View {
         LensSetupCard(
             intro: intro,
             accent: accent,
-            triggerTitle: "Suggest homes",
+            triggerTitle: "Suggest Homes",
             triggerSymbol: FilingGlyph.lens,
             triggerHelp: "Suggest where the loose files in this folder belong. Runs on this Mac "
                 + "and costs nothing; once there are results you can re-ask Claude about them.",

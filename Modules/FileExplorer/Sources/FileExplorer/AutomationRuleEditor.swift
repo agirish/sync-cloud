@@ -288,7 +288,7 @@ struct AutomationRuleEditor: View {
                     Button(type.label) { rows.append(DraftCondition(condition: type.makeDefault())) }
                 }
             } label: {
-                Label("Add condition", systemImage: "plus")
+                Label("Add Condition", systemImage: "plus")
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
@@ -426,7 +426,7 @@ struct AutomationRuleEditor: View {
                         Button(token) { destination += token }
                     }
                 } label: {
-                    Label("Insert token", systemImage: "curlybraces")
+                    Label("Insert Token", systemImage: "curlybraces")
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()

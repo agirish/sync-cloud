@@ -12389,3 +12389,32 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s goneGuard=%s ownReason=%s\n' 
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | "Left in place" for a file gone since the scan (`ownReason=0`) | RECORDED — not owed |
+
+---
+
+## PDF sheets' other buttons read at 4.5:1; buttons in Title Case — main only
+
+Two owner calls of 2026-10-26. **Sheet words:** the PDF tool and batch sheets wore
+`.accentedProminent()` on their root, and every untinted `.bordered` button inside drew its words in
+the deepened fill (Keep Current Values, Clear All, Download: 4.3:1 light, 3.5:1 dark at Green on the
+small bezel). `main` tints the default button alone. **Title Case:** buttons outside Setup said
+"Not now", "Try another folder", "Look again", "Keep separate" and the like; `main` Title Cases
+them, and `AppCopyScan` holds every button title to it.
+
+```sh
+S=Modules/FileExplorer/Sources/FileExplorer
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s sheets=%s sheetRoot=%s notNow=%s keepSeparate=%s\n' $l \
+  "$(git ls-tree --name-only origin/$l -- $S/EditorPDFToolSheets.swift | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:$S/EditorPDFToolSheets.swift 2>/dev/null | grep -cxF '        .accentedProminent()')" \
+  "$(git show origin/$l:$S/RuleOfferPrompt.swift 2>/dev/null | grep -cF 'Button("Not now"')" \
+  "$(git show origin/$l:$S/DuplicateGroupCard.swift 2>/dev/null | grep -cF 'Label("Keep separate"')"; done
+# measured 2026-10-26, against origin, before this landed (the change reads sheetRoot=0 notNow=0
+# keepSeparate=0):
+# main          sheets=1 sheetRoot=1 notNow=2 keepSeparate=1
+# v5.x, v4.x    sheets=0 sheetRoot=0 notNow=2 keepSeparate=1
+# v3.x, v2.x    sheets=0 sheetRoot=0 notNow=2 keepSeparate=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF tool sheets (`sheets=0`); sentence-case buttons, the rule offer's "Not now" on every line (`notNow=2`) | RECORDED — not owed |

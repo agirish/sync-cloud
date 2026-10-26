@@ -181,7 +181,7 @@ struct ComparePairFacts: Equatable {
 
 // MARK: - The destructive confirmation
 
-/// The wording of the Compare Copies surface's "Trash the other copy" confirmation — the last
+/// The wording of the Compare Copies surface's "Trash the Other Copy" confirmation — the last
 /// thing read before one of the user's files is destroyed.
 ///
 /// Here for the reason ``DuplicateRemovalPrompt`` is here: this vocabulary has drifted before. The
@@ -269,7 +269,7 @@ enum DuplicateComparePrompt {
     /// The trash button's own title.
     ///
     /// **Derived from the TARGET, not from the kind — and that is a correction.** This switched on
-    /// the match kind alone, so a versions pair always read "Trash the older copy". The keeper is
+    /// the match kind alone, so a versions pair always read "Trash the Older Copy". The keeper is
     /// the reader's to flip, and flipping it to the older revision makes the target the newer one:
     /// the button then named the copy it was keeping. The dialog behind it was right throughout,
     /// which is exactly why the label could stay wrong without anything failing.
@@ -277,8 +277,8 @@ enum DuplicateComparePrompt {
     /// `targetIsOlder` is nil when the two dates cannot order the pair — one is missing, or they
     /// are equal — and the title then says only "the other copy", which is true of every pair.
     static func trashTitle(kind: DuplicateMatchType.Kind, targetIsOlder: Bool?) -> String {
-        guard kind == .versions, let targetIsOlder else { return "Trash the other copy" }
-        return targetIsOlder ? "Trash the older copy" : "Trash the newer copy"
+        guard kind == .versions, let targetIsOlder else { return "Trash the Other Copy" }
+        return targetIsOlder ? "Trash the Older Copy" : "Trash the Newer Copy"
     }
 
     /// The same title, from the two copies themselves — what the surface calls, so the ordering

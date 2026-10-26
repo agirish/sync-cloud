@@ -926,9 +926,9 @@ struct RestructurePlanSheet: View {
                         Button {
                             refining ? stopRefine() : runRefine()
                         } label: {
-                            Label(refining ? "Stop asking"
-                                  : "Ask \(refineModelLabel) about \(rows.count) folder "
-                                    + "name\(rows.count == 1 ? "" : "s")",
+                            Label(refining ? "Stop Asking"
+                                  : "Ask \(refineModelLabel) About \(rows.count) Folder "
+                                    + "Name\(rows.count == 1 ? "" : "s")",
                                   systemImage: refining ? "stop.circle" : "sparkles")
                         }
                         .buttonStyle(.bordered)
@@ -957,7 +957,7 @@ struct RestructurePlanSheet: View {
                         .fixedSize(horizontal: false, vertical: true)
                 } else if let onConfigureRefine {
                     Button(action: onConfigureRefine) {
-                        Label("Refine names with Claude…", systemImage: "sparkles")
+                        Label("Refine Names with Claude…", systemImage: "sparkles")
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -1403,7 +1403,7 @@ struct RestructurePlanSheet: View {
             // the safe route got a file, and a draft behind §5.7's *Planned, not applied* card,
             // covering one family of three.
             // No ellipsis (LN13): it writes the file and keeps the plan at once, with no panel.
-            Button(group.isEmpty ? "Export plan" : "Export \(group.count) plans") {
+            Button(group.isEmpty ? "Export Plan" : "Export \(group.count) Plans") {
                 if group.isEmpty { exportPlan(plan) } else { exportGroup(group) }
             }
                 .scaledFont(.system(size: 11, weight: .semibold))
@@ -1424,7 +1424,7 @@ struct RestructurePlanSheet: View {
                         .filter { !alreadyLanded.contains($0.manifestId) }
                     Button(applying
                            ? "Applying…"
-                           : "Apply to \(landable.count) famil\(landable.count == 1 ? "y" : "ies")") {
+                           : "Apply to \(landable.count) \(landable.count == 1 ? "Family" : "Families")") {
                         applyGroup(group, onApply)
                     }
                         .scaledFont(.system(size: 11, weight: .semibold))
@@ -1518,7 +1518,7 @@ extension RestructurePlanSheet {
         // `operationCount`, not `actions.count`: keeps are the signature block, and counting
         // them read "Apply 14 operations" in red over one rename plus 13 keeps.
         let count = (try? plan.get())?.operationCount ?? 0
-        return applying ? "Applying…" : "Apply \(count) operation\(count == 1 ? "" : "s")"
+        return applying ? "Applying…" : "Apply \(count) Operation\(count == 1 ? "" : "s")"
     }
 
     private func apply(_ plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>,

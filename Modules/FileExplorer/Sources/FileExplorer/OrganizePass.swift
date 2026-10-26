@@ -172,10 +172,10 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
     /// label VoiceOver reads as nothing at all.
     var runTitle: String {
         switch self {
-        case .file: return "Run the file pass"
-        case .duplicates: return "Find duplicates"
+        case .file: return "Run the File Pass"
+        case .duplicates: return "Find Duplicates"
         // The same words the document survey's offer card uses, so the two are one feature.
-        case .folderMemory: return "Read my documents"
+        case .folderMemory: return "Read My Documents"
         }
     }
 

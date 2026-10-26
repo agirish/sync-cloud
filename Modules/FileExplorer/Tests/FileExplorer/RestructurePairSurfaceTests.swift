@@ -137,21 +137,21 @@ import Testing
             kind: .looseBesideContainer,
             actions: [.init(action: .moveDir, src: "Work/Badge", dst: "Work/Acme/Badge")])
         #expect(RestructurePairMergeSheet.applyTitle(manifest: manifest, applying: false)
-                    == "Apply 1 operation")
+                    == "Apply 1 Operation")
         // `keep` rows are the signature block. The card beside this button counts with
         // `operationCount`, so counting them here put "Apply 3 operations" under a card reading
         // "Review 1 operation" — the disagreement `applyTitle`'s own doc exists to prevent.
         var withKeeps = manifest
         withKeeps.actions += [.init(action: .keep, src: "a"), .init(action: .keep, src: "b")]
         #expect(RestructurePairMergeSheet.applyTitle(manifest: withKeeps, applying: false)
-                    == "Apply 1 operation")
+                    == "Apply 1 Operation")
         #expect(withKeeps.operationCount == 1)
 
         var three = manifest
         three.actions += [.init(action: .moveFile, src: "x", dst: "y"),
                           .init(action: .moveFile, src: "p", dst: "q")]
         #expect(RestructurePairMergeSheet.applyTitle(manifest: three, applying: false)
-                    == "Apply 3 operations")
+                    == "Apply 3 Operations")
         #expect(RestructurePairMergeSheet.applyTitle(manifest: three, applying: true)
                     == "Applying…")
         #expect(RestructurePairMergeSheet.applyTitle(manifest: nil, applying: false) == "Apply")

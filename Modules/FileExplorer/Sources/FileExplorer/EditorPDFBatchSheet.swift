@@ -51,6 +51,8 @@ struct EditorPDFBatchSheet: View {
                     Button(actionTitle, action: go)
                         .keyboardShortcut(.defaultAction)
                         .disabled(batch.isRunning || !canRun)
+                        // Deepened, on this button alone — see `EditorPDFToolSheetFrame`.
+                        .accentedProminent()
                 }
             }
         }

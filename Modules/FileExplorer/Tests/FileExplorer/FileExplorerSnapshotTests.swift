@@ -334,7 +334,7 @@ import Sync
     /// group stays out of "Apply recommended". Rendered because none of that is provable from
     /// geometry — the badge, the note and the button label are the whole claim.
     ///
-    /// **The row includes "Compare copies", and that is the point of the reference being re-taken.**
+    /// **The row includes "Compare Copies", and that is the point of the reference being re-taken.**
     /// This is a FILE group, and the action was once gated to folders; ungating it is the whole
     /// premise of the compare surface. The reference was recorded before that landed, so it went on
     /// asserting a row that no longer existed — the render was right and the picture was stale.
@@ -365,7 +365,7 @@ import Sync
     /// Expanded identical-folders group (directories skip the thumbnail strip, keeping the
     /// tree synchronous): keeper radio vs selectable radio, breadcrumbs with the provider
     /// crumb, Keep/Move-to-Trash fate chips, the safety note, and the action row including
-    /// "Compare copies".
+    /// "Compare Copies".
     @Test func duplicateGroupCardExpandedIdenticalFolders() {
         let group = DuplicateGroup(
             matchType: .identical,

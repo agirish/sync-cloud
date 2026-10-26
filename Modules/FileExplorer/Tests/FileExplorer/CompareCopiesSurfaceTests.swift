@@ -137,8 +137,8 @@ import Testing
                 availableSize: CGSize(width: 900, height: 700),
                 onChooseKeeper: { _ in }, onTrash: { _, _ in }, onClose: {})
         }
-        #expect(sheet(keeping: newer.path).trashTitle == "Trash the older copy")
-        #expect(sheet(keeping: older.path).trashTitle == "Trash the newer copy",
+        #expect(sheet(keeping: newer.path).trashTitle == "Trash the Older Copy")
+        #expect(sheet(keeping: older.path).trashTitle == "Trash the Newer Copy",
                 "the button named the copy it was keeping after the keeper was flipped")
     }
 
@@ -153,7 +153,7 @@ import Testing
             protectedPaths: [], scanRoot: "/root", providerName: "Projects",
             hue: .blue, availableSize: CGSize(width: 900, height: 700),
             onChooseKeeper: { _ in }, onTrash: { _, _ in }, onClose: {})
-        #expect(sheet.trashTitle == "Trash the other copy")
+        #expect(sheet.trashTitle == "Trash the Other Copy")
     }
 
     /// A keeper path naming neither side is what a stale payload looks like — there is no "other
@@ -170,7 +170,7 @@ import Testing
     /// **A group may hold more copies than the two on screen, and the keeper can be one of the
     /// others.** Open a three-copy group's second and third copies against each other and the live
     /// group's keeper is neither of them — the host used to fall back to the LEFT pane, so the
-    /// surface drew a keeper marker on a copy nothing was keeping and left "Trash the other copy"
+    /// surface drew a keeper marker on a copy nothing was keeping and left "Trash the Other Copy"
     /// enabled beside it. Nothing was stale, so no notice contradicted it.
     ///
     /// The seam is a pure function of a pair and a group, which is what makes the rule assertable
@@ -238,7 +238,7 @@ import Testing
         #expect(!notice.contains("moved on"),
                 "current facts were reported as a stale scan, sending the reader to rescan")
         #expect(outside.verdictSummary(facts).contains("not one of these two"))
-        #expect(outside.trashTitle == "Trash the other copy",
+        #expect(outside.trashTitle == "Trash the Other Copy",
                 "the button named a target it has no keeper to choose against")
 
         // Stale: also no verdict, but for the other reason — and it must SAY the other reason.

@@ -284,21 +284,21 @@ import Sync
     // MARK: The trash button's title
 
     /// **The label has to follow the keeper, not the kind.** A versions pair opens keeping the
-    /// newer revision, so the target is the older one and "Trash the older copy" is right — but
+    /// newer revision, so the target is the older one and "Trash the Older Copy" is right — but
     /// the keeper is the reader's to flip, and after a flip the same button destroys the NEWER
     /// copy. It went on saying "older", naming the file it was keeping.
     @Test func aVersionsTitleFollowsWhichCopyIsActuallyDoomed() {
         #expect(DuplicateComparePrompt.trashTitle(kind: .versions, targetIsOlder: true)
-                == "Trash the older copy")
+                == "Trash the Older Copy")
         #expect(DuplicateComparePrompt.trashTitle(kind: .versions, targetIsOlder: false)
-                == "Trash the newer copy")
+                == "Trash the Newer Copy")
     }
 
     /// Two copies the dates cannot order — one undated, or both stamped the same second — get the
     /// claim that is true of every pair rather than a guess at which is older.
     @Test func anUnorderablePairIsJustTheOtherCopy() {
         #expect(DuplicateComparePrompt.trashTitle(kind: .versions, targetIsOlder: nil)
-                == "Trash the other copy")
+                == "Trash the Other Copy")
     }
 
     /// **The flip, driven the way the surface drives it.** This is the shape the bug actually
@@ -309,9 +309,9 @@ import Sync
         let older = copy("/x/Notes v1.md", modified: Self.noon)
         let newer = copy("/x/Notes v2.md", modified: Self.noon.addingTimeInterval(86_400))
         #expect(DuplicateComparePrompt.trashTitle(kind: .versions, keeper: newer, target: older)
-                == "Trash the older copy")
+                == "Trash the Older Copy")
         #expect(DuplicateComparePrompt.trashTitle(kind: .versions, keeper: older, target: newer)
-                == "Trash the newer copy")
+                == "Trash the Newer Copy")
     }
 
     /// An undated copy, and a pair stamped the same second: neither can be ordered, and the title
@@ -320,10 +320,10 @@ import Sync
         let dated = copy("/x/a.md", modified: Self.noon)
         let undated = copy("/x/b.md", modified: nil)
         #expect(DuplicateComparePrompt.trashTitle(kind: .versions, keeper: dated, target: undated)
-                == "Trash the other copy")
+                == "Trash the Other Copy")
         #expect(DuplicateComparePrompt.trashTitle(kind: .versions, keeper: dated,
                                                   target: copy("/x/c.md", modified: Self.noon))
-                == "Trash the other copy")
+                == "Trash the Other Copy")
     }
 
     /// A pair with no other copy left — the stale case, where the verdict is disabled anyway — must
@@ -331,7 +331,7 @@ import Sync
     @Test func aMissingTargetIsNamedNeutrally() {
         #expect(DuplicateComparePrompt.trashTitle(kind: .versions,
                                                   keeper: copy("/x/a.md"), target: nil)
-                == "Trash the other copy")
+                == "Trash the Other Copy")
     }
 
     /// Age is a versions idea. Identical and same-text copies are the same content twice, so
@@ -340,7 +340,7 @@ import Sync
         for kind in [DuplicateMatchType.Kind.identical, .sameText, .overlapping] {
             for older in [true, false, nil] {
                 #expect(DuplicateComparePrompt.trashTitle(kind: kind, targetIsOlder: older)
-                        == "Trash the other copy")
+                        == "Trash the Other Copy")
             }
         }
     }
@@ -370,7 +370,7 @@ import Sync
         for url in files where url.pathExtension == "swift" {
             let text = try #require(try? String(contentsOf: url, encoding: .utf8),
                                     "cannot read \(url.lastPathComponent)")
-            guard text.contains("Trash the older copy") || text.contains("Trash the newer copy")
+            guard text.contains("Trash the Older Copy") || text.contains("Trash the Newer Copy")
             else { continue }
             if url.lastPathComponent == "CompareCopiesModels.swift" { found = true }
             else { offenders.append(url.lastPathComponent) }

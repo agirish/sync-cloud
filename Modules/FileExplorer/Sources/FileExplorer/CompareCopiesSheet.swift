@@ -728,7 +728,7 @@ struct FilePairCompareView<Verdict: View>: View {
     private var verifyControl: some View {
         HStack(spacing: 6) {
             if verify == .running { ProgressView().controlSize(.small) }
-            Button("Verify now") { runVerify() }
+            Button("Verify Now") { runVerify() }
                 .buttonStyle(.hoverAffordance(.segment, tint: accent))
                 .controlSize(.small)
                 .disabled(verify == .running)
@@ -1960,7 +1960,7 @@ struct CompareKeeperHeaderRow: View {
                     .accessibilityLabel(accessibilityLabel ?? "Kept copy")
             case .keepInstead:
                 Button(action: onKeepInstead) {
-                    Label("Keep this instead", systemImage: "circle")
+                    Label("Keep This Instead", systemImage: "circle")
                         .scaledFont(.system(size: 11.5))
                 }
                 .buttonStyle(.bordered)

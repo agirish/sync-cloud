@@ -329,8 +329,8 @@ struct PanePDFBatchLayer: View {
                     .padding(20)
                     // A floor, not a fixed width — the tool sheets' own (TE134).
                     .frame(minWidth: EditorPDFBatchSheet.minWidth, idealWidth: EditorPDFBatchSheet.idealWidth)
-                    // Deepened: its default button lays a white label on the tint.
-                    .accentedProminent()
+                    // No `.accentedProminent()` here: a root tint draws every bordered button's
+                    // words in the fill. The sheet's default button takes it itself.
                     .presentedNativeControlAccent()
             }
         }

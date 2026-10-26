@@ -157,10 +157,10 @@ import Testing
         #expect(RestructureLens.planTriggerTitle(planned: nil) == "Plan…")
         #expect(RestructureLens.planTriggerTitle(
             planned: PlannedPlanInfo(operations: 9, summary: "s", renames: 0, carried: 0,
-                                    merges: 0, filesMove: 0)) == "Review 9 operations")
+                                    merges: 0, filesMove: 0)) == "Review 9 Operations")
         #expect(RestructureLens.planTriggerTitle(
             planned: PlannedPlanInfo(operations: 1, summary: "s", renames: 0, carried: 0,
-                                    merges: 0, filesMove: 0)) == "Review 1 operation")
+                                    merges: 0, filesMove: 0)) == "Review 1 Operation")
     }
 
     // MARK: Render smoke

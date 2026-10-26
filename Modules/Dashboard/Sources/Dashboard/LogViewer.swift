@@ -841,7 +841,7 @@ public struct LogViewer: View {
                 if nextReveal > 0 {
                     // The TRUE remainder, not the page size: on the last page this used to promise
                     // 25 and hand over 5.
-                    historyActionButton("Show \(nextReveal) more", icon: "chevron.down") {
+                    historyActionButton("Show \(nextReveal) More", icon: "chevron.down") {
                         history.revealMore(by: Self.historyPageSize)
                     }
                 } else {
@@ -866,9 +866,9 @@ public struct LogViewer: View {
             if LogEmptyState.footerNotesUnreadableHistory(emptyState: emptyState) {
                 historyEndNote("Couldn’t read the log file — earlier activity is unavailable")
             }
-            historyActionButton("Show older history", icon: "clock.arrow.circlepath") { loadHistory() }
+            historyActionButton("Show Older History", icon: "clock.arrow.circlepath") { loadHistory() }
         } else {
-            historyActionButton("Show older history", icon: "clock.arrow.circlepath",
+            historyActionButton("Show Older History", icon: "clock.arrow.circlepath",
                                  loading: history.isLoading) { loadHistory() }
         }
     }
@@ -955,7 +955,7 @@ public struct LogViewer: View {
             EmptyStateView(
                 icon: "list.bullet.rectangle",
                 title: "No activity yet",
-                message: "Every scan, copy, move and delete is recorded here as it happens. This session is quiet so far — use “Show older history” below to load what earlier sessions recorded."
+                message: "Every scan, copy, move and delete is recorded here as it happens. This session is quiet so far — use “Show Older History” below to load what earlier sessions recorded."
             )
         case .historyUnavailable:
             // Quiet session AND the read failed. Says the failure once, in the fuller of the two

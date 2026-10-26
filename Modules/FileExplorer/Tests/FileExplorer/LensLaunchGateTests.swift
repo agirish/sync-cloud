@@ -145,11 +145,11 @@ import Design
     @Test func theTriggerCountsWhatItWouldShow() {
         // The rail badge beside this button carries a number; a trigger that said "Show findings"
         // next to a badge saying 12 invites the question of whether they are the same twelve.
-        #expect(RestructureLens.revealTitle(findingCount: 1) == "Show 1 finding")
-        #expect(RestructureLens.revealTitle(findingCount: 12) == "Show 12 findings")
+        #expect(RestructureLens.revealTitle(findingCount: 1) == "Show 1 Finding")
+        #expect(RestructureLens.revealTitle(findingCount: 12) == "Show 12 Findings")
         // Zero is its own phrasing. "Show 0 findings" reads as a button that does nothing; what
         // it actually opens is the earned clean state, which is a result and not an absence.
-        #expect(RestructureLens.revealTitle(findingCount: 0) == "Check the shapes")
+        #expect(RestructureLens.revealTitle(findingCount: 0) == "Check the Shapes")
     }
 
     @Test func theFootnoteClaimsCoverageAndNeverFreshness() {

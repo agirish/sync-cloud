@@ -27,10 +27,8 @@ import Testing
 ///    accent, AppKit lays its white label on 2.7:1. The seam picks the deepened fill, and the stock
 ///    blue at None (`ProminentAccent.swift`).
 ///    A `.keyboardShortcut(.defaultAction)` button fills with the tint too, so a file that has one
-///    must tint somewhere — on the button or the sheet's root — with `.accentedProminent` or draw it
-///    as `.actionBar`. Six such files painted the system blue beside the user's hue (2026-10-21). A
-///    file can only be read whole here, so a root tinted in ANOTHER file is named in
-///    ``hostTintedDefaults``.
+///    must tint it with `.accentedProminent` or draw it as `.actionBar`. Six such files painted the
+///    system blue beside the user's hue (2026-10-21).
 /// 3. **No `controlAccentColor`** outside `systemAccentExemptions` — the None hue, which IS the
 ///    Mac's accent. It is the system's accent, not the app's, so anything else drawn in it ignores
 ///    the hue the user picked.
@@ -60,6 +58,11 @@ import Testing
 ///    a button's words take `.buttonWordsTint(…)`, which deepens them in light and whitens them in
 ///    dark. A `ViewModifier` that tints its `content` with a colour handed in is caught too: the
 ///    colour is named only at the call site, where no `.tint(` is (`HeaderCardChrome` was one).
+///    **Nor the prominent tint over a subtree**: `.accentedProminent(…)` hangs off a `Button`. On a
+///    sheet's root it reached every `.bordered` and borderless button inside that had no tint of
+///    its own, and drew its words in the deepened fill — 2.9:1 on the dark bezel at Green, 3.8:1
+///    on the light one — in the PDF tool and batch sheets (2026-10-26). Which buttons a root covers
+///    is a fact about other structs and other files, so the rule is about the root.
 @Suite struct AccentFillScanTests {
 
     // MARK: The rules, on any source text
@@ -183,6 +186,16 @@ import Testing
             } else if root.name == "content", argument.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) {
                 found.append(Finding(rule: "tint handed through a modifier", snippet: site))
             }
+        }
+
+        // Rule 7, the prominent tint: on the button it fills, never over a subtree of words.
+        // `content` is a `ViewModifier` passing it on to the button the modifier is applied to.
+        for start in occurrences(of: ".accentedProminent(", in: text) {
+            let root = receiverRoot(text, partners, before: start)
+            if root?.name == "Button" || root?.name == "content" { continue }
+            let from = root.map { $0.index } ?? start
+            found.append(Finding(rule: "prominent tint over a subtree",
+                                 snippet: String(snippet(text, from, min(text.count - 1, start + 20)).prefix(80))))
         }
         return found
     }
@@ -426,7 +439,6 @@ import Testing
         // Rule 2, default buttons.
         #expect(rules("Button(\"Done\") { dismiss() }.keyboardShortcut(.defaultAction)") == ["untinted default button"])
         #expect(rules("Button(\"Done\") { dismiss() }.keyboardShortcut(.defaultAction).accentedProminent()").isEmpty)
-        #expect(rules("VStack { Button(\"Go\") {}.keyboardShortcut(.defaultAction) }.accentedProminent()").isEmpty)
         #expect(rules("// no .keyboardShortcut(.defaultAction) here").isEmpty)
 
         // Rule 3.
@@ -488,6 +500,19 @@ import Testing
         #expect(rules(".glassEffect(.regular.tint(accent.opacity(strength)), in: Capsule())").isEmpty)
         #expect(rules("content.tint(SegmentedAccent.tint(for: hue))").isEmpty)
         #expect(rules("VStack { } // .tint(accent)").isEmpty)
+
+        // Rule 7, the prominent tint over a subtree: a sheet's root, a stack, a view handed one in
+        // another file, a chain broken over lines.
+        let root = "prominent tint over a subtree"
+        #expect(rules("Group { switch sheet { case .a: A() } }.padding(20).frame(minWidth: 400).accentedProminent()") == [root])
+        #expect(rules("VStack { Button(\"Go\") {}.keyboardShortcut(.defaultAction) }.accentedProminent()") == [root])
+        #expect(rules("EditorPDFBatchSheet(batch: batch)\n .padding(20)\n .accentedProminent()\n .presentedNativeControlAccent()") == [root])
+        #expect(rules("HStack { Button(\"Clear All\") {} }.accentedProminent(glassHue)") == [root])
+        // ...and kept: on the button, every way one is written, and the seam's own modifier.
+        #expect(rules("Button(action, action: run)\n .keyboardShortcut(.defaultAction)\n .disabled(!canRun)\n .accentedProminent()").isEmpty)
+        #expect(rules("Button { go() } label: { Label(\"File\", systemImage: \"tray\") }.buttonStyle(.borderedProminent).accentedProminent(hue)").isEmpty)
+        #expect(rules("func body(content: Content) -> some View { content.accentedProminent(LiquidGlassHue(rawValue: raw) ?? .blue) }").isEmpty)
+        #expect(rules("VStack { } // .accentedProminent()").isEmpty)
     }
 
     // MARK: Edit
@@ -498,12 +523,7 @@ import Testing
         var fills = 0
         for file in try Self.editSources() {
             let source = try String(contentsOf: file, encoding: .utf8)
-            findings += Self.findings(in: source)
-                .filter { finding in
-                    !(finding.rule == "untinted default button"
-                      && Self.hostTintedDefaults.contains { $0.file == file.lastPathComponent })
-                }
-                .map { "\(file.lastPathComponent) — \($0)" }
+            findings += Self.findings(in: source).map { "\(file.lastPathComponent) — \($0)" }
             fills += Self.occurrences(of: "accentFill", in: Array(Self.stripComments(source))).count
         }
         #expect(findings.isEmpty, """
@@ -576,11 +596,6 @@ import Testing
          "the differences table's sort chevrons — its cells and section headers are words and glyphs"),
     ]
 
-    /// Files whose default button is tinted by a root in another file, or never drawn by SwiftUI.
-    static let hostTintedDefaults: [(file: String, why: String)] = [
-        ("EditorPDFBatchSheet.swift", "PanePDFTools tints the batch sheet's root"),
-    ]
-
     /// **Every filled control in the app carries its label at AA, in the app's accent.** The five
     /// rules over every shipping source. Exempt from rule 1: the marks above, and nothing else — a
     /// fill whose label flips to dark ink on light hues is a second button family, not a fix.
@@ -594,10 +609,6 @@ import Testing
             prominent += Self.occurrences(of: Self.prominent, in: Array(Self.stripComments(source))).count
             for finding in Self.findings(in: source) {
                 let name = file.lastPathComponent
-                if finding.rule == "untinted default button", Self.hostTintedDefaults.contains(where: { $0.file == name }) {
-                    exempted["default \(name)", default: 0] += 1
-                    continue
-                }
                 if finding.rule == "raw accent fill",
                    let mark = Self.markExemptions.first(where: { $0.file == name && finding.snippet.hasPrefix($0.fill) }) {
                     exempted["\(mark.file) \(mark.fill)", default: 0] += 1
@@ -633,9 +644,6 @@ import Testing
         for use in Self.systemAccentExemptions {
             let count = exempted["\(use.file) \(use.fragment)", default: 0]
             #expect(count == 1, "the exemption for \(use.why) (\(use.file)) matched \(count) uses, not 1")
-        }
-        for host in Self.hostTintedDefaults {
-            #expect(exempted["default \(host.file)"] == 1, "the exemption for \(host.why) (\(host.file)) matched nothing")
         }
         for tint in Self.rawTintExemptions {
             let count = exempted["tint \(tint.file) \(tint.site)", default: 0]

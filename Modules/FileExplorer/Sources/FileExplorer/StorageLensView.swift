@@ -123,7 +123,7 @@ struct StorageLensView: View {
         LensSetupCard(
             intro: LensIntros.storage(providerName: providerName),
             accent: glassHue.accentColor,
-            triggerTitle: "Analyze storage",
+            triggerTitle: "Analyze Storage",
             triggerSymbol: "chart.pie.fill",
             triggerHelp: "Map this folder’s biggest areas and rank its largest and longest-untouched files. Read-only.",
             samplesTitle: "What the ranked lists look like",
@@ -183,7 +183,7 @@ struct StorageLensView: View {
                 tint: SemanticColor.success,
                 title: "Nothing measurable here",
                 message: "No files with size were found in \(scannedName). Analyze again after adding files.",
-                secondary: .init("Analyze again", systemImage: "arrow.clockwise", handler: onBuild)
+                secondary: .init("Analyze Again", systemImage: "arrow.clockwise", handler: onBuild)
             )
         } else {
             ScrollView {
