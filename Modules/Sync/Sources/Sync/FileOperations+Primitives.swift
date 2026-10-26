@@ -42,6 +42,9 @@ extension FileSyncManager {
         /// A pane transfer's row sits above the folder its source opens at, at a level the other
         /// source has no place for (`PathBoundary.transferTarget`).
         case itemAboveOpeningFolder(itemName: String)
+        /// The folder a pane opens at, carried onto the folder the other pane opens at, answered
+        /// with something other than Merge (B5) — or onto one that cannot be merged with.
+        case landingFolderMergesOnly(name: String)
         /// A move-by-copy landed its copy, could not put the original folder in the Trash, and its
         /// permanent removal stopped part-way (P2). Both are kept: the copy is the only whole one.
         /// `replacedItemKeptAt` says where a Replace put the item it replaced (B2) — nil for a move
@@ -85,6 +88,8 @@ extension FileSyncManager {
                 return "An item can’t replace the folder it’s inside — that would put the rest of the folder in the Trash. Choose Keep Both instead, or Merge for two folders."
             case .itemIsLocked(let name):
                 return "“\(name)” is locked, so it can’t be moved or renamed. Unlock it in Finder (File ▸ Get Info) and try again."
+            case .landingFolderMergesOnly(let name):
+                return "“\(name)” is the folder this side opens at, so it can only be merged into the folder the other side opens at — replacing that, or keeping both, would put it over or beside everything that side shows. It was left where it is."
             case .itemAboveOpeningFolder(let itemName):
                 return "“\(itemName)” is above the folder its source opens at, and the other source has no folder at that level to put it in. It was left where it is."
             case .originalPartlyRemoved(let name, let replaced):

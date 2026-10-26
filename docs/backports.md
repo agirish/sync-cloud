@@ -10917,7 +10917,9 @@ Re-expressed through linked navigation's `reanchor`, the landing folder itself (
 picked at the account root) targeted the other pane's root, and a row beside it (Dropbox
 `Photos/a.jpg`) went to the Google Drive account root, outside My Drive. `main` places such rows by
 how many levels above the landing folder they branch (`PathBoundary.transferTarget`), and refuses
-one the other source has no level for.
+one the other source has no level for. The landing folder itself maps onto the other landing folder,
+where its contents go, offered as Merge only — Replace and Keep Both are refused with a sentence, so
+the other pane's root is never replaced (B5, decided; it first kept its name a level up).
 
 ```sh
 S=Modules/Sync/Sources/Sync

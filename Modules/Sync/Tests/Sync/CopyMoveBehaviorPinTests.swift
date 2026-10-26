@@ -53,21 +53,30 @@ import EventsTestSupport
         #expect(try same(FileNode(id: "/src/a/b.txt", name: "b.txt", isDirectory: false)).path == "/dst/a/b.txt")
     }
 
-    /// **P1: the landing folder itself never lands on the other pane's root.** Dropbox opens at
-    /// `Documents`, iCloud at its root; at Dropbox's account root the user picks `Documents`. Carried
-    /// across as `""`, it targeted the iCloud root itself — Replace swapped over the whole root. It
-    /// keeps its name a level up instead, and a source opening deeper keeps ITS name too, rather
-    /// than turning into the other source's landing folder.
-    @Test func theLandingFolderItselfKeepsItsName() throws {
+    /// **P1, B5 (decided): the landing folder itself goes where its contents go.** Dropbox opens at
+    /// `Documents`, iCloud at its root; at Dropbox's account root the user picks `Documents`. It maps
+    /// onto iCloud's landing folder — the root — as `Documents/Tax.pdf` does, rather than landing
+    /// at iCloud `Documents` beside where its own contents go. A source opening deeper maps onto
+    /// the other's landing folder too. The transfer offers it as Merge only (below), so the root
+    /// is never replaced.
+    @Test func theLandingFolderItselfMapsOntoTheOtherLandingFolder() throws {
         let toICloud = FileSyncManager.paneTargetURL(fromLeft: true, leftRoot: "/r/Dropbox", rightRoot: "/r/iCloud",
                                                      leftOpenAt: "Documents", rightOpenAt: "", links: [:])
         let documents = FileNode(id: "/r/Dropbox/Documents", name: "Documents", isDirectory: true)
-        #expect(try toICloud(documents).path == "/r/iCloud/Documents")
+        #expect(try toICloud(documents).path == "/r/iCloud")
+        #expect(try toICloud(FileNode(id: "/r/Dropbox/Documents/Tax.pdf", name: "Tax.pdf", isDirectory: false)).path
+                == "/r/iCloud/Tax.pdf", "premise: its contents go to the root")
 
         let toDropbox = FileSyncManager.paneTargetURL(fromLeft: false, leftRoot: "/r/Dropbox", rightRoot: "/r/GD",
                                                       leftOpenAt: "Documents", rightOpenAt: "My Drive/Work", links: [:])
         let work = FileNode(id: "/r/GD/My Drive/Work", name: "Work", isDirectory: true)
-        #expect(try toDropbox(work).path == "/r/Dropbox/Work", "the landing folder became the other one")
+        #expect(try toDropbox(work).path == "/r/Dropbox/Documents")
+
+        let isLanding = FileSyncManager.paneLandingFolderRow(fromLeft: true, leftRoot: "/r/Dropbox", rightRoot: "/r/iCloud",
+                                                             leftOpenAt: "Documents", rightOpenAt: "", links: [:])
+        #expect(isLanding(documents))
+        #expect(!isLanding(FileNode(id: "/r/Dropbox/Documents/Tax.pdf", name: "Tax.pdf", isDirectory: false)))
+        #expect(!isLanding(FileNode(id: "/r/Dropbox/Photos", name: "Photos", isDirectory: true)))
     }
 
     /// **P3: a row above the landing folder lands at the other source's matching level.** Dropbox
@@ -93,12 +102,16 @@ import EventsTestSupport
         #expect(try toICloud(photo).path == "/r/iCloud/Photos/a.jpg")
     }
 
-    /// The call site, with Replace answering: the landing folder copied to a pane that opens at its
-    /// root merges into a folder of its name there; the root and what else it holds stay.
+    /// The call site (B5): the landing folder copied to a pane that opens at its root is offered as
+    /// Merge only. Replace — or Keep Both — is refused with a sentence, and the root and what else it
+    /// holds stay; Merge puts its contents where they go.
     @MainActor
-    @Test func copyingTheLandingFolderLeavesTheOtherPanesRootAlone() async throws {
+    @Test(arguments: [CollisionResolution.replace, .keepBoth, .merge])
+    func copyingTheLandingFolderOnlyMergesIntoTheOtherPanesRoot(answer: CollisionResolution) async throws {
         let manager = makeManager()
         manager.paneOpenAt = { $0 ? "Documents" : "" }
+        var asked: [FileCollision] = []
+        manager.collisionResolver = { asked.append($0); return answer }
         let mockFM = MockFileManager()
         for dir in ["/r", "/r/Dropbox", "/r/Dropbox/Documents", "/r/iC"] {
             try mockFM.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: true)
@@ -109,8 +122,17 @@ import EventsTestSupport
 
         _ = await manager.copyItems(nodes: [node], fromLeft: true, leftRoot: "/r/Dropbox", rightRoot: "/r/iC", fileManager: mockFM)
 
-        #expect(mockFM.virtualDisk["/r/iC/Documents"]?.isDirectory == true, "error: \(String(describing: manager.currentError))")
+        #expect(asked.map(\.destinationPath) == ["/r/iC"])
+        #expect(asked.first?.mergeOnly == true)
         #expect(mockFM.virtualDisk["/r/iC/keep.txt"] != nil, "the copy replaced the other pane's root")
+        #expect(mockFM.virtualDisk["/r/iC/Documents"] == nil, "it landed beside the contents it holds")
+        if answer == .merge {
+            #expect(mockFM.virtualDisk["/r/iC/Tax.pdf"] != nil, "error: \(String(describing: manager.currentError))")
+        } else {
+            #expect(mockFM.virtualDisk.keys.filter { $0.hasPrefix("/r/iC/") }.sorted() == ["/r/iC/keep.txt"])
+            #expect(manager.currentError?.reason?.contains("can only be merged") == true,
+                    "\(String(describing: manager.currentError))")
+        }
     }
 
     /// Rows under iCloud's `Documents` link carry the folder's real path. A bare prefix test said

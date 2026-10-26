@@ -293,16 +293,23 @@ public enum PathBoundary {
     /// beside it, outside the pane. And a row above the landing folder (Dropbox `Photos/a.jpg`) went
     /// to the Google Drive account root, outside `My Drive`, which Drive does not sync.
     ///
-    /// So the row is placed by how many levels above the landing folder it branches, and keeps its
-    /// own name: the landing folder and its siblings branch one level up, so they land one level
-    /// above the other landing folder — Dropbox `Photos/a.jpg` at Google Drive `My Drive/Photos/a.jpg`,
-    /// Google Drive `My Drive/Work` at Dropbox `Work`. A destination whose landing folder is its root
-    /// takes every level at its root. Any other that is not that deep has no such level: nil.
+    /// **The landing folder itself goes where its contents go: onto the other landing folder**
+    /// (B5, decided). Placed a level up like its siblings, Dropbox `Documents` landed at iCloud
+    /// `Documents` while `Documents/Tax.pdf` landed at the iCloud root — the folder and what it
+    /// holds in two different places. It now maps onto the destination's landing folder, `""` when
+    /// that is the root, and the transfer offers it as Merge only (`FileCollision.mergeOnly`), so
+    /// the pane root is never replaced and nothing lands beside it.
+    ///
+    /// A sibling of the landing folder is placed by how many levels above the landing folder it
+    /// branches, and keeps its own name: it lands one level above the other landing folder —
+    /// Dropbox `Photos/a.jpg` at Google Drive `My Drive/Photos/a.jpg`. A destination whose landing
+    /// folder is its root takes every level at its root. Any other that is not that deep has no
+    /// such level: nil.
     public static func transferTarget(_ relative: String, from source: String, to destination: String) -> String? {
         guard source != destination else { return relative }
         if source.isEmpty { return joinRelative(destination, relative) }
-        if let below = lexicalRelativize(relative, under: source), !below.isEmpty {
-            return joinRelative(destination, below)
+        if let below = lexicalRelativize(relative, under: source) {
+            return below.isEmpty ? destination : joinRelative(destination, below)
         }
         // At or above the landing folder: climb until the row is strictly below.
         var ancestor = source

@@ -47,6 +47,10 @@ public struct FileCollision: Sendable {
     /// offered, or a tree too large to count before the alert opens. Nil is said as a sentence
     /// without numbers, never as a guess.
     public let mergePreview: FolderMergePreview?
+    /// True for the folder a pane opens at, carried onto the folder the other pane opens at (B5):
+    /// Merge is the only answer on offer, because Replace or Keep Both would put it over, or beside,
+    /// everything that pane shows. Any other answer is refused, never carried out.
+    public let mergeOnly: Bool
 
     /// Name of the colliding item. Computed, not stored, so no future initializer or
     /// decoding path can ever set it inconsistently with `destinationPath` — the alert
@@ -56,13 +60,14 @@ public struct FileCollision: Sendable {
     }
 
     public init(sourcePath: String, destinationPath: String, isMove: Bool, isDirectory: Bool,
-                offersMerge: Bool = false, mergePreview: FolderMergePreview? = nil) {
+                offersMerge: Bool = false, mergePreview: FolderMergePreview? = nil, mergeOnly: Bool = false) {
         self.sourcePath = sourcePath
         self.destinationPath = destinationPath
         self.isMove = isMove
         self.isDirectory = isDirectory
         self.offersMerge = offersMerge
         self.mergePreview = offersMerge ? mergePreview : nil
+        self.mergeOnly = mergeOnly
     }
 }
 

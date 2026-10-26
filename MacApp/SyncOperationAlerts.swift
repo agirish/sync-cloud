@@ -22,6 +22,7 @@ struct SyncOperationAlerts {
     /// including items that exist only there — not just the same-named file.
     /// Pure (no AppKit) so it can be unit-tested and so file vs. folder wording can't drift.
     nonisolated static func collisionInformativeText(_ collision: FileCollision, policy: ConflictPolicy = .ask) -> String {
+        if collision.mergeOnly { return mergeOnlyCollisionInformativeText(collision) }
         if collision.offersMerge { return mergeCollisionInformativeText(collision, policy: policy) }
         var text = "Do you want to replace it with the one you’re \(collision.isMove ? "moving" : "copying")?"
         if collision.isDirectory {
@@ -68,6 +69,21 @@ struct SyncOperationAlerts {
         return text
     }
 
+    /// The body for the folder a pane opens at, carried to the folder the other pane opens at (B5):
+    /// only Merge is on offer, because Replace or Keep Both would put it over, or beside, everything
+    /// that pane shows.
+    nonisolated static func mergeOnlyCollisionInformativeText(_ collision: FileCollision) -> String {
+        let verb = collision.isMove ? "moving" : "copying"
+        var text = "It is the folder the other side opens at, so what you’re \(verb) can only be merged into it. "
+            + "Merging keeps everything already there."
+        text += "\n\n\(collision.isMove ? "Moving" : "Copying"): \(displayPath(collision.sourcePath))"
+        text += "\nInto: \(displayPath(collision.destinationPath))"
+        return text
+    }
+
+    /// The titles for a merge-only collision (B5), in `addButton` order: Merge is the default.
+    nonisolated static let mergeOnlyCollisionButtonTitles = ["Merge", "Skip"]
+
     /// The Merge variant of `collisionButtonTitles`, same `addButton` order: Merge is first, so it
     /// is the rightmost button and the one Return presses — the only answer that removes nothing
     /// from the destination. The other three keep their order, one place further left.
@@ -75,7 +91,8 @@ struct SyncOperationAlerts {
 
     /// The titles a given collision's alert draws.
     nonisolated static func collisionButtonTitles(for collision: FileCollision) -> [String] {
-        collision.offersMerge ? mergeCollisionButtonTitles : collisionButtonTitles
+        if collision.mergeOnly { return mergeOnlyCollisionButtonTitles }
+        return collision.offersMerge ? mergeCollisionButtonTitles : collisionButtonTitles
     }
 
     /// The collision alert's button titles, in `NSAlert.addButton` order (right to left, so the
@@ -124,7 +141,15 @@ struct SyncOperationAlerts {
             alert.addButton(withTitle: title)
         }
 
+        if collision.mergeOnly { return mergeOnlyCollisionResolution(for: alert.runModal()) }
         return collisionResolution(for: alert.runModal(), offersMerge: collision.offersMerge)
+    }
+
+    /// The merge-only alert's response: Merge, or anything else as the safe Skip.
+    nonisolated static func mergeOnlyCollisionResolution(for response: NSApplication.ModalResponse) -> CollisionResolution {
+        let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        guard mergeOnlyCollisionButtonTitles.indices.contains(index) else { return .skip }
+        return mergeOnlyCollisionButtonTitles[index] == "Merge" ? .merge : .skip
     }
 
     /// `collisionResolution(for:)` for either button set: with Merge on offer the first button is

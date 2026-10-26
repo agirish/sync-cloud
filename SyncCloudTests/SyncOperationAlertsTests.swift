@@ -208,6 +208,19 @@ import Sync
         #expect(SyncOperationAlerts.collisionResolution(for: .alertFirstButtonReturn, offersMerge: true) != .replace)
     }
 
+    /// B5: the folder a pane opens at, carried onto the other pane's, offers Merge and Skip only.
+    @Test func aMergeOnlyCollisionDrawsMergeAndSkipAlone() throws {
+        let collision = FileCollision(sourcePath: "/Users/me/Dropbox/Documents", destinationPath: "/Users/me/iCloud",
+                                      isMove: false, isDirectory: true, offersMerge: true, mergeOnly: true)
+        let titles = SyncOperationAlerts.collisionButtonTitles(for: collision)
+        #expect(titles == ["Merge", "Skip"])
+        #expect(SyncOperationAlerts.mergeOnlyCollisionResolution(for: try response(for: "Merge", in: titles)) == .merge)
+        #expect(SyncOperationAlerts.mergeOnlyCollisionResolution(for: try response(for: "Skip", in: titles)) == .skip)
+        #expect(SyncOperationAlerts.mergeOnlyCollisionResolution(for: .cancel) == .skip)
+        let text = SyncOperationAlerts.collisionInformativeText(collision)
+        #expect(text.contains("can only be merged") && !text.contains("Replac"), "\(text)")
+    }
+
     @Test func aCollisionThatDoesNotOfferMergeDrawsExactlyTheOldAlert() throws {
         let file = FileCollision(sourcePath: "/a/x.txt", destinationPath: "/b/x.txt", isMove: false, isDirectory: false)
         let folderWithoutMerge = FileCollision(sourcePath: "/a/F", destinationPath: "/b/F", isMove: false, isDirectory: true)

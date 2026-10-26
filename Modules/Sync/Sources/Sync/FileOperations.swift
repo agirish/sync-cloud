@@ -8,15 +8,18 @@ extension FileSyncManager {
     /// - Returns: The nodes that were successfully copied (may be fewer if user skips or errors occur).
     @discardableResult
     public func copyItems(nodes: [FileNode], fromLeft: Bool, leftRoot: String, rightRoot: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
-        await transferItems(
+        let placed = panePlacements(of: nodes, fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot)
+        return await transferItems(
             nodes: nodes,
             isMove: false,
             destinationDescription: "between panes",
             destinationRoot: fromLeft ? rightRoot : leftRoot,
             targetURL: Self.paneTargetURL(fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot,
                                           leftOpenAt: paneOpenAt(true), rightOpenAt: paneOpenAt(false),
-                                          placedByThePane: panePlacements(of: nodes, fromLeft: fromLeft,
-                                                                          leftRoot: leftRoot, rightRoot: rightRoot)),
+                                          placedByThePane: placed),
+            mergeOnly: Self.paneLandingFolderRow(fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot,
+                                                 leftOpenAt: paneOpenAt(true), rightOpenAt: paneOpenAt(false),
+                                                 placedByThePane: placed),
             direction: fromLeft ? "→ Right" : "← Left",
             fileManager: fm
         )
@@ -26,15 +29,18 @@ extension FileSyncManager {
     /// - Returns: The nodes that were successfully moved.
     @discardableResult
     public func moveItems(nodes: [FileNode], fromLeft: Bool, leftRoot: String, rightRoot: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
-        await transferItems(
+        let placed = panePlacements(of: nodes, fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot)
+        return await transferItems(
             nodes: nodes,
             isMove: true,
             destinationDescription: "between panes",
             destinationRoot: fromLeft ? rightRoot : leftRoot,
             targetURL: Self.paneTargetURL(fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot,
                                           leftOpenAt: paneOpenAt(true), rightOpenAt: paneOpenAt(false),
-                                          placedByThePane: panePlacements(of: nodes, fromLeft: fromLeft,
-                                                                          leftRoot: leftRoot, rightRoot: rightRoot)),
+                                          placedByThePane: placed),
+            mergeOnly: Self.paneLandingFolderRow(fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot,
+                                                 leftOpenAt: paneOpenAt(true), rightOpenAt: paneOpenAt(false),
+                                                 placedByThePane: placed),
             direction: fromLeft ? "→ Right" : "← Left",
             fileManager: fm
         )
@@ -270,6 +276,24 @@ extension FileSyncManager {
         }
     }
 
+    /// Whether a pane transfer's row IS the folder its source opens at (B5): `transferTarget` maps it
+    /// onto the other source's landing folder, which may be that pane's root, so the transfer offers
+    /// it as Merge only. A source that opens at its root has no such row.
+    nonisolated static func paneLandingFolderRow(fromLeft: Bool, leftRoot: String, rightRoot: String,
+                                                 leftOpenAt: String = "", rightOpenAt: String = "",
+                                                 placedByThePane: [String: String] = [:],
+                                                 links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders)
+        -> @Sendable (FileNode) -> Bool {
+        let fromRoot = ((fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath
+        let fromOpenAt = fromLeft ? leftOpenAt : rightOpenAt
+        return { node in
+            guard !fromRoot.isEmpty, !fromOpenAt.isEmpty,
+                  let relative = PathBoundary.relativize(node.id, under: fromRoot, links: links)
+                    ?? placedByThePane[node.id] else { return false }
+            return PathBoundary.lexicalRelativize(relative, under: fromOpenAt) == ""
+        }
+    }
+
     /// Shared implementation behind the four copy/move entry points. The variants differ only in
     /// how the destination URL is derived (`targetURL`), the primitive (`isMove` selects
     /// safeMoveItem/safeCopyItem, the Move/Copy undo registrar, and the log wording), and the
@@ -289,6 +313,7 @@ extension FileSyncManager {
         destinationDescription: String,
         destinationRoot: String,
         targetURL deriveTargetURL: @escaping @Sendable (FileNode) throws -> URL,
+        mergeOnly isLandingFolderRow: @escaping @Sendable (FileNode) -> Bool = { _ in false },
         direction: String? = nil,
         fileManager fm: FileManaging
     ) async -> [FileNode] {
@@ -684,15 +709,28 @@ extension FileSyncManager {
                         let offersMerge = targetIsDir.boolValue
                             && Self.isMergeableFolder(targetURL, fileManager: fm)
                             && Self.isMergeableFolder(sourceURL, fileManager: fm)
+                        // The folder this side opens at, onto the folder the other side opens at (B5):
+                        // Merge only. Where it cannot merge, it is refused without asking.
+                        let mergeOnly = isLandingFolderRow(node)
+                        if mergeOnly && !offersMerge {
+                            taskErrors.append(FileOperationError.landingFolderMergesOnly(name: node.name))
+                            await MainActor.run { progress?.completedUnitCount = Int64(index + 1) }
+                            continue
+                        }
                         let collision = FileCollision(
                             sourcePath: sourceURL.path,
                             destinationPath: targetURL.path,
                             isMove: isMove,
                             isDirectory: targetIsDir.boolValue,
                             offersMerge: offersMerge,
-                            mergePreview: offersMerge ? Self.folderMergePreview(source: sourceURL, destination: targetURL, fileManager: fm) : nil
+                            mergePreview: offersMerge ? Self.folderMergePreview(source: sourceURL, destination: targetURL, fileManager: fm) : nil,
+                            mergeOnly: mergeOnly
                         )
-                        let resolution = await MainActor.run { resolveCollision(collision) }
+                        var resolution = await MainActor.run { resolveCollision(collision) }
+                        if mergeOnly, resolution == .replace || resolution == .keepBoth {
+                            taskErrors.append(FileOperationError.landingFolderMergesOnly(name: node.name))
+                            resolution = .skip
+                        }
                         switch resolution {
                         case .replace: break
                         case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
