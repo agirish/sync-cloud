@@ -29,7 +29,7 @@ Requires **macOS 26**, unchanged from v6.0.
   point at it; its stop button or ⌘. stops it, and Esc doesn't, since Esc clears the selection. Pane
   PDF tools and Save as PDF show their progress there too. While a run goes on you can browse,
   preview and keep working in Edit's document, its own undo included; what would write files, and
-  ⌘Z for file operations, is grayed, with a tooltip saying what to wait for.
+  ⌘Z for file operations, are grayed, with a tooltip saying what to wait for.
 - **Results show in the pane.** The message about what just happened docks with the pane's action
   bar instead of floating across the top of the window, where it covered the header's Delete.
   Compare shows it in the pane that acted, and VoiceOver announces each one. A message with an Undo
@@ -68,9 +68,10 @@ Requires **macOS 26**, unchanged from v6.0.
   name in the Trash stays there, and the banner names it.
 - **The harder undos work.** Two files moved onto one name with Replace; a moved link that dangles
   where it lands; the copy of a file locked in Finder; a merge's emptied source folder, which now
-  comes back with its tags, icon and dates; a source folder trashed since the move, which is
-  recreated; a batch of moves, undone last item first. A folder you only opened in Finder, which
-  gives it a `.DS_Store`, no longer makes ⌘Z refuse it as changed. A redo refuses to replace
+  comes back with its tags, icon and dates; and a source folder trashed since the move, which is
+  recreated. A batch of moves is undone last item first, so a merge inside it comes apart cleanly.
+  A folder you only opened in Finder, which gives it a `.DS_Store`, no longer makes ⌘Z refuse it as
+  changed. A redo refuses to replace
   anything its undo didn't leave at the destination.
 - **Undo Last Run says what it will do** — a copy run's copies go to the Trash, a move run's files
   go back — and confirms it is undoing the run you picked.
@@ -99,7 +100,7 @@ Requires **macOS 26**, unchanged from v6.0.
   linked Documents are no longer refused as outside the pane. A pane's own opening folder merges
   into the other pane's, offered as Merge or Skip, so a pane's root is never replaced.
 - **A Download that can't start shows the file in Finder**, which can fetch it, from the row menu
-  and File ▸ Download as from the preview, instead of doing nothing.
+  and File ▸ Download as the preview already did, instead of doing nothing.
 
 ### Compare leaves its guesses to you
 
@@ -115,7 +116,7 @@ Requires **macOS 26**, unchanged from v6.0.
   right file takes the left one's modification date, to the nanosecond, as one undoable step,
   listed in Sync History with the date it replaced and undone by Undo Last Run. A pair with a link
   on either side is left out, and an undo that leaves a file alone says so.
-- **Verify reads again a file whose date was put back.** Its cache of file contents is now keyed on
+- **Verify rereads a file whose date was put back.** Its cache of file contents is now keyed on
   the file's number and status-change time as well as its path, date and size, so an edit that
   restores the date and keeps the size (`touch -r`, `rsync -t`, `exiftool -P`) is not taken for
   the old file.
@@ -135,11 +136,11 @@ Requires **macOS 26**, unchanged from v6.0.
 - **Each Setup folder keeps its own Restructure history.** Walking a different folder starts with
   none, or takes back that folder's own; the roster follows every walk. An old profile folder is
   never removed while it holds something the active one lacks.
-- **Filing refuses what it can't stand behind**: a file that changed or went since the scan; a date
-  stamp either convention could have written — "05062023" could be May 6 or June 5, and the skip
-  names both; a folder name from the model that the provider won't sync; and a destination that is
-  the file's own folder through a link, where it now says the file is already there. Its refusals
-  come under "Filing Failed", not "Sync Failed".
+- **Filing refuses what it can't stand behind**: a file that changed or vanished since the scan; a
+  date stamp either convention could have written — "05062023" could be May 6 or June 5, and the
+  skip names both; a folder name from the model that the provider won't sync; and a destination
+  that is the file's own folder through a link, where it now says the file is already there. Its
+  refusals come under "Filing Failed", not "Sync Failed".
 - **A download counter is not a version.** "invoice.pdf", "invoice (1).pdf" and "invoice (2).pdf" —
   three months' bills — no longer form a versions group offering to trash two of them; a name
   carrying a download counter groups only when its contents match.
@@ -184,7 +185,7 @@ Requires **macOS 26**, unchanged from v6.0.
 - **One spelling, one case, one count.** The app's words use US spelling — color, gray,
   Reorganization — curly quotes and apostrophes, Title Case on menus, and counts that read "1 item"
   and "1,200 files". Settings search still finds "colour". The reversible delete is Move to Trash
-  everywhere, Sync History included. Progress is titled in sentence case, Edit's empty page
+  everywhere, Sync History included. Progress titles use sentence case, Edit's empty page
   offers New Text File, and the time to read a folder's documents is estimated from its size — "A
   few minutes", "About 30 min", "About 3 h" — instead of always "About 3 h". The command-line tool
   prints quotes, apostrophes, dashes and ellipses as plain ASCII; file names, paths and provider
