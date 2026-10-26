@@ -1114,7 +1114,27 @@ public enum DuplicateFinder {
         for f in files {
             guard f.size >= options.minFileSize else { continue }
             guard !isCovered(f.path, by: coveredRoots), !groupedFilePaths.contains(f.path) else { continue }
-            guard let (stem, ext) = versionStem(f.name) else { continue }
+            guard let (stem, ext, markers) = versionStemAndMarkers(f.name) else { continue }
+            // **A download counter is not evidence of versions (FR14).** " (1)", " (2)" is what a
+            // browser appends when a name it is saving already exists, and a site hands out the
+            // same name for every document of a kind: `invoice.pdf`, `invoice (1).pdf`,
+            // `invoice (2).pdf` are three months' bills, different bytes because they are
+            // different documents, and "Keep newest, Trash older" would trash two of them. A
+            // re-download of the SAME document is caught upstream — identical bytes by the
+            // identical pass, the same text re-stamped by the same-text pass — so what reaches
+            // here behind a counter is exactly the case the name cannot tell apart from distinct
+            // documents. So a name whose stem needed a counter stripped never joins by name, even
+            // beside one a person added on purpose (" copy", "-v2", "final") — and even when it
+            // carries one itself: `statement (1) copy.xlsx` is a copy of the second bill, not a
+            // version of the first. Unmarked members (same-folder case variants, the original
+            // beside its copy) are unaffected.
+            //
+            // **Dropped here, before any clustering, not from each cluster afterwards.** A counter
+            // name left in the bucket still counted as a marker bearer and as drift evidence, so it
+            // could split the bucket into per-folder clusters, or prove a folder's drift on its own
+            // hash, and then leave that cluster too small to stand once it was filtered out —
+            // taking the deliberate marker beside it with it, where the pool would have kept it.
+            guard !markers.contains(0) else { continue }
             guard !DuplicateFinderOptions.genericVersionStems.contains(stem) else { continue }
             buckets["\(stem)\u{0}\(ext)", default: []].append(f)
         }
@@ -1188,23 +1208,7 @@ public enum DuplicateFinder {
                     memberClusters = clusters
                 }
             }
-            for cluster in memberClusters {
-                // **A download counter is not evidence of versions (FR14).** " (1)", " (2)" is
-                // what a browser appends when a name it is saving already exists, and a site
-                // hands out the same name for every document of a kind: `invoice.pdf`,
-                // `invoice (1).pdf`, `invoice (2).pdf` are three months' bills, different bytes
-                // because they are different documents, and "Keep newest, Trash older" would trash
-                // two of them. A re-download of the SAME document is caught upstream — identical
-                // bytes by the identical pass, the same text re-stamped by the same-text pass —
-                // so what reaches here behind a counter is exactly the case the name cannot tell
-                // apart from distinct documents. So a member whose only marker is a counter never
-                // joins by name, even beside one a person added on purpose (" copy", "-v2",
-                // "final"): `invoice copy.pdf` beside five downloaded bills groups with
-                // `invoice.pdf` alone, and the bills stay out. Unmarked members (same-folder case
-                // variants, the original beside its copy) are unaffected.
-                let members = cluster.filter {
-                    !hasVersionMarker($0.name) || hasNonCounterVersionMarker($0.name)
-                }
+            for members in memberClusters {
                 guard members.count >= 2 else { continue }
                 // Only PROVEN drift: at least two distinct REAL contents (identical bytes were
                 // already grouped). Placeholder ("u:" unknown) and missing signatures are not
@@ -1487,12 +1491,19 @@ public enum DuplicateFinder {
     /// Reduces a filename to its version stem + extension, stripping trailing copy/version markers.
     /// Returns nil for an empty stem. Case-normalized for grouping.
     static func versionStem(_ name: String) -> (stem: String, ext: String)? {
+        versionStemAndMarkers(name).map { ($0.stem, $0.ext) }
+    }
+
+    /// ``versionStem(_:)`` plus the indexes into ``versionMarkerPatterns`` of the markers it
+    /// stripped — index 0 is the download counter — from one pass of the patterns.
+    private static func versionStemAndMarkers(_ name: String)
+        -> (stem: String, ext: String, markers: Set<Int>)? {
         let ns = name as NSString
         let ext = ns.pathExtension.lowercased()
-        let (stripped, _) = strippingVersionMarkers((ns.deletingPathExtension as String).lowercased())
+        let (stripped, markers) = strippingVersionMarkers((ns.deletingPathExtension as String).lowercased())
         let stem = stripped.trimmingCharacters(in: .whitespaces)
         guard !stem.isEmpty else { return nil }
-        return (stem, ext)
+        return (stem, ext, markers)
     }
 
     /// `stem` with every trailing marker removed, and the indexes into ``versionMarkerPatterns``
@@ -1514,14 +1525,6 @@ public enum DuplicateFinder {
             }
         }
         return (stem, fired)
-    }
-
-    /// Whether `name` carries a version marker OTHER than the download counter " (n)" — a
-    /// " copy", a "-v2", a "final" (FR14). See ``versionGroups``, which will not stand a group up
-    /// on counters alone.
-    static func hasNonCounterVersionMarker(_ name: String) -> Bool {
-        let stem = ((name as NSString).deletingPathExtension as String).lowercased()
-        return !strippingVersionMarkers(stem).1.subtracting([0]).isEmpty
     }
 
     /// True when ``versionStem(_:)`` actually stripped a version/copy marker from the name — i.e.

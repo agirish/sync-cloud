@@ -507,6 +507,64 @@ import Testing
         }
     }
 
+    /// **A counter under another marker is still a counter (D2).** `statement (1) copy.xlsx` is a
+    /// copy of the second downloaded bill, not a version of the first — but its " copy" let it join
+    /// `statement.xlsx` as a versions group, and "Keep newest" would trash a bill. Any name whose
+    /// stem needed a counter stripped stays out. The control: the same folder with a plain
+    /// `statement copy.xlsx` still groups, so the rule is not refusing every marker.
+    @Test func aCounterBesideAnotherMarkerIsStillACounter() {
+        let jan = Date(timeIntervalSince1970: 1_000_000)
+        let feb = Date(timeIntervalSince1970: 3_600_000)
+        let mar = Date(timeIntervalSince1970: 6_200_000)
+        func bills(_ third: String) -> [FileNode] {
+            [dir("/root/Downloads", [
+                file("/root/Downloads/statement.xlsx", size: 9_000, modified: jan),
+                file("/root/Downloads/statement (1).xlsx", size: 9_100, modified: feb),
+                file("/root/Downloads/\(third)", size: 9_200, modified: mar),
+            ])]
+        }
+        func hashes(_ third: String) -> [String: String] {
+            ["/root/Downloads/statement.xlsx": "JAN", "/root/Downloads/statement (1).xlsx": "FEB",
+             "/root/Downloads/\(third)": "FEB-EDITED"]
+        }
+        let counterCopy = "statement (1) copy.xlsx"
+        let grouped = DuplicateFinder.findGroups(tree: bills(counterCopy), fileHashes: hashes(counterCopy))
+            .filter { $0.matchType == .versions }
+        #expect(grouped.isEmpty, "a copy of a downloaded bill joined a versions group: \(grouped.map { $0.copies.map(\.path) })")
+
+        let plainCopy = "statement copy.xlsx"
+        let control = DuplicateFinder.findGroups(tree: bills(plainCopy), fileHashes: hashes(plainCopy))
+            .filter { $0.matchType == .versions }
+        #expect(control.count == 1)
+        #expect(Set(control.first?.copies.map(\.path) ?? [])
+                == ["/root/Downloads/statement.xlsx", "/root/Downloads/statement copy.xlsx"])
+    }
+
+    /// **A counter name is dropped before the bucket is clustered, not after (D4).** Left in, it
+    /// was a marker bearer and drift evidence: here its hash is the one that "proved" folder A's
+    /// drift (`report.pdf` itself could not be hashed), so A stood as a cluster — and once the
+    /// counter was filtered out of it, the cluster was too small and `report copy.pdf` vanished
+    /// with it. Without the counter, A cannot prove drift, so its marked copy falls through to the
+    /// cross-folder pool beside B's lone `report final.pdf`, as a marked name does.
+    @Test func aCounterNameDoesNotDecideHowTheBucketClusters() {
+        let tree = [
+            dir("/root/A", [
+                file("/root/A/report.pdf", size: 9_000),
+                file("/root/A/report (1).pdf", size: 9_100),
+                file("/root/A/report copy.pdf", size: 9_200),
+            ]),
+            dir("/root/B", [file("/root/B/report final.pdf", size: 9_300)]),
+        ]
+        // `report.pdf` has no hash: too large, or cloud-only.
+        let hashes = ["/root/A/report (1).pdf": "R1", "/root/A/report copy.pdf": "RC",
+                      "/root/B/report final.pdf": "RF"]
+        let versions = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+            .filter { $0.matchType == .versions }
+        #expect(versions.count == 1, "groups: \(versions.map { $0.copies.map(\.path) })")
+        #expect(Set(versions.first?.copies.map(\.path) ?? [])
+                == ["/root/A/report copy.pdf", "/root/B/report final.pdf"])
+    }
+
     @Test func sameNameInDifferentFoldersWithoutMarkersIsNotVersions() {
         // Two unrelated camera shots that happen to share a name because both cameras count from
         // IMG_0001 — different folders, different bytes, NO version marker on either name. Grouping

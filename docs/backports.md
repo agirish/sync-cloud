@@ -12109,3 +12109,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr13=%s kind=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR13 refusal at all (`fr13=0`) | CLOSED — does not apply |
+
+---
+
+## A counter under another marker stays out of a versions group — main only
+
+FR14 kept download-counter names (`invoice (1).pdf`) out of versions groups, but only when the
+counter was their sole marker, so `statement (1) copy.xlsx` — a copy of the second bill — still
+joined `statement.xlsx`. And the filter ran after the bucket was clustered, so a counter name could
+still decide the clusters and then drop out, taking a deliberate marker beside it. `main` drops every
+name whose stem needed a counter stripped, before clustering.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr14=%s early=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/DuplicateFinder.swift 2>/dev/null | grep -cF 'func hasNonCounterVersionMarker')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/DuplicateFinder.swift 2>/dev/null | grep -cF 'markers.contains(0)')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads fr14=0 early=1):
+# main                     fr14=1 early=0
+# v5.x, v4.x, v3.x, v2.x   fr14=0 early=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR14 counter rule (`fr14=0`) | CLOSED — does not apply |
