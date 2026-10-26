@@ -18,10 +18,16 @@ import Foundation
 public enum ItemIdentity: Equatable, Sendable {
     /// A regular file. `modified` is nil only when the filesystem did not report one.
     case file(size: Int, modified: Date?)
-    /// A directory, SHALLOWLY: `childCount` is its number of immediate children — see `compare`
-    /// for exactly what this can and cannot notice. A caller whose wrong answer destroys data
-    /// records `.directoryTree` instead, via `deepSnapshot`.
-    case directory(modified: Date?, childCount: Int)
+    /// A directory, SHALLOWLY: `childNames` is a digest of the names of its immediate children,
+    /// OS noise (`deepIdentityIgnoredNames`) left out, and `fileNumber` its own `st_ino` (nil on a
+    /// file system that reports none) — see `compare` for exactly what this can and cannot notice.
+    /// A caller whose wrong answer destroys data records `.directoryTree` instead, via `deepSnapshot`.
+    ///
+    /// **Not the folder's date or its raw child count (M4).** Both move when Finder writes a
+    /// `.DS_Store` into a folder the user merely opens, so a move-undo and a delete-redo refused an
+    /// untouched folder as "changed since". The names say what the folder holds, the number which
+    /// folder it is.
+    case directory(childNames: String, fileNumber: UInt64?)
     /// A directory described by its RECURSIVE content: `contentDigest` is a SHA-256 over every
     /// descendant's (relative path, kind, size, modification date), so an edit at ANY depth —
     /// including a same-count, same-parent-date rewrite three levels down — changes the identity.
@@ -120,8 +126,8 @@ public extension ItemIdentity {
                 // A shallow listing cannot be partial, so the second case is unreachable here
                 // today; it is spelled out rather than defaulted so that if this ever lists
                 // recursively, the choice has to be made again deliberately.
-                return .directory(modified: attrs[.modificationDate] as? Date,
-                                  childCount: listing.urls.count)
+                return .directory(childNames: childNamesDigest(listing.urls),
+                                  fileNumber: fileNumber(in: attrs))
             }
         }
 
@@ -257,6 +263,20 @@ public extension ItemIdentity {
     static func directoryFileNumber(at url: URL, fileManager fm: FileManaging) -> UInt64? {
         guard let attrs = try? fm.attributesOfItem(atPath: url.path),
               attrs[.type] as? FileAttributeType == .typeDirectory else { return nil }
+        return fileNumber(in: attrs)
+    }
+
+    /// The shallow identity's names: each immediate child's name, precomposed, OS noise left out,
+    /// sorted by bytes and hashed — so a listing's order and a name's Unicode spelling do not move it.
+    private static func childNamesDigest(_ children: [URL]) -> String {
+        let names = children.map(\.lastPathComponent)
+            .filter { !deepIdentityIgnoredNames.contains($0) }
+            .map { canonicalDigestSpelling(ofRelativePath: $0) }
+            .sorted { $0.utf8.lexicographicallyPrecedes($1.utf8) }
+        return HexEncoding.string(SHA256.hash(data: Data(names.joined(separator: "\u{0}").utf8)))
+    }
+
+    private static func fileNumber(in attrs: [FileAttributeKey: Any]) -> UInt64? {
         switch attrs[.systemFileNumber] {
         case let number as NSNumber: return number.uint64Value
         case let number as UInt64: return number
@@ -343,15 +363,18 @@ public extension ItemIdentity {
     /// how an edited copy gets trashed by an undo. `attributesOfItem` already returns the date in
     /// the same call the size comes from, so the stronger check costs nothing.
     ///
-    /// **What a SHALLOW directory identity does not notice.** `.directory` compares the folder's
-    /// own modification date and its immediate child count. That covers a child being added,
-    /// removed or replaced — but NOT an edit made deep inside an untouched subtree, which leaves
-    /// both values identical, so for that pairing this answers `.unchanged` for a case it did not
-    /// really check. `.directoryTree` exists for the caller that cannot afford that: its digest
-    /// covers every descendant, so the deep edit IS checked. Which depth a guard gets is decided
-    /// where the identity is RECORDED — the copy-undo records deep because its wrong answer
-    /// trashes the only instance of an edit; the move paths record shallow deliberately, and say
-    /// why at their registration sites in `FileSyncManager+Undo.swift`.
+    /// **What a SHALLOW directory identity does not notice.** `.directory` compares the names of
+    /// the folder's immediate children, OS noise left out, and its own file number. That covers a
+    /// child being added, removed or renamed, and a different folder put at the path — but NOT a
+    /// child replaced by another of the same name, nor an edit made inside any child, so for those
+    /// this answers `.unchanged` for a case it did not really check. `.directoryTree` exists for the
+    /// caller that cannot afford that: its digest covers every descendant, so the deep edit IS
+    /// checked. Which depth a guard gets is decided where the identity is RECORDED — the copy-undo
+    /// records deep because its wrong answer trashes the only instance of an edit, and every Trash
+    /// backup is recorded deep too (`FileSyncManager.backupIdentity`); a move that leaves the folder
+    /// where it landed, and the item a delete-undo restored, record shallow — the item moves, or
+    /// goes to the Trash, rather than being destroyed, so what the shallow read misses travels with
+    /// it — and each says so where it is recorded in `FileSyncManager+Undo.swift`.
     ///
     /// A recorded depth is also re-read at that depth (`drift` dispatches on the recorded case),
     /// so the two sides of this comparison always describe the same question; a deep recording

@@ -11742,3 +11742,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s u4=%s fix=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No undo for an empty merge (`u4=0`) | CLOSED — does not apply |
+
+---
+
+## Undo and redo leave out what Finder writes into a folder (final review M3, M4, L1) — main only
+
+The move-undo and the delete-redo held a folder to its own date and raw child count, both of which
+move when Finder writes a `.DS_Store` into a folder the user merely opened, so ⌘Z and ⌘⇧Z refused an
+untouched folder as "changed since". `main` reads a folder shallowly by its children's names, OS
+noise left out, and its own file number (M4); keeps U3's deep rule for an item a batch replaced into
+the Trash after a redo too (M3); and knows a folder with one unreadable descendant by its file
+number in the redo-occupant and Trash-held reads, rather than refusing it forever (L1).
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s shallow=%s fix=%s\n' $l \
+  "$(git show origin/$l:$S/ItemIdentity.swift 2>/dev/null | grep -cF 'case directory(modified: Date?, childCount: Int)')" \
+  "$(git show origin/$l:$S/ItemIdentity.swift 2>/dev/null | grep -cF 'case directory(childNames:')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads shallow=0 fix=1):
+# main, v5.x, v4.x, v3.x, v2.x   shallow=1 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The date-and-count folder identity (`shallow=1`): a folder opened in Finder refuses its move-undo | RECORDED — not owed |

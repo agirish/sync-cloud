@@ -101,6 +101,164 @@ import Testing
         #expect(text(b.appendingPathComponent("x.txt")) == "from B")
     }
 
+    /// **L1.** The same as U2, with a folder inside the original that cannot be read: the redo
+    /// still replaces it. Deep alone, the occupant the undo put back was `.indeterminate`, and the
+    /// redo refused it as "couldn’t be checked" for as long as it lived.
+    @MainActor
+    @Test(arguments: [false, true])
+    func aRedoStillReplacesAnOriginalWithAnUnreadableFolderInside(isMove: Bool) async throws {
+        let base = try makeCanonicalTempRoot(prefix: "l1-\(isMove ? "move" : "copy")")
+        let locked = base.appendingPathComponent("Shared/Photos/private")
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
+            try? FileManager.default.removeItem(at: base)
+        }
+        let source = base.appendingPathComponent("src/Photos")
+        let destination = base.appendingPathComponent("Shared/Photos")
+        try folder(source, holding: "new.txt", "new")
+        try folder(destination, holding: "old.txt", "old")
+        try folder(locked, holding: "secret.txt", "s")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        let manager = makeManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
+        let disk = ScratchTrash(in: base)
+        let node = FileNode(id: source.path, name: "Photos", isDirectory: true)
+        if isMove {
+            await manager.moveItems(nodes: [node], toPath: destination.deletingLastPathComponent().path, fileManager: disk)
+        } else {
+            await manager.copyItems(nodes: [node], toPath: destination.deletingLastPathComponent().path, fileManager: disk)
+        }
+        try #require(text(destination.appendingPathComponent("new.txt")) == "new")
+
+        manager.undoManager?.undo()
+        await waitUntil("the undo puts the original back") { self.text(destination.appendingPathComponent("old.txt")) == "old" }
+        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        manager.banner = nil
+
+        manager.undoManager?.redo()
+        await waitUntil("the redo re-applies") { self.text(destination.appendingPathComponent("new.txt")) == "new" }
+        await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
+        #expect(manager.banner == nil, "got \(String(describing: manager.banner?.message))")
+    }
+
+    /// **M3.** The same batch, ⌘Z, ⌘⇧Z — the redo puts A's folder back in the Trash — a look at it
+    /// there, and ⌘Z again: both go home. The redo used to record that folder shallow, so the
+    /// `.DS_Store` refused the second ⌘Z.
+    @MainActor
+    @Test func aRedoneRedirectedMoveStillSurvivesALookInTheTrash() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "m3")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let a = base.appendingPathComponent("A/f"), b = base.appendingPathComponent("B/f")
+        try folder(a, holding: "x.txt", "from A")
+        try folder(b, holding: "x.txt", "from B")
+        let landing = base.appendingPathComponent("D")
+        try FileManager.default.createDirectory(at: landing, withIntermediateDirectories: true)
+        let manager = makeManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
+        let disk = ScratchTrash(in: base)
+        let nodes = [a, b].map { FileNode(id: $0.path, name: "f", isDirectory: true) }
+
+        await manager.moveItems(nodes: nodes, toPath: landing.path, fileManager: disk)
+        let slot = try #require(try FileManager.default.contentsOfDirectory(at: disk.folder, includingPropertiesForKeys: nil).first,
+                                "premise: the replaced item is not in the Trash")
+        let inTrash = try #require(try FileManager.default.contentsOfDirectory(at: slot, includingPropertiesForKeys: nil).first)
+        manager.undoManager?.undo()
+        await waitUntil("the undo drains") { manager.activeFileOperationsCount == 0 }
+        try #require(text(a.appendingPathComponent("x.txt")) == "from A", "premise: the first undo")
+        manager.undoManager?.redo()
+        await waitUntil("the redo puts A's folder back in the Trash") { self.text(inTrash.appendingPathComponent("x.txt")) == "from A" }
+        await waitUntil("the redo drains") { manager.activeFileOperationsCount == 0 }
+        try openInFinder(inTrash)
+        manager.banner = nil
+
+        manager.undoManager?.undo()
+        await waitUntil("the second undo drains") { manager.activeFileOperationsCount == 0 }
+        #expect(text(a.appendingPathComponent("x.txt")) == "from A", "banner: \(String(describing: manager.banner?.message))")
+        #expect(text(b.appendingPathComponent("x.txt")) == "from B")
+    }
+
+    /// **M4.** Move a folder, open it in Finder where it landed, ⌘Z: it goes back. Then open it
+    /// again where it went back to, ⌘⇧Z: it moves again. The shallow identity both guards record
+    /// was the folder's date and raw child count, and the `.DS_Store` moved both.
+    @MainActor
+    @Test func aMovedFolderTheUserOnlyOpenedStillMovesBackAndForth() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "m4-move")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let source = base.appendingPathComponent("src/Photos")
+        try folder(source, holding: "a.txt", "a")
+        let landing = base.appendingPathComponent("dst")
+        try FileManager.default.createDirectory(at: landing, withIntermediateDirectories: true)
+        let moved = landing.appendingPathComponent("Photos")
+        let manager = makeManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
+        let disk = ScratchTrash(in: base)
+
+        await manager.moveItems(nodes: [FileNode(id: source.path, name: "Photos", isDirectory: true)],
+                                toPath: landing.path, fileManager: disk)
+        try #require(text(moved.appendingPathComponent("a.txt")) == "a")
+        try openInFinder(moved)
+
+        manager.undoManager?.undo()
+        await waitUntil("the undo drains") { manager.activeFileOperationsCount == 0 }
+        #expect(text(source.appendingPathComponent("a.txt")) == "a", "banner: \(String(describing: manager.banner?.message))")
+        try openInFinder(source)
+        manager.banner = nil
+
+        manager.undoManager?.redo()
+        await waitUntil("the redo drains") { manager.activeFileOperationsCount == 0 }
+        #expect(text(moved.appendingPathComponent("a.txt")) == "a", "banner: \(String(describing: manager.banner?.message))")
+    }
+
+    /// **M4.** Delete a folder, ⌘Z, open it in Finder, ⌘⇧Z: it goes to the Trash again.
+    @MainActor
+    @Test func aRestoredFolderTheUserOnlyOpenedIsTrashedAgainByTheRedo() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "m4-delete")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let original = base.appendingPathComponent("Photos")
+        try folder(original, holding: "a.txt", "a")
+        let manager = makeManager()
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
+        let disk = ScratchTrash(in: base)
+        var trashed: NSURL?
+        try disk.trashItem(at: original, resultingItemURL: &trashed)
+        // Not "Move to Trash": `UndoRedoLogLabelTests` pins that label's Redo line against the
+        // shared Logger, and this redo would land in its window.
+        await manager.registerRestoreItems(urls: [original], trashedItems: [trashed as URL?],
+                                           actionName: "Delete Photos (M4)", fileManager: disk).value
+
+        manager.undoManager?.undo()
+        await waitUntil("the undo drains") { manager.activeFileOperationsCount == 0 }
+        try #require(text(original.appendingPathComponent("a.txt")) == "a")
+        try openInFinder(original)
+
+        manager.undoManager?.redo()
+        await waitUntil("the redo drains") { manager.activeFileOperationsCount == 0 }
+        #expect(!FileManager.default.fileExists(atPath: original.path), "banner: \(String(describing: manager.banner?.message))")
+    }
+
+    /// **M4.** What the shallow folder identity still tells apart: another folder with the same
+    /// names at the path, and a child renamed — while a `.DS_Store` is not a change.
+    @Test func theShallowFolderIdentityIgnoresFinderButNotAnotherFolder() throws {
+        let base = try makeCanonicalTempRoot(prefix: "m4-identity")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let fm = FileManager.default
+        let photos = base.appendingPathComponent("Photos")
+        try folder(photos, holding: "a.txt", "a")
+        let recorded = ItemIdentity.snapshot(at: photos, fileManager: fm)
+
+        try openInFinder(photos)
+        #expect(recorded.drift(at: photos, fileManager: fm) == .unchanged)
+
+        try fm.moveItem(at: photos.appendingPathComponent("a.txt"), to: photos.appendingPathComponent("b.txt"))
+        #expect(recorded.drift(at: photos, fileManager: fm) == .changed, "a renamed child")
+        try fm.moveItem(at: photos.appendingPathComponent("b.txt"), to: photos.appendingPathComponent("a.txt"))
+        #expect(recorded.drift(at: photos, fileManager: fm) == .unchanged)
+
+        try fm.moveItem(at: photos, to: base.appendingPathComponent("Old"))
+        try folder(photos, holding: "a.txt", "a")
+        #expect(recorded.drift(at: photos, fileManager: fm) == .changed, "a different folder with the same names")
+    }
+
     /// **U8.** The same batch's Sync History names where the user moved the earlier item — not the
     /// Trash, where the batch's own Replace put it.
     @MainActor

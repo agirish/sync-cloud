@@ -78,8 +78,12 @@ extension FileSyncManager {
     /// `emptiedByMerge`: the item is a source folder a move's merge emptied and put in the Trash
     /// (FR35), so its redo may trash it again only under the merge's own rule — see
     /// `MoveRedoParam`.
+    ///
+    /// `redirectedIntoTrash`: the item is one a later move of its batch replaced into the Trash
+    /// (FR23), so wherever it is recorded in the Trash it is held to the Trash rule (U3, M3).
     typealias MoveUndoItemState = (from: URL, to: URL, overwritten: URL?, movedIdentity: ItemIdentity,
-                                   overwrittenIdentity: ItemIdentity, emptiedByMerge: Bool)
+                                   overwrittenIdentity: ItemIdentity, emptiedByMerge: Bool,
+                                   redirectedIntoTrash: Bool)
     /// What a move-REDO needs to re-apply one item: where its undo put the item back, where the
     /// original move had sent it, and the identity read at `from` the instant the undo landed it
     /// there.
@@ -98,8 +102,11 @@ extension FileSyncManager {
     /// it only once nothing but a `.DS_Store` was left in it, and its redo holds to the same rule
     /// at its own move: a child whose redo was refused is still inside, and moving the folder to
     /// the Trash would carry that child with it under a banner saying it was left in place.
+    ///
+    /// `redirectedIntoTrash` marks an item FR23 recorded in the Trash: its redo puts it back there,
+    /// and the next undo must read it there the way the first one did — deep, by file number (M3).
     typealias MoveRedoParam = (from: URL, to: URL, sourceIdentity: ItemIdentity, destinationIdentity: ItemIdentity,
-                               emptiedByMerge: Bool)
+                               emptiedByMerge: Bool, redirectedIntoTrash: Bool)
     /// What a copy-REDO needs to re-apply one item: the copy's source and destination, and what the
     /// undo left at the destination — the original it restored, or `.absent` (FR25).
     typealias CopyRedoParam = (source: URL, destination: URL, destinationIdentity: ItemIdentity)
@@ -354,9 +361,11 @@ extension FileSyncManager {
     }
 
     /// What an undo left at a redo's destination, as ``redoDestinationVerdict(recorded:at:fileManager:)``
-    /// reads it back: deep, OS noise ignored.
+    /// reads it back: deep, OS noise ignored — or, for a folder with one unreadable descendant, its
+    /// own file number (L1, X5's fallback). Deep alone, that folder was `.indeterminate`, and the
+    /// redo refused it for as long as the redo lived.
     nonisolated static func redoOccupantIdentity(at destination: URL, fileManager fm: FileManaging) -> ItemIdentity {
-        ItemIdentity.deepSnapshot(at: destination, fileManager: fm)
+        ItemIdentity.deepSnapshotOrFileNumber(at: destination, fileManager: fm)
     }
 
     /// Surfaces a redo refused by ``redoDestinationVerdict(recorded:at:fileManager:)``: the item at
@@ -727,10 +736,12 @@ extension FileSyncManager {
     /// What sits at a backup's location as an undo registers — the identity a later restore holds
     /// that location to (FR27). `.absent` when there is no backup.
     ///
-    /// **DEEP for a folder, and that is about Finder, not about thoroughness.** A shallow folder
-    /// identity is its own date and child count, and Finder writes a `.DS_Store` into a folder the
-    /// user merely opens — in the Trash as anywhere — which moves both: a ⌘Z after a look at the
-    /// Trash would then refuse the folder it put there. `deepSnapshot` digests the descendants and
+    /// **DEEP for a folder.** It began as being about Finder: the shallow folder identity was its
+    /// own date and child count, and Finder writes a `.DS_Store` into a folder the user merely
+    /// opens — in the Trash as anywhere — which moved both, so a ⌘Z after a look at the Trash
+    /// refused the folder it put there (the shallow identity now leaves that out too, M4). Deep, a
+    /// backup is also held to everything inside it, which is what a restore over the destination
+    /// is owed. `deepSnapshot` digests the descendants and
     /// skips `.DS_Store` and the other OS noise, so a browsed folder does not differ and a stranger
     /// folder with other contents does. A stranger with the SAME contents — two empty folders —
     /// does not differ by its contents; the one backup that is always empty, a merge's emptied
@@ -754,8 +765,15 @@ extension FileSyncManager {
     /// the Trash, trash some other empty folder of that name, and ⌘Z pulled that one out as the
     /// source. The number survives the move into the Trash and Finder's `.DS_Store`, so the real
     /// folder, browsed or not, still comes back.
+    ///
+    /// Also the rule for an item FR23 recorded in the Trash (U3, M3), which can be any folder — and
+    /// one whose contents cannot all be read is known by its file number alone (L1), as
+    /// `backupIdentity` knows one, rather than recorded `.indeterminate` and refused forever.
     nonisolated static func mergeEmptiedFolderIdentity(_ folder: URL, fileManager fm: FileManaging) -> ItemIdentity {
-        ItemIdentity.deepSnapshotWithFileNumber(at: folder, fileManager: fm)
+        let identity = ItemIdentity.deepSnapshotWithFileNumber(at: folder, fileManager: fm)
+        guard identity == .indeterminate,
+              let fileNumber = ItemIdentity.directoryFileNumber(at: folder, fileManager: fm) else { return identity }
+        return .directoryFileNumber(fileNumber)
     }
 
     /// **Is the item at a Trash backup's location still the one this operation put there?** (FR27)
@@ -1042,15 +1060,22 @@ extension FileSyncManager {
     ///
     /// A single-item batch reads exactly as it did before this was a batch report, because for
     /// N == 1 there is nothing to summarize.
+    /// Which registration is reporting — its undo removes a copy, or moves an item back.
+    enum IndeterminateRegistration: Sendable { case copy, move }
+
     nonisolated static func logIndeterminateRegistrations(
-        _ unreadable: [(destination: URL, child: URL?)], of total: Int, actionName: String
+        _ unreadable: [(destination: URL, child: URL?)], of total: Int, actionName: String,
+        operation: IndeterminateRegistration = .copy
     ) {
         guard let first = unreadable.first else { return }
         let child = first.child.map { " — couldn't read \"\($0.path)\"" } ?? ""
+        let (one, many, label, act) = operation == .copy
+            ? ("copy", "copies", "Copy undo", "remove")
+            : ("move", "moves", "Move undo", "move back")
         let subject = unreadable.count == 1
-            ? "the identity of \"\(first.destination.lastPathComponent)\" at \(first.destination.path) couldn't be read when its undo was registered\(child); a later ⌘Z of this copy will refuse"
-            : "\(unreadable.count) of \(total) items' identities couldn't be read when their undo was registered — first \"\(first.destination.lastPathComponent)\" at \(first.destination.path)\(child); a later ⌘Z of those copies will refuse"
-        Logger.shared.warning("Copy undo (\(actionName)): \(subject) rather than remove what it can't verify")
+            ? "the identity of \"\(first.destination.lastPathComponent)\" at \(first.destination.path) couldn't be read when its undo was registered\(child); a later ⌘Z of this \(one) will refuse"
+            : "\(unreadable.count) of \(total) items' identities couldn't be read when their undo was registered — first \"\(first.destination.lastPathComponent)\" at \(first.destination.path)\(child); a later ⌘Z of those \(many) will refuse"
+        Logger.shared.warning("\(label) (\(actionName)): \(subject) rather than \(act) what it can't verify")
     }
 
     /// Pre-resolved convenience; see `registerCopyUndo(items:actionName:fileManager:)`.
@@ -1099,7 +1124,8 @@ extension FileSyncManager {
                 at: FileSyncManager.liveLocation(of: item.to, throughRenames: renames, fileManager: fm),
                 fileManager: fm),
              overwrittenIdentity: ItemIdentity.absent,
-             emptiedByMerge: mergeEmptiedFolders.contains(item.to))
+             emptiedByMerge: mergeEmptiedFolders.contains(item.to),
+             redirectedIntoTrash: redirectedIntoTrash.contains(item.to))
         }
         let resolver = AsyncValueResolver<[MoveUndoItemState]>()
         registerMoveUndo(stateResolver: resolver, actionName: actionName, fileManager: fm)
@@ -1107,9 +1133,9 @@ extension FileSyncManager {
         // main actor; the undo is already registered and its handler waits on the resolver.
         //
         // A source folder a merge trashed (FR35) is a Trash backup too, and gets the same rule:
-        // DEEP, OS noise ignored (`backupIdentity`). Its shallow identity is the folder's own date
+        // DEEP, OS noise ignored (`backupIdentity`). Its shallow identity was the folder's own date
         // and child count, which the `.DS_Store` Finder writes into a folder the user merely opens
-        // in the Trash moves — and ⌘Z then refused the original folder as "changed since". And
+        // in the Trash moved — and ⌘Z then refused the original folder as "changed since". And
         // its own file number, because its contents are the same as any other empty folder's
         // (`mergeEmptiedFolderIdentity`).
         //
@@ -1121,11 +1147,17 @@ extension FileSyncManager {
         return Task.detached(priority: .userInitiated) {
             let withBackups: [MoveUndoItemState] = enriched.map { item in
                 (from: item.from, to: item.to, overwritten: item.overwritten,
-                 movedIdentity: item.emptiedByMerge || redirectedIntoTrash.contains(item.to)
+                 movedIdentity: item.emptiedByMerge || item.redirectedIntoTrash
                     ? FileSyncManager.mergeEmptiedFolderIdentity(item.to, fileManager: fm) : item.movedIdentity,
                  overwrittenIdentity: FileSyncManager.backupIdentity(item.overwritten, fileManager: fm),
-                 emptiedByMerge: item.emptiedByMerge)
+                 emptiedByMerge: item.emptiedByMerge, redirectedIntoTrash: item.redirectedIntoTrash)
             }
+            // Said now, once per batch, as the copy's registration says it (L1): an identity that
+            // could not be read is a ⌘Z that will refuse, and the user should not first hear of
+            // it from that refusal.
+            let unreadable = withBackups.filter { $0.movedIdentity == .indeterminate }.map { (destination: $0.to, child: URL?.none) }
+            FileSyncManager.logIndeterminateRegistrations(unreadable, of: withBackups.count, actionName: actionName,
+                                                          operation: .move)
             await resolver.resolve(withBackups)
         }
     }
@@ -1603,7 +1635,7 @@ extension FileSyncManager {
                         // hides the genuine `safeMoveItem` throws among it. The copy path already
                         // separates the two with its own `leftInPlace`; this is its twin.
                         var leftInPlace = 0
-                        var movedBackPairs: [(from: URL, to: URL, emptiedByMerge: Bool)] = []
+                        var movedBackPairs: [(from: URL, to: URL, emptiedByMerge: Bool, redirectedIntoTrash: Bool)] = []
                         // Items the user removed themselves between the move and the ⌘Z. Counted
                         // apart from `leftInPlace` because they are not a refusal: this undo did
                         // not decline to act, there was nothing left to act on.
@@ -1775,7 +1807,8 @@ extension FileSyncManager {
                                     movedBack += 1
                                     movedBackOK = true
                                     // Only a move-back that actually happened is redoable.
-                                    movedBackPairs.append((from: item.from, to: item.to, emptiedByMerge: item.emptiedByMerge))
+                                    movedBackPairs.append((from: item.from, to: item.to, emptiedByMerge: item.emptiedByMerge,
+                                                           redirectedIntoTrash: item.redirectedIntoTrash))
                                 } catch {
                                     restoreFailures += 1
                                     await FileSyncManager.reportUndoRestoreFailure(of: item.from, from: item.to, actionName: actionName, error: error, on: target)
@@ -1830,7 +1863,7 @@ extension FileSyncManager {
                             (from: pair.from, to: pair.to,
                              sourceIdentity: ItemIdentity.snapshot(at: pair.from, fileManager: fm),
                              destinationIdentity: FileSyncManager.redoOccupantIdentity(at: pair.to, fileManager: fm),
-                             emptiedByMerge: pair.emptiedByMerge)
+                             emptiedByMerge: pair.emptiedByMerge, redirectedIntoTrash: pair.redirectedIntoTrash)
                         }
                         await redoParamResolver.resolve(reversedParams)
                         logger.info("Undo (\(actionName)): moved \(movedBack) of \(items.count) item(s) back to source, \(restoreFailures) restore failure(s), \(leftInPlace) left in place (changed or unverifiable)"
@@ -2015,13 +2048,16 @@ extension FileSyncManager {
                                 // rather than destroys (see `registerMoveUndo(items:)`) — except
                                 // a merge-emptied folder this redo put back in the Trash, which is
                                 // held to the Trash backups' deep rule there too, and to its own
-                                // file number (FR35, `mergeEmptiedFolderIdentity`).
+                                // file number (FR35, `mergeEmptiedFolderIdentity`) — and so is an
+                                // item FR23 recorded in the Trash, which this redo put back there
+                                // (M3): read shallow, Finder's `.DS_Store` refused its next ⌘Z.
                                 nextState.append((from: param.from, to: param.to, overwritten: trashed,
-                                                  movedIdentity: param.emptiedByMerge
+                                                  movedIdentity: param.emptiedByMerge || param.redirectedIntoTrash
                                                     ? FileSyncManager.mergeEmptiedFolderIdentity(param.to, fileManager: fm)
                                                     : ItemIdentity.snapshot(at: param.to, fileManager: fm),
                                                   overwrittenIdentity: FileSyncManager.backupIdentity(trashed, fileManager: fm),
-                                                  emptiedByMerge: param.emptiedByMerge))
+                                                  emptiedByMerge: param.emptiedByMerge,
+                                                  redirectedIntoTrash: param.redirectedIntoTrash))
                             } catch {
                                 // A failed re-move must stay out of the next undo state: undoing
                                 // a phantom move would "restore" from a destination that was
@@ -2255,9 +2291,11 @@ extension FileSyncManager {
                                 // move, so it describes the restored item rather than the backup.
                                 //
                                 // Shallow: `snapshot` not `deepSnapshot`, so for a directory this
-                                // is `.directory(modified:childCount:)` — it notices a direct
-                                // child appearing or going, and does NOT notice an edit further
-                                // down. That asymmetry is the intended one. The deep walk exists
+                                // is `.directory(childNames:fileNumber:)` — it notices a direct
+                                // child appearing, going or being renamed, and another folder put
+                                // at the path, and does NOT notice an edit further down; and it
+                                // leaves out the `.DS_Store` Finder writes into a folder the user
+                                // only opened, which the folder's date and raw count did not (M4). That asymmetry is the intended one. The deep walk exists
                                 // for the copy-undo, where a refusal is what protects the ONLY
                                 // instance of an edit; here the item goes to the Trash, which the
                                 // user can retrieve it from, so paying a recursive walk per

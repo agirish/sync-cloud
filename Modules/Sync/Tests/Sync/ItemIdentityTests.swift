@@ -31,11 +31,11 @@ import Testing
 
         let identity = ItemIdentity.snapshot(at: folder, fileManager: FileManager.default)
 
-        guard case .directory(_, let childCount) = identity else {
+        guard case .directory(_, let fileNumber) = identity else {
             Issue.record("expected a directory identity, got \(identity)")
             return
         }
-        #expect(childCount == 1)
+        #expect(fileNumber != nil, "the real disk reports the folder's own number")
     }
 
     @Test func addingAFileToAFolderIsDrift() throws {
@@ -162,7 +162,7 @@ import Testing
     /// as nil-and-therefore-skip.
     @Test func aFileReplacedByADirectoryIsDrift() {
         let recorded = ItemIdentity.file(size: 4, modified: nil)
-        let current = ItemIdentity.directory(modified: nil, childCount: 0)
+        let current = ItemIdentity.directory(childNames: "", fileNumber: nil)
         #expect(ItemIdentity.compare(recorded: recorded, current: current) == .changed)
     }
 
