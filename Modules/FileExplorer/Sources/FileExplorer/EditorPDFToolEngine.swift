@@ -108,7 +108,8 @@ public enum EditorPDFTool: Equatable, Sendable {
     /// `unlinksPatches` takes every link under a correction's patch out of the copy (FR56, decided
     /// 2026-10-25), so it no longer opens the old address under the new words. `keepsComments`
     /// keeps the file's own comments as comments rather than drawing them in (FR57, decided
-    /// 2026-10-25) — never with a page made a picture, whose pass would rewrite them.
+    /// 2026-10-25) — never with a page made a picture, or with a link under a patch to take out:
+    /// both passes would rewrite them.
     case fillAndSign([FillSignItem], pictures: [Int] = [], unlinksPatches: Bool = false, keepsComments: Bool = false)
     /// **Fill & Sign on a file with its own form** (Phase 5c): the values typed into its fields, by
     /// fully qualified name, and what was placed — filled in place by `fillFormData`, so the copy's
@@ -317,7 +318,8 @@ public enum EditorPDFTool: Equatable, Sendable {
             if signatures > 0 { parts.append(signatures == 1 ? "1 signature" : "\(signatures) signatures") }
             if !pictures.isEmpty { parts.append("\(EditorPDFCopyName.pageList(pictures)) made a picture") }
             if unlinks { parts.append("links under corrections removed") }
-            if keeps { parts.append("comments kept") }
+            // Asked for, not done: what became of them is the run's to say (`Output.bytes`'s `comments`).
+            if keeps { parts.append("keep comments asked") }
             return "fill and sign (\(parts.joined(separator: ", ")))"
         case .fillForm(let values, let items):
             // Counts only, as above: never a field's name, which can say what the form is about.
@@ -554,8 +556,9 @@ enum EditorPDFToolEngine {
     /// What a run produced, crossing back from the lane.
     enum Output: Sendable, Equatable {
         /// New bytes to write, and a sentence the saved banner adds — what the copy could not do as
-        /// asked (Fill & Sign's comments, FR57).
-        case bytes(Data, note: String? = nil)
+        /// asked (Fill & Sign's comments, FR57). `comments` is what Fill & Sign's copy did with the
+        /// file's comments when asked to keep them — `nil` when it wasn't — for the log line.
+        case bytes(Data, note: String? = nil, comments: FillSignAnnotations? = nil)
         /// Compress came back with the source's own bytes: nothing was gained, so nothing is written.
         case noGain
     }
@@ -604,20 +607,25 @@ enum EditorPDFToolEngine {
         case .removePassword(let password):
             return .bytes(try PDFToolkit.removePasswordData(inputURL: input, password: password.reveal()))
         case .fillAndSign(let items, let pictures, let unlinks, let keeps):
-            // **The comments kept only with no page made a picture** (FR57): the picture pass copies
-            // every page through PDFKit, which rewrites a kept comment — its `/NM` and its popup's
-            // `/Parent` go — and draws a picture page's own into it. The note card greys the choice
-            // then (`keepCommentsRefusal`); this holds it for any caller.
-            let keep = keeps && pictures.isEmpty
+            // **The comments kept only with no page made a picture, and no link under a patch to
+            // take out** (FR57, F1): both passes copy every page through PDFKit, which rewrites a
+            // kept comment — its `/NM` and its popup's `/Parent` go — and on macOS 26 drops the page
+            // labels and attached files; the picture pass also draws a picture page's own into it.
+            // The note card greys the choice then (`keepCommentsRefusal`); this holds it for any
+            // caller.
+            let patches = items.filter(\.isPatch)
+            let unlinking = unlinks && hasLink(under: patches, in: input)
+            let keep = keeps && pictures.isEmpty && !unlinking
             let output = try fillAndSign(input, items, keep ? .keep : .flatten)
             let filled = output.data
             // Asked to keep them and could not: the toolkit drew them in after all, and the banner says so.
             let note = keep && output.annotations == .flatten ? EditorPDFComments.keptFellBackNote : nil
+            let comments: FillSignAnnotations? = keeps ? (keep ? output.annotations : .flatten) : nil
             // Last, on the finished copy: a page made a picture has no links left to take out.
             func unlinked(_ data: Data) throws -> Data {
-                unlinks ? try removingLinks(under: items.filter(\.isPatch), in: data, source: input) : data
+                unlinking ? try removingLinks(under: patches, in: data, source: input) : data
             }
-            guard !pictures.isEmpty else { return .bytes(try unlinked(filled), note: note) }
+            guard !pictures.isEmpty else { return .bytes(try unlinked(filled), note: note, comments: comments) }
             // **Then the chosen pages made pictures** (decision AK): the toolkit's redaction with
             // no marks, rasterizing just those pages, so the words their patches cover go from the
             // copy. It reads by URL, so the filled bytes are staged as `.arranged`'s are.
@@ -630,7 +638,8 @@ enum EditorPDFToolEngine {
             // 4000 px on the longest side: the toolkit's own default for a redacted page.
             let options = PDFRedactionExportOptions(stripAnnotationsFromUnredactedPages: false, maxPixelDimension: 4000,
                                                     forceRasterizePages: Set(pictures))
-            return .bytes(try unlinked(try PDFToolkit.redactData(inputURL: middle, marks: [], options: options)))
+            return .bytes(try unlinked(try PDFToolkit.redactData(inputURL: middle, marks: [], options: options)),
+                          comments: comments)
         case .fillForm(let values, let items):
             return .bytes(try PDFToolkit.fillFormData(inputURL: input, values: values, items: items))
         case .arranged(let order, let then):
@@ -641,7 +650,7 @@ enum EditorPDFToolEngine {
             // The toolkit reads by URL, so the middle bytes go to a folder of this run's own under
             // `staging` — never beside the PDF, where a sync or a listing would see them — and the
             // folder goes on every way out. Both steps take this one lane turn.
-            guard case .bytes(let first, _) = try output(of: then, input: input, staging: staging,
+            guard case .bytes(let first, _, _) = try output(of: then, input: input, staging: staging,
                                                       progress: nil, isCancelled: nil)
             else { throw PDFOperationError.couldNotEncodeOutput }
             if isCancelled?() == true { throw CancellationError() }
@@ -679,6 +688,18 @@ enum EditorPDFToolEngine {
         guard removed > 0 else { return data }
         guard let written = copy.dataRepresentation() else { throw PDFOperationError.couldNotEncodeOutput }
         return written
+    }
+
+    /// **Whether the source has a link under any of `patches`** — page space on both sides, as
+    /// ``EditorPDFCorrection/overLink`` sees it — so whether ``removingLinks(under:in:source:)``
+    /// would rewrite the copy. Read in the lane, as every engine read is.
+    nonisolated static func hasLink(under patches: [FillSignItem], in source: URL) -> Bool {
+        guard !patches.isEmpty, let original = PDFDocument(url: source) else { return false }
+        return patches.contains { patch in
+            original.page(at: patch.pageIndex)?.annotations.contains {
+                $0.type == "Link" && $0.bounds.intersects(patch.rect)
+            } ?? false
+        }
     }
 
     /// `order` — a permutation of the ORIGINAL's pages — as it reads in `tool`'s copy: unchanged

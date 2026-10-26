@@ -642,7 +642,7 @@ public final class EditorPDFFillSign: ObservableObject {
     /// **Whether the copy keeps the file's comments as comments** (FR57, decided 2026-10-25): off
     /// by default — they are drawn into the pages, as they always were — chosen in the note card
     /// for the next save only, as ``unlinksCorrections`` is. It is read only while
-    /// ``offersKeepingComments`` and no page is saved as a picture (``keepCommentsRefusal``).
+    /// ``offersKeepingComments`` and nothing refuses it (``keepCommentsRefusal``).
     @Published public var keepsComments = false
     /// The item whose words are being typed, or `nil`.
     @Published public private(set) var editing: UUID?
@@ -1404,22 +1404,29 @@ public final class EditorPDFFillSign: ObservableObject {
     /// redraws the pages — no form — of a file that has some.
     public var offersKeepingComments: Bool { !usesFormPath && comments.any }
 
-    /// **Why the choice is greyed, or `nil`** (FR57): a page saved as a picture. The picture pass
-    /// copies the other pages through PDFKit, which rewrites the kept comments — their names and
-    /// their popups' links go — and draws a picture page's own into it; so while one is chosen the
-    /// copy flattens them all, and the checkbox says why rather than vanishing under the reader.
-    public var keepCommentsRefusal: String? { picturesToSave.isEmpty ? nil : Self.keepCommentsPictureReason }
+    /// **Why the choice is greyed, or `nil`** (FR57): a page saved as a picture, or a link under a
+    /// correction to be removed. Both passes copy the pages through PDFKit, which rewrites the kept
+    /// comments — their names and their popups' links go — and on macOS 26 drops the page labels
+    /// and attached files the keep tooltip promises; a picture page also draws its own in. So while
+    /// either is chosen the copy flattens them all, and the checkbox says why rather than vanishing
+    /// under the reader. The engine holds the same rule (``EditorPDFToolEngine/output(of:input:staging:fillAndSign:progress:isCancelled:)``).
+    public var keepCommentsRefusal: String? {
+        if !picturesToSave.isEmpty { return Self.keepCommentsPictureReason }
+        if offersUnlinking && unlinksCorrections { return Self.keepCommentsUnlinkReason }
+        return nil
+    }
 
     /// What the save does: keep them only when offered, chosen and not refused.
     var keepsCommentsOnSave: Bool { offersKeepingComments && keepCommentsRefusal == nil && keepsComments }
 
     /// The note card's checkbox and its tooltip (FR57, decided 2026-10-25), and the line under it
-    /// while a page is saved as a picture.
+    /// while it is greyed.
     public static let keepCommentsTitle = "Keep comments as comments"
     public static let keepCommentsHelp = "Keep this PDF’s highlights, sticky notes, drawings and other comments in the copy "
         + "as comments, with their text, popups and replies, so they can still be edited, instead of drawing them "
         + "into its pages. They sit over what you place. The copy keeps page labels and attached files as before."
     static let keepCommentsPictureReason = "Comments can’t be kept while a page is saved as a picture."
+    static let keepCommentsUnlinkReason = "Comments can’t be kept while links under corrections are removed."
 
     /// Words quoted in a note: a long passage is cut.
     static func quoted(_ words: String) -> String { words.count > 40 ? String(words.prefix(40)) + "…" : words }

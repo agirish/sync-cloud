@@ -12299,3 +12299,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s folderHold=%s phrase=%s\n' $l
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No held folder rows (`folderHold=0`) | CLOSED — does not apply |
+
+---
+
+## Keep comments is greyed while links under corrections are removed (F1) — main only
+
+With both "Keep comments as comments" and "Also remove links under corrections" ticked, taking the
+link out rewrote the toolkit's copy through PDFKit, which rewrote the kept comments (their names and
+popups' links) and on macOS 26 dropped the page labels and attached files the keep tooltip
+promises. `main` greys the keep box while a link under a correction is to be removed, saying why,
+and the engine draws the comments in then for any caller (`EditorPDFToolEngine.hasLink`).
+
+```sh
+S=Modules/FileExplorer/Sources/FileExplorer
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s keep=%s unlinkRefuses=%s\n' $l \
+  "$(git show origin/$l:$S/EditorPDFFillSign.swift 2>/dev/null | grep -cF 'public var keepCommentsRefusal')" \
+  "$(git show origin/$l:$S/EditorPDFFillSign.swift 2>/dev/null | grep -cF 'keepCommentsUnlinkReason')"; done
+# measured 2026-10-25, against origin, before this landed (the change reads unlinkRefuses=2):
+# main                      keep=1 unlinkRefuses=0
+# v5.x, v4.x, v3.x, v2.x    keep=0 unlinkRefuses=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No choice to keep comments (`keep=0`) | CLOSED — does not apply |

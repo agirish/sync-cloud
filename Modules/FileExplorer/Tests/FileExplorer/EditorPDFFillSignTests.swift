@@ -591,7 +591,11 @@ extension PDFFixtures {
         fill.toggle()
         fill.keepsComments = true
         #expect(fill.formNotes.first == EditorPDFComments.commentsKeptNote, "the card still says they are drawn in")
+        let log = LogCapture()
         let kept = try await save()
+        // The log names what was done (F4).
+        let wrote = try #require(await log.entries.first { $0.message.contains("Edit wrote Noted (filled") }, "the save was not logged")
+        #expect(wrote.message.contains(" — comments kept as comments"), "\(wrote.message)")
         #expect(!fill.keepsComments, "the choice outlived its save")
         #expect(pdf.tools.banner?.message.contains(EditorPDFComments.keptFellBackNote) == false)
         #expect(await yellowInContent(kept, page: 1) == 0, "a kept comment is drawn into the page too")
@@ -633,7 +637,12 @@ extension PDFFixtures {
         let id = try #require(fill.place(at: CGPoint(x: 100, y: 500), page: 0))
         fill.type("QUOKKA4471", into: id)
         fill.keepsComments = true
+        let log = LogCapture()
         guard case .wrote(let copy) = await fill.save() else { Issue.record("the copy was not written"); return }
+        // The log says what the toolkit did, not what was asked (F4).
+        let wrote = try #require(await log.entries.first { $0.message.contains("Edit wrote Noted (filled") }, "the save was not logged")
+        #expect(wrote.message.contains("the comments could not be kept, so they were drawn in")
+                && !wrote.message.contains("comments kept"), "\(wrote.message)")
         let message = try #require(pdf.tools.banner?.message)
         #expect(message.hasPrefix("Saved “") && message.hasSuffix(". " + EditorPDFComments.keptFellBackNote), "\(message)")
         #expect(await yellowInContent(try Data(contentsOf: URL(fileURLWithPath: copy)), page: 1) > 1000)
@@ -650,7 +659,7 @@ extension PDFFixtures {
         let staging = URL(fileURLWithPath: folder)
         func copy(pictures: [Int]) async throws -> Data {
             let data = await PDFKitSerialAccess.perform { () -> Data? in
-                guard case .bytes(let data, _)? = try? EditorPDFToolEngine.output(
+                guard case .bytes(let data, _, _)? = try? EditorPDFToolEngine.output(
                     of: .fillAndSign([item], pictures: pictures, keepsComments: true), input: URL(fileURLWithPath: file),
                     staging: staging, progress: nil, isCancelled: nil) else { return nil }
                 return data

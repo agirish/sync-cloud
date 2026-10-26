@@ -730,7 +730,8 @@ struct EditorPDFFillSaveStack: View {
             }
             // **The file's comments, drawn in unless chosen otherwise** (FR57, decided 2026-10-25) —
             // for this save only. Greyed, unticked and saying why while a page is saved as a
-            // picture, rather than vanishing from under a reader who ticked it.
+            // picture or the links under corrections are removed, rather than vanishing from under
+            // a reader who ticked it.
             if fill.offersKeepingComments {
                 let refusal = fill.keepCommentsRefusal
                 Toggle(EditorPDFFillSign.keepCommentsTitle,

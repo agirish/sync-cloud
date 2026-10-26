@@ -651,7 +651,7 @@ public final class EditorPDFTools: ObservableObject {
         case .success(.noGain):
             Logger.shared.info("\(writer) wrote nothing for \(tool.logDetail) of \(logName) — no smaller than the original")
             return end(.nothingWritten(Self.noGainMessage(tool)))
-        case .success(.bytes(let data, let note)):
+        case .success(.bytes(let data, let note, let comments)):
             let suffix = tool.suffix
             writeStartedHook?()
             let written = await Task.detached(priority: .userInitiated) {
@@ -678,11 +678,23 @@ public final class EditorPDFTools: ObservableObject {
                 let quoted = Self.sizes(before: before?.size, after: data.count)
                 Logger.shared.info("\(writer) wrote \((copy as NSString).lastPathComponent) from \(logName) — "
                                    + tool.logDetail + (quoted.map { ", \($0)" } ?? "")
-                                   + (note == nil ? "" : " — the comments could not be kept, so they were drawn in"))
+                                   + Self.commentsLogClause(comments, fellBack: note != nil))
                 wroteNote = note
                 host.didWrite(copy)
                 return end(.wrote(copy))
             }
+        }
+    }
+
+    /// **What became of the comments a Fill & Sign save was asked to keep** (F4), from the run's
+    /// result rather than the request: kept, refused beside a picture page or a removed link, or
+    /// given up by the toolkit. Empty when keeping them wasn't asked.
+    static func commentsLogClause(_ comments: FillSignAnnotations?, fellBack: Bool) -> String {
+        switch comments {
+        case nil: return ""
+        case .keep?: return " — comments kept as comments"
+        case .flatten?: return fellBack ? " — the comments could not be kept, so they were drawn in"
+            : " — the comments were drawn in, not kept: a page made a picture, or a link taken out, rewrites them"
         }
     }
 

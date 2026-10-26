@@ -1036,6 +1036,119 @@ enum ReplaceFixtures {
         #expect(fill.keepCommentsRefusal == nil && fill.keepsCommentsOnSave, "keeping the page as text did not give the choice back")
     }
 
+    /// The invoice with a link under "14 March 2026" and a yellow highlight over its title — written
+    /// in the PDFKit lane, as the app's reads and writes are.
+    private func linkedAndCommented(_ name: String) async throws -> String {
+        let file = invoice(name)
+        let written = await PDFKitSerialAccess.perform { () -> Bool in
+            guard let document = PDFDocument(url: URL(fileURLWithPath: file)), let page = document.page(at: 0) else { return false }
+            let link = PDFAnnotation(bounds: CGRect(x: 258, y: 598, width: 100, height: 12), forType: .link, withProperties: nil)
+            link.url = URL(string: "https://example.com/old")
+            page.addAnnotation(link)
+            let marker = PDFAnnotation(bounds: CGRect(x: 70, y: 716, width: 160, height: 24), forType: .highlight, withProperties: nil)
+            marker.color = .yellow
+            page.addAnnotation(marker)
+            return document.write(to: URL(fileURLWithPath: file))
+        }
+        try #require(written, "the fixture was not written")
+        return file
+    }
+
+    /// Page 1's annotation subtypes, as the file holds them — read by CoreGraphics, in the lane.
+    private func subtypes(_ data: Data) async -> [String] {
+        await PDFKitSerialAccess.perform { () -> [String] in
+            guard let document = CGDataProvider(data: data as CFData).flatMap(CGPDFDocument.init),
+                  let page = document.page(at: 1)?.dictionary else { return ["unreadable"] }
+            var annots: CGPDFArrayRef?
+            guard CGPDFDictionaryGetArray(page, "Annots", &annots), let annots else { return [] }
+            return (0..<CGPDFArrayGetCount(annots)).compactMap { i in
+                var annotation: CGPDFDictionaryRef?
+                var name: UnsafePointer<CChar>?
+                guard CGPDFArrayGetDictionary(annots, i, &annotation), let annotation,
+                      CGPDFDictionaryGetName(annotation, "Subtype", &name), let name else { return nil }
+                return String(cString: name)
+            }.sorted()
+        }
+    }
+
+    /// **"Keep comments as comments" is greyed while "Also remove links under corrections" is
+    /// ticked over a link (F1)** — taking the link out rewrites the copy through PDFKit, which
+    /// rewrites a kept comment and, on macOS 26, drops what the keep tooltip says stays — saying
+    /// why, and the save with both ticked draws the comments in and takes the link out. Unticking
+    /// the links gives the choice back. The log names what was done, not what was asked (F4).
+    @Test func keepingCommentsIsGreyedWhileLinksUnderCorrectionsAreRemoved() async throws {
+        let file = try await linkedAndCommented("Both.pdf")
+        let (pdf, id, pick) = try await correcting(file)
+        try #require(pick.overLink, "the link under the words was not seen — this tests nothing")
+        let fill = pdf.fill
+        fill.type("21 Apr", into: id)
+        fill.endEditing()
+        try #require(fill.offersKeepingComments && fill.offersUnlinking, "not both offered — this tests nothing")
+        fill.keepsComments = true
+        #expect(fill.keepCommentsRefusal == nil && fill.keepsCommentsOnSave, "refused with the links left in")
+        fill.unlinksCorrections = true
+        #expect(fill.keepCommentsRefusal == EditorPDFFillSign.keepCommentsUnlinkReason)
+        #expect(!fill.keepsCommentsOnSave, "kept with a link under a patch to take out")
+        #expect(fill.formNotes.contains(EditorPDFComments.commentsFlattenedNote), "the card says they stay comments: \(fill.formNotes)")
+        // Greyed and unticked on screen: the reader's tick draws nothing, as the picture case's.
+        func drawn() throws -> [NSColor?] {
+            let stack = EditorPDFFillSaveStack(fill: fill, tools: pdf.tools)
+            let size = NSHostingController(rootView: stack).sizeThatFits(in: CGSize(width: 2000, height: 4000))
+            let host = NSHostingView(rootView: stack)
+            host.frame = CGRect(origin: .zero, size: CGSize(width: size.width.rounded(.up), height: size.height.rounded(.up)))
+            host.layoutSubtreeIfNeeded()
+            let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            return (0..<rep.pixelsHigh).flatMap { y in (0..<rep.pixelsWide).map { rep.colorAt(x: $0, y: y) } }
+        }
+        let ticked = try drawn()
+        fill.keepsComments = false
+        #expect(ticked == (try drawn()), "the greyed checkbox shows the reader's tick, which the save won't follow")
+        fill.unlinksCorrections = false
+        fill.keepsComments = true
+        #expect(fill.keepCommentsRefusal == nil && fill.keepsCommentsOnSave, "unticking the links did not give the choice back")
+        fill.unlinksCorrections = true
+
+        let log = LogCapture()
+        guard case .wrote(let copy) = await fill.save() else { Issue.record("the copy was not written"); return }
+        let data = try Data(contentsOf: URL(fileURLWithPath: copy))
+        #expect(await subtypes(data).isEmpty, "the highlight was kept, or the link stayed")
+        let addresses = await PDFKitSerialAccess.perform { () -> [String] in
+            (PDFDocument(data: data)?.page(at: 0)?.annotations ?? []).filter { $0.type == "Link" }.compactMap { $0.url?.absoluteString }
+        }
+        #expect(!addresses.contains("https://example.com/old"), "the link under the patch is still in the copy")
+        let wrote = try #require(await log.entries.first { $0.message.contains("Edit wrote Both") }, "the save was not logged")
+        // The save asked for nothing it couldn't do, and the log claims nothing kept.
+        #expect(wrote.message.contains("links under corrections removed") && !wrote.message.contains("comments kept")
+                && !wrote.message.contains("keep comments"), "\(wrote.message)")
+    }
+
+    /// **The engine draws the comments in when a link under a patch is taken out (F1)**, for any
+    /// caller — and keeps them when asked to take links out with none under the patch, which
+    /// would rewrite nothing. The fixture can tell the two apart. Called in the lane.
+    @Test func theEngineDrawsCommentsInWhenALinkUnderAPatchGoes() async throws {
+        let file = try await linkedAndCommented("Engine.pdf")
+        let input = URL(fileURLWithPath: file)
+        let staging = URL(fileURLWithPath: folder)
+        func copy(patchAt rect: CGRect) async throws -> (data: Data, comments: FillSignAnnotations?) {
+            let patch = FillSignItem(pageIndex: 0, rect: rect, content: .patch(FillSignPatch(red: 1, green: 1, blue: 1)))
+            let result = await PDFKitSerialAccess.perform { () -> (Data, FillSignAnnotations?)? in
+                guard case .bytes(let data, _, let comments)? = try? EditorPDFToolEngine.output(
+                    of: .fillAndSign([patch], unlinksPatches: true, keepsComments: true), input: input,
+                    staging: staging, progress: nil, isCancelled: nil) else { return nil }
+                return (data, comments)
+            }
+            let (data, comments) = try #require(result, "the engine wrote nothing")
+            return (data, comments)
+        }
+        let clear = try await copy(patchAt: CGRect(x: 70, y: 400, width: 100, height: 20))
+        try #require(await subtypes(clear.data) == ["Highlight", "Link"], "kept with no link to take out — this tests nothing")
+        #expect(clear.comments == .keep)
+        let over = try await copy(patchAt: CGRect(x: 256, y: 596, width: 104, height: 18))
+        #expect(await subtypes(over.data).isEmpty, "the highlight was kept beside a link taken out, or the link stayed")
+        #expect(over.comments == .flatten, "the run says they were kept")
+    }
+
     /// **The engine finds a link under a patch on a turned page** — the toolkit puts links back
     /// upright, so the patch's page rect is mapped before the test — and, from macOS 27, the copy
     /// keeps the page labels the toolkit carried. Assembled by hand: a page turned 90° labelled "i",
@@ -1075,7 +1188,7 @@ enum ReplaceFixtures {
         let seen: Seen? = await PDFKitSerialAccess.perform {
             // The document, not its page: a page outliving its document reads nothing.
             func copy(unlinking: Bool) -> PDFDocument? {
-                guard case .bytes(let data, _)? = try? EditorPDFToolEngine.output(
+                guard case .bytes(let data, _, _)? = try? EditorPDFToolEngine.output(
                     of: .fillAndSign([patch], unlinksPatches: unlinking), input: input,
                     progress: nil, isCancelled: nil),
                     let document = PDFDocument(data: data), document.pageCount == 1 else { return nil }
