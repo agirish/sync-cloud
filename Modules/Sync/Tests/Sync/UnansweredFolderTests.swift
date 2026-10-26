@@ -195,11 +195,15 @@ import Testing
         let first = Task { await manager.refreshTreesAndScan(left: f.home, right: f.other) }
         await awaitSignal(gate.entered, "the walk never reached the folder that does not answer")
 
-        let started = ContinuousClock.now
+        // Ten seconds AND a hundred scheduler turns, not seconds alone: under main-actor load this
+        // test took 26 s with nothing wrong (`docs/flaky-tests.md`, "A park's bound counted seconds
+        // while its release waited for scheduler turns"), while sitting out the deadline costs
+        // sixty seconds and thousands of turns.
+        let budget = TurnDeadline(seconds: 10, turns: signalTurnFloor)
         await manager.refreshTreesAndScan(left: f.elsewhere, right: f.other)
         await first.value
-        #expect(ContinuousClock.now - started < .seconds(10),
-                "the superseded walk waited for the folder instead of unwinding")
+        #expect(!budget.hasPassed,
+                "the superseded walk waited for the folder instead of unwinding — \(budget.spent)")
         #expect(manager.hasScanned, "the refresh that superseded it did not compare")
         #expect(gate.isParked)
 
@@ -254,11 +258,12 @@ import Testing
                                           right: f.other, rightPath: f.other.rootPath)
         }
         await awaitSignal(gate.entered, "the scan never reached the folder that does not answer")
-        let started = ContinuousClock.now
+        // In seconds AND turns, for the reason `aSupersededWalkStopsWaitingForTheFolder` gives.
+        let budget = TurnDeadline(seconds: 10, turns: signalTurnFloor)
         scan.cancel()
         await scan.value
-        #expect(ContinuousClock.now - started < .seconds(10),
-                "the cancelled scan waited for the folder instead of stopping")
+        #expect(!budget.hasPassed,
+                "the cancelled scan waited for the folder instead of stopping — \(budget.spent)")
         #expect(!manager.isScanning)
         #expect(!manager.hasScanned, "a cancelled scan published")
 

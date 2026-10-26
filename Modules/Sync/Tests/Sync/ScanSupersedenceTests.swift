@@ -84,14 +84,27 @@ import Testing
         }
     }
 
-    /// Wraps a mock disk with an enumerator that sleeps per yielded entry, so a full walk takes
-    /// seconds — long enough to observe whether cancelling the scan actually aborts the walk.
-    private final class SlowWalkFileManager: FileManaging, @unchecked Sendable {
+    /// Wraps a mock disk with an enumerator that counts the entries it hands out and PARKS inside
+    /// the second one until the test lets go — so the test can cancel while the walk is certainly
+    /// mid-walk, and then count how far it read on.
+    ///
+    /// This replaced a per-entry sleep (100 entries × 40 ms) and a "cancel lands within 2 s"
+    /// budget, which a loaded run missed by 1.3 s and once by 8 s with nothing wrong
+    /// (`docs/flaky-tests.md`, "Tests racing a real-time window"). Entries are the unit the
+    /// cancellation check is written in — it runs once per entry — so they are what is counted.
+    private final class GatedWalkFileManager: FileManaging, @unchecked Sendable {
         private let inner: MockFileManager
-        let perItemDelay: TimeInterval
-        init(inner: MockFileManager, perItemDelay: TimeInterval) {
-            self.inner = inner
-            self.perItemDelay = perItemDelay
+        fileprivate let gate = ParkGate()
+        private let lock = NSLock()
+        private var count = 0
+        init(inner: MockFileManager) { self.inner = inner }
+
+        /// How many entries the walks have been handed.
+        var served: Int { lock.lock(); defer { lock.unlock() }; return count }
+
+        fileprivate func serve() {
+            lock.lock(); count += 1; let n = count; lock.unlock()
+            if n == 2 { gate.park() }
         }
 
         func fileExists(atPath p: String) -> Bool { inner.fileExists(atPath: p) }
@@ -113,52 +126,55 @@ import Testing
             try inner.replaceItem(at: d, withItemAt: s, backupItemName: n)
         }
 
-        private final class SlowEnumerator: FileManager.DirectoryEnumerator {
+        private final class GatedEnumerator: FileManager.DirectoryEnumerator {
             private let wrapped: FileManager.DirectoryEnumerator?
-            private let delay: TimeInterval
-            init(wrapping: FileManager.DirectoryEnumerator?, delay: TimeInterval) {
+            private let disk: GatedWalkFileManager
+            init(wrapping: FileManager.DirectoryEnumerator?, disk: GatedWalkFileManager) {
                 self.wrapped = wrapping
-                self.delay = delay
+                self.disk = disk
             }
             override func nextObject() -> Any? {
                 guard let next = wrapped?.nextObject() else { return nil }
-                Thread.sleep(forTimeInterval: delay)
+                disk.serve()
                 return next
             }
         }
 
         func enumerator(at u: URL, includingPropertiesForKeys k: [URLResourceKey]?, options m: FileManager.DirectoryEnumerationOptions, errorHandler h: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
-            SlowEnumerator(wrapping: inner.enumerator(at: u, includingPropertiesForKeys: k, options: m, errorHandler: h), delay: perItemDelay)
+            GatedEnumerator(wrapping: inner.enumerator(at: u, includingPropertiesForKeys: k, options: m, errorHandler: h), disk: self)
         }
     }
 
-    /// Cancelling a running scan must propagate into the detached disk walks: the scan winds
-    /// down promptly (well under the full-walk time) and publishes nothing.
+    /// Cancelling a running scan must propagate into the detached disk walks: the walk stops at its
+    /// next entry and the scan publishes nothing.
+    ///
+    /// The cancel lands while the walk is parked inside entry 2 of 100. The walk checks for
+    /// cancellation before it records each entry, so a cancel that reached it stops it right there,
+    /// with 2 handed out; one that did not reads on to 100.
     @MainActor
-    @Test(.parksThreads(2)) func testCancellingScanAbortsTheDiskWalkPromptly() async throws {
+    @Test(.parksAThread) func testCancellingScanAbortsTheDiskWalkPromptly() async throws {
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/left"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/right"), withIntermediateDirectories: true)
-        // 100 entries x 40ms each = ~4s for an uncancelled walk.
         for i in 0..<100 {
             mockFM.virtualDisk["/left/file\(i).txt"] = file()
         }
-        let slowFM = SlowWalkFileManager(inner: mockFM, perItemDelay: 0.04)
-        let manager = FileSyncManager(fileManager: slowFM)
+        let disk = GatedWalkFileManager(inner: mockFM)
+        let manager = FileSyncManager(fileManager: disk)
 
         let scan = Task {
             await manager.scanDirectories(left: Self.left, leftPath: "/left", right: Self.right, rightPath: "/right")
         }
-        await waitUntil("scan starts") { manager.isScanning }
+        await awaitSignal(disk.gate.entered, "the walk never reached its second entry")
         #expect(manager.isScanning)
 
-        let cancelledAt = Date()
         scan.cancel()
+        disk.gate.release.signal()
         await scan.value
         await waitUntil("scan finishes") { !manager.isScanning }
+        try #require(!disk.gate.releasedByTimeout, "the gate timed out: the walk was never held mid-walk")
 
-        // Aborted mid-walk: nowhere near the ~4s a full walk takes.
-        #expect(Date().timeIntervalSince(cancelledAt) < 2.0)
+        #expect(disk.served == 2, "the walk read \(disk.served) of 100 entries — it carried on after the cancel")
         #expect(!manager.isScanning)
         #expect(!manager.hasScanned)
         #expect(manager.differences.isEmpty)
@@ -173,9 +189,9 @@ import Testing
     /// chain — a cancelled task aborts the disk walk and publishes nothing — is already held
     /// deterministically by `testCancellingScanAbortsTheDiskWalkPromptly` above; an end-to-end
     /// version here would have to make a whole `refreshTreesAndScan` slow, and the only lever for
-    /// that (`SlowWalkFileManager`) sleeps on whatever thread the enumerator runs on, which starves
-    /// the very main actor a test has to poll from. The first cut did exactly that and never
-    /// observed `isScanning` at all.
+    /// that (a sleeping enumerator, which this file used to carry) sleeps on whatever thread the
+    /// enumerator runs on, which starves the very main actor a test has to poll from. The first cut
+    /// did exactly that and never observed `isScanning` at all.
     @MainActor
     @Test func testCancelScanCancelsTheInFlightRefreshTask() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())

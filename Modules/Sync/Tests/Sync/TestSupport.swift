@@ -9,18 +9,119 @@ import Testing
 /// wait out the ten seconds and then carry on ungated, asserting against a state it never
 /// actually reached. A positive control is where that hurts most, because "the gate never
 /// engaged" and "the gate engaged and the pass still published" look identical afterwards.
+///
+/// **Bounded by scheduler turns as well as by seconds** — see ``TurnDeadline``. What signals here
+/// is work the test started, and it gets there on main-actor and pool turns.
 func awaitSignal(
     _ semaphore: DispatchSemaphore,
     timeout: TimeInterval = 10,
+    turns: Int = signalTurnFloor,
     _ what: Comment = "the signal never arrived — the test ran on ungated state",
     sourceLocation: SourceLocation = #_sourceLocation
 ) async {
-    let result = await withCheckedContinuation { cont in
+    let deadline = TurnDeadline(seconds: timeout, turns: turns)
+    let arrived = await withCheckedContinuation { cont in
         DispatchQueue.global().async {
-            cont.resume(returning: semaphore.wait(timeout: .now() + timeout))
+            cont.resume(returning: semaphore.wait(until: deadline))
         }
     }
-    #expect(result == .success, what, sourceLocation: sourceLocation)
+    #expect(arrived, "\(what.rawValue) — \(deadline.spent)", sourceLocation: sourceLocation)
+}
+
+// MARK: - Scheduler turns
+
+/// The fewest scheduler turns ``awaitSignal`` waits before it may give up: twice `waitUntil`'s
+/// poll floor, as its 10 s default is twice `waitUntil`'s 5 s.
+public let signalTurnFloor = 2 * waitPollFloor
+
+/// The fewest scheduler turns a park waits for its release before it may give up. A release comes
+/// after the test's own waits — an `awaitSignal`, a `waitUntil` or several — so the park has to
+/// outlast all of them, in the unit they are counted in. Ten `waitUntil` floors.
+public let parkTurnFloor = 10 * waitPollFloor
+
+/// A process-wide count of scheduler turns: one each time a probe has slept 10 ms on the
+/// cooperative pool, crossed to the main actor, and come back.
+///
+/// **Why a park needs this.** A gate's release comes from the test's async side, and that side
+/// advances on main-actor and pool turns. A loaded run has fewer of those per second, so a bound in
+/// seconds alone runs out exactly when the release is slowest — `docs/flaky-tests.md`, "Fixed pumps
+/// and fixed sleeps". `waitUntil` answers that with its own poll count, but a park cannot count its
+/// own turns: it is blocked on a thread, or (``parkUntilReleased``) polling on the pool, which is
+/// not where the release is waiting. This probe needs one turn of each, so it slows down whenever
+/// either one is starved, and runs at the same pace as a `waitUntil` poll, which has the same
+/// shape: a 10 ms sleep, then a main-queue trip.
+///
+/// Started on first use and never stopped. It costs one main-actor job per 10 ms.
+enum SchedulerTurns {
+    private static let box = TurnBox()
+    private static let ticker: Void = {
+        Task.detached(priority: .medium) {
+            while true {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+                await MainActor.run {}
+                box.tick()
+            }
+        }
+    }()
+
+    static var now: Int {
+        _ = ticker
+        return box.value
+    }
+
+    private final class TurnBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+        var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+        func tick() { lock.lock(); count += 1; lock.unlock() }
+    }
+}
+
+/// A bound that passes only once BOTH its seconds and its scheduler turns have run out — the shape
+/// `waitUntil` already has, for waits that cannot count their own polls. An idle run is held to the
+/// seconds, as before; a loaded one is held to the turns, which is what its release is made of.
+///
+/// One wall-clock bound is left, at thirty times the seconds: it is reached only if the turns stop
+/// altogether — a wedged main thread — and there it turns a hang into a verdict.
+public struct TurnDeadline: Sendable {
+    private let start = ContinuousClock.now
+    private let seconds: Duration
+    private let ceiling: Duration
+    private let firstTurn: Int
+    private let turns: Int
+
+    public init(seconds: TimeInterval, turns: Int) {
+        self.seconds = .milliseconds(Int(seconds * 1000))
+        self.ceiling = self.seconds * 30
+        self.turns = turns
+        firstTurn = turns > 0 ? SchedulerTurns.now : 0
+    }
+
+    private var turnsSpent: Int { turns > 0 ? SchedulerTurns.now - firstTurn : 0 }
+
+    public var hasPassed: Bool {
+        let elapsed = ContinuousClock.now - start
+        return elapsed >= ceiling || (elapsed >= seconds && turnsSpent >= turns)
+    }
+
+    /// What the wait spent, for a failure message: a wait that gave up after hundreds of turns was
+    /// disproved; one that gave up at the ceiling after a handful was starved.
+    public var spent: String {
+        let elapsed = (ContinuousClock.now - start).components
+        let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+        return "gave up after \(String(format: "%.1f", seconds)) s and \(turnsSpent) scheduler turns"
+    }
+}
+
+extension DispatchSemaphore {
+    /// Blocks until signalled or `deadline` has passed; true if signalled. Waits in 50 ms slices so
+    /// it can read the turn count between them.
+    public func wait(until deadline: TurnDeadline) -> Bool {
+        while true {
+            if self.wait(timeout: .now() + 0.05) == .success { return true }
+            if deadline.hasPassed { return false }
+        }
+    }
 }
 
 /// A two-semaphore park for holding a SYNCHRONOUS seam call in flight: the seam calls `park()`,
@@ -73,10 +174,12 @@ public final class ParkGate: @unchecked Sendable {
     /// gets here must declare `.parksAThread` so the pool keeps enough width to deliver the
     /// release; see ``ParkThreadBudget`` and `docs/flaky-tests.md`, "Every gate parks at once, on
     /// the pool their releases need".
-    public func park(timeout: TimeInterval = 10) {
+    ///
+    /// Bounded by ``parkTurnFloor`` scheduler turns as well as by `timeout` — see ``TurnDeadline``.
+    public func park(timeout: TimeInterval = 10, turns: Int = parkTurnFloor) {
         lock.lock(); parked = true; everParked = true; lock.unlock()
         entered.signal()
-        let expired = release.wait(timeout: .now() + timeout) == .timedOut
+        let expired = !release.wait(until: TurnDeadline(seconds: timeout, turns: turns))
         lock.lock(); parked = false; if expired { timedOut = true }; lock.unlock()
     }
 }
@@ -445,7 +548,7 @@ final class FirstStatGate: FileManaging, @unchecked Sendable {
         lock.lock(); let first = !gated; if first { gated = true }; lock.unlock()
         guard first else { return }
         entered.signal()
-        if release.wait(timeout: .now() + 10) == .timedOut {
+        if !release.wait(until: TurnDeadline(seconds: 10, turns: parkTurnFloor)) {
             lock.lock(); timedOut = true; lock.unlock()
         }
     }

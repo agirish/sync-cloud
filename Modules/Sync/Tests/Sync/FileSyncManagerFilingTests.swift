@@ -29,10 +29,19 @@ final class Flag: @unchecked Sendable {
 /// and the positive control asserts nothing, which looks exactly like a real pass. That is the
 /// same failure `awaitSignal` and ``FirstStatGate/releasedByTimeout`` already refuse to hide.
 /// Callers must `#expect(!timedOut.value, …)` once the awaited work is done.
-func parkUntilReleased(_ released: Flag, timedOut: Flag, timeout: Duration = .seconds(10)) async {
-    let deadline = ContinuousClock.now.advanced(by: timeout)
+///
+/// **Bounded by ``parkTurnFloor`` scheduler turns as well as by seconds.** The parked closures run
+/// on the cooperative pool (a classifier, or an operation `enqueueFileOperation` runs detached),
+/// while the release comes from a main-actor test — so the park's own loop counts nothing the
+/// release waits on, and its seconds ran out under load before the test got there
+/// (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps"). It sleeps rather than yields, too: a
+/// `Task.yield()` loop kept a pool thread busy for as long as the park was held.
+func parkUntilReleased(_ released: Flag, timedOut: Flag, timeout: TimeInterval = 10) async {
+    let deadline = TurnDeadline(seconds: timeout, turns: parkTurnFloor)
     while !released.value {
-        if ContinuousClock.now >= deadline { timedOut.value = true; return }
+        if deadline.hasPassed { timedOut.value = true; return }
+        // A cancelled task's sleep returns at once, so the yield is what keeps that loop polite.
+        try? await Task.sleep(nanoseconds: 1_000_000)
         await Task.yield()
     }
 }

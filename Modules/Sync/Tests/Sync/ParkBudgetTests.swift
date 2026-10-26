@@ -48,7 +48,7 @@ import Testing
     /// test notices; every consumer's `try #require(!gate.releasedByTimeout)` still passes.
     @Test func aParkThatIsNeverReleasedRecordsItsTimeout() async {
         let gate = ParkGate()
-        DispatchQueue.global().async { gate.park(timeout: 0.2) }
+        DispatchQueue.global().async { gate.park(timeout: 0.2, turns: 0) }
         await awaitSignal(gate.entered, timeout: 5, "the park never engaged")
         // Deliberately never signalled.
         await waitForCondition("the parked call gives up") { !gate.isParked }
@@ -188,7 +188,7 @@ import Testing
     private static let threadBlockingGates = [
         "ParkGate", "FirstStatGate", "FirstOpGate", "FirstAttributesGate",
         "GatedFileManager", "GateFileManager", "DestinationStatGate", "BarrierCancelGate",
-        "SlowWalkFileManager", "GatingFileManager", "SamplerObservedTrash",
+        "GatedWalkFileManager", "GatingFileManager", "SamplerObservedTrash",
     ]
 
     /// **Rot #1: a new gated test that forgets the trait.** It would pass on its own and go on
@@ -232,9 +232,10 @@ import Testing
         let known: [String: Set<String>] = [
             // Off the cooperative pool by construction: `DispatchQueue.global()` overcommits.
             "TestSupport.swift": [
-                "cont.resume(returning: semaphore.wait(timeout: .now() + timeout))",
-                "let expired = release.wait(timeout: .now() + timeout) == .timedOut",   // ParkGate.park
-                "if release.wait(timeout: .now() + 10) == .timedOut {",                 // FirstStatGate
+                "cont.resume(returning: semaphore.wait(until: deadline))",
+                "let expired = !release.wait(until: TurnDeadline(seconds: timeout, turns: turns))",   // ParkGate.park
+                "if !release.wait(until: TurnDeadline(seconds: 10, turns: parkTurnFloor)) {",         // FirstStatGate
+                "if self.wait(timeout: .now() + 0.05) == .success { return true }",   // wait(until:)'s slice
             ],
             "DeepFolderIdentityTests.swift": [
                 "if release.wait(timeout: .now() + 10) == .timedOut {",   // FirstAttributesGate
@@ -254,10 +255,7 @@ import Testing
                 "Thread.sleep(forTimeInterval: 0.005)",
             ],
             "FileSyncManagerDuplicatesTests.swift": ["if mustWait { semaphore.wait() }"],
-            "ScanSupersedenceTests.swift": [
-                "Thread.sleep(forTimeInterval: delay)",
-                "mockFM.enumeratorDelay = 0.05",
-            ],
+            "ScanSupersedenceTests.swift": ["mockFM.enumeratorDelay = 0.05"],
             // `MockFileManager`'s per-entry sleep blocks the walk's thread too, but its LENGTH
             // lives at the call sites, so those are registered as well: a second one, or a longer
             // one, is a new thread-hog that no reader of `MockFileManager.swift` would see.

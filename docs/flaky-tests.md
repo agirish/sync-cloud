@@ -159,7 +159,8 @@ red would be — stated plainly so nobody later cites this entry as proof the fa
 a test is a bet that the machine will not be busy, and this repo's runner IS the developer's Mac.
 `FileSyncManagerFilingTests` and `MergeUndoGroupingAndGateTests` still carry hand-rolled
 `ContinuousClock` deadlines; they have not misfired, and they are not swept here on that basis, but
-they are where to look first if either goes red under load.
+they are where to look first if either goes red under load. *The first one went red on 2026-10-25:*
+`parkUntilReleased`, now bounded in scheduler turns — mechanism 40.
 
 **A third spelling, in the app target — `EditorAutosaveDriverTests`, 2026-09-26 — FIXED, and
 REPRODUCED.** Three CI runs on `main` in a row (638edd11, 08597a94, 3eabd911) went red on one
@@ -886,6 +887,9 @@ real evidence otherwise. A rerun of the same SHA then went green, with the machi
 3.04, runner idle) — the fourth time this test has answered a rerun that way.
 
 #### Seen: `ScanSupersedenceTests.testCancellingScanAbortsTheDiskWalkPromptly`, 2026-08-11
+
+**FIXED 2026-10-25** (mechanism 40): the test now parks the walk inside entry 2 and counts the
+entries handed out after the cancel, instead of timing the cancel against a 2 s budget.
 
 A full `Modules/Sync` run went red on **two** tests at once, immediately after a full
 `Modules/FileExplorer` run on the same machine. Both tests exist on both release lines and nothing
@@ -4172,3 +4176,97 @@ together. All five Compare-pair load waits use it, and so does the find wait, wh
 
 **Tell.** A mounted-PDF test red at a seconds bound, waiting for a document or a search, and slow
 on green runs too. Ask what the condition waits for: if it is a lane turn, pace the wait on the lane.
+
+### 40. A park's bound counted seconds while its release waited for scheduler turns — FIXED
+
+**Symptom.** Three Sync tests red together in CI run 40218901987 (2026-10-25), on code no commit
+touched, with the whole package taking 46 s instead of its usual 15: most suites finished at ~31 s.
+
+- `FilingBatchReentrancyTests.aSecondFileAllWhileTheFirstIsRunningIsRefused`, `!gateTimedOut.value`,
+  after 25 s.
+- `UnansweredFolderTests.aSupersededWalkStopsWaitingForTheFolder`, `awaitSignal`'s `result ==
+  .success` and then `gate.isParked`, after 24 s.
+- `ScanSupersedenceTests.testCancellingScanAbortsTheDiskWalkPromptly`, 3.3 s against a 2 s
+  budget, in run 40214697085 that day.
+
+**Mechanism.** Each bound was in seconds and each release was made of turns, the case "Fixed pumps
+and fixed sleeps" warns about, in shapes `waitUntil`'s poll floor could not reach:
+
+- `parkUntilReleased` runs on the cooperative pool, inside the operation `enqueueFileOperation`
+  runs detached, or inside a classifier. Its `Task.yield()` loop counted pool turns, and its bound
+  was 10 s. The FilingBatch release came after the test's
+  `for _ in 0..<100 { await Task.yield() }`, a hundred main-actor turns.
+- `awaitSignal` and `ParkGate.park` block a thread on a semaphore for 10 s. What they wait for, the
+  walk reaching its seam or the test reaching its release, gets there on main-actor and pool turns.
+- Two `UnansweredFolderTests` cases asserted "unwound in under 10 s", against a dataless-read
+  deadline of 60 s.
+- The scan-cancel test raced a 4 s walk with a 2 s budget ("Tests racing a real-time window").
+
+**Reproduced, with load of each shape** — a scratch suite beside the three, `--filter`, never
+committed. Main-actor load is four main-actor tests that hold the main thread in 0.25 s chunks
+for 40 s, yielding between. Pool load is nine pool tests doing the same.
+
+| Load | Before (`b20505319`) | After |
+|---|---|---|
+| main actor | **4 of 4 red**: FilingBatch's `!gateTimedOut.value` all 4 (41–44 s), the scan's 2 s budget 2, the superseded walk's 10 s budget 2 | 3 of 3 green |
+| pool | **2 of 2 red**: FilingBatch's park; `testScanQueuedFromCancelledPredecessorStillPublishes`' `!gate.releasedByTimeout` | 2 of 2 green |
+
+And across the **whole** `Modules/Sync` package (3,822 tests), arms interleaved in one
+`build-slot --exclusive` hold:
+
+| Load | Before | After |
+|---|---|---|
+| none | — | 2 of 2 green, 26 s |
+| main actor | **2 of 2 red**, FilingBatch's park, 54–58 s | 2 of 2 green, 57–65 s |
+| pool | **1 of 1 red**, the same, 51 s | 1 of 1 green, 49 s |
+
+**Fix.** Two units, chosen by what the release is made of.
+
+- **Scheduler turns, for the parks.** `SchedulerTurns` in `TestSupport.swift` is a process-wide
+  probe: sleep 10 ms on the pool, hop to the main actor, count one. It has the shape of a
+  `waitUntil` poll, so it runs at a poll's pace, and it needs both executors, so starving either
+  one slows it. `TurnDeadline` passes only when its seconds AND its turns are spent. That is
+  `waitUntil`'s rule, for waits that cannot count their own polls. An idle run is held to the
+  seconds, as before; a loaded one to the turns. `awaitSignal` (100 turns), `ParkGate.park` and
+  `FirstStatGate` (500), and `parkUntilReleased` (500) all use it. So do the two "unwound in under
+  10 s" budgets: 100 turns, where sitting out the 60 s deadline costs about 4,700. `parkUntilReleased`
+  also sleeps 1 ms instead of yielding, so a held park no longer keeps a pool thread spinning.
+- **The release's own signal, for the pump.** FilingBatch now waits for both batches to have
+  entered and one to have queued its first move (`activeFileOperationsCount >= 2`), instead of
+  pumping a hundred yields.
+- **Entries, for the scan.** The walk parks inside entry 2 of 100. The test cancels, releases the
+  park, and expects exactly 2 entries handed out: the walk checks for cancellation once per entry,
+  so that is the unit its claim is made in.
+
+One wall-clock bound remains, at thirty times the seconds (300 s for the default 10). It is
+reached only if the turns stop, which means a wedged main thread, and there it turns a hang into
+a verdict. The probe costs one main-actor job per 10 ms; idle, a turn measured 21 ms (466 in 10 s).
+
+**Mutation-checked**, idle unless noted:
+
+| Mutation | Verdict |
+|---|---|
+| FilingBatch never releases its park | `!gateTimedOut.value` at 10.8 s; **46.5 s under main-actor load** — held through the 40 s load, then 500 turns |
+| the File-all latch removed (production) | `currentError == nil` and `banner.severity == .success` red, 0.9 s |
+| the scan's cancel not forwarded to its walks (production) | "the walk read 100 of 100 entries", 1.9 s |
+| the unanswered folder never parks | "the walk never reached the folder … gave up after 10.0 s and 466 scheduler turns" |
+| a superseded pane walk ignores the cancel; the deadline still answers (production) | "gave up after 60.0 s and 4702 scheduler turns" |
+| a cancelled comparison ignores the cancel (production) | "gave up after 60.0 s and 4943 scheduler turns" |
+
+**A mutation that hangs is a finding about the mutation, not the bound.** The first attempt at the
+pane-walk row dropped the cancel handler's waiter without resuming it, so the deadline had nobody
+left to answer. The cancelled walk then awaited a continuation that could never resume, with no
+thread blocked and only the probe running (`swift-inspect dump-concurrency`: the task parked in
+`closure #2 in FileSyncManager.loadTree`). The test's `await first.value` has no bound and never had
+one. That run sat for three hours holding a build slot. A mutation should break the behaviour,
+not the continuation contract.
+
+**Tell.** A Sync test red at a 10 s park or signal bound, its failure message giving the turns
+spent. "Gave up after 10.0 s and 400+ turns" was disproved. A count far below its floor means the
+300 s ceiling ended it, so something stopped the main actor.
+
+**Still seconds-only, and not swept here:** the gates private to their suites —
+`FirstAttributesGate` (`DeepFolderIdentityTests`), `ProgressAccountingTests`' and
+`MergeUndoPromiseTests`' semaphores, `MergeUndoGroupingAndGateTests`' rendezvous,
+`BulkSyncCancellationAndReservationTests`' barrier — and the park budget's own give-up. Each one is a
+one-line change to `wait(until: TurnDeadline(…))` if it goes red the same way.

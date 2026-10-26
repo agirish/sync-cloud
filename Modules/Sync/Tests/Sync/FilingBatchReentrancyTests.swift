@@ -84,17 +84,23 @@ import Foundation
         // the thing that matters, which is that the two really did overlap. Without it a run
         // where they did not overlap would be indistinguishable from one the latch refused.
         let firstSawLatch = Flag(), secondSawLatch = Flag()
+        let entered = CallCounter()
         async let first: Void = { @MainActor in
+            _ = entered.next()
             firstSawLatch.value = m.isFilingBatchRunning
             await m.applyRecommendedFiling(suggestions)
         }()
         async let second: Void = { @MainActor in
+            _ = entered.next()
             secondSawLatch.value = m.isFilingBatchRunning
             await m.applyRecommendedFiling(suggestions)
         }()
-        // Both invocations run to their first suspension — which, with the queue parked, is inside
-        // their first move. Bounded, so a mis-wired harness fails its assertions instead of hanging.
-        for _ in 0..<100 { await Task.yield() }
+        // Both invocations have entered, and one is inside its first move — queued behind the
+        // park. Waited for, not pumped: this was `for _ in 0..<100 { await Task.yield() }`, and a
+        // hundred main-actor turns under load outlasted the park's ten seconds.
+        await waitUntil("both batches entered and one queued its first move behind the park") {
+            entered.value == 2 && m.activeFileOperationsCount >= 2
+        }
         gate.value = true
         _ = await (first, second)
         _ = await park.value
