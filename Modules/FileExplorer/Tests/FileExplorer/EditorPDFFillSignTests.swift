@@ -671,6 +671,40 @@ extension PDFFixtures {
                 "kept with a page made a picture, whose pass rewrites them")
     }
 
+    /// **Comments are kept from a PDF restricted with an owner password (F7)** — its strings are
+    /// encrypted in the file, and the toolkit carries the comments' dictionaries across, so their
+    /// text has to come through decrypted, not as the cipher bytes. The note's text, the popup's
+    /// parent and the highlight, read back by CoreGraphics. Every read and write in the lane.
+    @Test func commentsAreKeptFromAnEditingRestrictedPDF() async throws {
+        let plain = try await commented("Plain noted.pdf")
+        let file = path("Restricted noted.pdf")
+        let restricted = await PDFKitSerialAccess.perform { () -> Bool in
+            guard let document = PDFDocument(url: URL(fileURLWithPath: plain)) else { return false }
+            guard document.write(to: URL(fileURLWithPath: file), withOptions: [.ownerPasswordOption: "owner-secret",
+                                                                      .accessPermissionsOption: NSNumber(value: PDFPermissionPreset.openAndPrintOnly)]),
+                  let reread = PDFDocument(url: URL(fileURLWithPath: file)) else { return false }
+            return reread.isEncrypted && !reread.isLocked && !reread.allowsDocumentChanges
+        }
+        try #require(restricted, "the fixture is not an editing-restricted PDF — this tests nothing")
+        let item = FillSignItem(pageIndex: 0, rect: CGRect(x: 100, y: 500, width: 120, height: 20),
+                                content: .text(FillSignText(string: "QUOKKA4471", fontSize: 12, red: 0, green: 0, blue: 0)))
+        let staging = URL(fileURLWithPath: folder)
+        let result = await PDFKitSerialAccess.perform { () -> (Data, FillSignAnnotations?)? in
+            guard case .bytes(let data, _, let comments)? = try? EditorPDFToolEngine.output(
+                of: .fillAndSign([item], keepsComments: true), input: URL(fileURLWithPath: file),
+                staging: staging, progress: nil, isCancelled: nil) else { return nil }
+            return (data, comments)
+        }
+        let (data, kept) = try #require(result, "the engine wrote nothing")
+        #expect(kept == .keep, "the comments were drawn in, not kept")
+        let carried = await comments(data, page: 1)
+        #expect(carried.map(\.subtype).sorted() == ["Highlight", "Popup", "Text"], "\(carried)")
+        #expect(carried.first { $0.subtype == "Text" }?.contents == "WALLABY note text",
+                "the note's text did not come through intact: \(carried)")
+        #expect(carried.first { $0.subtype == "Popup" }?.parent == "Text", "the popup no longer belongs to its note")
+        #expect(await yellowInContent(data, page: 1) == 0, "a kept comment is drawn into the page too")
+    }
+
     /// **What changes while the copy is being written is kept, not cleared** — it is not in the copy,
     /// and clearing deleted it without a word. The save is held on its lane turn while a second item
     /// goes down, then let finish: the copy has the first words only, and both items are still there.
