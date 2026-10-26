@@ -197,6 +197,40 @@ import Foundation
         }
     }
 
+    /// B1. The Replace P5 lets through actually happens, copy and move alike: `T/Photos` is a link
+    /// to `Elsewhere/Photos`, and `T/Photos/Photos` — through the link — replaces it. The link goes
+    /// to the Trash, the folder it led to keeps everything else in it, and `T/Photos` is the real
+    /// folder now. `replaceItemAt` refused every link ("The file “Photos” doesn’t exist.").
+    @Test(arguments: [false, true])
+    func aLinkToTheSourcesFolderIsReplacedOnDisk(isMove: Bool) throws {
+        let base = try makeCanonicalTempRoot(prefix: "b1-\(isMove ? "move" : "copy")")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let fm = FileManager.default
+        let real = base.appendingPathComponent("Elsewhere/Photos")
+        try fm.createDirectory(at: real.appendingPathComponent("Photos"), withIntermediateDirectories: true)
+        try Data("inner".utf8).write(to: real.appendingPathComponent("Photos/inner.txt"))
+        try Data("outer".utf8).write(to: real.appendingPathComponent("outer.txt"))
+        let link = base.appendingPathComponent("T/Photos")
+        try fm.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: link, withDestinationURL: real)
+        let source = link.appendingPathComponent("Photos")
+        let trash = ScratchTrash(in: base)
+
+        let replaced = isMove
+            ? try FileSyncManager.safeMoveItem(at: source, to: link, fileManager: trash, caseSensitiveVolume: false)
+            : try FileSyncManager.safeCopyItem(at: source, to: link, fileManager: trash, caseSensitiveVolume: false)
+
+        let kind = try fm.attributesOfItem(atPath: link.path)[.type] as? FileAttributeType
+        #expect(kind == .typeDirectory, "T/Photos is still the link")
+        #expect((try? String(contentsOf: link.appendingPathComponent("inner.txt"), encoding: .utf8)) == "inner")
+        #expect((try? String(contentsOf: real.appendingPathComponent("outer.txt"), encoding: .utf8)) == "outer",
+                "the folder the link led to lost what else it held")
+        #expect(fm.fileExists(atPath: real.appendingPathComponent("Photos").path) == !isMove)
+        let backup = try #require(replaced, "the replaced link is not recoverable")
+        #expect((try? fm.destinationOfSymbolicLink(atPath: backup.path)) == real.path, "the backup is not the link")
+        #expect(backup.path.hasPrefix(trash.folder.path))
+    }
+
     /// FR30. Pasting `/T/Photos/Photos` into `/T` targets `/T/Photos` — the source's own parent.
     /// Answering Replace swapped the inner folder in and trashed the outer one with everything
     /// else it held. The validation refuses that shape, on either case spelling, and nothing else.

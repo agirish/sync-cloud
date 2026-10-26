@@ -11858,3 +11858,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s gate=%s fix=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The following `fileExists` gate (`gate=1`) | RECORDED — not owed |
+
+---
+
+## A Replace over a symbolic link replaces the link (final review B1) — main only
+
+`replaceItemAt` refuses a link outright — measured: "The file “Photos” doesn’t exist." for a link
+to a folder that is there — so every copy or move that replaced a link failed, P5's link to the
+item's own folder included. `main` moves the link aside as the backup and renames the item into
+its place.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s install=%s fix=%s\n' $l \
+  "$(git show origin/$l:$S/FileManaging.swift 2>/dev/null | grep -cF 'func installReplacement')" \
+  "$(git show origin/$l:$S/FileManaging.swift 2>/dev/null | grep -cF 'A symbolic link is replaced as the entry')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads fix=1):
+# main                     install=3 fix=0
+# v5.x, v4.x, v3.x, v2.x   install=0 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | `replaceItemAt` straight onto the destination (`install=0`), which refuses a link the same way | RECORDED — not owed |

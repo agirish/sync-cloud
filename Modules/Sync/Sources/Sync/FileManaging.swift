@@ -138,6 +138,24 @@ extension FileManager: FileManaging {
 
     private func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL, backupItemName: String,
                              options metadata: FileManager.ItemReplacementOptions) throws -> URL? {
+        // **A symbolic link is replaced as the entry it is (B1).** `replaceItemAt` refuses a link
+        // outright — measured: `NSCocoaErrorDomain 4`, "The file “Photos” doesn’t exist." for a
+        // link to a folder that plainly does — so every Replace over a link failed, P5's link to
+        // the item's own folder included. The link moves aside under the backup name (a rename of
+        // the link, never of what it points at), the staged item takes its place, and a failure
+        // there puts the link back. The destination is absent between the two renames; a link
+        // holds no data to lose in that window.
+        if (try? attributesOfItem(atPath: destinationURL.path))?[.type] as? FileAttributeType == .typeSymbolicLink {
+            let backupURL = destinationURL.deletingLastPathComponent().appendingPathComponent(backupItemName)
+            try moveItem(at: destinationURL, to: backupURL)
+            do {
+                try moveItem(at: stagedURL, to: destinationURL)
+            } catch {
+                try? moveItem(at: backupURL, to: destinationURL)
+                throw error
+            }
+            return backupURL
+        }
         // `replaceItemAt` is defined only when the original exists; a brand-new destination is a
         // plain rename — no backup, and no replacement window to close.
         guard fileExists(atPath: destinationURL.path) else {
