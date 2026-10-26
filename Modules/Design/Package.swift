@@ -9,6 +9,9 @@ let package = Package(
         // Test-only: every UI package's test target links it, and the app never does. Linking it
         // quiets the spell checker for the whole test process — see its header.
         .library(name: "TestProcessTextChecking", targets: ["TestProcessTextChecking"]),
+        // Test-only, the same way: linking it draws every hosting view's animations on the main
+        // thread for the whole test process — see its header.
+        .library(name: "TestProcessRendering", targets: ["TestProcessRendering"]),
     ],
     dependencies: [
         // Test-only: visual snapshot regression net. The library product below does NOT
@@ -29,6 +32,7 @@ let package = Package(
     targets: [
         .target(name: "Design"),
         .target(name: "TestProcessTextChecking", linkerSettings: [.linkedFramework("AppKit")]),
+        .target(name: "TestProcessRendering"),
         .testTarget(
             name: "DesignTests",
             dependencies: [

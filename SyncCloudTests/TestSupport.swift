@@ -786,8 +786,12 @@ final class ScratchDefaultsLedger: @unchecked Sendable {
         guard let line = "\(name)\n".data(using: .utf8) else { return }
         if let handle = FileHandle(forWritingAtPath: ledgerPath) {
             defer { try? handle.close() }
-            handle.seekToEndOfFile()
-            handle.write(line)
+            // **The throwing forms**: `seekToEndOfFile()` and `write(_:)` raise an Objective-C
+            // exception when the write fails, which no Swift `catch` stops — on 2026-10-25 one
+            // took a whole FileExplorer run down. A ledger line that can't be written only costs
+            // the next run's sweep that one name.
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: line)
         } else {
             try? line.write(to: URL(fileURLWithPath: ledgerPath))
         }

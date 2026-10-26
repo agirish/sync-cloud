@@ -3640,28 +3640,52 @@ view; "Process-wide state, and suites running in parallel" for the in-process ha
 sharing; "A named NSPasteboard is machine-global, so two test PROCESSES share it" for the same
 shape on another shared resource.
 
-### 31. Four projections at once, and a shared attribute dictionary freed under one of them
+### 31. An attribute dictionary freed under a projection's own run — cause not found
+
+*Was "Four projections at once, and a shared attribute dictionary freed under one of them" until
+2026-10-26, when it came back with one projection building and the lock below held.*
 
 **Symptom.** FileExplorer's test process exits with `signal code 6`. There is no `✘` and no
-`Test run with` line. Seen once: CI run 39081784223, attempt 1, at `23e62ed1` on 2026-10-17, in
-the first second of the FileExplorer run, when about three thousand tests start together. The load
-average was about 15. Attempt 2 on the same SHA was green. The crash report
-(`swiftpm-testing-helper-2026-10-17-172022.ips`):
+`Test run with` line. A rerun passes. Seen twice, both times in the first seconds of a full run:
+
+| When | Where | Seconds after launch | Test on the faulting thread |
+|---|---|---|---|
+| 2026-10-17 | CI run 39081784223, attempt 1, at `23e62ed1`, load about 15 | under 1 | `MarkdownProjectionTests.indentedCodeHtmlAndRulesAreNotText` |
+| 2026-10-26 07:58 | a local full run (`swiftpm-testing-helper-2026-10-26-075845.ips`) | 2.1 | `MarkdownProjectionOneAtATimeTests.aProjectionWaitsWhileAnotherIsBuilding`, projecting its `previous` note before it takes the lock itself |
+
+Both reports have the same faulting stack:
 
 ```
-cooperative  MarkdownProjectionTests.indentedCodeHtmlAndRulesAreNotText
-               → MarkdownProjection.project → Builder.run → append → readOnlyBlock → endBlock
+cooperative  MarkdownProjection.project → oneAtATime (2026-10-26 only) → Builder.run → append
+               → readOnlyBlock → endBlock
                → -[NSMutableAttributedString addAttributes:range:]
                → -[NSAttributeDictionary mutableCopyWithZone:]
                → -[__NSPlaceholderDictionary initWithObjects:forKeys:count:]
              NSInvalidArgumentException: attempt to insert nil object from objects[0]
 ```
 
-Three other cooperative threads were also inside `MarkdownProjection.project` at that moment:
-one parsing, one making a block's font, and one measuring a table cell in `Builder.width(of:)`.
-The main thread was committing a CoreAnimation transaction.
+Both notes are short, with an HTML block and then indented code: two read-only blocks, each built
+by `readOnlyBlock`. In the 10-17 note the HTML block comes first; in the 10-26 note it comes after
+a heading.
 
-**What the report says.** The run being copied is the HTML block's text, and its attributes are
+**What the 2026-10-26 report rules out.** The lock below was in, and the faulting thread held it:
+`MarkdownProjection.oneAtATime` is on its stack. The only other projection, another case of the
+same test, was parked in `-[NSRecursiveLock lock]` under `oneAtATime`. The main thread was in
+`FoldAllToggleBindingTests.mount`, making a kind of `NSHostingView` for the first time
+(`-[NSResponder init]` → `_NSDPClassInfoForClass`), with no preview mounted. Seven threads were parked on
+`EditorFileStore.WriteOrder`, and one was listing a folder for `Logger.shared`'s first use. No thread
+but the faulting one was in attributed-string or text code. So:
+
+- **Other projections building are not needed.** None could build while the faulting thread held
+  the lock, and none was. The 10-17 reading, that another projection freed a dictionary the run
+  shared, does not fit. Another test dropping a finished projection's strings is still possible,
+  but see the uniquing below.
+- **A mounted preview's TextKit work on main is not needed.**
+- **The dictionary went bad before the copy began.** The run got it microseconds earlier, from
+  `appendText`'s `addAttribute(.previewReadOnly, …)` over text set in `{font: monospaced 12}`, on
+  the same thread.
+
+**What the frames say** (10-17, unchanged by 10-26). The run being copied holds
 `{font: monospaced 12, previewReadOnly: true}`, both non-nil. `mutableCopyWithZone:` reads the
 dictionary's count at offset 8 and each entry's key and value from offset 16 on (disassembled,
 macOS 27.0.1). It then hands them to `initWithObjects:forKeys:count:`. The call that threw is the
@@ -3669,18 +3693,25 @@ one for a count between 1 and 40, so the object read as a small count with a nil
 is a freed dictionary whose memory now holds something else, and `out` still pointing at it. This
 is a use after free in the framework. Nothing we passed was nil.
 
-**Why the other projections are the suspects.** AppKit uniques attribute dictionaries across the
-whole process. `+[NSAttributeDictionary newWithDictionary:]` looks an equal dictionary up in one
-table (an `NSHashTable` of weak references, created with options 5, under an `os_unfair_lock`) and
-hands back the one it finds. Measured: two threads that each made `{font: monospaced 12}` got one
-pointer. Only the projection writes `previewReadOnly`, so every string holding that dictionary
-belonged to a projection or was a copy of one.
+**The uniquing reads as safe** (disassembled 2026-10-26, macOS 27.0.1). AppKit uniques attribute
+dictionaries across the process: `+[NSAttributeDictionary newWithDictionary:]` looks an equal one
+up in one `NSHashTable` of weak references, under `attributeDictionaryLock`, and hands back the one
+it finds (measured: two threads that each made `{font: monospaced 12}` got one pointer). The lookup,
+`-[NSConcreteHashTable getItem:]` → `hashProbe`, reads each slot with Foundation's
+`startReadARCWeakAutoreleasingWithSentinelAt`, an autoreleasing weak load, which returns nil for a
+dictionary already deallocating. A found dictionary is retained before the lock is let go.
+`NSAttributeDictionary` overrides neither `retain` nor `release`, and its `dealloc` releases its keys
+and values and leaves the table to weak zeroing. So a release racing a lookup cannot hand out a
+dying dictionary, which fits every rig below staying up. The path that frees it early was not found.
 
 **Ruled out: nothing in the walk is shared.** Each call has its own `Builder`. Paragraph styles,
 text lists and attachments are made per block. Fonts come from the system's cache and never
 change. The one static that changes, the entity cache, is behind its own lock. No attribute value
 is changed after it is set: every `NSMutableParagraphStyle` in the package is configured before it
-goes into a string.
+goes into a string. No code in FileExplorer, Design or Sync calls `CFRelease` or
+`takeRetainedValue()`; the one `CFAttributedStringGetAttributes` call
+(`MarkdownProjection.attributes(of:at:_:)`, in `MarkdownProjectionReuse.swift`) is imported as
+managed and only reads.
 
 **Not reproduced.** None of these aborted:
 
@@ -3691,25 +3722,27 @@ goes into a string.
 | Standalone, half the threads measuring `size()` beside half building, 2, 4 and 8 threads | 45 s |
 | 300 cold processes, 16 threads released at once into their first fonts and strings, as at a run's start | 4,800 thread starts |
 | In the test bundle, 10 threads projecting the corpus and the crashing note | ≈ 440 k projections, 3 runs |
+| Standalone, one thread, the HTML block's three steps (`append`, `addAttribute(previewReadOnly)`, `endBlock`'s `addAttributes`) under `NSZombieEnabled`, to catch an over-release in the sequence itself (2026-10-26) | 300 k blocks |
 
-So the race rests on one crash report. The framework path that frees a uniqued dictionary early
-was not found.
+What no rig has had is a full FileExplorer run's first seconds, when about three thousand tests
+start at once, and both sightings were there.
 
-**Fix: one projection at a time, 2026-10-17.** `MarkdownProjection.oneAtATime` takes one
+**One projection at a time, 2026-10-17 — not the fix.** `MarkdownProjection.oneAtATime` takes one
 `NSRecursiveLock` around `project(_:style:)`, `projectSlice` and `reread`, the only places that
-build or splice a projection's runs. That removes the one kind of concurrency that can share these
-dictionaries between projections. The app projects on the main actor and nowhere else, so its lock
-is never contended. `MarkdownProjectionOneAtATimeTests` checks each door: with the lock held, a
-projection must wait. **Not covered:** the main thread's TextKit work on a projection's runs in
-suites that mount `PreviewEditorView`. It shares the same dictionaries and takes no lock.
+build or splice a projection's runs, and `MarkdownProjectionOneAtATimeTests` checks each door.
+It removed the one kind of concurrency the 10-17 report pointed at, and the 10-26 abort happened
+inside it. It stays: the app projects on the main actor and nowhere else, so its lock is never
+contended there.
 
 **Tell.** Signal 6 with no `✘`. The `.ips` shows `NSInvalidArgumentException`,
 `attempt to insert nil object from objects[0]`, thrown by `initWithObjects:forKeys:count:` under
-`-[NSAttributeDictionary mutableCopyWithZone:]` under `Builder.endBlock`. Any `Builder` frame
-counts, and so does a main-thread frame in `PreviewEditSession` holding a projection's runs. The
-test on the faulting thread is a bystander. After the fix, look first for a new way into the
-projection that skips `oneAtATime`, then for a mounted preview on the main thread at the same time.
-A green rerun proves nothing.
+`-[NSAttributeDictionary mutableCopyWithZone:]` under `Builder.endBlock`. The test on the faulting
+thread is a bystander. A green rerun proves nothing.
+
+**If it comes back,** copy the `.ips` somewhere kept before reading it: `DiagnosticReports` had
+already dropped the 10-17 one by 10-26. Note the seconds from `procLaunch` to `captureTime`, the
+faulting thread's note, and every other thread's test frames, and add a row above. A third sighting
+outside a run's first seconds would break the one pattern there is.
 
 **See.** `MarkdownProjection.oneAtATime` and its doc comment; "Process-wide state, and suites
 running in parallel" for the same shape on Swift statics.
@@ -4321,3 +4354,100 @@ the operation awaits its undo's identity reads.
 rename, normalize, restructure) still returns before its backups' identities are read. Each
 records only overwritten backups late, not a merge's emptied folder. Await the returned task if
 one goes red this way.
+
+### 42. A table row's teardown runs SwiftUI's display-link update, which takes a weak reference to the dying row — FIXED
+
+**Symptom.** FileExplorer's test process exits with `signal code 6`. There is no `✘` and no
+`Test run with` line. Seen twice in full local runs, minutes in: 2026-10-25 10:26
+(`swiftpm-testing-helper-2026-10-25-102631.ips`, 3 minutes after launch, at a load average reported
+as 70–90) and 2026-10-26 10:01 (`…-2026-10-26-100156.ips`, 3.5 minutes in). The report has no
+exception and no message, only `"termination": {"namespace": "OBJC", "code": 1}`: the runtime's
+own fatal error. Both reports have the same two stacks, callers first:
+
+```
+main  objc_autoreleasePoolPop, after a main-actor job
+        → -[NSTableRowView dealloc] → -[NSView dealloc] → _finalize → removeFromSuperview
+        → _setSuperview: → NSHostingView._invalidateEffectiveVibrantBlendingStyle
+        → ViewGraphRootValueUpdater.invalidateProperties → _MovableLockLock → wait_for_lock
+        → run_moved_callback → UpdateGroup.syncMain's block → updateGraph
+        → NSHostingView.updateEnvironment → FocusBridge.isHostContainedInFocusedItem
+        → +[UIFocusSystem focusSystemForEnvironment:] → -[NSViewFocusProxy parentFocusEnvironment]
+        → -[NSView _focusProxy] → -[NSViewFocusProxy initWithView:] → objc_storeWeak
+        → weak_register_no_lock → _objc_fatal
+com.apple.SwiftUI.DisplayLink
+        CoreDisplayLink → NSHostingView.startAsyncRendering's handler
+        → renderFromAsyncDisplayLink → renderAsync → ViewGraph.updateOutputsAsync
+        → GraphHost.runTransaction → updateGraph → _MovableLockSyncMain, waiting
+```
+
+**Mechanism.** A hosting view draws its animations from SwiftUI's display-link thread. When such a
+render meets work that has to run on main, that thread holds SwiftUI's update lock and waits in
+`_MovableLockSyncMain` for main to run it. Main meanwhile drains an autorelease pool after a
+main-actor job and deallocates an `NSTableRowView` with a hosting view still inside it.
+FileExplorer's own code builds no table rows with hosting views in them, so it is a SwiftUI
+`List`'s or `Table`'s. `-[NSView dealloc]` removes the row's subviews. Removing the hosting view
+invalidates its content style, which asks for the update lock. The holder is waiting on main,
+so main runs the waiting update on the spot (`run_moved_callback`), inside the row's `dealloc`. The
+update asks whether the focused item is inside its host and walks up the focus parents to find the
+focus system. The hosting view's parent is still the row. AppKit makes a focus proxy for the row,
+which keeps a weak reference to it, and `weak_register_no_lock` aborts on a weak reference to an
+object being deallocated. Its message names the object; the report does not keep the message.
+
+**Not the projection abort** ("An attribute dictionary freed under a projection's own run — cause
+not found"): that one is an `NSInvalidArgumentException` on a cooperative thread in a run's first
+seconds, with no SwiftUI thread involved.
+
+**Which test tore the row down is not known.** The job whose pool was draining is gone from the
+stack. Both reports have the same two long tests in flight elsewhere, a PDFKit lane hold and
+`EditorDiskWatchTests.aStuckDownloadHoldsOneReadOnItsOwnQueue` on its download queue, so both aborts
+came at about the same point in a run.
+
+**Not reproduced.** A scratch rig, not committed: a window ordered in behind everything, hosting a
+SwiftUI `List` with animations in its rows, beside it, on the `List` itself, or `TimelineView`s in
+its rows, then dropped inside an autorelease pool. 40 to 600 rounds per shape idle, and 1,500 rounds
+of the rows-and-beside shape with 40 `yes` spinners running (load 31). No abort. Breakpoints show why:
+a host rendered async only with SwiftUI content alone (`startAsyncRendering` ran for a stack of
+animated shapes, never for a `List` or its rows), and no rig render ever waited on main
+(`_MovableLockSyncMain` never ran). The view that renders async inside a row was not found.
+
+**Fix: no async rendering in FileExplorer's test process, 2026-10-26.** SwiftUI has a switch for
+it, `com.apple.SwiftUI.DisableAsyncRendering`, read from the standard defaults once per process
+(`UserDefaultKeyedFeature`, in SwiftUICore). `TestProcessRendering`, a test-only Objective-C target
+in the Design package, registers it YES from a constructor that runs when the bundle loads, in the
+registration domain: no defaults file is written. Measured in the rig: registered,
+`NSHostingView.startAsyncRendering()` never ran; without it, it ran at the first layout. With no
+display-link render, no thread holds the update lock waiting on main, so a row's teardown has no
+update to run inside it. `TestProcessRenderingTests` checks the switch reads YES in the process.
+That holds the wiring, not the abort.
+
+**Not covered.** The other packages' test processes and the app target do not link it; link it the
+same way if one aborts like this. The app renders async as shipped. The abort has not been seen
+there, and turning it off there would be a decision about the app, not a test fix.
+
+**Tell.** Signal 6 with no `✘`, minutes into a full run. The `.ips` has an `OBJC` termination, the
+main thread in `weak_register_no_lock` under `-[NSViewFocusProxy initWithView:]`, under
+`run_moved_callback`, under `-[NSTableRowView dealloc]`, and a `com.apple.SwiftUI.DisplayLink`
+thread in `_MovableLockSyncMain` under `renderFromAsyncDisplayLink`. In FileExplorer, check
+`TestProcessRenderingTests` first: red or missing means the target no longer links
+`TestProcessRendering`. If it is green and a `renderFromAsyncDisplayLink` frame is in the report
+anyway, SwiftUI no longer reads the key.
+
+**See.** `Modules/Design/Sources/TestProcessRendering` and its header; "A spell check and a defaults
+change from another process deadlock a SwiftUI focus move" for the same kind of fix.
+
+### 43. A scratch-defaults ledger line that failed to write raised an Objective-C exception — FIXED
+
+**Symptom.** FileExplorer's test process exits with `signal code 6`, no `✘` and no `Test run with`
+line. Seen once, 2026-10-25 11:51 (`swiftpm-testing-helper-2026-10-25-115103.ips`). The crashing
+stack ends in `ScratchDefaultsLedger.record` → `FileHandle.write(_:)` → `-[NSConcreteFileHandle
+writeData:]` → `NSFileHandleOperationException`.
+
+**Mechanism.** Every test that makes a scratch `UserDefaults` suite records its name in a ledger
+file, so the next run can sweep what a crash left behind. The ledger appended with
+`seekToEndOfFile()` and `write(_:)`, the pre-Swift forms that raise an Objective-C exception when
+the write fails. No Swift `catch` or `try?` stops one, so a failed append (the reason is not in the
+report) ended the whole process.
+
+**Fix, 2026-10-26.** All seven copies of the ledger (Dashboard, Design, Events, FileExplorer,
+Settings, Sync, the app's `SyncCloudTests`) append with `seekToEnd()` and `write(contentsOf:)` under
+`try?`. A line that can't be written only costs the next run's sweep that one name.

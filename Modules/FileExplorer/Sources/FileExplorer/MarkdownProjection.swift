@@ -227,10 +227,12 @@ struct MarkdownProjection {
     /// every other projection's equal run holds, whatever thread it is on (measured: one pointer
     /// across two threads). A FileExplorer test process aborted with four projections building at
     /// once on the cooperative pool and one of those shared dictionaries freed under the run that
-    /// held it — see "Four projections at once, and a shared attribute dictionary freed under one
-    /// of them" in docs/flaky-tests.md. Nothing in the walk is shared; the dictionaries are, and
-    /// only projections make ones with these keys. The app projects on the main actor alone, so
-    /// there it is never contended. Recursive: the re-read projects its part, or the whole.
+    /// held it, and this lock was taken to rule the other projections out. **It did not stop the
+    /// abort**: it came back on 2026-10-26 inside this lock, with no other projection building —
+    /// see "An attribute dictionary freed under a projection's own run — cause not found" in
+    /// docs/flaky-tests.md. Kept because it costs the app nothing: the app projects on the main
+    /// actor alone, so there it is never contended. Recursive: the re-read projects its part, or
+    /// the whole.
     static func oneAtATime<T>(_ body: () -> T) -> T {
         building.lock()
         defer { building.unlock() }
