@@ -2123,11 +2123,19 @@ extension FileSyncManager {
                 // has stopped reads as unknown instead of hanging the file queue; it skips what is
                 // inside `.Trashes`; and an entry it cannot stat counts as content. Nil — not
                 // fully read — is "not empty".
-                guard let held = FileSyncManager.visibleFileCount(atPath: url.path, fm: fm), held == 0 else {
+                let held = FileSyncManager.visibleFileCount(atPath: url.path, fm: fm)
+                guard held == 0 else {
                     let name = url.lastPathComponent
+                    // Unread is not "not empty" to the user (L2): nil is a folder that could not be
+                    // fully read, or whose cloud app did not answer — said as that.
+                    let unread = held == nil
                     await MainActor.run {
-                        logger.warning("Undo (New Folder): left \(url.path) in place — it holds files the undo did not put there, or could not be fully read")
-                        target.banner = .warning("Undo left “\(name)” in place — it isn’t empty")
+                        logger.warning(unread
+                            ? "Undo (New Folder): left \(url.path) in place — it could not be fully read, so it cannot be confirmed empty"
+                            : "Undo (New Folder): left \(url.path) in place — it holds files the undo did not put there")
+                        target.banner = .warning(unread
+                            ? "Undo left “\(name)” in place — its contents couldn’t be read"
+                            : "Undo left “\(name)” in place — it isn’t empty")
                     }
                     return
                 }

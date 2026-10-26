@@ -302,7 +302,8 @@ extension SyncError {
                 + "its own folder — and could not rename it back. Nothing was deleted.\n\n"
                 + "It is still in that folder, now named “\(parkedName)”. That name starts with a dot, "
                 + "so Finder hides it until you show hidden files. It is a second copy of what was "
-                + "moved back: put it in the Trash, or rename it back to “\(originalName)”."
+                + "moved back, and the item itself is where it came from: once you have checked it "
+                + "there, put this copy in the Trash."
                 + more + " The details are in ~/sync-cloud.log.",
             path: parkedPath,
             reason: "was “\(originalName)”",

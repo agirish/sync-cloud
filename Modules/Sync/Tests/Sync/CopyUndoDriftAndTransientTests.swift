@@ -432,7 +432,9 @@ import EventsTestSupport
         await waitUntil("the undo sat on the provider past the deadline") { manager.activeFileOperationsCount == 0 }
         #expect(disk.providerReads == 1, "premise: the undo never reached the folder that does not answer")
         #expect(disk.fileExists(atPath: cloud.path))
-        #expect(manager.banner?.message.contains("isn’t empty") == true)
+        // L2: unread, not "not empty" — nobody knows what is in it.
+        #expect(manager.banner?.message == "Undo left “Cloud” in place — its contents couldn’t be read",
+                "\(String(describing: manager.banner?.message))")
     }
 
     /// The gap this pair closes: when the CONFIRMED permanent delete then fails, the folder is

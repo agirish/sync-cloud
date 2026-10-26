@@ -11791,3 +11791,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s merge=%s fix=%s\n' $l \
 |---|---|---|
 | `v5.x` | Merge, undone front to back (`merge=1`) | RECORDED — owed |
 | `v4.x` / `v3.x` / `v2.x` | No Merge (`merge=0`): no item of a batch writes into another | CLOSED — does not apply |
+
+---
+
+## Undo's New Folder and leftover alerts say what it found (final review L2, L5) — main only
+
+U1's New Folder undo said a folder it could not read "isn't empty"; U7's undo leftover alert told
+the user to "rename it back", which for an undo makes a second copy at the destination, and the log
+called an undo's extra leftovers "the original". `main` says "its contents couldn't be read", tells
+the user to put the copy in the Trash, and logs it as the item moved back from.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s u1=%s u7=%s fix=%s\n' $l \
+  "$(git show origin/$l:$S/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'it isn’t empty')" \
+  "$(git show origin/$l:$S/SyncError.swift 2>/dev/null | grep -cF 'undoneButMovedItemParked')" \
+  "$(git show origin/$l:$S/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'its contents couldn’t be read')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads fix=1):
+# main                     u1=1 u7=1 fix=0
+# v5.x, v4.x, v3.x, v2.x   u1=0 u7=0 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | Neither alert (`u1=0 u7=0`) | CLOSED — does not apply |

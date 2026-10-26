@@ -102,6 +102,8 @@ import Foundation
         let error = try #require(manager.currentError)
         #expect(error.title == "Moved Back, Copy Left Behind")
         #expect(!error.message.contains("reached its destination"))
+        // L5: renaming the copy back would only make a second item at the destination.
+        #expect(!error.message.contains("or rename it back to"), "\(error.message)")
         #expect(error.path == parked)
     }
 

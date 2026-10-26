@@ -2942,7 +2942,10 @@ public class FileSyncManager: ObservableObject {
             await MainActor.run { [weak self] in
                 if let first = parked.first {
                     for extra in parked.dropFirst() {
-                        Logger.shared.error("Moved, but the original \(extra.original.path) is still in its folder as \(extra.parked.lastPathComponent)")
+                        // An undo's leftover is the item it moved back FROM, not an original (L5).
+                        Logger.shared.error(extra.undoing
+                            ? "Moved back, but the item it moved back from, \(extra.original.path), is still in its folder as \(extra.parked.lastPathComponent)"
+                            : "Moved, but the original \(extra.original.path) is still in its folder as \(extra.parked.lastPathComponent)")
                     }
                     self?.present(first.undoing
                         ? .undoneButMovedItemParked(originalPath: first.original.path,
