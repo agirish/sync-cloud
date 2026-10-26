@@ -20,6 +20,8 @@ public enum SyncHistoryExporter {
     /// The CSV column order, also used as the header row.
     private static let columns = [
         "Timestamp", "Action", "Direction", "Source", "Destination", "Size (bytes)", "Checksum", "Backup", "Run ID",
+        // Last, so a reader keyed on the earlier columns' positions is not shifted (review E11).
+        "Previous Date",
     ]
 
     /// Renders the records as CSV: a header row plus one row per record, RFC-4180 quoted. Any
@@ -38,6 +40,7 @@ public enum SyncHistoryExporter {
                 record.checksum ?? "",
                 record.backupPath ?? "",
                 record.runId.uuidString,
+                record.previousModificationDate.map { iso8601.string(from: $0) } ?? "",
             ]
             rows.append(fields.map(escapeCSVField).joined(separator: ","))
         }

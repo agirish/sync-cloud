@@ -86,6 +86,11 @@ public struct SyncHistoryRecord: Codable, Sendable, Identifiable {
     /// `isPermanentDelete`). Optional, so older files decode and older builds read newer ones;
     /// the JSON export carries it as `reachedTrash`, the CSV export does not.
     public let reachedTrash: Bool?
+    /// For a `.matchDates` record, the modification date the destination had before it took the
+    /// source's (review E11) — without it the history said a date was set and never what it
+    /// replaced. Nil for every other action, and in every line written before it existed: the
+    /// synthesized decoder reads an absent key as nil, so those lines still load.
+    public let previousModificationDate: Date?
 
     public init(
         id: UUID = UUID(),
@@ -98,7 +103,8 @@ public struct SyncHistoryRecord: Codable, Sendable, Identifiable {
         checksum: String? = nil,
         backupPath: String? = nil,
         direction: String? = nil,
-        reachedTrash: Bool? = nil
+        reachedTrash: Bool? = nil,
+        previousModificationDate: Date? = nil
     ) {
         self.id = id
         self.runId = runId
@@ -111,6 +117,7 @@ public struct SyncHistoryRecord: Codable, Sendable, Identifiable {
         self.backupPath = backupPath
         self.direction = direction
         self.reachedTrash = reachedTrash
+        self.previousModificationDate = previousModificationDate
     }
 
     /// **A delete that did not reach the Trash** — removed outright on a disk with no Trash, after

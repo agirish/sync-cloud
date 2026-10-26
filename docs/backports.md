@@ -12254,3 +12254,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s copyTitle=%s matchTitle=%s\n'
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | "Copy to Match Dates", which copies there — the title is true on those lines | CLOSED — does not apply |
+
+---
+
+## A Match Dates record keeps the date it replaced (review E11) — main only
+
+A `.matchDates` Sync History record said a date was set and never what it replaced. `main` records
+it (`previousModificationDate`, optional, so a line written before still loads), shows it in the
+row ("was 2025-…") and exports it as the CSV's last column, "Previous Date".
+
+```sh
+R=Modules/Events/Sources/Events/SyncHistoryRecord.swift
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s matchDates=%s previous=%s\n' $l \
+  "$(git show origin/$l:$R 2>/dev/null | grep -c 'case matchDates')" \
+  "$(git show origin/$l:$R 2>/dev/null | grep -c 'previousModificationDate')"; done
+# measured 2026-10-25, against origin, before this landed (the change reads previous=3):
+# main                         matchDates=1 previous=0
+# v5.x, v4.x, v3.x, v2.x       matchDates=0 previous=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No date-match record (`matchDates=0`) | CLOSED — does not apply |

@@ -79,4 +79,21 @@ import Events
         #expect(SyncHistoryRow.timeString(Self.instant) == Self.expected(Self.instant),
                 "the row drew its stamp in a zone the system has left")
     }
+
+    /// **A date match's row says the date it replaced** (review E11), in the column's own format,
+    /// and a record with none says nothing. The row's wiring is read at source level: the comfortable
+    /// layout draws it.
+    @Test func aDateMatchRowSaysTheDateItReplaced() throws {
+        let previous = Date(timeIntervalSince1970: 1_600_000_000)
+        let match = SyncHistoryRecord(runId: UUID(), action: .matchDates, sourcePath: "/l/a.txt",
+                                      destPath: "/r/a.txt", previousModificationDate: previous)
+        #expect(SyncHistoryRow.previousDateText(match) == "was " + SyncHistoryRow.timeString(previous))
+        #expect(SyncHistoryRow.previousDateText(SyncHistoryRecord(runId: UUID(), action: .copy, sourcePath: "/l/a.txt")) == nil)
+
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/Dashboard/SyncHistoryView.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8), "cannot read SyncHistoryView.swift")
+        #expect(source.contains("if let previous = Self.previousDateText(record) {"), "the row no longer draws the previous date")
+    }
 }

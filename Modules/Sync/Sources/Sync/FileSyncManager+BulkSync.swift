@@ -295,7 +295,8 @@ extension FileSyncManager {
             recordSyncHistory(outcome.matched.map { diff, state in
                 SyncHistoryRecord(runId: runId, action: .matchDates,
                                   sourcePath: diff.leftItemPath, destPath: state.url.path,
-                                  sizeBytes: Int(state.size), direction: "→ Right")
+                                  sizeBytes: Int(state.size), direction: "→ Right",
+                                  previousModificationDate: state.previous)
             })
             removeResolvedDifferences(matching: outcome.matched.map(\.0))
             Logger.shared.info("Copy to match dates: set the date of \(outcome.matched.count) verified-identical file(s) on the right to the left's — no bytes copied")

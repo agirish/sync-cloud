@@ -384,6 +384,12 @@ struct SyncHistoryRow: View {
                         if let size = record.sizeBytes {
                             sizeText(size)
                         }
+
+                        if let previous = Self.previousDateText(record) {
+                            Text(previous)
+                                .scaledFont(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
                     }
 
                     // Source → destination. A delete has no destination, so it shows the origin alone.
@@ -474,5 +480,11 @@ struct SyncHistoryRow: View {
 
     static func timeString(_ date: Date) -> String {
         timeFormatter.string(from: date)
+    }
+
+    /// What a date match replaced, in the row's own time format — "was 2025-01-01 09:00:00" — or
+    /// nil (review E11). Comfortable rows only: compact keeps its one line for the path.
+    static func previousDateText(_ record: SyncHistoryRecord) -> String? {
+        record.previousModificationDate.map { "was \(timeString($0))" }
     }
 }

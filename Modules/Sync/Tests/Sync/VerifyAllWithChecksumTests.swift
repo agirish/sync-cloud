@@ -805,6 +805,7 @@ import Events
         #expect(record.destPath == fixture.rightIdenticalURL.path)
         #expect(record.direction == "→ Right")
         #expect(record.sizeBytes == 9)
+        #expect(record.previousModificationDate == rightDate, "the record does not say which date the match replaced (E11)")
 
         let preview = try #require(manager.lastSyncRunUndoPreview, "Undo Last Run refused the date match: \(manager.lastSyncRunUndoRefusal ?? "nil")")
         #expect(preview.actionName == "Match 1 Date")

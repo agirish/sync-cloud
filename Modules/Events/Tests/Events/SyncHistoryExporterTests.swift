@@ -62,14 +62,14 @@ import Foundation
         #expect(removed.actionLabel == "Delete")
         #expect(removed.isPermanentDelete)
 
-        // The JSON export carries the field and reads it back; the CSV's columns are unchanged.
+        // The JSON export carries the field and reads it back; the CSV gains no column for it.
         let json = SyncHistoryExporter.json([noLocation])
         #expect(json.contains("\"reachedTrash\" : true"), "\(json)")
         let decoded = try SyncHistoryExporter.jsonDecoder().decode([SyncHistoryRecord].self, from: Data(json.utf8))
         #expect(decoded.first?.reachedTrash == true)
         #expect(decoded.first?.actionLabel == "Move to Trash")
         #expect(SyncHistoryExporter.csv([noLocation]).hasPrefix(
-            "Timestamp,Action,Direction,Source,Destination,Size (bytes),Checksum,Backup,Run ID\n"))
+            "Timestamp,Action,Direction,Source,Destination,Size (bytes),Checksum,Backup,Run ID,Previous Date\n"))
     }
 
     /// **A record written before the field existed still decodes, and falls back to the location**:
@@ -155,5 +155,33 @@ import Foundation
         let data = try #require(json.data(using: .utf8))
         let decoded = try SyncHistoryExporter.jsonDecoder().decode([SyncHistoryRecord].self, from: data)
         #expect(decoded.isEmpty)
+    }
+
+    /// **A date match records the date it replaced, and the CSV carries it** (review E11). The
+    /// record kept only that a date was set. Last column, so the earlier ones keep their places;
+    /// empty for a record with none.
+    @Test func testADateMatchRecordCarriesItsPreviousDateIntoTheCSV() throws {
+        let match = SyncHistoryRecord(runId: UUID(), timestamp: Date(timeIntervalSince1970: 1_700_000_000),
+                                      action: .matchDates, sourcePath: "/l/a.txt", destPath: "/r/a.txt",
+                                      direction: "→ Right", previousModificationDate: Date(timeIntervalSince1970: 1_600_000_000))
+        let lines = SyncHistoryExporter.csv([match, sampleRecord()]).split(separator: "\n").map(String.init)
+        #expect(lines[0].hasSuffix(",Run ID,Previous Date"))
+        #expect(lines[1].hasSuffix(",\(match.runId.uuidString),2020-09-13T12:26:40Z"), "\(lines[1])")
+        #expect(lines[2].hasSuffix(","), "a record with no previous date filled the column: \(lines[2])")
+    }
+
+    /// **A history line written before the field existed still loads** (review E11): absent is
+    /// nil, through the store's own codec (the default `Date` strategy), and the field survives a
+    /// round trip when present.
+    @Test func testALineWithoutAPreviousDateStillDecodes() throws {
+        let old = #"{"id":"6F1C3C2A-0000-4000-8000-000000000001","runId":"6F1C3C2A-0000-4000-8000-000000000002","timestamp":700000000,"action":"matchDates","sourcePath":"/l/a.txt","destPath":"/r/a.txt","sizeBytes":9,"direction":"→ Right"}"#
+        let decoded = try JSONDecoder().decode(SyncHistoryRecord.self, from: Data(old.utf8))
+        #expect(decoded.action == .matchDates)
+        #expect(decoded.previousModificationDate == nil)
+
+        let dated = SyncHistoryRecord(runId: UUID(), action: .matchDates, sourcePath: "/l/a.txt",
+                                      previousModificationDate: Date(timeIntervalSince1970: 1_600_000_000))
+        let back = try JSONDecoder().decode(SyncHistoryRecord.self, from: JSONEncoder().encode(dated))
+        #expect(back.previousModificationDate == Date(timeIntervalSince1970: 1_600_000_000))
     }
 }
