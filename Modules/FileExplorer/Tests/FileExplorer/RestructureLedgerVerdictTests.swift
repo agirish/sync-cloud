@@ -124,6 +124,16 @@ import Testing
                                                     stillHasEmptiedFolders: { _ in true })
         #expect(underNewer.last?.blockedReason == reason)
         #expect(underNewer.first?.blockedReason == nil)
+
+        // Withheld because the other folder's history could not say (review C9): no
+        // reorganization is blamed.
+        withheld.undoWithheldUnsure = true
+        let unsure = ReorganisationDisplay.rows(from: [withheld], undoableId: nil,
+                                                stillHasEmptiedFolders: { _ in true })
+        let unsureReason = try #require(unsure.first?.blockedReason)
+        #expect(unsureReason == RestructureLens.withheldText(by: "~/Documents/Tax", unsure: true))
+        #expect(!unsureReason.contains("has moved"), "an unreadable history was blamed as a reorganization")
+        #expect(!unsureReason.contains("any more") && !reason.contains("any more"))
     }
 
     /// The filter and the two fallbacks: a scaffold (no `appliedUnderProfileId`) is not a plan

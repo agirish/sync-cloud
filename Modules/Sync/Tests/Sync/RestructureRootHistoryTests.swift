@@ -208,6 +208,28 @@ import Testing
                 "a landing in a folder beside this one withdrew its Undo")
     }
 
+    /// A nested folder whose history cannot be read MIGHT hold a later landing, so the Undo is
+    /// withheld — but not blamed on a reorganization nobody saw (review C9).
+    @Test func anUnreadableOverlappingHistoryWithholdsTheUndoUnsure() async throws {
+        let base = try Self.scratch(), profiles = try Self.scratch()
+        defer { for url in [base, profiles] { try? FileManager.default.removeItem(at: url) } }
+        let a = base.appendingPathComponent("A")
+        try Self.tree(in: a)
+        let m = manager(profiles)
+        let a0 = try await walk(m, a, at: 0)
+        let a1 = try await walk(m, a, at: 1)
+        try Self.land(a1, under: a0, at: 1, in: profiles)
+        let n0 = try await walk(m, a.appendingPathComponent("Tax"), at: 2)
+        Self.ledger(n0, profiles).suppress(Self.forms)
+        try Data("{ not a ledger".utf8).write(to: profiles.appendingPathComponent("\(n0)/restructure.json"))
+        let a3 = try await walk(m, a, at: 3)
+        let record = try #require(Self.ledger(a3, profiles).applied.first {
+            $0.manifest.manifestId == "landing-1" })
+        #expect(record.undoWithheldBy != nil, "an Undo was offered over a history that could not be read")
+        #expect(record.undoWithheldUnsure == true,
+                "an unreadable history was recorded as a reorganization that reshaped the tree")
+    }
+
     /// "Since" is not read off the clock (review R6). The stamps are local time with no zone, so
     /// after a zone change or the autumn hour a landing made after the user left reads as earlier
     /// than leaving — and the Undo was re-pointed over a tree that landing had reshaped.

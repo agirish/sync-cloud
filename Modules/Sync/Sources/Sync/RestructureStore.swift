@@ -182,6 +182,10 @@ public final class RestructureStore: ObservableObject {
         /// set when a walk back took this history up and withheld the Undo (review R7), so the
         /// card can say why there is none. Nil on every other record.
         public var undoWithheldBy: String?
+        /// True when the Undo was withheld because a landing there COULD have come later — its
+        /// ledger would not read, it carries no id, or the history predates the record of what
+        /// was seen (review C9) — rather than because one did. The card's words differ.
+        public var undoWithheldUnsure: Bool?
 
         public init(manifest: RestructureManifest, inverse: RestructureManifest, at: String,
                     created: Int, skipped: Int, appliedUnderProfileId: String? = nil,
@@ -492,12 +496,14 @@ public final class RestructureStore: ObservableObject {
     /// Marks every live landing that produced `from` as one whose Undo is withheld because a
     /// landing in `root` has reshaped the tree since (review R7) — the records
     /// ``repointProduced(from:to:)`` would have moved, matched the same way.
-    public func withholdUndo(producedBy from: String, because root: String) {
+    public func withholdUndo(producedBy from: String, because root: String,
+                             unsure: Bool = false) {
         var changed = false
         for index in applied.indices where applied[index].undoneAt == nil {
             guard (applied[index].producedProfileId
                     ?? applied[index].appliedUnderProfileId) == from else { continue }
             applied[index].undoWithheldBy = root
+            applied[index].undoWithheldUnsure = unsure ? true : nil
             changed = true
         }
         if changed { save() }

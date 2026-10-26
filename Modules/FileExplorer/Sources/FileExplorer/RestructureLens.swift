@@ -108,7 +108,9 @@ extension ReorganisationDisplay {
     static func blockedReason(of record: RestructureStore.AppliedRecord,
                               undoableId: String?) -> String? {
         guard record.undoneAt == nil, record.manifest.manifestId != undoableId else { return nil }
-        if let root = record.undoWithheldBy { return RestructureLens.withheldText(by: root) }
+        if let root = record.undoWithheldBy {
+            return RestructureLens.withheldText(by: root, unsure: record.undoWithheldUnsure == true)
+        }
         return undoableId != nil ? RestructureLens.blockedByNewerText : nil
     }
 }
@@ -455,10 +457,14 @@ struct RestructureLens: View {
         "Undo the newer reorganization first — the ledger unwinds one at a time, newest back."
 
     /// Why a landing taken up again by a walk back to its folder cannot be undone: a landing in
-    /// an overlapping folder has moved what its Undo would put back.
-    static func withheldText(by root: String) -> String {
-        "This can’t be undone any more — a reorganization in “\(root)” has moved these folders "
-            + "since you last worked in this one."
+    /// an overlapping folder has moved what its Undo would put back — or, `unsure`, that folder's
+    /// history could not say whether one did (review C9), which is not a reorganization to blame.
+    static func withheldText(by root: String, unsure: Bool = false) -> String {
+        unsure
+            ? "This can’t be undone anymore — SyncCloud can’t tell whether “\(root)” was "
+                + "reorganized since you last worked in this folder, so it won’t risk it."
+            : "This can’t be undone anymore — a reorganization in “\(root)” has moved these "
+                + "folders since you last worked in this one."
     }
 
     /// The path a landing's card is headed with. `"."` is the profile's own spelling for the tree

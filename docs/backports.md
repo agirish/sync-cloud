@@ -12014,3 +12014,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s stall=%s perFamily=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No one-wait rule (`stall=0`) | CLOSED — does not apply |
+
+---
+
+## A withheld Undo says when its cause is unknown (review C9) — main only
+
+A walk back withholds a landing's Undo when an overlapping folder's history could hold a later
+landing — including when that history cannot be read, a landing in it has no id, or the entry
+predates `landingsSeen` — and the card blamed "a reorganization in …" for all of them. `main`
+records those as unsure (`undoWithheldUnsure`) and the card says SyncCloud can't tell; both
+sentences now say "anymore".
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s withheld=%s unsure=%s\n' $l \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/RestructureLens.swift 2>/dev/null | grep -cF 'static func withheldText')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/RestructureStore.swift 2>/dev/null | grep -cF 'undoWithheldUnsure')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads unsure=2):
+# main                     withheld=1 unsure=0
+# v5.x, v4.x, v3.x, v2.x   withheld=0 unsure=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No withheld Undo (`withheld=0`) | CLOSED — does not apply |

@@ -289,6 +289,13 @@ public enum RestructureRootMap {
 
     // MARK: - Whether a returning Undo still describes the tree
 
+    /// Why a returning Undo is withheld: the overlapping folder, and whether a landing there is
+    /// KNOWN to have come after (`unsure` false) or only could have (review C9).
+    struct Withholding: Equatable {
+        let root: String
+        let unsure: Bool
+    }
+
     /// The first folder among `others` that overlaps `root` and holds a landing not in `seen` —
     /// one applied after the user left `root` — nil when there is none, and the returning
     /// folder's Undo may follow it.
@@ -297,26 +304,30 @@ public enum RestructureRootMap {
     /// a landing in `~/Documents/Tax` reshapes `~/Documents`, and one in `~/Documents` reshapes
     /// `~/Documents/Tax`. **Ordered by what was there, not by the clock** (review R6). A `seen`
     /// of nil (an entry from before it was recorded), a landing with no id, and a ledger that
-    /// cannot be read all count as later — the cautious side, which only withholds an Undo.
+    /// cannot be read all count as later — the cautious side, which only withholds an Undo — and
+    /// are answered `unsure`, so the card does not claim a reorganization it cannot see.
     static func laterOverlappingLanding(in root: String, seen: [String]?,
                                         others: [(root: String, profileId: String)],
-                                        directory: URL) -> String? {
+                                        directory: URL) -> Withholding? {
         let seen = seen.map(Set.init)
+        var unsure: Withholding?
         for other in others where rootsOverlap(root, other.root) {
             switch ledgerRecords(id: other.profileId, in: directory) {
             case .absent:
                 continue
             case .unreadable:
-                return other.root
+                unsure = unsure ?? Withholding(root: other.root, unsure: true)
             case .loaded(let records):
-                let later = records.contains { record in
-                    guard let seen, let id = record.manifestId else { return true }
-                    return !seen.contains(id)
+                for record in records {
+                    guard let seen, let id = record.manifestId else {
+                        unsure = unsure ?? Withholding(root: other.root, unsure: true)
+                        continue
+                    }
+                    if !seen.contains(id) { return Withholding(root: other.root, unsure: false) }
                 }
-                if later { return other.root }
             }
         }
-        return nil
+        return unsure
     }
 
     /// Whether one folder is the other or inside it — as spelled, and again with links resolved,

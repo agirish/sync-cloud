@@ -578,13 +578,17 @@ extension FileSyncManager {
             + "\(entry.profileId), left \(entry.leftAt)")
         // As recorded (`~/Documents/Tax`): the overlap test expands it, and the card names it.
         let others = entries.map { (root: $0.root, profileId: $0.profileId) }
-        if let reshaped = RestructureRootMap.laterOverlappingLanding(
+        if let withheld = RestructureRootMap.laterOverlappingLanding(
             in: entry.root, seen: entry.landingsSeen, others: others, directory: directory) {
             Logger.shared.warning("Restructure: the last landing in \(entry.root) cannot be "
-                + "undone — a landing in \(reshaped) since \(entry.leftAt) reshaped the folders "
-                + "its Undo would move back")
+                + "undone — " + (withheld.unsure
+                    ? "the history of \(withheld.root) cannot say whether a landing there since "
+                        + "\(entry.leftAt) reshaped the folders its Undo would move back"
+                    : "a landing in \(withheld.root) since \(entry.leftAt) reshaped the folders "
+                        + "its Undo would move back"))
             RestructureStore(directory: directory, profileId: newId)
-                .withholdUndo(producedBy: entry.profileId, because: reshaped)
+                .withholdUndo(producedBy: entry.profileId, because: withheld.root,
+                              unsure: withheld.unsure)
             return nil
         }
         RestructureStore(directory: directory, profileId: newId)
