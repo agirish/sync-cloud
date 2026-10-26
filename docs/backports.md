@@ -12233,3 +12233,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s rowCopy=%s reviewCopy=%s\n' $
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No held rows and no per-row Copy to … (`rowCopy=0`) | CLOSED — does not apply |
+
+---
+
+## The Match Dates dialog is called Match Dates (review E8) — main only
+
+Its title read "Copy to Match Dates" and its button "Copy … to …", over a message saying nothing is
+copied — `main` sets dates there and copies no byte (FR41). Title "Match Dates", button "Match Dates
+on …".
+
+```sh
+V=Modules/FileExplorer/Sources/FileExplorer/DifferencesView.swift
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s copyTitle=%s matchTitle=%s\n' $l \
+  "$(git show origin/$l:$V 2>/dev/null | grep -c 'confirmationDialog("Copy to Match Dates"')" \
+  "$(git show origin/$l:$V 2>/dev/null | grep -c 'confirmationDialog("Match Dates"')"; done
+# measured 2026-10-25, against origin, before this landed (the change reads matchTitle=1):
+# main, v5.x, v4.x, v3.x, v2.x   copyTitle=1 matchTitle=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | "Copy to Match Dates", which copies there — the title is true on those lines | CLOSED — does not apply |

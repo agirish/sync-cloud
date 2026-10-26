@@ -482,14 +482,16 @@ public struct DifferencesView: View {
             displayRows = rows
             hasComputedRows = true
         }
-        .confirmationDialog("Copy to Match Dates", isPresented: Binding(
+        // **"Match Dates", title and button alike** (review E8): it read "Copy to Match Dates" and
+        // "Copy X to Y" over a message saying nothing is copied — only the dates are set.
+        .confirmationDialog("Match Dates", isPresented: Binding(
             get: { syncManager.verifiedIdenticalForCopy != nil },
             // Deferred cleanup: SwiftUI writes false here on ANY dismissal, including confirm,
             // and may run this setter before the button action. A synchronous cleanup here would
             // destroy the list before the confirm button can claim it (making Copy a no-op).
             set: { if !$0 { syncManager.verifiedCopyDialogDismissed() } }
         )) {
-            Button("Copy \(paneNames.left) to \(paneNames.right)") {
+            Button("Match Dates on \(paneNames.right)") {
                 syncManager.confirmVerifiedCopy()
             }
             Button("Cancel", role: .cancel) {
