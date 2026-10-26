@@ -191,15 +191,24 @@ import Design
 
     static let notice = "Reloaded — changed elsewhere"
 
-    /// **⌃⌘L while a notice holds the line opens the field at once, on the caret** — the notice gives
-    /// way. It held the slot the caret is drawn in, so the field had nothing to hang from and
-    /// opened by itself seconds later, when the notice cleared.
+    /// **⌃⌘L while a notice is up opens the field at once, on the caret.** The notice once held the
+    /// slot the caret is drawn in, so the field had nothing to hang from and opened by itself
+    /// seconds later; it now stands where the hint does (``EditorStatusLine/HintPlace``), and the
+    /// caret it hangs from never moves for it.
     @Test func askingForTheFieldUnderANoticeOpensItOnTheCaret() throws {
+        let quiet = Model()
+        let (quietWindow, quietHost) = mount(quiet)
+        let caretWithout = caretRingOnScreen(in: quietHost, window: quietWindow)
+        close(quiet, quietWindow)
         let model = Model()
         model.notice = Self.notice
         let (window, host) = mount(model)
         defer { close(model, window) }
-        #expect(caretRingOnScreen(in: host, window: window) == nil, "the notice is not holding the slot")
+        let caretUnder = try #require(caretRingOnScreen(in: host, window: window), "the notice took the caret's slot")
+        if let caretWithout {
+            #expect(abs(caretUnder.minX - caretWithout.minX) < 1 && abs(caretUnder.width - caretWithout.width) < 1,
+                    "the notice moved Line/Col from \(caretWithout) to \(caretUnder)")
+        }
         model.shown = true
         spin(window)
         let open = popovers()
@@ -236,9 +245,21 @@ import Design
         if let popover = open.first {
             #expect(abs(popover.frame.midX - caret.midX) < 6)
         }
-        // Closed, the line says the notice.
+        // Closed, the line says the notice — drawn, beside a caret that stays: the line with it and
+        // the line once its seconds are up differ.
         model.shown = false
         spin(window)
-        #expect(caretRingOnScreen(in: host, window: window) == nil, "the notice was not said after the field closed")
+        #expect(caretRingOnScreen(in: host, window: window) != nil, "the notice took Line/Col")
+        let said = try #require(snapshot(host))
+        model.notice = nil
+        spin(window)
+        let after = try #require(snapshot(host))
+        #expect(said.tiffRepresentation != after.tiffRepresentation, "the notice was not said after the field closed")
+    }
+
+    private func snapshot(_ host: NSView) -> NSBitmapImageRep? {
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        return rep
     }
 }

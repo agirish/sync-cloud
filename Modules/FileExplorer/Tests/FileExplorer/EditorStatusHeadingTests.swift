@@ -582,9 +582,10 @@ import Design
     /// measurements have landed — the heading menu's and Line/Col's (the hint's link draws none).
     /// Pumped a fixed number of passes: what is waited for is a place being chosen, which leaves
     /// nothing to poll.
-    private func buttonRings(width: CGFloat, scale: CGFloat = 1, hint: EditorStatusHint?) async -> [NSRect] {
+    private func buttonRings(width: CGFloat, scale: CGFloat = 1, hint: EditorStatusHint?,
+                             notice: String? = nil) async -> [NSRect] {
         let line = EditorStatusLine(facts: facts, caret: EditorCaret(line: 408, column: 118), fileSize: "421 bytes",
-                                    headings: long, hint: hint, goToLine: goTo)
+                                    headings: long, hint: hint, goToLine: goTo, notice: notice)
         let host = NSHostingView(rootView: AnyView(line.frame(width: width).environment(\.appFontScale, scale)))
         host.frame = NSRect(x: 0, y: 0, width: width, height: 60)
         await LayoutPumpWait.pump(host, upTo: 0) { false }
@@ -607,6 +608,47 @@ import Design
             #expect(with.allSatisfy { $0 == without[0] || $0 == without[1] },
                     "\(width)pt: a button moved with the hint up: \(without) became \(with)")
         }
+    }
+
+    /// **The notice moves nothing either** — "Reloaded — changed elsewhere" took the whole line for
+    /// its seconds, Line/Col with it. It stands where the hint would, at every width the hint is
+    /// held to.
+    @Test func theNoticeNeverMovesLineCol() async throws {
+        let notice = "Reloaded — changed elsewhere"
+        for width: CGFloat in [900, 700, 520, 420, EditorLayoutMetrics.minDocumentWidth] {
+            let without = await buttonRings(width: width, hint: nil)
+            try #require(without.count == 2, "\(width)pt: \(without.count) buttons drawn without a notice")
+            let with = await buttonRings(width: width, hint: nil, notice: notice)
+            #expect(with.contains(without[1]), "\(width)pt: Line/Col moved from \(without[1]) — now \(with)")
+            #expect(with.allSatisfy { $0 == without[0] || $0 == without[1] },
+                    "\(width)pt: a button moved with the notice up: \(without) became \(with)")
+        }
+        // …and it is drawn: a line that dropped the notice would pass the above.
+        func drawn(_ notice: String?) async throws -> NSBitmapImageRep {
+            let line = EditorStatusLine(facts: facts, caret: EditorCaret(line: 408, column: 118), fileSize: "421 bytes",
+                                        headings: long, goToLine: goTo, notice: notice)
+            let host = NSHostingView(rootView: AnyView(line.frame(width: 900).background(Color.white)
+                .environment(\.colorScheme, .light)))
+            host.frame = NSRect(x: 0, y: 0, width: 900, height: 24)
+            await LayoutPumpWait.pump(host, upTo: 0) { false }
+            return try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds).map {
+                host.cacheDisplay(in: host.bounds, to: $0)
+                return $0
+            })
+        }
+        #expect(differingPixels(try await drawn(nil), try await drawn(notice), width: 900) > 50,
+                "the notice is not drawn on the line")
+    }
+
+    /// **A notice too long for both places is cut short in the roomier one** — the narrowest column
+    /// — and takes the line only where neither has room for its first word.
+    @Test func aNoticeTooLongIsCutShortInTheRoomierPlace() {
+        typealias Line = EditorStatusLine
+        #expect(Line.noticeCut(freeSpace: 5, headingSlot: 100, atLeast: 50) == .heading(.sentence))
+        #expect(Line.noticeCut(freeSpace: 90, headingSlot: 60, atLeast: 50) == .free(.sentence))
+        #expect(Line.noticeCut(freeSpace: 70, headingSlot: 70, atLeast: 50) == .free(.sentence), "a tie goes to the free space")
+        #expect(Line.noticeCut(freeSpace: 80, headingSlot: nil, atLeast: 50) == .free(.sentence))
+        #expect(Line.noticeCut(freeSpace: 40, headingSlot: 49, atLeast: 50) == .aside)
     }
 
     /// **Where neither place has room for the link: the heading goes, Line/Col stays.** The

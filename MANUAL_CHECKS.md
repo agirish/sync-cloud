@@ -398,3 +398,16 @@ and key refusals are tested; this is what is not.
   Esc does not stop it.
 - [ ] **Narrow window.** Drag the window to its narrowest (760pt) during a run → the capsule is a ring
   with its ✕, still in the toolbar, with Settings, Activity Log and Info still visible beside it.
+
+## Nothing jumps in Edit or the tab strip (TE210/213/214 follow-ups, 2026-10-26)
+
+- [ ] **Read-only note.** Open a text file in Edit, then from Terminal overwrite it with binary bytes
+  (`head -c 2000 /dev/urandom > file`) → the "can't be read as text now" note appears over the
+  text's foot, above the status line; the format bar stays, greyed, and the text does not move.
+  With the disk banner also up, the two stack, the note on top.
+- [ ] **Notice keeps Line/Col.** Change the open file from Terminal while Edit shows it unedited →
+  "Reloaded — changed elsewhere" shows at the line's right end for a few seconds; Line/Col and the
+  heading menu stay where they were.
+- [ ] **Close Tab from a menu.** With two tabs, right-click the pane header ▸ Close Tab → the strip
+  stays, showing one tab, until the pointer moves out of where the menu was; then it slides away.
+  Same from a row's right-click menu. ⌘W still collapses it at once.

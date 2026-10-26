@@ -1029,6 +1029,103 @@ final class PaneTabStripPointer {
     }
 }
 
+/// **Where the last right-click menu stood, for a Close Tab chosen from it** (TE214's other half).
+///
+/// The pane header's and a row's menus close a tab too, and the strip went at once, so the header
+/// and the list jumped up 34pt under a pointer still where the menu was. A menu leaves no handle
+/// on where it was drawn, so this watches menus open: a context menu (one in no menu bar) opens
+/// with its top-left at the click, pushed on-screen at the edges, at the size AppKit laid it out.
+/// That frame — and the point where the item was chosen, should AppKit have placed it otherwise —
+/// is the area the strip is held for, until the pointer leaves it (`ContentView.holdingTabStrip`).
+@MainActor
+final class PaneMenuOrigin {
+    static let shared = PaneMenuOrigin()
+
+    /// The open or last context menu's frame on screen.
+    private(set) var area: NSRect?
+    /// When it closed; `nil` while it is still up.
+    private var closedAt: Date?
+    private var observers: [NSObjectProtocol] = []
+    /// Bumped per watch, so a watch a later hold replaced stops rather than releasing that hold.
+    private var watchGeneration = 0
+
+    /// How soon after a menu closes its item is still "from the menu" — AppKit sends the action
+    /// after the menu has gone.
+    static let freshness: TimeInterval = 1
+
+    /// The menu's frame from where it opened: top-left at `origin`, then moved onto `visible`, as
+    /// AppKit moves a menu that would run off the screen.
+    nonisolated static func estimatedFrame(origin: NSPoint, size: NSSize, visible: NSRect?) -> NSRect {
+        var frame = NSRect(x: origin.x, y: origin.y - size.height, width: size.width, height: size.height)
+        guard let visible else { return frame }
+        if frame.maxX > visible.maxX { frame.origin.x = max(visible.minX, visible.maxX - frame.width) }
+        if frame.minY < visible.minY { frame.origin.y = min(visible.maxY - frame.height, visible.minY) }
+        return frame
+    }
+
+    /// The area a close just chosen from a context menu holds the strip for — the menu's frame and
+    /// the point it was chosen at — or `nil` when no context menu is up or closed just now.
+    func justChosenArea(at point: NSPoint, now: Date = Date()) -> NSRect? {
+        guard let area else { return nil }
+        if let closedAt, now.timeIntervalSince(closedAt) > Self.freshness { return nil }
+        return area.union(NSRect(origin: point, size: .zero)).insetBy(dx: -4, dy: -4)
+    }
+
+    /// Notes a context menu opening at `origin` and closing. Split from the observers for the tests.
+    func menuOpened(size: NSSize, at origin: NSPoint, visible: NSRect?) {
+        area = Self.estimatedFrame(origin: origin, size: size, visible: visible)
+        closedAt = nil
+    }
+
+    func menuClosed(now: Date = Date()) {
+        if area != nil { closedAt = now }
+    }
+
+    /// Watches context menus open and close. Once, at launch.
+    func install() {
+        guard observers.isEmpty else { return }
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil,
+                                            queue: nil) { note in
+            guard Thread.isMainThread, let menu = note.object as? NSMenu else { return }
+            MainActor.assumeIsolated {
+                // A menu-bar menu, or a submenu of one, is not where a pane's Close Tab is chosen.
+                guard menu.supermenu == nil, menu !== NSApp.mainMenu else { return }
+                let origin = NSEvent.mouseLocation
+                let screen = NSScreen.screens.first { NSMouseInRect(origin, $0.frame, false) }
+                PaneMenuOrigin.shared.menuOpened(size: menu.size, at: origin, visible: screen?.visibleFrame)
+            }
+        })
+        observers.append(center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil,
+                                            queue: nil) { note in
+            guard Thread.isMainThread, let menu = note.object as? NSMenu else { return }
+            MainActor.assumeIsolated {
+                guard menu.supermenu == nil, menu !== NSApp.mainMenu else { return }
+                PaneMenuOrigin.shared.menuClosed()
+            }
+        })
+    }
+
+    /// **Lets a strip held for a menu go once the pointer is out of `area`** — and off the strip,
+    /// whose own hover lets it go when it leaves (`paneColumn`). Polled: the pointer's moves reach
+    /// no view here, and a tenth of a second is soon enough for a strip to slide away.
+    func watch(_ area: NSRect, stillHeld: @escaping () -> Bool, pointerOnStrip: @escaping () -> Bool,
+               release: @escaping () -> Void) {
+        watchGeneration += 1
+        let generation = watchGeneration
+        Task { @MainActor in
+            while generation == watchGeneration, stillHeld() {
+                try? await Task.sleep(for: .milliseconds(100))
+                guard generation == watchGeneration, stillHeld() else { return }
+                if !area.contains(NSEvent.mouseLocation) && !pointerOnStrip() {
+                    release()
+                    return
+                }
+            }
+        }
+    }
+}
+
 enum PaneTabStripVisibility {
     static func shows(own: Bool, sibling: Bool, isCompare: Bool, switchIsOn: Bool) -> Bool {
         own || switchIsOn || (isCompare && sibling)

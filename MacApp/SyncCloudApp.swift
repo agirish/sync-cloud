@@ -1154,6 +1154,8 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
 
         // The Go menu's ⌃⇥ / ⌃⇧⇥ twins: hidden behind their ⇧⌘ items, keys live (SH3).
         GoMenuDuplicates.install()
+        // Where a right-click menu stood, so a Close Tab chosen from it keeps the strip (TE214).
+        PaneMenuOrigin.shared.install()
 
         // How this build is signed, on the very next line — ad-hoc means its first launch waits
         // behind the Documents-access dialog, which is the whole of speed audit P16 and was

@@ -130,3 +130,30 @@ struct EditorDiskBannerView: View {
         .fixedSize()
     }
 }
+
+/// **Why the open document is open for reading only** — text that is not all valid, or a file that
+/// changed on disk and can no longer be read — floating over the text's foot above the disk banner
+/// (``EditorWorkspaceView``). It was a row above the text, so a file that turned unreadable
+/// mid-session pushed the format bar and every line down. Grey on the banner's ground: it asks
+/// nothing.
+struct EditorReadOnlyNoteView: View {
+    let reason: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "exclamationmark.triangle")
+                .scaledFont(.system(size: 11))
+                .accessibilityHidden(true)
+            Text(reason)
+                .scaledFont(.system(size: 11))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .modifier(EditorPDFFloatingGround(shape: EditorDiskBannerView.shape))
+        .accessibilityElement(children: .combine)
+    }
+}

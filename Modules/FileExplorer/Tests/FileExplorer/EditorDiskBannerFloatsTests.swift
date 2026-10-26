@@ -7,6 +7,10 @@ import AppKit
 /// above the text, so the format bar and every line jumped down when a change from elsewhere was
 /// noticed. Now nothing under it moves, and the text view gains room to scroll its last lines clear
 /// of it — in Source and in editable Preview, the two text views it can stand over.
+///
+/// **The read-only note floats with it** (2026-10-26): a file that turned unreadable mid-session
+/// put a row above the text and pushed everything down. It stands over the foot too, above the
+/// banner when both are up.
 @MainActor
 @Suite(.serialized) struct EditorDiskBannerFloatsTests {
 
@@ -19,9 +23,11 @@ import AppKit
         return file
     }
 
-    private func mount(_ file: URL, banner: EditorDiskBanner?, mode: EditorMode) -> NSWindow {
+    private func mount(_ file: URL, banner: EditorDiskBanner?, mode: EditorMode, readOnly: Bool) -> NSWindow {
         let document = EditorDocument()
         _ = EditorFileStore.load(path: file.path, into: document)
+        // The watch's own step when the file turns unreadable mid-session (`EditorDiskWatch`).
+        if readOnly { document.reload(.readOnly(text: document.text, reason: Self.unreadable, stamp: nil)) }
         let workspace = EditorWorkspaceView(
             document: document, autosavePolicy: EditorAutosavePolicy(),
             folder: file.deletingLastPathComponent().path,
@@ -58,14 +64,17 @@ import AppKit
         var topInset: CGFloat
     }
 
-    private func measure(_ file: URL, banner: EditorDiskBanner?, mode: EditorMode) async throws -> Measured {
-        let window = mount(file, banner: banner, mode: mode)
+    private static let unreadable = EditorDiskWatch.unreadableReason("It isn’t text any more.")
+
+    private func measure(_ file: URL, banner: EditorDiskBanner?, mode: EditorMode,
+                         readOnly: Bool = false) async throws -> Measured {
+        let window = mount(file, banner: banner, mode: mode, readOnly: readOnly)
         defer { window.close() }
         let host = try #require(window.contentView)
         // A banner's inset lands a pass after its height is measured.
         await LayoutPumpWait.pump(window, upTo: 10) {
             guard let scroll = textScroll(in: host) else { return false }
-            return banner == nil || scroll.contentInsets.bottom > 0
+            return (banner == nil && !readOnly) || scroll.contentInsets.bottom > 0
         }
         let scroll = try #require(textScroll(in: host), "no text view mounted in \(mode)")
         return Measured(frame: scroll.convert(scroll.bounds, to: nil), bottomInset: scroll.contentInsets.bottom,
@@ -86,6 +95,49 @@ import AppKit
             #expect(with.topInset == without.topInset, "\(mode), \(banner): the top inset changed")
         }
         #expect(without.bottomInset == 0, "\(mode): room under the last line with no banner")
+    }
+
+    /// **The read-only note moves nothing either, and stacks with the banner**: the text view stays
+    /// where it is with the note up, alone or above the banner, and the room under the last line
+    /// grows by the note's height when both stand.
+    ///
+    /// Source and Split: a read-only Preview has no text view to keep still. The format bar over
+    /// this Markdown note stays, greyed — it leaving moved the text up as the row once moved it down.
+    @Test(arguments: [EditorMode.edit, .split])
+    func theReadOnlyNoteFloatsAndStacksWithTheBanner(mode: EditorMode) async throws {
+        let file = try scratchFile("note.md")
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let without = try await measure(file, banner: nil, mode: mode)
+        let note = try await measure(file, banner: nil, mode: mode, readOnly: true)
+        let banner = try await measure(file, banner: .changed, mode: mode)
+        let both = try await measure(file, banner: .changed, mode: mode, readOnly: true)
+        for (name, with) in [("the note", note), ("note and banner", both)] {
+            #expect(with.frame == without.frame, "\(mode), \(name): the text view moved from \(without.frame) to \(with.frame)")
+            #expect(with.topInset == without.topInset, "\(mode), \(name): the top inset changed")
+        }
+        #expect(note.bottomInset > 2 * EditorWorkspaceView.diskBannerMargin + 16,
+                "\(mode): no room under the last line for the note (\(note.bottomInset)pt)")
+        #expect(both.bottomInset > banner.bottomInset + 16,
+                "\(mode): the stack left no more room than the banner alone (\(both.bottomInset) vs \(banner.bottomInset))")
+    }
+
+    /// **Only a file that turned read-only under the document keeps its bar** — one opened read-only
+    /// never had one — and becoming readable again, or another file, ends it.
+    @Test func theDocumentSaysWhenItTurnedReadOnlyInPlace() throws {
+        let file = try scratchFile("note.md")
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let document = EditorDocument()
+        _ = EditorFileStore.load(path: file.path, into: document)
+        #expect(!document.becameReadOnlyInPlace)
+        document.reload(.readOnly(text: document.text, reason: Self.unreadable, stamp: nil))
+        #expect(document.becameReadOnlyInPlace, "a file turning unreadable under the document is not told apart")
+        document.reload(.readOnly(text: document.text, reason: Self.unreadable, stamp: nil))
+        #expect(document.becameReadOnlyInPlace, "a second reload, still unreadable, lost it")
+        _ = EditorFileStore.load(path: file.path, into: document)
+        #expect(!document.becameReadOnlyInPlace, "opening the file again kept it")
+        document.open(.readOnly(text: "caf\u{FFFD}\n", reason: EditorFileStore.lossyReason), at: file.path)
+        document.reload(.readOnly(text: "caf\u{FFFD}\n", reason: EditorFileStore.lossyReason, stamp: nil))
+        #expect(!document.becameReadOnlyInPlace, "a file opened read-only reads as having turned read-only")
     }
 
     /// The room is the banner and its two margins, and none without one.

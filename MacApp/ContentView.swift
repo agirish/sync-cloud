@@ -3989,11 +3989,23 @@ struct ContentView: View {
     /// nothing under it to keep still. Here, beside the strip it wires, and not among the tab
     /// verbs in `ContentView+PaneTabs.swift`: it is not one — the close it runs is, and the focus
     /// rule (`everyTabVerbTheHostWiresReachesTheFocusDoorUnconditionally`) follows that close.
+    ///
+    /// **A close chosen from the pane header's or a row's menu holds it too**, while the pointer
+    /// stays where the menu stood (`PaneMenuOrigin`): it is still over the header or the rows the
+    /// strip's going would move. The strip slides away once the pointer is out of that area and off
+    /// the strip.
     private func holdingTabStrip(isLeft: Bool, _ close: () -> Void) {
         let wasShown = paneShowsTabStrip(isLeft: isLeft)
         close()
-        if wasShown && !paneShowsTabStrip(isLeft: isLeft) && tabStripPointer.isOver(isLeft: isLeft) {
+        guard wasShown && !paneShowsTabStrip(isLeft: isLeft) else { return }
+        if tabStripPointer.isOver(isLeft: isLeft) {
             tabStripHold.hold(isLeft: isLeft)
+        } else if let area = PaneMenuOrigin.shared.justChosenArea(at: NSEvent.mouseLocation),
+                  area.contains(NSEvent.mouseLocation) {
+            tabStripHold.hold(isLeft: isLeft)
+            PaneMenuOrigin.shared.watch(area, stillHeld: { tabStripHold.holds(isLeft: isLeft) },
+                                        pointerOnStrip: { tabStripPointer.isOver(isLeft: isLeft) },
+                                        release: { tabStripHold.release(isLeft: isLeft) })
         }
     }
 
@@ -4118,7 +4130,9 @@ struct ContentView: View {
                 // item withholds itself rather than offering to close the window.
                 onNewTab: { openNewTabHere(isLeft: isLeft) },
                 onCloseTab: syncManager.paneTabs(isLeft: isLeft).count > 1
-                    ? { closeTab(id: syncManager.paneTabs(isLeft: isLeft).active.id, isLeft: isLeft) }
+                    ? { holdingTabStrip(isLeft: isLeft) {
+                        closeTab(id: syncManager.paneTabs(isLeft: isLeft).active.id, isLeft: isLeft)
+                    } }
                     : nil,
                 // Edit's pane is one column wide by default: past what fits, the trail keeps the
                 // current folder's name and folds the rest into its ellipsis (asked 2026-10-17).
@@ -4894,8 +4908,10 @@ struct ContentView: View {
             onNewTabHere: { path in openInNewTab(absolutePath: path, isLeft: pane.isLeft) },
             // Resolved at fire time, not captured: a menu held open is not re-armed by a republish,
             // and the active tab can have moved under it.
-            onCloseTab: { closeTab(id: syncManager.paneTabs(isLeft: pane.isLeft).active.id,
-                                   isLeft: pane.isLeft) },
+            // Held while the pointer stays where the menu stood (`holdingTabStrip`).
+            onCloseTab: { holdingTabStrip(isLeft: pane.isLeft) {
+                closeTab(id: syncManager.paneTabs(isLeft: pane.isLeft).active.id, isLeft: pane.isLeft)
+            } },
             onToggleFolderFavorite: { node in toggleFavorite(forPaneFolder: node, isLeft: pane.isLeft) },
             onCompareFilePair: { first, second, secondIsInOtherPane in
                 compareFilePairAction(first, second, secondIsInOtherPane: secondIsInOtherPane,

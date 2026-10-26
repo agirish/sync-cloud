@@ -11612,3 +11612,32 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s strip=%s held=%s\n' $l \
 |---|---|---|
 | `v5.x` / `v4.x` | The strip leaving at once from under the pointer (`held=0`) | RECORDED — not owed |
 | `v3.x` / `v2.x` | No tabs | CLOSED — does not apply |
+
+---
+
+## Edit's read-only note, its notice, and a menu's Close Tab move nothing (TE210/213/214 follow-ups) — main only
+
+The three jumps `25750ef4d`, `54a7620f1` and `b20505319` left. Edit's read-only note was a row above
+the text, so a file turning unreadable mid-session pushed the format bar and every line down; it
+now floats over the text's foot with the disk banner, stacked above it, and the format bar stays,
+greyed, rather than leaving and pulling the text up. "Reloaded — changed
+elsewhere" took the whole status line, Line/Col with it; it now stands where the hint does
+(`HintPlace`). Close Tab from the pane header's or a row's menu collapsed the strip at once; the
+strip now stays while the pointer is where the menu stood (`PaneMenuOrigin`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s readOnlyRow=%s noticeLine=%s menuHold=%s\n' $l \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorWorkspaceView.swift 2>/dev/null | grep -c 'private func readOnlyBanner')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorStatusLine.swift 2>/dev/null | grep -c 'let notice = shownNotice')" \
+  "$(git show origin/$l:MacApp/ContentView+PaneTabs.swift 2>/dev/null | grep -c 'final class PaneMenuOrigin')"; done
+# measured 2026-10-25, against origin, before this landed (the change reads 0 0 1):
+# main, v5.x         readOnlyRow=1 noticeLine=1 menuHold=0
+# v4.x               readOnlyRow=0 noticeLine=0 menuHold=0   (no Edit; tabs without the hold)
+# v3.x, v2.x         readOnlyRow=0 noticeLine=0 menuHold=0   (no Edit, no tabs)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The read-only row, the notice over the whole line, a menu's Close Tab jumping the header | RECORDED — not owed |
+| `v4.x` | A menu's Close Tab jumping the header (no Edit) | RECORDED — not owed |
+| `v3.x` / `v2.x` | No Edit, no tabs | CLOSED — does not apply |

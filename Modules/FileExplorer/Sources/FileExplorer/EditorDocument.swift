@@ -148,6 +148,10 @@ public final class EditorDocument: ObservableObject {
 
     /// Why this file cannot be saved, or `nil` when it can.
     @Published public private(set) var readOnlyReason: String?
+    /// **Whether it turned read-only under the open document** — a reload found the file no longer
+    /// readable as text (TE59's watch) — rather than opening that way. What was drawn for a
+    /// writable file then stays, greyed, so nothing moves under the pointer (the format bar).
+    @Published public private(set) var becameReadOnlyInPlace = false
     /// The reason nothing could be opened — shown where the text would be.
     @Published public private(set) var refusal: String?
 
@@ -293,6 +297,7 @@ public final class EditorDocument: ObservableObject {
         diskStamp = nil
         encoding = nil
         readOnlyReason = nil
+        becameReadOnlyInPlace = false
         refusal = nil
         savedVersion &+= 1
     }
@@ -300,6 +305,7 @@ public final class EditorDocument: ObservableObject {
     /// Opens a file, replacing whatever was open.
     func open(_ opened: EditorFileStore.Opened, at path: String) {
         self.path = path
+        becameReadOnlyInPlace = false
         take(opened, assigningTextAlways: true)
     }
 
@@ -311,6 +317,12 @@ public final class EditorDocument: ObservableObject {
     /// there (``EditorSourceStorage/takeDiskText(_:)``), so the caret and the scroll stay near
     /// where they were; the text is written here only when it still differs.
     func reload(_ opened: EditorFileStore.Opened) {
+        if case .readOnly = opened {
+            // Writable until now: it turned read-only here. Read-only already: as it was.
+            if !isReadOnly { becameReadOnlyInPlace = true }
+        } else {
+            becameReadOnlyInPlace = false
+        }
         take(opened, assigningTextAlways: false)
     }
 

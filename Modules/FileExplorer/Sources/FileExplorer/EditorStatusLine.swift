@@ -48,8 +48,9 @@ struct EditorStatusLine: View, Equatable {
     /// Drops the selection's line count from a forced rung — the ladder's first concession, for the
     /// tests that measure it. Ignored when the rung is chosen by width.
     var forcedDropsSelectionLines = false
-    /// **What a change from elsewhere just did (TE59)** — "Reloaded — changed elsewhere" — in the
-    /// same leading slot for a few seconds. The hint outranks it: that one has a control in it.
+    /// **What a change from elsewhere just did (TE59)** — "Reloaded — changed elsewhere" — for a
+    /// few seconds, standing where the hint would (``HintPlace``), so Line/Col stays put under it as
+    /// well. The hint outranks it: that one has a control in it.
     var notice: String?
     /// **The counts on hand while ``facts`` is `nil`** — the last file's, between a file switch and
     /// this file's first count (EP5). Laid out and never drawn, so the segments hold their room and
@@ -101,6 +102,12 @@ struct EditorStatusLine: View, Equatable {
     /// its seconds are not up when the field closes.
     private var shownNotice: String? { goToLine?.isPresented.wrappedValue == true ? nil : notice }
 
+    /// **What stands over the line now**: the hint, else the notice — one at a time, in one place.
+    private var message: EditorStatusMessage? {
+        if let hint { return .hint(hint) }
+        return shownNotice.map(EditorStatusMessage.notice)
+    }
+
     /// **Whether the selection's line count is drawn at all** — only for a selection across more than
     /// one line, where it says something the other two counts do not.
     private var hasSelectionLines: Bool { (selection?.lines ?? 0) > 1 }
@@ -122,12 +129,8 @@ struct EditorStatusLine: View, Equatable {
     /// would draw exactly what the rungs after them draw.
     var body: some View {
         lineType(Group {
-            if let hint, hint.forcedRung != nil || hintPlace == .aside {
-                hinted(hint)
-            } else if hint == nil, let notice = shownNotice {
-                Text(notice)
-                    .truncationMode(.tail)
-                    .accessibilityLabel(notice)
+            if let message, message.forcedRung != nil || hintPlace == .aside {
+                hinted(message)
             } else if let headings {
                 if let forcedRung {
                     rung(forcedRung, headings, fit: .floor, lines: !forcedDropsSelectionLines)
@@ -159,19 +162,24 @@ struct EditorStatusLine: View, Equatable {
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
         .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { lineWidth = $0 }
-        // The hint where ``hintPlace`` puts it — see ``HintPlace``.
+        // The hint, or the notice, where ``hintPlace`` puts it — see ``HintPlace``.
         .overlay(alignment: .trailing) {
-            if let hint, case .free(let rung) = hintPlace { lineType(hintRow(rung, hint)).padding(.trailing, 14) }
+            if let message, case .free(let rung) = hintPlace {
+                lineType(placedRow(rung, message, room: freeSpace, alignment: .trailing)).padding(.trailing, 14)
+            }
         }
         .overlay(alignment: .leading) {
-            if let hint, case .heading(let rung) = hintPlace { lineType(hintRow(rung, hint)).offset(x: headingBounds.minX) }
+            if let message, case .heading(let rung) = hintPlace {
+                lineType(placedRow(rung, message, room: headingBounds.width, alignment: .leading))
+                    .offset(x: headingBounds.minX)
+            }
         }
-        // Each of the hint's rungs, measured and never drawn — what decides where it goes.
+        // Each of its rungs, measured and never drawn — what decides where it goes.
         .background {
-            if let hint, hint.forcedRung == nil {
+            if let message, message.forcedRung == nil {
                 ZStack {
                     ForEach(EditorStatusHint.Rung.allCases, id: \.self) { rung in
-                        lineType(hintRow(rung, hint))
+                        lineType(messageRow(rung, message))
                             .hidden()
                             .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { hintWidths[rung] = $0 }
                     }
@@ -217,6 +225,10 @@ struct EditorStatusLine: View, Equatable {
     /// heading's place has room for words too, it stands there, the heading undrawn: the heading
     /// gives way first, and Line/Col does not move for either. Only where neither has room for the
     /// link is the line redrawn around it (``hinted(_:)``).
+    ///
+    /// **The notice stands by the same rule** ("Reloaded — changed elsewhere"): it took the whole
+    /// line for its seconds too, Line/Col with it, under a pointer already on the way to Go to Line.
+    /// It has one form, so every rung of its is the same sentence.
     enum HintPlace: Equatable {
         /// Not measured yet: the line as it is, the hint not drawn for the one pass it takes.
         case pending
@@ -242,11 +254,32 @@ struct EditorStatusLine: View, Equatable {
         }
     }
 
-    /// This line's place for its hint, or `nil` without one (or with a forced rung, drawn alone).
+    /// This line's place for its hint or notice, or `nil` without one (or with a forced rung, drawn
+    /// alone).
     private var hintPlace: HintPlace? {
-        guard let hint, hint.forcedRung == nil else { return nil }
-        return Self.hintPlace(freeSpace: lineWidth - 14 - ladderCaretEnd - Self.spacing,
-                              headingSlot: headings == nil ? nil : headingBounds.width, widths: hintWidths)
+        guard let message, message.forcedRung == nil else { return nil }
+        let heading = headings == nil ? nil : headingBounds.width
+        let place = Self.hintPlace(freeSpace: freeSpace, headingSlot: heading, widths: hintWidths)
+        guard case .notice = message, place == .aside else { return place }
+        return Self.noticeCut(freeSpace: freeSpace, headingSlot: heading, atLeast: Self.noticeFloor(scale: scale))
+    }
+
+    /// From the caret's end to the line's — where the file's facts are.
+    private var freeSpace: CGFloat { lineWidth - 14 - ladderCaretEnd - Self.spacing }
+
+    /// **A notice too long for either place is cut short in the roomier one** — the narrowest column
+    /// has no room for "Reloaded — changed elsewhere" whole beside Line/Col — rather than taking the
+    /// line from Line/Col, unless neither has room even for ``noticeFloor(scale:)``. Ties go to the
+    /// free space, as the hint's do.
+    static func noticeCut(freeSpace: CGFloat, headingSlot: CGFloat?, atLeast floor: CGFloat) -> HintPlace {
+        let heading = headingSlot ?? 0
+        guard max(freeSpace, heading) >= floor else { return .aside }
+        return heading > freeSpace ? .heading(.sentence) : .free(.sentence)
+    }
+
+    /// The least a cut notice is drawn in: room for its first word and the ellipsis.
+    static func noticeFloor(scale: CGFloat) -> CGFloat {
+        FontSize.scaledPointSize(10, scale: scale) * 5
     }
 
     /// Whether the file's facts are undrawn, the hint standing over them.
@@ -266,31 +299,54 @@ struct EditorStatusLine: View, Equatable {
     /// are — the sentence, its short form, the link. Only where Line/Col and the link cannot share
     /// the line at all is the link alone (`theHintFitsTheNarrowestColumn`). A forced rung draws that
     /// rung alone, for the tests that measure each.
+    /// A notice too long even for that is cut short at its tail, as it always was.
     @ViewBuilder
-    private func hinted(_ hint: EditorStatusHint) -> some View {
-        if let rung = hint.forcedRung {
-            hintRow(rung, hint)
+    private func hinted(_ message: EditorStatusMessage) -> some View {
+        if let rung = message.forcedRung {
+            messageRow(rung, message)
         } else {
             ViewThatFits(in: .horizontal) {
                 ForEach(EditorStatusHint.Rung.allCases, id: \.self) { rung in
                     HStack(spacing: Self.spacing) {
                         caretSegment(inLadder: false)
-                        hintRow(rung, hint)
+                        messageRow(rung, message)
                     }
                     .fixedSize(horizontal: true, vertical: false)
                 }
-                hintRow(.link, hint)
+                switch message {
+                case .hint: messageRow(.link, message)
+                case .notice(let notice): Text(notice).truncationMode(.tail)
+                }
             }
         }
     }
 
-    private func hintRow(_ rung: EditorStatusHint.Rung, _ hint: EditorStatusHint) -> some View {
+    /// The message where it stands: the hint's row, or the notice cut short to `room` if it must be.
+    @ViewBuilder
+    private func placedRow(_ rung: EditorStatusHint.Rung, _ message: EditorStatusMessage, room: CGFloat,
+                           alignment: Alignment) -> some View {
+        switch message {
+        case .hint: messageRow(rung, message)
+        case .notice(let notice):
+            Text(notice)
+                .truncationMode(.tail)
+                .accessibilityLabel(notice)
+                .frame(maxWidth: max(room, 0), alignment: alignment)
+        }
+    }
+
+    private func messageRow(_ rung: EditorStatusHint.Rung, _ message: EditorStatusMessage) -> some View {
         HStack(spacing: 6) {
-            if let sentence = hint.sentence(rung) { Text(sentence) }
-            Button { hint.onShowInSource() } label: { Text(EditorStatusHint.showInSource) }
-                .buttonStyle(.link)
-                .accessibilityHint(EditorStatusHint.needsSource)
-                .help("Switch to Source, with the caret where the refused change was")
+            switch message {
+            case .hint(let hint):
+                if let sentence = hint.sentence(rung) { Text(sentence) }
+                Button { hint.onShowInSource() } label: { Text(EditorStatusHint.showInSource) }
+                    .buttonStyle(.link)
+                    .accessibilityHint(EditorStatusHint.needsSource)
+                    .help("Switch to Source, with the caret where the refused change was")
+            case .notice(let notice):
+                Text(notice).accessibilityLabel(notice)
+            }
         }
         .fixedSize(horizontal: true, vertical: false)
     }
@@ -510,6 +566,19 @@ final class EditorFirstCountGate {
         guard !Task.isCancelled else { return false }
         if !skipsDebounce(open: open, countedFor: countedFor) { try? await Task.sleep(for: debounce) }
         return !Task.isCancelled
+    }
+}
+
+/// **What stands over the status line for a few seconds** — the hint or the notice, placed by one
+/// rule (``EditorStatusLine/HintPlace``).
+enum EditorStatusMessage {
+    case hint(EditorStatusHint)
+    case notice(String)
+
+    /// The hint's forced rung, for the tests that measure each; a notice is always placed by width.
+    var forcedRung: EditorStatusHint.Rung? {
+        if case .hint(let hint) = self { return hint.forcedRung }
+        return nil
     }
 }
 

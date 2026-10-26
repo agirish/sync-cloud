@@ -256,7 +256,7 @@ import FileExplorerTestSupport
         let page = try #require(code.range(of: "} else if document.path == nil {"))
         let rest = code[page.upperBound...]
         let drop = try #require(rest.range(of: ".dropDestination(for: URL.self) { urls, _ in"))
-        let open = try #require(rest.range(of: "} else {\n            VStack(spacing: 0) {"))
+        let open = try #require(rest.range(of: "} else {\n            surfaces(for: EditorMode.resolved(mode, isMarkdown: document.isMarkdown))"))
         #expect(drop.lowerBound < open.lowerBound, "the drop is not on the empty page")
         #expect(rest[..<drop.lowerBound].contains(".frame(maxWidth: .infinity, maxHeight: .infinity)"),
                 "the drop takes only what the page draws, not the whole page")

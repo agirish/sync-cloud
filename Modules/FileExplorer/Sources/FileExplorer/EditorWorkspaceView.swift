@@ -360,7 +360,8 @@ public struct EditorWorkspaceView: View {
     @State private var selectionFacts: EditorSelectionFacts?
     /// Whether Go to Line's field is up over the status line's "Line, Col" (TE61).
     @State private var goToLineShown = false
-    /// The floating disk banner's measured height — see ``diskBannerInset``.
+    /// The floating cards' measured height — the read-only note and the disk banner, stacked — see
+    /// ``diskBannerInset``.
     @State private var diskBannerHeight: CGFloat = 0
     /// What the format bar shows lit — see ``MarkupFormatState``.
     @State private var formatState: MarkupFormatState = .none
@@ -1850,12 +1851,16 @@ public struct EditorWorkspaceView: View {
     }
 
     /// Whether the format bar is drawn over this document — see ``EditorFormatBar/isShown``.
+    ///
+    /// **A file that turned read-only under the bar keeps it, greyed** (``formatBar``): it leaving
+    /// moved the text up 35pt under the pointer, as the read-only note's row once moved it down.
+    /// One opened read-only draws none, as before.
     private var showsFormatBar: Bool {
         EditorFormatBar.isShown(preference: showsFormatBarPreference,
                                 hasDocument: document.path != nil,
                                 isRefused: document.refusal != nil,
                                 isMarkdown: document.isMarkdown,
-                                isReadOnly: document.isReadOnly,
+                                isReadOnly: document.isReadOnly && !document.becameReadOnlyInPlace,
                                 mode: mode,
                                 previewEditing: editsInPreview)
     }
@@ -1928,36 +1933,45 @@ public struct EditorWorkspaceView: View {
                 Self.takesDrop(urls, onDropFiles: onDropFiles)
             }
         } else {
-            VStack(spacing: 0) {
-                if let reason = document.readOnlyReason {
-                    readOnlyBanner(reason)
-                }
-                surfaces(for: EditorMode.resolved(mode, isMarkdown: document.isMarkdown))
-            }
-            // **Over the text's foot, not above it** (TE210): see ``EditorDiskBannerView``. Sticky
-            // until answered, as it was; the text views take ``diskBannerInset`` at their bottom.
-            .overlay(alignment: .bottom) {
-                if let diskBanner {
-                    EditorDiskBannerView(banner: diskBanner, name: document.name,
-                                         canSaveAgain: !document.isReadOnly, onAction: onDiskBanner)
+            surfaces(for: EditorMode.resolved(mode, isMarkdown: document.isMarkdown))
+                // **Over the text's foot, not above it** (TE210): see ``EditorDiskBannerView``. Sticky
+                // until answered, as it was; the text views take ``diskBannerInset`` at their bottom.
+                //
+                // **The read-only note floats there too**, above the disk banner when both stand. It
+                // was a row above the text, and a file that turned unreadable mid-session (TE59's
+                // watch) pushed the format bar and every line down under the pointer — the jump the
+                // disk banner was floated to end.
+                .overlay(alignment: .bottom) {
+                    if document.readOnlyReason != nil || diskBanner != nil {
+                        VStack(spacing: Self.diskBannerMargin) {
+                            if let reason = document.readOnlyReason {
+                                EditorReadOnlyNoteView(reason: reason)
+                            }
+                            if let diskBanner {
+                                EditorDiskBannerView(banner: diskBanner, name: document.name,
+                                                     canSaveAgain: !document.isReadOnly, onAction: onDiskBanner)
+                            }
+                        }
                         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { diskBannerHeight = $0 }
                         .padding(Self.diskBannerMargin)
+                    }
                 }
-            }
         }
     }
 
     /// The disk banner's margin from the text card's edges and the status line under it.
     static let diskBannerMargin: CGFloat = 8
 
-    /// **How far the text views scroll past their last line while the disk banner stands** — its
-    /// height and both margins, so the last line can rise clear of it. None without a banner.
+    /// **How far the text views scroll past their last line while the floating cards stand** — the
+    /// read-only note and the disk banner, stacked — their height and both margins, so the last
+    /// line can rise clear of them. None without one.
     static func diskBannerInset(bannerHeight: CGFloat, isShown: Bool) -> CGFloat {
         isShown ? bannerHeight + 2 * diskBannerMargin : 0
     }
 
     private var diskBannerInset: CGFloat {
-        Self.diskBannerInset(bannerHeight: diskBannerHeight, isShown: diskBanner != nil && document.refusal == nil)
+        Self.diskBannerInset(bannerHeight: diskBannerHeight,
+                             isShown: (diskBanner != nil || document.readOnlyReason != nil) && document.refusal == nil)
     }
 
     /// Hands a drop on the empty page to the host — **files only**: a web address dragged from a
@@ -2174,6 +2188,8 @@ public struct EditorWorkspaceView: View {
                         showsLabels: formatBarShowsLabels,
                         onVerb: { verb in textViewHandle.applyMarkup(verb) })
             .equatable()
+            // Greyed over a file that turned read-only under it (``showsFormatBar``).
+            .disabled(document.isReadOnly)
             // On the bar itself, so a right-click on the text keeps the text view's menu.
             .contextMenu {
                 EditorFormatBarMenu(showsLabels: $formatBarShowsLabels,
@@ -2484,21 +2500,6 @@ public struct EditorWorkspaceView: View {
                     })
             )
             .accessibilityHidden(true)
-    }
-
-    private func readOnlyBanner(_ reason: String) -> some View {
-        HStack(alignment: .top, spacing: 6) {
-            Image(systemName: "exclamationmark.triangle")
-                .scaledFont(.system(size: 11))
-            Text(reason)
-                .scaledFont(.system(size: 11))
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.quaternary.opacity(0.4))
     }
 
     /// - Parameter showTextFiles: draws Show Text Files under the words (TE77) — the empty page's

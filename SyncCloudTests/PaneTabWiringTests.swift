@@ -2473,6 +2473,53 @@ import Sync
                 "the strip's coming and going is no longer animated on its presence — a released strip would vanish, not slide")
     }
 
+    /// **Where a right-click menu stood** — top-left at the click, moved on-screen as AppKit moves
+    /// one at the edges — is the area a Close Tab chosen from it holds the strip for.
+    @Test func aMenusAreaIsWhereItOpenedMovedOnScreen() {
+        let visible = NSRect(x: 0, y: 0, width: 1000, height: 800)
+        let size = NSSize(width: 200, height: 300)
+        #expect(PaneMenuOrigin.estimatedFrame(origin: NSPoint(x: 100, y: 700), size: size, visible: visible)
+                == NSRect(x: 100, y: 400, width: 200, height: 300))
+        #expect(PaneMenuOrigin.estimatedFrame(origin: NSPoint(x: 900, y: 700), size: size, visible: visible).maxX == 1000,
+                "a menu opened near the right edge was placed off the screen")
+        #expect(PaneMenuOrigin.estimatedFrame(origin: NSPoint(x: 100, y: 100), size: size, visible: visible).minY == 0,
+                "a menu opened near the bottom was placed off the screen")
+    }
+
+    /// **Only a menu up or just closed counts**, and the point the item was chosen at is inside the
+    /// area even where AppKit drew the menu elsewhere than estimated.
+    @Test func aMenuCountsOnlyWhileUpOrJustClosed() throws {
+        let origin = PaneMenuOrigin()
+        let point = NSPoint(x: 150, y: 600)
+        #expect(origin.justChosenArea(at: point) == nil, "an area with no menu ever opened")
+        origin.menuOpened(size: NSSize(width: 200, height: 300), at: NSPoint(x: 100, y: 700), visible: nil)
+        #expect(origin.justChosenArea(at: point)?.contains(point) == true, "the menu is up and its area is gone")
+        let closed = Date()
+        origin.menuClosed(now: closed)
+        #expect(origin.justChosenArea(at: point, now: closed.addingTimeInterval(0.5)) != nil,
+                "the item's action, sent just after the menu went, found no area")
+        #expect(origin.justChosenArea(at: point, now: closed.addingTimeInterval(PaneMenuOrigin.freshness + 0.5)) == nil,
+                "a menu closed long ago still holds strips")
+        origin.menuOpened(size: NSSize(width: 200, height: 300), at: NSPoint(x: 100, y: 700), visible: nil)
+        let far = NSPoint(x: 600, y: 100)
+        #expect(try #require(origin.justChosenArea(at: far)).contains(far),
+                "the point the item was chosen at is outside the area")
+    }
+
+    /// **The header's and a row's Close Tab go through the hold**, as the strip's own do.
+    @Test func theMenuClosesGoThroughTheHold() throws {
+        let content = try Self.source("ContentView.swift")
+        let column = try Self.memberBody("func paneColumn(isLeft: Bool) -> some View {", in: content)
+        #expect(column.contains("? { holdingTabStrip(isLeft: isLeft) {\n                        closeTab(id: syncManager.paneTabs(isLeft: isLeft).active.id"),
+                "the header menu's Close Tab closes without the hold")
+        let delegate = try Self.memberBody("func paneActionDelegate(for pane: PaneContext) -> PaneActionDelegate {", in: content)
+        #expect(delegate.contains("onCloseTab: { holdingTabStrip(isLeft: pane.isLeft) {"),
+                "the row menu's Close Tab closes without the hold")
+        let hold = try Self.memberBody("private func holdingTabStrip(isLeft: Bool, _ close: () -> Void) {", in: content)
+        #expect(hold.contains("PaneMenuOrigin.shared.justChosenArea"), "a menu's close is never held")
+        #expect(hold.contains("PaneMenuOrigin.shared.watch("), "a strip held for a menu is never let go")
+    }
+
     // MARK: Compare — both panes wear the strip
 
     /// The term that makes Compare readable: **a second tab on either pane draws the strip on
