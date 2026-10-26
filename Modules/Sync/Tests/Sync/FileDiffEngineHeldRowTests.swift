@@ -263,6 +263,26 @@ import Foundation
         #expect(plainRow.description == "Folder missing on right (Backup)")
     }
 
+    /// **A missing folder holding a link is not told to "choose which to keep"** (review E12). It
+    /// exists on one side, so its menu offers the one copy, which goes ahead when asked for alone;
+    /// its phrase says that, apart from the rows that do need a choice. Held rows of each kind, in
+    /// one run, so a phrase that miscounted one kind into another cannot pass.
+    @MainActor
+    @Test func aMissingFolderHoldingALinkHasItsOwnLeftOutPhrase() {
+        func row(_ reason: FileDifference.HeldBack?) -> FileDifference {
+            FileDifference(relativePath: "x", leftItemPath: "/l/x", rightItemPath: "/r/x", type: .missingOnRight,
+                           action: .copyToRight, description: "d", heldBack: reason)
+        }
+        let folder = row(.enclosesSymbolicLink(path: "x/lib"))
+        #expect(FileSyncManager.leftOutPhrases([folder, row(.sizesDifferWithoutANewerSide)]) == [
+            "1 item needs your decision and was left out — right-click its row to choose which to keep",
+            "1 folder holds a link to somewhere outside it and was left out — right-click its row to copy it on its own",
+        ])
+        #expect(FileSyncManager.leftOutPhrases([folder, folder]) == [
+            "2 folders hold links to somewhere outside them and were left out — right-click each row to copy it on its own",
+        ])
+    }
+
     /// **A link that stays inside the folder holds nothing; one that leads out of it holds the
     /// row.** Copied as links, a framework's `Versions/Current -> A` and a checkout's
     /// `docs/readme -> ../README.md` land pointing inside the copy, which is right — holding them

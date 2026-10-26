@@ -12276,3 +12276,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s matchDates=%s previous=%s\n' 
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No date-match record (`matchDates=0`) | CLOSED — does not apply |
+
+---
+
+## A missing folder holding a link has its own left-out phrase (review E12) — main only
+
+A bulk run's banner counted a missing folder holding a link with the rows to "choose which to keep",
+though it exists on one side and its menu offers the one copy. `main` says "1 folder holds a link to
+somewhere outside it and was left out — right-click its row to copy it on its own".
+
+```sh
+B=Modules/Sync/Sources/Sync/FileSyncManager+BulkSync.swift
+F=Modules/Sync/Sources/Sync/FileDifference.swift
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s folderHold=%s phrase=%s\n' $l \
+  "$(git show origin/$l:$F 2>/dev/null | grep -c 'case enclosesSymbolicLink')" \
+  "$(git show origin/$l:$B 2>/dev/null | grep -c 'folder holds a link to somewhere outside it')"; done
+# measured 2026-10-25, against origin, before this landed (the change reads phrase=1):
+# main                         folderHold=1 phrase=0
+# v5.x, v4.x, v3.x, v2.x       folderHold=0 phrase=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No held folder rows (`folderHold=0`) | CLOSED — does not apply |

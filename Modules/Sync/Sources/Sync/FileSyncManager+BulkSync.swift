@@ -330,14 +330,27 @@ extension FileSyncManager {
     /// `linkOnEitherSide` words the link half for Copy to match dates, which also leaves out a pair
     /// with a link on the side it would write — such a row carries no hold, so a row without one
     /// counts as a link there.
+    ///
+    /// **A missing folder holding a link gets its own phrase** (review E12). It was counted with
+    /// the rows to "choose which to keep", but it exists on one side only, so its menu offers the
+    /// one copy — which goes ahead, link and all, when asked for one row at a time.
     static func leftOutPhrases(_ held: [FileDifference], linkOnEitherSide: Bool = false) -> [String] {
         let links = held.filter { $0.heldBack == nil || $0.heldBack == .sourceIsSymbolicLink }.count
-        let decisions = held.count - links
+        let folderLinks = held.filter {
+            if case .enclosesSymbolicLink = $0.heldBack { return true }
+            return false
+        }.count
+        let decisions = held.count - links - folderLinks
         var phrases: [String] = []
         if decisions > 0 {
             phrases.append(decisions == 1
                 ? "1 item needs your decision and was left out — right-click its row to choose which to keep"
                 : "\(decisions) items need your decision and were left out — right-click each row to choose which to keep")
+        }
+        if folderLinks > 0 {
+            phrases.append(folderLinks == 1
+                ? "1 folder holds a link to somewhere outside it and was left out — right-click its row to copy it on its own"
+                : "\(folderLinks) folders hold links to somewhere outside them and were left out — right-click each row to copy it on its own")
         }
         if links > 0 {
             switch (linkOnEitherSide, links == 1) {
