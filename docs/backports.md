@@ -10484,10 +10484,15 @@ own kind (`.holdsKeeper`), banner and log line.
 
 ```sh
 for l in main v5.x v4.x v3.x v2.x; do printf '%-5s gate=%s holds=%s\n' $l \
-  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Duplicates.swift 2>/dev/null | grep -cF 'it holds the copy another group keeps')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Duplicates.swift 2>/dev/null | grep -cF 'is never removed** (FR10)')" \
   "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Duplicates.swift 2>/dev/null | grep -cF 'case holdsKeeper')"; done
 # measured 2026-10-24, against origin, before this landed (the fix reads holds>=1):
 # main               gate=1 holds=0
+# v5.x, v4.x, v3.x, v2.x   gate=0 holds=0
+# re-measured 2026-10-25, against origin, after it landed — the gate string first measured here
+# ('it holds the copy another group keeps') left main with this change, so the gate column now
+# greps the FR10 check's own comment, which main carried before it too:
+# main               gate=1 holds=2
 # v5.x, v4.x, v3.x, v2.x   gate=0 holds=0
 ```
 
