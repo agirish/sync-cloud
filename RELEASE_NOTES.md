@@ -144,8 +144,9 @@ Requires **macOS 26**, unchanged from v6.0.
 - **Setup** keeps a reading that lands late, for the folder it read. Once a reading is done,
   Continue keeps it and Learn Again is a button of its own. Removing a person from the roster asks
   first, and a profile that can't be written stays on Structure with the reason and Continue Without
-  Saving. Closing Setup keeps the answers on the open screen. Structure says when it is still
-  reading, and its button reads Skip Saving until the reading is done. Setup's buttons use Title Case.
+  Saving. Closing Setup any way, quitting included, keeps the open screen's answers. Structure says
+  when it is still reading, hiding its counts until the reading is in, or when the reading failed,
+  and its button reads Skip Saving until the reading is done. Setup's buttons use Title Case.
 
 ### Edit and PDF
 
@@ -178,15 +179,16 @@ Requires **macOS 26**, unchanged from v6.0.
   Reorganization — curly quotes and apostrophes, Title Case on menus, and counts that read "1 item"
   and "1,200 files". Settings search still finds "colour". The reversible delete is Move to Trash
   everywhere, Sync History included. Progress is titled in sentence case, Edit's empty page
-  offers New Text File, and reading fewer than 200 documents is offered as "A few minutes", not
-  "About 3 h". The command-line tool prints its own punctuation as plain ASCII; file names still
-  print exactly as they are on disk.
+  offers New Text File, and the time to read a folder's documents is estimated from its size — "A
+  few minutes", "About 30 min", "About 3 h" — instead of always "About 3 h". The command-line tool
+  prints quotes, apostrophes, dashes and ellipses as plain ASCII; file names, paths and provider
+  names print exactly as they are.
 - **⌃⇧⇥ goes to the previous tab** in Browse, the reverse of ⌃⇥ (in Compare, ⌃⇥ switches panes),
   and the Go menu lists Next Tab and Previous Tab once each.
 - **Color you can read.** Links in both Markdown Previews use a shade of the accent that reads in
-  light and dark. A colored pill's words are black or white, with the color in its fill. Switches,
-  checkboxes, sliders and progress bars take the app's accent, not the Mac's, unless the accent is
-  None.
+  light and dark. A colored pill's words are black or white, with the color in its fill, and a
+  button's colored words use a shade that reads. Switches, checkboxes, sliders and progress bars
+  take the app's accent, in sheets and popovers too, not the Mac's, unless the accent is None.
 - **The tab strip stays under the pointer** when you close down to one tab from it, or with Close
   Tab from the pane header's or a row's menu, and slides away once the pointer leaves, so the pane
   doesn't jump up under you. ⌘W still hides it at once.
