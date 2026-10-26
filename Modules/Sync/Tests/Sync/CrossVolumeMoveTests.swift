@@ -124,6 +124,41 @@ import Testing
         #expect(fm.virtualDisk[destination.path] != nil)
     }
 
+    /// **B6: the production wiring.** The real disk — a `FileManager`, here a subclass that only
+    /// records — with `crossVolume` unset decides by the volumes it reads: a source on the Data volume
+    /// moving under `/dev` (devfs, a volume of its own) is staged as a copy, never handed to `moveItem` first.
+    /// Nothing is written: the staging copy has nowhere to go and the move throws, original intact.
+    /// Red if `fileManager is FileManager && …` stops being true for the real disk.
+    @Test func theRealDiskDecidesAnotherVolumeByItself() throws {
+        final class RecordingDisk: FileManager, @unchecked Sendable {
+            private let lock = NSLock()
+            nonisolated(unsafe) private var calls: [String] = []
+            var log: [String] { lock.lock(); defer { lock.unlock() }; return calls }
+            override func moveItem(at srcURL: URL, to dstURL: URL) throws {
+                lock.lock(); calls.append("move \(srcURL.lastPathComponent)"); lock.unlock()
+                try super.moveItem(at: srcURL, to: dstURL)
+            }
+            override func copyItem(at srcURL: URL, to dstURL: URL) throws {
+                lock.lock(); calls.append("copy \(srcURL.lastPathComponent)"); lock.unlock()
+                try super.copyItem(at: srcURL, to: dstURL)
+            }
+        }
+        let base = try makeCanonicalTempRoot(prefix: "b6")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let source = base.appendingPathComponent("a.bin")
+        try Data("abc".utf8).write(to: source)
+        let destination = URL(fileURLWithPath: "/dev/b6-\(UUID().uuidString)/a.bin")
+        try #require(FileSyncManager.isCrossVolumeMove(from: source, to: destination),
+                     "premise: on this Mac `/dev` is not a volume of its own")
+        let disk = RecordingDisk()
+
+        #expect(throws: (any Error).self) {
+            try FileSyncManager.safeMoveItem(at: source, to: destination, fileManager: disk, caseSensitiveVolume: false)
+        }
+        #expect(disk.log.first == "copy a.bin", "the real disk's move was not decided cross-volume: \(disk.log)")
+        #expect(FileManager.default.fileExists(atPath: source.path))
+    }
+
     /// The control: on one volume a move is still a rename.
     @Test func aMoveOnOneVolumeIsStillARename() throws {
         let disk = try disk(destinationTaken: false)
