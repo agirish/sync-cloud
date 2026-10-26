@@ -1400,6 +1400,16 @@ public final class EditorPDFFillSign: ObservableObject {
         + "open the old address. On macOS 26 the copy may then lose this PDF’s page labels, attached files, "
         + "viewer settings and language."
 
+    /// **The note card's line under the links box while it is ticked, on macOS 26 only** (F5): the
+    /// rewrite that takes the links out drops the catalog parts there, and a tooltip alone hid it.
+    /// `nil` from 27, as Protect's sheet's line is (``EditorPDFTool/protectedCopyNote(osMajor:)``).
+    public var unlinkLossNote: String? {
+        offersUnlinking && unlinksCorrections && osMajor < 27 ? Self.unlinkLossLine : nil
+    }
+    static let unlinkLossLine = "On macOS 26 the copy may lose this PDF’s page labels, attached files, viewer settings and language."
+    /// The macOS the card speaks for — a test sets another.
+    var osMajor = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+
     /// **Whether the note card offers to keep the file's comments as comments** (FR57): a save that
     /// redraws the pages — no form — of a file that has some.
     public var offersKeepingComments: Bool { !usesFormPath && comments.any }

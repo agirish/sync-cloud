@@ -12345,3 +12345,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s keptAside=%s saidAtQuit=%s\n'
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No keep-aside save (`keptAside=0`); FR48's row records it | CLOSED — does not apply |
+
+---
+
+## The links box says its macOS 26 loss on the card (F5) — main only
+
+"Also remove links under corrections" said that the copy may lose page labels, attached files,
+viewer settings and language on macOS 26 only in its tooltip. `main` adds that line to the note card
+while the box is ticked, on macOS 26 only (`EditorPDFFillSign.unlinkLossNote`), as Protect's sheet does.
+
+```sh
+S=Modules/FileExplorer/Sources/FileExplorer
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s unlinkBox=%s lossLine=%s\n' $l \
+  "$(git show origin/$l:$S/EditorPDFFillSign.swift 2>/dev/null | grep -cF 'static let unlinkTitle')" \
+  "$(git show origin/$l:$S/EditorPDFFillSign.swift 2>/dev/null | grep -cF 'unlinkLossNote')"; done
+# measured 2026-10-25, against origin, before this landed:
+# main                      unlinkBox=1 lossLine=0
+# v5.x, v4.x, v3.x, v2.x    unlinkBox=0 lossLine=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No links box (`unlinkBox=0`) | CLOSED — does not apply |

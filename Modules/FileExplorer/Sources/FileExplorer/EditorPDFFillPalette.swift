@@ -727,6 +727,10 @@ struct EditorPDFFillSaveStack: View {
                     .controlSize(.small)
                     .help(EditorPDFFillSign.unlinkHelp)
                     .padding(.top, 4)
+                // What it costs on macOS 26, said while ticked (F5).
+                if let loss = fill.unlinkLossNote {
+                    Text(loss).fixedSize(horizontal: false, vertical: true)
+                }
             }
             // **The file's comments, drawn in unless chosen otherwise** (FR57, decided 2026-10-25) —
             // for this save only. Greyed, unticked and saying why while a page is saved as a

@@ -971,6 +971,39 @@ enum ReplaceFixtures {
         #expect(!fill.unlinksCorrections, "the choice outlived its save")
     }
 
+    /// **The links box says what it costs on macOS 26, on the card, while ticked (F5)** — not in its
+    /// tooltip alone — and says nothing from macOS 27 or unticked. The card draws the line: the
+    /// same card for 26 and 27 draws differently.
+    @Test func theLinksBoxSaysItsMacOS26LossWhileTicked() async throws {
+        let file = try await linkedAndCommented("Loss.pdf")
+        let (pdf, id, pick) = try await correcting(file)
+        try #require(pick.overLink, "the link under the words was not seen — this tests nothing")
+        let fill = pdf.fill
+        fill.type("21 Apr", into: id)
+        fill.endEditing()
+        try #require(fill.offersUnlinking)
+        fill.osMajor = 26
+        #expect(fill.unlinkLossNote == nil, "said while unticked")
+        fill.unlinksCorrections = true
+        #expect(fill.unlinkLossNote == EditorPDFFillSign.unlinkLossLine)
+        fill.osMajor = 27
+        #expect(fill.unlinkLossNote == nil, "said on macOS 27, which keeps them")
+        func drawn() throws -> [NSColor?] {
+            let stack = EditorPDFFillSaveStack(fill: fill, tools: pdf.tools)
+            let size = NSHostingController(rootView: stack).sizeThatFits(in: CGSize(width: 2000, height: 4000))
+            let host = NSHostingView(rootView: stack)
+            host.frame = CGRect(origin: .zero, size: CGSize(width: size.width.rounded(.up), height: size.height.rounded(.up)))
+            host.layoutSubtreeIfNeeded()
+            let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            return (0..<rep.pixelsHigh).flatMap { y in (0..<rep.pixelsWide).map { rep.colorAt(x: $0, y: y) } }
+        }
+        let on27 = try drawn()
+        fill.osMajor = 26
+        let on26 = try drawn()
+        #expect(on26.count > on27.count, "the card is no taller with the macOS 26 line — the view does not draw it")
+    }
+
     /// **"Keep comments as comments" is in the note card, bound to the choice, and greyed while a
     /// page is saved as a picture (FR57)** — the picture pass would rewrite them — saying why.
     /// Unticked then, whatever was chosen: ticking it draws nothing different; making the page text
