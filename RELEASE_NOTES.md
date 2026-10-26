@@ -54,8 +54,9 @@ Requires **macOS 26**, unchanged from v6.0.
   with a reason of its own. One Apply recommended can no longer send every copy to the Trash.
 - **A copy holding what couldn't be read is kept.** A merge whose copy holds a folder it couldn't
   read — permission denied, or a cloud folder whose app didn't answer in time — is refused, naming
-  the folder. Trash right copy refuses a copy holding items the left one lacks, or a file the left
-  one has with another date, and points to Merge into keeper.
+  the folder. Trash right copy refuses a copy holding items the left one lacks, or, for overlapping
+  folders, a file the left one has with another date, and points to Merge into keeper; it refuses a
+  copy that is any group's keeper too.
 - **A folder that isn't empty stays.** Restructure no longer trashes a drained folder still holding
   `.env`, `.gitignore` or an Office lock file; only macOS's own files, such as `.DS_Store`, are
   ignored. Undoing New Folder leaves the folder in place if anything is still inside it.
@@ -68,7 +69,9 @@ Requires **macOS 26**, unchanged from v6.0.
 - **The harder undos work.** Two files moved onto one name with Replace; a moved link that dangles
   where it lands; the copy of a file locked in Finder; a merge's emptied source folder, which now
   comes back with its tags, icon and dates; a source folder trashed since the move, which is
-  recreated. A redo refuses to replace anything its undo didn't leave at the destination.
+  recreated; a batch of moves, undone last item first. A folder you only opened in Finder, which
+  gives it a `.DS_Store`, no longer makes ⌘Z refuse it as changed. A redo refuses to replace
+  anything its undo didn't leave at the destination.
 - **Undo Last Run says what it will do** — a copy run's copies go to the Trash, a move run's files
   go back — and confirms it is undoing the run you picked.
 - **A move that leaves its original behind says so.** When a move's cleanup can't remove the
@@ -79,7 +82,8 @@ Requires **macOS 26**, unchanged from v6.0.
 
 - **Replace refuses the folder an item is inside**, as Finder does. Pasting Photos/Photos into the
   folder above it and answering Replace no longer trashes the outer folder with everything in it.
-  Keep Both and Merge still work.
+  Keep Both and Merge still work. Replace over a symbolic link now replaces the link; before, it
+  failed every time.
 - **A move to another disk keeps the original until the copy is complete**, and honors Cancel. On a
   disk with no Trash, a folder that can't be fully removed keeps both copies, and the alert says the
   original may be partly removed.
@@ -92,7 +96,8 @@ Requires **macOS 26**, unchanged from v6.0.
   that doesn't answer, instead of holding every later file operation behind it.
 - **Copy or Move to the other pane lands where that pane opens.** A file from Dropbox's Documents
   lands in Google Drive's My Drive, not at the account root outside it, and rows under iCloud's
-  linked Documents are no longer refused as outside the pane.
+  linked Documents are no longer refused as outside the pane. A pane's own opening folder merges
+  into the other pane's, offered as Merge or Skip, so a pane's root is never replaced.
 - **A Download that can't start shows the file in Finder**, which can fetch it, from the row menu
   and File ▸ Download as from the preview, instead of doing nothing.
 
@@ -103,13 +108,13 @@ Requires **macOS 26**, unchanged from v6.0.
   file, and a row whose source is a symbolic link. Sync All, Copy Remaining and `synccloud sync`
   leave such rows out and say how many; the header reads "2 need your decision"; and the Review
   card leads with the row's note and stays on the rows left.
-- **Copy either way from any row.** Every row's right-click menu offers a Copy to … item for each
-  side that exists, against the suggested direction as readily as with it. A row copying from a
-  link offers none.
-- **Copy to match dates sets dates, not bytes**, for pairs Verify has read in full and found
-  identical: the right file takes the left one's modification date, to the nanosecond, as one
-  undoable step, listed in Sync History and undone by Undo Last Run. A pair with a link on either
-  side is left out.
+- **Copy either way from any row.** Every row's right-click menu, and Review's, offers a Copy to …
+  item for each side that exists, against the suggested direction as readily as with it, and warns
+  first when that overwrites the newer file. A row copying from a link offers none.
+- **Match Dates sets dates, not bytes**, for pairs Verify has read in full and found identical: the
+  right file takes the left one's modification date, to the nanosecond, as one undoable step,
+  listed in Sync History with the date it replaced and undone by Undo Last Run. A pair with a link
+  on either side is left out, and an undo that leaves a file alone says so.
 - **Verify reads again a file whose date was put back.** Its cache of file contents is now keyed on
   the file's number and status-change time as well as its path, date and size, so an edit that
   restores the date and keeps the size (`touch -r`, `rsync -t`, `exiftool -P`) is not taken for
@@ -118,7 +123,7 @@ Requires **macOS 26**, unchanged from v6.0.
   two providers share, listing each one's id and folder; the sync plan prints both folders before
   the prompt. `scan` prints `[needs-decision]` for a held row, and `--json` gives every row
   `needsDecision`. `synccloud sync` exits 0 only when every planned file was copied; any skipped
-  file exits 1, each cause with its own line on stderr.
+  file exits 1, each cause with its own line on stderr, and so does a declined prompt.
 
 ### Organize and Setup
 
@@ -130,14 +135,14 @@ Requires **macOS 26**, unchanged from v6.0.
 - **Each Setup folder keeps its own Restructure history.** Walking a different folder starts with
   none, or takes back that folder's own; the roster follows every walk. An old profile folder is
   never removed while it holds something the active one lacks.
-- **Filing refuses what it can't stand behind**: a file that changed since the scan; a date stamp
-  either convention could have written — "05062023" could be May 6 or June 5, and the skip names
-  both; a folder name from the model that the provider won't sync; and a destination that is the
-  file's own folder through a link, where it now says the file is already there. Its refusals come
-  under "Filing Failed", not "Sync Failed".
+- **Filing refuses what it can't stand behind**: a file that changed or went since the scan; a date
+  stamp either convention could have written — "05062023" could be May 6 or June 5, and the skip
+  names both; a folder name from the model that the provider won't sync; and a destination that is
+  the file's own folder through a link, where it now says the file is already there. Its refusals
+  come under "Filing Failed", not "Sync Failed".
 - **A download counter is not a version.** "invoice.pdf", "invoice (1).pdf" and "invoice (2).pdf" —
-  three months' bills — no longer form a versions group offering to trash two of them; files named
-  only by a counter group only when their contents match.
+  three months' bills — no longer form a versions group offering to trash two of them; a name
+  carrying a download counter groups only when its contents match.
 - **Restructure** matches subfolders and file names regardless of case, skips the merges planned
   into a rename it had to skip, recreates a merged file's source folder when undoing, and gives a
   cloud-only folder a bounded time to answer instead of hanging the plan sheet.
@@ -151,8 +156,8 @@ Requires **macOS 26**, unchanged from v6.0.
 ### Edit and PDF
 
 - **A version that arrives while Edit is saving is kept**, beside the file as "(other version)", and
-  the save says so. Keep Mine replaces only the version it asked about. Autosave no longer asks about
-  its own write, and typing during a slow write is saved.
+  the save says so, at quit too. Keep Mine replaces only the version it asked about. Autosave no
+  longer asks about its own write, and typing during a slow write is saved.
 - **Fill & Sign keeps your work** when a sync app renames the open PDF aside for a moment, and a PDF
   tool runs against the version of the file it started on.
 - **PDF copies say more about what they lose.** Protect, a form's Clean Metadata and Fill & Sign's
@@ -161,7 +166,8 @@ Requires **macOS 26**, unchanged from v6.0.
 - **Keep a PDF's comments.** Fill & Sign on a PDF with no form drew the file's review comments into
   the copy as ink. The note card now offers "Keep comments as comments", off by default and for
   that save only, which carries each comment across whole, with its text, popup and replies; the
-  saved message says when one couldn't be kept and was drawn in.
+  saved message says when one couldn't be kept and was drawn in. It is grayed, with the reason,
+  while links under corrections are being removed.
 - **Save as PDF reads a picture slide on the CPU** when the Mac's Neural Engine refuses the request,
   instead of saving the slide with no words to search.
 - **Remove the links under a correction.** A correction typed over a link leaves the link working
