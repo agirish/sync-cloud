@@ -12162,3 +12162,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s pair=%s prot=%s whole=%s\n' $
 |---|---|---|
 | `v5.x` | The same pair, checking the protection flag only (`prot=6`); no keeper hold anywhere | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Compare Copies pair (`pair=0`) | CLOSED — does not apply |
+
+---
+
+## An Undo of Match Dates says what it left alone (review E1) — main only
+
+Undoing (or redoing) a date match leaves a file saved since, or one whose date cannot be set, as it
+is — and said so only in an info line, so an Undo that put back no date read like one that put back
+all of them. `main` posts a warning banner ("Undo left 1 file’s date alone — it changed since") and
+logs the line at warning.
+
+```sh
+B=Modules/Sync/Sources/Sync/FileSyncManager+BulkSync.swift
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s dateUndo=%s says=%s\n' $l \
+  "$(git show origin/$l:$B 2>/dev/null | grep -c 'func registerDateMatchUndo')" \
+  "$(git show origin/$l:$B 2>/dev/null | grep -c 'files’ dates')"; done
+# measured 2026-10-25, against origin, before this landed (the change reads says=1):
+# main                         dateUndo=1 says=0
+# v5.x, v4.x, v3.x, v2.x       dateUndo=0 says=0   (Match Dates copies there)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No date match to undo (`dateUndo=0`) | CLOSED — does not apply |

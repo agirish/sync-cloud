@@ -717,6 +717,33 @@ import Events
         #expect(try exactRescan().isEmpty, "the redone pair comes back on the next exact scan")
     }
 
+    /// **An Undo that puts back no date says so** (review E1). A right file saved after the match
+    /// is not the step's to re-date, so it is left alone — and that was only an info line in the
+    /// log: the banner kept the match's success, so the Undo read as having worked.
+    @MainActor
+    @Test func testADateMatchUndoThatLeavesAChangedFileAloneSaysSo() async throws {
+        let fixture = try makeRaceFixture()
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+        manager.undoManager = UndoManager()
+        let leftDate = Date(timeIntervalSince1970: 1_600_000_000)
+        try FileManager.default.setAttributes([.modificationDate: leftDate], ofItemAtPath: fixture.identical.leftItemPath)
+        try FileManager.default.setAttributes([.modificationDate: leftDate.addingTimeInterval(86_400)],
+                                              ofItemAtPath: fixture.rightIdenticalURL.path)
+        await manager.verifyAllWithChecksum()
+        try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
+        await manager.confirmVerifiedCopy()?.value
+        try #require(manager.banner?.severity == .success, "the premise: the match succeeded")
+
+        // Saved since: a new size, so the undo must leave it alone.
+        try Data("edited after the match".utf8).write(to: fixture.rightIdenticalURL)
+        manager.undoManager?.undo()
+        await waitUntil("the date-match undo posts its outcome") { manager.banner?.severity == .warning }
+
+        #expect(manager.banner?.message == "Undo left 1 file’s date alone — it changed since")
+        #expect(try Data(contentsOf: fixture.rightIdenticalURL) == Data("edited after the match".utf8))
+    }
+
     /// A date match that matched some pairs and left others out still registered its one undo
     /// step for the ones it matched, but its warning banner offered no Undo — the visible face of
     /// the ⌘Z that works.

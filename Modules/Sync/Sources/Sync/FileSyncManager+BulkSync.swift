@@ -360,8 +360,8 @@ extension FileSyncManager {
             Logger.shared.info("User triggered \(restoringPrevious ? "Undo" : "Redo"): \(actionName)")
             let slot = target.claimFileOperationSlot()
             target.registerDateMatchUndo(items, restoringPrevious: !restoringPrevious, actionName: actionName, fileManager: fm)
-            Task {
-                await target.enqueueFileOperation(slot: slot) {
+            Task { @MainActor in
+                let (reset, changed, unwritable) = await target.enqueueFileOperation(slot: slot) { () -> (Int, Int, Int) in
                     var reset = 0
                     var changed = 0
                     var unwritable = 0
@@ -382,11 +382,29 @@ extension FileSyncManager {
                             unwritable += 1
                         }
                     }
-                    var outcome = "re-dated \(reset) of \(items.count) file(s)"
-                    if changed > 0 { outcome += ", \(changed) left alone — changed since" }
-                    if unwritable > 0 { outcome += ", \(unwritable) could not be re-dated" }
-                    Logger.shared.info("\(restoringPrevious ? "Undo" : "Redo") (\(actionName)): \(outcome)")
+                    return (reset, changed, unwritable)
                 }
+                let verb = restoringPrevious ? "Undo" : "Redo"
+                var outcome = "re-dated \(reset) of \(items.count) file(s)"
+                if changed > 0 { outcome += ", \(changed) left alone — changed since" }
+                if unwritable > 0 { outcome += ", \(unwritable) could not be re-dated" }
+                // **A file left alone is said, not only logged** (review E1). The step reported
+                // nothing on screen, so an Undo that put back no date at all read exactly like one
+                // that put back every date.
+                let leftAlone = changed + unwritable
+                guard leftAlone > 0 else {
+                    Logger.shared.info("\(verb) (\(actionName)): \(outcome)")
+                    return
+                }
+                Logger.shared.warning("\(verb) (\(actionName)): \(outcome)")
+                let files = leftAlone == 1 ? "1 file’s date" : "\(leftAlone) files’ dates"
+                let reason: String
+                switch (changed, unwritable) {
+                case (_, 0): reason = leftAlone == 1 ? "it changed since" : "they changed since"
+                case (0, _): reason = leftAlone == 1 ? "it couldn’t be re-dated" : "they couldn’t be re-dated"
+                default: reason = "\(changed) changed since, \(unwritable) couldn’t be re-dated"
+                }
+                target.banner = .warning("\(verb) left \(files) alone — \(reason)")
             }
         }
         undoManager?.setActionName(actionName)
