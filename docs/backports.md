@@ -12037,3 +12037,28 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s withheld=%s unsure=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No withheld Undo (`withheld=0`) | CLOSED — does not apply |
+
+---
+
+## A merge plans a file landing on a same-named folder as a collision (review C10) — main only
+
+A merge's file landing where the target holds a FOLDER of that name, in any case, was planned as
+no collision; the apply found the name taken and landed it under a unique name, so the review's
+collision count was short. `main` looks the name up among the target's folders too, one level down
+as well.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s merge=%s folderColl=%s\n' $l \
+  "$(git show origin/$l:$S/RestructurePlanner.swift 2>/dev/null | grep -cF 'private static func emitMerge')" \
+  "$(git show origin/$l:$S/RestructurePlanner.swift 2>/dev/null | grep -cF 'in: landed.subfolderOrigins.keys) != nil')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads folderColl=1):
+# main, v5.x         merge=1 folderColl=0
+# v4.x, v3.x, v2.x   merge=0 folderColl=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The file-only collision test (`landed.files.contains`), exact case | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Restructure | CLOSED — does not apply |
+

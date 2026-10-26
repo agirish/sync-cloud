@@ -89,6 +89,31 @@ import Testing
         #expect(execution.skipped.contains { $0.contains("the plan never listed") })
     }
 
+    /// A file landing where the target has a FOLDER of that name — any case — collides as surely
+    /// as a file would (review C10): the apply lands it under a unique name, and the plan used to
+    /// promise no collision. One level down too.
+    @Test func aFolderOfTheSameNameIsACollision() throws {
+        let root = try Self.makeTree(["Health/TODO/Dental/Claims",
+                                      "Health/TODO/Dental/Sub/Notes",
+                                      "Health/Dental/claims/old.pdf",
+                                      "Health/Dental/Sub/notes/a.pdf"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manifest = try #require(try RestructurePlanner.pairMergeManifest(
+            source: "Health/TODO/Dental", destination: "Health/Dental",
+            kind: .mirroredInbox, in: Self.view(of: root),
+            profileId: "p", manifestId: "m", createdAt: "t").get())
+        func move(_ src: String) -> RestructureManifest.Action? {
+            manifest.actions.first { $0.action == .moveFile && $0.src == src }
+        }
+        #expect(try #require(move("Health/TODO/Dental/Claims")).collisionExpected == true,
+                "a file landing on a folder of its name was planned as no collision")
+        #expect(try #require(move("Health/TODO/Dental/Sub/Notes")).collisionExpected == true,
+                "one level down, the same")
+
+        let execution = Self.run(manifest, in: root)
+        #expect(execution.collisions == 2, "the premise: the apply does collide")
+    }
+
     // MARK: - The landing journal (FR16)
 
     /// Every action the executor performs is on disk, in order and with its collision name, the
