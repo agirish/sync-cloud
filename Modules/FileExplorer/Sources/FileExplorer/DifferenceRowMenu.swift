@@ -73,16 +73,48 @@ public enum DifferenceRowMenu {
     /// (two files, a folder against a file, a name conflict), only the existing side for a row
     /// missing on one side.
     ///
-    /// **A row copying FROM a link offers neither** (`.sourceIsSymbolicLink`): a copy would be a
-    /// link too, whichever way the user wanted it, so `syncFile` refuses it and its note says why.
-    /// The engine checks the link only for the side its suggestion copies from, so the item
-    /// re-checks the side the user picked when it fires (`row(_:copiedTo:isSymbolicLink:)`).
+    /// **A row held as `.sourceIsSymbolicLink` offers neither.** The side its suggestion copies
+    /// FROM is a link, and a copy from it would write the link, so `syncFile` refuses that way and
+    /// its note says why. The other way copies from the side that is not a link — that copy would
+    /// be a real one, over the link — and is left out too, by choice: replacing a link with a file
+    /// is not a decision this menu makes. The engine checks the link only for the side its
+    /// suggestion copies from, so the item re-checks the side the user picked when it fires
+    /// (`row(_:copiedTo:isSymbolicLink:)`).
     public static func copyDirections(for difference: FileDifference) -> [FileDifference.SyncAction] {
         guard difference.heldBack != .sourceIsSymbolicLink else { return [] }
         var directions: [FileDifference.SyncAction] = []
         if difference.type != .missingOnLeft { directions.append(.copyToRight) }
         if difference.type != .missingOnRight { directions.append(.copyToLeft) }
         return directions
+    }
+
+    /// Why a Copy to … item that fired has nothing to do — the banner's words — or nil when it can
+    /// go ahead. The item is resolved when it FIRES, against the live row: a rescan since the menu
+    /// opened can have settled the pair (the row is gone) or found a link on the side it would copy
+    /// from (the direction is no longer offered). Both returned silently, so a click did nothing
+    /// and said nothing (review E10).
+    public static func copyRefusal(for live: FileDifference?, direction: FileDifference.SyncAction) -> String? {
+        guard let live else { return "Nothing was copied — that row is no longer in the list" }
+        guard copyDirections(for: live).contains(direction) else {
+            return "Nothing was copied — “\(live.fileName)” can no longer be copied that way"
+        }
+        return nil
+    }
+
+    /// The note a Copy to … item hands `syncFile` for its prompts when the user picked the way
+    /// AGAINST the engine's suggestion, or nil (review E4).
+    ///
+    /// An unheld row of two files that differ by date always suggests copying the newer over the
+    /// older — a tie, a missing date or a folder on one side is held (`FileDifference.heldBack`)
+    /// — so the other way overwrites the newer file. The confirmation and the collision prompt
+    /// read as they do for any replace, which is the one thing this copy is not. Same sentence the
+    /// Review card shows for a newer destination (`ReviewCardModel.newerDestinationSentence`).
+    static func newerDestinationNote(for live: FileDifference, copiedTo direction: FileDifference.SyncAction,
+                                     paneNames: PaneProviderNames) -> String? {
+        guard direction != live.action, live.heldBack == nil, live.type == .differentDates,
+              !live.leftIsDirectory, !live.rightIsDirectory else { return nil }
+        return ReviewCardModel.newerDestinationSentence(
+            destinationName: direction == .copyToRight ? paneNames.right : paneNames.left, isMove: false)
     }
 
     /// The row a Copy to … item hands `syncFile`: `live` redirected the chosen way

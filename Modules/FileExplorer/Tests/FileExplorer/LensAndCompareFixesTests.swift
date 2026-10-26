@@ -164,7 +164,7 @@ import SwiftUI
 
     @Test func buttonsThatActAtOnceCarryNoEllipsis() throws {
         let cases: [(file: String, now: String, was: String)] = [
-            ("DifferencesView.swift", "Remaining \\(pendingCount)\",", "Remaining \\(pendingCount)…"),
+            ("DifferencesView.swift", "Remaining \\(copyable)\",", "Remaining \\(copyable)…"),
             ("RestructurePlanSheet.swift", "\"Export plan\" : \"Export \\(group.count) plans\"",
              "Export plan…"),
             ("RestructurePairMergeSheet.swift", "Button(\"Save for later\")", "Save for later…"),

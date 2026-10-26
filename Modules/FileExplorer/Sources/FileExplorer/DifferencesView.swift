@@ -1370,8 +1370,11 @@ public struct DifferencesView: View {
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
         }
-        let pendingCount = session.pending.count
-        if pendingCount > 1 {
+        if session.pending.count > 1 {
+            // **Counts the rows it will copy, not the held ones it leaves** (review E9): the count
+            // is the confirmation, and with only held rows left it named them all and then said
+            // "Nothing was copied". At zero it stays, disabled, and its help says why.
+            let copyable = CopyRemainingRoute.copyableCount(session.pending)
             Button {
                 copyRemaining(session)
             } label: {
@@ -1380,7 +1383,7 @@ public struct DifferencesView: View {
                 // non-directional copy/move glyph rather than a single-direction arrow.
                 // No ellipsis: it acts at once, and the count it names IS the confirmation —
                 // see `copyRemaining` (LN13).
-                Label("\(session.isMove ? "Move" : "Copy") Remaining \(pendingCount)",
+                Label("\(session.isMove ? "Move" : "Copy") Remaining \(copyable)",
                       systemImage: session.isMove ? TransferGlyph.move : TransferGlyph.copy)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -1390,9 +1393,11 @@ public struct DifferencesView: View {
             .compareBarGlass()
             // Gated while the current item's copy runs: that item is still undecided (in
             // `pending`), so handing the remainder to syncAll now would target it twice.
-            .disabled(reviewStore.isActing || isSyncActionBlocked)
+            .disabled(reviewStore.isActing || isSyncActionBlocked || copyable == 0)
             .lockedDuringRun()
-            .help("\(session.isMove ? "Move" : "Copy") every remaining item without further review")
+            .help(copyable == 0
+                  ? "Every remaining item needs your decision — right-click its row to choose which to keep"
+                  : "\(session.isMove ? "Move" : "Copy") every remaining item without further review")
         }
         Button {
             exitReview()
@@ -1450,11 +1455,17 @@ public struct DifferencesView: View {
         // The selection highlight follows the app hue (the status cell is handed it).
         .tint(glassHue.accentColor)
         .contextMenu(forSelectionType: FileDifference.ID.self) { ids in
-            // Inspection only mid-review: no ignore toggle (it edits the live list, not the
-            // frozen queue) and no bulk copy/move (that's what the review itself is for).
+            // Mid-review: no ignore toggle (it edits the live list, not the frozen queue) and no
+            // bulk copy/move (that's what the review itself is for). An undecided row keeps its
+            // Copy to … items, which are where a held row's "choose which to keep" is made.
             if ids.count == 1, let id = ids.first,
                let difference = session.queue.first(where: { $0.id == id }) {
                 inspectionMenuItems(for: difference)
+                let copyDirections = session.outcome(for: id) == nil
+                    ? DifferenceRowMenu.copyDirections(for: difference) : []
+                if !copyDirections.isEmpty { Divider() }
+                if copyDirections.contains(.copyToRight) { rowCopyButton(id: id, direction: .copyToRight, inReview: true) }
+                if copyDirections.contains(.copyToLeft) { rowCopyButton(id: id, direction: .copyToLeft, inReview: true) }
             }
         }
     }
@@ -2173,10 +2184,15 @@ public struct DifferencesView: View {
 
     /// One of a row's Copy to … items: copies the row the way the user chose, against the
     /// engine's suggestion as readily as with it.
-    private func rowCopyButton(id: FileDifference.ID, direction: FileDifference.SyncAction) -> some View {
+    private func rowCopyButton(id: FileDifference.ID, direction: FileDifference.SyncAction,
+                               inReview: Bool = false) -> some View {
         let toRight = direction == .copyToRight
         return Button {
-            copyRowFromMenu(id: id, direction: direction)
+            if inReview {
+                copyReviewRowFromMenu(id: id, direction: direction)
+            } else {
+                copyRowFromMenu(id: id, direction: direction)
+            }
         } label: {
             Label("Copy to \(toRight ? paneNames.right : paneNames.left)",
                   systemImage: TransferGlyph.copy(toRight: toRight))
@@ -2189,17 +2205,57 @@ public struct DifferencesView: View {
     /// it would copy from, leaves nothing to do. A single deliberate copy, so `syncFile` and its
     /// prompt, with the row redirected the direction picked — and refused, as every link row is,
     /// when the side it now copies from is a link (`DifferenceRowMenu.row(_:copiedTo:isSymbolicLink:)`).
+    ///
+    /// A copy the way AGAINST the suggestion overwrites the newer file, and its prompts say so
+    /// (`DifferenceRowMenu.newerDestinationNote`).
     private func copyRowFromMenu(id: FileDifference.ID, direction: FileDifference.SyncAction) {
-        guard !isSyncActionBlocked,
-              let live = DifferencesShortcutRules.rows(displayRows.sorted, matching: [id]).first,
-              DifferenceRowMenu.copyDirections(for: live).contains(direction)
-        else { return }
+        guard !isSyncActionBlocked else { return }
+        let found = DifferencesShortcutRules.rows(displayRows.sorted, matching: [id]).first
+        if let refusal = DifferenceRowMenu.copyRefusal(for: found, direction: direction) {
+            Logger.shared.info("Row copy from its menu did nothing: \(refusal)")
+            syncManager.banner = .warning(refusal)
+            return
+        }
+        guard let live = found else { return }
+        sendRowCopy(live, direction: direction)
+    }
+
+    /// The copy both tables' Copy to … items send once their row is resolved: redirected the way
+    /// picked and link-checked on the side it now copies from, through `syncFile` and its prompt.
+    @discardableResult
+    private func sendRowCopy(_ live: FileDifference, direction: FileDifference.SyncAction) -> Task<Bool, Never> {
         Logger.shared.debug("Row copied \(direction == .copyToRight ? "to right" : "to left") from its menu: \(live.relativePath)")
         let fm = syncManager.fileManager
         let row = DifferenceRowMenu.row(live, copiedTo: direction) { path in
             (try? fm.attributesOfItem(atPath: path))?[.type] as? FileAttributeType == .typeSymbolicLink
         }
-        Task { await syncManager.syncFile(row) }
+        let note = DifferenceRowMenu.newerDestinationNote(for: live, copiedTo: direction, paneNames: paneNames)
+        return Task { await syncManager.syncFile(row, newerDestinationNote: note) }
+    }
+
+    /// The Review table's Copy to … items (review E3). Review's banner sends the user to a held
+    /// row's menu to choose which to keep, and that menu had no Copy items. Same rule and prompt as
+    /// the Compare row's (`sendRowCopy`), resolved when it fires against the frozen queue Review
+    /// copies from (`reviewPrimary` does the same), and only for a row still undecided. A copy that
+    /// lands marks the row copied; a declined or failed one leaves it undecided, for the card.
+    private func copyReviewRowFromMenu(id: FileDifference.ID, direction: FileDifference.SyncAction) {
+        guard !isSyncActionBlocked, let session = reviewStore.session, !reviewStore.isActing else { return }
+        let found = session.pending.first { $0.id == id }
+        if let refusal = DifferenceRowMenu.copyRefusal(for: found, direction: direction) {
+            Logger.shared.info("Review row copy from its menu did nothing: \(refusal)")
+            syncManager.banner = .warning(refusal)
+            return
+        }
+        guard let item = found else { return }
+        reviewStore.isActing = true; let token = session.sessionToken
+        let copy = sendRowCopy(item, direction: direction)
+        Task { @MainActor in
+            defer { reviewStore.isActing = false }
+            guard await copy.value else { return }
+            if reviewStore.apply(.copied, for: id, token: token), reviewStore.session?.isComplete == true {
+                finishReview()
+            }
+        }
     }
 
     /// Read-only row actions — Compare…, Open in Edit, and per-side Get Info/Reveal/Quick Look/

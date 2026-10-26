@@ -25,6 +25,8 @@ struct SyncOperationAlerts {
         if collision.mergeOnly { return mergeOnlyCollisionInformativeText(collision) }
         if collision.offersMerge { return mergeCollisionInformativeText(collision, policy: policy) }
         var text = "Do you want to replace it with the one you’re \(collision.isMove ? "moving" : "copying")?"
+        // A copy against the suggestion overwrites the newer file; said first, before the paths.
+        if let note = collision.newerDestinationNote { text += " " + note }
         if collision.isDirectory {
             text += " Replacing a folder replaces its entire contents. "
                 + "Items that exist only in the destination folder will be moved to the Trash."
@@ -270,7 +272,9 @@ struct SyncOperationAlerts {
     /// destructive half: copy and move dialogs otherwise differ by a single verb, and a
     /// drag-move is one modifier-key slip away from a copy.
     nonisolated static func transferConfirmationInformativeText(_ summary: TransferSummary) -> String {
-        let body = "From: \(displayPath(summary.sourceDirectory))\nTo: \(displayPath(summary.destinationDirectory))"
+        var body = "From: \(displayPath(summary.sourceDirectory))\nTo: \(displayPath(summary.destinationDirectory))"
+        // A copy against the suggestion overwrites the newer file (review E4).
+        if let note = summary.newerDestinationNote { body += "\n\n" + note }
         guard summary.isMove else { return body }
         return body + "\n\nThe \(summary.itemCount == 1 ? "item" : "items") will be removed from the original location."
     }

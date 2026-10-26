@@ -128,7 +128,7 @@ import Sync
             facts: facts(source: base, destination: base.addingTimeInterval(3600)),
             paneNames: paneNames, isMove: false)
         #expect(model.sourceIsOlder)
-        #expect(model.warningText == "The iCloud copy is newer than the one you’re about to copy over it.")
+        #expect(model.warningText == "The file on iCloud is newer than the one you’re about to copy over it.")
     }
 
     @Test func nearTiedDatesRaiseNoWarning() {
@@ -212,6 +212,30 @@ import Sync
         #expect(body.contains("if case .single(let single) = CopyRemainingRoute.route(remaining) {"),
                 "Copy Remaining no longer asks the route")
         #expect(!body.contains("if remaining.count == 1"), "Copy Remaining picks its single path by count again")
+    }
+
+    /// **"Copy Remaining N" counts the rows it will copy** (review E9). It counted the held rows it
+    /// leaves out too, so with only held rows left it named them all and then said "Nothing was
+    /// copied". The held row comes first (testing law 9), and the button's wiring is read too: the
+    /// label and the disabled state both take this count.
+    @Test func copyRemainingCountsOnlyTheRowsItWillCopy() throws {
+        let plain = diff()
+        let held = FileDifference(relativePath: "a.txt", leftItemPath: "/l/a.txt", rightItemPath: "/r/a.txt",
+                                  type: .differentDates, action: .copyToRight, description: "x",
+                                  leftFileSize: 1, rightFileSize: 2, heldBack: .sizesDifferWithoutANewerSide)
+        #expect(CopyRemainingRoute.copyableCount([held, plain]) == 1)
+        #expect(CopyRemainingRoute.copyableCount([held, held]) == 0)
+
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/DifferencesView.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read DifferencesView.swift — the check below would be vacuous")
+        let button = try #require(source.range(of: "let copyable = CopyRemainingRoute.copyableCount(session.pending)")
+            .map { String(source[$0.lowerBound...].prefix(2_200)) }, "the button no longer counts what it copies")
+        #expect(button.contains("Remaining \\(copyable)\""), "the label counts the held rows again")
+        #expect(button.contains("|| copyable == 0)"), "the button is live with nothing to copy")
+        #expect(button.contains("? \"Every remaining item needs your decision — right-click its row to choose which to keep\""))
     }
 
     /// **Copy Remaining with held rows keeps Review on them** (owner decision 2026-10-25). The view

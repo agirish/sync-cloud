@@ -51,6 +51,11 @@ public struct FileCollision: Sendable {
     /// Merge is the only answer on offer, because Replace or Keep Both would put it over, or beside,
     /// everything that pane shows. Any other answer is refused, never carried out.
     public let mergeOnly: Bool
+    /// A sentence saying the file about to be replaced is the NEWER one, or nil. Set only by a
+    /// copy the user sent against the engine's suggestion (a row's Copy to … item, review E4):
+    /// the suggestion always copies newer over older, so the other way overwrites the newer file,
+    /// and the prompt otherwise read exactly as it does for an ordinary replace.
+    public let newerDestinationNote: String?
 
     /// Name of the colliding item. Computed, not stored, so no future initializer or
     /// decoding path can ever set it inconsistently with `destinationPath` — the alert
@@ -60,7 +65,8 @@ public struct FileCollision: Sendable {
     }
 
     public init(sourcePath: String, destinationPath: String, isMove: Bool, isDirectory: Bool,
-                offersMerge: Bool = false, mergePreview: FolderMergePreview? = nil, mergeOnly: Bool = false) {
+                offersMerge: Bool = false, mergePreview: FolderMergePreview? = nil, mergeOnly: Bool = false,
+                newerDestinationNote: String? = nil) {
         self.sourcePath = sourcePath
         self.destinationPath = destinationPath
         self.isMove = isMove
@@ -68,6 +74,7 @@ public struct FileCollision: Sendable {
         self.offersMerge = offersMerge
         self.mergePreview = offersMerge ? mergePreview : nil
         self.mergeOnly = mergeOnly
+        self.newerDestinationNote = newerDestinationNote
     }
 }
 
@@ -128,12 +135,16 @@ public struct TransferSummary: Sendable {
     /// Deliberately NOT the destination root: a cross-pane transfer re-roots each item's relative
     /// path, so the root is shallower than the folder anything nested actually lands in.
     public let destinationDirectory: String
+    /// `FileCollision.newerDestinationNote`, for the confirmation asked before it (review E4).
+    public let newerDestinationNote: String?
 
-    public init(isMove: Bool, itemCount: Int, firstItemName: String, sourceDirectory: String, destinationDirectory: String) {
+    public init(isMove: Bool, itemCount: Int, firstItemName: String, sourceDirectory: String, destinationDirectory: String,
+                newerDestinationNote: String? = nil) {
         self.isMove = isMove
         self.itemCount = itemCount
         self.firstItemName = firstItemName
         self.sourceDirectory = sourceDirectory
         self.destinationDirectory = destinationDirectory
+        self.newerDestinationNote = newerDestinationNote
     }
 }

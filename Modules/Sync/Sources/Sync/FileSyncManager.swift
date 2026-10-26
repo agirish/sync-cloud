@@ -3529,7 +3529,10 @@ public class FileSyncManager: ObservableObject {
     ///   "did it happen" signal — inferring from the differences list breaks the moment the
     ///   post-operation rescan regenerates row UUIDs (guided review records outcomes from it).
     @discardableResult
-    public func syncFile(_ difference: FileDifference, isMove: Bool = false, fileManager: FileManaging? = nil, confirmed: Bool = false) async -> Bool {
+    /// - Parameter newerDestinationNote: said in the confirmation and the collision prompt — a
+    ///   copy sent against the engine's suggestion overwrites the NEWER file (review E4).
+    public func syncFile(_ difference: FileDifference, isMove: Bool = false, fileManager: FileManaging? = nil, confirmed: Bool = false,
+                         newerDestinationNote: String? = nil) async -> Bool {
         let activeFM = fileManager ?? self.fileManager
         let urls = difference.transferURLs
         let fromURL = urls.from
@@ -3596,7 +3599,8 @@ public class FileSyncManager: ObservableObject {
                 itemCount: 1,
                 firstItemName: fromURL.lastPathComponent,
                 sourceDirectory: fromURL.deletingLastPathComponent().path,
-                destinationDirectory: toURL.deletingLastPathComponent().path
+                destinationDirectory: toURL.deletingLastPathComponent().path,
+                newerDestinationNote: newerDestinationNote
             ))
             guard userConfirmed else {
                 Logger.shared.debug("Sync of \(difference.relativePath) cancelled at the confirmation prompt")
@@ -3630,7 +3634,8 @@ public class FileSyncManager: ObservableObject {
                 sourcePath: fromURL.path,
                 destinationPath: collidingURL.path,
                 isMove: isMove,
-                isDirectory: isDirectory
+                isDirectory: isDirectory,
+                newerDestinationNote: newerDestinationNote
             ))
             switch resolution {
             case .skip, .merge:
@@ -3701,7 +3706,8 @@ public class FileSyncManager: ObservableObject {
                 // confirmed: the Retry click IS the confirmation — re-running the
                 // transferConfirmer here would re-ask about an already-affirmed transfer,
                 // and an Escape reflex would silently swallow the retry.
-                retry: { [weak self] in Task { await self?.syncFile(difference, isMove: isMove, confirmed: true) } }
+                retry: { [weak self] in Task { await self?.syncFile(difference, isMove: isMove, confirmed: true,
+                                                                    newerDestinationNote: newerDestinationNote) } }
             )
             return false
         } else {

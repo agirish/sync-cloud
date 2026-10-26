@@ -12206,3 +12206,30 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s aborted=%s exits1=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | A declined prompt exiting 0 (`exits1=0`) — a changed exit code is a breaking change for a script, which no maintenance line takes | RECORDED — not owed |
+
+---
+
+## Review's rows get Copy to …, and a copy over the newer file says so (review E3, E4, E9, E10) — main only
+
+Review stays on held rows and says "right-click its row to choose which to keep", but the Review
+table's menu had no Copy items; `main` gives an undecided row the same Copy to … items as a Compare
+row. "Copy Remaining N" counted the held rows it leaves out, and with only those left re-posted
+"Nothing was copied"; it now counts only what it copies and is disabled, with a reason, at zero. A
+Copy to … sent against the suggestion overwrites the newer file, and its confirmation and collision
+prompt now say "The file on … is newer than the one you’re about to copy over it." An item that
+fires on a row gone from the list, or no longer offering that way, says so instead of doing nothing.
+
+```sh
+V=Modules/FileExplorer/Sources/FileExplorer/DifferencesView.swift
+M=Modules/FileExplorer/Sources/FileExplorer/DifferenceRowMenu.swift
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s rowCopy=%s reviewCopy=%s\n' $l \
+  "$(git show origin/$l:$M 2>/dev/null | grep -c 'static func copyDirections')" \
+  "$(git show origin/$l:$V 2>/dev/null | grep -c 'func copyReviewRowFromMenu')"; done
+# measured 2026-10-25, against origin, before this landed (the change reads reviewCopy=1):
+# main                         rowCopy=1 reviewCopy=0
+# v5.x, v4.x, v3.x, v2.x       rowCopy=0 reviewCopy=0   (no held rows, no per-row Copy to …)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No held rows and no per-row Copy to … (`rowCopy=0`) | CLOSED — does not apply |

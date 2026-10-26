@@ -108,4 +108,50 @@ import Events
         }
     }
 
+    /// **A row's Copy to … sent against its suggestion is recorded the way it went, and its undo
+    /// gives back the newer file it overwrote** (review E13). The row suggests left → right; the
+    /// user copies it right → left (`redirected(to:)`, what the menu item sends), over the NEWER
+    /// left file. Real disk, so the overwritten file goes to a real (scratch) Trash and comes back.
+    @Test func testARedirectedRowCopyRecordsLeftAndItsUndoRestoresTheNewerFile() async throws {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent("RedirectedCopy-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: base) }
+        let left = base.appendingPathComponent("left"), right = base.appendingPathComponent("right")
+        for dir in [left, right] { try fm.createDirectory(at: dir, withIntermediateDirectories: true) }
+        let leftFile = left.appendingPathComponent("notes.txt"), rightFile = right.appendingPathComponent("notes.txt")
+        try Data("newer, on the left".utf8).write(to: leftFile)
+        try Data("older".utf8).write(to: rightFile)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_600_000_000)], ofItemAtPath: rightFile.path)
+
+        let store = makeTempHistoryStore(prefix: "RedirectedCopyHistory")
+        defer { removeHistoryStoreFiles(store) }
+        let manager = FileSyncManager(fileManager: ScratchTrash(in: base))
+        manager.syncHistoryStore = store
+        manager.undoManager = UndoManager()
+        manager.transferConfirmer = { _ in true }
+        manager.collisionResolver = { _ in .replace }
+        let row = FileDifference(relativePath: "notes.txt", leftItemPath: leftFile.path, rightItemPath: rightFile.path,
+                                 type: .differentDates, action: .copyToRight, description: "Left is newer",
+                                 leftFileSize: 18, rightFileSize: 5)
+
+        let copied = await manager.syncFile(row.redirected(to: .copyToLeft))
+        try #require(copied, "the premise: the redirected copy ran")
+        try #require(try String(contentsOf: leftFile, encoding: .utf8) == "older", "the premise: the older file went left")
+
+        let record = try #require(store.records.first, "the copy left nothing in Sync History")
+        #expect(store.records.count == 1)
+        #expect(record.action == .copy)
+        #expect(record.direction == "← Left")
+        #expect(record.sourcePath == rightFile.path)
+        #expect(record.destPath == leftFile.path)
+        #expect(record.backupPath != nil, "the overwritten newer file has no backup to come back from")
+
+        try #require(manager.undoManager?.canUndo == true)
+        manager.undoManager?.undo()
+        await waitUntil("the undo gives the newer file back") {
+            (try? String(contentsOf: leftFile, encoding: .utf8)) == "newer, on the left"
+        }
+        #expect(try String(contentsOf: rightFile, encoding: .utf8) == "older")
+    }
+
 }

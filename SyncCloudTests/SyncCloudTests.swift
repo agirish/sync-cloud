@@ -253,6 +253,25 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         #expect(body == "From: /Left/Documents\nTo: /Right/Documents")
     }
 
+    /// **A copy against the suggestion says it overwrites the newer file** (review E4), in both of
+    /// its prompts: the confirmation after its From/To lines, the collision alert after its
+    /// question. Without a note both read exactly as they did.
+    @Test func testACopyOverANewerFileSaysSoInBothPrompts() {
+        let note = "The file on iCloud is newer than the one you’re about to copy over it."
+        let summary = TransferSummary(isMove: false, itemCount: 1, firstItemName: "a.txt", sourceDirectory: "/Right/Docs",
+                                      destinationDirectory: "/Left/Docs", newerDestinationNote: note)
+        #expect(SyncOperationAlerts.transferConfirmationInformativeText(summary)
+                == "From: /Right/Docs\nTo: /Left/Docs\n\n" + note)
+        let collision = FileCollision(sourcePath: "/Right/Docs/a.txt", destinationPath: "/Left/Docs/a.txt",
+                                      isMove: false, isDirectory: false, newerDestinationNote: note)
+        #expect(SyncOperationAlerts.collisionInformativeText(collision)
+                == "Do you want to replace it with the one you’re copying? " + note
+                + "\n\nCopying: /Right/Docs/a.txt\nReplacing: /Left/Docs/a.txt")
+        let plain = FileCollision(sourcePath: "/Right/Docs/a.txt", destinationPath: "/Left/Docs/a.txt",
+                                  isMove: false, isDirectory: false)
+        #expect(!SyncOperationAlerts.collisionInformativeText(plain).contains("newer"))
+    }
+
     @Test func testMoveConfirmationStatesTheRemoval() {
         // Copy and move dialogs otherwise differ by one verb; a move must state its
         // destructive half (the sentence the retired NativeAlerts.confirmMove carried).

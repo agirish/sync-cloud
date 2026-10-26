@@ -233,9 +233,16 @@ struct ReviewCardModel: Equatable {
         }
         if let source = facts.sourceModified, let destination = facts.destinationModified,
            destination.timeIntervalSince(source) > dateTolerance {
-            return "The \(destinationName) copy is newer than the one you’re about to \(isMove ? "move" : "copy") over it."
+            return newerDestinationSentence(destinationName: destinationName, isMove: isMove)
         }
         return nil
+    }
+
+    /// The destination-newer sentence, shared with a row's Copy to … item, which sends a copy
+    /// against the engine's suggestion and so over the newer file
+    /// (`DifferenceRowMenu.newerDestinationNote`).
+    static func newerDestinationSentence(destinationName: String, isMove: Bool) -> String {
+        "The file on \(destinationName) is newer than the one you’re about to \(isMove ? "move" : "copy") over it."
     }
 
     /// "Jul 8, 2026 at 6:12 PM" — one cached formatter (same churn rule as `FileSizeFormat`).

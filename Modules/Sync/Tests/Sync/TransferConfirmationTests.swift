@@ -411,6 +411,27 @@ import Foundation
         #expect(mockFM.trashedPaths.isEmpty) // nothing replaced
     }
 
+    /// **The newer-file note reaches both prompts** (review E4): a row's Copy to … sent against
+    /// the suggestion hands `syncFile` the sentence, and the confirmation and the collision prompt
+    /// each receive it — and a plain call hands them none.
+    @MainActor
+    @Test func testSyncFileHandsTheNewerFileNoteToBothPrompts() async throws {
+        let (manager, mockFM, diff) = try makeDifferenceFixture()
+        mockFM.virtualDisk["/dst/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        var confirmNotes: [String?] = []
+        var collisionNotes: [String?] = []
+        manager.transferConfirmer = { confirmNotes.append($0.newerDestinationNote); return true }
+        manager.collisionResolver = { collisionNotes.append($0.newerDestinationNote); return .skip }
+        let note = "The file on Right is newer than the one you’re about to copy over it."
+
+        _ = await manager.syncFile(diff, isMove: false, fileManager: mockFM, newerDestinationNote: note)
+        _ = await manager.syncFile(diff, isMove: false, fileManager: mockFM)
+
+        #expect(confirmNotes == [note, nil])
+        #expect(collisionNotes == [note, nil])
+        #expect(mockFM.trashedPaths.isEmpty)
+    }
+
     /// The "Copy Remaining" engine contract: two sequential confirmed syncAll runs over a
     /// mixed-direction subset transfer BOTH directions with zero prompts — the first run's
     /// bulk-sync latch must be released by the time the awaited second run starts, or the

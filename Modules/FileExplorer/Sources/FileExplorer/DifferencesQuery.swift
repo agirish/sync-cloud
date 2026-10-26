@@ -225,6 +225,11 @@ enum CopyRemainingRoute: Equatable {
         if remaining.count == 1, let only = remaining.first, only.heldBack == nil { return .single(only) }
         return .bulk
     }
+
+    /// The N the button names: the pending rows it will copy, the held ones left out (review E9).
+    static func copyableCount(_ remaining: [FileDifference]) -> Int {
+        remaining.filter { $0.heldBack == nil }.count
+    }
 }
 
 /// Display strings and sort keys for the Differences table's four columns. Exposed as

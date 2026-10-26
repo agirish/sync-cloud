@@ -280,15 +280,96 @@ import Sync
         #expect(menu.contains("rowCopyButton(id: id, direction: .copyToRight)")
                 && menu.contains("rowCopyButton(id: id, direction: .copyToLeft)"))
         let fire = try #require(source.range(of: "private func copyRowFromMenu(")
-            .map { String(source[$0.lowerBound...].prefix(1_200)) }, "copyRowFromMenu is gone")
-        #expect(fire.contains("DifferenceRowMenu.copyDirections(for: live).contains(direction)"),
+            .map { String(source[$0.lowerBound...].prefix(800)) }, "copyRowFromMenu is gone")
+        #expect(fire.contains("DifferenceRowMenu.copyRefusal(for: found, direction: direction)"),
                 "the item no longer re-checks the live row when it fires")
-        #expect(fire.contains("DifferenceRowMenu.row(live, copiedTo: direction)"),
+        // E10: a refusal is logged and said, not a silent return.
+        #expect(fire.contains("Logger.shared.info(\"Row copy from its menu did nothing: \\(refusal)\")")
+                && fire.contains("syncManager.banner = .warning(refusal)"),
+                "a Copy to … item that finds nothing to do returns silently again")
+        #expect(fire.contains("sendRowCopy(live, direction: direction)"), "the item no longer sends the checked row")
+        let send = try #require(source.range(of: "private func sendRowCopy(")
+            .map { String(source[$0.lowerBound...].prefix(900)) }, "sendRowCopy is gone")
+        #expect(send.contains("DifferenceRowMenu.row(live, copiedTo: direction)"),
                 "the item no longer redirects the live row through the link check")
-        #expect(fire.contains("(try? fm.attributesOfItem(atPath: path))?[.type] as? FileAttributeType == .typeSymbolicLink"),
+        #expect(send.contains("(try? fm.attributesOfItem(atPath: path))?[.type] as? FileAttributeType == .typeSymbolicLink"),
                 "the item no longer reads the source side for a link")
-        #expect(fire.contains("Task { await syncManager.syncFile(row) }"),
-                "the item no longer copies the checked row")
+        // E4: the prompts hear when this copy overwrites the newer file.
+        #expect(send.contains("DifferenceRowMenu.newerDestinationNote(for: live, copiedTo: direction, paneNames: paneNames)")
+                && send.contains("Task { await syncManager.syncFile(row, newerDestinationNote: note) }"),
+                "the item no longer copies the checked row, with its newer-file note")
+    }
+
+    /// **The Review table's menu has the Copy to … items its banner sends the user to** (review
+    /// E3). Review stays on held rows and says "right-click its row to choose which to keep"; the
+    /// Review table's menu had only the inspection items. Read at source level, as above: an
+    /// undecided row offers the rule's directions, and the item resolves the row when it fires,
+    /// sends it the way the Compare row's does, and marks it copied only when the copy lands.
+    @Test func theReviewTableMenuOffersAndSendsTheRowDirections() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/DifferencesView.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read DifferencesView.swift — every check below would be vacuous")
+        let table = try #require(source.range(of: "private func reviewTable(")
+            .map { String(source[$0.lowerBound...].prefix(2_800)) }, "reviewTable is gone — this scan measures nothing")
+        let menu = try #require(table.range(of: ".contextMenu(forSelectionType: FileDifference.ID.self)")
+            .map { String(table[$0.lowerBound...]) }, "the Review table has no row menu")
+        #expect(menu.contains("session.outcome(for: id) == nil"), "a decided row offers Copy again")
+        #expect(menu.contains("DifferenceRowMenu.copyDirections(for: difference)"))
+        #expect(menu.contains("rowCopyButton(id: id, direction: .copyToRight, inReview: true)")
+                && menu.contains("rowCopyButton(id: id, direction: .copyToLeft, inReview: true)"),
+                "the Review table's menu has no Copy to … items")
+        let button = try #require(source.range(of: "private func rowCopyButton(")
+            .map { String(source[$0.lowerBound...].prefix(500)) })
+        #expect(button.contains("copyReviewRowFromMenu(id: id, direction: direction)"))
+        let fire = try #require(source.range(of: "private func copyReviewRowFromMenu(")
+            .map { String(source[$0.lowerBound...].prefix(1_100)) }, "copyReviewRowFromMenu is gone")
+        #expect(fire.contains("let found = session.pending.first { $0.id == id }"))
+        #expect(fire.contains("DifferenceRowMenu.copyRefusal(for: found, direction: direction)")
+                && fire.contains("syncManager.banner = .warning(refusal)"))
+        #expect(fire.contains("let copy = sendRowCopy(item, direction: direction)"),
+                "the Review item no longer copies the way the Compare row's does")
+        #expect(fire.contains("guard await copy.value else { return }")
+                && fire.contains("reviewStore.apply(.copied, for: id, token: token)"),
+                "a menu copy no longer marks the row copied only when it lands")
+    }
+
+    /// **Why a fired Copy to … item did nothing** (review E10): the row gone from the list, or no
+    /// longer offering that way (a rescan found a link on the side it copies from). Both returned
+    /// silently; each now has a sentence, and a row that can go has none.
+    @Test func aCopyItemThatFindsNothingToDoSaysWhy() {
+        #expect(DifferenceRowMenu.copyRefusal(for: nil, direction: .copyToRight)
+                == "Nothing was copied — that row is no longer in the list")
+        #expect(DifferenceRowMenu.copyRefusal(for: held(.differentDates, .sourceIsSymbolicLink), direction: .copyToRight)
+                == "Nothing was copied — “report.txt” can no longer be copied that way")
+        #expect(DifferenceRowMenu.copyRefusal(for: held(.missingOnRight, nil), direction: .copyToLeft)
+                == "Nothing was copied — “report.txt” can no longer be copied that way",
+                "a row missing on the left was copied from the left")
+        #expect(DifferenceRowMenu.copyRefusal(for: held(.differentDates, nil), direction: .copyToLeft) == nil)
+        #expect(DifferenceRowMenu.copyRefusal(for: held(.missingOnRight, nil), direction: .copyToRight) == nil)
+    }
+
+    /// **A copy against the suggestion says it overwrites the newer file** (review E4). An unheld
+    /// pair of two files suggests newer over older, so the other way replaces the newer one — and
+    /// its confirmation and collision prompt read like any replace. The note names the pane it
+    /// lands on; the suggested way, a held row and a folder side carry none.
+    @Test func aCopyAgainstTheSuggestionCarriesTheNewerFileNote() {
+        let names = PaneProviderNames(leftName: "iCloud", rightName: "Dropbox")
+        let toRight = held(.differentDates, nil, action: .copyToRight)
+        #expect(DifferenceRowMenu.newerDestinationNote(for: toRight, copiedTo: .copyToLeft, paneNames: names)
+                == "The file on iCloud is newer than the one you’re about to copy over it.")
+        let toLeft = held(.differentDates, nil, action: .copyToLeft)
+        #expect(DifferenceRowMenu.newerDestinationNote(for: toLeft, copiedTo: .copyToRight, paneNames: names)
+                == "The file on Dropbox is newer than the one you’re about to copy over it.")
+        #expect(DifferenceRowMenu.newerDestinationNote(for: toRight, copiedTo: .copyToRight, paneNames: names) == nil,
+                "the suggested way overwrites the older file")
+        #expect(DifferenceRowMenu.newerDestinationNote(
+            for: held(.differentDates, .sizesDifferWithoutANewerSide), copiedTo: .copyToLeft, paneNames: names) == nil,
+                "a held row has no newer side to name")
+        let folderSide = FileDifference(relativePath: "a", leftItemPath: "/l/a", rightItemPath: "/r/a",
+                                        type: .differentDates, action: .copyToRight, description: "d", leftIsDirectory: true)
+        #expect(DifferenceRowMenu.newerDestinationNote(for: folderSide, copiedTo: .copyToLeft, paneNames: names) == nil)
     }
 
     // MARK: Ignore toggle
