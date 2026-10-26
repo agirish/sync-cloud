@@ -151,7 +151,11 @@ struct DuplicateReviewCoordinator {
             keepContentSnapshot: keep.contentSnapshot,
             deleteContentSnapshot: delete.contentSnapshot,
             keeperRelativePath: keepRel, redundantRelativePath: deleteRel, restore: restore,
-            deleteUniqueItemCount: delete.uniqueItemCount)
+            deleteUniqueItemCount: delete.uniqueItemCount,
+            // Read off the live group the card was drawn from — the click passes copies, not the
+            // group. A pair no group holds keeps the default, the reading that compares dates.
+            matchKind: syncManager.liveGroup(holding: delete.path, and: keep.path)?.matchType.kind
+                ?? .overlapping)
 
         Logger.shared.info("Comparing duplicate copies — keep \(keepPath) · delete candidate \(deletePath)")
         selectedWorkspace = .compare
@@ -512,11 +516,19 @@ struct DuplicateReviewCoordinator {
     /// only when both are known, as the drift gate's do. Directories are not counted — what is
     /// inside one is, and an empty folder is nothing to lose. Empty when either copy carries no
     /// baseline; the drift gate refuses that case on its own.
+    ///
+    /// **Dates are not compared for an identical group.** The scan hashed both trees and found the
+    /// same content, and the drift gate proves each copy is still what its own baseline recorded,
+    /// so a date that differs between them says only how the copy was made — `cp -R` and most
+    /// downloads set new dates. Compared anyway, every such pair was refused and sent to "Merge
+    /// into keeper", which an identical group's card does not offer. An overlapping group has no
+    /// such proof, so its dates still count.
     nonisolated static func itemsOnlyInRightCopy(_ review: DuplicateCompareContext) -> [String] {
         guard let right = review.deleteContentSnapshot, let left = review.keepContentSnapshot else {
             return []
         }
-        func same(_ a: Date?, _ b: Date?) -> Bool { a == nil || b == nil || a == b }
+        let contentProven = review.matchKind == .identical
+        func same(_ a: Date?, _ b: Date?) -> Bool { contentProven || a == nil || b == nil || a == b }
         return right.entries.compactMap { path, entry -> String? in
             switch (entry, left.entries[path]) {
             case (.directory, _): return nil
@@ -538,8 +550,9 @@ struct DuplicateReviewCoordinator {
     ///
     /// Two sources, either one enough, because each sees what the other cannot. The scan's
     /// `uniqueItemCount` compares CONTENT, by hash, so it catches a file at the same path and size
-    /// whose bytes differ; the baselines compare PATH, size and date, so they catch a file the
-    /// keeper holds only under another name, or holds edited since. (The count cannot go stale under a keeper re-pick here: only
+    /// whose bytes differ; the baselines compare PATH, size and (on an overlapping group) date, so
+    /// they catch a file the keeper holds only under another name, or holds edited since. (The
+    /// count cannot go stale under a keeper re-pick here: only
     /// folder groups reach this review, a folder copy's count is non-zero only on an overlapping
     /// group, overlapping groups offer no keeper choice, and the left copy is always the group's
     /// keeper.) Refusing on either is the conservative reading — a merge of a copy that turns out to
@@ -751,6 +764,10 @@ struct DuplicateCompareContext: Equatable, Sendable {
     /// (`DuplicateCopy.uniqueItemCount`) — "12 unique here" on an overlapping group's card. Read by
     /// `uniqueItemsRefusal` (FR13). Defaulted: 0 is what every non-overlapping copy carries.
     var deleteUniqueItemCount: Int = 0
+    /// The group's match kind. An identical group's content is hash-proven, so
+    /// `itemsOnlyInRightCopy` ignores dates for it. Defaulted to `.overlapping`, the reading that
+    /// compares them: a review that lost its kind refuses more, never less.
+    var matchKind: DuplicateMatchType.Kind = .overlapping
 }
 
 /// A Compare pane setup — both providers and both focused folders. Captured before a duplicate

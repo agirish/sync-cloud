@@ -12085,3 +12085,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s whyGone=%s icloud=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No per-folder history map (`whyGone=0`) | CLOSED — does not apply |
+
+---
+
+## Trash right copy no longer refuses an identical folder copy for its dates — main only
+
+FR13 made the Compare review's "Trash right copy" refuse a right folder holding a file dated
+differently from the left one's, and pointed at "Merge into keeper". For an identical group that
+refused every copy made by `cp -R` or a download, which set new dates, and an identical group's card
+offers no merge. `main` skips the date comparison when the group is identical — the scan's hashes
+proved the content, and the drift gate still proves each copy unchanged — and keeps it for
+overlapping groups.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr13=%s kind=%s\n' $l \
+  "$(git show origin/$l:MacApp/DuplicateReviewCoordinator.swift 2>/dev/null | grep -cF 'func itemsOnlyInRightCopy')" \
+  "$(git show origin/$l:MacApp/DuplicateReviewCoordinator.swift 2>/dev/null | grep -cF 'contentProven')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads kind=2):
+# main                     fr13=1 kind=0
+# v5.x, v4.x, v3.x, v2.x   fr13=0 kind=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR13 refusal at all (`fr13=0`) | CLOSED — does not apply |

@@ -100,7 +100,8 @@ private final class Harness {
         keepRel: String = "Docs", deleteRel: String = "Backup/Docs",
         keepSnapshot: FolderContentSnapshot? = nil,
         deleteSnapshot: FolderContentSnapshot? = nil,
-        restore: SavedCompareState? = nil
+        restore: SavedCompareState? = nil,
+        matchKind: DuplicateMatchType.Kind = .overlapping
     ) -> DuplicateCompareContext {
         let review = DuplicateCompareContext(
             groupName: "Docs",
@@ -116,7 +117,8 @@ private final class Harness {
             redundantRelativePath: deleteRel,
             restore: restore ?? SavedCompareState(
                 leftProviderId: "icloud", rightProviderId: "dropbox",
-                leftRelativePath: "Was/Left", rightRelativePath: "Was/Right"))
+                leftRelativePath: "Was/Left", rightRelativePath: "Was/Right"),
+            matchKind: matchKind)
         duplicateReview = review
         // compareCopies pins both panes to the lens provider (left pane's, here).
         rightId = leftId
@@ -862,7 +864,8 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
             ofPath: keep.path, ignoredNames: ignored, fileManager: FileManager.default)
         let deleteSnapshot = await FileSyncManager.folderContentSnapshot(
             ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
-        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
+        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot,
+                                           matchKind: .overlapping)
         #expect(DuplicateReviewCoordinator.itemsOnlyInRightCopy(review) == ["summary.txt"],
                 "a.txt is dated alike, so only the edited file is a difference")
         harness.workspace = .compare
@@ -907,6 +910,99 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         harness.coordinator.compareCopies(keep: duplicateCopy(path: "/scan/root/Docs", keeper: true),
                                           delete: delete)
         #expect(try #require(harness.duplicateReview).deleteUniqueItemCount == 12)
+    }
+
+    /// **An identical group's copy is trashed whatever its dates say (D1).** `cp -R` and most
+    /// downloads give a copy new dates, and the date comparison FR13 added refused every such
+    /// pair — pointing at "Merge into keeper", which an identical group's card does not offer. The
+    /// scan hashed both trees and found the same content, so the dates are not evidence. Real
+    /// folders, the same bytes dated a year apart, run to the end: the right copy leaves the disk.
+    @Test func anIdenticalGroupsCopyWithOtherDatesIsTrashed() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dup-review-cp-\(UUID().uuidString)")
+        let trash = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dup-review-cp-trash-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: trash)
+        }
+        let keep = root.appendingPathComponent("Docs")
+        let copy = root.appendingPathComponent("Backup/Docs")
+        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
+        for (folder, date) in [(keep, 1_700_000_000.0), (copy, 1_730_000_000.0)] {
+            let file = folder.appendingPathComponent("a.txt")
+            try Data("same bytes".utf8).write(to: file)
+            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: date)],
+                                                  ofItemAtPath: file.path)
+        }
+
+        let harness = Harness(fileManager: ScratchTrash(folder: trash))
+        harness.lensProviderRoot = root.path
+        let ignored = DuplicateFinderOptions.defaultIgnoredNames
+        let keepSnapshot = await FileSyncManager.folderContentSnapshot(
+            ofPath: keep.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let deleteSnapshot = await FileSyncManager.folderContentSnapshot(
+            ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot,
+                                           matchKind: .identical)
+        harness.syncManager.duplicateGroups = [
+            DuplicateGroup(matchType: .identical, name: "Docs", isDirectory: true,
+                           copies: [duplicateCopy(path: keep.path, keeper: true),
+                                    duplicateCopy(path: copy.path, keeper: false)],
+                           reclaimableBytes: 1234)
+        ]
+        harness.workspace = .compare
+        harness.trashConfirmAnswer = true
+
+        harness.coordinator.trashRightCopy(review)
+        await waitUntil("the right copy leaves the disk") {
+            !FileManager.default.fileExists(atPath: copy.path)
+        }
+
+        #expect(harness.trashConfirmedFor == [copy.path], "the trash was refused before asking")
+        #expect(FileManager.default.fileExists(atPath: trash.appendingPathComponent("Docs/a.txt").path))
+        #expect(FileManager.default.fileExists(atPath: keep.appendingPathComponent("a.txt").path))
+        #expect(harness.syncManager.banner?.message.contains("Merge into keeper") != true,
+                "banner: \(harness.syncManager.banner?.message ?? "")")
+    }
+
+    /// The rule, both ways, over one pair of baselines: a same-sized file dated differently is a
+    /// difference in an overlapping group (FR13, unchanged) and not in an identical one (D1).
+    @Test func datesCountOnlyWhenTheGroupIsNotIdentical() {
+        let left = FolderContentSnapshot(
+            entries: ["a.txt": .file(size: 8, modificationDate: Date(timeIntervalSince1970: 1_700_000_000))],
+            ignoredNames: [])
+        let right = FolderContentSnapshot(
+            entries: ["a.txt": .file(size: 8, modificationDate: Date(timeIntervalSince1970: 1_730_000_000))],
+            ignoredNames: [])
+        let harness = Harness()
+        let overlapping = harness.installReview(keepSnapshot: left, deleteSnapshot: right,
+                                                matchKind: .overlapping)
+        #expect(DuplicateReviewCoordinator.itemsOnlyInRightCopy(overlapping) == ["a.txt"])
+        #expect(DuplicateReviewCoordinator.uniqueItemsRefusal(overlapping) != nil)
+        let identical = harness.installReview(keepSnapshot: left, deleteSnapshot: right,
+                                              matchKind: .identical)
+        #expect(DuplicateReviewCoordinator.itemsOnlyInRightCopy(identical).isEmpty)
+        #expect(DuplicateReviewCoordinator.uniqueItemsRefusal(identical) == nil)
+    }
+
+    /// The kind reaches the review: `compareCopies` reads it off the live group holding the pair,
+    /// and a pair no group holds keeps the default that compares dates.
+    @Test func compareCopiesCarriesTheGroupsMatchKind() throws {
+        let harness = Harness()
+        let keep = duplicateCopy(path: "/scan/root/Docs", keeper: true)
+        let delete = duplicateCopy(path: "/scan/root/Backup/Docs", keeper: false)
+        harness.syncManager.duplicateGroups = [
+            DuplicateGroup(matchType: .identical, name: "Docs", isDirectory: true,
+                           copies: [keep, delete], reclaimableBytes: 1234)
+        ]
+        harness.coordinator.compareCopies(keep: keep, delete: delete)
+        #expect(try #require(harness.duplicateReview).matchKind == .identical)
+
+        harness.syncManager.duplicateGroups = []
+        harness.coordinator.compareCopies(keep: keep, delete: delete)
+        #expect(try #require(harness.duplicateReview).matchKind == .overlapping)
     }
 
     /// Two real folders, identical, with real baselines — a review that WOULD trash the right copy
@@ -1437,8 +1533,10 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
 }
 
 /// The same file in both copies, dated alike — what a Finder duplicate or a `cp -p` leaves. Two
-/// separate writes land moments apart, and a right copy whose file is dated differently holds
-/// something the left lacks (FR13), so a fixture meant to be a true duplicate pins the date.
+/// separate writes land moments apart, and in an overlapping group's review (the harness's
+/// default kind) a file dated differently is something the right copy holds that the left lacks
+/// (FR13), so a fixture meant to be a true duplicate pins the date. An identical group's review
+/// ignores dates (`anIdenticalGroupsCopyWithOtherDatesIsTrashed`).
 /// A whole second on both: `setAttributes` may round below a microsecond.
 private func writeTwins(_ name: String, in keep: URL, and copy: URL, _ text: String = "x") throws {
     let date = Date(timeIntervalSince1970: 1_760_000_000)
