@@ -11137,7 +11137,7 @@ FR17's sweep keeps the folder a re-derive was cut off from while it holds the su
 or a stopped survey's progress the active folder lacks — but nothing read it back, so the app ran
 with no filing memory and the next refresh replayed from the empty folder. `main` carries it in
 when the profile loads and when a refresh starts, rekeyed through the landing that made the folder,
-and the sweep then lets the old folder go.
+and the next sweep — at the next survey refresh or landing — lets the old folder go.
 
 ```sh
 S=Modules/Sync/Sources/Sync
@@ -11964,3 +11964,29 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s walkCarry=%s surveyCarry=%s\n
 |---|---|---|
 | `v5.x` | The walk with no carry at all (`walkCarry=0`); FR4's row records what it lacks | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No walk profile | CLOSED — does not apply |
+
+---
+
+## The survey read-back runs off the main actor, through finished landings (review C4, C5) — main only
+
+FR17's read-back ran inside `FilingProfileStore.active(in:)`, on the main actor at launch, Setup's
+Save and an Undo — decoding the ledger on every load of a stopped first survey with nothing to
+carry, and a whole corpus when there was. And it rekeyed through the last record under the parent
+folder, finished or not, so after two cut-off landings it moved the keys through moves that never
+ran. `main` reads only finished records (`summary` set), preferring the one that produced the
+folder; stops before the ledger when there is nothing to carry; and runs the carry after the load
+(`finishInterruptedSurveyReplay`), off the main actor.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s readBack=%s offMain=%s\n' $l \
+  "$(git show origin/$l:$S/FileSyncManager+RestructureApply.swift 2>/dev/null | grep -cF 'func recoverInterruptedSurveyReplay')" \
+  "$(git show origin/$l:$S/FileSyncManager+RestructureApply.swift 2>/dev/null | grep -cF 'func finishInterruptedSurveyReplay')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads offMain=1):
+# main                     readBack=1 offMain=0
+# v5.x, v4.x, v3.x, v2.x   readBack=0 offMain=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No read-back (`readBack=0`); FR17's sections record what they carry | CLOSED — does not apply |

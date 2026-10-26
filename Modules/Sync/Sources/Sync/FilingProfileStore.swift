@@ -160,9 +160,10 @@ public enum FilingProfileStore {
                                   + "the two should agree; fix `profileId` in "
                                   + "\(id)/folder-profile.json.")
         }
-        // A re-derive cut off before its replay left this folder without the survey its parent
-        // holds; finished here, before the memory is read (FR17, follow-up).
-        FileSyncManager.recoverInterruptedSurveyReplay(into: id, profile: profile, in: directory)
+        // A re-derive cut off before its replay may have left this folder without the survey its
+        // parent holds. NOT finished here (review C5): every caller is on the main actor, and the
+        // read-back is a whole corpus decoded and rewritten — the caller runs
+        // `FileSyncManager.finishInterruptedSurveyReplay()` once the profile is attached.
         return (id, profile, memory(id: id, in: directory),
                 personRegistry(id: id, profile: profile, in: directory))
     }
@@ -658,8 +659,8 @@ extension FilingProfileStore {
             // **And never the only copy of what the survey learned.** A re-derive re-points the
             // index before its corpus replay, and the folder it leaves is then named by no ledger
             // record (FR17): a quit in the replay relaunched onto a folder with no corpus, and the
-            // next sweep took the old one with the corpus and memory in it. Kept until `active`
-            // reads them back (`recoverInterruptedSurveyReplay`), then superseded. An unfinished
+            // next sweep took the old one with the corpus and memory in it. Kept until the load
+            // reads them back (`finishInterruptedSurveyReplay`), then superseded. An unfinished
             // survey's progress counts only while the active folder has neither progress nor a
             // corpus of its own — once it has finished a survey, a stopped one elsewhere is stale.
             func holds(_ folder: URL, _ name: String) -> Bool {

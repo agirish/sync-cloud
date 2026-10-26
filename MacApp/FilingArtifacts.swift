@@ -19,7 +19,8 @@ enum FilingArtifacts {
     ///
     /// - Parameter recordingTrend: whether to stamp O16's baseline point. **Default false, and
     ///   the default is the point.** This function is otherwise read-only — bar the survey a
-    ///   cut-off re-derive left in the parent folder, which `active(in:)` carries in — and the app's own
+    ///   cut-off re-derive left in the parent folder, which it carries in afterwards, off the
+    ///   main actor (`finishInterruptedSurveyReplay`) — and the app's own
     ///   binary is the test host — so `SyncCloudApp`'s launch path runs under `xcodebuild test`
     ///   too, and a stamp taken unconditionally here wrote a trend point into the developer's
     ///   real `restructure.json` on every test run. Caught by reading the file after an install:
@@ -87,6 +88,9 @@ enum FilingArtifacts {
         // would have that improvement absorbed into the next landing's dot, crediting the
         // landing with work the user did themselves.
         if recordingTrend { manager.stampStructureTrend() }
+        // A survey a cut-off re-derive left in the parent folder, read back without holding the
+        // window (review C5): the memory arrives when it is rebuilt, a moment after launch.
+        Task { await manager.finishInterruptedSurveyReplay() }
         Logger.shared.info("Filing profile '\(loaded.id)' loaded — "
                            + "\(loaded.profile.folders.count) folder(s), "
                            + "\(loaded.memory?.folders.count ?? 0) with filing memory, "

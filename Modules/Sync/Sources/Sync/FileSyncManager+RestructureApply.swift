@@ -533,7 +533,10 @@ extension FileSyncManager {
         // Step 7: the curated artifacts followed the profile into its new directory above, before
         // the re-point; here the corpus keys are replayed and the memory rebuilt from them. No
         // page is re-read for a file that only moved.
-        // **All of step 7 in ONE detached hop, and every byte of it lands under `newId`.**
+        // **All of step 7 in ONE detached hop.** Every byte of the replay lands under `newId`;
+        // the one exception is the read-back first, which finishes an earlier cut-off replay
+        // INTO the old folder (`recoverInterruptedSurveyReplay`), so this one has a corpus to
+        // replay from.
         //
         // This ran on the main actor: a `JSONDecoder` pass over ~9,000 corpus documents, the key
         // replay, `flatten` over the whole walked tree, `buildMemory` (which tokenises every
@@ -543,9 +546,10 @@ extension FileSyncManager {
         // `FileSyncManager+FilingRefine.swift`.
         //
         // Safe to detach where the profile write above is not, and the reason is the *target*:
-        // every path written here is the corpus and the memory inside the freshly minted
-        // `\(newId)` directory — files nothing else writes while the landing flag is up — plus
-        // read-only reads of the old one. There is no shared file to lose an update on. The
+        // every path written here is the corpus, memory and progress inside the freshly minted
+        // `\(newId)` directory, or the old one's when its own replay never finished — files
+        // nothing else writes while the landing flag is up. There is no shared file to lose an
+        // update on. The
         // result is awaited, so `filingMemory` is set before anything below reads it, exactly as
         // it was.
         let replayed: (memory: FilingMemory, failure: String?)? =
@@ -922,6 +926,8 @@ extension FileSyncManager {
             filingArtifactFingerprint = FilingProfileStore.fingerprint(id: loaded.id,
                                                                       in: profilesDirectory)
             filingSurveyedAt = FilingSurveyStore.surveyedAt(id: loaded.id, in: profilesDirectory)
+            // A folder its own re-derive left without a survey gets it back, off this actor.
+            await finishInterruptedSurveyReplay()
         }
         outcome.producedProfileId = previousId
         Logger.shared.info("Restructure undo \(manifestId): \(outcome.summary); verifier "
@@ -1644,6 +1650,30 @@ extension FileSyncManager {
         }
     }
 
+    /// **Finishes, off the main actor, the replay a cut-off re-derive left undone** for the
+    /// profile this manager has loaded (review C5), and publishes the memory it rebuilt.
+    ///
+    /// ``FilingProfileStore/active(in:)`` used to do this inline, and its callers are on the
+    /// main actor — the launch, Setup's Save and an Undo — so a corpus of thousands of documents
+    /// was decoded, rekeyed, turned into a memory and written while the window waited. The load
+    /// now attaches what is there and this runs after it. Returns whether a survey was carried.
+    @discardableResult
+    public func finishInterruptedSurveyReplay() async -> Bool {
+        guard let directory = filingProfilesDirectory, let id = filingProfileDirectoryId,
+              let profile = filingFolderProfile else { return false }
+        let memory = await Task.detached(priority: .utility) { () -> FilingMemory?? in
+            guard FileSyncManager.recoverInterruptedSurveyReplay(into: id, profile: profile,
+                                                                 in: directory) else { return nil }
+            return .some(FilingProfileStore.memory(id: id, in: directory))
+        }.value
+        // Published only onto the folder it was carried for: a walk or landing meanwhile moved on.
+        guard let memory, filingProfileDirectoryId == id else { return false }
+        filingMemory = memory
+        filingSurveyedAt = FilingSurveyStore.surveyedAt(id: id, in: directory)
+        filingArtifactFingerprint = FilingProfileStore.fingerprint(id: id, in: directory)
+        return true
+    }
+
     /// **Reads back a survey a re-derive's replay never finished carrying** (FR17, follow-up).
     ///
     /// A re-derive names the new folder in `profiles.json` before its corpus replay, so a quit in
@@ -1669,10 +1699,16 @@ extension FileSyncManager {
         guard let parent = profile.derivedFrom, parent != id,
               (try? FileManager.default.attributesOfItem(atPath: here)) == nil else { return false }
         // Stats too: the parent's corpus is decoded once, by the carry, and only when it runs.
-        let parentCorpus = FilingSurveyStore.corpusURL(id: parent, in: directory).path
+        // **And nothing is read when there is nothing to carry** (review C5): a parent with no
+        // corpus has only its progress to give, and a folder with progress of its own takes
+        // none — the state a stopped first survey leaves — so the ledger is not decoded for it.
+        let parentHasCorpus = (try? FileManager.default.attributesOfItem(
+            atPath: FilingSurveyStore.corpusURL(id: parent, in: directory).path)) != nil
         let parentProgress = DocumentSurveyCheckpointStore.url(id: parent, in: directory)
-        guard (try? FileManager.default.attributesOfItem(atPath: parentCorpus)) != nil
-            || FileManager.default.fileExists(atPath: parentProgress.path)
+        let hereProgress = DocumentSurveyCheckpointStore.url(id: id, in: directory)
+        guard parentHasCorpus
+            || (FileManager.default.fileExists(atPath: parentProgress.path)
+                && (try? FileManager.default.attributesOfItem(atPath: hereProgress.path)) == nil)
         else { return false }
 
         struct Ledger: Decodable { let applied: [RestructureStore.AppliedRecord]? }
@@ -1688,9 +1724,14 @@ extension FileSyncManager {
                     + "unknown — the survey was not carried")
                 return false
             }
-            if let record = ledger.applied?.last(where: {
-                $0.appliedUnderProfileId == parent && $0.undoneAt == nil
-            }) {
+            // **Only a landing that finished, and the one that made this folder first** (review
+            // C4). A record without a `summary` never finalised — a landing cut off before its
+            // moves ran, then a second cut — and rekeying through it moved the keys through moves
+            // that never happened. Among the finished, the one whose produced folder is this one.
+            let finished = (ledger.applied ?? []).filter {
+                $0.appliedUnderProfileId == parent && $0.undoneAt == nil && $0.summary != nil
+            }
+            if let record = finished.last(where: { $0.producedProfileId == id }) ?? finished.last {
                 landed = record.manifest
             }
         }

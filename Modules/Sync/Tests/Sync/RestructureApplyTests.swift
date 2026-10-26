@@ -1,4 +1,5 @@
 import Combine
+import EventsTestSupport
 import CryptoKit
 import Foundation
 import Testing
@@ -746,6 +747,19 @@ import Testing
         return (disk, left)
     }
 
+    /// What the app does at launch on that disk (`FilingArtifacts.attach`): the load, the
+    /// manager handed what it found, then the read-back off the main actor (review C5).
+    private func relaunch(_ disk: URL) async throws -> FileSyncManager {
+        let loaded = try #require(FilingProfileStore.active(in: disk), "the relaunch's load")
+        let manager = FileSyncManager()
+        manager.filingProfilesDirectory = disk
+        manager.filingFolderProfile = loaded.profile
+        manager.filingMemory = loaded.memory
+        manager.filingProfileDirectoryId = loaded.id
+        await manager.finishInterruptedSurveyReplay()
+        return manager
+    }
+
     /// The sweep the next refresh or landing runs on that disk, protecting exactly what
     /// `rederiveProfile` protects: every id a record in the active ledger names.
     private func sweepAsTheNextReDeriveWould(_ disk: URL, sparing left: String) throws {
@@ -819,9 +833,13 @@ import Testing
                      "the cut must be before the replay wrote the corpus")
         let stamped = try #require(FilingSurveyStore.surveyedAt(id: left, in: disk))
 
-        let loaded = try #require(FilingProfileStore.active(in: disk), "the relaunch's load")
-        #expect(loaded.id == active)
-        let memory = try #require(loaded.memory, "relaunched with no filing memory")
+        // The load itself carries nothing (review C5): it runs on the main actor.
+        let load = try #require(FilingProfileStore.active(in: disk))
+        #expect(load.id == active)
+        #expect(FilingSurveyStore.corpus(id: active, in: disk) == nil,
+                "the load decoded and rewrote the survey on the main actor")
+        let relaunched = try await relaunch(disk)
+        let memory = try #require(relaunched.filingMemory, "relaunched with no filing memory")
         #expect(memory.folders["Tax/2013/Forms"]?.docs == 1)
         let carried = try #require(FilingSurveyStore.corpus(id: active, in: disk),
                                    "the corpus was kept in \(left) and never read back")
@@ -856,8 +874,8 @@ import Testing
                      "the cut must be after the re-point, or it tests nothing")
         try #require(FilingSurveyStore.corpus(id: active, in: disk) == nil)
 
-        let loaded = try #require(FilingProfileStore.active(in: disk))
-        #expect(loaded.memory?.folders["Tax/2013/Forms"] != nil)
+        let relaunched = try await relaunch(disk)
+        #expect(relaunched.filingMemory?.folders["Tax/2013/Forms"] != nil)
         let carried = try #require(FilingSurveyStore.corpus(id: active, in: disk),
                                    "the landing's survey was never read back")
         #expect(Set(carried.documents.keys) == ["Tax/2013/Forms/w2.pdf"],
@@ -881,11 +899,92 @@ import Testing
         let active = try #require(FilingProfileStore.activeProfileId(in: disk))
         try #require(DocumentSurveyCheckpointStore.read(id: active, in: disk).checkpoint == nil)
 
-        _ = try #require(FilingProfileStore.active(in: disk))
+        _ = try await relaunch(disk)
         let carried = try #require(DocumentSurveyCheckpointStore.read(id: active, in: disk).checkpoint,
                                    "the stopped survey's progress was never read back")
         #expect(carried.resumes(profileId: active, rootPath: folder.path, salt: "s"))
         #expect(carried.plan == ["Tax/Outbound/o.pdf"])
+    }
+
+    /// A profile folder `child` derived from `parent`, with `parent` holding a one-document
+    /// corpus at `Tax/w2.pdf` — the read-back's raw material, by hand.
+    private static func derivedPair(_ disk: URL) throws -> FolderProfile {
+        func entry(_ path: String) -> FolderProfileEntry {
+            FolderProfileEntry(path: path, role: nil, naming: nil, anchors: [], acceptsNewFiles: nil,
+                               fileCount: 0, subfolderCount: 0, axes: [:])
+        }
+        let profile = FolderProfile(profileId: "child", root: "~/R",
+                                    folders: ["Tax": entry("Tax"), "New": entry("New")],
+                                    personTokens: [], derivedFrom: "parent")
+        try FileManager.default.createDirectory(at: disk.appendingPathComponent("child"),
+                                                withIntermediateDirectories: true)
+        try FilingSurveyStore.write(
+            corpus: FilingCorpus(profileId: "parent", salt: "s", documents: [
+                "Tax/w2.pdf": FilingCorpusDocument(size: 2, modified: 1_700_000_000,
+                                                    anchors: ["w2"], idHashes: [])]),
+            memory: FilingMemory(profileId: "parent", salt: "s", folders: [:]),
+            previousMemory: nil, id: "parent", in: disk, root: "~/R",
+            now: Date(timeIntervalSince1970: 1_755_000_000))
+        return profile
+    }
+
+    private static func landing(_ id: String, moving file: String, to dst: String,
+                                produced: String?, summary: String?) -> RestructureStore.AppliedRecord {
+        let manifest = RestructureManifest(
+            profileId: "parent", manifestId: id, createdAt: "2026-10-24T09:00:00", family: ".",
+            kind: .shape, actions: [.init(action: .moveFile, src: file, dst: dst, evidence: "x")])
+        return .init(manifest: manifest, inverse: manifest, at: "2026-10-24T09:00:00",
+                     created: 0, skipped: 0, appliedUnderProfileId: "parent",
+                     producedProfileId: produced, summary: summary)
+    }
+
+    /// The read-back rekeys through the landing that MADE the folder (review C4): a later record
+    /// under the same parent that never finalised (no `summary` — a landing cut off before its
+    /// moves) used to be taken, and the corpus keys moved through moves that never ran.
+    @Test func theReadBackRekeysThroughTheFinishedLandingNotACutOne() throws {
+        let disk = FileManager.default.temporaryDirectory
+            .appendingPathComponent("readback-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: disk) }
+        let profile = try Self.derivedPair(disk)
+        let store = RestructureStore(directory: disk, profileId: "child")
+        try #require(store.recordApplied(Self.landing("made-it", moving: "Tax/w2.pdf",
+                                                      to: "New/w2.pdf", produced: "child",
+                                                      summary: "1 moved")))
+        try #require(store.recordApplied(Self.landing("cut-off", moving: "Tax/w2.pdf",
+                                                      to: "Old/w2.pdf", produced: nil,
+                                                      summary: nil)))
+
+        #expect(FileSyncManager.recoverInterruptedSurveyReplay(into: "child", profile: profile,
+                                                               in: disk))
+        let carried = try #require(FilingSurveyStore.corpus(id: "child", in: disk))
+        #expect(Set(carried.documents.keys) == ["New/w2.pdf"],
+                "the keys followed a landing that never ran its moves")
+    }
+
+    /// A stopped first survey — progress of its own, and a parent with progress but no corpus —
+    /// has nothing to carry, so the read-back stops before decoding the ledger (review C5). It
+    /// ran on every load, and decoded the whole ledger to carry nothing.
+    @Test func theReadBackReadsNoLedgerWhenThereIsNothingToCarry() async throws {
+        let disk = FileManager.default.temporaryDirectory
+            .appendingPathComponent("readback-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: disk) }
+        let profile = try Self.derivedPair(disk)
+        try FileManager.default.removeItem(at: FilingSurveyStore.corpusURL(id: "parent", in: disk))
+        for id in ["parent", "child"] {
+            try DocumentSurveyCheckpointStore.write(DocumentSurveyCheckpoint(
+                profileId: id, rootPath: "/R", salt: "s", plan: ["Tax/w2.pdf"], nextIndex: 0,
+                read: [:], documentsUnavailable: 0,
+                startedAt: Date(timeIntervalSince1970: 1_760_000_000),
+                updatedAt: Date(timeIntervalSince1970: 1_760_000_100)), id: id, in: disk)
+        }
+        // A ledger that does not parse: reading it is the one thing that says so in the log.
+        try Data("{ not a ledger".utf8).write(to: disk.appendingPathComponent("child/restructure.json"))
+        let log = LogCapture()
+
+        #expect(!FileSyncManager.recoverInterruptedSurveyReplay(into: "child", profile: profile,
+                                                                in: disk))
+        #expect(!(await log.holds(.warning, containing: "child/restructure.json could not be read")),
+                "the read-back decoded the ledger with nothing to carry")
     }
 
     /// The refresh reads it back too, for a folder whose own replay failed in the session: the
