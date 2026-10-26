@@ -71,6 +71,13 @@ public struct RestructureTreeView {
     /// shape every caller has to satisfy.
     let listing: ((String) -> (folders: [String], files: [String])?)?
 
+    /// Called as each family's manifest starts to derive (review C7): the disk view's "one
+    /// unanswered folder, one wait" rule is about ONE plan, and kept for the whole view — which
+    /// the plan sheet holds for its presentation, across every family of a group plan — one
+    /// family's stalled folder listed every other family's cloud-only folders as unknown without
+    /// asking them. Nil for a view with no such state.
+    let beginsDerivation: (() -> Void)?
+
     public init(childFolders: @escaping (String) -> [String]?,
                 files: @escaping (String) -> [String]?,
                 fileCount: @escaping (String) -> Int?) {
@@ -78,14 +85,17 @@ public struct RestructureTreeView {
         self.files = files
         self.fileCount = fileCount
         self.listing = nil
+        self.beginsDerivation = nil
     }
 
     /// The single-listing spelling: all three answers derived from one read of a directory.
-    init(listing: @escaping (String) -> (folders: [String], files: [String])?) {
+    init(listing: @escaping (String) -> (folders: [String], files: [String])?,
+         beginsDerivation: (() -> Void)? = nil) {
         self.listing = listing
         self.childFolders = { listing($0)?.folders }
         self.files = { listing($0)?.files }
         self.fileCount = { listing($0)?.files.count }
+        self.beginsDerivation = beginsDerivation
     }
 
     /// The view the live disk gives: folders, files and counts, read lazily as the planner asks.
@@ -140,6 +150,8 @@ public struct RestructureTreeView {
         // another — a plan over a family of cloud-only folders whose app has stopped held the
         // sheet five seconds per folder. Once one has not answered, every later dataless folder
         // this view is asked about lists as unknown at once: the plan is refused either way.
+        // **Per family's plan, not per view** (review C7): the planner starts each family's
+        // derivation afresh (`beginsDerivation`), so a group plan asks each family once.
         final class Stall { var unanswered = false }
         let stall = Stall()
         return RestructureTreeView(listing: { path in
@@ -188,7 +200,7 @@ public struct RestructureTreeView {
                 if isDirectory.boolValue { folders.append(name) } else { files.append(name) }
             }
             return (folders.sorted(), files.sorted())
-        })
+        }, beginsDerivation: { stall.unanswered = false })
     }
 
     /// The same view with every listing read once and remembered. The plan sheet re-derives the
@@ -215,7 +227,7 @@ public struct RestructureTreeView {
                 let value = listing(path)
                 cache.entries[path] = value
                 return value
-            })
+            }, beginsDerivation: beginsDerivation)
         }
         final class Cache {
             var folders: [String: [String]?] = [:]
@@ -444,6 +456,7 @@ public enum RestructurePlanner {
         createdAt: String, membersByFamily: [String: [String]] = [:])
         -> [(family: String, result: Result<RestructureManifest, PlanRefusal>)] {
         families.map { family in
+            view.beginsDerivation?()
             let members = membersByFamily[family] ?? view.childFolders(family) ?? []
             // Each family's mapping is the shared one NARROWED to the sources it actually has:
             // a row naming a folder this family does not carry is not an error, it is simply not
@@ -453,7 +466,7 @@ public enum RestructurePlanner {
             let narrowed = RestructureMapping(
                 rows: mapping.rows.filter { mine.contains($0.source) })
             return (family,
-                    manifest(family: family, members: members, mapping: narrowed, kind: kind,
+                    derivedManifest(family: family, members: members, mapping: narrowed, kind: kind,
                              in: view, profileId: profileId,
                              manifestId: manifestIdPrefix + "-"
                                 + (family as NSString).lastPathComponent,
@@ -521,6 +534,21 @@ public enum RestructurePlanner {
                                 profileId: String, manifestId: String, createdAt: String,
                                 note: String? = nil, recordedFamily: String? = nil)
         -> Result<RestructureManifest, PlanRefusal> {
+        view.beginsDerivation?()
+        return derivedManifest(family: family, members: members, mapping: mapping, kind: kind,
+                               in: view, profileId: profileId, manifestId: manifestId,
+                               createdAt: createdAt, note: note, recordedFamily: recordedFamily)
+    }
+
+    /// ``manifest(family:members:mapping:kind:in:profileId:manifestId:createdAt:note:recordedFamily:)``
+    /// without starting a derivation — for ``groupManifests``, which starts each family's before
+    /// listing its members.
+    private static func derivedManifest(family: String, members: [String],
+                                        mapping: RestructureMapping, kind: FindingKind,
+                                        in view: RestructureTreeView,
+                                        profileId: String, manifestId: String, createdAt: String,
+                                        note: String? = nil, recordedFamily: String? = nil)
+        -> Result<RestructureManifest, PlanRefusal> {
         guard !mapping.activeRows.isEmpty else { return .failure(.nothingMapped) }
         // Distinct targets that differ only by case cannot coexist on a case-insensitive volume.
         let targets = Set(mapping.activeRows.compactMap(\.target)).sorted()
@@ -569,6 +597,7 @@ public enum RestructurePlanner {
                                          profileId: String, manifestId: String, createdAt: String,
                                          note: String? = nil)
         -> Result<RestructureManifest, PlanRefusal> {
+        view.beginsDerivation?()
         guard source != destination else { return .failure(.nothingMapped) }
         // A folder cannot be moved inside itself, and a destination under the source is how a
         // detector pair would express that. Refuse rather than derive a plan that eats its own

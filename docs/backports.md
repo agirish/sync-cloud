@@ -11990,3 +11990,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s readBack=%s offMain=%s\n' $l 
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No read-back (`readBack=0`); FR17's sections record what they carry | CLOSED — does not apply |
+
+---
+
+## A group plan asks each family's cloud-only folders (review C7) — main only
+
+R8's "one unanswered folder, one wait" rule was kept for the whole disk view, and the plan sheet
+holds one view for its presentation — so in a group plan, the first family's stalled cloud-only
+folder listed every later family's cloud-only folders as unknown without asking them, and those
+families were refused though their provider would have answered. `main` starts the rule afresh for
+each family's plan (`RestructureTreeView.beginsDerivation`).
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s stall=%s perFamily=%s\n' $l \
+  "$(git show origin/$l:$S/RestructurePlanner.swift 2>/dev/null | grep -cF 'final class Stall')" \
+  "$(git show origin/$l:$S/RestructurePlanner.swift 2>/dev/null | grep -cF 'beginsDerivation')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads perFamily=10):
+# main                     stall=1 perFamily=0
+# v5.x, v4.x, v3.x, v2.x   stall=0 perFamily=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No one-wait rule (`stall=0`) | CLOSED — does not apply |

@@ -84,4 +84,33 @@ import Testing
         #expect(disk.providerAsks == 1, "the second unanswered folder waited on its provider too")
         #expect(view.files("F/2018") == ["c.pdf"], "a folder on this Mac stopped listing")
     }
+
+    /// The rule is one wait per family's PLAN, not per view (review C7). The plan sheet holds
+    /// one view for its whole presentation, so in a group plan the first family's stalled folder
+    /// listed every later family's cloud-only folders as unknown without asking them — a family
+    /// whose provider would have answered was refused unasked. Each family now asks once.
+    @Test(.parksThreads(2)) func eachFamilyOfAGroupPlanAsksItsOwnFolders() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "restructure-stall-group")
+        defer { try? FileManager.default.removeItem(at: root) }
+        for path in ["F/2016/Old/a.pdf", "F/2017/Old/b.pdf", "G/2016/Old/c.pdf", "G/2017/Old/d.pdf"] {
+            let url = root.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: url)
+        }
+        let gate = ParkGate()
+        defer { gate.release.signal(); gate.release.signal() }
+        let disk = StalledFoldersDisk(stalled: [root.appendingPathComponent("F/2016").path,
+                                                root.appendingPathComponent("G/2016").path],
+                                      gate: gate)
+        let view = RestructureTreeView.fromDisk(root: root, fileManager: .default,
+                                                contentsFrom: disk).memoized()
+
+        let plans = RestructurePlanner.groupManifests(
+            families: ["F", "G"], mapping: RestructureMapping(rows: [.init(source: "Old", target: "New")]),
+            kind: .shape, in: view, profileId: "t", manifestIdPrefix: "group", createdAt: "x")
+
+        try #require(plans.count == 2)
+        #expect(disk.providerAsks == 2, "the second family's cloud-only folder was never asked")
+    }
 }
