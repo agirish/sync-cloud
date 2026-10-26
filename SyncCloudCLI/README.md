@@ -129,5 +129,6 @@ Exit codes: `0` success — every planned file was copied — `64` usage error, 
 a file failed to copy, or was skipped — by `--strategy skip`, by a provider's name rule, because it
 changed after the plan was shown (re-run `sync` to see the current plan), or because it is left for
 you to decide. Each cause gets its own line on stderr, and the summary lists each file with its
-reason.
+reason. A sync whose prompt is declined, or gets no answer because input is closed, copies nothing
+and also exits `1`, with a line on stderr; pass `--yes` to sync without the prompt.
 

@@ -429,22 +429,49 @@ import Sync
         #expect(rec.copies.isEmpty)
     }
 
+    /// **A declined prompt exits non-zero** (review E2). It returned normally — exit 0 — and the
+    /// README defines 0 as "every planned file was copied", which a declined run never is.
     @Test func syncWithoutYesAbortsWhenThePromptIsDeclined() async throws {
         let left = try makeTempRoot(), right = try makeTempRoot()
         defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
         try write(left.appendingPathComponent("a.txt"), "abc")
 
         let rec = Recorder()
-        try await makeRunner(rec, readLine: { "n" }).runSync(
-            left: left.path, right: right.path,
-            direction: .auto, showHidden: false, ignore: [],
-            strategy: .replace, yes: false, failFast: false, verify: false)
+        let runner = makeRunner(rec, readLine: { "n" })
+        await #expect(throws: CLISyncFailuresError()) {
+            try await runner.runSync(
+                left: left.path, right: right.path,
+                direction: .auto, showHidden: false, ignore: [],
+                strategy: .replace, yes: false, failFast: false, verify: false)
+        }
 
         #expect(rec.out.contains("Planned operations (1):"))
         #expect(rec.out.contains("- a.txt → [missing-on-right]"))
         #expect(rec.out.contains("Proceed with these operations? [y/N]: "))
         #expect(rec.out.hasSuffix("Aborted.\n"))
+        #expect(rec.err == "Nothing was synced: the prompt was declined.\n")
         #expect(rec.copies.isEmpty, "a declined prompt must not copy anything")
+    }
+
+    /// The other abort: stdin closed, so the prompt reads nothing at all — a script that forgot
+    /// `--yes`. Same exit, its own stderr line naming the flag.
+    @Test func syncWithoutYesAbortsWhenThePromptGetsNoAnswer() async throws {
+        let left = try makeTempRoot(), right = try makeTempRoot()
+        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        try write(left.appendingPathComponent("a.txt"), "abc")
+
+        let rec = Recorder()
+        let runner = makeRunner(rec, readLine: { nil })
+        await #expect(throws: CLISyncFailuresError()) {
+            try await runner.runSync(
+                left: left.path, right: right.path,
+                direction: .auto, showHidden: false, ignore: [],
+                strategy: .replace, yes: false, failFast: false, verify: false)
+        }
+
+        #expect(rec.out.hasSuffix("Aborted.\n"))
+        #expect(rec.err == "Nothing was synced: no answer at the prompt (input closed). Pass --yes to sync without asking.\n")
+        #expect(rec.copies.isEmpty)
     }
 
     /// **The plan names both resolved roots before it asks (FR42).** `sync` listed relative
@@ -456,10 +483,14 @@ import Sync
         try write(left.appendingPathComponent("a.txt"), "abc")
 
         let rec = Recorder()
-        try await makeRunner(rec, readLine: { "n" }).runSync(
-            left: left.path, right: right.path,
-            direction: .auto, showHidden: false, ignore: [],
-            strategy: .replace, yes: false, failFast: false, verify: false)
+        let runner = makeRunner(rec, readLine: { "n" })
+        // Declined, so it exits non-zero (E2); the text before the prompt is what this pins.
+        await #expect(throws: CLISyncFailuresError()) {
+            try await runner.runSync(
+                left: left.path, right: right.path,
+                direction: .auto, showHidden: false, ignore: [],
+                strategy: .replace, yes: false, failFast: false, verify: false)
+        }
 
         let beforePrompt = try #require(rec.out.components(separatedBy: "Proceed with these operations?").first)
         #expect(beforePrompt.contains("  Left : \(left.path) [Left]\n"))

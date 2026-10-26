@@ -345,9 +345,16 @@ public struct CommandRunner {
         if !yes {
             printOut("")
             env.writeOut("Proceed with these operations? [y/N]: ")
-            guard let line = env.readConfirmationLine(), line.lowercased().hasPrefix("y") else {
+            // **A declined or unanswered prompt exits 1** (owner decision, review E2). It exited 0,
+            // and 0 is documented as "every planned file was copied" — so a script whose stdin had
+            // closed read a run that copied nothing as a complete one.
+            let answer = env.readConfirmationLine()
+            guard let line = answer, line.lowercased().hasPrefix("y") else {
                 printOut("Aborted.")
-                return
+                env.writeErr(answer == nil
+                    ? "Nothing was synced: no answer at the prompt (input closed). Pass --yes to sync without asking.\n"
+                    : "Nothing was synced: the prompt was declined.\n")
+                throw CLISyncFailuresError()
             }
         }
 

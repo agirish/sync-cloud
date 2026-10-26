@@ -12185,3 +12185,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s dateUndo=%s says=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No date match to undo (`dateUndo=0`) | CLOSED — does not apply |
+
+---
+
+## `synccloud sync` exits 1 when its prompt is declined (review E2) — main only
+
+A declined `[y/N]`, or one that read nothing because stdin was closed, printed "Aborted." and exited
+0 — which the README defines as "every planned file was copied". `main` exits 1 with a line on
+stderr ("Nothing was synced: the prompt was declined.", or one naming `--yes` for closed input).
+
+```sh
+C=SyncCloudCLI/Sources/SyncCloudCLICore/CommandRunner.swift
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s aborted=%s exits1=%s\n' $l \
+  "$(git show origin/$l:$C 2>/dev/null | grep -c 'printOut("Aborted.")')" \
+  "$(git show origin/$l:$C 2>/dev/null | grep -c 'Nothing was synced: the prompt was declined')"; done
+# measured 2026-10-25, against origin, before this landed (the change reads exits1=1):
+# main, v5.x, v4.x, v3.x, v2.x   aborted=1 exits1=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | A declined prompt exiting 0 (`exits1=0`) — a changed exit code is a breaking change for a script, which no maintenance line takes | RECORDED — not owed |
