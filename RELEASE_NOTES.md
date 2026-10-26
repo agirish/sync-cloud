@@ -28,8 +28,8 @@ Requires **macOS 26**, unchanged from v6.0.
   in the middle of the toolbar shows the run's progress and count, and the current file when you
   point at it; its stop button or ⌘. stops it, and Esc doesn't, since Esc clears the selection. Pane
   PDF tools and Save as PDF show their progress there too. While a run goes on you can browse,
-  preview, undo and keep working in Edit's document; what would write files is grayed, with a
-  tooltip saying what to wait for.
+  preview and keep working in Edit's document, its own undo included; what would write files, and
+  ⌘Z for file operations, is grayed, with a tooltip saying what to wait for.
 - **Results show in the pane.** The message about what just happened docks with the pane's action
   bar instead of floating across the top of the window, where it covered the header's Delete.
   Compare shows it in the pane that acted, and VoiceOver announces each one. A message with an Undo
@@ -167,27 +167,29 @@ Requires **macOS 26**, unchanged from v6.0.
   in the copy unless you turn on "Also remove links under corrections" in the note card, off by
   default and for that save only. On macOS 26 that copy loses the page labels, attached files,
   viewer settings and language the other copies keep.
-- **The text holds still.** The "changed on disk" banner floats over the foot of the text instead of
-  pushing every line down. The status line no longer shows the previous file's counts or Line/Col
-  after a switch, and keeps Line/Col in place while "That change needs Source." is showing.
+- **The text holds still.** The "changed on disk" banner and the read-only note float over the foot
+  of the text instead of pushing every line down. The status line no longer shows the previous
+  file's counts or Line/Col after a switch, and keeps Line/Col in place while "That change needs
+  Source." or "Reloaded — changed elsewhere" is showing.
 
 ### Around the app
 
 - **One spelling, one case, one count.** The app's words use US spelling — color, gray,
   Reorganization — curly quotes and apostrophes, Title Case on menus, and counts that read "1 item"
   and "1,200 files". Settings search still finds "colour". The reversible delete is Move to Trash
-  everywhere, Sync History included. Progress windows are titled in sentence case, Edit's empty page
+  everywhere, Sync History included. Progress is titled in sentence case, Edit's empty page
   offers New Text File, and reading fewer than 200 documents is offered as "A few minutes", not
   "About 3 h". The command-line tool prints its own punctuation as plain ASCII; file names still
   print exactly as they are on disk.
-- **⌃⇧⇥ goes to the previous tab**, the reverse of ⌃⇥, and the Go menu lists Next Tab and Previous
-  Tab once each.
+- **⌃⇧⇥ goes to the previous tab** in Browse, the reverse of ⌃⇥ (in Compare, ⌃⇥ switches panes),
+  and the Go menu lists Next Tab and Previous Tab once each.
 - **Color you can read.** Links in both Markdown Previews use a shade of the accent that reads in
   light and dark. A colored pill's words are black or white, with the color in its fill. Switches,
   checkboxes, sliders and progress bars take the app's accent, not the Mac's, unless the accent is
   None.
-- **The tab strip stays under the pointer** when you close down to one tab from it, and slides away
-  once the pointer leaves, so the pane doesn't jump up under you. ⌘W still hides it at once.
+- **The tab strip stays under the pointer** when you close down to one tab from it, or with Close
+  Tab from the pane header's or a row's menu, and slides away once the pointer leaves, so the pane
+  doesn't jump up under you. ⌘W still hides it at once.
 - **VoiceOver** names the Sources switch, the swap-panes button, the inspector's close button and a
   tab's source; decorative logos are hidden from it; and ages are read in words.
 - **Settings.** Replacing the Anthropic key no longer deletes the old one first, and a refused save
