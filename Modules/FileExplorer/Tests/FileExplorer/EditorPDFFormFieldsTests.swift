@@ -115,23 +115,23 @@ extension PDFFixtures {
 
     // MARK: The engine
 
-    /// **pdf-toolkit is pinned at 0.6.0 (Fill & Sign can keep a flat file's comments as comments —
-    /// FR57; copies keep page labels, viewer settings, language and attached files since 0.5.0 —
-    /// TE201, TE202), and every tracked
+    /// **pdf-toolkit is pinned at 0.6.1 (a popup the keep pass doesn't carry is drawn, not lost;
+    /// Fill & Sign can keep a flat file's comments as comments since 0.6.0 — FR57; copies keep page
+    /// labels, viewer settings, language and attached files since 0.5.0 — TE201, TE202), and every tracked
     /// `Package.resolved` that resolves it was regenerated to that tag's commit** — not hand-edited to
     /// a version a resolve would not write.
-    @Test func theEngineIsPinnedAt060Everywhere() throws {
+    @Test func theEngineIsPinnedAt061Everywhere() throws {
         let modules = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()   // FileExplorer
             .deletingLastPathComponent()                                                           // Modules
         let manifest = try String(contentsOf: modules.appendingPathComponent("FileExplorer/Package.swift"), encoding: .utf8)
-        #expect(manifest.contains(#".package(url: "https://github.com/agirish/pdf-toolkit", exact: "0.6.0")"#))
+        #expect(manifest.contains(#".package(url: "https://github.com/agirish/pdf-toolkit", exact: "0.6.1")"#))
         for package in ["FileExplorer", "Dashboard"] {
             let resolved = try String(contentsOf: modules.appendingPathComponent("\(package)/Package.resolved"), encoding: .utf8)
             let pin = try #require(resolved.range(of: "\"identity\" : \"pdf-toolkit\""), "\(package) does not resolve pdf-toolkit")
             let entry = resolved[pin.lowerBound...].prefix(400)
-            #expect(entry.contains("\"version\" : \"0.6.0\""), "\(package) resolves \(entry)")
-            #expect(entry.contains("99e77f4f8478d68ed9e50ce1d3d0c0c19db6499b"), "\(package) is not at 0.6.0's commit")
+            #expect(entry.contains("\"version\" : \"0.6.1\""), "\(package) resolves \(entry)")
+            #expect(entry.contains("158dca9dd75d35ae18aa00c9e5c293ad8aca997e"), "\(package) is not at 0.6.1's commit")
         }
     }
 
