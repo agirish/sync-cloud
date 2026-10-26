@@ -26,7 +26,7 @@ Five long-lived branches, and only five:
 
 | Branch | Carries | Marker at tip | Breaking changes |
 |---|---|---|---|
-| `main` | the **v6 line** — where the next release is built | `6.1-dev` / `601` | **allowed** |
+| `main` | the **v6 line** — where the next release is built | `6.1` / `601` | **allowed** |
 | `v5.x` | maintenance for the shipped **5.x series** (cut at `v5.5`) | `5.6-dev` / `506` | **never** |
 | `v4.x` | maintenance for the shipped **4.x series** (cut at `v4.6`) | `4.7-dev` / `407` | **never** |
 | `v3.x` | maintenance for the shipped **3.x series** (cut at `v3.1`) | `3.2-dev` / `302` | **never** |

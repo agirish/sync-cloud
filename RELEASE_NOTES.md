@@ -5,10 +5,7 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
-## v6.1 — DRAFT, not released
-
-> What is on `main` since v6.0. It may still change before v6.1 is cut, and nothing here is
-> installable from a release yet.
+## v6.1
 
 **Safer with your files.** v6.1 adds no new workspace. It closes the ways the tools that move,
 merge, remove and undo could lose a file, and holds back what they cannot stand behind. Duplicates
