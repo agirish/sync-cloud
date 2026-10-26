@@ -385,6 +385,34 @@ import Foundation
         #expect(!entryExists(to), "the link is still at the destination")
     }
 
+    /// **L6.** The redo of that move, once the folder it went to is gone: the link is a source to
+    /// move, dangling or not, so the redo makes the folder again and moves it. The gate asked
+    /// `fileExists`, which follows the link, read it as no source, built nothing, and the move failed.
+    @MainActor
+    @Test func aMoveRedoOfADanglingLinkRemakesTheFolderItGoesTo() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "redo-dangling-link-move")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let trash = ScratchTrash(in: root)
+        let from = root.appendingPathComponent("src/link")
+        let to = root.appendingPathComponent("dst/new/link")
+        try FileManager.default.createDirectory(at: from.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: from.path, withDestinationPath: "/nonexistent-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
+        _ = try FileSyncManager.safeMoveItem(at: from, to: to, fileManager: trash)
+        let m = manager()
+        await m.registerMoveUndo(items: [(from: from, to: to, overwritten: nil)], actionName: "Move 1 Item", fileManager: trash).value
+        await undoAndDrain(m)
+        try #require(entryExists(from), "premise: the undo moved the link back")
+        try FileManager.default.removeItem(at: to.deletingLastPathComponent())
+        m.banner = nil
+
+        m.undoManager?.redo()
+        await waitUntil("the redo drains") { m.activeFileOperationsCount == 0 }
+
+        #expect(entryExists(to), "banner: \(String(describing: m.banner?.message))")
+        #expect(!entryExists(from))
+    }
+
     /// The copy-undo's twin: a copied link that dangles is still the copy, and ⌘Z removes it.
     @MainActor
     @Test func aCopyUndoRemovesADanglingLinkItCopied() async throws {

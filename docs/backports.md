@@ -11837,3 +11837,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s u5=%s fix=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The pre-U5 redo, which re-copies the first registration — source and spelling (U5's row) | RECORDED — not owed |
+
+---
+
+## A move redo of a dangling link remakes the folder it goes to (final review L6) — main only
+
+The move-redo built the destination's parent only when `fileExists` found the source, which follows
+a link, so a dangling link whose destination folder had gone failed its redo. `main` asks whether
+the entry exists.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s gate=%s fix=%s\n' $l \
+  "$(git show origin/$l:$S/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'if fm.fileExists(atPath: param.from.path) {')" \
+  "$(git show origin/$l:$S/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'if FileSyncManager.entryExists(at: param.from, fileManager: fm) {')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads gate=0 fix=1):
+# main, v5.x, v4.x, v3.x, v2.x   gate=1 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The following `fileExists` gate (`gate=1`) | RECORDED — not owed |

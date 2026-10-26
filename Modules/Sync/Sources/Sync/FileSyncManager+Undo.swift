@@ -2049,7 +2049,8 @@ extension FileSyncManager {
                             // sibling move had just renamed away — the empty `Photos␣` above —
                             // and then reported the failure anyway. If the source is not there,
                             // nothing is going to land, so nothing should be built for it.
-                            if fm.fileExists(atPath: param.from.path) {
+                            // `entryExists` (L6): a dangling link at the source is a source to move.
+                            if FileSyncManager.entryExists(at: param.from, fileManager: fm) {
                                 try? fm.createDirectory(at: param.to.deletingLastPathComponent(), withIntermediateDirectories: true)
                             }
                             do {
