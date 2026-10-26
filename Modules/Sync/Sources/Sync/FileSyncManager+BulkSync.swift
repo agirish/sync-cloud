@@ -3,27 +3,32 @@ import Foundation
 
 extension FileSyncManager {
 
-    /// Bulk copy the given differences from left to right (overwrites if exists). No per-file confirmation; 2–4 concurrent copies.
+    /// Verify All's "Match Dates": the right file of each pair it proved byte-identical takes the
+    /// left file's modification date (`matchDatesOfProvenPairs`). No per-file confirmation. Kept
+    /// under its old name, from when the run copied each pair over whole.
     /// Internal (not private) because `confirmVerifiedCopy` in FileSyncManager+Verify.swift starts it.
     /// - Parameter asOf: The `fileOperationsEpoch` the copied-from verdicts were taken under —
     ///   `VerifiedCopyOffer.asOf`. Re-checked here, at the point the write is actually ordered.
-    /// - Parameter stamps: `VerifiedCopyOffer.stamps`. A pair stamped here was PROVEN
-    ///   byte-identical by Verify All, and gets its dates matched rather than a copy (FR41).
+    /// - Parameter stamps: `VerifiedCopyOffer.stamps`, each pair as it stood when it was hashed.
     ///
     /// **"Copy to match dates" copied every pair over whole, and every pair it is offered is one
     /// Verify All has just read in full and found byte-identical.** So the copy changed no byte and
     /// still cost everything a copy costs: each file re-uploaded by its cloud app, a backup of the
     /// identical original sent to the Trash, and the right side's tags, labels and other metadata
     /// replaced by the left's. What the user asked for is the one thing the two files do not
-    /// share — the date — so a proven pair now gets just that: the right file's modification date
-    /// set to the left's (`matchDatesOfProvenPairs`). The copy path stays for a pair this run was
-    /// not handed a stamp for, i.e. anything not proven identical.
+    /// share — the date — so a proven pair gets just that (FR41).
+    ///
+    /// **There is no copy path any more** (review E6). One stayed for a pair handed no stamp, and
+    /// none can reach it: Verify All stamps every pair it offers, and `confirmVerifiedCopy` refuses
+    /// an offer holding an unstamped pair (`VerifiedCopyOffer.firstStaleness`) or one whose stamp no
+    /// longer matches the disk — so a pair arriving here reads now as it did when it was hashed,
+    /// both ends present. A pair with no date to set is left alone and counted, never copied.
     ///
     /// **A link on either side is never written through** (FR41, FR8). Verify reads a link as the
     /// file it points to, but a copy writes the LINK — over the real file on the right — and a
     /// date set on a link path lands on its target. `FileDifference.heldBack` already keeps link
-    /// rows out of bulk runs, but only for the side the row copies FROM, and this run always copies
-    /// left to right whatever the row's suggested direction, so both sides are checked on disk too.
+    /// rows out of bulk runs, but only for the side the row copies FROM, and this run always writes
+    /// the right file whatever the row's suggested direction, so both sides are checked on disk too.
     /// A held row is left out and said so, as `syncAll` does.
     func bulkCopyDifferencesLeftToRight(_ allPairs: [FileDifference], asOf: Int,
                                         stamps: [UUID: FilePairStamp] = [:]) async {
@@ -35,7 +40,7 @@ extension FileSyncManager {
         let heldIDs = Set(held.map(\.id))
         let toCopy = allPairs.filter { !heldIDs.contains($0.id) }
         for pair in held {
-            Logger.shared.info("Copy to match dates: left out \(pair.relativePath) — \(pair.heldBack == nil ? "one side is a symbolic link" : "it needs a decision of its own")")
+            Logger.shared.info("Match dates: left out \(pair.relativePath) — \(pair.heldBack == nil ? "one side is a symbolic link" : "it needs a decision of its own")")
         }
         if toCopy.isEmpty, !held.isEmpty {
             banner = .warning((["No dates were matched"] + Self.leftOutPhrases(held, linkOnEitherSide: true))
@@ -59,9 +64,7 @@ extension FileSyncManager {
         let toCopyIDs = Set(toCopy.map { $0.id })
 
         let progress = Progress(totalUnitCount: Int64(total))
-        progress.localizedDescription = toCopy.allSatisfy({ stamps[$0.id]?.left != nil && stamps[$0.id]?.right != nil })
-            ? "Matching the dates of \(CountedNoun.phrase(total, "file"))"
-            : "Copying \(CountedNoun.phrase(total, "file")) to match dates"
+        progress.localizedDescription = "Matching the dates of \(CountedNoun.phrase(total, "file"))"
         progress.isCancellable = true
         progress.runLockReason = Progress.runLockReason(waitingFor: "the date match")
         activeProgress = progress
@@ -117,127 +120,7 @@ extension FileSyncManager {
             return
         }
 
-        // Proven = stamped at hash time with a date on both ends: a pair with no date to read
-        // cannot have it matched, and takes the copy it always took.
-        func isProven(_ diff: FileDifference) -> Bool {
-            stamps[diff.id]?.left != nil && stamps[diff.id]?.right != nil
-        }
-        let proven = toCopy.filter(isProven)
-        if !proven.isEmpty {
-            await matchDatesOfProvenPairs(proven, stamps: stamps, held: held)
-        }
-        let unproven = toCopy.filter { !isProven($0) }
-        guard !unproven.isEmpty else { return }
-
-        let activeFM = fileManager
-        let workList: [(FileDifference, URL, URL, Bool)] = unproven.map { diff in
-            (diff, URL(fileURLWithPath: diff.leftItemPath), URL(fileURLWithPath: diff.rightItemPath), false)
-        }
-
-        let progressRef = ProgressRef(progress)
-        let weakRef = WeakSyncManagerRef(self)
-        let totalCount = total
-        // One @Published write per whole percent instead of one per file — see
-        // `ProgressPublishGate` for what the ungated version cost the window.
-        let publishGate = ProgressPublishGateBox()
-
-        let result = await enqueueFileOperation {
-            await Self.performBulkSyncIO(
-                workList: workList,
-                concurrency: min(4, max(2, workList.count)),
-                progress: progressRef,
-                fileManager: activeFM,
-                reportCompleted: { completed in
-                    guard publishGate.admits(completed: completed, total: totalCount) else { return }
-                    weakRef.value?.bulkSyncProgress = (completed, totalCount)
-                }
-            )
-        }
-
-        // Group the whole run's per-file undo registrations into ONE undo step so "Undo last
-        // sync run" (and ⌘Z) reverses the entire bulk copy at once, reusing the existing
-        // per-file reversal — no new mutation path. The group is named so the run reads as a
-        // unit in the Undo menu. Skip the empty case so no phantom group is opened.
-        let runId = UUID()
-        var historyRecords: [SyncHistoryRecord] = []
-        // Each item's identity walk was started inside `performBulkSyncIO`, the moment its own
-        // copy landed; each registration hands back the task that wraps its walk, collected here
-        // and awaited only AFTER the undo grouping closes — an await inside the group would open
-        // the main actor mid-group, letting an interleaved operation register into OUR "Sync
-        // run" step. Bulk sync copies files, so each walk is a single stat.
-        var identityWalks: [Task<Void, Never>] = []
-        if !result.successes.isEmpty { undoManager?.beginUndoGrouping() }
-        for (diff, (trashed, from, to), identityWalk) in result.successes {
-            let actionName = "Sync \(diff.relativePath.components(separatedBy: "/").last ?? "")"
-            // The nil-coalescing is defensive only: this run copies (isMove is never true here),
-            // so the IO loop started a walk for every success.
-            identityWalks.append(registerCopyUndo(
-                pendingItems: [(source: from, destination: to, overwritten: trashed,
-                                identity: identityWalk ?? Self.startCopyIdentityWalk(at: to, fileManager: activeFM))],
-                actionName: actionName, fileManager: activeFM))
-            historyRecords.append(SyncHistoryRecord(
-                runId: runId,
-                action: .copy,
-                sourcePath: from.path,
-                destPath: to.path,
-                sizeBytes: diff.leftFileSize,
-                checksum: nil,
-                backupPath: trashed?.path,
-                direction: "→ Right"
-            ))
-        }
-        if !result.successes.isEmpty {
-            undoManager?.setActionName("Sync run")
-            undoManager?.endUndoGrouping()
-        }
-        // The pairing is armed HERE, in the turn that closed the group, and not after the walks
-        // below (FR26): what tops the stack after an await may be a rename or a ⌘Z made during
-        // the tail, and "Undo Last Run" would then describe this run while reversing that.
-        recordSyncHistory(historyRecords)
-        // Outside the group (see the note at `identityWalks`): the run does not report complete
-        // until every undo it registered is fully armed.
-        for walk in identityWalks { await walk.value }
-        removeResolvedDifferences(matching: result.successes.map { $0.0 })
-        // The failures stay in the list — only successes were removed — so mark them while they
-        // are still in hand. Unconditional: a clean run clears the previous one's marks.
-        recordTransferFailures(result.failures)
-        // No per-failure isSyncing reset here: the defer above clears the flag for every
-        // item of this run, and nothing can observe the list before it runs.
-        if result.failures.count == 1, let (diff, error) = result.failures.first {
-            present(.copyFailed(
-                items: "“\(diff.relativePath)”",
-                path: diff.leftItemPath,
-                reason: error.localizedDescription
-            ))
-        } else if result.failures.count > 1 {
-            // Same aggregation as syncAll: one alert summarizes; every failure is logged.
-            for (diff, error) in result.failures {
-                Logger.shared.error(SyncError.copyFailed(
-                    items: "\"\(diff.relativePath)\"",
-                    path: diff.leftItemPath,
-                    reason: error.localizedDescription
-                ).logDescription)
-            }
-            let (firstDiff, firstError) = result.failures[0]
-            present(.bulkFailed(
-                verb: "copy",
-                failureCount: result.failures.count,
-                firstPath: firstDiff.leftItemPath,
-                firstReason: firstError.localizedDescription
-            ))
-        }
-        if !result.failures.isEmpty {
-            banner = .warning("\(result.successes.count) copied; \(result.failures.count) failed")
-        } else if !result.successes.isEmpty {
-            // The whole run's per-file undos are wrapped in one group above, so ⌘Z reverses it all.
-            banner = .success("\(CountedNoun.phrase(result.successes.count, "file")) copied — dates matched", undoable: true)
-        }
-        // Summary breadcrumb for the bulk path: a single-file copy already logs its "Copied …"
-        // line, but a "Copy All" of hundreds of files otherwise leaves no successful-outcome
-        // record — only the per-failure ERROR lines above. Log the count so the batch is visible.
-        if !result.successes.isEmpty {
-            Logger.shared.info("Copied \(result.successes.count) item(s) in bulk\(result.failures.isEmpty ? "" : ", \(result.failures.count) failed")")
-        }
+        await matchDatesOfProvenPairs(toCopy, stamps: stamps, held: held)
     }
 
     /// One file whose date `matchDatesOfProvenPairs` set: the date it had, the date it was given
@@ -299,14 +182,14 @@ extension FileSyncManager {
                                   previousModificationDate: state.previous)
             })
             removeResolvedDifferences(matching: outcome.matched.map(\.0))
-            Logger.shared.info("Copy to match dates: set the date of \(outcome.matched.count) verified-identical file(s) on the right to the left's — no bytes copied")
+            Logger.shared.info("Match dates: set the date of \(outcome.matched.count) verified-identical file(s) on the right to the left's — no bytes copied")
         }
         for diff in outcome.changed {
-            Logger.shared.warning("Copy to match dates: left \(diff.relativePath) alone — it changed since it was verified")
+            Logger.shared.warning("Match dates: left \(diff.relativePath) alone — it changed since it was verified")
         }
         recordTransferFailures(outcome.failures)
         for (diff, error) in outcome.failures {
-            Logger.shared.error("Copy to match dates: could not set the date of \(diff.rightItemPath): \(error.localizedDescription)")
+            Logger.shared.error("Match dates: could not set the date of \(diff.rightItemPath): \(error.localizedDescription)")
         }
         let leftOut = outcome.changed.count + outcome.failures.count + held.count
         if leftOut > 0 {
@@ -327,7 +210,7 @@ extension FileSyncManager {
     /// row either way — and the links, which nothing in the app copies right (`syncFile` refuses a
     /// row copying FROM one), so no path is named for them.
     ///
-    /// `linkOnEitherSide` words the link half for Copy to match dates, which also leaves out a pair
+    /// `linkOnEitherSide` words the link half for Match Dates, which also leaves out a pair
     /// with a link on the side it would write — such a row carries no hold, so a row without one
     /// counts as a link there.
     ///
@@ -455,8 +338,7 @@ extension FileSyncManager {
     }
 
     /// Runs the copy/move I/O for a prepared bulk work list on the parallel scaffolding,
-    /// collecting per-difference successes and failures. Shared by `syncAll` and
-    /// `bulkCopyDifferencesLeftToRight`.
+    /// collecting per-difference successes and failures. `syncAll`'s; Match Dates copies nothing.
     ///
     /// Each COPY success also carries its identity walk (`startCopyIdentityWalk`), started right
     /// here, the moment that item's own copy landed — not at registration time, which comes only

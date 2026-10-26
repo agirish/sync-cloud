@@ -705,8 +705,17 @@ import Foundation
     /// double-prompt. Pin the exemption.
     @MainActor
     @Test func testVerifiedCopyBulkPathNeverConsultsTheConfirmer() async throws {
-        let (manager, mockFM, diff) = try makeDifferenceFixture()
-        mockFM.virtualDisk["/dst/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        let (manager, mockFM, _) = try makeDifferenceFixture()
+        // A verified pair: both sides, same size, a day apart. The run sets the right file's
+        // date and copies nothing (review E6).
+        let leftDate = Date(timeIntervalSince1970: 1_600_000_000)
+        mockFM.virtualDisk["/src/a.txt"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [.modificationDate: leftDate, .size: 9], contents: nil)
+        mockFM.virtualDisk["/dst/a.txt"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [.modificationDate: leftDate.addingTimeInterval(86_400), .size: 9], contents: nil)
+        let diff = FileDifference(relativePath: "a.txt", leftItemPath: "/src/a.txt", rightItemPath: "/dst/a.txt",
+                                  type: .differentDates, action: .copyToRight, description: "Different dates",
+                                  leftFileSize: 9, rightFileSize: 9)
         manager.bulkCollisionResolver = { _ in (.replace, true) }
         var prompts = 0
         manager.transferConfirmer = { _ in
@@ -714,12 +723,13 @@ import Foundation
             return true
         }
 
-        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [diff], asOf: manager.fileOperationsEpoch)
+        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [diff], asOf: manager.fileOperationsEpoch, fileManager: mockFM)
         let copyTask = manager.confirmVerifiedCopy()
         await copyTask?.value
 
         #expect(prompts == 0)
-        #expect(mockFM.trashedPaths.count == 1) // the replace actually ran
+        // The run actually ran: the right file took the left's date.
+        #expect((try? mockFM.attributesOfItem(atPath: "/dst/a.txt"))?[.modificationDate] as? Date == leftDate)
     }
 
     /// A vanished destination root (provider dropped from settings mid-session) must not

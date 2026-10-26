@@ -185,41 +185,6 @@ import Events
         #expect(manager.bulkSyncProgress == nil)
     }
 
-    @MainActor
-    @Test(.parksThreads(4)) func bulkCopyLeftToRightCancelledMidRunFinishesInFlightItemsAndTakesNoMore() async throws {
-        // Same contract on the second entry point onto the shared worker scaffolding
-        // (`bulkCopyDifferencesLeftToRight`, the "copy to match dates" path), which reaches it
-        // without syncAll's prepare/collision phase.
-        let disk = MockFileManager()
-        try disk.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try disk.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        let names = (1...6).map { "d\($0).txt" }
-        for (index, name) in names.enumerated() { seed(disk, "/src/\(name)", size: 200 + index) }
-
-        // concurrency here is min(4, max(2, count)) = 4, the same worker width as syncAll.
-        let gate = BarrierCancelGate(inner: disk, width: 4)
-        let manager = FileSyncManager(fileManager: gate)
-        let diffs = names.map { diff($0, size: 100) }
-        manager.rawDifferences = diffs
-        manager.differences = diffs
-
-        // Current stamp: this test is about mid-run cancellation, not the staleness guard.
-        let run = Task { await manager.bulkCopyDifferencesLeftToRight(diffs, asOf: manager.fileOperationsEpoch) }
-        await waitUntil("the run publishes a cancellable Progress") { manager.activeProgress != nil }
-        gate.installProgress(try #require(manager.activeProgress))
-        await run.value
-        try #require(!gate.releasedByTimeout, "the barrier timed out: the four workers never rendezvoused, so no cancel landed mid-run")
-
-        let landed = files(disk, under: "/dst")
-        #expect(landed.count == 4, "only the in-flight items may complete, got \(landed.sorted())")
-        #expect(disk.virtualDisk.keys.contains { $0.contains(".tmp_") } == false)
-        #expect(Set(manager.differences.map(\.relativePath)) == Set(names).subtracting(landed))
-        #expect(manager.lastRecordedRunRecords.count == 4)
-        #expect(manager.currentError == nil)
-        #expect(manager.isBulkSyncRunning == false)
-        #expect(manager.syncingDifferenceIds.isEmpty)
-    }
-
     // MARK: 2. Batch destination reservation (reservedTargets / reservedKey)
 
     @MainActor

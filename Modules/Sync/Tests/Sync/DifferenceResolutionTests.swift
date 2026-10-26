@@ -10,6 +10,12 @@ import Foundation
 /// - a prefetch fast-path load must clear a spinner flag left set by a cancelled slow load.
 @Suite struct DifferenceResolutionTests {
 
+    static let leftDate = Date(timeIntervalSince1970: 1_600_000_000)
+
+    private func rightDate(_ mockFM: MockFileManager) -> Date? {
+        (try? mockFM.attributesOfItem(atPath: "/dst/test.txt"))?[.modificationDate] as? Date
+    }
+
     /// Builds a mock disk where the same file exists on both sides (the verified-identical case)
     /// and a manager whose collision seams are mocked so no NSAlert can ever appear.
     @MainActor
@@ -17,8 +23,12 @@ import Foundation
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/test.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        mockFM.virtualDisk["/dst/test.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        // Same size, dates a day apart: the run matches the right file's date to the left's and
+        // copies nothing (review E6), so "it ran" reads as the right file taking `leftDate`.
+        mockFM.virtualDisk["/src/test.txt"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [.modificationDate: Self.leftDate, .size: 10], contents: nil)
+        mockFM.virtualDisk["/dst/test.txt"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [.modificationDate: Self.leftDate.addingTimeInterval(86_400), .size: 10], contents: nil)
 
         let manager = FileSyncManager(fileManager: mockFM)
         manager.collisionResolver = { _ in .replace }
@@ -45,7 +55,8 @@ import Foundation
     @MainActor
     @Test func testConfirmVerifiedCopyCopiesEvenWhenDismissBindingFiresFirst() async throws {
         let (manager, mockFM, diff) = try makeVerifiedCopyFixture()
-        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [diff], asOf: manager.fileOperationsEpoch)
+        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [diff], asOf: manager.fileOperationsEpoch,
+                                                             fileManager: mockFM)
 
         let dismissCleanup = manager.verifiedCopyDialogDismissed() // binding setter (dismiss)
         let copyTask = manager.confirmVerifiedCopy()   // confirm button, same main-actor turn
@@ -54,9 +65,8 @@ import Foundation
         await copyTask?.value
         await dismissCleanup.value                     // the deferred dismiss cleanup really ran
 
-        // The copy really ran: the existing destination was trashed and replaced.
-        #expect(mockFM.trashedPaths.count == 1)
-        #expect(mockFM.virtualDisk["/dst/test.txt"] != nil)
+        // The run really ran: the right file took the left's date.
+        #expect(rightDate(mockFM) == Self.leftDate)
         // Resolved for good: gone from both lists, and not merely hidden as "dismissed".
         #expect(manager.differences.isEmpty)
         #expect(manager.rawDifferences.isEmpty)
@@ -67,7 +77,8 @@ import Foundation
     @MainActor
     @Test func testConfirmVerifiedCopyCopiesWhenConfirmRunsFirst() async throws {
         let (manager, mockFM, diff) = try makeVerifiedCopyFixture()
-        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [diff], asOf: manager.fileOperationsEpoch)
+        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [diff], asOf: manager.fileOperationsEpoch,
+                                                             fileManager: mockFM)
 
         let copyTask = manager.confirmVerifiedCopy()
         let dismissCleanup = manager.verifiedCopyDialogDismissed()
@@ -75,7 +86,7 @@ import Foundation
         await copyTask?.value
         await dismissCleanup.value
 
-        #expect(mockFM.trashedPaths.count == 1)
+        #expect(rightDate(mockFM) == Self.leftDate)
         #expect(manager.differences.isEmpty)
         #expect(manager.rawDifferences.isEmpty)
     }
@@ -84,7 +95,8 @@ import Foundation
     @MainActor
     @Test func testCancelVerifiedCopyHidesWithoutCopying() async throws {
         let (manager, mockFM, diff) = try makeVerifiedCopyFixture()
-        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [diff], asOf: manager.fileOperationsEpoch)
+        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [diff], asOf: manager.fileOperationsEpoch,
+                                                             fileManager: mockFM)
 
         manager.dismissVerifiedCopyDialogWithoutCopy() // Cancel button
         let dismissCleanup = manager.verifiedCopyDialogDismissed() // binding setter also fires
@@ -95,6 +107,7 @@ import Foundation
         await waitUntil("cancelled verified copy hides its rows") { manager.differences.isEmpty }
 
         #expect(mockFM.trashedPaths.isEmpty)
+        #expect(rightDate(mockFM) == Self.leftDate.addingTimeInterval(86_400), "Cancel matched the date anyway")
         #expect(manager.verifiedIdenticalForCopy == nil)
         #expect(manager.verifiedSameDifferenceIds.contains(diff.id))
         #expect(manager.differences.isEmpty)           // hidden by applyFilters

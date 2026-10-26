@@ -87,22 +87,6 @@ import EventsTestSupport
         #expect(await loggerHasError(log, containing: "onlySyncLog.txt"))
     }
 
-    @MainActor
-    @Test func testBulkCopySingleFailureIsLoggedAsError() async throws {
-        let log = LogCapture()
-        let mockFM = MockFileManager()
-        let manager = FileSyncManager(fileManager: mockFM)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-
-        // Current stamp: this test is about the per-file failure log, not the staleness guard.
-        await manager.bulkCopyDifferencesLeftToRight(
-            [makeMissingSourceDiff("onlyCopyLog.txt")], asOf: manager.fileOperationsEpoch
-        )
-
-        #expect(await loggerHasError(log, containing: "onlyCopyLog.txt"))
-    }
-
     /// True when `log` captured an ERROR entry whose message contains `fragment` — the fragment is
     /// a per-test unique file name, so another test's lines can't false-match. A capture, not the
     /// shared buffer, so the rest of the package logging past the line cannot take it away.
@@ -174,29 +158,48 @@ import EventsTestSupport
         #expect(manager.lastTransferFailures == nil)
     }
 
-    /// The SECOND bulk path — the "copy the verified-identical rows to match dates" run — records
-    /// its failures too.
+    /// The SECOND bulk path — Verify All's Match Dates — records its failed rows and logs each as
+    /// an error too.
     ///
     /// This test exists because deleting the call in this path left all 1403 Sync tests green: the
     /// `syncAll` test above covers one site and says nothing about the other, and two call sites
-    /// with identical code is exactly the shape where one gets fixed and one does not.
+    /// with identical code is exactly the shape where one gets fixed and one does not. The run
+    /// copied then; it sets dates now (review E6), so the failure is a date that cannot be set:
+    /// the right files are locked (`uchg`), which `utimensat` refuses and a stat does not see.
     @MainActor
-    @Test func testTheVerifiedCopyPathRecordsItsFailedRowsToo() async throws {
-        let mockFM = MockFileManager()
-        let manager = FileSyncManager(fileManager: mockFM)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-
-        // No sources on the virtual disk, so every copy fails.
-        let diffs = [makeMissingSourceDiff("v1.txt"), makeMissingSourceDiff("v2.txt")]
+    @Test func testTheMatchDatesPathRecordsAndLogsItsFailedRowsToo() async throws {
+        let log = LogCapture()
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("MatchDatesFailure-\(UUID().uuidString)")
+        let left = base.appendingPathComponent("left"), right = base.appendingPathComponent("right")
+        for dir in [left, right] { try fm.createDirectory(at: dir, withIntermediateDirectories: true) }
+        var diffs: [FileDifference] = []
+        for name in ["v1-locked.txt", "v2-locked.txt"] {
+            let l = left.appendingPathComponent(name), r = right.appendingPathComponent(name)
+            try Data("same".utf8).write(to: l)
+            try Data("same".utf8).write(to: r)
+            try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_600_000_000)], ofItemAtPath: l.path)
+            try #require(chflags(r.path, UInt32(UF_IMMUTABLE)) == 0)
+            diffs.append(FileDifference(relativePath: name, leftItemPath: l.path, rightItemPath: r.path,
+                                        type: .differentDates, action: .copyToRight, description: "d",
+                                        leftFileSize: 4, rightFileSize: 4))
+        }
+        defer {
+            for diff in diffs { _ = chflags(diff.rightItemPath, 0) }
+            try? fm.removeItem(at: base)
+        }
+        let manager = FileSyncManager()
         manager.rawDifferences = diffs
         manager.differences = diffs
+        let stamps = Dictionary(uniqueKeysWithValues: diffs.map { ($0.id, FilePairStamp.read($0, fileManager: fm)) })
 
         // `asOf` is re-checked against the live epoch at the point the write is ordered; passing
         // the current one is what a confirm with nothing in between would have carried.
-        await manager.bulkCopyDifferencesLeftToRight(diffs, asOf: manager.fileOperationsEpoch)
+        await manager.bulkCopyDifferencesLeftToRight(diffs, asOf: manager.fileOperationsEpoch, stamps: stamps)
 
-        #expect(manager.currentError != nil, "the fixture must FAIL its copies, or this proves nothing")
-        #expect(manager.lastTransferFailures?.ids == Set(diffs.map(\.id)))
+        #expect(manager.lastTransferFailures?.ids == Set(diffs.map(\.id)), "the failed rows were not marked")
+        #expect(manager.banner?.message == "0 dates matched; 2 failed")
+        #expect(await loggerHasError(log, containing: "v1-locked.txt"))
+        #expect(await loggerHasError(log, containing: "v2-locked.txt"))
     }
 }

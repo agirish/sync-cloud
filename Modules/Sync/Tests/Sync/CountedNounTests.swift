@@ -84,14 +84,15 @@ import Combine
     }
 
     @MainActor
-    @Test func copyingToMatchDatesNamesOneFileInTheSingular() async throws {
+    @Test func matchingDatesNamesOneFileInTheSingular() async throws {
         let fm = MockFileManager()
         let manager = FileSyncManager(fileManager: fm)
         let diff = try oneDifference(fm, name: "dated.txt")
         let seen = await titles(of: manager) {
             await manager.bulkCopyDifferencesLeftToRight([diff], asOf: manager.fileOperationsEpoch)
         }
-        #expect(seen == ["Copying 1 file to match dates"])
+        // The run matches dates and copies nothing (review E6), whatever stamps it is handed.
+        #expect(seen == ["Matching the dates of 1 file"])
     }
 }
 

@@ -191,8 +191,15 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
         }
     }
 
+    /// Runs before ``setAttributes(_:ofItemAtPath:)`` — and so before every `setModificationDate`,
+    /// which goes through it — while the mock holds no lock, so it may block: it parks Match
+    /// Dates, which writes a date and copies nothing (review E6), the way ``beforeCopyItem`` parks
+    /// a copy.
+    public var beforeSetAttributes: ((String) -> Void)?
+
     public func setAttributes(_ attributes: [FileAttributeKey : Any], ofItemAtPath path: String) throws {
-        try sync {
+        beforeSetAttributes?(path)
+        return try sync {
             guard let stub = virtualDisk[path] else {
                 throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoSuchFileError)
             }

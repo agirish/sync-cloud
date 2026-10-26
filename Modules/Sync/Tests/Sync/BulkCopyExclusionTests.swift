@@ -35,6 +35,28 @@ import Foundation
         return (manager, mockFM, diffs)
     }
 
+    /// The two dates of a verified pair, a day apart, so "matched" cannot be an accident.
+    static let leftDate = Date(timeIntervalSince1970: 1_600_000_000)
+    static let rightDate = Date(timeIntervalSince1970: 1_600_086_400)
+
+    /// A pair on both sides, same size, dates a day apart — the only shape a verified offer holds.
+    /// The run sets the right file's date and copies nothing (review E6), so a run that went
+    /// through reads as the right file taking `leftDate`.
+    @MainActor
+    private func addVerifiedPair(_ mockFM: MockFileManager, _ name: String) -> FileDifference {
+        mockFM.virtualDisk["/src/\(name)"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [.modificationDate: Self.leftDate, .size: 9], contents: nil)
+        mockFM.virtualDisk["/dst/\(name)"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [.modificationDate: Self.rightDate, .size: 9], contents: nil)
+        return FileDifference(relativePath: name, leftItemPath: "/src/\(name)", rightItemPath: "/dst/\(name)",
+                              type: .differentDates, action: .copyToRight, description: "Different dates",
+                              leftFileSize: 9, rightFileSize: 9)
+    }
+
+    private func rightDate(_ mockFM: MockFileManager, _ name: String) -> Date? {
+        (try? mockFM.attributesOfItem(atPath: "/dst/\(name)"))?[.modificationDate] as? Date
+    }
+
     /// (Field comparison — banner equality includes a per-publish id.)
     @MainActor
     private func refused(_ manager: FileSyncManager) -> Bool {
@@ -86,27 +108,30 @@ import Foundation
     /// makes them non-vacuous without changing what is being pinned.
     @MainActor
     @Test func testVerifiedCopyRefusedWhileVerifyAllInFlight() async throws {
-        let (manager, mockFM, diffs) = try makeFixture(names: ["a.txt"])
+        let (manager, mockFM, _) = try makeFixture(names: [])
+        let diffs = [addVerifiedPair(mockFM, "a.txt")]
+        manager.rawDifferences = diffs
+        manager.differences = diffs
 
         await manager.enqueueFileOperation { }
         try #require(manager.fileOperationsEpoch > 0)
         try #require(manager.activeFileOperationsCount == 0)
 
         manager.isVerifyAllRunning = true
-        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: diffs, asOf: manager.fileOperationsEpoch)
+        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: diffs, asOf: manager.fileOperationsEpoch, fileManager: mockFM)
         let copyTask = manager.confirmVerifiedCopy()
         await copyTask?.value
 
         #expect(refused(manager))
-        #expect(mockFM.virtualDisk["/dst/a.txt"] == nil)
+        #expect(rightDate(mockFM, "a.txt") == Self.rightDate)
         #expect(manager.isVerifyAllRunning)
         manager.isVerifyAllRunning = false
 
         // With the verify run finished, the identical offer goes through.
         manager.banner = nil
-        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: diffs, asOf: manager.fileOperationsEpoch)
+        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: diffs, asOf: manager.fileOperationsEpoch, fileManager: mockFM)
         await manager.confirmVerifiedCopy()?.value
-        #expect(mockFM.virtualDisk["/dst/a.txt"] != nil)
+        #expect(rightDate(mockFM, "a.txt") == Self.leftDate)
         #expect(!refused(manager))
     }
 
@@ -114,7 +139,7 @@ import Foundation
     /// `isBulkSyncRunning`, so a concurrent `syncAll` is dropped before touching any file, and
     /// the run's exit releases the flag and tears down only its own progress.
     ///
-    /// The run is held by its OWN copy I/O. It used to be held by parking a foreign operation
+    /// The run is held by its OWN write — a date, since it copies nothing (review E6). It used to be held by parking a foreign operation
     /// on the queue ahead of it, and that state production cannot reach: an offer is only
     /// published while `activeFileOperationsCount == 0` and the epoch is still the one its
     /// verdicts were hashed under, and `confirmVerifiedCopy` refuses if either has moved since
@@ -127,24 +152,26 @@ import Foundation
     /// refusal banner is pinned instead by `testVerifiedCopyRefusedWhileAnotherBulkRunIsInFlight`.
     @MainActor
     @Test(.parksAThread) func testVerifiedCopyExcludesConcurrentBulkRuns() async throws {
-        let (manager, mockFM, diffs) = try makeFixture(names: ["a.txt", "b.txt"])
-        let verifiedDiff = diffs[0]
-        let bulkDiff = diffs[1]
+        let (manager, mockFM, fixtureDiffs) = try makeFixture(names: ["b.txt"])
+        let verifiedDiff = addVerifiedPair(mockFM, "a.txt")
+        let bulkDiff = fixtureDiffs[0]
+        manager.rawDifferences = [verifiedDiff, bulkDiff]
+        manager.differences = [verifiedDiff, bulkDiff]
 
-        // Park the FIRST copy this run makes, so the run is genuinely in flight while the
+        // Park the FIRST date this run sets (it copies nothing — review E6), so the run is genuinely in flight while the
         // assertions below run — no wall-clock sleeps, and nothing queued ahead of it. The park
         // is bounded AND records its timeout: an unrecorded bound would let the copy resume on
         // its own, and "the run was never held" would then be indistinguishable from "the run
         // was held and the drop still happened" — which is the whole claim of this test.
         let gate = ParkGate()
         let parked = LockedBox(false)
-        mockFM.beforeCopyItem = { _ in
+        mockFM.beforeSetAttributes = { _ in
             let isFirst = parked.withLock { seen in defer { seen = true }; return !seen }
             guard isFirst else { return }
             gate.park()
         }
 
-        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [verifiedDiff], asOf: manager.fileOperationsEpoch)
+        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [verifiedDiff], asOf: manager.fileOperationsEpoch, fileManager: mockFM)
         let copyTask = manager.confirmVerifiedCopy()
         try #require(copyTask != nil, "nothing is in flight and the stamp is current: the confirm must be accepted")
         await awaitSignal(gate.entered)
@@ -176,7 +203,7 @@ import Foundation
         try #require(!gate.releasedByTimeout, "the gate timed out: the run was never actually held in flight")
 
         // Only the verified run's work happened; the dropped syncAll never touched b.txt.
-        #expect(mockFM.virtualDisk["/dst/a.txt"] != nil)
+        #expect(rightDate(mockFM, "a.txt") == Self.leftDate)
         #expect(mockFM.virtualDisk["/dst/b.txt"] == nil)
         #expect(manager.differences.map(\.relativePath) == ["b.txt"])
         // Exclusion fully released and progress torn down once the run exits.
