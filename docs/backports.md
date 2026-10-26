@@ -11815,3 +11815,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s u1=%s u7=%s fix=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | Neither alert (`u1=0 u7=0`) | CLOSED — does not apply |
+
+---
+
+## A same-name copy redo keeps the spelling the batch ended with (final review L3) — main only
+
+U5's redo took the last registration's source but the first one's destination, so `F.txt` then
+`f.txt` into one folder on a folding volume was re-copied as `F.txt`. `main` takes both from the
+last registration.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s u5=%s fix=%s\n' $l \
+  "$(git show origin/$l:$S/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'finalSourceByDestination')" \
+  "$(git show origin/$l:$S/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'finalCopyByDestination')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads u5=0 fix=2):
+# main                     u5=2 fix=0
+# v5.x, v4.x, v3.x, v2.x   u5=0 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The pre-U5 redo, which re-copies the first registration — source and spelling (U5's row) | RECORDED — not owed |

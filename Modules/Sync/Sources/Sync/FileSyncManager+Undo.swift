@@ -1282,12 +1282,14 @@ extension FileSyncManager {
                         // handled first, and the later registration is skipped as a duplicate; the
                         // redo param named the handled item's source, so ⌘⇧Z re-copied the copy the
                         // batch had replaced. `items` is in registration order: the last one wins.
-                        let finalSourceByDestination = Dictionary(
-                            items.map { (foldedKey($0.destination), $0.source) },
+                        // The destination's SPELLING comes from that last registration too (L3): on a
+                        // folding volume `F.txt` then `f.txt` is one file the batch ended spelling
+                        // `f.txt`, and the redo re-copies under the name the batch left.
+                        let finalCopyByDestination = Dictionary(
+                            items.map { (foldedKey($0.destination), (source: $0.source, destination: $0.destination)) },
                             uniquingKeysWith: { _, later in later })
                         func undone(_ item: CopyUndoItemState) -> (source: URL, destination: URL) {
-                            (source: finalSourceByDestination[foldedKey(item.destination)] ?? item.source,
-                             destination: item.destination)
+                            finalCopyByDestination[foldedKey(item.destination)] ?? (source: item.source, destination: item.destination)
                         }
                         func markHandled(_ url: URL) {
                             handledDestinations.insert(url.path)
