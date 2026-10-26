@@ -737,12 +737,18 @@ extension FileSyncManager {
         // empty folder, or one holding only a `.DS_Store` — so that alone is a move ⌘Z must reverse.
         if !transferred.isEmpty || (isMove && !result.trashedMergeSources.isEmpty) {
             if isMove {
+                // Awaited for the copy's reason below: the Trash items' identities are read off the
+                // main actor after registration, and until they are, whatever sits at a Trash path
+                // is what the undo records. Returning first let a stranger put there in that gap —
+                // an empty `Reports` in place of the merge's emptied source — be recorded as the
+                // source folder itself, and ⌘Z then restored it (FR35).
                 let moved = transferred.isEmpty ? result.trashedMergeSources.count : transferred.count
-                self.registerMoveUndo(items: Self.undoItems(transferred, restoringFirst: result.trashedMergeSources),
-                                      mergeEmptiedFolders: Set(result.trashedMergeSources.map(\.item.to)),
-                                      redirectedIntoTrash: Set(result.redirectedIntoTrash.keys),
-                                      actionName: "Move \(CountedNoun.phrase(moved, "Item"))", fileManager: fm)
+                let armed = self.registerMoveUndo(items: Self.undoItems(transferred, restoringFirst: result.trashedMergeSources),
+                                                  mergeEmptiedFolders: Set(result.trashedMergeSources.map(\.item.to)),
+                                                  redirectedIntoTrash: Set(result.redirectedIntoTrash.keys),
+                                                  actionName: "Move \(CountedNoun.phrase(moved, "Item"))", fileManager: fm)
                 if !transferred.isEmpty { recordTransferHistory() }
+                await armed.value
             } else {
                 // Each item's identity walk was started the moment ITS copy landed, inside the
                 // loop above; the registration here is synchronous and what is awaited is the

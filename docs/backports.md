@@ -11695,3 +11695,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s readOnlyRow=%s noticeLine=%s 
 | `v5.x` | The read-only row, the notice over the whole line, a menu's Close Tab jumping the header | RECORDED — not owed |
 | `v4.x` | A menu's Close Tab jumping the header (no Edit) | RECORDED — not owed |
 | `v3.x` / `v2.x` | No Edit, no tabs | CLOSED — does not apply |
+
+---
+
+## A move's ⌘Z is armed before the move reports done (FR35 follow-up) — main only
+
+A move registered its undo and returned while the Trash items' identities were still being read
+off the main actor. Whatever sat at a Trash path by the time that read ran was recorded as the
+item: an empty `Reports` put in place of a merge's emptied source folder in that gap was taken
+for the folder itself, and ⌘Z restored it. `main`'s `moveItems` now awaits the registration's
+identity reads, as its copy branch already did.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s trashIdentity=%s mergeEmptied=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Undo.swift 2>/dev/null | grep -c 'func trashBackupVerdict')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Undo.swift 2>/dev/null | grep -c 'func mergeEmptiedFolderIdentity')"; done
+# measured 2026-10-26, against origin:
+# main                      trashIdentity=1 mergeEmptied=1
+# v5.x, v4.x, v3.x, v2.x    trashIdentity=0 mergeEmptied=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Trash identity check (FR27, FR35), so nothing to record late | CLOSED — does not apply |

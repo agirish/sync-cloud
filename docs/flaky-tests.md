@@ -4274,3 +4274,50 @@ spent. "Gave up after 10.0 s and 400+ turns" was disproved. A count far below it
 `MergeUndoPromiseTests`' semaphores, `MergeUndoGroupingAndGateTests`' rendezvous,
 `BulkSyncCancellationAndReservationTests`' barrier — and the park budget's own give-up. Each one is a
 one-line change to `wait(until: TurnDeadline(…))` if it goes red the same way.
+
+### 41. A move returned before its undo had read the Trash, so the fixture's stranger was recorded as the original — FIXED
+
+**Symptom.** `UndoTrashIdentityTests.aMergeMoveUndoLeavesAnEmptyStrangerFolderAtTheSourceFoldersTrashPathInTheTrash`
+red once, 2026-10-26, in a full local `Modules/Sync` run at `4f6054fdf`, with 11 builds queued
+for slots. Two expectations: `markOn(trashed) == "stranger"` and `markOn(src) == nil`. ⌘Z had
+pulled the stranger out of the Trash as the source folder. Green 3 of 3 under `--filter`, and in
+the next full run.
+
+**Not file-number reuse.** The undo tells the merge's emptied source folder from another empty
+folder by its own `st_ino` (`.directoryTreeAndFileNumber`), and the fixture deletes the folder
+and makes the stranger at once. APFS gave a new number every time: 0 repeats in 20,000
+`rmdir`/`mkdir` cycles of one path, on this Mac's data volume.
+
+**Mechanism.** `registerMoveUndo(items:)` registers the undo at once, then reads the Trash items'
+identities in a `Task.detached`, the walk kept off the main actor. `moveItems` dropped the task it
+returns, so it reported done before the read had run. The copy branch next to it awaits the same
+kind of task, "the drift tests tamper the moment it does". The move branch did not. The test swaps in the
+stranger the moment `moveItems` returns. On an idle machine the detached read gets there first. Under
+load the swap does, and the read records the stranger's number. ⌘Z then finds the stranger it recorded,
+unchanged, and restores it. This is the
+race "Fixed pumps and fixed sleeps" warns about, with the fixture's next line playing the pump.
+
+**Reproduced** by holding the detached read 300 ms (a scratch `Task.sleep` at its start, never
+committed): `--filter UndoTrashIdentityTests`, idle, red on exactly those two expectations, the
+other 19 green.
+
+**Fix.** `moveItems` awaits the registration, as the copy branch does, so a move is done only once
+its ⌘Z knows what it put in the Trash. The gap was real in the app too, if narrow: it is as long
+as the read takes to be scheduled, and a person would have to empty the Trash and trash another
+`Reports` within it.
+
+**Mutation-checked**, with the 300 ms hold kept in:
+
+| Mutation | Verdict |
+|---|---|
+| none: the fix and the hold together | 20 of 20 green, 1.6 s |
+| the await removed (the code before the fix) | `markOn(trashed) == "stranger"` and `markOn(src) == nil` red, 1.7 s |
+
+**Tell.** A Trash-identity test, its stranger or tampering done on the line right after the
+operation returns, red only under load with ⌘Z having restored what it should refuse. Check that
+the operation awaits its undo's identity reads.
+
+**Not swept here:** every other `registerMoveUndo(items:)` caller (bulk sync, filing, automations,
+rename, normalize, restructure) still returns before its backups' identities are read. Each
+records only overwritten backups late, not a merge's emptied folder. Await the returned task if
+one goes red this way.
