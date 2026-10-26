@@ -11718,3 +11718,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s trashIdentity=%s mergeEmptied
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Trash identity check (FR27, FR35), so nothing to record late | CLOSED — does not apply |
+
+---
+
+## An empty merge's undo ends the last run's pairing and counts one item (final review M1, L4) — main only
+
+U4's undo for a merge that moved nothing out recorded no history and left the previous run's
+"Undo Last Run" pairing live, so a paired "Move 1 Item" run passed the name gate over the merge's
+own "Move 1 Item" group: the alert listed the earlier move while `undo()` reversed the merge. And a
+nested merge named its undo for every folder it trashed ("Move 2 Items" for one). `main` drops the
+pairing and counts the outermost folders only.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s u4=%s fix=%s\n' $l \
+  "$(git show origin/$l:$S/FileOperations.swift 2>/dev/null | grep -cF 'isMove && !result.trashedMergeSources.isEmpty')" \
+  "$(git show origin/$l:$S/FileOperations.swift 2>/dev/null | grep -cF 'else { invalidateRunUndoPairing() }')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads fix=1):
+# main                     u4=1 fix=0
+# v5.x, v4.x, v3.x, v2.x   u4=0 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No undo for an empty merge (`u4=0`) | CLOSED — does not apply |

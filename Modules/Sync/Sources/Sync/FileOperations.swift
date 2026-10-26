@@ -742,12 +742,21 @@ extension FileSyncManager {
                 // is what the undo records. Returning first let a stranger put there in that gap —
                 // an empty `Reports` in place of the merge's emptied source — be recorded as the
                 // source folder itself, and ⌘Z then restored it (FR35).
-                let moved = transferred.isEmpty ? result.trashedMergeSources.count : transferred.count
+                //
+                // The items the user moved, not every folder trashed: a nested merge's emptied
+                // folder sits inside its parent's, which is the one item (L4).
+                let trashedSources = result.trashedMergeSources.map { $0.item.from.path }
+                let moved = transferred.isEmpty
+                    ? trashedSources.filter { path in !trashedSources.contains { path.hasPrefix($0 + "/") } }.count
+                    : transferred.count
                 let armed = self.registerMoveUndo(items: Self.undoItems(transferred, restoringFirst: result.trashedMergeSources),
                                                   mergeEmptiedFolders: Set(result.trashedMergeSources.map(\.item.to)),
                                                   redirectedIntoTrash: Set(result.redirectedIntoTrash.keys),
                                                   actionName: "Move \(CountedNoun.phrase(moved, "Item"))", fileManager: fm)
-                if !transferred.isEmpty { recordTransferHistory() }
+                // A group with no history records must not leave an earlier run's pairing live
+                // (M1): an earlier "Move 1 Item" run would pass the name gate over this group, and
+                // Undo Last Run would describe that run while reversing this merge.
+                if !transferred.isEmpty { recordTransferHistory() } else { invalidateRunUndoPairing() }
                 await armed.value
             } else {
                 // Each item's identity walk was started the moment ITS copy landed, inside the
