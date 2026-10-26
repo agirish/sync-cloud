@@ -899,36 +899,37 @@ import Events
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: url("/tsrc"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: url("/tdst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/tsrc/a.txt"] = file(10)
-        mockFM.virtualDisk["/tsrc/bb.txt"] = file(20)
+        mockFM.virtualDisk["/tsrc/aa.txt"] = file(10)
+        mockFM.virtualDisk["/tsrc/b.txt"] = file(20)
 
         // The two names are DIFFERENT LENGTHS on purpose. `pruneNestedNodes` orders the selection
         // by path length with `sorted(by:)`, which Swift does not promise is stable, so two
         // equal-length names would hand the batch over in an order that can differ between runs —
-        // and which item moves first is the whole fixture. `a.txt` shorter than `bb.txt` pins the
-        // batch as [a, bb], hence redo params [a, bb], hence a replay of [bb, a].
-        let nodes = [FileNode(id: "/tsrc/a.txt", name: "a.txt", isDirectory: false),
-                     FileNode(id: "/tsrc/bb.txt", name: "bb.txt", isDirectory: false)]
+        // and which item moves first is the whole fixture. `b.txt` shorter than `aa.txt` pins the
+        // batch as [b, aa], and a multi-select move replays in the order it was applied (M2):
+        // `b.txt` moves first, `aa.txt` last.
+        let nodes = [FileNode(id: "/tsrc/aa.txt", name: "aa.txt", isDirectory: false),
+                     FileNode(id: "/tsrc/b.txt", name: "b.txt", isDirectory: false)]
         await manager.moveItems(nodes: nodes, toPath: "/tdst", fileManager: mockFM)
-        try #require(mockFM.virtualDisk["/tdst/a.txt"] != nil)
-        try #require(mockFM.virtualDisk["/tdst/bb.txt"] != nil)
+        try #require(mockFM.virtualDisk["/tdst/aa.txt"] != nil)
+        try #require(mockFM.virtualDisk["/tdst/b.txt"] != nil)
 
         manager.undoManager?.undo()
         await waitUntil("both moves are reversed") {
-            mockFM.virtualDisk["/tsrc/a.txt"] != nil && mockFM.virtualDisk["/tsrc/bb.txt"] != nil
+            mockFM.virtualDisk["/tsrc/aa.txt"] != nil && mockFM.virtualDisk["/tsrc/b.txt"] != nil
         }
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
-        let afterUndo = probe(mockFM, ["/tsrc/a.txt", "/tsrc/bb.txt", "/tdst/a.txt", "/tdst/bb.txt"])
-        #expect(afterUndo == "/tsrc/a.txt=10  /tsrc/bb.txt=20",
+        let afterUndo = probe(mockFM, ["/tsrc/aa.txt", "/tsrc/b.txt", "/tdst/aa.txt", "/tdst/b.txt"])
+        #expect(afterUndo == "/tsrc/aa.txt=10  /tsrc/b.txt=20",
                 "the undo leg must put both files back before the redo is measured; got \(afterUndo)")
 
-        // A stranger takes `a.txt`'s place WHILE `bb.txt` is moving — after `a.txt`'s up-front
+        // A stranger takes `aa.txt`'s place WHILE `b.txt` is moving — after `aa.txt`'s up-front
         // check has passed and before its own move runs. One-shot, by nilling the hook, so the
         // redo's own bookkeeping moves cannot re-arm it.
         mockFM.beforeCopyItem = { src in
-            guard src == "/tsrc/bb.txt" else { return }
+            guard src == "/tsrc/b.txt" else { return }
             mockFM.beforeCopyItem = nil
-            mockFM.virtualDisk["/tsrc/a.txt"] = MockFileManager.FileStub(
+            mockFM.virtualDisk["/tsrc/aa.txt"] = MockFileManager.FileStub(
                 isDirectory: false,
                 attributes: [FileAttributeKey.size: 8888,
                              FileAttributeKey.modificationDate: Date(timeIntervalSince1970: 8_888)],
@@ -939,19 +940,19 @@ import Events
 
         manager.undoManager?.redo()
         await waitUntil("the redo re-applies the item that did not drift") {
-            mockFM.virtualDisk["/tdst/bb.txt"] != nil
+            mockFM.virtualDisk["/tdst/b.txt"] != nil
         }
         await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
 
-        let afterRedo = probe(mockFM, ["/tsrc/a.txt", "/tsrc/bb.txt", "/tdst/a.txt", "/tdst/bb.txt"])
-        #expect(afterRedo == "/tsrc/a.txt=8888  /tdst/bb.txt=20",
+        let afterRedo = probe(mockFM, ["/tsrc/aa.txt", "/tsrc/b.txt", "/tdst/aa.txt", "/tdst/b.txt"])
+        #expect(afterRedo == "/tsrc/aa.txt=8888  /tdst/b.txt=20",
                 "the stranger must stay where the user put it and only bb.txt may be re-applied; got \(afterRedo)")
-        #expect(manager.banner?.message == "Redo left “a.txt” in place — it changed since",
+        #expect(manager.banner?.message == "Redo left “aa.txt” in place — it changed since",
                 "got \(String(describing: manager.banner?.message))")
 
         let lines = await logLines(since: marker)
         #expect(lines.contains {
-            $0.contains("REFUSED to re-apply \"a.txt\" from /tsrc/a.txt")
+            $0.contains("REFUSED to re-apply \"aa.txt\" from /tsrc/aa.txt")
                 && $0.contains("it changed since the undo put it back")
         }, "the mid-batch replacement was not refused; lines since the marker: \(lines)")
         #expect(lines.contains {
@@ -982,36 +983,36 @@ import Events
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: url("/dsrc"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: url("/ddst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/dsrc/y.txt"] = file(20)
-        mockFM.virtualDisk["/dsrc/xx.txt"] = file(10)
+        mockFM.virtualDisk["/dsrc/yy.txt"] = file(20)
+        mockFM.virtualDisk["/dsrc/x.txt"] = file(10)
 
-        // Lengths pin the order again, and this time the SHORTER name has to be the absent one:
-        // the batch is registered [y, xx], so the redo params are [y, xx] and the replay is
-        // [xx, y] — `xx.txt` moves first and `y.txt`, the absent source, moves last.
-        let nodes = [FileNode(id: "/dsrc/y.txt", name: "y.txt", isDirectory: false),
-                     FileNode(id: "/dsrc/xx.txt", name: "xx.txt", isDirectory: false)]
+        // Lengths pin the order again, and this time the LONGER name has to be the absent one:
+        // the batch is applied [x, yy], and a multi-select move replays in that order (M2) —
+        // `x.txt` moves first and `yy.txt`, the absent source, moves last.
+        let nodes = [FileNode(id: "/dsrc/yy.txt", name: "yy.txt", isDirectory: false),
+                     FileNode(id: "/dsrc/x.txt", name: "x.txt", isDirectory: false)]
         await manager.moveItems(nodes: nodes, toPath: "/ddst", fileManager: mockFM)
-        try #require(mockFM.virtualDisk["/ddst/y.txt"] != nil)
-        try #require(mockFM.virtualDisk["/ddst/xx.txt"] != nil)
+        try #require(mockFM.virtualDisk["/ddst/yy.txt"] != nil)
+        try #require(mockFM.virtualDisk["/ddst/x.txt"] != nil)
 
         manager.undoManager?.undo()
         await waitUntil("both moves are reversed") {
-            mockFM.virtualDisk["/dsrc/y.txt"] != nil && mockFM.virtualDisk["/dsrc/xx.txt"] != nil
+            mockFM.virtualDisk["/dsrc/yy.txt"] != nil && mockFM.virtualDisk["/dsrc/x.txt"] != nil
         }
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
 
-        // The user deletes the restored y.txt themselves, so its source is genuinely ABSENT when
+        // The user deletes the restored yy.txt themselves, so its source is genuinely ABSENT when
         // the redo's up-front pass looks at it...
-        mockFM.virtualDisk["/dsrc/y.txt"] = nil
-        let afterUndo = probe(mockFM, ["/dsrc/xx.txt", "/dsrc/y.txt", "/ddst/xx.txt", "/ddst/y.txt"])
-        #expect(afterUndo == "/dsrc/xx.txt=10",
+        mockFM.virtualDisk["/dsrc/yy.txt"] = nil
+        let afterUndo = probe(mockFM, ["/dsrc/x.txt", "/dsrc/yy.txt", "/ddst/x.txt", "/ddst/yy.txt"])
+        #expect(afterUndo == "/dsrc/x.txt=10",
                 "only the surviving source may be on disk when the redo starts; got \(afterUndo)")
 
-        // ...and then writes a NEW, unrelated y.txt while xx.txt is moving.
+        // ...and then writes a NEW, unrelated yy.txt while x.txt is moving.
         mockFM.beforeCopyItem = { src in
-            guard src == "/dsrc/xx.txt" else { return }
+            guard src == "/dsrc/x.txt" else { return }
             mockFM.beforeCopyItem = nil
-            mockFM.virtualDisk["/dsrc/y.txt"] = MockFileManager.FileStub(
+            mockFM.virtualDisk["/dsrc/yy.txt"] = MockFileManager.FileStub(
                 isDirectory: false,
                 attributes: [FileAttributeKey.size: 7777,
                              FileAttributeKey.modificationDate: Date(timeIntervalSince1970: 7_777)],
@@ -1022,19 +1023,19 @@ import Events
 
         manager.undoManager?.redo()
         await waitUntil("the redo re-applies the item whose source survived") {
-            mockFM.virtualDisk["/ddst/xx.txt"] != nil
+            mockFM.virtualDisk["/ddst/x.txt"] != nil
         }
         await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
 
-        let afterRedo = probe(mockFM, ["/dsrc/xx.txt", "/dsrc/y.txt", "/ddst/xx.txt", "/ddst/y.txt"])
-        #expect(afterRedo == "/dsrc/y.txt=7777  /ddst/xx.txt=10",
+        let afterRedo = probe(mockFM, ["/dsrc/x.txt", "/dsrc/yy.txt", "/ddst/x.txt", "/ddst/yy.txt"])
+        #expect(afterRedo == "/dsrc/yy.txt=7777  /ddst/x.txt=10",
                 "the file the user had just created must not be relocated by a redo; got \(afterRedo)")
-        #expect(manager.banner?.message == "Redo left “y.txt” in place — it changed since",
+        #expect(manager.banner?.message == "Redo left “yy.txt” in place — it changed since",
                 "got \(String(describing: manager.banner?.message))")
 
         let lines = await logLines(since: marker)
         #expect(lines.contains {
-            $0.contains("REFUSED to re-apply \"y.txt\" from /dsrc/y.txt")
+            $0.contains("REFUSED to re-apply \"yy.txt\" from /dsrc/yy.txt")
                 && $0.contains("it changed since the undo put it back")
         }, "the refilled source was not refused; lines since the marker: \(lines)")
         #expect(lines.contains {

@@ -11766,3 +11766,28 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s shallow=%s fix=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The date-and-count folder identity (`shallow=1`): a folder opened in Finder refuses its move-undo | RECORDED — not owed |
+
+---
+
+## A move batch is undone last item first (final review M2) — main only
+
+Moving `A/f` and `B/f` into `D` and merging the second puts B's children inside the `D/f` that `A/f`
+became; undone front to back, `D/f` went home to `A/f` with them inside, an empty `B/f` came back,
+and the children were refused as "changed since". `main` undoes a pane or drop move last item first,
+each merge's emptied folder still ahead of its children, and holds each item to what it was as it
+landed.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s merge=%s fix=%s\n' $l \
+  "$(git show origin/$l:$S/FileOperations.swift 2>/dev/null | grep -cF 'func mergeChildren')" \
+  "$(git show origin/$l:$S/FileOperations.swift 2>/dev/null | grep -cF 'nodeStarts: [Int]')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads fix=3):
+# main, v5.x         merge=1 fix=0
+# v4.x, v3.x, v2.x   merge=0 fix=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | Merge, undone front to back (`merge=1`) | RECORDED — owed |
+| `v4.x` / `v3.x` / `v2.x` | No Merge (`merge=0`): no item of a batch writes into another | CLOSED — does not apply |

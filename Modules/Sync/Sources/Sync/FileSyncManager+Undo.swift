@@ -1087,9 +1087,15 @@ extension FileSyncManager {
     /// folders a merge emptied and trashed (FR35); see `MoveRedoParam.emptiedByMerge`.
     /// `redirectedIntoTrash` names, the same way, the items a later move of the same batch replaced
     /// into the Trash (FR23).
+    ///
+    /// `landedIdentities` holds, by `to`, an identity the caller read the moment that item landed
+    /// (M2): the pane transfer's, whose later items can write into an earlier one and are undone
+    /// first, so the earlier one is compared against what it was as it landed. An item it does not
+    /// name is read here, as before.
     @discardableResult
     func registerMoveUndo(items: [MoveItemState], mergeEmptiedFolders: Set<URL> = [],
-                          redirectedIntoTrash: Set<URL> = [], actionName: String,
+                          redirectedIntoTrash: Set<URL> = [], landedIdentities: [URL: ItemIdentity] = [:],
+                          actionName: String,
                           fileManager fm: FileManaging = FileManager.default) -> Task<Void, Never> {
         // Snapshots each moved item's identity HERE, at registration time — the move has already
         // happened, so the item this undo is responsible for is on disk — so the handler can
@@ -1120,7 +1126,7 @@ extension FileSyncManager {
         let renames = FileSyncManager.renameMap(for: items)
         let enriched: [MoveUndoItemState] = items.map { item in
             (from: item.from, to: item.to, overwritten: item.overwritten,
-             movedIdentity: ItemIdentity.snapshot(
+             movedIdentity: landedIdentities[item.to] ?? ItemIdentity.snapshot(
                 at: FileSyncManager.liveLocation(of: item.to, throughRenames: renames, fileManager: fm),
                 fileManager: fm),
              overwrittenIdentity: ItemIdentity.absent,
@@ -1557,23 +1563,28 @@ extension FileSyncManager {
     /// that order**: the handler reverses them front to back, `registerMoveRedo` re-applies them
     /// back to front, and the state it hands the next undo is reversed again.
     ///
-    /// **Exactly ONE of the nine call sites depends on that, and it is the only one that sorts.**
+    /// **Two of the nine call sites depend on that, and they arrange their order themselves.**
     /// `normalizeNames` applies deepest-first and then deliberately re-sorts the batch
     /// shallowest-first before registering, so a ⌘Z restores a renamed parent folder before the
     /// children renamed inside it and a ⌘⇧Z renames the children before the folder around them.
-    /// The reversal in `registerMoveRedo` is written for that call site, and the comment there
-    /// saying it "restores the original apply order" is true of that call site only.
+    /// The reversal in `registerMoveRedo` is written for that call site and the multi-select
+    /// move below, and the comment there saying it "restores the original apply order" is true of
+    /// those two only.
     ///
-    /// The other eight hand over APPLY order — four pass a single item, where order is not a
-    /// question at all, and four (`FileOperations.swift`'s multi-select move,
-    /// `FileSyncManager+Filing.swift`'s batch filing, `FileSyncManager+Automations.swift`'s
-    /// automation run, and `applyRenamePlans`' renumbering) append in the order they moved things.
-    /// For those the replay runs the batch backwards. Filing and automation move FILES into
-    /// destination folders and `applyRenamePlans` renames files inside one folder, so in all three
-    /// no move's `from` can be an ancestor of another's `to` and any order reverses.
+    /// Of the other eight, four pass a single item, where order is not a question at all, and
+    /// three (`FileSyncManager+Filing.swift`'s batch filing, `FileSyncManager+Automations.swift`'s
+    /// automation run, and `applyRenamePlans`' renumbering) hand over APPLY order, appending in the
+    /// order they moved things. For those the replay runs the batch backwards. Filing and
+    /// automation move FILES into destination folders and `applyRenamePlans` renames files inside
+    /// one folder, so in all three no move's `from` can be an ancestor of another's `to` and any
+    /// order reverses.
     ///
-    /// **The multi-select move is the one that has to be checked rather than assumed, and it does
-    /// NOT satisfy that.** `liveLocation`'s own doc, four hundred lines above, constructs the
+    /// **The multi-select move (`FileOperations.swift`) hands over its items LAST FIRST** (M2,
+    /// `undoItems(_:nodeStarts:restoringFirst:)`), because a later item can write into an earlier
+    /// one — a merge into the folder an earlier item became — and must be taken back out first.
+    /// So it is undone last item first and replayed in the order it was applied. It is also the
+    /// one whose ancestry has to be checked rather than assumed, and it does NOT keep its paths
+    /// apart either. `liveLocation`'s own doc, four hundred lines above, constructs the
     /// counter-example: with nested provider roots `/P` and `/P/Backup`, a single multi-select move
     /// batch has `/P/Backup/D` → `/P/Backup/moved-D` beside `/P/D/file.txt` →
     /// `/P/Backup/D/file.txt`, where the first move's `from` IS a strict ancestor of the second's
@@ -1581,8 +1592,8 @@ extension FileSyncManager {
     /// each other", which contradicted that; it says what is true instead. Nothing reaches the bad
     /// replay today: undoing such a batch refuses the ancestor (its source is occupied by the
     /// recreated directory), so the ancestor never enters the redo params and the reversal has
-    /// nothing to get wrong. If a second call site ever needs an order, SORT it as `normalizeNames`
-    /// does rather than leaning on the reversal.
+    /// nothing to get wrong. If another call site ever needs an order, arrange it as these two do
+    /// rather than leaning on the reversal.
     ///
     /// **`applyRenamePlans`' cascades are safe, and neither reason this has given for it was the
     /// real one.** The first credited the naming convention — the label travels with the number, so

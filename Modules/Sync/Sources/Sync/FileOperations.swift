@@ -124,6 +124,28 @@ extension FileSyncManager {
     /// nested merge's folder, which shares the same first-child index when it is the first child),
     /// so among folders at one index the LAST recorded — the outermost — comes first: the outer
     /// folder is restored, then the inner one inside it.
+    ///
+    /// **The batch's items are undone last first** (M2). `nodeStarts[k]` is where item `k`'s own
+    /// transfers begin in `transferred`, and each folder carries the item it belongs to. Within an
+    /// item the order above holds; across items the LATER one is undone first, because a later
+    /// item can write into an earlier one: move `A/f` and `B/f` into `D` and merge the second, and
+    /// `B/f`'s children land inside the `D/f` that `A/f` became. Undone front to back, `D/f` went
+    /// home to `A/f` with them inside, and their own undo then found nothing at `D/f`.
+    nonisolated static func undoItems(_ transferred: [MoveItemState], nodeStarts: [Int],
+                                      restoringFirst folders: [(node: Int, before: Int, item: MoveItemState)]) -> [MoveItemState] {
+        var items: [MoveItemState] = []
+        items.reserveCapacity(transferred.count + folders.count)
+        for node in nodeStarts.indices.reversed() {
+            let lower = nodeStarts[node]
+            let upper = node + 1 < nodeStarts.count ? nodeStarts[node + 1] : transferred.count
+            let own = folders.filter { $0.node == node }.map { (before: $0.before - lower, item: $0.item) }
+            items += undoItems(Array(transferred[lower..<upper]), restoringFirst: own)
+        }
+        return items
+    }
+
+    /// One item's part of ``undoItems(_:nodeStarts:restoringFirst:)``: its transfers, with each
+    /// folder its merge emptied ahead of that merge's first child (`before`, relative to them).
     nonisolated static func undoItems(_ transferred: [MoveItemState],
                                       restoringFirst folders: [(before: Int, item: MoveItemState)]) -> [MoveItemState] {
         guard !folders.isEmpty else { return transferred }
@@ -355,12 +377,12 @@ extension FileSyncManager {
             progress.runLockReason = Progress.runLockReason(waitingFor: isMove ? "the move" : "the copy")
         }
 
-        let result = await enqueueFileOperation(alreadyCounted: true) { [weak self, progress] () -> (errors: [Error], transferred: [(from: URL, to: URL, overwritten: URL?)], identityWalks: [Task<CopyIdentityReading, Never>], alreadyThere: Int, mergedNodeIDs: Set<String>, trashedMergeSources: [(before: Int, item: MoveItemState)], redirectedIntoTrash: [URL: URL]) in
-            guard self != nil else { return ([], [], [], 0, [], [], [:]) }
+        let result = await enqueueFileOperation(alreadyCounted: true) { [weak self, progress] () -> (errors: [Error], transferred: [(from: URL, to: URL, overwritten: URL?)], identityWalks: [Task<CopyIdentityReading, Never>], alreadyThere: Int, mergedNodeIDs: Set<String>, trashedMergeSources: [(node: Int, before: Int, item: MoveItemState)], nodeStarts: [Int], redirectedIntoTrash: [URL: URL], landedIdentities: [URL: ItemIdentity]) in
+            guard self != nil else { return ([], [], [], 0, [], [], [], [:], [:]) }
             // One stat, before any I/O: a missing destination root fails the whole operation
             // rather than being recreated by the per-item intermediate-directory pass below.
             guard !destinationRootPath.isEmpty, fm.fileExists(atPath: destinationRootPath) else {
-                return ([FileOperationError.destinationRootUnavailable], [], [], 0, [], [], [:])
+                return ([FileOperationError.destinationRootUnavailable], [], [], 0, [], [], [], [:], [:])
             }
             // Publish progress only once this operation actually starts; setting it at enqueue
             // time would clobber the progress of an operation still running ahead in the queue.
@@ -397,7 +419,15 @@ extension FileSyncManager {
             // the folder back before any of them, so they move back INTO it. Kept apart from
             // `targetItems`: these are not transfers, and nothing that counts or records the
             // batch's transfers may see them.
-            var trashedMergeSources: [(before: Int, item: MoveItemState)] = []
+            var trashedMergeSources: [(node: Int, before: Int, item: MoveItemState)] = []
+            // Where each selected item's own transfers begin in `targetItems`, and which item the
+            // loop is on — so the undo can take the batch back last item first (M2).
+            var nodeStarts: [Int] = []
+            var currentNode = 0
+            // Each moved item's identity the moment it LANDED (M2), keyed by where it landed: a
+            // later item of the batch can write into it — a merge into the folder an earlier item
+            // became — and its undo, run first, takes that back out before this one is compared.
+            var landedIdentities: [URL: ItemIdentity] = [:]
             // Move records FR23 redirected into the Trash: where each now is → where it landed
             // first. Its undo reads it the way it reads any Trash backup (U3), and Sync History
             // names the destination the user moved it to, not the Trash (U8).
@@ -437,6 +467,7 @@ extension FileSyncManager {
                     moveIndicesByFoldedDestination[folded] = stillThere + [targetItems.count]
                 }
                 targetItems.append((from: sourceURL, to: targetURL, overwritten: overwritten))
+                if isMove { landedIdentities[targetURL] = ItemIdentity.snapshot(at: targetURL, fileManager: fm) }
                 if !isMove {
                     // A batch can land one destination TWICE — two same-named sources
                     // through the replace prompt, under one spelling or two ("F.txt" then
@@ -585,7 +616,7 @@ extension FileSyncManager {
                             // registration refuses a different folder that has taken its name in
                             // the Trash, and a Trash emptied since leaves the old fallback.
                             if let trashedURL = trashedURL as URL? {
-                                trashedMergeSources.append((before: firstChildIndex,
+                                trashedMergeSources.append((node: currentNode, before: firstChildIndex,
                                                             item: (from: source, to: trashedURL, overwritten: nil)))
                             }
                             _ = await MainActor.run { Logger.shared.info("Merge moved everything out of \(emptied) — the emptied folder went to the Trash") }
@@ -601,6 +632,8 @@ extension FileSyncManager {
 
             items: for (index, node) in prunedNodes.enumerated() {
                 if progress?.isCancelled == true { break }
+                currentNode = nodeStarts.count
+                nodeStarts.append(targetItems.count)
 
                 await MainActor.run {
                     progress?.localizedAdditionalDescription = node.name
@@ -701,7 +734,7 @@ extension FileSyncManager {
                     progress?.completedUnitCount = Int64(index + 1)
                 }
             }
-            return (taskErrors, targetItems, identityWalks, alreadyThere, mergedNodeIDs, trashedMergeSources, redirectedIntoTrash)
+            return (taskErrors, targetItems, identityWalks, alreadyThere, mergedNodeIDs, trashedMergeSources, nodeStarts, redirectedIntoTrash, landedIdentities)
         }
 
         let transferred = result.transferred
@@ -749,9 +782,11 @@ extension FileSyncManager {
                 let moved = transferred.isEmpty
                     ? trashedSources.filter { path in !trashedSources.contains { path.hasPrefix($0 + "/") } }.count
                     : transferred.count
-                let armed = self.registerMoveUndo(items: Self.undoItems(transferred, restoringFirst: result.trashedMergeSources),
+                let armed = self.registerMoveUndo(items: Self.undoItems(transferred, nodeStarts: result.nodeStarts,
+                                                                        restoringFirst: result.trashedMergeSources),
                                                   mergeEmptiedFolders: Set(result.trashedMergeSources.map(\.item.to)),
                                                   redirectedIntoTrash: Set(result.redirectedIntoTrash.keys),
+                                                  landedIdentities: result.landedIdentities,
                                                   actionName: "Move \(CountedNoun.phrase(moved, "Item"))", fileManager: fm)
                 // A group with no history records must not leave an earlier run's pairing live
                 // (M1): an earlier "Move 1 Item" run would pass the name gate over this group, and
