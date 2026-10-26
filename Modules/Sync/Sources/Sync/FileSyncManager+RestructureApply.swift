@@ -1668,9 +1668,11 @@ extension FileSyncManager {
         let here = FilingSurveyStore.corpusURL(id: id, in: directory).path
         guard let parent = profile.derivedFrom, parent != id,
               (try? FileManager.default.attributesOfItem(atPath: here)) == nil else { return false }
-        let parentCorpus = FilingSurveyStore.corpus(id: parent, in: directory)
+        // Stats too: the parent's corpus is decoded once, by the carry, and only when it runs.
+        let parentCorpus = FilingSurveyStore.corpusURL(id: parent, in: directory).path
         let parentProgress = DocumentSurveyCheckpointStore.url(id: parent, in: directory)
-        guard parentCorpus != nil || FileManager.default.fileExists(atPath: parentProgress.path)
+        guard (try? FileManager.default.attributesOfItem(atPath: parentCorpus)) != nil
+            || FileManager.default.fileExists(atPath: parentProgress.path)
         else { return false }
 
         struct Ledger: Decodable { let applied: [RestructureStore.AppliedRecord]? }
@@ -1693,13 +1695,36 @@ extension FileSyncManager {
             }
         }
 
+        guard carrySurveyArtifacts(from: parent, to: id, through: landed, root: profile.root,
+                                   in: directory) else { return false }
+        Logger.shared.info("Filing profiles: carried \(parent)'s survey into \(id) — the "
+            + "re-derive that made \(id) stopped before its replay"
+            + (landed.actions.isEmpty ? "" : ", rekeyed through \(landed.manifestId)"))
+        return true
+    }
+
+    /// **Carries `parent`'s survey into `id`**: a stopped survey's progress, and the corpus —
+    /// rekeyed through `landed` and renamed to `id` — with the memory rebuilt from it, keeping the
+    /// folder stamps `parent`'s memory recorded under their new names (a folder whose stamp no
+    /// longer matches reads as stale to the next survey, which is the safe side). Nothing is read
+    /// again, so the corpus keeps its own `surveyedAt`. Does nothing where `id` already has a
+    /// corpus. Returns whether a corpus was carried.
+    ///
+    /// The re-derive's read-back uses it, and so does a Setup walk of a folder whose survey is
+    /// already on disk (review C3) — with no moves, since the folder's paths are unchanged.
+    @discardableResult
+    nonisolated static func carrySurveyArtifacts(from parent: String, to id: String,
+                                                 through landed: RestructureManifest,
+                                                 root: String, in directory: URL) -> Bool {
+        let here = FilingSurveyStore.corpusURL(id: id, in: directory).path
         carrySurveyProgress(from: parent, to: id, in: directory, through: landed)
-        guard let parentCorpus else { return false }
+        guard (try? FileManager.default.attributesOfItem(atPath: here)) == nil,
+              let parentCorpus = FilingSurveyStore.corpus(id: parent, in: directory) else {
+            return false
+        }
         let rekeyed = RestructureRederive.rekeyedCorpus(parentCorpus, through: landed)
         let corpus = FilingCorpus(profileId: id, salt: rekeyed.salt, documents: rekeyed.documents,
                                   surveyedAt: rekeyed.surveyedAt)
-        // The stamps the parent's memory recorded, under the folders' new names. A folder whose
-        // stamp no longer matches reads as stale to the next survey, which is the safe side.
         let renames = RestructureRederive.renameMap(of: landed)
         var folderModified: [String: Int] = [:]
         for (folder, entry) in FilingProfileStore.memory(id: parent, in: directory)?.folders ?? [:] {
@@ -1709,18 +1734,19 @@ extension FileSyncManager {
         }
         let memory = FilingSurvey.buildMemory(corpus: corpus, folderModified: folderModified,
                                               profileId: id)
+        // Asked again just before the write: a survey that wrote one meanwhile is newer.
+        guard (try? FileManager.default.attributesOfItem(atPath: here)) == nil else { return false }
         do {
             try FilingSurveyStore.write(corpus: corpus, memory: memory, previousMemory: nil, id: id,
-                                        in: directory, root: profile.root,
+                                        in: directory, root: root,
                                         now: corpus.surveyedAt ?? Date())
         } catch {
-            Logger.shared.warning("Filing profiles: could not carry \(parent)'s survey into \(id), "
-                + "which a re-derive left without one: \(error.localizedDescription)")
+            Logger.shared.warning("Filing profiles: could not carry \(parent)'s survey into \(id): "
+                + error.localizedDescription)
             return false
         }
-        Logger.shared.info("Filing profiles: carried \(parent)'s survey (\(corpus.documents.count) "
-            + "document(s)) into \(id) — the re-derive that made \(id) stopped before its replay"
-            + (landed.actions.isEmpty ? "" : ", rekeyed through \(landed.manifestId)"))
+        Logger.shared.info("Filing profiles: carried \(parent)'s survey "
+            + "(\(corpus.documents.count) document(s)) into \(id)")
         return true
     }
 

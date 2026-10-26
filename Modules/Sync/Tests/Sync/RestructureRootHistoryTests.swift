@@ -421,6 +421,50 @@ import Testing
                 "the entry stayed after its history was taken up")
     }
 
+    // MARK: - The folder's survey
+
+    /// A survey corpus for `id`, as a finished document survey leaves it.
+    private static func survey(_ id: String, _ profiles: URL, root: URL) throws {
+        let corpus = FilingCorpus(profileId: id, salt: "s", documents: [
+            "Finance/Receipts/2024 receipt.pdf": FilingCorpusDocument(
+                size: 1, modified: 1_700_000_000, anchors: ["receipt"], idHashes: []),
+        ])
+        try FilingSurveyStore.write(corpus: corpus,
+                                    memory: FilingMemory(profileId: id, salt: "s", folders: [:]),
+                                    previousMemory: nil, id: id, in: profiles, root: root.path,
+                                    now: time(0))
+    }
+
+    /// The survey is keyed by paths in the folder walked, exactly as the history is, so it
+    /// follows the folder too (review C3): Setup's Save of the same folder again, or of a folder
+    /// whose history it takes up, used to land on a profile with no corpus — and the Save then
+    /// started a full survey of hours though the corpus for that very folder was on disk. The
+    /// control: a folder with no survey of its own starts none.
+    @Test func theFoldersSurveyFollowsItAcrossWalks() async throws {
+        let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
+        defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
+        try Self.tree(in: a)
+        try Self.tree(in: b)
+        let m = manager(profiles)
+        let a0 = try await walk(m, a, at: 0)
+        Self.ledger(a0, profiles).suppress(Self.forms)
+        try Self.survey(a0, profiles, root: a)
+
+        let a1 = try await walk(m, a, at: 1)
+        let carried = try #require(FilingSurveyStore.corpus(id: a1, in: profiles),
+                                   "a walk of the same folder left its survey behind")
+        #expect(carried.profileId == a1)
+        #expect(Set(carried.documents.keys) == ["Finance/Receipts/2024 receipt.pdf"])
+        #expect(FilingProfileStore.memory(id: a1, in: profiles) != nil)
+
+        let b0 = try await walk(m, b, at: 2)
+        #expect(FilingSurveyStore.corpus(id: b0, in: profiles) == nil,
+                "another folder took up the first folder's survey")
+        let a2 = try await walk(m, a, at: 3)
+        #expect(FilingSurveyStore.corpus(id: a2, in: profiles)?.profileId == a2,
+                "walking back took the folder's history up but not its survey")
+    }
+
     // MARK: - A map that cannot be written
 
     /// The folder left is recorded in the map BEFORE the index names the new one (review C2).

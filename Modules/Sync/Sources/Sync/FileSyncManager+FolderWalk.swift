@@ -267,9 +267,21 @@ extension FileSyncManager {
         let becameActive = FilingProfileStore.activeProfileId(in: directory) == profileId
         var historyNotice: String?
         if becameActive, let previousId, previousId != profileId {
-            historyNotice = Self.carryCuratedState(from: previousId, to: profileId,
-                                                   root: profile.recordedFolderPath, plan: plan,
-                                                   in: directory, now: now)
+            let carried = Self.carryCuratedState(from: previousId, to: profileId,
+                                                 root: profile.recordedFolderPath, plan: plan,
+                                                 in: directory, now: now)
+            historyNotice = carried.notice
+            // **The survey of the same folder comes along too** (review C3), off the main actor:
+            // a corpus is thousands of documents to decode, rebuild a memory from and write.
+            // Awaited, so Setup's Save starts its reading only once it is in place.
+            if !carried.surveyFrom.isEmpty {
+                let recorded = profile.root
+                await Task.detached(priority: .userInitiated) {
+                    for source in carried.surveyFrom {
+                        Self.carrySurvey(from: source, to: profileId, root: recorded, in: directory)
+                    }
+                }.value
+            }
         }
         let report = FolderWalkReport(foldersProfiled: profile.folders.count,
                                       profileId: profileId,
@@ -408,26 +420,35 @@ extension FileSyncManager {
     ///   before the map existed, so nothing is lost on a read error. So does a walk from a
     ///   profile that records no folder.
     ///
-    /// - Returns: a sentence for Setup to show when a history could not be taken up, else nil.
+    /// **The survey follows the folder too** (review C3): a walk of the same folder, or one that
+    /// takes a folder's history up, names the profiles holding that folder's corpus, memory and a
+    /// stopped survey's progress (``CarryOutcome/surveyFrom``) — the keys are paths in the same
+    /// tree, so they still hold, and Setup's Save does not start a survey of hours over. The
+    /// caller carries them, off the main actor.
+    ///
+    /// - Returns: a sentence for Setup to show when a history could not be taken up, and where
+    ///   the folder's survey is.
     @discardableResult
     static func carryCuratedState(from previousId: String, to newId: String,
                                   root newRoot: String?, plan: WalkHistoryPlan,
-                                  in directory: URL, now: Date = Date()) -> String? {
+                                  in directory: URL, now: Date = Date()) -> CarryOutcome {
         let fm = FileManager.default
         switch plan {
         case .carryAll:
             carryProfileArtifacts(from: previousId, to: newId, in: directory, fm: fm)
-            return nil
+            return CarryOutcome()
         case .sameFolder:
             carryProfileArtifacts(from: previousId, to: newId, in: directory, fm: fm)
             RestructureStore(directory: directory, profileId: newId)
                 .repointProduced(from: previousId, to: newId)
+            var outcome = CarryOutcome(surveyFrom: [previousId])
             guard case .loaded(var entries) = RestructureRootMap.read(in: directory),
-                  let stale = RestructureRootMap.index(of: newRoot, in: entries) else { return nil }
+                  let stale = RestructureRootMap.index(of: newRoot, in: entries) else { return outcome }
             // A history never taken up is taken up now, over what the empty start gathered.
             if entries[stale].takeUpFailedAt != nil {
-                return takeUp(stale, of: &entries, into: newId, replacing: true,
-                              in: directory, now: now)
+                outcome.notice = takeUp(stale, of: &entries, into: newId, replacing: true,
+                                        surveyFrom: &outcome.surveyFrom, in: directory, now: now)
+                return outcome
             }
             // The entry goes only when this folder now holds the history: after a failed take-up
             // the active folder holds the empty files, and the entry is the only way back.
@@ -441,7 +462,7 @@ extension FileSyncManager {
                         + "\(RestructureRootMap.filename): \(error.localizedDescription)")
                 }
             }
-            return nil
+            return outcome
         case .otherFolder(var entries):
             let history = RestructureRootMap.historyNames
             carryProfileArtifacts(from: previousId, to: newId, in: directory, fm: fm,
@@ -463,11 +484,32 @@ extension FileSyncManager {
                     }
                 }
                 RestructureRootMap.startEmptyHistory(in: directory, profileId: newId)
-                return nil
+                return CarryOutcome()
             }
-            return takeUp(returning, of: &entries, into: newId, replacing: false,
-                          in: directory, now: now)
+            var outcome = CarryOutcome()
+            outcome.notice = takeUp(returning, of: &entries, into: newId, replacing: false,
+                                    surveyFrom: &outcome.surveyFrom, in: directory, now: now)
+            return outcome
         }
+    }
+
+    /// What the curated carry leaves to its caller.
+    struct CarryOutcome: Equatable {
+        /// The sentence Setup shows when a history could not be taken up.
+        var notice: String?
+        /// The profiles holding this folder's survey, the first to hold one wins.
+        var surveyFrom: [String] = []
+    }
+
+    /// Carries `oldId`'s survey of the same folder into `newId` — progress, corpus and memory —
+    /// where `newId` has none yet (review C3). No moves lie between them, so the keys hold as
+    /// they are. Runs off the main actor.
+    nonisolated static func carrySurvey(from oldId: String, to newId: String, root: String,
+                                        in directory: URL) {
+        let unchanged = RestructureManifest(profileId: oldId, manifestId: "setup-walk",
+                                            createdAt: FilingProfileStore.stamp(Date()),
+                                            family: ".", kind: .deadWeight, actions: [])
+        carrySurveyArtifacts(from: oldId, to: newId, through: unchanged, root: root, in: directory)
     }
 
     /// Takes `entries[index]`'s history up into `newId`: its ledger and verdicts copied in —
@@ -477,7 +519,8 @@ extension FileSyncManager {
     /// own files as they were (starting empty ones where it has none), marks the entry so no
     /// walk displaces it, and answers the sentence Setup shows.
     private static func takeUp(_ index: Int, of entries: inout [RestructureRootMap.Entry],
-                               into newId: String, replacing: Bool, in directory: URL,
+                               into newId: String, replacing: Bool,
+                               surveyFrom: inout [String], in directory: URL,
                                now: Date) -> String? {
         let fm = FileManager.default
         let entry = entries[index]
@@ -523,6 +566,7 @@ extension FileSyncManager {
         }
         // A history with only one of the two files gets an empty other.
         RestructureRootMap.startEmptyHistory(in: directory, profileId: newId)
+        surveyFrom.append(entry.profileId)
         entries.remove(at: index)
         do {
             try RestructureRootMap.write(entries, in: directory)

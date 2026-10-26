@@ -11938,3 +11938,29 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s rootMap=%s marked=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No per-folder history map (`rootMap=0`) | CLOSED — does not apply |
+
+---
+
+## Setup's Save keeps the folder's survey (review C3) — main only
+
+A Setup walk writes a new profile folder, and the curated carry never took the document survey
+with it — so saving the same folder again, or a folder whose history a walk took up, landed on a
+profile with no corpus, and Setup's Save then started a survey of hours though the corpus for that
+very folder was on disk. `main` carries the corpus, memory and a stopped survey's progress
+(`carrySurvey`, off the main actor) from the profile that holds that folder's survey; the keys are
+paths in the same tree, so they still hold.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s walkCarry=%s surveyCarry=%s\n' $l \
+  "$(git show origin/$l:$S/FileSyncManager+FolderWalk.swift 2>/dev/null | grep -cF 'static func carryCuratedState')" \
+  "$(git show origin/$l:$S/FileSyncManager+FolderWalk.swift 2>/dev/null | grep -cF 'static func carrySurvey(')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads surveyCarry=1):
+# main                     walkCarry=1 surveyCarry=0
+# v5.x, v4.x, v3.x, v2.x   walkCarry=0 surveyCarry=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The walk with no carry at all (`walkCarry=0`); FR4's row records what it lacks | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No walk profile | CLOSED — does not apply |
