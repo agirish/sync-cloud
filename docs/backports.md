@@ -12132,3 +12132,28 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr14=%s early=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR14 counter rule (`fr14=0`) | CLOSED — does not apply |
+
+---
+
+## The Compare Copies pair refuses another group's keeper, and names a re-picked one — main only
+
+The Compare Copies pair (`resolveDuplicateCopy`) checked only that a copy sits inside a folder
+another group keeps, so it trashed a copy that is another group's current keeper — the half of the
+hold the Compare review's "Trash right copy" already asked. `main` asks the whole hold. And when the
+review's right copy has been picked as its own group's keeper on the card, the refusal now says so,
+rather than "holds the copy another duplicate group keeps — rescan".
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s pair=%s prot=%s whole=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Duplicates.swift 2>/dev/null | grep -cF 'func resolveDuplicateCopy')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Duplicates.swift 2>/dev/null | grep -cF 'copyProtected')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Duplicates.swift 2>/dev/null | grep -cF 'case copyHeld')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads prot=0 whole=1):
+# main, v5.x         pair=1 prot=6 whole=0
+# v4.x, v3.x, v2.x   pair=0 prot=0 whole=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The same pair, checking the protection flag only (`prot=6`); no keeper hold anywhere | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Compare Copies pair (`pair=0`) | CLOSED — does not apply |

@@ -1095,6 +1095,83 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(fixture.harness.duplicateReview == fixture.review)
     }
 
+    /// **A right copy re-picked as this group's keeper is refused in those words (D6).** Pick the
+    /// right folder as the keeper on the card while the review is open, and the hold used to say it
+    /// "holds the copy another duplicate group keeps — rescan": no other group is involved, and a
+    /// rescan would not undo the pick.
+    @Test func aRightCopyRepickedAsThisGroupsKeeperIsRefusedInThoseWords() async throws {
+        let fixture = try await heldReviewFixture { keep, copy, _ in
+            [DuplicateGroup(matchType: .identical, name: "Docs", isDirectory: true,
+                            copies: [duplicateCopy(path: copy.path, keeper: true),
+                                     duplicateCopy(path: keep.path, keeper: false)],
+                            reclaimableBytes: 1234)]
+        }
+        defer { fixture.cleanup() }
+
+        fixture.harness.coordinator.trashRightCopy(fixture.review)
+        await settleTheTrashTask()
+
+        #expect(fixture.harness.trashConfirmedFor.isEmpty, "the user was asked to confirm a refused trash")
+        #expect(FileManager.default.fileExists(atPath: fixture.copy.appendingPathComponent("a.txt").path),
+                "the group's keeper was trashed")
+        let message = fixture.harness.syncManager.banner?.message ?? ""
+        #expect(message.contains("is this group’s keeper now"), "banner: \(message)")
+        #expect(!message.contains("another duplicate group"), "banner: \(message)")
+        #expect(fixture.harness.duplicateReview == fixture.review)
+    }
+
+    /// **A hold that appears during the queue wait is refused at the last check (D5).** The
+    /// pre-check reads the hold before asking; `deleteItems` can then wait behind a long queued
+    /// operation, and a keeper picked by hand inside the right copy in that window must still
+    /// stop the trash. The gate's own `refuseRemovalIfHeld` is the only thing that can see it.
+    @Test func aHoldThatAppearsDuringTheQueueWaitIsRefusedByTheGate() async throws {
+        let fixture = try await heldReviewFixture { keep, copy, _ in
+            [DuplicateGroup(matchType: .identical, name: "Docs", isDirectory: true,
+                            copies: [duplicateCopy(path: keep.path, keeper: true),
+                                     duplicateCopy(path: copy.path, keeper: false)],
+                            reclaimableBytes: 1234)]
+        }
+        defer { fixture.cleanup() }
+        let harness = fixture.harness
+
+        let latch = ReviewTestLatch()
+        let blockerRunning = ReviewTestFlag()
+        let blocker = Task { await harness.syncManager.enqueueFileOperation { @Sendable in
+            blockerRunning.set()
+            await latch.wait()
+        } }
+        await waitUntil("the blocking operation holds the queue") { blockerRunning.isSet }
+
+        harness.coordinator.trashRightCopy(fixture.review)
+        await waitUntil("the review's delete is queued behind the blocker") {
+            harness.syncManager.activeFileOperationsCount == 2
+        }
+        #expect(harness.trashConfirmedFor == [fixture.review.deletePath], "the pre-check refused already")
+        // In the window: another group's keeper, picked by hand, now sits inside the right copy.
+        let inner = fixture.copy.appendingPathComponent("a.txt").path
+        let file = { (path: String, keeper: Bool) in
+            DuplicateCopy(id: path, name: "a.txt", isDirectory: false, size: 1, itemCount: 1,
+                          modificationDate: nil, uniqueItemCount: 0, depth: 2,
+                          isRecommendedKeeper: keeper)
+        }
+        harness.syncManager.duplicateGroups.append(
+            DuplicateGroup(matchType: .identical, name: "a.txt", isDirectory: false,
+                           copies: [file(inner, true), file("/elsewhere/a.txt", false)],
+                           reclaimableBytes: 1))
+        await latch.open()
+        await waitUntil("the hold refusal surfaces") {
+            harness.syncManager.banner?.severity == .warning
+        }
+        _ = await blocker.value
+        await settleTheTrashTask()
+
+        #expect(FileManager.default.fileExists(atPath: inner),
+                "the right copy was trashed with another group's keeper inside it")
+        #expect(harness.syncManager.banner?.message.contains("holds the copy another duplicate group keeps") == true,
+                "banner: \(harness.syncManager.banner?.message ?? "")")
+        #expect(harness.duplicateReview == fixture.review, "a refusal keeps the review up")
+    }
+
     /// **The permanent-delete branch, driven for real** — which only became possible when
     /// `trashRightCopy` started passing `fileManager:` to `deleteItems`.
     ///

@@ -1116,11 +1116,12 @@ extension FileSyncManager {
         /// the CLAIM — the removal would be verified against a keeper this group does not have,
         /// and reported to the user as "keeping" a copy the rest of the app is not.
         case keeperNotKept(groupKeeperName: String)
-        /// The copy lives inside a folder another group is KEEPING, so no removal may offer it —
-        /// see ``DuplicateCopy/isProtectedFromRemoval``. Not a safety failure like drift: the file
+        /// Another group's decision holds the copy — it lives inside a folder another group is
+        /// KEEPING (``DuplicateCopy/isProtectedFromRemoval``), or it is, or holds, a group's current
+        /// keeper (``removalHold(onCopyAt:keeping:)``). Not a safety failure like drift: the file
         /// is exactly what the scan saw, and removing it would still undo a decision made
         /// elsewhere in the same results.
-        case copyProtected
+        case copyHeld(DuplicateRemovalHold)
     }
 
     /// The whole verdict for ONE pair: is there still a live grouping for these two paths, is
@@ -1158,22 +1159,25 @@ extension FileSyncManager {
         // live-group lookup above asks only that both paths are in one group, which a group's
         // second and third copies satisfy while it keeps the first. The surface no longer offers
         // that pair a verdict (`PairKeeperStanding`), but this verb is `public` and a disabled
-        // button is not a rule — the same argument that moved `copyProtected` in here. Refused
+        // button is not a rule — the same argument that moved `copyHeld` in here. Refused
         // rather than silently redirected to the real keeper: the caller asked to keep a specific
         // copy, and quietly acting on a different one is worse than not acting.
         guard live.keeper.path == keeper.path else {
             return .keeperNotKept(groupKeeperName: live.keeper.name)
         }
-        // **Read from the LIVE group, not from the caller's snapshot** — which is the whole reason
-        // this sits in the assessment rather than beside it in the surface. Protection is a fact
+        // **Read from the LIVE results, not from the caller's snapshot** — which is the whole
+        // reason this sits in the assessment rather than beside it in the surface. A hold is a fact
         // about the current results: a rescan can make a copy protected by keeping the folder it
-        // sits in, and the caller is holding a value from before that scan. Asking the passed-in
-        // copy would answer about a grouping that has moved on.
+        // sits in, a keeper picked by hand on another group's card can sit inside it, and the
+        // caller is holding a value from before either. Asking the passed-in copy would answer
+        // about a grouping that has moved on. Both halves of the hold, as `removalHold` documents
+        // and the Compare review's Trash right copy asks: this used to check the protection flag
+        // alone, so a copy that IS another group's keeper was trashed here.
         //
         // After the disk question that can say "there is nothing to do here", and before either
         // drift measurement, which this refusal makes pointless.
-        if live.copies.first(where: { $0.path == copy.path })?.isProtectedFromRemoval == true {
-            return .copyProtected
+        if let hold = removalHold(onCopyAt: copy.path, keeping: keeper.path) {
+            return .copyHeld(hold)
         }
         // Spelled out rather than folded into a `guard`'s `&&`: an `await` may not appear in the
         // autoclosure operand of a short-circuiting operator.
@@ -1239,14 +1243,14 @@ extension FileSyncManager {
         case .keeperNotKept(let groupKeeperName):
             banner = .warning("This group is keeping “\(groupKeeperName)”, not “\(keeper.name)” — so “\(copy.name)” can’t be trashed against it here. Compare against the copy being kept, or resolve the whole group.")
             Logger.shared.warning("Duplicates: refused to trash \(copy.path) — the removal named \(keeper.path) as the keeper, but the live group keeps a different copy, so nothing here was verified against the copy this group is actually keeping")
-        case .copyProtected:
-            let wording = Self.removalHoldWording(.insideKeptFolder, name: copy.name, path: copy.path)
+        case .copyHeld(let hold):
+            let wording = Self.removalHoldWording(hold, name: copy.name, path: copy.path)
             banner = .warning(wording.banner)
             Logger.shared.warning(wording.log)
         }
     }
 
-    /// Why another group's decision forbids removing one copy outright. The single-copy removals
+    /// Why a decision in the live results forbids removing one copy outright. The single-copy removals
     /// (the Compare Copies pair, and the Compare review's "Trash right copy") ask it; the group
     /// flows have their own forms of both checks (`recommendedRemovalPaths` and the gate's FR10).
     public enum DuplicateRemovalHold: Sendable, Equatable {
@@ -1256,17 +1260,30 @@ extension FileSyncManager {
         /// The copy is, or holds, a listed group's CURRENT keeper — the gate's FR10 check, which
         /// sees a keeper picked by hand where the scan's protection cannot.
         case holdsKeeper
+        /// The copy is now the keeper of the very group it was offered for removal from — picked
+        /// by hand after the removal was offered, as the Compare review's right copy can be from
+        /// the card beside it. A case of its own because it is not "another group": the honest
+        /// advice is to compare the pair again, not to rescan.
+        case isItsGroupsKeeper
     }
 
     /// The hold on the copy at `path`, read from the LIVE results — protection and keepers are
     /// facts about the current grouping, which a rescan or a keeper re-pick moves under a surface
     /// that stayed open. A copy flagged protected in ANY group it sits in is held: the flag says
     /// where it lives, not which group asks.
-    public func removalHold(onCopyAt path: String) -> DuplicateRemovalHold? {
+    ///
+    /// `keeperPath` names the copy the removal is meant to keep, which picks out the group asking:
+    /// when the copy has since become THAT group's keeper, the hold says so
+    /// (`.isItsGroupsKeeper`) rather than blaming "another duplicate group".
+    public func removalHold(onCopyAt path: String, keeping keeperPath: String? = nil)
+        -> DuplicateRemovalHold? {
         if duplicateGroups.contains(where: { group in
             group.copies.contains { $0.path == path && $0.isProtectedFromRemoval }
         }) {
             return .insideKeptFolder
+        }
+        if let keeperPath, liveGroup(holding: path, and: keeperPath)?.keeper.path == path {
+            return .isItsGroupsKeeper
         }
         let keepers = Self.pathsHoldingKeepers(
             duplicateGroups.map { Self.canonicalRemovalPath($0.keeper.path) })
@@ -1283,14 +1300,17 @@ extension FileSyncManager {
         case .holdsKeeper:
             return ("“\(name)” holds the copy another duplicate group keeps — rescan before removing it.",
                     "Duplicates: refused to trash \(path) — it is or holds the copy another group keeps; rescan to recompute which copies are safe to remove")
+        case .isItsGroupsKeeper:
+            return ("“\(name)” is this group’s keeper now, so it isn’t trashed here. Compare the copies again from the Duplicates card.",
+                    "Duplicates: refused to trash \(path) — it was picked as its own group’s keeper after this removal was offered")
         }
     }
 
     /// Posts the banner and log line and returns true when a hold forbids removing the copy at
-    /// `path`; false, posting nothing, when none does.
+    /// `path`; false, posting nothing, when none does. `keeperPath` as in ``removalHold(onCopyAt:keeping:)``.
     @discardableResult
-    public func refuseRemovalIfHeld(copyAt path: String) -> Bool {
-        guard let hold = removalHold(onCopyAt: path) else { return false }
+    public func refuseRemovalIfHeld(copyAt path: String, keeping keeperPath: String? = nil) -> Bool {
+        guard let hold = removalHold(onCopyAt: path, keeping: keeperPath) else { return false }
         let wording = Self.removalHoldWording(hold, name: (path as NSString).lastPathComponent, path: path)
         banner = .warning(wording.banner)
         Logger.shared.warning(wording.log)
@@ -1314,7 +1334,7 @@ extension FileSyncManager {
             switch verdict {
             case .matches, .copyVanished:
                 return []
-            case .noLiveGroup, .keeperDrifted, .copyDrifted, .copyProtected, .keeperNotKept:
+            case .noLiveGroup, .keeperDrifted, .copyDrifted, .copyHeld, .keeperNotKept:
                 await self.reportPairRefusal(verdict, copy: copy, keeper: keeper)
                 // Refuse what the gate was ASKED about, in the caller's own spelling: the
                 // post-confirmation pass is fed URL round-tripped paths, and a refusal that
@@ -1349,7 +1369,7 @@ extension FileSyncManager {
         }
         let verdict = await assessDuplicatePair(copy: copy, keeper: keeper)
         switch verdict {
-        case .noLiveGroup, .keeperDrifted, .copyDrifted, .copyProtected, .keeperNotKept:
+        case .noLiveGroup, .keeperDrifted, .copyDrifted, .copyHeld, .keeperNotKept:
             reportPairRefusal(verdict, copy: copy, keeper: keeper)
             return false
         case .copyVanished:

@@ -403,7 +403,8 @@ import Events
 
     /// One file can legitimately sit in two groups — the same-text pass lets an identical group's
     /// keeper anchor a same-text group as well. Both must be updated, or the second goes on
-    /// listing a file that is now in the Trash.
+    /// listing a file that is now in the Trash. The trashed file is a REDUNDANT copy in both: one
+    /// that keeps it is refused (`aCopyThatIsAnotherGroupsKeeperIsRefused`).
     @MainActor
     @Test func everyGroupHoldingTheTrashedPathIsUpdated() async throws {
         let fm = MockFileManager()
@@ -415,7 +416,7 @@ import Events
         let other = copy("/b/x", keeper: false)
         manager.duplicateGroups = [
             group([keeper, other, copy("/c/x", keeper: false)]),
-            group([copy("/b/x", keeper: true), copy("/c/x", keeper: false)], matchType: .sameText),
+            group([copy("/c/x", keeper: true), copy("/b/x", keeper: false)], matchType: .sameText),
         ]
 
         #expect(await manager.resolveDuplicateCopy(other, keeper: keeper) == true)
@@ -561,6 +562,50 @@ import Events
         #expect(await manager.resolveDuplicateCopy(other, keeper: keeper) == false)
         #expect(fm.virtualDisk["/kept/x"] != nil,
                 "the gate destroyed a copy that became protected while the alert was open")
+    }
+
+    /// **A copy that IS another group's keeper is refused (D3).** The pair checked only the
+    /// protection flag, while the hold it documents — and the Compare review asks — has a second
+    /// half: the copy is, or holds, a group's current keeper. `/b/x` sits in two groups, and the
+    /// second keeps it; trashing it as the first group's redundant copy took the other group's
+    /// keeper with it.
+    @MainActor
+    @Test func aCopyThatIsAnotherGroupsKeeperIsRefused() async throws {
+        let fm = MockFileManager()
+        let manager = makeManager(fm)
+        for path in ["/a/x", "/b/x", "/c/x"] { fm.virtualDisk[path] = stub() }
+        let keeper = copy("/a/x", keeper: true)
+        let other = copy("/b/x", keeper: false)
+        manager.duplicateGroups = [group([keeper, other]),
+                                   group([copy("/b/x", keeper: true), copy("/c/x", keeper: false)])]
+
+        #expect(await manager.resolveDuplicateCopy(other, keeper: keeper) == false)
+        #expect(fm.virtualDisk["/b/x"] != nil, "another group's keeper was trashed")
+        #expect(manager.banner?.message.contains("holds the copy another duplicate group keeps") == true,
+                "the refusal did not say why: \(manager.banner?.message ?? "no banner")")
+    }
+
+    /// **A copy re-picked as its OWN group's keeper is named as such (D6)**, not as "the copy
+    /// another duplicate group keeps — rescan": no other group is involved, and a rescan would not
+    /// change the user's pick. `removalHold(onCopyAt:keeping:)` is told which copy the removal
+    /// keeps, which picks out the group asking. Without it, the same pick still holds, in the
+    /// other words.
+    @MainActor
+    @Test func aCopyRepickedAsItsOwnGroupsKeeperIsNamedAsSuch() {
+        let manager = makeManager(MockFileManager())
+        let left = copy("/a/x", keeper: true)
+        let right = copy("/b/x", keeper: false)
+        let g = group([left, right])
+        manager.duplicateGroups = [g]
+        #expect(manager.removalHold(onCopyAt: "/b/x", keeping: "/a/x") == nil)
+
+        manager.setKeeper(for: g.id, to: right.id)
+        #expect(manager.removalHold(onCopyAt: "/b/x", keeping: "/a/x") == .isItsGroupsKeeper)
+        #expect(manager.removalHold(onCopyAt: "/b/x") == .holdsKeeper)
+        let wording = FileSyncManager.removalHoldWording(.isItsGroupsKeeper, name: "x", path: "/b/x")
+        #expect(wording.banner.contains("is this group’s keeper now"), "\(wording.banner)")
+        #expect(!wording.banner.contains("another"), "\(wording.banner)")
+        #expect(wording.log.contains("/b/x"))
     }
 
     /// A protected copy that is also already GONE is reported as gone, not as protected: there is

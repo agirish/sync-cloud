@@ -620,7 +620,9 @@ struct DuplicateReviewCoordinator {
         // keeping, or is or holds a group's current keeper. The Compare Copies pair and the group
         // flows refuse both; this button checked neither, so a keeper picked by hand on the card
         // could be the folder trashed here. Read from the live results, and again in the gate.
-        if syncManager.refuseRemovalIfHeld(copyAt: review.deletePath) { return }
+        // `keeping:` names this review's left copy, so a right copy re-picked as THIS group's
+        // keeper on the card is refused in those words rather than as another group's.
+        if syncManager.refuseRemovalIfHeld(copyAt: review.deletePath, keeping: review.keepPath) { return }
         guard confirmTrashRightCopy(review) else {
             Logger.shared.info("User declined trashing the right duplicate copy \(review.deletePath)")
             return
@@ -678,7 +680,9 @@ struct DuplicateReviewCoordinator {
             // the seam that did not.
             let outcome = await sm.deleteItems(at: [review.deletePath], fileManager: fm,
                                                removalGate: { about in
-                if await sm.refuseRemovalIfHeld(copyAt: review.deletePath) { return Set(about) }
+                if await sm.refuseRemovalIfHeld(copyAt: review.deletePath, keeping: review.keepPath) {
+                    return Set(about)
+                }
                 let gateVerdict = await Self.assessReviewedPair(review, fileManager: fm)
                 switch gateVerdict {
                 case .matches, .deleteVanished:
