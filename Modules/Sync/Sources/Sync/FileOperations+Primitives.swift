@@ -44,7 +44,17 @@ extension FileSyncManager {
         case itemAboveOpeningFolder(itemName: String)
         /// A move-by-copy landed its copy, could not put the original folder in the Trash, and its
         /// permanent removal stopped part-way (P2). Both are kept: the copy is the only whole one.
-        case originalPartlyRemoved(name: String)
+        /// `replacedItemKeptAt` says where a Replace put the item it replaced (B2) — nil for a move
+        /// that replaced nothing.
+        case originalPartlyRemoved(name: String, replacedItemKeptAt: ReplacedItemPlace? = nil)
+
+        /// Where a Replace kept the item it replaced.
+        enum ReplacedItemPlace: Equatable, Sendable {
+            case trash
+            /// A volume with no Trash: the hidden backup beside the destination, by its name.
+            /// Nothing sweeps it — `OrphanSweeper` takes only staging names, never `.rollback_`.
+            case hiddenBesideDestination(name: String)
+        }
 
         var errorDescription: String? {
             switch self {
@@ -77,8 +87,14 @@ extension FileSyncManager {
                 return "“\(name)” is locked, so it can’t be moved or renamed. Unlock it in Finder (File ▸ Get Info) and try again."
             case .itemAboveOpeningFolder(let itemName):
                 return "“\(itemName)” is above the folder its source opens at, and the other source has no folder at that level to put it in. It was left where it is."
-            case .originalPartlyRemoved(let name):
-                return "“\(name)” was copied, but its original couldn’t be put in the Trash and may have been only partly removed. The complete copy is at the destination; what is left of the original is still where it was."
+            case .originalPartlyRemoved(let name, let replaced):
+                let text = "“\(name)” was copied, but its original couldn’t be put in the Trash and may have been only partly removed. The complete copy is at the destination; what is left of the original is still where it was."
+                switch replaced {
+                case nil: return text
+                case .trash: return text + " The item it replaced is in the Trash."
+                case .hiddenBesideDestination(let backup):
+                    return text + " The item it replaced is kept beside it as the hidden “\(backup)”, which nothing removes."
+                }
             }
         }
     }
@@ -641,7 +657,13 @@ extension FileSyncManager {
                         if sourceIsFolder {
                             let previous = finalizeBackup(backupURL, replacing: destinationURL, fileManager: fileManager)
                             Logger.shared.warning("Cross-volume replace of \(destinationURL.path) failed at source cleanup, and the original at \(sourceURL.path) may have been partly removed — the complete copy stays at the destination\(previous.map { "; the item it replaced is at \($0.path)" } ?? ""): \(cleanupError.localizedDescription)")
-                            throw FileOperationError.originalPartlyRemoved(name: sourceURL.lastPathComponent)
+                            // The alert says where the replaced item went (B2): the Trash, or —
+                            // with no Trash — the hidden backup `finalizeBackup` left in place.
+                            let kept: FileOperationError.ReplacedItemPlace? = previous.map {
+                                $0 == backupURL ? .hiddenBesideDestination(name: $0.lastPathComponent) : .trash
+                            }
+                            throw FileOperationError.originalPartlyRemoved(name: sourceURL.lastPathComponent,
+                                                                           replacedItemKeptAt: kept)
                         }
                         // Neither Trash nor remove worked, so this cross-volume move can't complete.
                         // Undo the replace and fail — matching the dest-absent cross-volume path, and
@@ -806,8 +828,9 @@ extension FileSyncManager {
     /// is somebody else's item.
     ///
     /// **A staging item that still will not go is said in the log (P8)**, with its path: it is a
-    /// hidden full-size copy beside the destination, and `OrphanSweeper` is the only other thing
-    /// that will ever look at it.
+    /// hidden full-size copy beside the destination. The line says it is left in place, not that a
+    /// cleanup will come (B7): `OrphanSweeper` only Trashes, so on a volume with no Trash nothing
+    /// ever takes it, and it never looks at a name that is not a `.tmp_` one.
     nonisolated static func removeStaging(_ url: URL, fileManager: FileManaging) {
         guard (try? fileManager.removeItem(at: url)) == nil,
               fileManager.fileExists(atPath: url.path) else { return }
@@ -829,7 +852,7 @@ extension FileSyncManager {
         do {
             try fileManager.removeItem(at: url)
         } catch {
-            Logger.shared.warning("Could not remove the staging item at \(url.path), even with its locks lifted — it is left beside the destination for the periodic cleanup: \(error.localizedDescription)")
+            Logger.shared.warning("Could not remove the staging item at \(url.path), even with its locks lifted — it is left in place: \(error.localizedDescription)")
         }
     }
 

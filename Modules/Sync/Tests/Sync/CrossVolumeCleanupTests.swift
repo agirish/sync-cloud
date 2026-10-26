@@ -65,7 +65,7 @@ import Testing
         try folder(at: destination, files: ["old.txt": "old"])
         let disk = TrashlessPartialRemoveDisk(partial: source.path)
 
-        #expect(throws: FileSyncManager.FileOperationError.originalPartlyRemoved(name: "Photos")) {
+        let thrown = #expect(throws: FileSyncManager.FileOperationError.self) {
             try FileSyncManager.safeMoveItem(at: source, to: destination, fileManager: disk,
                                              caseSensitiveVolume: false, crossVolume: true)
         }
@@ -73,10 +73,62 @@ import Testing
                 "the revert put the old destination back over the only complete copy")
         // The item it replaced is kept too — no Trash here, so as the hidden backup beside it.
         let backups = names(in: destination.deletingLastPathComponent()).filter { $0.hasPrefix(".rollback_") }
+        let backup = try #require(backups.first)
         #expect(backups.count == 1)
-        if let backup = backups.first {
-            #expect(names(in: destination.deletingLastPathComponent().appendingPathComponent(backup)) == ["old.txt"])
+        #expect(names(in: destination.deletingLastPathComponent().appendingPathComponent(backup)) == ["old.txt"])
+        // **B2: and the alert says where** — the hidden backup is the one place it is, and nothing
+        // sweeps it.
+        #expect(thrown == .originalPartlyRemoved(name: "Photos", replacedItemKeptAt: .hiddenBesideDestination(name: backup)))
+        #expect(thrown?.errorDescription?.contains("“\(backup)”") == true, "\(String(describing: thrown?.errorDescription))")
+    }
+
+    /// The Trash-less, part-way-removing disk, on which a rename of `from` fails as across
+    /// volumes — so an undo's or redo's own move takes the copy-and-remove path.
+    private final class CrossVolumePartialRemoveDisk: FileManager, @unchecked Sendable {
+        let partial: String
+        init(partial: String) { self.partial = partial; super.init() }
+
+        override func moveItem(at srcURL: URL, to dstURL: URL) throws {
+            if srcURL.path == partial { throw POSIXError(.EXDEV) }
+            try super.moveItem(at: srcURL, to: dstURL)
         }
+
+        override func trashItem(at url: URL, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+            throw CocoaError(.featureUnsupported, userInfo: [NSFilePathErrorKey: url.path])
+        }
+
+        override func removeItem(at url: URL) throws {
+            guard url.path == partial else { return try super.removeItem(at: url) }
+            try super.removeItem(at: url.appendingPathComponent("a.txt"))
+            throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: url.appendingPathComponent("b.txt").path])
+        }
+    }
+
+    /// **B3.** A ⌘Z whose move back runs across volumes puts the folder back WHOLE and then cannot
+    /// fully remove what is left where it was. That is not a failed restore: the old banner said
+    /// the original "may have been removed from the Trash".
+    @MainActor
+    @Test func anUndoThatMovedBackWholeButLeftRemainsSaysSo() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "b3")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let source = base.appendingPathComponent("src/Photos")
+        let moved = base.appendingPathComponent("dst/Photos")
+        try folder(at: moved, files: ["a.txt": "a", "b.txt": "b"])
+        try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let disk = CrossVolumePartialRemoveDisk(partial: moved.path)
+        let m = FileSyncManager()
+        m.undoManager = UndoManager()
+        m.permanentDeleteConfirmer = { _ in false }
+        await m.registerMoveUndo(items: [(from: source, to: moved, overwritten: nil)], actionName: "Move 1 Item",
+                                 fileManager: disk).value
+
+        m.undoManager?.undo()
+        await waitUntil("the undo drains") { m.activeFileOperationsCount == 0 }
+
+        #expect(names(in: source) == ["a.txt", "b.txt"], "premise: the folder went back whole")
+        #expect(names(in: moved) == ["b.txt"], "premise: the removal stopped part-way")
+        let banner = try #require(m.banner?.message)
+        #expect(banner == "Undo moved “Photos” back, but the copy where it was couldn’t be fully removed", "\(banner)")
     }
 
     /// **P8: a staging item that will not go is logged, with its path.** The last removal was a

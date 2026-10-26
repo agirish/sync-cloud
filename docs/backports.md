@@ -11881,3 +11881,31 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s install=%s fix=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | `replaceItemAt` straight onto the destination (`install=0`), which refuses a link the same way | RECORDED — not owed |
+
+---
+
+## A partial cross-volume cleanup says where things are (final review B2, B3, B7) — main only
+
+P2's alert for a Replace whose original could only be partly removed did not say where the item it
+replaced went — the Trash, or a hidden `.rollback_` beside it on a volume with no Trash, which
+nothing ever removes; `main` says which. An undo or redo moving a folder across volumes can hit the
+same partial removal after putting the folder back whole, and it logged "FAILED to restore" under a
+banner saying the original "may have been removed from the Trash"; `main` says it moved the item and
+could not fully remove the copy where it was. And P8's log promised "the periodic cleanup" for a
+staging item it could not remove, which never comes on a Trash-less volume or for other names; it
+says the item is left in place.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s p2=%s alert=%s undo=%s\n' $l \
+  "$(git show origin/$l:$S/FileOperations+Primitives.swift 2>/dev/null | grep -cF 'case originalPartlyRemoved')" \
+  "$(git show origin/$l:$S/FileOperations+Primitives.swift 2>/dev/null | grep -cF 'replacedItemKeptAt')" \
+  "$(git show origin/$l:$S/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'reportMovedWithLeftoverRemains')"; done
+# measured 2026-10-25, against origin, before this landed (the fix reads alert=3 undo=3):
+# main                     p2=1 alert=0 undo=0
+# v5.x, v4.x, v3.x, v2.x   p2=0 alert=0 undo=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No P2 partial-removal case (`p2=0`) | CLOSED — does not apply |

@@ -154,6 +154,27 @@ extension FileSyncManager {
         }
     }
 
+    /// Surfaces an undo or redo move that DID put the item back whole — at `restored` — but, moving
+    /// it across volumes, could not fully remove what was left at `leftover` (B3, P2's
+    /// `originalPartlyRemoved`). Not a failed restore: the complete item is where the undo or redo
+    /// sent it, and the old "FAILED to restore … may have been removed from the Trash" said
+    /// otherwise. It is left out of the next step, whose move would meet the remains.
+    nonisolated static func reportMovedWithLeftoverRemains(
+        restored: URL,
+        leftover: URL,
+        isRedo: Bool,
+        actionName: String,
+        on target: FileSyncManager
+    ) async {
+        let name = restored.lastPathComponent
+        let step = isRedo ? "Redo" : "Undo"
+        let logMessage = "\(step) (\(actionName)): moved \"\(name)\" to \(restored.path) whole, but what it moved from at \(leftover.path) could not be fully removed — part of it is still there"
+        await MainActor.run {
+            Logger.shared.warning(logMessage)
+            target.banner = .warning("\(step) moved “\(name)” \(isRedo ? "again" : "back"), but the copy where it was couldn’t be fully removed")
+        }
+    }
+
     /// Surfaces a failed redo re-apply instead of swallowing it. When a redo's copy/move/mkdir
     /// fails — typically because the source vanished between the undo and the redo — the old
     /// best-effort `try?` gave no log line and no banner, yet still registered the item in the
@@ -1822,6 +1843,14 @@ extension FileSyncManager {
                                     // Only a move-back that actually happened is redoable.
                                     movedBackPairs.append((from: item.from, to: item.to, emptiedByMerge: item.emptiedByMerge,
                                                            redirectedIntoTrash: item.redirectedIntoTrash))
+                                } catch FileOperationError.originalPartlyRemoved {
+                                    // Back whole at `from`; part of it is still at `to` (B3). Not a
+                                    // failed restore, and not redoable — nor is the original put
+                                    // back at `to`, over those remains: it stays in the Trash.
+                                    movedBack += 1
+                                    await FileSyncManager.reportMovedWithLeftoverRemains(
+                                        restored: item.from, leftover: item.to, isRedo: false,
+                                        actionName: actionName, on: target)
                                 } catch {
                                     restoreFailures += 1
                                     await FileSyncManager.reportUndoRestoreFailure(of: item.from, from: item.to, actionName: actionName, error: error, on: target)
@@ -2072,6 +2101,12 @@ extension FileSyncManager {
                                                   overwrittenIdentity: FileSyncManager.backupIdentity(trashed, fileManager: fm),
                                                   emptiedByMerge: param.emptiedByMerge,
                                                   redirectedIntoTrash: param.redirectedIntoTrash))
+                            } catch FileOperationError.originalPartlyRemoved {
+                                // At `to` whole; part of it is still at `from` (B3). Left out of
+                                // the next undo, whose move back would meet those remains.
+                                await FileSyncManager.reportMovedWithLeftoverRemains(
+                                    restored: param.to, leftover: param.from, isRedo: true,
+                                    actionName: actionName, on: target)
                             } catch {
                                 // A failed re-move must stay out of the next undo state: undoing
                                 // a phantom move would "restore" from a destination that was
