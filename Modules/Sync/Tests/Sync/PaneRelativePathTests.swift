@@ -87,6 +87,32 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: other.appendingPathComponent("link/sub/deeper/deepest/f.txt").path))
     }
 
+    /// **B4: a selection is placed in one walk.** `paneRelativePaths` answers every row exactly as
+    /// `paneRelativePath` does one at a time — rows spelled under the root and rows below the link
+    /// alike — and `TreeShape.names(downTo:)` for a set finds each id in a single pass.
+    @MainActor
+    @Test func aSelectionIsPlacedInOneWalkAsEachRowIsPlacedAlone() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "pane-relative-batch")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let (root, _) = try Self.makeLinkedTree(under: base)
+        let m = try await Self.loaded(root: root.path, in: base)
+        let rows = try [["link", "sub", "deeper"], ["link", "sub", "deeper", "deepest"], ["plain", "a", "b"], ["link"]].map {
+            try #require(Self.node($0, in: m.leftTree), "the walk does not list \($0)")
+        }
+        let alone = Dictionary(uniqueKeysWithValues: rows.compactMap { node in
+            m.paneRelativePath(of: node, isLeft: true, root: root.path).map { (node.id, $0) }
+        })
+        try #require(alone.count == rows.count, "premise: a row could not be placed alone: \(alone)")
+
+        #expect(m.paneRelativePaths(of: rows, isLeft: true, root: root.path) == alone)
+
+        let ids = Set(rows.map(\.id))
+        let walked = TreeShape.names(downTo: ids, in: m.rawLeftTree)
+        #expect(walked.keys.sorted() == ids.sorted())
+        for id in ids { #expect(walked[id] == TreeShape.names(downTo: id, in: m.rawLeftTree), "\(id)") }
+        #expect(TreeShape.names(downTo: Set(["/nowhere"]), in: m.rawLeftTree).isEmpty)
+    }
+
     /// **Below a folder symlink.** The link and its child keep the link's spelling, and from there
     /// the listing comes back where the link leads: `T/sub/deeper`. Each level answers with the
     /// names down to it, and each answer, joined back the way a focus is, is the folder listed.

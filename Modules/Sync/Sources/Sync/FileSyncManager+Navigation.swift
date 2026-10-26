@@ -331,6 +331,26 @@ extension FileSyncManager {
     /// **The raw tree, with `paneTreeFolder`**, because `adoptRawTree` writes the two together and
     /// the published tree trails them by a filter pass: names read off the previous walk's rows
     /// would go onto the new walk's folder.
+    /// ``paneRelativePath(of:isLeft:root:)`` for a whole selection, walking the pane's tree once
+    /// for every node whose id is not spelled under `root` rather than once per node (B4).
+    public func paneRelativePaths(of nodes: [FileNode], isLeft: Bool, root: String) -> [String: String] {
+        var placed: [String: String] = [:]
+        var unplaced: Set<String> = []
+        for node in nodes {
+            if let relative = PathBoundary.relativize(node.id, under: root, links: linkedFolders) {
+                placed[node.id] = relative
+            } else {
+                unplaced.insert(node.id)
+            }
+        }
+        guard !unplaced.isEmpty, let folder = paneTreeFolder(isLeft: isLeft),
+              let base = PathBoundary.relativize(folder, under: root, links: linkedFolders) else { return placed }
+        for (id, names) in TreeShape.names(downTo: unplaced, in: isLeft ? rawLeftTree : rawRightTree) {
+            placed[id] = PathBoundary.joinRelative(base, names.joined(separator: "/"))
+        }
+        return placed
+    }
+
     public func paneRelativePath(of node: FileNode, isLeft: Bool, root: String) -> String? {
         if let relative = PathBoundary.relativize(node.id, under: root, links: linkedFolders) {
             return relative

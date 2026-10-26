@@ -99,6 +99,27 @@ public enum TreeShape {
         return nil
     }
 
+    /// ``names(downTo:in:)`` for many ids in ONE walk (B4): the names down to each id found, by id.
+    /// A pane transfer asks this for every row it carries whose id is not spelled under the root,
+    /// and asking one id at a time walked the whole tree per row, on the main actor. Stops once
+    /// every id is found.
+    public static func names(downTo ids: Set<String>, in nodes: [FileNode]) -> [String: [String]] {
+        var found: [String: [String]] = [:]
+        guard !ids.isEmpty else { return found }
+        var trail: [String] = []
+        func walk(_ level: [FileNode]) {
+            for node in level {
+                if found.count == ids.count { return }
+                trail.append(String(leaf(of: node.id)))
+                if ids.contains(node.id), found[node.id] == nil { found[node.id] = trail }
+                if let children = node.children { walk(children) }
+                trail.removeLast()
+            }
+        }
+        walk(nodes)
+        return found
+    }
+
     private static func isFolder<Name: StringProtocol>(_ node: FileNode, named name: Name) -> Bool {
         node.isDirectory && leaf(of: node.id) == name
     }

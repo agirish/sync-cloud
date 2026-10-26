@@ -47,11 +47,9 @@ extension FileSyncManager {
     private func panePlacements(of nodes: [FileNode], fromLeft: Bool, leftRoot: String, rightRoot: String) -> [String: String] {
         let root = ((fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath
         guard !root.isEmpty else { return [:] }
-        var placed: [String: String] = [:]
-        for node in nodes where PathBoundary.relativize(node.id, under: root, links: linkedFolders) == nil {
-            if let relative = paneRelativePath(of: node, isLeft: fromLeft, root: root) { placed[node.id] = relative }
-        }
-        return placed
+        // One walk of the tree for the whole selection (B4), not one per row.
+        let unspelled = nodes.filter { PathBoundary.relativize($0.id, under: root, links: linkedFolders) == nil }
+        return paneRelativePaths(of: unspelled, isLeft: fromLeft, root: root)
     }
 
     /// Copies multiple files to a specific absolute destination directory path.
