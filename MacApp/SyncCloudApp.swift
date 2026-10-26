@@ -714,6 +714,13 @@ struct SyncCloudApp: App {
             height: (NSScreen.main?.visibleFrame.height ?? 1000) * 0.85
         )
         .windowResizability(.contentMinSize)
+        // **The test host opens no window.** It is this app, so it came up with the main window at
+        // the user's saved frame — 1575×967 over the user's screen for the length of every
+        // app-target run: theirs, another session's and CI's on this Mac. Under tests the content
+        // is `Color.clear` and no test reads the window. Restoration is off too: the host shares
+        // the app's saved state, so it could bring back whichever window the user last left open.
+        .defaultLaunchBehavior(isRunningTests ? .suppressed : .automatic)
+        .restorationBehavior(isRunningTests ? .disabled : .automatic)
         .commands {
             // Settings is no longer a separate window (it's an in-window overlay so it floats
             // over the content even in full screen), so re-supply the standard ⌘, menu item
@@ -975,6 +982,7 @@ struct SyncCloudApp: App {
                 .selectionLensAppearanceFromDefaults()
         }
         .windowResizability(.contentSize)
+        .restorationBehavior(isRunningTests ? .disabled : .automatic)   // as the main window's
         // Suppressed because this scene's item is supplied by hand in `.commands` above, to keep
         // ⌘/ — see the note there. Without this the window appears in the Window menu twice.
         .commandsRemoved()
@@ -996,6 +1004,7 @@ struct SyncCloudApp: App {
         // own header row and insets it past the traffic lights.
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
+        .restorationBehavior(isRunningTests ? .disabled : .automatic)   // as the main window's
         // Suppressed because this scene's item is supplied by hand in `.commands` above, to keep
         // ⌘L — see the note there. Without this the window appears in the Window menu twice.
         //
@@ -1034,6 +1043,7 @@ struct SyncCloudApp: App {
             }
         }
         .windowResizability(.contentMinSize)
+        .restorationBehavior(isRunningTests ? .disabled : .automatic)   // as the main window's
         // NOT suppressed: Sync History carries no chord, so its automatic Window-menu entry is
         // exactly the item this app would otherwise write by hand — and it is the third scene, the
         // one the "do not suppress all three" measurement above is about.

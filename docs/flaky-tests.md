@@ -3362,6 +3362,10 @@ real-Trash user across every package CI runs — Sync, Events, Settings, Design,
 FileExplorer, `SyncCloudCLI` and `SyncCloudTests`. A new one shows up as a name in `~/.Trash`; trace
 it the same way, by suite and with the watch running.
 
+Traced again on 2026-10-26 at `4f6054fdf`, every package and the app target, from an empty Trash:
+nothing reached it. The Trash folder's own modification time is the quickest check — it did not
+move during any of those runs, so nothing was even trashed and deleted again.
+
 The Trash on this Mac held 11,806 items before that tracing; a count by name during it found
 about 545 of each fixture name above, 2,279 `.rollback_<UUID>` and 1,634 `.tmp_<UUID>`. The source
 of the prompt is the other half: an ad-hoc build that reads `~/Documents` while nobody is at the
