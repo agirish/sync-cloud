@@ -12367,3 +12367,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s unlinkBox=%s lossLine=%s\n' $
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No links box (`unlinkBox=0`) | CLOSED — does not apply |
+
+---
+
+## Filing a file gone since the scan says it is gone (F6) — main only
+
+Filing a file that had been moved, renamed or deleted since the scan said "Couldn’t file this item;
+it was left in place." — false of a file no longer there. `main` says it is no longer where the
+scan found it (`FileSyncManager.filingSourceGoneReason`), and drops the filing failure's retryable
+flag, which no Retry button ever read.
+
+```sh
+F=Modules/Sync/Sources/Sync/FileSyncManager+Filing.swift
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s goneGuard=%s ownReason=%s\n' $l \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF 'guard fm.fileExists(atPath: src.path) else')" \
+  "$(git show origin/$l:$F 2>/dev/null | grep -cF 'filingSourceGoneReason')"; done
+# measured 2026-10-25, against origin, before this landed (the change reads ownReason=2):
+# main, v5.x, v4.x, v3.x, v2.x   goneGuard=1 ownReason=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | "Left in place" for a file gone since the scan (`ownReason=0`) | RECORDED — not owed |

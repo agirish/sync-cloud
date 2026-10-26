@@ -99,7 +99,6 @@ import Testing
         let error = try #require(m.currentError, "the refusal was not presented")
         #expect(error.title == "Filing Failed")
         #expect(error.message == "Couldn’t file “invoice.pdf”.")
-        #expect(!error.isRetryable, "a changed file is offered a retry that cannot succeed")
         let reason = try #require(error.reason)
         #expect(reason.contains("changed since the scan"))
         #expect(!reason.contains("suggested"),

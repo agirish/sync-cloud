@@ -1747,9 +1747,8 @@ extension FileSyncManager {
         // narrowed it happens per file, after each move, and cannot reach an array already passed.
         //
         // So the second run walks suggestions the first one has already moved, fails
-        // `performFiling`'s source-exists guard on every one, and reports each as
-        // "Couldn't file this item; it was left in place" under a "Couldn't file N files" banner.
-        // Every word of that is false: the files were filed, and they are not in place.
+        // `performFiling`'s source-exists guard on every one, and reports each as a failure under
+        // a "Couldn't file N files" banner. That is false: the files were filed.
         //
         // Refuse silently rather than with a banner. The Verify All refusal above answers a
         // question the user could not have known the answer to; this one answers "you pressed the
@@ -1862,7 +1861,9 @@ extension FileSyncManager {
         let recordedSource = suggestion.sourceIdentity
         let outcome: FilingMoveOutcome = await enqueueFileOperation {
             do {
-                guard fm.fileExists(atPath: src.path) else { return .failed(reason: nil, isRetryable: true) }
+                // Gone since the scan — moved, renamed or deleted: said as that, not as a filing
+                // that failed and left the file in place (F6).
+                guard fm.fileExists(atPath: src.path) else { return .failed(reason: Self.filingSourceGoneReason) }
                 // **And it has to still BE the file the card is about (FR45).** The existence check
                 // above says only that the path is occupied. A queue is stepped through minutes
                 // after the scan, and in that time a browser can re-download over the name or an
@@ -1929,27 +1930,21 @@ extension FileSyncManager {
                 logger.warning("Filing: moving “\(suggestion.fileName)” into \(destFolder.lastPathComponent) failed: \(error.localizedDescription)")
                 // A vanished destination tree is a condition the user can act on ("plug the volume
                 // back in / rescan"), unlike a generic I/O failure — so it gets to say so instead
-                // of being flattened into "couldn't file this item".
-                //
-                // A document destination and a changed file are refusals the same button cannot
-                // change on a second press (FR3, FR45), so they are not offered as retryable; a tree
-                // that went away can come back, and a plain I/O failure may not happen twice.
+                // of being flattened into "couldn't file this item" — and so do a document
+                // destination and a changed file (FR3, FR45).
                 switch error as? FileOperationError {
-                case .destinationIsADocument?, .sourceChangedSinceScan?:
-                    return .failed(reason: error.localizedDescription, isRetryable: false)
-                case .destinationRootUnavailable?:
-                    return .failed(reason: error.localizedDescription, isRetryable: true)
+                case .destinationIsADocument?, .sourceChangedSinceScan?, .destinationRootUnavailable?:
+                    return .failed(reason: error.localizedDescription)
                 default:
-                    return .failed(reason: nil, isRetryable: true)
+                    return .failed(reason: nil)
                 }
             }
         }
 
         switch outcome {
-        case .failed(let reason, let isRetryable):
+        case .failed(let reason):
             present(.filingFailed(item: suggestion.fileName, path: suggestion.filePath,
-                                  reason: reason ?? "Couldn’t file this item; it was left in place.",
-                                  isRetryable: isRetryable))
+                                  reason: reason ?? "Couldn’t file this item; it was left in place."))
             return .failed
         case .moved(let dst, let overwritten):
             filingSuggestions.removeAll { $0.id == suggestion.id }
@@ -1963,10 +1958,14 @@ extension FileSyncManager {
     private enum FilingMoveOutcome: Sendable {
         case moved(to: URL, overwritten: URL?)
         /// `reason` is user-facing when the failure is one the user can act on; nil falls back to
-        /// the generic "couldn't file this item". `isRetryable` is false for a refusal a second
-        /// press cannot change.
-        case failed(reason: String?, isRetryable: Bool)
+        /// the generic "couldn't file this item". No retryable flag: the filing alert has no Retry
+        /// to offer (`present` is given no retry), so it decided nothing a reader could see (F6).
+        case failed(reason: String?)
     }
+
+    /// The filing alert's reason for a file gone from where the scan found it (F6) — it was not
+    /// "left in place", since it is no longer there.
+    nonisolated static let filingSourceGoneReason = "It’s no longer where the scan found it — it may have been moved, renamed or deleted — so nothing was filed."
 
     /// The folder a filing destination's new segments hang off — the part that must ALREADY exist,
     /// because everything below it is what `createDirectory` is being asked to create.

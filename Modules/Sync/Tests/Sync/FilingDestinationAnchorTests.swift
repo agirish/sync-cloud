@@ -246,6 +246,33 @@ import Foundation
         #expect(manager.currentError?.reason == "Couldn’t file this item; it was left in place.")
     }
 
+    /// **A file gone since the scan is said to be gone (F6)** — not "left in place", the generic
+    /// reason, which is false of a file no longer there. The destination exists, so nothing but
+    /// the missing source refuses.
+    @MainActor
+    @Test func aFileGoneSinceTheScanSaysSo() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingAnchorGone")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let src = root.appendingPathComponent("Downloads/Report.pdf")
+        try write(src)
+        let folder = root.appendingPathComponent("Documents/Vehicles")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let manager = FileSyncManager()
+        let suggestion = FilingSuggestion(filePath: src.path, fileName: "Report.pdf", size: 512,
+                                          modificationDate: nil, candidates: [])
+        let dest = FilingDestination(path: folder.path, confidence: .medium, reasons: [], newSegments: [])
+        manager.filingSuggestions = [suggestion]
+        try FileManager.default.removeItem(at: src)
+
+        let result = await manager.applyFilingSuggestion(suggestion, to: dest)
+
+        #expect(result == .failed)
+        let error = try #require(manager.currentError, "the refusal was not presented")
+        #expect(error.title == "Filing Failed")
+        #expect(error.reason == FileSyncManager.filingSourceGoneReason, "\(error.reason ?? "no reason")")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).isEmpty, "something was filed")
+    }
+
     /// `newSegments` is scan-time data and can be stale. When the whole path has since been created,
     /// the guard stats a shallower ancestor that exists and lets the move through — a stale plan must
     /// not refuse a destination that is demonstrably there.
