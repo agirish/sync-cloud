@@ -12323,3 +12323,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s keep=%s unlinkRefuses=%s\n' $
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No choice to keep comments (`keep=0`) | CLOSED — does not apply |
+
+---
+
+## ⌘Q says where a version kept aside by the final save went (F2) — main only
+
+The quit flush counted a save that kept another version beside the file (FR48) as saved and only
+logged it, so a version that arrived during that last save — possibly kept as a hidden backup — was
+never mentioned. `main` says it before quitting: its own alert (Quit · Don't Quit) where ⌘Q would
+ask nothing, a sentence in the File Operations alert where that one shows.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s keptAside=%s saidAtQuit=%s\n' $l \
+  "$(git show origin/$l:MacApp/SyncCloudApp.swift 2>/dev/null | grep -cF 'case .wroteKeepingAside')" \
+  "$(git show origin/$l:MacApp/SyncCloudApp.swift 2>/dev/null | grep -cF 'keptAsideSentence')"; done
+# measured 2026-10-25, against origin, before this landed (the change reads saidAtQuit=3):
+# main                      keptAside=1 saidAtQuit=0
+# v5.x, v4.x, v3.x, v2.x    keptAside=0 saidAtQuit=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No keep-aside save (`keptAside=0`); FR48's row records it | CLOSED — does not apply |

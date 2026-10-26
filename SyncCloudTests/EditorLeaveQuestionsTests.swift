@@ -121,6 +121,37 @@ import FileExplorer
         #expect(settled.lowerBound < flush.lowerBound, "the quit flush runs before the check, and is blocked by Edit's own write")
     }
 
+    /// **F2: a version kept beside the file by the quit's final save is said before quitting** —
+    /// the flush counts it as saved, so nothing else would. Its own alert where ⌘Q would ask
+    /// nothing; a sentence in the file operations alert where that one is shown, so ⌘Q never asks
+    /// twice. The words are built; the call sites in `applicationShouldTerminate` are read.
+    @Test func quittingSaysWhereAVersionKeptAsideWent() throws {
+        let clause = "a different version arrived while it was saving. That version was kept beside it as “Plan (other).md”."
+        #expect(SyncCloudAppDelegate.keptAsideSentence(name: "Plan.md", clause: clause)
+                == "Saved “Plan.md”, but a different version arrived while it was saving. That version was kept beside it as “Plan (other).md”.")
+        #expect(SyncCloudAppDelegate.keptAsideMessage(name: "Plan.md") == "Another version of “Plan.md” was kept")
+        #expect(SyncCloudAppDelegate.keptAsideButtonTitles == ["Quit", "Don’t Quit"])
+        #expect(SyncCloudAppDelegate.quitsWithoutAsking(.allowNoActiveOperations))
+        #expect(SyncCloudAppDelegate.quitsWithoutAsking(.allowWithoutWarning(activeOperations: 2)))
+        #expect(!SyncCloudAppDelegate.quitsWithoutAsking(.warn(activeOperations: 2, hasUnsavedDocument: false)))
+        #expect(!SyncCloudAppDelegate.quitsWithoutAsking(.warnUnsavedDocument(activeOperations: 0)))
+
+        let app = try EditorHeaderDoorsWiringTests.source("SyncCloudApp.swift")
+        let terminate = CodeText(try declarationBody(of: "func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply", in: app))
+        let arm = try #require(terminate.range(of: "case .wroteKeepingAside(let clause):"))
+        let kept = try #require(terminate.range(of: "keptAside = clause"), "the flush no longer keeps the clause")
+        let next = try #require(terminate.range(of: "case .nothingToDo:"))
+        #expect(arm.lowerBound < kept.lowerBound && kept.lowerBound < next.lowerBound, "the clause is kept outside its arm")
+        let asked = try #require(terminate.range(of: "if let keptAside, Self.quitsWithoutAsking(decision) {"))
+        #expect(terminate.contains("alert.informativeText = Self.keptAsideSentence(name: documentName, clause: keptAside)"))
+        #expect(terminate.contains("if alert.runModal() != .alertFirstButtonReturn {"))
+        let branches = try #require(terminate.range(of: "switch decision {"))
+        #expect(kept.lowerBound < asked.lowerBound && asked.lowerBound < branches.lowerBound,
+                "the kept-aside alert is not between the flush and the quit")
+        #expect(terminate.contains("+ (keptAside.map { \" \" + Self.keptAsideSentence(name: name, clause: $0) } ?? \"\")"),
+                "the file operations alert does not carry the sentence")
+    }
+
     /// ⌘Q asks too, with its own words — and the watch and the stop reach the delegate.
     @Test func quittingAsksAboutTheOnlyCopy() throws {
         let app = try EditorHeaderDoorsWiringTests.source("SyncCloudApp.swift")

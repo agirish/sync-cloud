@@ -1306,6 +1306,25 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         return isOnlyCopy ? " “\(name)” is no longer on disk, and its text may be the only copy." : ""
     }
 
+    /// **What ⌘Q says of a version kept beside the file by the final save** (F2): the flush counts
+    /// it as saved, so nothing else would — the window's banner is never drawn.
+    nonisolated static func keptAsideSentence(name: String, clause: String) -> String {
+        "Saved “\(name)”, but \(clause)"
+    }
+    nonisolated static func keptAsideMessage(name: String) -> String {
+        "Another version of “\(name)” was kept"
+    }
+    /// Quit first, the default: the save is on disk and nothing is lost; Don’t Quit stays to look.
+    nonisolated static let keptAsideButtonTitles = ["Quit", "Don’t Quit"]
+
+    /// Whether `decision` quits with no alert of its own — where the kept-aside one is shown.
+    nonisolated static func quitsWithoutAsking(_ decision: QuitDecision) -> Bool {
+        switch decision {
+        case .allowNoActiveOperations, .allowWithoutWarning: return true
+        case .warn, .warnUnsavedDocument: return false
+        }
+    }
+
     nonisolated static func quitDecision(activeOperations: Int, warnBeforeQuit: Bool,
                                          hasUnsavedDocument: Bool = false) -> QuitDecision {
         guard activeOperations > 0 else {
@@ -1424,6 +1443,9 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         // Why the document is asked about, for the alert's cause line (TE148): what the flush just
         // found, else the stop the window last had.
         var stop = Self.editorAutosaveStop
+        // A version that arrived during the final save, kept beside the file (FR48) — said before
+        // the app goes (F2), since the banner that says it in the window never gets drawn.
+        var keptAside: String?
         // **TE147: a save that couldn't be checked is checked now** — a file holding what it wrote
         // counts as saved, and is neither flushed again nor asked about.
         if let document = Self.sharedEditorDocument, document.uncheckedWrite != nil,
@@ -1446,7 +1468,9 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
                 stop = .unchecked(clause)
                 Logger.shared.warning("Flushed the editor's document before quitting, but \(clause)")
             case .wroteKeepingAside(let clause):
-                // Saved and checked (FR48); the version it displaced is beside it, said in the log.
+                // Saved and checked (FR48); the version it displaced is beside it — said in the log,
+                // and to the reader below, before quitting (F2).
+                keptAside = clause
                 Logger.shared.warning("Flushed the editor's document before quitting, but \(clause)")
             case .nothingToDo:
                 break
@@ -1465,8 +1489,24 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         let hasUnsavedDocument = isDirty || isOnlyCopy
         let cause = EditorAlerts.leaveCause(isGone: watch?.isGone ?? false, stop: stop, autosaveOff: !mayFlush)
 
-        switch Self.quitDecision(activeOperations: activeOperations, warnBeforeQuit: warnBeforeQuit,
-                                 hasUnsavedDocument: hasUnsavedDocument) {
+        let decision = Self.quitDecision(activeOperations: activeOperations, warnBeforeQuit: warnBeforeQuit,
+                                         hasUnsavedDocument: hasUnsavedDocument)
+        let documentName = Self.sharedEditorDocument?.name ?? "the open document"
+        // **A quit that would ask nothing says where the other version went** (F2) — the file
+        // operations alert carries it as a sentence instead, so ⌘Q never asks twice.
+        if let keptAside, Self.quitsWithoutAsking(decision) {
+            let alert = NSAlert()
+            alert.messageText = Self.keptAsideMessage(name: documentName)
+            alert.informativeText = Self.keptAsideSentence(name: documentName, clause: keptAside)
+            for title in Self.keptAsideButtonTitles { alert.addButton(withTitle: title) }
+            alert.alertStyle = .informational
+            if alert.runModal() != .alertFirstButtonReturn {
+                Logger.shared.info("User chose Don’t Quit to look at the version kept beside “\(documentName)”")
+                return .terminateCancel
+            }
+        }
+
+        switch decision {
         case .allowNoActiveOperations:
             // Counterpart to the launch breadcrumb: a clean quit gets a closing line, so a log that
             // simply stops with no shutdown line reads as a crash or force-kill, not a normal exit.
@@ -1500,6 +1540,7 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
             alert.informativeText = "Quitting now may cause data corruption or partial synchronization."
                 + Self.fileOperationsDocumentSentence(name: name, isDirty: isDirty, isOnlyCopy: isOnlyCopy,
                                                       cause: unsaved ? cause : nil)
+                + (keptAside.map { " " + Self.keptAsideSentence(name: name, clause: $0) } ?? "")
                 + " Are you sure you want to quit?"
             // "Don’t Quit", not "Wait": nothing quits once the copies finish, so the button
             // cancels the quit and should say so.
