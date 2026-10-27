@@ -979,6 +979,11 @@ extension FileSyncManager {
                     + "landing are still in \(producedId)")
             }
         }
+        // A plan exported after the landing goes back too: the survey goes back to this folder,
+        // and the sheet named the file as beside it. One already there by name is the same
+        // day's export of the same plan, which `exportPlan` itself replaces.
+        FileSyncManager.carryProfileArtifacts(from: producedId, to: previousId, in: directory,
+                                              fm: fileManager, names: [])
         return ledgerCarried
     }
 
@@ -1290,13 +1295,22 @@ extension FileSyncManager {
         // A landing that put `W2.pdf` in `Forms/`, followed by a newer `W2.pdf` saved over it,
         // used to send the newer one back into the old folder and count it "moved" — the only
         // probe was that SOMETHING stood at the path. The landing recorded the item's file
-        // number (a move keeps it) and a file's size; a different number is a different item,
-        // left where it stands and named. A record from before the number existed falls back
-        // to the size. The same number with a new size is the same file edited in place, and
-        // it still goes back.
+        // number (a move keeps it), its creation date and a file's size. The same number is the
+        // same item, edited in place or not. A different number is still the same item when
+        // the creation date matches — a safe save swaps in a new file but keeps the old one's
+        // creation date — and a different item when it does not. A record from before either
+        // existed falls back to the size.
         func replacedSinceLanding(_ action: RestructureManifest.Action, at path: String) -> Bool {
             guard refusingReplacedItems,
                   let attributes = try? fm.attributesOfItem(atPath: path) else { return false }
+            if let recorded = action.fileNumber,
+               FileSyncManager.restructureFileNumber(in: attributes) == recorded {
+                return false
+            }
+            if let recorded = action.created,
+               let now = (attributes[.creationDate] as? Date)?.timeIntervalSince1970 {
+                return now != recorded
+            }
             if let recorded = action.fileNumber,
                let now = FileSyncManager.restructureFileNumber(in: attributes) {
                 return now != recorded
@@ -1396,8 +1410,7 @@ extension FileSyncManager {
                     continue
                 }
                 var performed = action
-                performed.fileNumber = (try? fm.attributesOfItem(atPath: srcPath))
-                    .flatMap(FileSyncManager.restructureFileNumber(in:))
+                FileSyncManager.recordIdentity(of: srcPath, into: &performed, fm: fm)
                 do {
                     try FileSyncManager.safeMoveItem(at: URL(fileURLWithPath: srcPath),
                                                     to: URL(fileURLWithPath: dstPath),
@@ -1467,7 +1480,7 @@ extension FileSyncManager {
                     // that survives, and it costs the `attributesOfItem` call already being made.
                     let attributes = try? fm.attributesOfItem(atPath: srcPath)
                     performed.bytes = attributes?[.size] as? Int
-                    performed.fileNumber = attributes.flatMap(FileSyncManager.restructureFileNumber(in:))
+                    FileSyncManager.recordIdentity(from: attributes, into: &performed)
                     try FileSyncManager.safeMoveItem(at: URL(fileURLWithPath: srcPath),
                                                     to: destination, fileManager: fm)
                     out.filesMoved += 1
@@ -1523,8 +1536,7 @@ extension FileSyncManager {
                 }
                 restoreParent(of: dst)
                 var performed = action
-                performed.fileNumber = (try? fm.attributesOfItem(atPath: srcPath))
-                    .flatMap(FileSyncManager.restructureFileNumber(in:))
+                FileSyncManager.recordIdentity(of: srcPath, into: &performed, fm: fm)
                 do {
                     try FileSyncManager.safeMoveItem(at: URL(fileURLWithPath: srcPath),
                                                     to: URL(fileURLWithPath: dstPath),
@@ -1579,6 +1591,20 @@ extension FileSyncManager {
         case let number as Int: return number
         default: return nil
         }
+    }
+
+    /// The facts the undo tells the landed item by: its file number and its creation date.
+    nonisolated static func recordIdentity(from attributes: [FileAttributeKey: Any]?,
+                                           into action: inout RestructureManifest.Action) {
+        guard let attributes else { return }
+        action.fileNumber = restructureFileNumber(in: attributes)
+        action.created = (attributes[.creationDate] as? Date)?.timeIntervalSince1970
+    }
+
+    nonisolated static func recordIdentity(of path: String,
+                                           into action: inout RestructureManifest.Action,
+                                           fm: FileManaging) {
+        recordIdentity(from: try? fm.attributesOfItem(atPath: path), into: &action)
     }
 
     /// The verifier's disagreement in one line, for the Applied card. The log keeps every
@@ -1667,6 +1693,10 @@ extension FileSyncManager {
                 Logger.shared.warning("Restructure: could not carry \(name) to \(newId): "
                     + error.localizedDescription)
             }
+        }
+        if !carriedExports.isEmpty {
+            Logger.shared.info("Restructure: carried \(carriedExports.count) exported plan(s) from "
+                + "\(oldId) to \(newId) — \(carriedExports.joined(separator: ", "))")
         }
         return carriedExports
     }

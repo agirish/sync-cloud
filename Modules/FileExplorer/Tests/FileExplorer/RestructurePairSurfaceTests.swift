@@ -205,6 +205,10 @@ import Testing
                                                          landed: false), "nothing saved to drop")
         #expect(!RestructurePairMergeSheet.offersDiscard(hasSavedDraft: true, canDiscard: true,
                                                          landed: true), "a landing consumed it")
+        // Closing keeps a saved plan, so the button beside Discard does not say Cancel.
+        #expect(RestructurePairMergeSheet.closeTitle(landed: false, hasSavedDraft: true) == "Close")
+        #expect(RestructurePairMergeSheet.closeTitle(landed: false, hasSavedDraft: false) == "Cancel")
+        #expect(RestructurePairMergeSheet.closeTitle(landed: true, hasSavedDraft: true) == "Done")
 
         func sheet(saved: Bool) -> RestructurePairMergeSheet {
             RestructurePairMergeSheet(
@@ -232,6 +236,10 @@ import Testing
         let body = host[pairSheet.lowerBound...].prefix(4000)
         #expect(body.contains("hasSavedDraft: store.draft(for: key) != nil"))
         #expect(body.contains("onDiscardDraft: { store.removeDraft(for: key) }"))
+        let pairSource = try String(
+            contentsOf: sources.appendingPathComponent("RestructurePairMergeSheet.swift"), encoding: .utf8)
+        #expect(pairSource.contains("Button(Self.closeTitle(landed: landed, hasSavedDraft: hasSavedDraft))"),
+                "the footer draws the rule's title")
     }
 
     // MARK: The call site

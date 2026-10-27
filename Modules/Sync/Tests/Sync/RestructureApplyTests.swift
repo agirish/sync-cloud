@@ -1314,6 +1314,52 @@ import Testing
             "Tax/2013/Federal Tax/w2.pdf"), encoding: .utf8) == "w2")
     }
 
+    /// **An edited file is still the landing's file.** Most apps save by swapping in a new file
+    /// (`replaceItemAt`), which gives it a new file number — so the first cut of M1 left every
+    /// merged file edited after a landing out of the undo, as "replaced". The save keeps the
+    /// creation date; a file that is really new does not.
+    @Test func anUndoStillPutsBackAFileEditedSinceTheLanding() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let outcome = await world.manager.applyPlan(world.manifest)
+        #expect(outcome.refusal == nil)
+        let landed = world.root.appendingPathComponent("Tax/2013/Forms/ca-540.pdf")
+        let numberBefore = try FileManager.default.attributesOfItem(atPath: landed.path)[.systemFileNumber]
+            as? NSNumber
+        // The save most apps make: a new file, swapped in over the old one.
+        let staged = world.root.deletingLastPathComponent().appendingPathComponent("ca-540 edit")
+        try Data("ca-540, amended".utf8).write(to: staged)
+        _ = try FileManager.default.replaceItemAt(landed, withItemAt: staged)
+        let numberAfter = try FileManager.default.attributesOfItem(atPath: landed.path)[.systemFileNumber]
+            as? NSNumber
+        #expect(numberBefore != numberAfter, "premise: the save gave the file a new number")
+
+        let undo = await world.manager.undoReorganisation(manifestId: world.manifest.manifestId)
+        #expect(undo.refusal == nil)
+        #expect(!undo.skipped.contains { $0.contains("ca-540.pdf") }, "skipped: \(undo.skipped)")
+        #expect(try String(contentsOf: world.root.appendingPathComponent(
+            "Tax/2013/State Tax/ca-540.pdf"), encoding: .utf8) == "ca-540, amended",
+                "the edited file went back where the landing took it from")
+    }
+
+    /// A plan exported after a landing comes back with the survey when the landing is undone —
+    /// the sheet named it as beside the survey, and the survey goes back to the earlier folder.
+    @Test func aPlanExportedAfterALandingFollowsItsUndo() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        #expect(await world.manager.applyPlan(world.manifest).refusal == nil)
+        let produced = try #require(world.manager.filingProfileDirectoryId)
+        #expect(produced != "t")
+        let name = try #require(try world.manager.restructureStore?.exportPlan(world.manifest))
+
+        let undo = await world.manager.undoReorganisation(manifestId: world.manifest.manifestId)
+        #expect(undo.refusal == nil)
+        #expect(world.manager.filingProfileDirectoryId == "t")
+        #expect(FileManager.default.fileExists(
+            atPath: world.profiles.appendingPathComponent("t/\(name)").path),
+                "the plan stayed behind in \(produced), beside a survey nothing reads")
+    }
+
     /// The folder half of M1: a renamed folder set aside and replaced by a fresh one of the same
     /// name is not renamed back — the fresh one is somebody else's.
     @Test func anUndoLeavesAFolderMadeInPlaceOfARenamedOneWhereItIs() async throws {

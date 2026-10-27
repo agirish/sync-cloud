@@ -357,7 +357,7 @@ struct RestructurePairMergeSheet: View {
                     .help("Removes this saved plan, so its card no longer shows it as planned. "
                           + "Nothing moves, and an exported file stays where it is.")
             }
-            Button(landed ? "Done" : "Cancel") { onClose() }
+            Button(Self.closeTitle(landed: landed, hasSavedDraft: hasSavedDraft)) { onClose() }
                 .scaledFont(.system(size: 11))
                 .keyboardShortcut(.cancelAction)
                 .disabled(applying)
@@ -396,6 +396,12 @@ struct RestructurePairMergeSheet: View {
     /// nobody could place. Two things happen and both matter: a file is written that can be read
     /// in any text editor, and the plan is kept, so the finding's card swaps `Plan…` for `Review
     /// N operations` and still says so after a quit.
+    /// The mapped sheet's rule (`RestructurePlanSheet.closeTitle`): "Cancel" read as a discard
+    /// beside a saved plan that closing keeps.
+    static func closeTitle(landed: Bool, hasSavedDraft: Bool) -> String {
+        landed ? "Done" : hasSavedDraft ? "Close" : "Cancel"
+    }
+
     /// Discard Plan shows on a sheet opened on a saved plan, until a landing has consumed it.
     static func offersDiscard(hasSavedDraft: Bool, canDiscard: Bool, landed: Bool) -> Bool {
         hasSavedDraft && canDiscard && !landed

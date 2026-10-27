@@ -72,13 +72,24 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
         /// renamed folder swapped for a fresh one. The undo used to check only that something
         /// stood at the path, and moved the newcomer back as though it were the original.
         /// nil on records made before it existed; those fall back to `bytes`.
+        ///
+        /// **Not on its own, because a save is not a move.** Most apps save a document by
+        /// writing a new file and swapping it in (`replaceItemAt`), and that new file has a new
+        /// number — measured 2026-10-27. Read alone, every merged file edited after a landing
+        /// read as replaced and was left out of the undo. See `created`.
         public var fileNumber: Int?
+        /// The moved item's creation date, as seconds since 1970 — filled in at apply time with
+        /// `fileNumber`. A safe save keeps the replaced file's creation date where it changes its
+        /// number, and a file that is really new has its own (measured 2026-10-27), so a match on
+        /// either one is the item the landing moved.
+        public var created: Double?
 
         public init(action: ActionKind, src: String? = nil, dst: String? = nil,
                     evidence: String? = nil, filesCarried: Int? = nil,
                     bytes: Int? = nil, md5: String? = nil,
                     collisionExpected: Bool? = nil, collidedInto: String? = nil,
-                    movesWholeFolder: Bool? = nil, fileNumber: Int? = nil) {
+                    movesWholeFolder: Bool? = nil, fileNumber: Int? = nil,
+                    created: Double? = nil) {
             self.action = action
             self.src = src
             self.dst = dst
@@ -90,6 +101,7 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
             self.collidedInto = collidedInto
             self.movesWholeFolder = movesWholeFolder
             self.fileNumber = fileNumber
+            self.created = created
         }
     }
 
