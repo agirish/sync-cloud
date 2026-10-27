@@ -392,16 +392,14 @@ import EventsTestSupport
         #expect(FileSyncManager.visibleFileCount(atPath: folder.path, fm: FileManager.default) == 1)
     }
 
-    /// The other direction: Finder's droppings, empty subfolders and what the OS keeps under a
-    /// `.Trashes` hold nothing, so the folder the action made still goes. A real folder: the mock's
-    /// entries do not say which of them are folders, so an empty subfolder would read as a file.
+    /// The other direction: Finder's droppings and what the OS keeps under a `.Trashes` hold
+    /// nothing, so the folder the action made still goes. A real folder, as below.
     /// `.Trashes` is U1's: the undo's own walk skipped the name but counted what is inside it.
     @MainActor
     @Test func createFolderUndoStillRemovesAFolderHoldingOnlyNoise() async throws {
         let base = try makeCanonicalTempRoot(prefix: "fr24n")
         defer { try? FileManager.default.removeItem(at: base) }
         let folder = base.appendingPathComponent("Archive")
-        try FileManager.default.createDirectory(at: folder.appendingPathComponent("Empty"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: folder.appendingPathComponent(".Trashes/501"), withIntermediateDirectories: true)
         try Data("x".utf8).write(to: folder.appendingPathComponent(".Trashes/501/old.txt"))
         try Data("x".utf8).write(to: folder.appendingPathComponent(".DS_Store"))
@@ -412,6 +410,27 @@ import EventsTestSupport
         manager.undoManager?.undo()
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
         #expect(!FileManager.default.fileExists(atPath: folder.path), "banner: \(String(describing: manager.banner?.message))")
+    }
+
+    /// **L4: folders the user made inside are content, empty or not.** The 6.1 notes promise the
+    /// folder stays "if anything is still inside it", but the count ignores empty folders, so a
+    /// tree of folders with no file in it yet went to the Trash. A real folder: the mock's entries
+    /// do not say which of them are folders, so an empty subfolder would read as a file.
+    @MainActor
+    @Test func createFolderUndoLeavesAFolderHoldingOnlyEmptyFolders() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "l4f")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let folder = base.appendingPathComponent("Archive")
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent("2026/Q1"), withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: folder.appendingPathComponent(".DS_Store"))
+        let manager = makeManager()
+        let disk = ScratchTrash(in: base)
+        manager.registerCreateFolderUndo(url: folder, fileManager: disk)
+
+        manager.undoManager?.undo()
+        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        #expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent("2026/Q1").path))
+        #expect(manager.banner?.message == "Undo left “Archive” in place — it isn’t empty")
     }
 
     /// **U1: a cloud-only folder inside is asked for first, bounded.** The undo walked the folder

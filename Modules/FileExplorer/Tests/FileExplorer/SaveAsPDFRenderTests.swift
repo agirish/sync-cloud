@@ -399,7 +399,7 @@ import EventsTestSupport
         let plain = try await SaveAsPDFRender.officePDF(try Self.fixture("PictureWords.pptx"), kind: .presentation,
                                                         settings: SaveAsPDFRender.Settings())
         let page = try #require(PDFComposer.document(plain)?.page(at: 1))
-        struct Refused: Error {}
+        struct Refused: LocalizedError { var errorDescription: String? { "the Neural Engine refused this request" } }
         var asked: [PictureText.Processor] = []
         let log = LogCapture()
         let lines = PictureText.recognise(page) { image, processor in
@@ -409,7 +409,10 @@ import EventsTestSupport
         }.map(\.text)
         #expect(asked == [.any, .cpu])
         #expect(lines.contains("Harvest moon festival"), "the CPU read: \(lines)")
-        #expect(await log.holds(.warning, containing: "text recognition failed"))
+        // The whole sentence, with this case's own refusal in it: a sibling's failed recognition
+        // logs the same first half, and a LogCapture sees sibling cases' lines.
+        #expect(await log.holds(.warning, containing:
+            "Save as PDF: text recognition failed: the Neural Engine refused this request; reading on the CPU"))
     }
 
     // MARK: When WebKit gives nothing

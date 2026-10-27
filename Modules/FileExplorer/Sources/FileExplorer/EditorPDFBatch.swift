@@ -57,7 +57,7 @@ public enum EditorPDFBatchKind: Equatable, Sendable {
 /// original, never over anything, and the original never touched.
 ///
 /// **A file that cannot run is skipped with its reason, not failed with the batch**: one locked to
-/// open (no tool can read it), one password-protected for Clean Metadata (the toolkit refuses), one
+/// open (no tool can read it), one encrypted for Clean Metadata (the toolkit refuses), one
 /// whose owner forbids the changes Rotate makes in place, one Compress cannot make smaller. Cancel stops the file in hand — nothing is written for it — and
 /// skips the rest; the copies already written stay.
 @MainActor
@@ -67,8 +67,9 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         case alreadySmall
         case lockedToOpen
         /// Encrypted for Clean Metadata, which the toolkit refuses on any encrypted file
-        /// (`metadataEncrypted`). One that opens without a password has an owner's restrictions, so
-        /// it is said as theirs, with the way past them (F-E5).
+        /// (`metadataEncrypted`). Said as encrypted, not as an owner's restrictions (L11): a file
+        /// can be encrypted with every permission allowed, and the skip is the same for it. The way
+        /// past it is Remove Password…, which this one opens without asking for a password.
         case passwordProtected
         /// Encrypted with its owner's restrictions, which forbid the changes Rotate makes in place.
         case restrictedByOwner
@@ -81,7 +82,7 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
             switch self {
             case .alreadySmall: return "already small"
             case .lockedToOpen: return "locked with a password"
-            case .passwordProtected: return "its owner doesn’t allow changing it"
+            case .passwordProtected: return "it’s encrypted, so its metadata can’t be cleaned"
             case .restrictedByOwner: return "its owner doesn’t allow changing its pages"
             case .noPages: return "no pages"
             case .inTheCloud: return "still in the cloud"
@@ -458,9 +459,13 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         guard !lines.isEmpty else { return nil }
         let shown = lines.prefix(reasonsShown)
         let more = lines.count - shown.count
-        let restricted = files.contains { $0.status == .skipped(.restrictedByOwner) || $0.status == .skipped(.passwordProtected) }
-        return (shown + (more > 0 ? ["and \(more) more"] : [])
-                + (restricted ? [EditorPDFToolEngine.liftRestrictionsStep] : [])).joined(separator: "\n")
+        let restricted = files.contains { $0.status == .skipped(.restrictedByOwner) }
+        let encrypted = files.contains { $0.status == .skipped(.passwordProtected) }
+        var all: [String] = Array(shown)
+        if more > 0 { all.append("and \(more) more") }
+        if restricted { all.append(EditorPDFToolEngine.liftRestrictionsStep) }
+        if encrypted { all.append(EditorPDFToolEngine.decryptStep) }
+        return all.joined(separator: "\n")
     }
 }
 

@@ -511,15 +511,19 @@ import FileExplorerTestSupport
                           "“B.pdf” — locked with a password",
                           "“C.pdf” — its owner doesn’t allow changing its pages", step], "\(lines)")
         #expect(EditorPDFBatch.reasons([("B.pdf", .skipped(.lockedToOpen))]) == "“B.pdf” — locked with a password")
-        // Clean Metadata's encrypted skip is an owner's restriction too, with the same way past it,
-        // still said once (F-E5).
+        // Clean Metadata's encrypted skip is said as encrypted, not as an owner's restriction — a
+        // file can be encrypted with every permission allowed (L11) — with its own way past it,
+        // each step still said once (F-E5).
+        let decrypt = EditorPDFToolEngine.decryptStep
         let metadata = try #require(EditorPDFBatch.reasons([("D.pdf", .skipped(.passwordProtected)),
-                                                            ("A.pdf", .skipped(.restrictedByOwner))]))
+                                                            ("A.pdf", .skipped(.restrictedByOwner)),
+                                                            ("E.pdf", .skipped(.passwordProtected))]))
             .components(separatedBy: "\n")
-        #expect(metadata == ["“D.pdf” — its owner doesn’t allow changing it",
-                             "“A.pdf” — its owner doesn’t allow changing its pages", step], "\(metadata)")
+        #expect(metadata == ["“D.pdf” — it’s encrypted, so its metadata can’t be cleaned",
+                             "“A.pdf” — its owner doesn’t allow changing its pages",
+                             "“E.pdf” — it’s encrypted, so its metadata can’t be cleaned", step, decrypt], "\(metadata)")
         #expect(EditorPDFBatch.reasons([("D.pdf", .skipped(.passwordProtected))])
-                == "“D.pdf” — its owner doesn’t allow changing it\n" + step,
+                == "“D.pdf” — it’s encrypted, so its metadata can’t be cleaned\n" + decrypt,
                 "Clean Metadata's skip gave no way forward")
     }
 

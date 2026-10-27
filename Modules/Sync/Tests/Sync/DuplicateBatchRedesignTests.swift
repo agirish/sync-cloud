@@ -425,7 +425,7 @@ import EventsTestSupport
         let message = try #require(manager.banner?.message)
         #expect(message.contains("changed since they were scanned"),
                 "a batch where a change WAS measured must say so: “\(message)”")
-        #expect(!message.contains("couldn't be fully checked"),
+        #expect(!message.contains("couldn’t be fully checked"),
                 "the all-baseline-less wording leaked into the mixed case: “\(message)”")
         #expect(mockFM.virtualDisk["/b/x"] != nil)
         #expect(mockFM.virtualDisk["/b/Photos"] != nil)

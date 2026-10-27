@@ -2153,15 +2153,30 @@ extension FileSyncManager {
                 // moved INTO the folder was registered after it, so its undo has already run; what
                 // is still inside got there some other way — the user put it there, or a move-back
                 // refused it as changed. Restructure's ⌘Z trashed such a folder right after a
-                // banner said the refused item was left in place. OS noise and empty subfolders
-                // hold nothing; a folder that cannot be fully read is never treated as empty.
+                // banner said the refused item was left in place. OS noise holds nothing; a folder
+                // that cannot be fully read is never treated as empty.
+                //
+                // **A subfolder is content too, empty or not** (L4). The count below ignores empty
+                // folders — the removal step's rule, where a drained folder may go with its drained
+                // children — so a tree the user built inside the new folder, folders only, read as
+                // empty and went to the Trash. Every folder an action made inside this one was
+                // registered after it, so its own undo has already removed it; one still here was
+                // put there some other way.
                 //
                 // **Restructure's own count, not a walk of this undo's own** (U1): it asks a
                 // cloud-only folder for its contents first, bounded (FR21), so a folder whose app
                 // has stopped reads as unknown instead of hanging the file queue; it skips what is
                 // inside `.Trashes`; and an entry it cannot stat counts as content. Nil — not
                 // fully read — is "not empty".
-                let held = FileSyncManager.visibleFileCount(atPath: url.path, fm: fm)
+                var held = FileSyncManager.visibleFileCount(atPath: url.path, fm: fm)
+                if held == 0 {
+                    // No file anywhere beneath, so whatever this level lists beyond OS noise is a
+                    // folder. A listing that cannot be completed is unknown, as above.
+                    let top = fm.listing(of: url)
+                    held = top.isComplete
+                        ? top.urls.count { !ItemIdentity.deepIdentityIgnoredNames.contains($0.lastPathComponent) }
+                        : nil
+                }
                 guard held == 0 else {
                     let name = url.lastPathComponent
                     // Unread is not "not empty" to the user (L2): nil is a folder that could not be
@@ -2170,7 +2185,7 @@ extension FileSyncManager {
                     await MainActor.run {
                         logger.warning(unread
                             ? "Undo (New Folder): left \(url.path) in place — it could not be fully read, so it cannot be confirmed empty"
-                            : "Undo (New Folder): left \(url.path) in place — it holds files the undo did not put there")
+                            : "Undo (New Folder): left \(url.path) in place — it holds files or folders the undo did not put there")
                         target.banner = .warning(unread
                             ? "Undo left “\(name)” in place — its contents couldn’t be read"
                             : "Undo left “\(name)” in place — it isn’t empty")

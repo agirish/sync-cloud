@@ -892,6 +892,9 @@ enum EditorPDFToolEngine {
     /// The same for a file whose owner only restricted it: Remove Password… asks for no password
     /// there (TE167).
     static let liftRestrictionsStep = "PDF Tools ▸ Remove Password… writes a copy without the restrictions."
+    /// The same for an encrypted file Clean Metadata skips: it opens without a password, so
+    /// Remove Password… asks for none, and its copy is not encrypted (L11).
+    static let decryptStep = "PDF Tools ▸ Remove Password… writes an unencrypted copy, which this tool can then use."
 
     /// A run's failure as the banner says it: the toolkit's refusal in Edit's words, anything else
     /// as its own description.

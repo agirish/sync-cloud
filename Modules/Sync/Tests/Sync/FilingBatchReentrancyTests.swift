@@ -116,7 +116,7 @@ import Foundation
         let banner = try #require(m.banner)
         #expect(banner.severity == .success,
                 "the batch reported a failure it did not have: “\(banner.message)”")
-        #expect(!banner.message.lowercased().contains("couldn't be filed"),
+        #expect(!banner.message.lowercased().contains("couldn’t be filed"),
                 "the banner counts files that were filed as failures: “\(banner.message)”")
         let sawLatch = (firstSawLatch.value, secondSawLatch.value)
         #expect(firstSawLatch.value != secondSawLatch.value,

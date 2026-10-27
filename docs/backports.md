@@ -12442,3 +12442,29 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s host=%s plusN=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No capsule (`host=0`): one run at a time behind the progress dialog | CLOSED — does not apply |
+
+---
+
+## Undoing New Folder keeps folders made inside it; Clean Metadata's skip says "encrypted" — main only
+
+Two findings of the v6.1 non-forensic review (L4, L11). **New Folder:** its undo asked
+`visibleFileCount`, which ignores empty folders, so a folder holding only folders the user made
+went to the Trash; `main` counts any entry but OS noise as content. **Clean Metadata:** a batch
+skipped every encrypted PDF as "its owner doesn't allow changing it", restrictions or not; `main`
+says it is encrypted, with Remove Password…'s unencrypted copy as the way past it.
+
+```sh
+S=Modules/Sync/Sources/Sync; F=Modules/FileExplorer/Sources/FileExplorer
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr24=%s folders=%s batch=%s ownerIt=%s\n' $l \
+  "$(git show origin/$l:$S/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'visibleFileCount(atPath: url.path, fm: fm)')" \
+  "$(git show origin/$l:$S/FileSyncManager+Undo.swift 2>/dev/null | grep -cF 'let top = fm.listing(of: url)')" \
+  "$(git ls-tree --name-only origin/$l -- $F/EditorPDFBatch.swift | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:$F/EditorPDFBatch.swift 2>/dev/null | grep -cF 'its owner doesn’t allow changing it"')"; done
+# measured 2026-10-27, against origin, before this landed (the change reads folders=1 ownerIt=0):
+# main                     fr24=1 folders=0 batch=1 ownerIt=1
+# v5.x, v4.x, v3.x, v2.x   fr24=0 folders=0 batch=0 ownerIt=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR24 emptiness check (`fr24=0`), no PDF batch (`batch=0`) | CLOSED — does not apply |
