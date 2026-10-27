@@ -411,6 +411,7 @@ extension ContentView {
                 RunCapsuleHost(activeProgress: syncManager.activeProgress,
                                activeProgressStartedAt: syncManager.activeProgressStartedAt,
                                center: .shared, runWriteLock: runWriteLockReason,
+                               scans: ActivityScanRows.rows(syncManager) { ActivityCenter.shared.doors.showScan($0) },
                                style: toolbarStyles.run ?? .ring)
             }
         }

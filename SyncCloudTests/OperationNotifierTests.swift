@@ -46,6 +46,31 @@ import Sync
         #expect(posted.first?.trigger == nil, "an outcome notification fires now, not on a schedule")
     }
 
+    /// **A message that ends a run is titled with the run, carries its detail, and names itself**
+    /// (Run Room TE227): the click opens that row in Activity, which the id in `userInfo` finds.
+    @Test func aRunsEndingIsTitledWithTheRunAndNamesItsRow() {
+        let test = TestDefaults()
+        test.defaults.set(true, forKey: GeneralSettings.notifyOnBackgroundCompletionKey)
+        let banner = OperationBanner(message: "Merged “Photos”", severity: .warning, detail: "Skipped IMG_3120.jpg")
+        var posted: [UNNotificationRequest] = []
+        OperationNotifier.postIfEnabled(for: banner, runTitle: "Merging “Photos”", defaults: test.defaults,
+                                        appIsActive: false, post: { posted.append($0) })
+        #expect(posted.first?.content.title == "Merging “Photos”")
+        #expect(posted.first?.content.body == "Merged “Photos”\nSkipped IMG_3120.jpg")
+        #expect(posted.first?.content.userInfo[OperationNotifier.activityMessageKey] as? String == banner.id.uuidString)
+    }
+
+    /// The run is named only when it ended a moment ago — an old run's name on an unrelated
+    /// message would be a wrong title.
+    @Test func onlyARunThatJustEndedNamesTheNotification() {
+        let now = Date()
+        #expect(OperationNotifier.runTitle(lastFinished: (title: "Copying 12 items", ended: now.addingTimeInterval(-2)),
+                                           now: now) == "Copying 12 items")
+        #expect(OperationNotifier.runTitle(lastFinished: (title: "Copying 12 items", ended: now.addingTimeInterval(-60)),
+                                           now: now) == nil)
+        #expect(OperationNotifier.runTitle(lastFinished: nil, now: now) == nil)
+    }
+
     /// The three silent combinations stay silent through the REAL entry point, not just through
     /// the extracted gate: opted out, or the app frontmost (a visible banner is enough).
     @Test(arguments: [(false, false), (false, true), (true, true)])

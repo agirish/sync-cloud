@@ -1467,6 +1467,8 @@ struct ContentView: View {
         // Edit's own PDF tool and Fill & Sign results, which never pass through the window's
         // message, into Activity's Recent (R18).
         .background(ActivityEditRecorder(tools: editorPDF.tools))
+        // Opens the Activity window when something outside a view asks — a notification's click.
+        .background(ActivityWindowOpener(center: .shared))
         .alert(
             syncManager.currentError?.title ?? "Something Went Wrong",
             isPresented: Binding(
@@ -4542,7 +4544,8 @@ struct ContentView: View {
             // Banners vanish with the window; when the app is in the background, mirror the
             // outcome as a system notification (General setting, default off).
             if let banner = newValue {
-                OperationNotifier.postIfEnabled(for: banner)
+                let ended = syncManager.lastFinishedRun.map { (title: $0.title, ended: $0.ended) }
+                OperationNotifier.postIfEnabled(for: banner, runTitle: OperationNotifier.runTitle(lastFinished: ended))
             }
         }
         // Edit ▸ Undo and ⌘Z wait during a run, on the file operations' stack only (CF).

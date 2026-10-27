@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 import Design
 import Sync
 import Events
@@ -1138,6 +1139,8 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         RunUndoGate.shared.install()
         // Window ▸ Activity carries ⌘L (Run Room TE232).
         ActivityMenuKey.install()
+        // A background-completion notification's click opens its message in Activity (TE227).
+        UNUserNotificationCenter.current().delegate = OperationNotificationClicks.shared
 
         // How this build is signed, on the very next line — ad-hoc means its first launch waits
         // behind the Documents-access dialog, which is the whole of speed audit P16 and was
@@ -1686,7 +1689,8 @@ private struct ActivityWindowHost: View {
     var body: some View {
         ActivityWindow(center: .shared, activeProgress: syncManager.activeProgress,
                        activeProgressStartedAt: syncManager.activeProgressStartedAt,
-                       runWriteLock: syncManager.activeProgress.map { $0.runLockReason ?? Progress.genericRunLockReason }) {
+                       runWriteLock: syncManager.activeProgress.map { $0.runLockReason ?? Progress.genericRunLockReason },
+                       scans: ActivityScanRows.rows(syncManager) { ActivityCenter.shared.doors.showScan($0) }) {
             SyncHistoryView(
                 store: .shared,
                 runFilter: Binding(get: { ActivityCenter.shared.historyRun },

@@ -18,13 +18,17 @@ public struct ActivityWindow<History: View>: View {
     let activeProgress: Progress?
     let activeProgressStartedAt: Date?
     let runWriteLock: String?
+    /// The long scans, under the runs (TE228).
+    let scans: [ProgressCapsuleListedRun]
     let history: History
     /// The window's hue for the tab picker's selection — the app's, never the system's.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
     public init(center: ActivityCenter, activeProgress: Progress?, activeProgressStartedAt: Date?,
-                runWriteLock: String?, @ViewBuilder history: () -> History) {
+                runWriteLock: String?, scans: [ProgressCapsuleListedRun] = [],
+                @ViewBuilder history: () -> History) {
         self.center = center
+        self.scans = scans
         self.activeProgress = activeProgress
         self.activeProgressStartedAt = activeProgressStartedAt
         self.runWriteLock = runWriteLock
@@ -51,7 +55,7 @@ public struct ActivityWindow<History: View>: View {
                 ActivityRunsReader(activeProgress: activeProgress, activeProgressStartedAt: activeProgressStartedAt,
                                    center: center) { entries in
                     TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
-                        ActivityNowView(runs: entries.map { $0.listed() }, center: center,
+                        ActivityNowView(runs: entries.map { $0.listed() } + scans, center: center,
                                         runWriteLock: runWriteLock, now: timeline.date)
                     }
                 }

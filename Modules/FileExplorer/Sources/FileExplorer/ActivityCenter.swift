@@ -59,15 +59,19 @@ public struct ActivityDoors {
     public var download: (String) -> Void
     public var showInHistory: (UUID) -> Void
     public var showInLog: (ClosedRange<Date>) -> Void
+    /// A long scan's Show — its card (TE228).
+    public var showScan: (ActivityScan) -> Void
 
     public init(openInEdit: @escaping (String) -> Void = { _ in }, reveal: @escaping ([String]) -> Void = { _ in },
                 download: @escaping (String) -> Void = { _ in }, showInHistory: @escaping (UUID) -> Void = { _ in },
-                showInLog: @escaping (ClosedRange<Date>) -> Void = { _ in }) {
+                showInLog: @escaping (ClosedRange<Date>) -> Void = { _ in },
+                showScan: @escaping (ActivityScan) -> Void = { _ in }) {
         self.openInEdit = openInEdit
         self.reveal = reveal
         self.download = download
         self.showInHistory = showInHistory
         self.showInLog = showInLog
+        self.showScan = showScan
     }
 }
 
@@ -104,6 +108,11 @@ public final class ActivityCenter: ObservableObject {
     @Published public var logSpan: ClosedRange<Date>?
     /// The popover under the capsule is open — the capsule stays for it (TE231).
     @Published public var popoverIsOpen = false
+    /// The Recent row a notification's click picked out (TE227), drawn marked until another is.
+    @Published public var highlighted: UUID?
+    /// Bumped to ask the main window to open the Activity window — a notification's click arrives
+    /// where no view can open one.
+    @Published public private(set) var windowRequests = 0
     /// The main window's undo steps as ids, newest last — pushed as a step opens, moved to
     /// `redoSteps` by an undo and back by a redo — so a row can tell whether its step is the newest
     /// again after a newer one was undone (TE223).
@@ -176,6 +185,14 @@ public final class ActivityCenter: ObservableObject {
     /// Activity was opened: whatever problem was waiting has been seen.
     public func markSeen() {
         if hasUnseenProblem { hasUnseenProblem = false }
+    }
+
+    /// The Activity window on Now, with `id`'s row picked out (TE227, R15).
+    public func openWindow(highlighting id: UUID?) {
+        highlighted = id
+        tab = .now
+        markSeen()
+        windowRequests += 1
     }
 
     /// Opens the window's tab the button and ⌘L reopen: the last one used, or Now while a problem

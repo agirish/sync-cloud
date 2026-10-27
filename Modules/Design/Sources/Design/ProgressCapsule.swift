@@ -191,7 +191,7 @@ public struct ProgressCapsule: View {
 
     private var accessibilityText: String {
         guard case .count(let count) = trailing else { return tooltip }
-        return "\(count) running. " + ([run.summary] + othersRunning).joined(separator: ". ")
+        return "Activity, \(count) running. " + ([run.summary] + othersRunning).joined(separator: ". ")
     }
 
     private func trailingAction() {

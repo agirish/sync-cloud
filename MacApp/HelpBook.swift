@@ -784,6 +784,8 @@ enum HelpBook {
                     .bullets([
                         "Open it from Window ▸ Activity, the Activity button in the toolbar, or ⌘L. It opens on the tab you used last.",
                         "Click the progress capsule in the middle of the toolbar for a quick look at Now; Open as Window at its foot opens the window.",
+                        "Reading documents, a duplicate scan and a reorganization being applied are listed in Now too, with Show, which goes to their card — their Pause and Stop stay there. They never bring up the capsule.",
+                        "With “Notify when operations finish in the background” on in General, a notification names the run that ended; click it to open Activity on that message.",
                         "A red dot on the Activity button means a problem arrived while you were away from SyncCloud. Activity opens on Now while it is there, and opening Activity clears it.",
                         "A message’s Undo in Recent works while its step is the newest one. After something newer, it says what to undo first; ⌘Z in the main window steps back through them.",
                         "Show in History narrows History to that run’s records; Show in Log narrows the log to the minutes around the message. Show All puts the whole list back.",

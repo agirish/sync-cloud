@@ -21,15 +21,18 @@ public struct RunCapsuleHost: View {
     let activeProgressStartedAt: Date?
     @ObservedObject var center: ActivityCenter
     let runWriteLock: String?
+    /// The long scans, listed under the runs in the popover — never in the capsule (TE228).
+    let scans: [ProgressCapsuleListedRun]
     let style: ProgressCapsuleStyle
     @Environment(\.openWindow) private var openWindow
 
     public init(activeProgress: Progress?, activeProgressStartedAt: Date?, center: ActivityCenter,
-                runWriteLock: String?, style: ProgressCapsuleStyle) {
+                runWriteLock: String?, scans: [ProgressCapsuleListedRun] = [], style: ProgressCapsuleStyle) {
         self.activeProgress = activeProgress
         self.activeProgressStartedAt = activeProgressStartedAt
         self.center = center
         self.runWriteLock = runWriteLock
+        self.scans = scans
         self.style = style
     }
 
@@ -57,7 +60,7 @@ public struct RunCapsuleHost: View {
         }
         .popover(isPresented: $center.popoverIsOpen, arrowEdge: .bottom) {
             TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
-                ActivityNowView(runs: entries.map { $0.listed() }, center: center, runWriteLock: runWriteLock,
+                ActivityNowView(runs: entries.map { $0.listed() } + scans, center: center, runWriteLock: runWriteLock,
                                 now: timeline.date,
                                 onOpenWindow: {
                                     center.popoverIsOpen = false

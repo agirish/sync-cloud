@@ -2613,8 +2613,8 @@ public class FileSyncManager: ObservableObject {
     @Published public var activeProgress: Progress? = nil {
         didSet {
             guard activeProgress !== oldValue else { return }
-            if oldValue != nil, let started = activeProgressStartedAt {
-                lastFinishedRun = (started: started, ended: Date())
+            if let finished = oldValue, let started = activeProgressStartedAt {
+                lastFinishedRun = (started: started, ended: Date(), title: finished.localizedDescription)
             }
             activeProgressStartedAt = activeProgress.map { _ in Date() }
         }
@@ -2624,7 +2624,8 @@ public class FileSyncManager: ObservableObject {
     public private(set) var activeProgressStartedAt: Date?
     /// The last run that ended — the minutes its log lines span, for its message's Show in Log in
     /// Activity (Run Room R13).
-    public private(set) var lastFinishedRun: (started: Date, ended: Date)?
+    /// Its title is the run's own — "Merging “Photos”" — which names a notification of its ending.
+    public private(set) var lastFinishedRun: (started: Date, ended: Date, title: String?)?
     /// The run whose records the last history-recorded operation wrote — its token changes with
     /// each — for its message's Show in History (R13).
     public var lastRecordedRun: (token: UUID, runId: UUID)? {

@@ -58,25 +58,10 @@ extension ContentView {
     /// second from now.
     var documentSurveyCardState: DocumentSurveyCardState? {
         // 1. Running, or paused mid-run.
-        if let progress = syncManager.documentSurveyProgress {
-            switch progress.phase {
-            case .reading:
-                return .running(done: progress.completed, total: progress.total,
-                                folder: progress.currentFolder,
-                                secondsRemaining: progress.estimatedSecondsRemaining, pause: nil)
-            case .paused(let reason):
-                return .running(done: progress.completed, total: progress.total,
-                                folder: progress.currentFolder,
-                                secondsRemaining: progress.estimatedSecondsRemaining,
-                                pause: .init(sentence: reason.sentence,
-                                             resumesOnItsOwn: reason.resumesOnItsOwn))
-            case .finishing:
-                // Its own card state, not a pause. Rendered as one it read "paused at 7,558 of
-                // 7,558 … Resumes on its own" over a survey that was not paused and could not be
-                // resumed — and offered a Pause for something with nothing to pause.
-                return .finishing(done: progress.completed)
-            }
-        }
+        // Shared with Activity's Running row (TE228), so the two say the same — `finishing` is its
+        // own state, not a pause: rendered as one it read "paused at 7,558 of 7,558 … Resumes on its
+        // own" over a survey that was not paused and could not be resumed.
+        if let progress = syncManager.documentSurveyProgress { return .live(progress) }
         // 2. Just finished — the receipt, **for the tree it actually describes.**
         //    The report outlives the run and Organize's scope moves under it, so without the root
         //    check a completed survey's summary sat over whatever folder was selected next: a real

@@ -43,6 +43,7 @@ public struct ActivityNowView: View {
     let onOpenWindow: (() -> Void)?
     /// What "2 min ago" is counted from — the host's timeline tick.
     let now: Date
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(runs: [ProgressCapsuleListedRun], center: ActivityCenter, runWriteLock: String?,
                 now: Date = Date(), onOpenWindow: (() -> Void)? = nil) {
@@ -92,7 +93,16 @@ public struct ActivityNowView: View {
                 .frame(maxHeight: 360)
                 .fixedSize(horizontal: false, vertical: true)
             } else {
-                ScrollView { recentRows }
+                // The window: a notification's click brings its row into view (TE227).
+                ScrollViewReader { proxy in
+                    ScrollView { recentRows }
+                        .onChange(of: center.highlighted, initial: true) { _, id in
+                            guard let id else { return }
+                            withDesignAnimation(.default, reduceMotion: reduceMotion) {
+                                proxy.scrollTo(id, anchor: .center)
+                            }
+                        }
+                }
             }
             if let onOpenWindow {
                 Divider()
@@ -117,6 +127,10 @@ public struct ActivityNowView: View {
             ForEach(Array(center.recent.enumerated()), id: \.element.id) { index, message in
                 if index > 0 { Divider().padding(.leading, 12) }
                 ActivityRecentRow(message: message, center: center, runWriteLock: runWriteLock, now: now)
+                    .background(message.id == center.highlighted
+                                ? RoundedRectangle(cornerRadius: Radius.chip).fill(LiquidGlassHue.stored().accentColor.opacity(0.14))
+                                : nil)
+                    .id(message.id)
             }
         }
     }

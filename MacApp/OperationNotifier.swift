@@ -1,4 +1,5 @@
 import AppKit
+import FileExplorer
 import Events
 import Settings
 import Sync
@@ -29,7 +30,13 @@ enum OperationNotifier {
     /// the running app, so a test that wrote `.standard` would be writing the user's live General
     /// settings, and `UNUserNotificationCenter` cannot be observed headless. Production callers
     /// pass nothing and get exactly the previous behavior.
+    ///
+    /// **Run Room TE227:** a message that ends a long run is titled with that run — "Merging
+    /// “Photos”" — rather than "Operation complete"; the body carries the detail line too; and the
+    /// request names the message, so a click opens the Activity window on it (``activityMessageKey``,
+    /// `SyncCloudAppDelegate`'s notification delegate).
     static func postIfEnabled(for banner: OperationBanner,
+                              runTitle: String? = nil,
                               defaults: UserDefaults = .standard,
                               appIsActive: Bool = NSApp.isActive,
                               post: (UNNotificationRequest) -> Void = OperationNotifier.postToNotificationCenter) {
@@ -37,14 +44,24 @@ enum OperationNotifier {
         guard shouldNotify(enabled: enabled, appIsActive: appIsActive) else { return }
 
         let content = UNMutableNotificationContent()
-        content.title = title(for: banner.severity)
-        content.body = banner.message
+        content.title = runTitle ?? title(for: banner.severity)
+        content.body = [banner.message, banner.detail].compactMap { $0 }.joined(separator: "\n")
         content.sound = .default
+        content.userInfo = [activityMessageKey: banner.id.uuidString]
         // Each banner is one completed outcome (success/warning/error — see the `.banner =`
         // call sites), so it should surface as its own notification. The per-publish UUID gives
         // every request a distinct identifier, so the system never coalesces two genuinely
         // different outcomes into one.
         post(UNNotificationRequest(identifier: banner.id.uuidString, content: content, trigger: nil))
+    }
+
+    /// The notification's user-info key for the message it reports — Recent's row id.
+    nonisolated static let activityMessageKey = "activityMessage"
+
+    /// The run a message ends, by name — the last long run, when it ended a moment ago.
+    nonisolated static func runTitle(lastFinished: (title: String?, ended: Date)?, now: Date = Date()) -> String? {
+        guard let lastFinished, now.timeIntervalSince(lastFinished.ended) < 10 else { return nil }
+        return lastFinished.title
     }
 
     private static func postToNotificationCenter(_ request: UNNotificationRequest) {
@@ -58,6 +75,24 @@ enum OperationNotifier {
         UNUserNotificationCenter.current().add(request) { error in
             guard let error else { return }
             logger.error("Could not post the background-completion notification: \(error.localizedDescription)")
+        }
+    }
+}
+
+/// **A notification's click opens that message in Activity** (Run Room TE227, R15): the window on
+/// Now with the row picked out — not the popover, which hangs from a main window that may be behind
+/// other apps.
+final class OperationNotificationClicks: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = OperationNotificationClicks()
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        let id = (response.notification.request.content.userInfo[OperationNotifier.activityMessageKey] as? String)
+            .flatMap(UUID.init(uuidString:))
+        Task { @MainActor in
+            NSApp.activate()
+            ActivityCenter.shared.openWindow(highlighting: id)
+            completionHandler()
         }
     }
 }

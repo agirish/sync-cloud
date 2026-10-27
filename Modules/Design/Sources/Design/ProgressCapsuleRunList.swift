@@ -10,14 +10,18 @@ public struct ProgressCapsuleListedRun: Identifiable {
     public var startedAt: Date?
     /// `nil` for a run with nothing to stop between — one file being saved as PDF.
     public var onCancel: (() -> Void)?
+    /// A long scan with a card of its own (TE228): its controls stay on the card, and the row's
+    /// Show goes there instead of offering a Stop.
+    public var onShow: (() -> Void)?
 
     public init(id: String, run: ProgressCapsuleRun, symbol: String, startedAt: Date?,
-                onCancel: (() -> Void)?) {
+                onCancel: (() -> Void)?, onShow: (() -> Void)? = nil) {
         self.id = id
         self.run = run
         self.symbol = symbol
         self.startedAt = startedAt
         self.onCancel = onCancel
+        self.onShow = onShow
     }
 }
 
@@ -114,6 +118,10 @@ struct ProgressCapsuleRunRow: View {
             }
             if let stop = listed.onCancel {
                 stopButton(stop, run: run)
+            } else if let show = listed.onShow {
+                Button("Show", action: show)
+                    .controlSize(.small)
+                    .help("Go to its card, where it is paused or stopped")
             }
         }
         .padding(.horizontal, 12)

@@ -474,6 +474,19 @@ and key refusals are tested; this is what is not.
 - [ ] **Edit's own results.** In Edit, Compress the open PDF → its banner in Edit, and a row in Recent.
   Fill & Sign → Save a Copy → a row too. A file changed on disk (the reload banner) adds no row.
 
+## Activity: long scans, notifications, VoiceOver (Run Room TE226–TE228, 2026-10-27)
+
+- [ ] **Long scans in Now.** Start Read documents in Organize, then open Activity → Now lists
+  "Reading documents · N of M" with Show and no Stop; the toolbar has no capsule for it. Pause it on
+  its card → the row says "paused at"; Show brings Organize forward on the card.
+- [ ] **A notification opens its row.** General ▸ Notify when operations finish in the background on.
+  Start a large copy, switch to another app, let it end → the notification's title is the run
+  ("Copying 1,204 items"), its body the message and any skipped files. Click it → SyncCloud comes
+  forward with Activity on Now and that row marked.
+- [ ] **VoiceOver.** With VoiceOver on, end a Compress and a Save as PDF within a second of each
+  other → one announcement, "2 new in Activity: …". A failure interrupts what VoiceOver was reading;
+  a success waits. Focus the capsule with two runs → "Activity, 2 running. Merging Photos, …".
+
 ## Undo waits for a long run (Banner Room CF, 2026-10-26)
 
 - [ ] **⌘Z waits.** Delete a file (its message offers Undo), then start a duplicate merge before the

@@ -200,7 +200,8 @@ extension ContentView {
                                      && runWriteLockReason == nil)
         // Copied into Activity's Recent as it is published (Run Room R9), not spoken again (R19).
         ActivityCenter.shared.record(banner, run: syncManager.lastRecordedRun,
-                                     finishedRun: syncManager.lastFinishedRun, seen: NSApp.isActive)
+                                     finishedRun: syncManager.lastFinishedRun.map { ($0.started, $0.ended) },
+                                     seen: NSApp.isActive)
     }
 
     /// Where a Recent row's buttons go: this window's own doors (R12).
@@ -221,6 +222,17 @@ extension ContentView {
                 ActivityCenter.shared.logSpan = span
                 ActivityCenter.shared.tab = .log
                 openWindow(id: ActivityCenter.windowID)
+            },
+            showScan: { scan in
+                // The card the scan keeps its controls on, in the main window, brought forward.
+                ActivityCenter.shared.popoverIsOpen = false
+                selectedWorkspace = .filing
+                switch scan {
+                case .readDocuments: selectedOrganizeLens = nil
+                case .duplicates: selectedOrganizeLens = .duplicates
+                case .restructure: selectedOrganizeLens = .restructure
+                }
+                NSApp.mainWindow?.makeKeyAndOrderFront(nil)
             })
     }
 }
@@ -268,5 +280,18 @@ struct WorkspaceResultMessageHost: ViewModifier {
                 }
             }
             .designAnimation(.spring(response: 0.4, dampingFraction: 0.9), value: messageID)
+    }
+}
+
+/// Opens the Activity window when ``ActivityCenter`` asks — a notification's click, which arrives
+/// in the app delegate, outside any view that can open a window.
+struct ActivityWindowOpener: View {
+    @ObservedObject var center: ActivityCenter
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onChange(of: center.windowRequests) { _, _ in openWindow(id: ActivityCenter.windowID) }
     }
 }

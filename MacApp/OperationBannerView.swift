@@ -80,14 +80,12 @@ struct OperationBannerView: View {
         return banner.message + (ends ? " " : ". ") + "Undo available, Command Z"
     }
 
-    /// Posts the announcement. High priority, so it is spoken over whatever VoiceOver was reading —
-    /// the click that caused it.
+    /// Posts the announcement — a problem at high priority, so it is spoken over whatever VoiceOver
+    /// was reading; a success at medium, so it waits its turn (Run Room TE226). Two within a moment
+    /// are spoken as one (``ActivityAnnouncer``).
     static func announce(_ banner: OperationBanner, offersUndo: Bool) {
-        guard let app = NSApp else { return }
-        NSAccessibility.post(element: (app.mainWindow as NSResponder?) ?? app,
-                             notification: .announcementRequested,
-                             userInfo: [.announcement: announcement(for: banner, offersUndo: offersUndo),
-                                        .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        ActivityAnnouncer.say(announcement(for: banner, offersUndo: offersUndo),
+                              isProblem: banner.severity != .success)
     }
 
     var body: some View {
