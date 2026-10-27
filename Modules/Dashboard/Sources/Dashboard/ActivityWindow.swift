@@ -23,6 +23,8 @@ public struct ActivityWindow<History: View>: View {
     let history: History
     /// The window's hue for the tab picker's selection — the app's, never the system's.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
+    @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
+    @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
 
     public init(center: ActivityCenter, activeProgress: Progress?, activeProgressStartedAt: Date?,
                 runWriteLock: String?, scans: [ProgressCapsuleListedRun] = [],
@@ -46,8 +48,9 @@ public struct ActivityWindow<History: View>: View {
             .labelsHidden()
             .accentedSegments(LiquidGlassHue(rawValue: glassHueRaw) ?? .blue)
             .fixedSize()
-            .padding(.top, LogViewer.titleBarInset)
-            .padding(.bottom, 8)
+            // In the title bar's row, level with the traffic lights — the window's title is hidden,
+            // and a band of its height above the tabs was dead space (seen on screen 2026-10-27).
+            .frame(height: LogViewer.titleBarInset + 6)
             .accessibilityLabel("Activity")
             Divider().opacity(0.6)
             switch center.tab {
@@ -68,6 +71,13 @@ public struct ActivityWindow<History: View>: View {
         // From the top: Now is only as tall as its rows, and a window taller than them centred the
         // whole stack — tabs included — in it (seen on screen 2026-10-27).
         .frame(minWidth: 420, maxWidth: .infinity, minHeight: 360, maxHeight: .infinity, alignment: .top)
+        // One ground for all three tabs — the main window's glass, at its level and hue. Only the
+        // Log tab carried one when it was its own window, so at Clear the tabs and Now showed the
+        // window behind straight through (seen on screen 2026-10-27).
+        .liquidGlassAppBackground(level: GlassLevel(rawValue: glassLevelRaw) ?? .frosted,
+                                  hue: LiquidGlassHue(rawValue: glassHueRaw) ?? .blue, tint: surfaceTint)
+        // Keep the glass from greying out when this window isn't key, as the main window does.
+        .environment(\.controlActiveState, .active)
         // Opening Activity is seeing it: the toolbar's dot goes (CS).
         .onAppear { center.markSeen() }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in

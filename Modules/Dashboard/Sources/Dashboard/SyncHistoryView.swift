@@ -149,8 +149,10 @@ public struct SyncHistoryView: View {
                 }
                 Divider().opacity(0.6)
             }
-            searchBar
-            Divider().opacity(0.6)
+            if showsTitle {
+                searchBar
+                Divider().opacity(0.6)
+            }
             list(filtered: filtered)
         }
         .frame(minWidth: 460, minHeight: 320)
@@ -174,8 +176,18 @@ public struct SyncHistoryView: View {
             if showsTitle {
                 Text("Sync History")
                     .scaledFont(.headline)
+                Spacer()
+            } else {
+                // Activity's History tab: the tab names it, and the path filter takes the title's
+                // place rather than a row of its own.
+                searchField
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .glassBarStyle(level: glassLevel)
+                    .frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
+                    // What the pickers and buttons leave: they keep their own widths first.
+                    .layoutPriority(-1)
             }
-            Spacer()
 
             Picker("Action", selection: $selectedAction) {
                 ForEach(Self.actionOptions, id: \.label) { option in
@@ -241,14 +253,24 @@ public struct SyncHistoryView: View {
             // Run" here, "Reset All Settings…" in Settings.
             .help("Clear all history…")
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-        .glassBarStyle(level: glassLevel)
+        .padding(.horizontal, showsTitle ? 20 : 16)
+        .padding(.vertical, showsTitle ? 14 : 10)
+        // A bar of its own in the window; on the window's glass in Activity's tab, as the log's
+        // controls are, with the path field the only bar in the row.
+        .modifier(HistoryToolbarBar(applies: showsTitle, level: glassLevel))
     }
 
     // MARK: Search
 
     private var searchBar: some View {
+        searchField
+            .padding(12)
+            .glassBarStyle(level: glassLevel)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+    }
+
+    private var searchField: some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
@@ -265,10 +287,6 @@ public struct SyncHistoryView: View {
                 .accessibilityLabel("Clear search")
             }
         }
-        .padding(12)
-        .glassBarStyle(level: glassLevel)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
     }
 
     // MARK: List
@@ -505,5 +523,15 @@ struct SyncHistoryRow: View {
     /// nil (review E11). Comfortable rows only: compact keeps its one line for the path.
     static func previousDateText(_ record: SyncHistoryRecord) -> String? {
         record.previousModificationDate.map { "was \(timeString($0))" }
+    }
+}
+
+/// The history window's toolbar bar — off in Activity's History tab.
+private struct HistoryToolbarBar: ViewModifier {
+    let applies: Bool
+    let level: GlassLevel
+
+    func body(content: Content) -> some View {
+        if applies { content.glassBarStyle(level: level) } else { content }
     }
 }

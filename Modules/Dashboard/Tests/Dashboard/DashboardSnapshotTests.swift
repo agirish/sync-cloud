@@ -4,6 +4,7 @@ import Testing
 import Sync
 import Design
 import Events
+import FileExplorer
 @testable import Dashboard
 
 /// Visual snapshot net over Dashboard's composite surfaces: PaneHeader (with the freshness
@@ -273,5 +274,25 @@ import Events
             previewEnabled: .constant(previewEnabled),
             onNewFolder: onNewFolder)
         .defaultAppStorage(defaults)
+    }
+
+    /// **The Activity window's Now, at Solid** (Run Room TE232): the tabs in the title bar's row,
+    /// Running and Recent on cards, from the top. Its first build centred the stack in the window
+    /// and drew no ground of its own, so the tabs floated mid-window and Clear showed straight
+    /// through (seen on screen 2026-10-27).
+    @Test func activityWindowNow() {
+        let defaults = UserDefaults(suiteName: "DashboardSnapshotTests.activity-\(UUID())")!
+        defaults.set(GlassLevel.solid.rawValue, forKey: LiquidGlass.levelKey)
+        let center = ActivityCenter()
+        center.record(ActivityMessage(message: "Merged “Photos” — folded 7,363 files into Photos.",
+                                      severity: .success, runId: UUID()), seen: true)
+        center.record(ActivityMessage(message: "Saved 5 of 6 as PDF.", detail: "Budget.numbers — it isn’t downloaded",
+                                      severity: .warning), seen: true)
+        assertViewSnapshot(
+            of: ActivityWindow(center: center, activeProgress: nil, activeProgressStartedAt: nil,
+                               runWriteLock: nil) { EmptyView() }
+                .defaultAppStorage(defaults),
+            size: CGSize(width: 640, height: 420),
+            named: "now-solid")
     }
 }

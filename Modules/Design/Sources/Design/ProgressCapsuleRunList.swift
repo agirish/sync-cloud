@@ -33,9 +33,12 @@ public struct ProgressCapsuleListedRun: Identifiable {
 /// never one the reader could not see named.
 public struct ProgressCapsuleRunList: View {
     let runs: [ProgressCapsuleListedRun]
+    /// The Activity window's card is as wide as the window; the popover is the capsule's width.
+    let fillsWidth: Bool
 
-    public init(runs: [ProgressCapsuleListedRun]) {
+    public init(runs: [ProgressCapsuleListedRun], fillsWidth: Bool = false) {
         self.runs = runs
+        self.fillsWidth = fillsWidth
     }
 
     public static let width: CGFloat = 380
@@ -55,7 +58,8 @@ public struct ProgressCapsuleRunList: View {
             }
         }
         .padding(.bottom, 6)
-        .frame(width: Self.width, alignment: .leading)
+        .frame(width: fillsWidth ? nil : Self.width, alignment: .leading)
+        .frame(maxWidth: fillsWidth ? .infinity : nil, alignment: .leading)
         .background {
             // ⌘. stops the newest, as Return does — a second key on its Stop, which a button
             // cannot carry, so it rides on one of its own that draws nothing.

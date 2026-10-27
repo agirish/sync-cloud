@@ -528,8 +528,12 @@ public struct LogViewer: View {
                 if showsTitle {
                     Text("Activity Log")
                         .scaledFont(.headline)
+                    Spacer()
+                } else {
+                    // Activity's Log tab: the tab names it, and the level chips take the title's
+                    // place rather than a row of their own under a row of three buttons.
+                    levelChips(levelCounts, inHeader: true)
                 }
-                Spacer()
 
                 // Copy covers EVERYTHING on screen — session rows AND any revealed "Earlier
                 // sessions" page. Session entries are all newer than the history boundary, so
@@ -599,7 +603,7 @@ public struct LogViewer: View {
             // Plain header row directly on the window glass — the Settings pattern (its title row
             // carries no bar background), so no white slab across the top.
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.vertical, showsTitle ? 12 : 10)
             // The window is `.hiddenTitleBar`, so the glass runs all the way up and the content
             // starts under the traffic lights — inset the header past them. Without this the
             // title sits behind the close/minimize/zoom buttons.
@@ -617,21 +621,9 @@ public struct LogViewer: View {
             // active scope is always visible, not one click away.
             // Horizontal scroll so four chips with large counts never compress/truncate on the
             // narrow (380 pt) log window.
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(Self.chipOptions, id: \.label) { option in
-                        levelChip(option.label, level: option.level, count: levelCounts[option.level] ?? 0)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
-                // Frosted and Clear: the active threshold's fill as one glass lens that glides
-                // between chips (RD46) — a pick-one row like every other that wears one. On the
-                // padded row, the scroll view's content, so `visibleLevels` is in its coordinates.
-                .selectionLensHost(Self.levelLensChannel, selected: Self.levelLensID(selectedLevel),
-                                   style: .fill(.capsule, color: hueAccentFill), visibleRegion: visibleLevels)
+            if showsTitle {
+                levelChips(levelCounts, inHeader: false)
             }
-            .selectionLensTracksVisibleRegion(visibleLevels)
 
             // Search Bar — revealed by the header's magnifier. The query, plus (below) the parsed
             // filter tokens as removable chips and, while focused, one-tap suggestions. Design's
@@ -672,9 +664,30 @@ public struct LogViewer: View {
         .designAnimation(.easeOut(duration: 0.14), value: isSearchExpanded)
         // Match the main window's glass: same level + hue background, so the Activity Log reads as
         // the same frosted (or, at Clear, whiter see-through) surface instead of a plain window.
-        .liquidGlassAppBackground(level: glassLevel, hue: glassHue, tint: surfaceTint)
-        // Keep the glass from graying out when this window isn't key (see the main window).
-        .environment(\.controlActiveState, .active)
+        // Not inside Activity, whose window carries one ground for all its tabs.
+        .modifier(LogViewerGround(applies: showsTitle, level: glassLevel, hue: glassHue, tint: surfaceTint))
+    }
+
+    /// The severity threshold as tappable pills (All / Info & above / Warnings & above / Errors),
+    /// each carrying its live count. Horizontal scroll so four chips with large counts never
+    /// compress/truncate on a narrow window. A row of its own under the title, or the header itself
+    /// inside Activity.
+    private func levelChips(_ levelCounts: [LogLevel?: Int], inHeader: Bool) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(Self.chipOptions, id: \.label) { option in
+                    levelChip(option.label, level: option.level, count: levelCounts[option.level] ?? 0)
+                }
+            }
+            .padding(.horizontal, inHeader ? 0 : 16)
+            .padding(.top, inHeader ? 0 : 10)
+            // Frosted and Clear: the active threshold's fill as one glass lens that glides
+            // between chips (RD46) — a pick-one row like every other that wears one. On the
+            // padded row, the scroll view's content, so `visibleLevels` is in its coordinates.
+            .selectionLensHost(Self.levelLensChannel, selected: Self.levelLensID(selectedLevel),
+                               style: .fill(.capsule, color: hueAccentFill), visibleRegion: visibleLevels)
+        }
+        .selectionLensTracksVisibleRegion(visibleLevels)
     }
 
     // MARK: Search field
@@ -1192,5 +1205,24 @@ private struct LogOperationGroupRow: View {
     /// version of the code saying which is right.
     private static func timeString(_ date: Date) -> String {
         LogEntryRow.timeFormatter.string(from: date)
+    }
+}
+
+/// The log window's own glass ground — off inside Activity, whose window has one for every tab.
+private struct LogViewerGround: ViewModifier {
+    let applies: Bool
+    let level: GlassLevel
+    let hue: LiquidGlassHue
+    let tint: Double
+
+    func body(content: Content) -> some View {
+        if applies {
+            content
+                .liquidGlassAppBackground(level: level, hue: hue, tint: tint)
+                // Keep the glass from graying out when this window isn't key (see the main window).
+                .environment(\.controlActiveState, .active)
+        } else {
+            content
+        }
     }
 }

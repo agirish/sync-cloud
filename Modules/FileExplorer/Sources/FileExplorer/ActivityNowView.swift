@@ -54,72 +54,115 @@ public struct ActivityNowView: View {
         self.now = now
     }
 
+    @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
+
     public var body: some View {
+        if let onOpenWindow {
+            popover(onOpenWindow)
+        } else {
+            window
+        }
+    }
+
+    /// The capsule's popover: one column, the capsule's width, as tall as its rows to a point.
+    private func popover(_ onOpenWindow: @escaping () -> Void) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            if runs.isEmpty {
+            running(fillsWidth: false)
+            Divider()
+            recentHeader
+            if center.recent.isEmpty {
+                nothingYet
+            } else {
+                ScrollView { recentRows }
+                    .frame(maxHeight: 360)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Divider()
+            HStack {
+                Text("Kept until SyncCloud quits")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Open as Window", action: onOpenWindow)
+                    .buttonStyle(.link)
+            }
+            .scaledFont(.system(size: 11))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+        }
+        .frame(width: ProgressCapsuleRunList.width, alignment: .leading)
+    }
+
+    /// The Activity window's Now: Running and Recent each on a card of the window's glass, as the
+    /// panes sit on the main window's — Recent taking the rest of the height.
+    private var window: some View {
+        let level = GlassLevel(rawValue: glassLevelRaw) ?? .frosted
+        return VStack(spacing: 12) {
+            running(fillsWidth: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .glassSurface(level, cornerRadius: Radius.card)
+            VStack(alignment: .leading, spacing: 0) {
+                recentHeader
+                if center.recent.isEmpty {
+                    nothingYet
+                    Spacer(minLength: 0)
+                } else {
+                    // A notification's click brings its row into view (TE227).
+                    ScrollViewReader { proxy in
+                        ScrollView { recentRows }
+                            .onChange(of: center.highlighted, initial: true) { _, id in
+                                guard let id else { return }
+                                withDesignAnimation(.default, reduceMotion: reduceMotion) {
+                                    proxy.scrollTo(id, anchor: .center)
+                                }
+                            }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .glassSurface(level, cornerRadius: Radius.card)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    @ViewBuilder private func running(fillsWidth: Bool) -> some View {
+        if runs.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
                 section("Running")
                 Text("Nothing running")
                     .scaledFont(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-            } else {
-                ProgressCapsuleRunList(runs: runs)
+                    .padding(.bottom, 10)
+                    .padding(.top, 2)
             }
-            Divider()
-            HStack(alignment: .lastTextBaseline) {
-                section("Recent")
-                Spacer()
-                if !center.recent.isEmpty {
-                    Button("Clear") { center.clear() }
-                        .buttonStyle(.link)
-                        .controlSize(.small)
-                        .padding(.trailing, 12)
-                        .padding(.bottom, 4)
-                        .help("Clear Recent — Sync History and the log keep their own records")
-                }
-            }
-            if center.recent.isEmpty {
-                Text("Nothing yet this session")
-                    .scaledFont(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-            } else if onOpenWindow != nil {
-                // The popover: as tall as its rows, to a point, then it scrolls.
-                ScrollView {
-                    recentRows
-                }
-                .frame(maxHeight: 360)
-                .fixedSize(horizontal: false, vertical: true)
-            } else {
-                // The window: a notification's click brings its row into view (TE227).
-                ScrollViewReader { proxy in
-                    ScrollView { recentRows }
-                        .onChange(of: center.highlighted, initial: true) { _, id in
-                            guard let id else { return }
-                            withDesignAnimation(.default, reduceMotion: reduceMotion) {
-                                proxy.scrollTo(id, anchor: .center)
-                            }
-                        }
-                }
-            }
-            if let onOpenWindow {
-                Divider()
-                HStack {
-                    Text("Kept until SyncCloud quits")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Open as Window", action: onOpenWindow)
-                        .buttonStyle(.link)
-                }
-                .scaledFont(.system(size: 11))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
+        } else {
+            ProgressCapsuleRunList(runs: runs, fillsWidth: fillsWidth)
+        }
+    }
+
+    private var recentHeader: some View {
+        HStack(alignment: .lastTextBaseline) {
+            section("Recent")
+            Spacer()
+            if !center.recent.isEmpty {
+                Button("Clear") { center.clear() }
+                    .buttonStyle(.link)
+                    .controlSize(.small)
+                    .padding(.trailing, 12)
+                    .padding(.bottom, 4)
+                    .help("Clear Recent — Sync History and the log keep their own records")
             }
         }
-        .frame(width: onOpenWindow == nil ? nil : ProgressCapsuleRunList.width, alignment: .leading)
-        .frame(maxWidth: onOpenWindow == nil ? .infinity : nil, alignment: .topLeading)
+    }
+
+    private var nothingYet: some View {
+        Text("Nothing yet this session")
+            .scaledFont(.system(size: 12))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 10)
+            .padding(.top, 2)
     }
 
     private var recentRows: some View {
