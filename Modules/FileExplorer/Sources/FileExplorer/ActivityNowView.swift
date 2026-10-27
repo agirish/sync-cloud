@@ -206,8 +206,9 @@ struct ActivityRecentRow: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 9) {
-            Image(systemName: Self.symbol(message.severity))
-                .foregroundStyle(Self.tint(message.severity))
+            // A stop is grey whatever it saved — the reader ended it (TE221).
+            Image(systemName: message.isStopped ? "stop.circle.fill" : Self.symbol(message.severity))
+                .foregroundStyle(message.isStopped ? AnyShapeStyle(.secondary) : AnyShapeStyle(Self.tint(message.severity)))
                 .frame(width: 18)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {

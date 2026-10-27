@@ -22,6 +22,9 @@ public struct ActivityMessage: Identifiable, Equatable {
     public var span: ClosedRange<Date>
     /// Whose doors its follow-ups open — the window's panes, or Edit's own PDF.
     public var source: Source
+    /// The run was stopped by the reader — a grey ending saying what was kept, not a problem
+    /// (TE221).
+    public var isStopped = false
 
     public enum Source: Equatable {
         case window
@@ -43,6 +46,14 @@ public struct ActivityMessage: Identifiable, Equatable {
         self.runId = runId
         self.span = span ?? date.addingTimeInterval(-60)...date.addingTimeInterval(5)
         self.source = source
+    }
+
+    /// **Whether a sentence reports a run the reader stopped** — the app's own words for it:
+    /// "Stopped. Saved 2 of 6 as PDF.", "Canceled. Saved 1 rotated copy", "Verify All canceled".
+    public static func saysStopped(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        return ["stopped", "canceled"].contains { lower.hasPrefix($0) }
+            || [" canceled", " stopped"].contains { lower.hasSuffix($0) || lower.hasSuffix($0 + ".") }
     }
 
     /// The same words and the same weight — what folds a repeat into the row before it.
@@ -141,26 +152,32 @@ public final class ActivityCenter: ObservableObject {
             recent.insert(message, at: 0)
             if recent.count > Self.keep { recent.removeLast(recent.count - Self.keep) }
         }
-        if message.severity != .success, !seen { hasUnseenProblem = true }
+        // A stop the reader asked for is not a problem they missed.
+        if message.severity != .success, !message.isStopped, !seen { hasUnseenProblem = true }
     }
 
     /// The window's message, as it was published. `run` is the history run the manager last
     /// recorded — attached once, to the first message after it, so a later message is not linked
     /// to an old run's records. `finishedRun` is the last long run's minutes, when it ended just now.
     public func record(_ banner: OperationBanner, run: (token: UUID, runId: UUID)?,
-                       finishedRun: (started: Date, ended: Date)?, seen: Bool, now: Date = Date()) {
+                       finishedRun: (started: Date, ended: Date, cancelled: Bool)?, seen: Bool, now: Date = Date()) {
         var runId: UUID?
         if let run, run.token != attachedRunToken {
             attachedRunToken = run.token
             runId = run.runId
         }
         var start = now.addingTimeInterval(-60)
-        if let finishedRun, now.timeIntervalSince(finishedRun.ended) < 10 { start = min(start, finishedRun.started) }
-        record(ActivityMessage(id: banner.id, date: now, message: banner.message, detail: banner.detail,
-                               severity: banner.severity, followUps: banner.followUps,
-                               undoStep: banner.isUndoable ? undoSteps.last : nil, runId: runId,
-                               span: start...now.addingTimeInterval(5)),
-               seen: seen)
+        var stoppedRun = false
+        if let finishedRun, now.timeIntervalSince(finishedRun.ended) < 10 {
+            start = min(start, finishedRun.started)
+            stoppedRun = finishedRun.cancelled
+        }
+        var message = ActivityMessage(id: banner.id, date: now, message: banner.message, detail: banner.detail,
+                                      severity: banner.severity, followUps: banner.followUps,
+                                      undoStep: banner.isUndoable ? undoSteps.last : nil, runId: runId,
+                                      span: start...now.addingTimeInterval(5))
+        message.isStopped = stoppedRun || ActivityMessage.saysStopped(banner.message)
+        record(message, seen: seen)
     }
 
     /// The history run already linked to a message.
@@ -171,10 +188,11 @@ public final class ActivityCenter: ObservableObject {
     /// messages, and never come here.
     public func record(_ banner: EditorPDFToolBanner, seen: Bool) {
         let result = PaneToolResult(banner, host: PanePDFToolHost())
-        record(ActivityMessage(message: result.banner.message, detail: result.banner.detail,
-                               severity: result.banner.severity, followUps: result.banner.followUps,
-                               source: .edit),
-               seen: seen)
+        var message = ActivityMessage(message: result.banner.message, detail: result.banner.detail,
+                                      severity: result.banner.severity, followUps: result.banner.followUps,
+                                      source: .edit)
+        message.isStopped = ActivityMessage.saysStopped(banner.message)
+        record(message, seen: seen)
     }
 
     public func clear() {

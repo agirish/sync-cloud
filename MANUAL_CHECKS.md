@@ -468,6 +468,9 @@ and key refusals are tested; this is what is not.
 - [ ] **Links down a level.** After a copy from Compare, its Recent row's Show in History → History,
   "One run · N records", only that copy's rows; Show All brings back the rest. Show in Log → Log,
   "Only 14:02:11 – 14:06:07", the lines of those minutes.
+- [ ] **A stop is grey.** Save six files as PDF and press Stop after the second → Recent's row has a
+  gray stop glyph and "Stopped. Saved 2 of 6 as PDF."; stop a copy while away in another app → no
+  red dot.
 - [ ] **The dot.** Start a large merge, switch to another app, let it end with a skipped file (or any
   warning) → the toolbar's Activity button has a red dot; opening Activity shows Now and the dot
   goes. A success while away leaves none.

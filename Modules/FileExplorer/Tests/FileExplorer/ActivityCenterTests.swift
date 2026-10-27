@@ -73,11 +73,11 @@ import Sync
         let now = Date()
         let started = now.addingTimeInterval(-600)
         center.record(OperationBanner.success("Merged “Photos”"), run: nil,
-                      finishedRun: (started: started, ended: now.addingTimeInterval(-1)), seen: true, now: now)
+                      finishedRun: (started: started, ended: now.addingTimeInterval(-1), cancelled: false), seen: true, now: now)
         #expect(center.recent[0].span.lowerBound == started)
         // A run that ended long before the message is not its run.
         center.record(OperationBanner.success("Renamed “a.md”"), run: nil,
-                      finishedRun: (started: started, ended: now.addingTimeInterval(-100)), seen: true, now: now)
+                      finishedRun: (started: started, ended: now.addingTimeInterval(-100), cancelled: false), seen: true, now: now)
         #expect(center.recent[0].span.lowerBound == now.addingTimeInterval(-60))
     }
 
@@ -116,6 +116,29 @@ import Sync
 
         undo.redo()
         #expect(center.undoRefusal(for: deleted) == nil)
+    }
+
+    /// **A run the reader stopped ends grey, not as a problem** (TE221): its sentence says so in the
+    /// app's own words, or its run was cancelled — and it never lights the dot, unseen or not.
+    @Test func aStopIsGreyAndNeverAProblem() {
+        #expect(ActivityMessage.saysStopped("Stopped. Saved 2 of 6 as PDF."))
+        #expect(ActivityMessage.saysStopped("Canceled. Saved 1 rotated copy"))
+        #expect(ActivityMessage.saysStopped("Verify All canceled"))
+        #expect(!ActivityMessage.saysStopped("Saved 6 files as PDF"))
+        #expect(!ActivityMessage.saysStopped("Couldn’t copy “Stopped clock.jpg”"))
+
+        let center = ActivityCenter()
+        let now = Date()
+        center.record(OperationBanner.warning("Copied 120 of 7,363 items"), run: nil,
+                      finishedRun: (started: now.addingTimeInterval(-30), ended: now, cancelled: true),
+                      seen: false, now: now)
+        #expect(center.recent[0].isStopped, "a cancelled run's ending is not a stop")
+        #expect(!center.hasUnseenProblem, "a stop the reader asked for lit the problem dot")
+        center.record(OperationBanner.warning("Copied 7,000 of 7,363 items · 363 skipped"), run: nil,
+                      finishedRun: (started: now.addingTimeInterval(-30), ended: now, cancelled: false),
+                      seen: false, now: now)
+        #expect(!center.recent[0].isStopped)
+        #expect(center.hasUnseenProblem)
     }
 
     /// A message that offered no Undo has none in Recent either.

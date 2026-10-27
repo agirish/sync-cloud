@@ -255,7 +255,7 @@ extension ContentView {
         // problem the capsule showed for five seconds while the reader worked elsewhere leaves the
         // Activity button's dot (CS).
         ActivityCenter.shared.record(banner, run: syncManager.lastRecordedRun,
-                                     finishedRun: syncManager.lastFinishedRun.map { ($0.started, $0.ended) },
+                                     finishedRun: syncManager.lastFinishedRun.map { ($0.started, $0.ended, $0.cancelled) },
                                      seen: NSApp.isActive && !toCapsule)
     }
 

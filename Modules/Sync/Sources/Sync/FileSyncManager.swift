@@ -2614,7 +2614,8 @@ public class FileSyncManager: ObservableObject {
         didSet {
             guard activeProgress !== oldValue else { return }
             if let finished = oldValue, let started = activeProgressStartedAt {
-                lastFinishedRun = (started: started, ended: Date(), title: finished.localizedDescription)
+                lastFinishedRun = (started: started, ended: Date(), title: finished.localizedDescription,
+                                   cancelled: finished.isCancelled)
             }
             activeProgressStartedAt = activeProgress.map { _ in Date() }
         }
@@ -2625,7 +2626,8 @@ public class FileSyncManager: ObservableObject {
     /// The last run that ended — the minutes its log lines span, for its message's Show in Log in
     /// Activity (Run Room R13).
     /// Its title is the run's own — "Merging “Photos”" — which names a notification of its ending.
-    public private(set) var lastFinishedRun: (started: Date, ended: Date, title: String?)?
+    /// `cancelled` is whether it was stopped — its ending is then a stop, not a problem.
+    public private(set) var lastFinishedRun: (started: Date, ended: Date, title: String?, cancelled: Bool)?
     /// The run whose records the last history-recorded operation wrote — its token changes with
     /// each — for its message's Show in History (R13).
     public var lastRecordedRun: (token: UUID, runId: UUID)? {
