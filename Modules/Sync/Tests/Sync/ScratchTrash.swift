@@ -11,7 +11,7 @@ import Foundation
 /// `bystander.txt` by 2026-10-16.
 ///
 /// **Reports where the item went, as the real Trash does.** `deleteItems` counts an item with no
-/// resulting URL as permanently deleted, and an undo restores a replaced file from that URL, so
+/// resulting URL as out of ⌘Z's reach, and an undo restores a replaced file from that URL, so
 /// leaving it out would quietly test another branch.
 ///
 /// Each item gets a folder of its own, so two trashes of one name both keep it, as the real Trash

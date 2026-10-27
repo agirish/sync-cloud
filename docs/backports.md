@@ -12558,3 +12558,35 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s model=%s secondSave=%s learnR
 | `v5.x` | Every Save starts a reading and nothing stops the one running, so the reading running at a second Save lands in the replaced profile (`secondSave=1`); Learn mid-reading walks again (`learnRestarts=1`); your name matched by display name only (`nameOnly=1`); ✕ live on a read-only roster (`liveX=1`); no Look Again card (`lookAgain=0`); no household check, since it has no written-reading check at all | RECORDED — not owed |
 | `v4.x` | No Setup model (`model=0`); the draft's name-only match (`nameOnly=1`), the shape behind the second "me"; its flow not traced | RECORDED — not owed |
 | `v3.x` / `v2.x` | None of it (`apply=0`) | CLOSED — does not apply |
+
+---
+
+## A run's undo-arming tail keeps its lock and drops its Stop; trash counts — main only
+
+v6.1 review M3, L3, L7, L9. **M3:** a duplicate merge's `deleteItems` cleared `activeProgress`
+when its trash finished, so the merge's undo registration and identity walk ran with the run
+lock, capsule and ⌘Z gate down; `deleteItems(resumingProgress:)` now hands the merge its own
+back. **L7:** a copy, move or merge arming its undo showed a Stop and took ⌘. that stopped
+nothing; `Progress.markFinishing()` drops both and titles it "Finishing…", and the capsule
+re-reads cancellability each tick. **L3:** `DeleteOutcome` counted an item the Trash took without
+a location as permanently deleted (the merge log said so); it has its own count, and Help says
+Undo Last Run takes back only a whole run. **L9:** Duplicates' kept-separate words and counts.
+
+```sh
+S=Modules/Sync/Sources/Sync
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s runLock=%s mergeProgress=%s mergeAwaitsWalk=%s reachedTrash=%s flagged=%s\n' $l \
+  "$(git ls-tree --name-only origin/$l -- $S/ProgressRunLock.swift | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:$S/FileSyncManager+Duplicates.swift 2>/dev/null | grep -c 'progress.localizedDescription = "Merging')" \
+  "$(git show origin/$l:$S/FileSyncManager+Duplicates.swift 2>/dev/null | grep -c 'await identityWalk')" \
+  "$(git show origin/$l:$S/FileOperations.swift 2>/dev/null | grep -c 'reachedTrash: true')" \
+  "$(git show origin/$l:$S/FileSyncManager+Duplicates.swift 2>/dev/null | grep -c 'flagged again')"; done
+# measured 2026-10-27, against origin, before this landed:
+# main          runLock=1 mergeProgress=1 mergeAwaitsWalk=1 reachedTrash=3 flagged=1
+# v5.x, v4.x    runLock=0 mergeProgress=1 mergeAwaitsWalk=1 reachedTrash=0 flagged=0
+# v3.x, v2.x    runLock=0 mergeProgress=1 mergeAwaitsWalk=0 reachedTrash=0 flagged=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` | The merge's progress dialog closes when its trash ends while it still awaits its identity walk — display only, no run lock or ⌘Z gate there (`runLock=0`); no location-less count (`reachedTrash=0`). A copy awaits its identity walk with its progress up and cancellable, as `main` did | RECORDED — not owed |
+| `v3.x` / `v2.x` | No tail after the merge's trash (`mergeAwaitsWalk=0`); none of the rest | CLOSED — does not apply |

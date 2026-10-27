@@ -783,6 +783,9 @@ import Combine
 
         await manager.findDuplicates(root: root)
         manager.keepDuplicateGroupSeparate(try #require(manager.duplicateGroups.first))
+        // Not "won't be flagged again" outright: the key is these exact copies (L9).
+        #expect(manager.banner?.message.hasSuffix("it won’t be flagged again while its copies stay put.") == true,
+                "\(manager.banner?.message ?? "nil")")
         await manager.findDuplicates(root: root)
         #expect(manager.duplicateGroups.isEmpty, "premise: the group stays hidden across a rescan")
 
@@ -795,28 +798,71 @@ import Combine
     /// folder and provider at once; only the keys a scan of this folder could flag are this
     /// lens's to count and forget, and the forgetting says how many.
     @MainActor
-    @Test func showingKeptGroupsAgainTouchesOnlyThisFolder() {
+    @Test func showingKeptGroupsAgainTouchesOnlyThisFolder() throws {
+        // On disk, every copy: a key whose copies are gone is not counted (below).
+        let base = try makeCanonicalTempRoot(prefix: "KeptSeparateFolders")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let x = base.path
+        let all = ["Documents/a.pdf", "Documents/b/a.pdf", "Documents/c/n.txt", "Documents/d/n.txt",
+                   "Pictures/p.jpg", "Pictures/q/p.jpg", "Documents/s.pdf", "Desktop/s.pdf",
+                   "DocumentsOld/a.pdf", "DocumentsOld/b/a.pdf"]
+        for path in all { try write(base.appendingPathComponent(path), bytes: 10, fill: 0x41) }
         let manager = FileSyncManager()
         let suite = "DuplicatesIgnoreTest-\(UUID().uuidString)"
         manager.duplicateIgnoreDefaults = UserDefaults(suiteName: suite)!
         defer { wipeDefaultsSuite(suite) }
-        let here = "/Users/x/Documents/a.pdf\n/Users/x/Documents/b/a.pdf"
-        let alsoHere = "/Users/x/Documents/c/n.txt\n/Users/x/Documents/d/n.txt"
-        let elsewhere = "/Users/x/Pictures/p.jpg\n/Users/x/Pictures/q/p.jpg"
-        let straddling = "/Users/x/Documents/s.pdf\n/Users/x/Desktop/s.pdf"
-        let prefixSibling = "/Users/x/DocumentsOld/a.pdf\n/Users/x/DocumentsOld/b/a.pdf"
+        let here = "\(x)/Documents/a.pdf\n\(x)/Documents/b/a.pdf"
+        let alsoHere = "\(x)/Documents/c/n.txt\n\(x)/Documents/d/n.txt"
+        let elsewhere = "\(x)/Pictures/p.jpg\n\(x)/Pictures/q/p.jpg"
+        let straddling = "\(x)/Documents/s.pdf\n\(x)/Desktop/s.pdf"
+        let prefixSibling = "\(x)/DocumentsOld/a.pdf\n\(x)/DocumentsOld/b/a.pdf"
         manager.ignoredDuplicateKeys = [here, alsoHere, elsewhere, straddling, prefixSibling]
 
-        #expect(manager.keptSeparateKeys(under: "/Users/x/Documents") == [here, alsoHere])
+        #expect(manager.keptSeparateKeys(under: "\(x)/Documents") == [here, alsoHere])
         #expect(manager.keptSeparateKeys(under: nil).isEmpty)
 
-        #expect(manager.forgetKeptSeparateGroups(under: "/Users/x/Documents") == 2)
+        #expect(manager.forgetKeptSeparateGroups(under: "\(x)/Documents") == 2)
         #expect(manager.ignoredDuplicateKeys == [elsewhere, straddling, prefixSibling],
                 "Show them again forgot groups another folder's scan had kept separate")
-        #expect(manager.banner?.message == "Forgot 2 groups kept separate — they come back with this scan.")
+        #expect(manager.banner?.message == "Forgot 2 groups kept separate — this scan flags any that are still duplicates.")
         #expect(manager.banner?.isUndoable != true)
         #expect(FileSyncManager.keptSeparateForgottenSentence(1)
-                == "Forgot 1 group kept separate — it comes back with this scan.")
+                == "Forgot 1 group kept separate — this scan flags it again if it’s still a duplicate.")
+    }
+
+    /// **A kept group whose copy is gone was still counted and promised back** (L9). Its key is the
+    /// exact copy paths, so no scan can ever match it again: "You’ve kept 2 groups separate" and
+    /// "they come back with this scan" both counted a group that cannot come back. Forgotten all
+    /// the same, so the store does not keep it forever.
+    @MainActor
+    @Test func aKeptGroupWithACopyGoneIsNeitherCountedNorPromisedBack() throws {
+        let base = try makeCanonicalTempRoot(prefix: "KeptSeparateGone")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let x = base.path
+        for path in ["a.pdf", "b/a.pdf", "c/n.txt"] {
+            try write(base.appendingPathComponent(path), bytes: 10, fill: 0x41)
+        }
+        let manager = FileSyncManager()
+        let suite = "DuplicatesIgnoreTest-\(UUID().uuidString)"
+        manager.duplicateIgnoreDefaults = UserDefaults(suiteName: suite)!
+        defer { wipeDefaultsSuite(suite) }
+        let live = "\(x)/a.pdf\n\(x)/b/a.pdf"
+        let oneGone = "\(x)/c/n.txt\n\(x)/d/n.txt"   // d/n.txt was never written
+        let allGone = "\(x)/e/m.txt\n\(x)/f/m.txt"
+        manager.ignoredDuplicateKeys = [oneGone, allGone, live]
+
+        #expect(manager.keptSeparateKeys(under: x) == [live],
+                "the lens counts a kept group whose copies are no longer all on disk")
+        #expect(manager.forgetKeptSeparateGroups(under: x) == 1)
+        #expect(manager.banner?.message == "Forgot 1 group kept separate — this scan flags it again if it’s still a duplicate.")
+        #expect(manager.ignoredDuplicateKeys.isEmpty, "a dead key was left in the store")
+
+        // Nothing left that could come back: forgotten, but no banner promising anything.
+        manager.ignoredDuplicateKeys = [allGone]
+        manager.banner = nil
+        #expect(manager.forgetKeptSeparateGroups(under: x) == 0)
+        #expect(manager.ignoredDuplicateKeys.isEmpty)
+        #expect(manager.banner == nil, "a banner promised back groups whose copies are gone")
     }
 
     /// **Show them again forgot under the scan's root while the list showed only the scope.** A
@@ -839,14 +885,22 @@ import Combine
         #expect(OrganizeAim.keptSeparateFolder(scannedRoot: nil, scope: legal) == legal.path)
         #expect(OrganizeAim.keptSeparateFolder(scannedRoot: "", scope: nil) == nil)
 
+        // The keys' copies on disk, since a key with a copy gone is not counted.
+        let base = try makeCanonicalTempRoot(prefix: "KeptSeparateScope")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let disk = base.path + "/Documents"
+        for path in ["Legal/a.pdf", "Legal/b/a.pdf", "Taxes/t.pdf", "Taxes/u/t.pdf"] {
+            try write(URL(fileURLWithPath: disk + "/" + path), bytes: 10, fill: 0x41)
+        }
+        let diskLegal = try #require(OrganizeScope(path: disk + "/Legal", providerRoot: disk))
         let manager = FileSyncManager()
         let suite = "DuplicatesIgnoreTest-\(UUID().uuidString)"
         manager.duplicateIgnoreDefaults = UserDefaults(suiteName: suite)!
         defer { wipeDefaultsSuite(suite) }
-        let inScope = "\(root)/Legal/a.pdf\n\(root)/Legal/b/a.pdf"
-        let outsideScope = "\(root)/Taxes/t.pdf\n\(root)/Taxes/u/t.pdf"
+        let inScope = "\(disk)/Legal/a.pdf\n\(disk)/Legal/b/a.pdf"
+        let outsideScope = "\(disk)/Taxes/t.pdf\n\(disk)/Taxes/u/t.pdf"
         manager.ignoredDuplicateKeys = [inScope, outsideScope]
-        let folder = OrganizeAim.keptSeparateFolder(scannedRoot: root, scope: legal)
+        let folder = OrganizeAim.keptSeparateFolder(scannedRoot: disk, scope: diskLegal)
         #expect(manager.keptSeparateKeys(under: folder) == [inScope])
         #expect(manager.forgetKeptSeparateGroups(under: folder) == 1)
         #expect(manager.ignoredDuplicateKeys == [outsideScope],

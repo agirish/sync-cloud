@@ -20,4 +20,13 @@ extension Progress {
     public static func runLockReason(waitingFor run: String) -> String {
         "Wait for \(run) to finish"
     }
+
+    /// The run's work is done and only its undo is still being armed — the identity walk a
+    /// copy, move or merge awaits before it reports done. Nothing is left that a Stop could stop,
+    /// so the capsule drops its Stop and ⌘. and says so; the run lock stays up until the run
+    /// returns, because ⌘Z must not reach an undo whose identities are still being read.
+    public func markFinishing() {
+        isCancellable = false
+        localizedDescription = "Finishing…"
+    }
 }

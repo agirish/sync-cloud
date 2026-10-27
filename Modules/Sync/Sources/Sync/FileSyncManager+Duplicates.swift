@@ -495,7 +495,9 @@ extension FileSyncManager {
             target.restoreKeptSeparateGroup(group, at: index, scannedFrom: root)
         }
         undoManager?.setActionName("Keep Separate")
-        banner = .success("Kept “\(group.name)” separate — it won’t be flagged again.",
+        // "While its copies stay put": the key is the cluster's exact copy paths, so a copy
+        // added, moved or removed makes a different group, which a scan flags.
+        banner = .success("Kept “\(group.name)” separate — it won’t be flagged again while its copies stay put.",
                           undoable: undoManager != nil)
     }
 
@@ -551,7 +553,19 @@ extension FileSyncManager {
     /// **Not every key.** The set is kept for every provider and folder at once, so counting it
     /// whole put "You’ve kept 12 groups separate" under a scan that could only ever have shown two
     /// of them, and *Show them again* forgot all twelve, everywhere, with no way back.
+    ///
+    /// **Nor every key under the root: only those whose copies are all still on disk.** A key is
+    /// the cluster's exact copy paths, so one with a copy gone can never match a scan again — it
+    /// was counted in "You’ve kept N groups separate" and promised back by *Show them again* all
+    /// the same. One `fileExists` per copy; the set is the user's own clicks, so it stays small.
     public func keptSeparateKeys(under root: String?) -> Set<String> {
+        keptSeparateKeysInFolder(root).filter { key in
+            key.split(separator: "\n").allSatisfy { fileManager.fileExists(atPath: String($0)) }
+        }
+    }
+
+    /// Every kept-separate key below `root`, its copies on disk or not.
+    private func keptSeparateKeysInFolder(_ root: String?) -> Set<String> {
         guard let root else { return [] }
         return ignoredDuplicateKeys.filter { Self.keptSeparateKey($0, isUnder: root) }
     }
@@ -561,18 +575,25 @@ extension FileSyncManager {
     /// returns the count.
     @discardableResult
     public func forgetKeptSeparateGroups(under root: String?) -> Int {
+        // Forgets the keys whose copies are gone as well — they can never match again — but counts
+        // and promises only the ones a scan could bring back.
+        let all = keptSeparateKeysInFolder(root)
         let forgotten = keptSeparateKeys(under: root)
-        guard !forgotten.isEmpty else { return 0 }
-        ignoredDuplicateKeys = ignoredDuplicateKeys.subtracting(forgotten)
+        guard !all.isEmpty else { return 0 }
+        ignoredDuplicateKeys = ignoredDuplicateKeys.subtracting(all)
         Logger.shared.info("Duplicates: forgot \(forgotten.count) group(s) kept separate under "
-                           + "\((root.map { ($0 as NSString).lastPathComponent }) ?? "?")")
+                           + "\((root.map { ($0 as NSString).lastPathComponent }) ?? "?")"
+                           + (all.count > forgotten.count ? ", and \(all.count - forgotten.count) whose copies are gone" : ""))
+        guard !forgotten.isEmpty else { return 0 }
         banner = .success(Self.keptSeparateForgottenSentence(forgotten.count))
         return forgotten.count
     }
 
+    /// "Any still duplicates", because a group kept separate is flagged again only if its copies
+    /// still match — one edited since is not a duplicate any more, and nothing comes back.
     nonisolated static func keptSeparateForgottenSentence(_ count: Int) -> String {
-        count == 1 ? "Forgot 1 group kept separate — it comes back with this scan."
-            : "Forgot \(count.formatted()) groups kept separate — they come back with this scan."
+        count == 1 ? "Forgot 1 group kept separate — this scan flags it again if it’s still a duplicate."
+            : "Forgot \(count.formatted()) groups kept separate — this scan flags any that are still duplicates."
     }
 
     /// Clears the current results (called when switching providers, so stale groups from one
@@ -1608,9 +1629,10 @@ extension FileSyncManager {
             Logger.shared.info("Duplicates: the batch stopped short — removed \(outcome.removed) of \(presentBefore.count) copies (\(outcome.declined) declined, \(outcome.refusedByGate) refused at the last check); the remaining groups stay listed")
         }
         if currentError == nil {
-            // `DeleteOutcome`'s own rule: any permanent delete anywhere in the batch poisons the
-            // offer, because the one restore-undo can only bring back the trashed subset.
-            let isUndoable = outcome.permanentlyDeleted == 0 && outcome.trashed > 0
+            // `DeleteOutcome`'s own rule: any permanent delete — or any copy trashed with no
+            // location — anywhere in the batch poisons the offer, because the one restore-undo can
+            // only bring back the copies whose Trash location is known.
+            let isUndoable = outcome.isUndoable
             if done.count == eligible.count, refused == 0, outcome.declined == 0 {
                 banner = .success("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) group\(done.count == 1 ? "" : "s")",
                                   undoable: isUndoable)
@@ -1911,6 +1933,9 @@ extension FileSyncManager {
         // Set when any redundant copy left by permanent delete rather than the Trash — the merge
         // is then not reversible, whatever else succeeded.
         var anyPermanentlyDeleted = false
+        // Set when the Trash took a redundant copy without saying where — recoverable by hand, but
+        // no restore can be registered for it, so the fold is withheld from ⌘Z just the same.
+        var anyTrashedWithoutLocation = false
         // Copies refused at the trash step because their contents changed after the plan was
         // snapshotted — surfaced with a drift-specific warning below, like the keeper drift.
         var driftedCopies: [String] = []
@@ -2102,8 +2127,12 @@ extension FileSyncManager {
                 removalGate: mergeRemovalGate(group: group, folds: readyToTrash, refusals: gateRefusals),
                 restoreUndoHandback: { originals, backups in
                     trashedForUndo = (originals, backups)
-                })
+                },
+                // The merge is not over when the trash is: the lock stays up through the undo
+                // registration and identity walk below.
+                resumingProgress: progress)
             if outcome.permanentlyDeleted > 0 { anyPermanentlyDeleted = true }
+            if outcome.trashedWithoutLocation > 0 { anyTrashedWithoutLocation = true }
             declinedCopies = outcome.declined
             // The disk is the ground truth for "did this copy leave", the same rule
             // `dropFullyRemovedGroups` follows: a gate refusal, a decline, a cancelled dialog and a
@@ -2113,6 +2142,8 @@ extension FileSyncManager {
             // it is the same verdict taken later; the gate has already logged the specifics.
             driftedCopies.append(contentsOf: gateRefusals.all)
         }
+
+        progress.markFinishing()
 
         // **The registration tail — synchronous, start to finish.** No `await` may appear between
         // `beginUndoGrouping` and `endUndoGrouping`: the main actor cannot be interleaved inside a
@@ -2133,7 +2164,11 @@ extension FileSyncManager {
         // the user has no other one-step route to. But it is named for what it does rather than for
         // the merge — an Edit menu reading "Undo Merge Keeper" would promise to reverse a merge
         // that cannot be reversed, which is the same over-claim in a different surface.
-        let copyUndoWithheld = anyPermanentlyDeleted
+        //
+        // A copy the Trash took WITHOUT a location withholds it too: no restore is registered for
+        // that copy, so the fold's undo would take the files out of the keeper while the original
+        // sits in the Trash where only Finder can find it.
+        let copyUndoWithheld = anyPermanentlyDeleted || anyTrashedWithoutLocation
         let registersCopyUndo = !foldedItems.isEmpty && !copyUndoWithheld
         if registersCopyUndo || trashedForUndo != nil {
             let actionName = copyUndoWithheld ? "Restore Copies of “\(group.name)”" : "Merge \(group.name)"
@@ -2210,16 +2245,16 @@ extension FileSyncManager {
         }
         duplicateGroups.removeAll { $0.id == group.id }
         // **Offer ⌘Z only where this merge actually registered one**, which is not the same
-        // question as `!anyPermanentlyDeleted`. Two conditions, and they are separate:
+        // question as `!copyUndoWithheld`. Two conditions, and they are separate:
         //
-        // - `!anyPermanentlyDeleted` is the DELIBERATE withdrawal above: with a copy destroyed
+        // - `!copyUndoWithheld` is the DELIBERATE withdrawal above: with a copy destroyed
         //   outright the merge cannot be taken back, and the restore that *is* registered for the
         //   copies that reached the Trash is named for itself rather than for the merge. That one
         //   stays exactly as it was.
         // - `registeredUndo` is the one this condition could not see: a merge that folded nothing
         //   and trashed nothing enters the registration tail with `foldedItems` empty and no
         //   handback, so the `if` above opens no group and registers nothing at all — while
-        //   `anyPermanentlyDeleted` is false, so the banner promised ⌘Z anyway. Reachable two
+        //   `copyUndoWithheld` is false, so the banner promised ⌘Z anyway. Reachable two
         //   ways, both ordinary: every redundant copy already off the disk (an external delete, or
         //   a retry after a partial merge — each one skipped by the loop's `fileExists` guard,
         //   and skipping is not failing), or a group carrying no redundant copy at all.
@@ -2228,18 +2263,24 @@ extension FileSyncManager {
         // the user did BEFORE the merge, and the Edit menu names that step. Same rule the two
         // reclaim paths already follow through `DeleteOutcome.isUndoable`, stated here because the
         // merge builds its registration by hand and so has to answer the question itself.
-        let registeredUndo = !anyPermanentlyDeleted && (registersCopyUndo || trashedForUndo != nil)
+        let registeredUndo = !copyUndoWithheld && (registersCopyUndo || trashedForUndo != nil)
         banner = .success("Merged “\(group.name)” — folded \(totalFolded) file\(totalFolded == 1 ? "" : "s") into \(group.keeper.name).",
                           undoable: registeredUndo)
         Logger.shared.info("Duplicates: merged “\(group.name)” — folded \(totalFolded) file(s) into \(group.keeper.name)")
-        if anyPermanentlyDeleted {
+        if copyUndoWithheld {
             // He audits this log, and this is the case where the fold cannot be taken back. The
             // line used to say "the merge is not undoable", which was FALSE at the moment it was
             // written — the copy-undo was registered and `canUndo` was true; only the banner's
-            // button had been withdrawn. It now records what the code actually did.
+            // button had been withdrawn. It now records what the code actually did — and says
+            // "deleted permanently" only when one was: a copy the Trash took without a location is
+            // in the Trash, and the line used to call it gone.
+            let why = anyPermanentlyDeleted
+                ? "had a redundant copy deleted permanently rather than trashed"
+                : "had a redundant copy moved to the Trash with no location reported, so it can only be put back from the Trash in Finder"
+            let effect = anyPermanentlyDeleted ? "with the original already gone" : "with the original out of ⌘Z’s reach"
             Logger.shared.warning(
-                "Duplicates: “\(group.name)” had a redundant copy deleted permanently rather than trashed — the fold's undo was deliberately NOT registered, because taking it would remove the copied files from \(group.keeper.name) with the original already gone"
-                + (trashedForUndo == nil ? "" : "; ⌘Z offers only the restore of the copies that did reach the Trash"))
+                "Duplicates: “\(group.name)” \(why) — the fold's undo was deliberately NOT registered, because taking it would remove the copied files from \(group.keeper.name) \(effect)"
+                + (trashedForUndo == nil ? "" : "; ⌘Z offers only the restore of the copies whose Trash location is known"))
         }
         return true
     }

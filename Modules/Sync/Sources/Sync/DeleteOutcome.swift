@@ -24,6 +24,10 @@ import Foundation
 public struct DeleteOutcome: Sendable, Equatable {
     /// Items moved to the Trash. Recoverable, and covered by the registered restore-undo.
     public let trashed: Int
+    /// Items the Trash took without saying where it put them (`trashItem` leaving its result nil).
+    /// Recoverable from the Trash by hand, but covered by no undo — the restore needs the location.
+    /// Counted apart from both neighbours: they are not deleted, and ⌘Z cannot bring them back.
+    public let trashedWithoutLocation: Int
     /// Items removed permanently because the volume has no Trash and the user confirmed.
     /// Unrecoverable, and covered by no undo.
     public let permanentlyDeleted: Int
@@ -37,19 +41,20 @@ public struct DeleteOutcome: Sendable, Equatable {
     /// the caller's accounting distinguish "refused at the last check" from "failed".
     public let refusedByGate: Int
 
-    public init(trashed: Int = 0, permanentlyDeleted: Int = 0, declined: Int = 0,
-                refusedByGate: Int = 0) {
+    public init(trashed: Int = 0, trashedWithoutLocation: Int = 0, permanentlyDeleted: Int = 0,
+                declined: Int = 0, refusedByGate: Int = 0) {
         self.trashed = trashed
+        self.trashedWithoutLocation = trashedWithoutLocation
         self.permanentlyDeleted = permanentlyDeleted
         self.declined = declined
         self.refusedByGate = refusedByGate
     }
 
-    /// Items that actually left the disk, by either route — what the old `Int` return meant.
-    public var removed: Int { trashed + permanentlyDeleted }
+    /// Items that actually left their place, by any route — what the old `Int` return meant.
+    public var removed: Int { trashed + trashedWithoutLocation + permanentlyDeleted }
 
     /// Whether ⌘Z can genuinely reverse this run. False for a mixed batch as well as an
-    /// all-permanent one: the restore-undo can only bring back the trashed subset, so offering an
-    /// Undo would silently leave the permanent deletions in place.
-    public var isUndoable: Bool { permanentlyDeleted == 0 && trashed > 0 }
+    /// all-permanent one: the restore-undo can only bring back the items whose Trash location is
+    /// known, so offering an Undo would silently leave the rest where they went.
+    public var isUndoable: Bool { trashedWithoutLocation == 0 && permanentlyDeleted == 0 && trashed > 0 }
 }

@@ -39,8 +39,9 @@ public struct SyncRunUndoPreview: Sendable {
     /// there are no records.
     ///
     /// **A `.delete` here is always a move to the Trash** (FD2): a delete run is paired for Undo
-    /// Last Run only when every item reached the Trash (`deleteItems`), so the preview never holds
-    /// a permanent delete, and says "moves to the Trash" rather than "deletes".
+    /// Last Run only when every item reached the Trash AND the Trash said where each one went
+    /// (`deleteItems`) — the restore needs every location — so the preview never holds a
+    /// permanent delete, and says "moves to the Trash" rather than "deletes".
     public var actionSummary: String {
         var counts: [SyncAction: Int] = [:]
         for r in records { counts[r.action, default: 0] += 1 }

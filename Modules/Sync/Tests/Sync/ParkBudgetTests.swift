@@ -272,6 +272,10 @@ import Testing
             // main-actor observation it enqueued signals back. Bounded, records its expiry, and
             // its test declares `.parksAThread`.
             "MergeUndoGroupingAndGateTests.swift": ["if sampled.wait(timeout: .now() + 10) == .timedOut {"],
+            // `TailSampler`'s rendezvous, the same shape: an off-main read blocks its pool thread
+            // until the main-actor sample it enqueued signals back. Bounded, records its expiry;
+            // the two tests that reach it declare `.parksAThread`.
+            "RunTailLockTests.swift": ["if done.wait(timeout: .now() + 10) == .timedOut {"],
             // The MAIN thread, on purpose: holding the main actor is what that test measures. Not a
             // pool thread, so no reservation; bounded, and running out is the failure it records.
             "ColdScanStartsOffTheMainActorTests.swift": ["semaphore.wait(timeout: .now() + timeout)"],

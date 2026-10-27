@@ -16,7 +16,7 @@ import EventsTestSupport
 
     /// Deletes one file, named for this case alone: `LogCapture` sees every case's lines, so an
     /// assertion has to name a sentence only this case can log.
-    private func run(reportsLocation: Bool) async throws -> (FileSyncManager, LogCapture, String) {
+    private func run(reportsLocation: Bool) async throws -> (FileSyncManager, LogCapture, String, DeleteOutcome) {
         let log = LogCapture()
         let manager = FileSyncManager()
         manager.syncHistoryStore = makeTempHistoryStore(prefix: "DeleteTrashedWithoutLocation")
@@ -28,17 +28,23 @@ import EventsTestSupport
         try fm.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         fm.virtualDisk["/src/\(name)"] = MockFileManager.FileStub(
             isDirectory: false, attributes: [FileAttributeKey.size: 100], contents: nil)
-        _ = await manager.deleteItems(at: ["/src/\(name)"], fileManager: fm)
+        let outcome = await manager.deleteItems(at: ["/src/\(name)"], fileManager: fm)
         try #require(fm.trashedPaths.count == 1, "the fixture did not reach the Trash")
-        return (manager, log, name)
+        return (manager, log, name, outcome)
     }
 
     private static let noLocation = "Moved 1 item(s) to Trash, but the system reported no Trash location, "
         + "so Undo cannot restore them (recover them from the Trash): "
 
     @Test func itIsRecordedAnnouncedAndLoggedAsAMoveToTheTrash() async throws {
-        let (manager, log, name) = try await run(reportsLocation: false)
+        let (manager, log, name, outcome) = try await run(reportsLocation: false)
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
+
+        // Counted as what it is (L3): not deleted, which a merge's log then claimed, and not
+        // undoable, which is what the callers' ⌘Z offer reads.
+        #expect(outcome == DeleteOutcome(trashedWithoutLocation: 1), "\(outcome)")
+        #expect(outcome.removed == 1)
+        #expect(!outcome.isUndoable)
 
         let record = try #require(manager.syncHistoryStore.records.first { $0.sourcePath == "/src/\(name)" })
         #expect(record.backupPath == nil, "the premise: no location came back")
@@ -53,8 +59,10 @@ import EventsTestSupport
     /// The control: with a location reported, the same delete records it, and logs no
     /// no-location line for it.
     @Test func withALocationItIsTheOrdinaryMove() async throws {
-        let (manager, log, name) = try await run(reportsLocation: true)
+        let (manager, log, name, outcome) = try await run(reportsLocation: true)
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
+        #expect(outcome == DeleteOutcome(trashed: 1), "\(outcome)")
+        #expect(outcome.isUndoable)
 
         let record = try #require(manager.syncHistoryStore.records.first { $0.sourcePath == "/src/\(name)" })
         #expect(record.backupPath != nil)

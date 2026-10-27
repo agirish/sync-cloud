@@ -160,7 +160,22 @@ public struct RunCapsuleEntry {
     let kind: Kind
     let startedAt: Date?
     let snapshot: () -> ProgressCapsuleRun
-    let cancel: (() -> Void)?
+    private let currentCancel: () -> (() -> Void)?
+
+    /// The run's Stop as it stands NOW, or nil — re-read on every tick like the snapshot. A run
+    /// stops being cancellable when only its undo is left to arm (`markFinishing`), and its Stop
+    /// and ⌘. must go with it rather than stay as they were when the run appeared.
+    var cancel: (() -> Void)? { currentCancel() }
+
+    /// `cancel` is an autoclosure, so whatever it reads — `progress.isCancellable` — is read each
+    /// time ``cancel`` is, not once here.
+    init(kind: Kind, startedAt: Date?, snapshot: @escaping () -> ProgressCapsuleRun,
+         cancel: @autoclosure @escaping () -> (() -> Void)?) {
+        self.kind = kind
+        self.startedAt = startedAt
+        self.snapshot = snapshot
+        self.currentCancel = cancel
+    }
 
     /// Newest first (decision CI). A run with no start time sorts as the oldest; ties keep the
     /// kinds' own order, so the answer never depends on the order they were handed in.

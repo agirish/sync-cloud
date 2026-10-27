@@ -805,6 +805,7 @@ extension FileSyncManager {
         // **A merge that moved nothing out still put its emptied source in the Trash (U4)** — an
         // empty folder, or one holding only a `.DS_Store` — so that alone is a move ⌘Z must reverse.
         if !transferred.isEmpty || (isMove && !result.trashedMergeSources.isEmpty) {
+            progress?.markFinishing()
             if isMove {
                 // Awaited for the copy's reason below: the Trash items' identities are read off the
                 // main actor after registration, and until they are, whatever sits at a Trash path
@@ -1426,10 +1427,17 @@ extension FileSyncManager {
     ///   time, so deferring it changes nothing about what the undo will do. What the caller owes
     ///   in exchange is that it register them, in the same main-actor turn this returns in, or the
     ///   trash it just did has no undo at all.
+    /// - Parameter resumingProgress: The caller's own run, put back on `activeProgress` when this
+    ///   delete takes its progress down. For a caller whose run CONTAINS the delete (the merge):
+    ///   `activeProgress` is the write lock, the capsule and the ⌘Z gate at once, and clearing it
+    ///   here left the rest of that run — its undo registration and identity walk — unlocked.
+    ///   Named rather than remembered: putting back whatever this delete replaced could revive a
+    ///   finished run's progress, and with it a lock nothing would ever clear.
     public func deleteItems(at paths: [String], fileManager fm: FileManaging = FileManager.default,
                             reportsNothingToDo: Bool = false,
                             removalGate: (@Sendable ([String]) async -> Set<String>)? = nil,
-                            restoreUndoHandback: (([URL], [URL?]) -> Void)? = nil) async -> DeleteOutcome {
+                            restoreUndoHandback: (([URL], [URL?]) -> Void)? = nil,
+                            resumingProgress: Progress? = nil) async -> DeleteOutcome {
         // Verify All's exclusion guard, mirrored in the write direction (same rationale as
         // syncFile's): a delete landing mid-verify can remove a file as it's hashed.
         guard !isVerifyAllRunning else {
@@ -1808,8 +1816,10 @@ extension FileSyncManager {
                     reachedTrash: item.reachedTrash
                 )
             }
-            // Pair with the undo stack only when EVERY removed item reached the Trash — that's
-            // when the restore-undo registered above covers exactly these records. A permanent
+            // Pair with the undo stack only when EVERY removed item reached the Trash at a known
+            // location — that's when the restore-undo registered above covers exactly these
+            // records. One the Trash took without a location is outside that undo, so it unpairs
+            // the run as a permanent delete does. A permanent
             // delete registers nothing for its items (mirrors the banner's undoable flag), so
             // pairing would attach these records to whatever action sits on top of the stack.
             //
@@ -1833,10 +1843,12 @@ extension FileSyncManager {
         }
 
         if let progress, self.activeProgress === progress {
-            self.activeProgress = nil
+            self.activeProgress = resumingProgress
         }
+        let reachedTrash = items.filter(\.reachedTrash).count
         return DeleteOutcome(trashed: successfullyTrashed.count,
-                             permanentlyDeleted: items.count - successfullyTrashed.count,
+                             trashedWithoutLocation: reachedTrash - successfullyTrashed.count,
+                             permanentlyDeleted: items.count - reachedTrash,
                              declined: result.declined,
                              refusedByGate: result.refused)
     }

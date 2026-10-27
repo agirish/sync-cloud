@@ -132,6 +132,9 @@ import Events
         #expect(!DeleteOutcome(trashed: 2, permanentlyDeleted: 1).isUndoable)
         #expect(DeleteOutcome(trashed: 2, permanentlyDeleted: 1).removed == 3)
         #expect(!DeleteOutcome(permanentlyDeleted: 2).isUndoable)
+        // A copy the Trash took without a location is outside the restore-undo too (L3).
+        #expect(!DeleteOutcome(trashed: 2, trashedWithoutLocation: 1).isUndoable)
+        #expect(DeleteOutcome(trashed: 2, trashedWithoutLocation: 1).removed == 3)
         #expect(!DeleteOutcome().isUndoable, "removing nothing is not something to undo")
         // Declined items were never removed, by either route.
         #expect(DeleteOutcome(declined: 4).removed == 0)
