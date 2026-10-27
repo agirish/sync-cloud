@@ -177,7 +177,9 @@ import FileExplorerTestSupport
     /// rename on either side fails.
     @Test func theWordsMatchThePaneRowMenuAndTheHeader() throws {
         let pane = try Self.source("FileTreeView.swift")
-        #expect(pane.contains(#"Label("Download", systemImage: "icloud.and.arrow.down")"#))
+        // Download's word is the offer's title for one file; its glyph is the row's item.
+        #expect(pane.contains(#"Label(offer.title, systemImage: "icloud.and.arrow.down")"#))
+        #expect(try Self.source("CloudDownloadOffer.swift").contains(#"case .file: return "Download""#))
         #expect(pane.contains(#"Label("Get Info", systemImage: "info.circle")"#))
         #expect(pane.contains(#"Label("Reveal in Finder", systemImage: RevealGlyph.inFinder)"#))
         #expect(pane.contains(#"Label("Quick Look", systemImage: "doc.viewfinder")"#))

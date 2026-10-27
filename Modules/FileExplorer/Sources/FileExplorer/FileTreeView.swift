@@ -1548,33 +1548,62 @@ struct FileContextMenu: View {
         labelSaidFavorite == isFavoriteNow
     }
 
-    /// Keep Downloaded as a ticked item, or nothing outside iCloud Drive. The tick is the state the
-    /// menu was built with; a click sets the opposite of what it showed, which is what was asked.
+    /// The Download offer as an item, or nothing. The verb itself is
+    /// `CloudDownloadRequest.request`, shared with File ▸ Download. On success it tells the pane to
+    /// watch for the content landing so the cloud badges clear; on failure the badges (correctly)
+    /// stay. Scoped to THIS pane — the twin row the other pane may show for the same path must not
+    /// start a second poll.
+    ///
+    /// And through this pane's own CHANNEL, not `.default`. In the app they are the same object, so
+    /// this changes no shipped behaviour; it makes the invariant true rather than incidentally true
+    /// — a pane and its own poster are on one channel, whichever channel that is.
     @ViewBuilder
-    private func keepDownloadedToggle(for node: FileNode) -> some View {
-        let state = KeepDownloaded.state(ofPath: node.id)
-        if state != .unavailable {
-            let shown = state != .off
-            Toggle(isOn: Binding(get: { shown }, set: { kept in
+    private func downloadItem(_ offer: CloudDownloadOffer?) -> some View {
+        if let offer {
+            Button {
+                CloudDownloadRequest.request(offer, from: PaneToken(isLeft: isLeft, isSingleSource: isSingleSource),
+                                             through: downloadChannel)
+            } label: {
+                Label(offer.title, systemImage: "icloud.and.arrow.down")
+            }
+            .help(Self.downloadHelp(offer))
+        }
+    }
+
+    static func downloadHelp(_ offer: CloudDownloadOffer) -> String {
+        switch offer {
+        case .file: return "Downloads it from the cloud."
+        case .all(let files, let folders) where files.isEmpty && folders.count == 1:
+            return "Downloads every file in “\((folders[0] as NSString).lastPathComponent)” that is only in the cloud."
+        case .all: return "Downloads every selected file, and every file in the selected folders, that is only in the cloud."
+        }
+    }
+
+    /// Keep Downloaded as a ticked item, or nothing outside iCloud Drive or past
+    /// `KeepDownloadedOffer.selectionCap` items. The tick is the state the menu was built with; a
+    /// click sets the opposite of what it showed, which is what was asked.
+    @ViewBuilder
+    private func keepDownloadedToggle(_ offer: KeepDownloadedOffer?, for nodes: [FileNode]) -> some View {
+        if let offer {
+            Toggle(isOn: Binding(get: { offer.isOn }, set: { kept in
                 CloudDownloadRequest.setKeepDownloaded(
-                    kept, path: node.id, name: node.name, isDirectory: node.isDirectory,
+                    kept, for: nodes,
                     from: PaneToken(isLeft: isLeft, isSingleSource: isSingleSource),
                     through: downloadChannel)
             })) {
                 Label("Keep Downloaded", systemImage: "pin")
             }
-            .disabled(Self.keptByFolder(state) != nil)
-            .help(Self.keptByFolder(state).map {
-                "Kept downloaded by “\(($0 as NSString).lastPathComponent)”."
-            } ?? (shown ? "Lets macOS remove the download again when space is needed."
-                        : "Downloads it now and keeps it on this Mac, even when space is low."))
+            .disabled(offer.isLocked)
+            .help(Self.keepHelp(offer, count: nodes.count))
         }
     }
 
-    /// The folder whose pin keeps `state`'s item downloaded, when it is a folder's and not its own.
-    static func keptByFolder(_ state: KeepDownloaded.State) -> String? {
-        if case .inherited(let folder) = state { return folder }
-        return nil
+    static func keepHelp(_ offer: KeepDownloadedOffer, count: Int) -> String {
+        if let folder = offer.keptBy { return "Kept downloaded by “\((folder as NSString).lastPathComponent)”." }
+        if offer.isLocked { return "Kept downloaded by the folders they are in." }
+        let them = count == 1 ? "it" : "them"
+        return offer.isOn ? "Lets macOS remove the download again when space is needed."
+                          : "Downloads \(them) now and keeps \(them) on this Mac, even when space is low."
     }
 
     /// The row's own ☁ answer when it has one, a fresh `lstat` otherwise — Download's rule below.
@@ -1656,6 +1685,18 @@ struct FileContextMenu: View {
                 SaveAsPDFMenuItem(offer: .several(paths: paths), delegate: delegate)
                 Divider()
             }
+            // Several items: Download All and Keep Downloaded over the lot, in the same batch slot.
+            // Files are asked through the badge memo alone — this runs for every selected row on
+            // every render, so a fresh `lstat` per selected file would be paid rows × selection.
+            if count > 1 {
+                let offer = CloudDownloadOffer.forSelection(selectedNodes, isCloudOnly: { CloudOnlyBadgeCache.cached($0) })
+                let keep = KeepDownloadedOffer.forSelection(selectedNodes, state: { KeepDownloaded.state(ofPath: $0) })
+                if offer != nil || keep != nil {
+                    downloadItem(offer)
+                    keepDownloadedToggle(keep, for: selectedNodes)
+                    Divider()
+                }
+            }
             if count == 1, let singleNode = selectedNodes.first {
                 // **First after the divider**, ahead of Get Info and Reveal in Finder. Edit is a
                 // workspace of this app and the other two hand the file to something else — and
@@ -1684,54 +1725,19 @@ struct FileContextMenu: View {
                 // On tabs, the Info sidebar and the Differences rows already; the row was the one
                 // place a path could not be copied from (BR15).
                 SharedFileMenuItems.copyPath(singleNode.id)
-                // Materialize a cloud-only placeholder. Works for iCloud and was measured working
-                // on Google Drive; Dropbox and OneDrive are not measured. A refused request
-                // reveals the file in Finder rather than doing nothing.
+                // Materialize a cloud-only placeholder — Download for one file, Download All for
+                // a folder in a cloud location, every cloud-only file in it at any depth. Works for
+                // iCloud and was measured working on Google Drive; Dropbox and OneDrive are not
+                // measured. A refused request reveals the item in Finder rather than doing nothing.
                 // The row's own ☁ answer when it has one, which is what the row is showing; a
                 // fresh `lstat` otherwise. This body runs for every visible row on every render, so
                 // it asks the filesystem only for a file the row has not.
-                if !singleNode.isDirectory,
-                   CloudOnlyBadgeCache.cached(singleNode.id)
-                    ?? MaterializationStatus.isCloudOnly(atPath: singleNode.id) {
-                    Button {
-                        // The verb itself is `CloudDownloadRequest.requestDownload`, shared with
-                        // File ▸ Download. On success it tells the row to watch for the content
-                        // landing so its cloud badge clears; on failure the badge (correctly)
-                        // stays. Scoped to THIS pane — the twin row the other pane may show for
-                        // the same path must not start a second poll.
-                        //
-                        // And through this pane's own CHANNEL, not `.default`. In the app they
-                        // are the same object, so this changes no shipped behaviour; it makes
-                        // the invariant true rather than incidentally true — a pane and its own
-                        // poster are on one channel, whichever channel that is.
-                        CloudDownloadRequest.requestDownload(
-                            path: singleNode.id, name: singleNode.name,
-                            from: PaneToken(isLeft: isLeft, isSingleSource: isSingleSource),
-                            through: downloadChannel)
-                    } label: {
-                        Label("Download", systemImage: "icloud.and.arrow.down")
-                    }
-                }
-                // A folder's Download: every cloud-only file in it, at any depth. Offered for any
-                // folder in a cloud location — whether it holds anything cloud-only would take a
-                // walk to know, and this body runs per visible row.
-                if singleNode.isDirectory, MaterializationStatus.isInCloudLocation(singleNode.id) {
-                    Button {
-                        Task {
-                            await CloudDownloadRequest.requestFolderDownload(
-                                path: singleNode.id, name: singleNode.name,
-                                from: PaneToken(isLeft: isLeft, isSingleSource: isSingleSource),
-                                through: downloadChannel)
-                        }
-                    } label: {
-                        Label("Download All", systemImage: "icloud.and.arrow.down")
-                    }
-                    .help("Downloads every file in “\(singleNode.name)” that is only in the cloud.")
-                }
+                downloadItem(CloudDownloadOffer.forSelection([singleNode], isCloudOnly: { Self.isCloudOnly($0) }))
                 // Finder's Keep Downloaded, iCloud Drive only — the one provider measured to
                 // honour it (`KeepDownloaded`). Ticked and greyed under a kept folder: the
                 // folder's pin keeps it whatever this row says.
-                keepDownloadedToggle(for: singleNode)
+                keepDownloadedToggle(KeepDownloadedOffer.forSelection([singleNode], state: { KeepDownloaded.state(ofPath: $0) }),
+                                     for: [singleNode])
                 // **Its own section, under the open-and-inspect items** (mockup 11), so it never
                 // shifts Rename or anything below it — and never between Refresh and Open in Edit,
                 // which leads this branch. Hidden, not greyed, for a folder, a non-PDF or a

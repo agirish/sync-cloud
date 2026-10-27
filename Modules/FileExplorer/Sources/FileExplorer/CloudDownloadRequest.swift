@@ -138,32 +138,38 @@ public struct CloudDownloadRequest: Equatable, Sendable {
     /// longer than any watch lasts anyway, and its rows are one republish from correct.
     static let folderWatchCap = 200
 
-    /// Download All, whole: request every cloud-only file below a folder, then announce the first
-    /// `folderWatchCap` of them so the posting pane watches them land, as one file's Download does.
+    /// Download All, whole: request every cloud-only file among `files` and below `folders`, then
+    /// announce the first `folderWatchCap` of them so the posting pane watches them land, as one
+    /// file's Download does. A single folder is `folders: [it]`; a selection is both lists.
     ///
     /// The walk blocks its thread — a cloud-only folder inside is waited on for up to
     /// `DatalessFolderReads`' deadline — so it runs on a dispatch queue, never the main actor or
-    /// the cooperative pool. When the provider refused every file, the folder is revealed in Finder,
-    /// as a refused Download is.
+    /// the cooperative pool. When the provider refused every file, the selection is revealed in
+    /// Finder, as a refused Download is.
     ///
-    /// - Parameter walk: the walk; the app's is `MaterializationStatus.downloadContents`, and a
-    ///   test passes its own answer.
+    /// - Parameter fetch: the walk and the requests; the app's is
+    ///   `MaterializationStatus.downloadAll`, and a test passes its own answer.
     @MainActor
     @discardableResult
-    public static func requestFolderDownload(
-        path: String, name: String, from paneToken: PaneToken,
+    public static func requestDownloads(
+        files: [String], folders: [String], from paneToken: PaneToken,
         through channel: NotificationCenter = .default,
-        walk: @escaping @Sendable (String) -> MaterializationStatus.FolderDownload = {
-            MaterializationStatus.downloadContents(ofFolder: $0)
+        fetch: @escaping @Sendable ([String], [String]) -> MaterializationStatus.FolderDownload = {
+            MaterializationStatus.downloadAll(files: $0, folders: $1)
         },
-        whenUnavailable: @MainActor (URL) -> Void = revealInFinder
+        whenUnavailable: @MainActor ([URL]) -> Void = { NSWorkspace.shared.activateFileViewerSelecting($0) }
     ) async -> MaterializationStatus.FolderDownload {
         let result = await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async { continuation.resume(returning: walk(path)) }
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: fetch(files, folders))
+            }
         }
-        Logger.shared.info("Download All in “\(name)”: requested \(result.requested.count), refused \(result.refused.count), unreadable folders \(result.unreadable)")
+        let asked = folders.count == 1 && files.isEmpty
+            ? "in “\((folders[0] as NSString).lastPathComponent)”"
+            : "over \(files.count + folders.count) items"
+        Logger.shared.info("Download All \(asked): requested \(result.requested.count), refused \(result.refused.count), unreadable folders \(result.unreadable)")
         if result.requested.isEmpty, !result.refused.isEmpty {
-            whenUnavailable(URL(fileURLWithPath: path))
+            whenUnavailable((folders + files).map { URL(fileURLWithPath: $0) })
         }
         for file in result.requested.prefix(folderWatchCap) {
             post(path: file, from: paneToken, through: channel)
@@ -171,26 +177,51 @@ public struct CloudDownloadRequest: Equatable, Sendable {
         return result
     }
 
-    /// Keep Downloaded, toggled: pin or unpin the item, and on pinning also request its download —
-    /// the provider would fetch it anyway, but only a request through this pane starts the watch
-    /// that clears the row's cloud badge when the content lands.
+    /// What a Download offer does: one file through ``requestDownload(path:name:from:through:whenUnavailable:)``,
+    /// anything else through ``requestDownloads(files:folders:from:through:fetch:whenUnavailable:)``.
+    /// The one act behind the row menu's item and File ▸ Download, so the two cannot drift.
     @MainActor
-    public static func setKeepDownloaded(_ kept: Bool, path: String, name: String, isDirectory: Bool,
-                                         from paneToken: PaneToken,
-                                         through channel: NotificationCenter = .default) {
-        do {
-            try KeepDownloaded.set(kept, atPath: path)
-            Logger.shared.info("\(kept ? "Keeping" : "Stopped keeping") “\(name)” downloaded")
-        } catch {
-            Logger.shared.warning("Could not \(kept ? "keep" : "stop keeping") “\(name)” downloaded (\(error.localizedDescription))")
-            return
-        }
-        guard kept else { return }
-        if isDirectory {
-            Task { await requestFolderDownload(path: path, name: name, from: paneToken, through: channel) }
-        } else if MaterializationStatus.isCloudOnly(atPath: path) {
+    public static func request(_ offer: CloudDownloadOffer, from paneToken: PaneToken,
+                               through channel: NotificationCenter = .default) {
+        switch offer {
+        case .file(let path, let name):
             requestDownload(path: path, name: name, from: paneToken, through: channel)
+        case .all(let files, let folders):
+            Task { await requestDownloads(files: files, folders: folders, from: paneToken, through: channel) }
         }
+    }
+
+    /// Keep Downloaded, toggled over `nodes`: pin or unpin each one whose own pin decides it — a
+    /// node kept by a folder above it is left alone, since unpinning it would change nothing — and
+    /// on pinning also request the downloads. The provider would fetch them anyway, but only a
+    /// request through this pane starts the watch that clears a row's cloud badge.
+    ///
+    /// - Parameter state: what each node's pin is now; the app's reads the attribute, a test
+    ///   passes its own.
+    @MainActor
+    public static func setKeepDownloaded(
+        _ kept: Bool, for nodes: [FileNode], from paneToken: PaneToken,
+        through channel: NotificationCenter = .default,
+        state: (String) -> KeepDownloaded.State = { KeepDownloaded.state(ofPath: $0) },
+        pin: (Bool, String) throws -> Void = { try KeepDownloaded.set($0, atPath: $1) },
+        isCloudOnly: (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) },
+        download: (@MainActor (CloudDownloadOffer) -> Void)? = nil
+    ) {
+        let changing = nodes.filter { state($0.id) == (kept ? .off : .on) }
+        var pinned: [FileNode] = []
+        for node in changing {
+            do {
+                try pin(kept, node.id)
+                pinned.append(node)
+                Logger.shared.info("\(kept ? "Keeping" : "Stopped keeping") “\(node.name)” downloaded")
+            } catch {
+                Logger.shared.warning("Could not \(kept ? "keep" : "stop keeping") “\(node.name)” downloaded (\(error.localizedDescription))")
+            }
+        }
+        guard kept, let offer = CloudDownloadOffer.forSelection(
+            pinned, isCloudOnly: isCloudOnly, isInCloudLocation: { _ in true }) else { return }
+        // Through THIS pane, so its watch is the one that hears it — never a default pane's.
+        if let download { download(offer) } else { request(offer, from: paneToken, through: channel) }
     }
 
     /// The routing decision, extracted so it can be unit-tested: the request carried by

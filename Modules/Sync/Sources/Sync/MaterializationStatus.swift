@@ -183,4 +183,44 @@ public enum MaterializationStatus {
         let unreadable = listing.outcome == .unreadable ? 1 : listing.unreadableDescendants.count
         return FolderDownload(requested: requested, refused: refused, unreadable: unreadable)
     }
+
+    /// Download All over a selection: each cloud-only file in `files`, then every cloud-only file
+    /// below each of `folders` — ``downloadContents(ofFolder:using:statFlags:download:)`` per
+    /// folder, so it blocks its thread the same way.
+    ///
+    /// **Each file is asked for once**, however the selection overlaps: a file selected beside its
+    /// own folder, or a folder selected beside one inside it, would otherwise be requested twice
+    /// and watched twice. A file is checked as the file a link points to, which is what
+    /// ``download(atPath:)`` fetches.
+    public static func downloadAll(
+        files: [String], folders: [String],
+        using disk: FileManaging = FileManager.default,
+        statFlags: StatFlags = realStatFlags,
+        download: (String) throws -> Void = { try MaterializationStatus.download(atPath: $0) }
+    ) -> FolderDownload {
+        var asked: Set<String> = []
+        var requested: [String] = []
+        var refused: [String] = []
+        var unreadable = 0
+        func ask(_ path: String) {
+            guard asked.insert(path).inserted else { return }
+            do {
+                try download(path)
+                requested.append(path)
+            } catch {
+                refused.append(path)
+            }
+        }
+        for file in files where isCloudOnly(atPath: linkTarget(of: file), statFlags: statFlags) {
+            ask(file)
+        }
+        for folder in folders {
+            let below = downloadContents(ofFolder: folder, using: disk, statFlags: statFlags,
+                                         download: { _ in })
+            // The walk only finds them here; asking goes through `ask`, so overlap is dropped.
+            below.requested.forEach(ask)
+            unreadable += below.unreadable
+        }
+        return FolderDownload(requested: requested, refused: refused, unreadable: unreadable)
+    }
 }

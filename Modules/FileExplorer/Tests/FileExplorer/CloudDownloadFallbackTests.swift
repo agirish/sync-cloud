@@ -65,10 +65,10 @@ import Testing
         defer { channel.removeObserver(token) }
         var revealed: [URL] = []
 
-        let result = await CloudDownloadRequest.requestFolderDownload(
-            path: "/P/Folder", name: "Folder", from: .left, through: channel,
-            walk: { _ in .init(requested: ["/P/Folder/a", "/P/Folder/sub/b"], refused: ["/P/Folder/c"], unreadable: 0) },
-            whenUnavailable: { revealed.append($0) })
+        let result = await CloudDownloadRequest.requestDownloads(
+            files: [], folders: ["/P/Folder"], from: .left, through: channel,
+            fetch: { _, _ in .init(requested: ["/P/Folder/a", "/P/Folder/sub/b"], refused: ["/P/Folder/c"], unreadable: 0) },
+            whenUnavailable: { revealed.append(contentsOf: $0) })
 
         #expect(result.requested.count == 2)
         #expect(recorder.accepted == ["/P/Folder/a", "/P/Folder/sub/b"])
@@ -82,9 +82,9 @@ import Testing
         defer { channel.removeObserver(token) }
         let files = (0..<(CloudDownloadRequest.folderWatchCap + 50)).map { "/P/F/\($0)" }
 
-        let result = await CloudDownloadRequest.requestFolderDownload(
-            path: "/P/F", name: "F", from: .singleSource, through: channel,
-            walk: { _ in .init(requested: files, refused: [], unreadable: 0) },
+        let result = await CloudDownloadRequest.requestDownloads(
+            files: [], folders: ["/P/F"], from: .singleSource, through: channel,
+            fetch: { _, _ in .init(requested: files, refused: [], unreadable: 0) },
             whenUnavailable: { _ in })
 
         #expect(result.requested.count == files.count, "the cap limits the watches, never the downloads")
@@ -97,12 +97,13 @@ import Testing
         defer { channel.removeObserver(token) }
         var revealed: [URL] = []
 
-        await CloudDownloadRequest.requestFolderDownload(
-            path: "/P/Folder", name: "Folder", from: .right, through: channel,
-            walk: { _ in .init(requested: [], refused: ["/P/Folder/a"], unreadable: 0) },
-            whenUnavailable: { revealed.append($0) })
+        await CloudDownloadRequest.requestDownloads(
+            files: ["/P/loose.bin"], folders: ["/P/Folder"], from: .right, through: channel,
+            fetch: { _, _ in .init(requested: [], refused: ["/P/Folder/a", "/P/loose.bin"], unreadable: 0) },
+            whenUnavailable: { revealed.append(contentsOf: $0) })
 
-        #expect(revealed.map(\.path) == ["/P/Folder"])
+        // The whole selection, folders first — what was asked for, not what was found inside.
+        #expect(revealed.map(\.path) == ["/P/Folder", "/P/loose.bin"])
         #expect(recorder.accepted.isEmpty, "a watch was started for a download nobody started")
     }
 
@@ -113,12 +114,31 @@ import Testing
         defer { channel.removeObserver(token) }
         var revealed: [URL] = []
 
-        await CloudDownloadRequest.requestFolderDownload(
-            path: "/P/Folder", name: "Folder", from: .left, through: channel,
-            walk: { _ in .init(requested: [], refused: [], unreadable: 0) },
-            whenUnavailable: { revealed.append($0) })
+        await CloudDownloadRequest.requestDownloads(
+            files: [], folders: ["/P/Folder"], from: .left, through: channel,
+            fetch: { _, _ in .init(requested: [], refused: [], unreadable: 0) },
+            whenUnavailable: { revealed.append(contentsOf: $0) })
 
         #expect(revealed.isEmpty)
         #expect(recorder.accepted.isEmpty)
+    }
+}
+
+/// The fetch is handed exactly the selection it was given — files and folders apart, so a folder is
+/// walked and a file is not.
+@MainActor
+@Suite struct RequestDownloadsHandOffTests {
+    @Test func theSelectionReachesTheFetchAsGiven() async {
+        final class Seen: @unchecked Sendable { var files: [String] = []; var folders: [String] = [] }
+        let seen = Seen()
+        await CloudDownloadRequest.requestDownloads(
+            files: ["/P/a.bin"], folders: ["/P/F", "/P/G"], from: .left, through: NotificationCenter(),
+            fetch: { files, folders in
+                seen.files = files; seen.folders = folders
+                return .init(requested: [], refused: [], unreadable: 0)
+            },
+            whenUnavailable: { _ in })
+        #expect(seen.files == ["/P/a.bin"])
+        #expect(seen.folders == ["/P/F", "/P/G"])
     }
 }

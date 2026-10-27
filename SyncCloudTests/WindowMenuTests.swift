@@ -419,12 +419,11 @@ import AppKit
 /// What the pane row menu's verbs offer, now that they are also menu items.
 @Suite struct PaneRowVerbAvailabilityTests {
 
-    static func resolve(count: Int = 1, isDirectory: Bool = true, isCloudOnly: Bool = false,
+    static func resolve(count: Int = 1, isDirectory: Bool = true,
                         canOpenInNewTab: Bool = true,
                         isComparing: Bool = true,
                         opensInEdit: Bool = false) -> PaneRowVerbAvailability.Answer {
         PaneRowVerbAvailability.resolve(selectionCount: count, isDirectory: isDirectory,
-                                        isCloudOnly: isCloudOnly,
                                         canOpenInNewTab: canOpenInNewTab, isComparing: isComparing,
                                         opensInEdit: opensInEdit)
     }
@@ -445,42 +444,12 @@ import AppKit
                 "a file the editor does not open was offered to it")
     }
 
-    /// It is independent of the cloud badge, unlike Download beside it. A text file whose content
-    /// is still on the provider is offered to the editor, which handles that itself — the menu
-    /// item's job is not to second-guess it, and the two verbs read different facts.
-    @Test func openInEditDoesNotReadTheCloudBadge() {
-        for isCloudOnly in [true, false] {
-            #expect(Self.resolve(count: 1, isDirectory: false, isCloudOnly: isCloudOnly,
-                                 opensInEdit: true).openInEditor,
-                    "the editor item read the cloud badge")
-        }
-    }
-
     @Test func oneFolderOffersEverything() {
         let a = Self.resolve()
         #expect(a.openInNewTab && a.singleNodeVerbs && a.chooseDestination && a.ignore)
-        #expect(!a.download, "a folder cannot be downloaded — the flag means a file's content")
     }
 
-    // MARK: File ▸ Download (roadmap RD2)
-
-    /// The one shape that offers it: a single FILE whose content is still on the provider.
-    @Test func aSingleCloudOnlyFileOffersDownload() {
-        #expect(Self.resolve(isDirectory: false, isCloudOnly: true).download)
-    }
-
-    /// Each of the three gates alone withholds it — the negative controls, one per term, so a
-    /// dropped `&&` fails by name rather than being absorbed by a neighbour.
-    @Test func downloadIsWithheldByEachGateOnItsOwn() {
-        #expect(!Self.resolve(isDirectory: false, isCloudOnly: false).download,
-                "a file already on disk was offered a download")
-        #expect(!Self.resolve(isDirectory: true, isCloudOnly: true).download,
-                "a folder was offered a download")
-        #expect(!Self.resolve(count: 2, isDirectory: false, isCloudOnly: true).download,
-                "a batch was offered a download — the fetch takes one path")
-        // …and the flag does not leak into the verbs beside it.
-        #expect(Self.resolve(isDirectory: false, isCloudOnly: true).singleNodeVerbs)
-    }
+    // MARK: File ▸ Download (roadmap RD2) — decided by `CloudDownloadOffer`, tested in FileExplorer
 
     /// A file has no tab to open, but keeps Quick Look, Reveal and Rename.
     @Test func aFileOffersTheSingleNodeVerbsButNoTab() {
@@ -529,14 +498,16 @@ import AppKit
                 "File ▸ Download no longer reads the badge's memo")
         #expect(!body.contains("MaterializationStatus."),
                 "File ▸ Download stats the filesystem on every body pass")
-        #expect(body.contains("CloudDownloadRequest.requestDownload("),
+        #expect(body.contains("CloudDownloadOffer.forSelection("),
+                "File ▸ Download stopped asking the row menu's own question")
+        #expect(body.contains("CloudDownloadRequest.request(offer"),
                 "File ▸ Download stopped sharing the row verb's body")
     }
 
     @Test func anEmptySelectionOffersNothing() {
-        let a = Self.resolve(count: 0, isCloudOnly: true)
+        let a = Self.resolve(count: 0)
         #expect(a == PaneRowVerbAvailability.Answer(openInNewTab: false, singleNodeVerbs: false,
-                                                    openInEditor: false, download: false,
+                                                    openInEditor: false,
                                                     chooseDestination: false, ignore: false))
     }
 }

@@ -107,10 +107,12 @@ struct PaneRowVerbs {
     /// and the only one with a key. `nil` for a folder, for a multi-selection, and for a file the
     /// editor does not open; see `PaneRowVerbAvailability.resolve`.
     let openInEditor: (() -> Void)?
-    /// A single FILE whose content is still on the provider (roadmap RD2). `nil` for a folder, for
-    /// a file already on disk, and for a file whose badge has not been resolved yet — see
-    /// `PaneRowVerbAvailability.resolve`, which is where the cache read is explained.
-    let download: (() -> Void)?
+    /// The row menu's Download offer for the selection (roadmap RD2) — `CloudDownloadOffer`, the
+    /// row's own question: Download for one cloud-only file, Download All for a folder in a cloud
+    /// location or several items. `nil` for anything with nothing to fetch, and for a file whose
+    /// badge has not been resolved yet — see `shortcutPaneRowVerbs`, which is where the cache read
+    /// is explained.
+    let download: SelectionDownload?
     let revealInFinder: (() -> Void)?
     let rename: (() -> Void)?
     /// The destination picker, for any selection. `true` moves, `false` copies.
@@ -133,6 +135,12 @@ struct PaneRowVerbs {
         PaneRowVerbs(openInNewTab: openInNewTab, quickLook: quickLook, openInEditor: openInEditor,
                      download: download, revealInFinder: revealInFinder, rename: nil,
                      chooseDestination: nil, ignore: ignore, pdfTools: nil, saveAsPDF: nil)
+    }
+
+    struct SelectionDownload {
+        /// Already resolved: "Download" or "Download All".
+        let title: String
+        let run: () -> Void
     }
 
     struct IgnoreToggle {
@@ -163,27 +171,17 @@ enum PaneRowVerbAvailability {
         let openInNewTab: Bool
         let singleNodeVerbs: Bool
         let openInEditor: Bool
-        let download: Bool
         let chooseDestination: Bool
         let ignore: Bool
     }
 
-    /// **Download joined the menu with the v5.3 batch (roadmap RD2), and the objection that kept it
-    /// out is answered rather than ignored.** The row menu's action starts a per-pane watch so the
-    /// cloud badge clears when the content lands, and a note here used to say a menu item "has no
-    /// pane to scope that to". It does: the selection belongs to the active pane, and
-    /// `shortcutPaneRowVerbs` posts the same `CloudDownloadRequest` the row menu posts, carrying
-    /// that pane's token, on the app's channel — which is the channel the pane is listening on. The
-    /// watch starts exactly as it does from the row.
-    ///
-    /// `isCloudOnly` is read from `CloudOnlyBadgeCache`, never from a fresh `lstat`: this resolver
-    /// runs on every `ContentView` body pass, and a selected row has been drawn, so its badge has
-    /// already recorded the answer. A row whose badge has not resolved yet reads `nil` and the item
-    /// is withheld for that pass — the next pass has it.
+    /// **Download is not decided here** but by `CloudDownloadOffer`, the row menu's own rule, in
+    /// `shortcutPaneRowVerbs` — so File ▸ Download offers Download All for a folder or several
+    /// items exactly where the row menu does.
     ///
     /// **Get Info is absent**, for the reason the mockup settled: it wants Finder's ⌘I, which is
     /// the Info Inspector here, and the inspector already answers it without leaving the window.
-    static func resolve(selectionCount: Int, isDirectory: Bool, isCloudOnly: Bool,
+    static func resolve(selectionCount: Int, isDirectory: Bool,
                         canOpenInNewTab: Bool, isComparing: Bool, opensInEdit: Bool) -> Answer {
         let single = selectionCount == 1
         return Answer(
@@ -194,10 +192,6 @@ enum PaneRowVerbAvailability {
             // at the call site — the row menu's own gate — so this item and that menu cannot
             // disagree: text, or a PDF, which opens read-only.
             openInEditor: single && !isDirectory && opensInEdit,
-            // A folder is never dataless in the sense the flag means, and the row menu gates on
-            // `!isDirectory` too — a menu item offering to download a folder would be a promise
-            // `MaterializationStatus.download` cannot keep.
-            download: single && !isDirectory && isCloudOnly,
             // A destination pick works on a batch; the picker prunes nested nodes downstream
             // (`FileOperations` does it again), so a folder and its child cannot both travel.
             chooseDestination: selectionCount >= 1,
@@ -1844,8 +1838,6 @@ extension ContentView {
         let can = PaneRowVerbAvailability.resolve(
             selectionCount: selection.count,
             isDirectory: node?.isDirectory ?? false,
-            // The badge's memo, never a fresh stat — see the resolver's note. A folder never asks.
-            isCloudOnly: node.flatMap { $0.isDirectory ? false : CloudOnlyBadgeCache.cached($0.id) } ?? false,
             canOpenInNewTab: delegate.canOpenInNewTab,
             isComparing: layoutMode == .compare,
             // A path read, no I/O — exactly as `isCloudOnly` above reads a cache rather than
@@ -1865,11 +1857,23 @@ extension ContentView {
             // item and the right-click are literally the same call.
             openInEditor: can.openInEditor
                 ? { node.map { delegate.handleOpenInEditor($0.id) } } : nil,
-            // The row menu's own verb body, through the one shared implementation: the fetch, the
-            // two log lines and the pane-scoped post that starts the badge watch.
-            download: can.download
-                ? { node.map { CloudDownloadRequest.requestDownload(path: $0.id, name: $0.name,
-                                                                    from: paneToken) } } : nil,
+            // **Download joined the menu with the v5.3 batch (roadmap RD2)**, and the objection that
+            // kept it out is answered: the selection belongs to the active pane, and the act posts
+            // the same `CloudDownloadRequest` the row menu posts, carrying that pane's token, on the
+            // app's channel — the one the pane listens on — so the badge watch starts as it does
+            // from the row. The offer is the row menu's own (`CloudDownloadOffer`), and its act the
+            // row's verb through the one shared implementation.
+            //
+            // A file is answered from `CloudOnlyBadgeCache`, never a fresh `lstat`: this runs on
+            // every `ContentView` body pass, and a selected row has been drawn, so its badge has
+            // already recorded the answer. A row whose badge has not resolved yet reads `nil` and
+            // is left out for that pass — the next pass has it. A folder is a path check.
+            download: CloudDownloadOffer.forSelection(selection, isCloudOnly: { CloudOnlyBadgeCache.cached($0) })
+                .map { offer in
+                    PaneRowVerbs.SelectionDownload(title: offer.title, run: {
+                        CloudDownloadRequest.request(offer, from: paneToken)
+                    })
+                },
             revealInFinder: can.singleNodeVerbs
                 ? { node.map { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: $0.id)]) } } : nil,
             rename: can.singleNodeVerbs ? { node.map { delegate.handleRename($0) } } : nil,
@@ -2883,9 +2887,10 @@ struct PaneRowVerbCommands: View {
             .disabled(verbs?.openInNewTab == nil)
         Button("Quick Look") { verbs?.quickLook?() }
             .disabled(verbs?.quickLook == nil)
-        // Under Quick Look, where the row menu puts it. Enabled only for a single cloud-only file:
-        // for anything else the item greys rather than offering a fetch that cannot happen.
-        Button("Download") { verbs?.download?() }
+        // Under Quick Look, where the row menu puts it, titled as the row menu titles it: Download
+        // for one cloud-only file, Download All for a cloud folder or several items. For anything
+        // else the item greys rather than offering a fetch that cannot happen.
+        Button(verbs?.download?.title ?? "Download") { verbs?.download?.run() }
             .disabled(verbs?.download == nil)
         Button("Reveal in Finder") { verbs?.revealInFinder?() }
             .disabled(verbs?.revealInFinder == nil)

@@ -245,4 +245,64 @@ import Foundation
         #expect(result.unreadable == 1)
         #expect(result.requested == [top + "/open.bin"])
     }
+
+    // MARK: - Download All over a selection
+
+    /// A file selected beside its own folder, and a folder beside one inside it, are each asked
+    /// for once.
+    @Test func anOverlappingSelectionAsksForEachFileOnce() throws {
+        let home = try Home()
+        let top = try home.make("Library/CloudStorage/P/Folder", directory: true)
+        let inner = try home.make("Library/CloudStorage/P/Folder/sub", directory: true)
+        let a = try home.make("Library/CloudStorage/P/Folder/a.bin")
+        let b = try home.make("Library/CloudStorage/P/Folder/sub/b.bin")
+        let loose = try home.make("Library/CloudStorage/P/loose.bin")
+        let here = try home.make("Library/CloudStorage/P/here.bin")
+        let cloudOnly: Set<String> = [a, b, loose]
+
+        var asked: [String] = []
+        let result = MaterializationStatus.downloadAll(
+            files: [a, loose, here], folders: [top, inner],
+            statFlags: { cloudOnly.contains($0) ? MaterializationStatus.datalessFlag : 0 },
+            download: { asked.append($0) })
+
+        #expect(asked.sorted() == [a, b, loose].sorted())
+        #expect(result.requested.sorted() == [a, b, loose].sorted())
+        #expect(!asked.contains(here), "a file already here was asked for")
+    }
+
+    /// A selected link to a cloud-only file is asked for — as the link, which `download(atPath:)`
+    /// fetches as its target, the way a single file's Download does.
+    @Test func aSelectedLinkIsAskedForByItsTarget() throws {
+        let home = try Home()
+        let target = try home.make("Library/CloudStorage/P/big.mov")
+        let link = home.path + "/Library/CloudStorage/P/link.mov"
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: target)
+
+        var asked: [String] = []
+        let result = MaterializationStatus.downloadAll(
+            files: [link], folders: [],
+            statFlags: { $0 == target ? MaterializationStatus.datalessFlag : 0 },
+            download: { asked.append($0) })
+        #expect(asked == [link])
+        #expect(result.requested == [link])
+    }
+
+    @Test func refusalsAndUnreadableFoldersAreSummedAcrossTheSelection() throws {
+        let home = try Home()
+        let f = try home.make("Library/CloudStorage/P/F", directory: true)
+        let g = try home.make("Library/CloudStorage/P/G", directory: true)
+        let lockedF = try home.make("Library/CloudStorage/P/F/locked", directory: true)
+        let lockedG = try home.make("Library/CloudStorage/P/G/locked", directory: true)
+        let x = try home.make("Library/CloudStorage/P/F/x.bin")
+        #expect(chmod(lockedF, 0) == 0 && chmod(lockedG, 0) == 0)
+        defer { chmod(lockedF, 0o755); chmod(lockedG, 0o755) }
+        struct Refused: Error {}
+
+        let result = MaterializationStatus.downloadAll(
+            files: [], folders: [f, g], statFlags: { _ in MaterializationStatus.datalessFlag },
+            download: { _ in throw Refused() })
+        #expect(result.refused == [x])
+        #expect(result.unreadable == 2)
+    }
 }

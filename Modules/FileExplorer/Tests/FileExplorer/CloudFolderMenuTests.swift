@@ -30,11 +30,11 @@ import Testing
         func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
     }
 
-    private static func items(for row: FileNode) -> [NSMenuItem] {
+    private static func items(for row: FileNode, selecting selection: [FileNode] = []) -> [NSMenuItem] {
         let menu = NSHostingMenu(rootView: FileContextMenu(
             row: PaneRow(side: .left, version: 1, node: row, children: nil),
-            selection: [],
-            tree: PaneTree(side: .left, version: 1, nodes: [row]),
+            selection: Set(selection.map(\.id)),
+            tree: PaneTree(side: .left, version: 1, nodes: selection.isEmpty ? [row] : selection),
             otherTree: PaneTree(side: .right, version: 1, nodes: []),
             otherSelection: [], isLeft: true, currentPath: (row.id as NSString).deletingLastPathComponent,
             delegate: Stub(), otherPaneName: "Right", isSingleSource: true,
@@ -78,9 +78,45 @@ import Testing
         #expect(titles.contains("Keep Downloaded"), "the menu reads \(titles)")
     }
 
-    @Test func theInheritedStateNamesTheFolderAndCannotBeUnticked() {
-        #expect(FileContextMenu.keptByFolder(.inherited(fromFolder: "/x/Work")) == "/x/Work")
-        #expect(FileContextMenu.keptByFolder(.on) == nil)
-        #expect(FileContextMenu.keptByFolder(.off) == nil)
+    // MARK: - Several selected
+
+    private static func folder(_ path: String) -> FileNode {
+        FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: true)
+    }
+
+    /// Two cloud folders selected: Download All over both, offered on either one's menu.
+    @Test func severalCloudFoldersOfferDownloadAll() {
+        let base = NSHomeDirectory() + "/Library/CloudStorage/Dropbox/\(Self.unique)"
+        let nodes = [Self.folder(base + "-a"), Self.folder(base + "-b")]
+        let titles = Self.items(for: nodes[1], selecting: nodes).map(\.title)
+        #expect(titles.contains("Download All"), "the menu reads \(titles)")
+        #expect(!titles.contains("Keep Downloaded"), "the menu reads \(titles)")
+    }
+
+    @Test func severalICloudItemsOfferKeepDownloaded() throws {
+        let base = NSHomeDirectory() + "/Library/Mobile Documents/com~apple~CloudDocs/\(Self.unique)"
+        let nodes = [Self.folder(base + "-a"), Self.folder(base + "-b")]
+        let items = Self.items(for: nodes[0], selecting: nodes)
+        let keep = try #require(items.first { $0.title == "Keep Downloaded" }, "the menu reads \(items.map(\.title))")
+        #expect(keep.state == .off)
+        #expect(items.map(\.title).contains("Download All"))
+    }
+
+    /// Past the cap the tick would cost too much to draw, so the item is withheld — Download All,
+    /// which costs no attribute reads, is not.
+    @Test func pastTheCapKeepDownloadedIsWithheld() {
+        let base = NSHomeDirectory() + "/Library/Mobile Documents/com~apple~CloudDocs/\(Self.unique)"
+        let nodes = (0...KeepDownloadedOffer.selectionCap).map { Self.folder(base + "-\($0)") }
+        let titles = Self.items(for: nodes[0], selecting: nodes).map(\.title)
+        #expect(titles.contains("Download All"), "the menu reads \(titles)")
+        #expect(!titles.contains("Keep Downloaded"), "the menu reads \(titles)")
+    }
+
+    @Test func severalLocalItemsOfferNeither() {
+        let nodes = [Self.folder("/a/\(Self.unique)-a"), Self.folder("/a/\(Self.unique)-b")]
+        let titles = Self.items(for: nodes[0], selecting: nodes).map(\.title)
+        #expect(titles.contains { $0.hasPrefix("Move") || $0.hasPrefix("Copy") }, "the premise: a real menu — \(titles)")
+        #expect(!titles.contains("Download All"))
+        #expect(!titles.contains("Keep Downloaded"))
     }
 }

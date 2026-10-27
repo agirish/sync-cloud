@@ -55,7 +55,8 @@ import Foundation
                                          planShape: {}, setUpLikeSiblings: {}),
             // Every closure non-nil, `openInEditor` included: a nil here would let the suspension
             // test below pass without ever proving the item was live to begin with.
-            paneRowVerbs: PaneRowVerbs(openInNewTab: {}, quickLook: {}, openInEditor: {}, download: {},
+            paneRowVerbs: PaneRowVerbs(openInNewTab: {}, quickLook: {}, openInEditor: {},
+                                       download: PaneRowVerbs.SelectionDownload(title: "Download", run: {}),
                                        revealInFinder: {},
                                        rename: {}, chooseDestination: { _ in },
                                        ignore: PaneRowVerbs.IgnoreToggle(title: "Ignore in Comparison",
