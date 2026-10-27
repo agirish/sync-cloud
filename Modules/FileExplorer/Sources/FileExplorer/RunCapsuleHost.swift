@@ -6,77 +6,118 @@ import Design
 /// menu, and Save as PDF. Their *results* stay with the pane, not here (BY).
 ///
 /// **The capsule draws the newest run** (TE218, decision CI) — the one just asked for. With two or
-/// more, its ✕ gives way to a count that opens ``ProgressCapsuleRunList``, where every run has its
-/// own Stop (TE217, TE219). It used to draw the first of the three in a fixed order with the others
-/// a grey "+1": a Save as PDF behind a merge then had no Stop anywhere until the merge ended.
+/// more, its ✕ gives way to a count (TE217, TE219). It used to draw the first of the three in a fixed
+/// order with the others a grey "+1": a Save as PDF behind a merge then had no Stop anywhere until
+/// the merge ended.
+///
+/// **A click on it opens Activity** (TE220, decision CK as CR left it): every run with its own Stop,
+/// and Recent, in a popover under the capsule. While that is open the capsule stays, reading
+/// "Nothing running" once the last run ends, so the popover is not taken away with it (TE231).
 ///
 /// A pane-launched batch is not here: its sheet carries its own per-file progress and its Cancel,
 /// window-modal by design (``PanePDFToolsPresenter``).
 public struct RunCapsuleHost: View {
     let activeProgress: Progress?
     let activeProgressStartedAt: Date?
-    @ObservedObject var pdfTools: PanePDFTools
-    @ObservedObject var saveAsPDF: PaneSaveAsPDF
+    @ObservedObject var center: ActivityCenter
+    let runWriteLock: String?
     let style: ProgressCapsuleStyle
-    /// The list of runs, open under the capsule.
-    @State private var showsRuns = false
+    @Environment(\.openWindow) private var openWindow
 
-    public init(activeProgress: Progress?, activeProgressStartedAt: Date?, pdfTools: PanePDFTools,
-                saveAsPDF: PaneSaveAsPDF, style: ProgressCapsuleStyle) {
+    public init(activeProgress: Progress?, activeProgressStartedAt: Date?, center: ActivityCenter,
+                runWriteLock: String?, style: ProgressCapsuleStyle) {
         self.activeProgress = activeProgress
         self.activeProgressStartedAt = activeProgressStartedAt
-        self.pdfTools = pdfTools
-        self.saveAsPDF = saveAsPDF
+        self.center = center
+        self.runWriteLock = runWriteLock
         self.style = style
+    }
+
+    public var body: some View {
+        ActivityRunsReader(activeProgress: activeProgress, activeProgressStartedAt: activeProgressStartedAt,
+                           center: center) { entries in
+            capsule(entries)
+        }
+    }
+
+    @ViewBuilder private func capsule(_ entries: [RunCapsuleEntry]) -> some View {
+        let open = { center.markSeen(); center.popoverIsOpen = true }
+        Group {
+            if let newest = entries.first {
+                // An `NSProgress` is not observable, so the snapshot is taken again ten times a
+                // second while a run is up — the dialog's own cadence — and not at all once it ends.
+                TimelineView(.periodic(from: .now, by: 0.1)) { _ in
+                    ProgressCapsule(run: newest.snapshot(), style: style,
+                                    othersRunning: entries.dropFirst().map { $0.snapshot().summary },
+                                    onCancel: newest.cancel, onShowRuns: open, onOpen: open)
+                }
+            } else {
+                ProgressCapsule(run: .idle, style: style, onCancel: nil, onOpen: open)
+            }
+        }
+        .popover(isPresented: $center.popoverIsOpen, arrowEdge: .bottom) {
+            TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
+                ActivityNowView(runs: entries.map { $0.listed() }, center: center, runWriteLock: runWriteLock,
+                                now: timeline.date,
+                                onOpenWindow: {
+                                    center.popoverIsOpen = false
+                                    center.tab = .now
+                                    openWindow(id: ActivityCenter.windowID)
+                                })
+            }
+            .presentedNativeControlAccent()
+        }
+    }
+}
+
+/// **Every run going, newest first** — read off the file operation the window publishes and the
+/// pane PDF runs ``ActivityCenter`` owns, for the capsule and for Activity's Running rows alike.
+public struct ActivityRunsReader<Content: View>: View {
+    let activeProgress: Progress?
+    let activeProgressStartedAt: Date?
+    @ObservedObject var pdfTools: PanePDFTools
+    @ObservedObject var saveAsPDF: PaneSaveAsPDF
+    let content: ([RunCapsuleEntry]) -> Content
+
+    public init(activeProgress: Progress?, activeProgressStartedAt: Date?, center: ActivityCenter,
+                @ViewBuilder content: @escaping ([RunCapsuleEntry]) -> Content) {
+        self.activeProgress = activeProgress
+        self.activeProgressStartedAt = activeProgressStartedAt
+        pdfTools = center.panePDFTools
+        saveAsPDF = center.paneSaveAsPDF
+        self.content = content
     }
 
     public var body: some View {
         if case .single(let tools) = pdfTools.current {
             RunCapsuleObserving(model: tools) { tools in
-                capsule(pdfRun: RunCapsuleEntry.pdfTool(tools))
+                content(entries(pdfRun: RunCapsuleEntry.pdfTool(tools)))
             }
         } else {
-            capsule(pdfRun: nil)
+            content(entries(pdfRun: nil))
         }
     }
 
-    @ViewBuilder private func capsule(pdfRun: RunCapsuleEntry?) -> some View {
-        let entries = RunCapsuleEntry.newestFirst(
+    private func entries(pdfRun: RunCapsuleEntry?) -> [RunCapsuleEntry] {
+        RunCapsuleEntry.newestFirst(
             [activeProgress.map { RunCapsuleEntry.fileOperation($0, startedAt: activeProgressStartedAt) },
              pdfRun, RunCapsuleEntry.saveAsPDF(saveAsPDF)].compactMap { $0 })
-        if let newest = entries.first {
-            // An `NSProgress` is not observable, so the snapshot is taken again ten times a second
-            // while a run is up — the dialog's own cadence — and not at all once it ends.
-            TimelineView(.periodic(from: .now, by: 0.1)) { _ in
-                ProgressCapsule(run: newest.snapshot(), style: style,
-                                othersRunning: entries.dropFirst().map { $0.snapshot().summary },
-                                onCancel: newest.cancel,
-                                onShowRuns: { showsRuns = true })
-            }
-            .popover(isPresented: $showsRuns, arrowEdge: .bottom) {
-                TimelineView(.periodic(from: .now, by: 0.1)) { _ in
-                    ProgressCapsuleRunList(runs: entries.map { $0.listed() })
-                }
-                .presentedNativeControlAccent()
-            }
-            // The last other run ended with the list open: one run is left, and the capsule's own
-            // ✕ stops it again.
-            .onChange(of: entries.count) { _, count in if count < 2 { showsRuns = false } }
-        }
     }
 }
 
-/// Whether any pane-launched run is showing in the capsule — what the toolbar needs to know to
-/// seat it, observed here so the window itself need not observe the PDF models (it does not; a
-/// run's progress would otherwise re-render the whole window).
+/// Whether any pane-launched run is showing in the capsule — or Activity is open under it — what
+/// the toolbar needs to know to seat it, observed here so the window itself need not observe the
+/// PDF models (it does not; a run's progress would otherwise re-render the whole window).
 public struct RunCapsulePresence: View {
+    @ObservedObject var center: ActivityCenter
     @ObservedObject var pdfTools: PanePDFTools
     @ObservedObject var saveAsPDF: PaneSaveAsPDF
     let onChange: (Bool) -> Void
 
-    public init(pdfTools: PanePDFTools, saveAsPDF: PaneSaveAsPDF, onChange: @escaping (Bool) -> Void) {
-        self.pdfTools = pdfTools
-        self.saveAsPDF = saveAsPDF
+    public init(center: ActivityCenter, onChange: @escaping (Bool) -> Void) {
+        self.center = center
+        pdfTools = center.panePDFTools
+        saveAsPDF = center.paneSaveAsPDF
         self.onChange = onChange
     }
 
@@ -91,7 +132,7 @@ public struct RunCapsulePresence: View {
     }
 
     private func report(_ pdfRunning: Bool) -> some View {
-        let showing = pdfRunning || saveAsPDF.isRunning
+        let showing = pdfRunning || saveAsPDF.isRunning || center.popoverIsOpen
         return Color.clear
             .frame(width: 0, height: 0)
             .onChange(of: showing, initial: true) { _, now in onChange(now) }
@@ -100,7 +141,7 @@ public struct RunCapsulePresence: View {
 
 /// One run's snapshot and its stop — read through closures so the capsule's timeline re-reads the
 /// live values on every tick.
-struct RunCapsuleEntry {
+public struct RunCapsuleEntry {
     enum Kind: Int {
         case fileOperation, pdfTool, saveAsPDF
 
@@ -127,7 +168,7 @@ struct RunCapsuleEntry {
         }
     }
 
-    func listed() -> ProgressCapsuleListedRun {
+    public func listed() -> ProgressCapsuleListedRun {
         ProgressCapsuleListedRun(id: "\(kind)", run: snapshot(), symbol: kind.symbol, startedAt: startedAt,
                                  onCancel: cancel)
     }

@@ -223,7 +223,8 @@ import Testing
         // open / Restrict editing".
         // 12 since Fill & Sign's Add Signature sheet: "Draw / Type".
         // 13 since that sheet's pen: "Fine / Medium / Bold" (Signature Styles TE90).
-        #expect(sites == 13, "expected 13 segmented pickers in the app, found \(sites)")
+        // 14 since the Activity window's "Now / History / Log" (Run Room TE232).
+        #expect(sites == 14, "expected 14 segmented pickers in the app, found \(sites)")
     }
 
     /// Every Swift file the SHIPPING app is built from: each module's `Sources`, plus `MacApp`.

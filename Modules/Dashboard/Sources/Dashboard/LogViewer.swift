@@ -275,8 +275,14 @@ struct LogViewerContents {
          minimumLevel: LogLevel?,
          search: String,
          pageSize: Int,
+         span: ClosedRange<Date>? = nil,
          now: Date = Date()) {
-        let loadedHistory = history.entries
+        // Activity's Show in Log: the minutes around one message (R13), before every other filter,
+        // so the chips count what the narrowed list holds.
+        let session = span.map { span in session.filter { span.contains($0.timestamp) } } ?? session
+        let loadedHistory = history.entries.map { entries in
+            span.map { span in entries.filter { span.contains($0.timestamp) } } ?? entries
+        }
         sessionRows = LogEntryFilter.matches(session, minimumLevel: minimumLevel, search: search, now: now).reversed()
         // The chips count what the threshold filters: the session AND all LOADED history — not the
         // revealed page. "Show more" reveals further into this same set, so a count that grew as
@@ -301,8 +307,21 @@ struct LogViewerContents {
 /// An interactive slide-over or floating inspector pane that filters and displays historical LogEntry traces.
 public struct LogViewer: View {
     @ObservedObject public var logger = Logger.shared
-    
-    public init() {}
+    /// The minutes around one Activity message — set by its Show in Log (R13), cleared by its chip.
+    @Binding private var span: ClosedRange<Date>?
+    /// The window's own title row; Activity's tab names it instead.
+    private let showsTitle: Bool
+
+    public init(span: Binding<ClosedRange<Date>?> = .constant(nil), showsTitle: Bool = true) {
+        _span = span
+        self.showsTitle = showsTitle
+    }
+
+    /// "14:02:11 – 14:06:07", in the reader's own clock.
+    static func spanText(_ span: ClosedRange<Date>) -> String {
+        let style = Date.FormatStyle(date: .omitted, time: .standard)
+        return "\(span.lowerBound.formatted(style)) – \(span.upperBound.formatted(style))"
+    }
     
     // The minimum severity to show (a threshold, not exact-match). Defaults to All Levels (nil)
     // so a user opening the log sees everything recorded; picking "Warnings & above" keeps errors
@@ -495,7 +514,8 @@ public struct LogViewer: View {
             history: history,
             minimumLevel: selectedLevel,
             search: searchText,
-            pageSize: Self.historyPageSize
+            pageSize: Self.historyPageSize,
+            span: span
         )
         let filtered = contents.sessionRows
         let levelCounts = contents.levelCounts
@@ -505,8 +525,10 @@ public struct LogViewer: View {
         VStack(spacing: 0) {
             // Toolbar Area
             HStack {
-                Text("Activity Log")
-                    .scaledFont(.headline)
+                if showsTitle {
+                    Text("Activity Log")
+                        .scaledFont(.headline)
+                }
                 Spacer()
 
                 // Copy covers EVERYTHING on screen — session rows AND any revealed "Earlier
@@ -581,7 +603,14 @@ public struct LogViewer: View {
             // The window is `.hiddenTitleBar`, so the glass runs all the way up and the content
             // starts under the traffic lights — inset the header past them. Without this the
             // title sits behind the close/minimize/zoom buttons.
-            .padding(.top, LogViewer.titleBarInset)
+            .padding(.top, showsTitle ? LogViewer.titleBarInset : 0)
+
+            if let span {
+                ActivityFilterChip(text: "Only \(Self.spanText(span))",
+                                   help: "Showing the minutes around the message picked in Activity. Show all to see every entry.") {
+                    self.span = nil
+                }
+            }
 
             // Severity filter chips — the level threshold as tappable pills (All / Info & above /
             // Warnings & above / Errors), each carrying its live count. Replaces the old menu so the

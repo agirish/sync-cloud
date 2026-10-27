@@ -12468,3 +12468,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s fr24=%s folders=%s batch=%s o
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No FR24 emptiness check (`fr24=0`), no PDF batch (`batch=0`) | CLOSED — does not apply |
+
+---
+
+## Activity: one window for runs, messages, Sync History and the log (TE220–TE224, TE232) — main only
+
+Run Room, 2026-10-27. A click on the toolbar capsule opens Activity — every run with its Stop, and
+Recent: every message this session, kept in full with its buttons, a stale Undo saying which step to
+undo first. One Activity window (Now · History · Log) replaces the Activity Log and Sync History
+windows; ⌘L opens it. The older lines keep the two windows and have no capsule to click.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s logWindow=%s historyWindow=%s\n' $l \
+  "$(git show origin/$l:MacApp/SyncCloudApp.swift | grep -cF 'Window("Activity Log", id: "activity-log")')" \
+  "$(git show origin/$l:MacApp/SyncCloudApp.swift | grep -cF 'Window("Sync History", id: "sync-history")')"; done
+# measured 2026-10-27, against origin, before this landed (the change reads 0 and 0 on main):
+# main, v5.x, v4.x, v3.x, v2.x   logWindow=1 historyWindow=1
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | Separate Activity Log and Sync History windows; messages gone after 5 s; no capsule | RECORDED — not owed |

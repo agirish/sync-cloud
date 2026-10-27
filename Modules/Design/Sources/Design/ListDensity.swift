@@ -34,7 +34,7 @@ public enum ListDensity: String, CaseIterable, Identifiable, Sendable {
             return "Comfortable keeps the standard row height, and shows each file’s size and date in Tree view."
         case .compact:
             return "Compact fits more rows on screen — file panes, the Compare table, Organize and "
-                + "Storage, Activity Log, Sync History — and hides the size-and-date line to do it."
+                + "Storage, and Activity’s History and Log — and hides the size-and-date line to do it."
         }
     }
 

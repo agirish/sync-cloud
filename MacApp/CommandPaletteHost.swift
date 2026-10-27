@@ -808,7 +808,10 @@ extension ContentView {
         case .restructureThisFolder: restructureCurrentFolder()
         case .settings: showSettings = true
         case .shortcuts: openWindow(id: "keyboard-shortcuts")
-        case .activityLog: openWindow(id: "activity-log")
+        // The log is Activity's Log tab now (TE232).
+        case .activityLog:
+            ActivityCenter.shared.tab = .log
+            openWindow(id: ActivityCenter.windowID)
         }
     }
 }

@@ -434,6 +434,39 @@ import Sync
             named: "wrapping")
     }
 
+    // MARK: Activity
+
+    /// Activity's Now, as the capsule's popover draws it (Run Room TE220–TE223): two runs, each with
+    /// its Stop, then Recent — a folded refusal, an Undo greyed behind a newer step, a warning's
+    /// detail line and a run's links — and the foot. Fixed clock, no undo manager.
+    @Test func activityNowPopover() {
+        let center = ActivityCenter()
+        let now = Self.fixedDate
+        center.record(ActivityMessage(date: now.addingTimeInterval(-540),
+                                      message: "Saved 5 of 6 as PDF. “Budget 2026.numbers” couldn’t be saved.",
+                                      detail: "Budget 2026.numbers — it isn’t downloaded", severity: .warning),
+                      seen: true)
+        center.record(ActivityMessage(date: now.addingTimeInterval(-240), message: "Merged “Photos” — folded 7,363 files into Photos.",
+                                      severity: .success, runId: UUID()), seen: true)
+        for _ in 1...4 {
+            center.record(ActivityMessage(date: now.addingTimeInterval(-120), message: "Wait for the merge to finish",
+                                          severity: .warning), seen: true)
+        }
+        let merge = ProgressCapsuleRun(title: "Merging “Photos”", completed: 736, total: 7363, detail: "IMG_2034.jpg")
+        let pdf = ProgressCapsuleRun(title: "Compressing — page 14 of 40", completed: 14, total: 40,
+                                     detail: "Lease 2026.pdf", cancelTitle: "Stop")
+        assertViewSnapshot(
+            of: ActivityNowView(runs: [
+                ProgressCapsuleListedRun(id: "merge", run: merge, symbol: "doc.on.doc", startedAt: nil, onCancel: {}),
+                ProgressCapsuleListedRun(id: "pdf", run: pdf, symbol: "wrench.and.screwdriver", startedAt: nil,
+                                         onCancel: {}),
+            ], center: center, runWriteLock: nil, now: now, onOpenWindow: {})
+            .environment(\.timeZone, Self.pinnedZone)
+            .environment(\.controlActiveState, .key),
+            size: CGSize(width: ProgressCapsuleRunList.width, height: 520),
+            named: "two-runs-and-recent")
+    }
+
     // MARK: Fixtures
 
     private static func copy(path: String, keeper: Bool, isDirectory: Bool = false) -> DuplicateCopy {

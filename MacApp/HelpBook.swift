@@ -388,7 +388,7 @@ enum HelpBook {
                         "Undoing a move restores the file to where it came from.",
                         "A removal offers an undo only when all of it reached the Trash. If even one item in the batch had to be destroyed outright, no undo is offered at all — rather than one that would restore part of it and leave the rest gone without saying so.",
                         "A Restructure landing is one ⌘Z for the whole thing, however many folders it touched.",
-                        "The Activity Log records every operation with a timestamp.",
+                        "Activity’s log records every operation with a timestamp.",
                     ]),
                     .paragraph("Restructure’s landings have a second undo of their own, and the difference matters. ⌘Z lives in memory and is gone when you quit; “Undo This Reorganization…” replays a reversal kept on disk, so it still works tomorrow. It runs through the same guards as the landing did, it can partly fail on a file that has moved on since — which it names rather than glossing over — and only the newest landing can be taken back."),
                     .tip("Undo won’t overwrite a file that changed in the meantime — it refuses rather than clobber your newer copy."),
@@ -580,7 +580,7 @@ enum HelpBook {
                         "Only the newest landing can be taken back. Older ones are listed under it, newest first, each saying to undo the newer landing first rather than offering a button that would refuse.",
                         "Undo This Reorganization… is in the Organize menu too, where it needs no selection at all.",
                     ]),
-                    .tip("Every landing is written to the Activity Log on one line — what ran, what it counted, what the check said, and which survey it produced. That line is how the truth of an apply is found months later."),
+                    .tip("Every landing is written to Activity’s log on one line — what ran, what it counted, what the check said, and which survey it produced. That line is how the truth of an apply is found months later."),
                 ],
                 related: ["restructure-plan", "undo-redo", "staying-safe", "activity-log"]
             )),
@@ -776,12 +776,17 @@ enum HelpBook {
                 related: ["undo-redo", "activity-log", "intelligence", "restructure-apply",
                           "on-device-reading"]
             )),
-            Topic(id: "activity-log", title: "Activity Log and troubleshooting", systemImage: "clock.arrow.circlepath", article: Article(
-                intro: "Every scan and file operation is logged. If something looks off, the Activity Log is where to look — and what to send if you need help.",
+            Topic(id: "activity-log", title: "Activity, the log and troubleshooting", systemImage: "clock.arrow.circlepath", article: Article(
+                intro: "Every scan and file operation is logged. If something looks off, Activity is where to look — and its log is what to send if you need help.",
                 blocks: [
+                    .paragraph("Activity is one window with three tabs. Now lists what is running, each with its own Stop, and Recent: every message this session, in full, with its buttons — Undo, Reveal in Browse, Open in Edit — newest first, kept until you quit. History is Sync History. Log is the live event stream."),
                     .bullets([
-                        "Open it from Window ▸ Activity Log, or press ⌘L, to watch the live event stream.",
-                        "Filter by severity and copy lines straight from the window.",
+                        "Open it from Window ▸ Activity, the Activity button in the toolbar, or ⌘L. It opens on the tab you used last.",
+                        "Click the progress capsule in the middle of the toolbar for a quick look at Now; Open as Window at its foot opens the window.",
+                        "A red dot on the Activity button means a problem arrived while you were away from SyncCloud. Activity opens on Now while it is there, and opening Activity clears it.",
+                        "A message’s Undo in Recent works while its step is the newest one. After something newer, it says what to undo first; ⌘Z in the main window steps back through them.",
+                        "Show in History narrows History to that run’s records; Show in Log narrows the log to the minutes around the message. Show All puts the whole list back.",
+                        "In Log, filter by severity and copy lines straight from the window.",
                         "The full log is written to sync-cloud.log — Help ▸ Reveal Log File in Finder opens it.",
                     ]),
                     .tip("Attaching the log file to a bug report is the fastest way to get a problem understood."),
@@ -791,14 +796,14 @@ enum HelpBook {
             Topic(id: "sync-history", title: "Sync History", systemImage: "clock.arrow.circlepath", article: Article(
                 intro: "Copies, moves, deletes and date matches are recorded in a durable history that survives quitting — filterable, exportable, and reversible a whole run at a time.",
                 blocks: [
-                    .paragraph("Unlike the live Activity Log, which forgets when you quit, Sync History is written to disk as a structured record of each operation — its time, action, direction, the paths involved, and the size."),
+                    .paragraph("Unlike the live log, which forgets when you quit, Sync History is written to disk as a structured record of each operation — its time, action, direction, the paths involved, and the size."),
                     .bullets([
-                        "Open it from Window ▸ Sync History.",
+                        "Open it from Window ▸ Sync History: it is Activity’s History tab.",
                         "Filter by action, date range, or path, and search across everything recorded.",
                         "Export the current view to CSV or JSON for a spreadsheet or your own tooling.",
                         "Undo Last Run… shows what the most recent sync did, then reverses it in one step: a copy is removed, and the file it replaced comes back from the Trash; a moved file goes back where it came from; a file whose date was matched gets its own date back. A file that changed since is left as it is, and the banner says so.",
                         "An item moved to the Trash is listed as Move to Trash, and Undo Last Run puts it back — unless the Mac did not say where in the Trash it went, when you put it back from the Trash in Finder. Delete is kept for an item deleted outright, on a disk with no Trash, which has no way back.",
-                        "A Restructure landing is the one thing that does not appear here. It moves files, but it keeps its own reversal — the one behind “Undo This Reorganization…” — and writes a single summary line to the Activity Log.",
+                        "A Restructure landing is the one thing that does not appear here. It moves files, but it keeps its own reversal — the one behind “Undo This Reorganization…” — and writes a single summary line to Activity’s log.",
                     ]),
                     .tip("Undoing a run reuses the same safe reversal as ⌘Z — files come back from where they went, and you can redo afterward."),
                 ],
@@ -900,26 +905,18 @@ extension HelpBook.Mood {
 
 // MARK: - Menu commands
 
-/// The Window ▸ Activity Log item. A separate View (not inline in the `.commands` builder)
-/// because `openWindow` is an Environment value the App struct doesn't carry — the same reason
-/// `ShortcutsWindowCommand` exists.
-struct ActivityLogWindowCommand: View {
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some View {
-        Button("Activity Log") { openWindow(id: "activity-log") }
-            .keyboardShortcut(AppChord.activityLog.key, modifiers: AppChord.activityLog.modifiers)
-    }
-}
-
-/// The Window ▸ Sync History item — the durable, exportable, reversible history window (X2).
-/// A separate View for the same reason as `ActivityLogWindowCommand`: `openWindow` is an
-/// Environment value the App struct doesn't carry.
+/// The Window ▸ Sync History item — Activity on its History tab (TE232): the durable, exportable,
+/// reversible history, under the name it had as a window of its own. A separate View (not inline in
+/// the `.commands` builder) because `openWindow` is an Environment value the App struct doesn't
+/// carry — the same reason `ShortcutsWindowCommand` exists.
 struct SyncHistoryWindowCommand: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button("Sync History") { openWindow(id: "sync-history") }
+        Button("Sync History") {
+            ActivityCenter.shared.tab = .history
+            openWindow(id: ActivityCenter.windowID)
+        }
     }
 }
 

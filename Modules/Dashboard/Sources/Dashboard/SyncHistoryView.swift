@@ -30,10 +30,19 @@ public struct SyncHistoryView: View {
     /// both answers are drivable without a modal. The default is the standard destructive alert.
     private let confirmClearHistory: @MainActor () -> Bool
 
+    /// One run's records only — set by a Recent row's Show in History (R13), cleared by its chip.
+    @Binding private var runFilter: UUID?
+    /// The window's own title row; Activity's tab names it instead.
+    private let showsTitle: Bool
+
     public init(store: SyncHistoryStore = .shared,
+                runFilter: Binding<UUID?> = .constant(nil),
+                showsTitle: Bool = true,
                 onUndoLastSyncRun: @escaping @MainActor () -> String? = { nil },
                 confirmClearHistory: @escaping @MainActor () -> Bool = SyncHistoryView.defaultClearConfirmation) {
         self.store = store
+        _runFilter = runFilter
+        self.showsTitle = showsTitle
         self.onUndoLastSyncRun = onUndoLastSyncRun
         self.confirmClearHistory = confirmClearHistory
     }
@@ -127,11 +136,19 @@ public struct SyncHistoryView: View {
             store.records,
             action: selectedAction,
             search: searchText,
-            start: dateRange.start()
+            start: dateRange.start(),
+            runId: runFilter
         )
         VStack(spacing: 0) {
             toolbar(filtered: filtered)
             Divider().opacity(0.6)
+            if runFilter != nil {
+                ActivityFilterChip(text: "One run · \(filtered.count) record\(filtered.count == 1 ? "" : "s")",
+                                   help: "Showing the records of the run picked in Activity. Show all to see every run.") {
+                    runFilter = nil
+                }
+                Divider().opacity(0.6)
+            }
             searchBar
             Divider().opacity(0.6)
             list(filtered: filtered)
@@ -154,8 +171,10 @@ public struct SyncHistoryView: View {
     @ViewBuilder
     private func toolbar(filtered: [SyncHistoryRecord]) -> some View {
         HStack(spacing: 10) {
-            Text("Sync History")
-                .scaledFont(.headline)
+            if showsTitle {
+                Text("Sync History")
+                    .scaledFont(.headline)
+            }
             Spacer()
 
             Picker("Action", selection: $selectedAction) {

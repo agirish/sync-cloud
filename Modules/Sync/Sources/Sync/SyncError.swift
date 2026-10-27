@@ -99,7 +99,7 @@ extension SyncError {
             // text log — sending someone there to work out which 12 of 400 files to retry was the
             // only answer this alert had, and the rows themselves were sitting in the table the
             // whole time.
-            message: "Couldn’t \(verb) \(failureCount) items. They are listed under the “Failed to transfer” filter; the reason for each is in the Activity Log.",
+            message: "Couldn’t \(verb) \(failureCount) items. They are listed under the “Failed to transfer” filter; the reason for each is in Activity’s log (⌘L).",
             path: firstPath,
             reason: firstReason,
             isRetryable: false

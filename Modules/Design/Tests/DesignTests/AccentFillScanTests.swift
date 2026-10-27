@@ -810,8 +810,9 @@ import Testing
             #expect(exempted["\(shown.file) \(shown.site)"] == 1, "the exemption for \(shown.why) (\(shown.file)) matched \(exempted["\(shown.file) \(shown.site)"] ?? 0) presentations, not 1")
         }
         #expect(panels == Set(Self.accentedPanels), "panels setting no accent of their own: \(Set(Self.accentedPanels).subtracting(panels).sorted())")
-        // A tripwire: the four scenes and three hosting views of 2026-10-25.
-        #expect(roots >= 7, "only \(roots) window and hosting roots found — is the scan reading MacApp?")
+        // A tripwire: the four scenes and three hosting views of 2026-10-25 — three scenes since
+        // Activity took in the Activity Log and Sync History windows (Run Room TE232, 2026-10-27).
+        #expect(roots >= 6, "only \(roots) window and hosting roots found — is the scan reading MacApp?")
         // ...and the fourteen presentations of 2026-10-25 that carry the hue.
         #expect(presented >= 14, "only \(presented) presentations carry the hue — is the scan reading the modules?")
     }

@@ -16,10 +16,13 @@ public struct ProgressCapsuleRun: Equatable, Sendable {
     public var cancelHelp: String
     /// A sentence said over the run for a moment — a second request refused while this one runs.
     public var note: String?
+    /// Nothing is running: the capsule stays only because Activity hangs from it (TE231), so it
+    /// neither spins nor fills.
+    public var isIdle: Bool
 
     public init(title: String, completed: Int64 = 0, total: Int64 = 0, detail: String? = nil,
                 cancelTitle: String = "Cancel", cancelHelp: String = "Cancel operation",
-                note: String? = nil) {
+                note: String? = nil, isIdle: Bool = false) {
         self.title = title
         self.completed = completed
         self.total = total
@@ -27,7 +30,11 @@ public struct ProgressCapsuleRun: Equatable, Sendable {
         self.cancelTitle = cancelTitle
         self.cancelHelp = cancelHelp
         self.note = note
+        self.isIdle = isIdle
     }
+
+    /// The capsule with nothing in it, while Activity is open under it.
+    public static let idle = ProgressCapsuleRun(title: "Nothing running", isIdle: true)
 
     /// An `NSProgress` as the capsule reads it: its description, its counts, its current item.
     public init(progress: Progress) {
@@ -94,6 +101,8 @@ public struct ProgressCapsule: View {
     let onCancel: (() -> Void)?
     /// Opens the list of every run — the count button's action, and ⌘.'s, while others run.
     let onShowRuns: (() -> Void)?
+    /// A click anywhere else on the capsule: opens Activity (TE220).
+    let onOpen: (() -> Void)?
 
     @State private var hovering = false
     /// The window's hue for the ring's arc — a line, so the raw accent, not the system's `.tint`.
@@ -101,12 +110,13 @@ public struct ProgressCapsule: View {
 
     public init(run: ProgressCapsuleRun, style: ProgressCapsuleStyle,
                 othersRunning: [String] = [], onCancel: (() -> Void)?,
-                onShowRuns: (() -> Void)? = nil) {
+                onShowRuns: (() -> Void)? = nil, onOpen: (() -> Void)? = nil) {
         self.run = run
         self.style = style
         self.othersRunning = othersRunning
         self.onCancel = onCancel
         self.onShowRuns = onShowRuns
+        self.onOpen = onOpen
     }
 
     /// What the trailing button does: stop the one run, or open the list of several. Never both,
@@ -132,10 +142,12 @@ public struct ProgressCapsule: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                ProgressView(value: run.fraction, total: 1)
-                    .progressViewStyle(.linear)
-                    .controlSize(.small)
-                    .frame(width: ProgressCapsuleMetrics.barWidth)
+                if !run.isIdle {
+                    ProgressView(value: run.fraction, total: 1)
+                        .progressViewStyle(.linear)
+                        .controlSize(.small)
+                        .frame(width: ProgressCapsuleMetrics.barWidth)
+                }
                 if run.total > 0 {
                     Text(Self.formattedCount(completed: run.completed, total: run.total))
                         .scaledFont(.system(size: 11))
@@ -162,10 +174,13 @@ public struct ProgressCapsule: View {
                height: ProgressCapsuleMetrics.height)
         .background(Capsule().fill(.quaternary.opacity(0.5)))
         .contentShape(Capsule())
+        // The stop and the count are buttons of their own and keep their clicks.
+        .onTapGesture { onOpen?() }
         .onHover { hovering = $0 }
         .help(tooltip)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityText)
+        .accessibilityAction(named: "Show Activity") { onOpen?() }
     }
 
     /// Every run, newest first, one to a line — and the count ahead of them for VoiceOver, which
@@ -232,7 +247,11 @@ public struct ProgressCapsule: View {
 
     /// Determinate while the run can count, a spinner while it cannot.
     @ViewBuilder private var ring: some View {
-        if let fraction = run.fraction {
+        if run.isIdle {
+            Circle().stroke(.quaternary, lineWidth: 2.5)
+                .frame(width: ProgressCapsuleMetrics.ringSide, height: ProgressCapsuleMetrics.ringSide)
+                .accessibilityHidden(true)
+        } else if let fraction = run.fraction {
             ZStack {
                 Circle().stroke(.quaternary, lineWidth: 2.5)
                 Circle()

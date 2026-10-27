@@ -451,6 +451,29 @@ and key refusals are tested; this is what is not.
 - [ ] **Narrow window.** At 760pt with both running → the ring and a filled "2" badge beside it; a click
   on the badge opens the same list.
 
+## Activity: the popover, Recent and one window (Run Room TE220–TE224, TE232, 2026-10-27)
+
+- [ ] **Click the capsule.** During any run, click the capsule (not its ✕) → a popover under it:
+  Running with the run and its Stop, then Recent. Let the run end with the popover open → the
+  capsule stays, reading "Nothing running", until the popover closes.
+- [ ] **Recent keeps every message.** Delete a file, then rename another within 5 s → the pane shows
+  only the rename, but Recent lists both, newest first. During a merge press ⌫ on a file four
+  times → one row, "Wait for the merge to finish ×4".
+- [ ] **A stale Undo says so.** In Recent, the delete's Undo is greyed: "Undo the newer “Rename”
+  first." ⌘Z once in the main window (the rename comes back undone) → the delete's Undo is live
+  again; click it → the file is back, and the row says "Already undone".
+- [ ] **One window.** Window ▸ Activity, ⌘L, or the toolbar's Activity button → one window with
+  Now · History · Log. Window ▸ Sync History opens it on History; there is no Activity Log item.
+  Close it on Log, press ⌘L → it opens on Log.
+- [ ] **Links down a level.** After a copy from Compare, its Recent row's Show in History → History,
+  "One run · N records", only that copy's rows; Show All brings back the rest. Show in Log → Log,
+  "Only 14:02:11 – 14:06:07", the lines of those minutes.
+- [ ] **The dot.** Start a large merge, switch to another app, let it end with a skipped file (or any
+  warning) → the toolbar's Activity button has a red dot; opening Activity shows Now and the dot
+  goes. A success while away leaves none.
+- [ ] **Edit's own results.** In Edit, Compress the open PDF → its banner in Edit, and a row in Recent.
+  Fill & Sign → Save a Copy → a row too. A file changed on disk (the reload banner) adds no row.
+
 ## Undo waits for a long run (Banner Room CF, 2026-10-26)
 
 - [ ] **⌘Z waits.** Delete a file (its message offers Undo), then start a duplicate merge before the

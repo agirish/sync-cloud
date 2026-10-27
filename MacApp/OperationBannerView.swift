@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import FileExplorer
 import Sync
 import Design
 
@@ -65,24 +66,10 @@ struct OperationBannerView: View {
     private var tint: Color { OperationBannerStyle.tint(for: banner.severity) }
 
     /// A follow-up's button title — the words the PDF tools' own banner used for the same doors.
-    static func title(for followUp: OperationBanner.FollowUp) -> String {
-        switch followUp {
-        case .openInEdit: return "Open in Edit"
-        case .revealInBrowse: return "Reveal in Browse"
-        case .download: return "Download"
-        }
-    }
+    static func title(for followUp: OperationBanner.FollowUp) -> String { followUp.title }
 
-    /// Its tooltip, naming the file — or how many — it goes to.
-    static func help(for followUp: OperationBanner.FollowUp) -> String {
-        func name(_ path: String) -> String { "“\((path as NSString).lastPathComponent)”" }
-        switch followUp {
-        case .openInEdit(let path): return "Open \(name(path)) in Edit"
-        case .revealInBrowse(let paths):
-            return paths.count == 1 ? "Show \(name(paths[0])) in Browse" : "Show the \(paths.count) files in Browse"
-        case .download: return "Download the file from the cloud, then try again"
-        }
-    }
+    /// Its tooltip, naming the file — or how many — it goes to. Shared with Activity's Recent.
+    static func help(for followUp: OperationBanner.FollowUp) -> String { followUp.help }
 
     /// **What VoiceOver hears when the message appears** (TE211): the message, and — when the Undo
     /// button shows — that ⌘Z takes it back. Nothing announced it before: "Deleted “Test3.md”" and

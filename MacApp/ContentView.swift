@@ -119,13 +119,13 @@ struct ContentView: View {
     /// switch, `@State` rather than `@StateObject` so the window is not subscribed to Compare's
     /// search field.
     @State private var differencesSession = DifferencesSession()
-    /// The PDF tools run from a pane's row menu — see `PanePDFTools`. Held on the same terms as the
-    /// two sessions above: owned here, observed only by the layer that draws its sheet and banner,
-    /// so a run's page-by-page progress re-renders that layer and not this window.
-    @State var panePDFTools = PanePDFTools()
-    /// Save as PDF from a pane's row menu or File ▸ — see `PaneSaveAsPDF`. Held as the tools are,
-    /// observed only by the layer that draws its banner.
-    @State var paneSaveAsPDF = PaneSaveAsPDF()
+    /// The PDF tools run from a pane's row menu — see `PanePDFTools`. Owned app-wide by
+    /// `ActivityCenter` (Run Room R11), so the Activity window lists its runs too; observed only by
+    /// the layer that draws its sheet, so a run's page-by-page progress re-renders that layer and
+    /// not this window.
+    var panePDFTools: PanePDFTools { ActivityCenter.shared.panePDFTools }
+    /// Save as PDF from a pane's row menu or File ▸ — see `PaneSaveAsPDF`. Owned as the tools are.
+    var paneSaveAsPDF: PaneSaveAsPDF { ActivityCenter.shared.paneSaveAsPDF }
     /// Whether the rail's inline naming row is open. Held here because ⌘N opens it from any
     /// workspace, including ones where the editor is not on screen yet.
     @State var editorIsNaming = false
@@ -1461,9 +1461,12 @@ struct ContentView: View {
         .environment(\.runWriteLock, runWriteLockReason)
         // Whether a pane PDF run or Save as PDF is in the toolbar capsule — the toolbar's width
         // ladder has to seat it (`runCapsuleShowing`).
-        .background(RunCapsulePresence(pdfTools: panePDFTools, saveAsPDF: paneSaveAsPDF) { showing in
+        .background(RunCapsulePresence(center: .shared) { showing in
             paneRunShowing = showing
         })
+        // Edit's own PDF tool and Fill & Sign results, which never pass through the window's
+        // message, into Activity's Recent (R18).
+        .background(ActivityEditRecorder(tools: editorPDF.tools))
         .alert(
             syncManager.currentError?.title ?? "Something Went Wrong",
             isPresented: Binding(
@@ -1569,6 +1572,9 @@ struct ContentView: View {
                     }
                 case .rewireUndoManager:
                     syncManager.undoManager = undoManager
+                    // A Recent row's Undo is live only while its step is the newest here (TE223).
+                    ActivityCenter.shared.watchUndo(undoManager)
+                    ActivityCenter.shared.doors = activityDoors
                 case .syncProviderQuirkSettings:
                     syncManager.ignoreGoogleDriveNewerDateOnly = settings.ignoreGoogleDriveNewerDateOnly
                     syncManager.sortOption = settings.defaultSortOption

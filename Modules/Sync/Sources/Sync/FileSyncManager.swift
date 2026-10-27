@@ -2607,11 +2607,26 @@ public class FileSyncManager: ObservableObject {
     /// the window greys every action that writes to disk (decision BZ) — each publisher names its
     /// run in ``Foundation/Progress/runLockReason`` for the tooltip that says why.
     @Published public var activeProgress: Progress? = nil {
-        didSet { if activeProgress !== oldValue { activeProgressStartedAt = activeProgress.map { _ in Date() } } }
+        didSet {
+            guard activeProgress !== oldValue else { return }
+            if oldValue != nil, let started = activeProgressStartedAt {
+                lastFinishedRun = (started: started, ended: Date())
+            }
+            activeProgressStartedAt = activeProgress.map { _ in Date() }
+        }
     }
     /// When the run on ``activeProgress`` was published — what orders it among the window's other
     /// runs, newest first, in the toolbar's capsule (TE218).
     public private(set) var activeProgressStartedAt: Date?
+    /// The last run that ended — the minutes its log lines span, for its message's Show in Log in
+    /// Activity (Run Room R13).
+    public private(set) var lastFinishedRun: (started: Date, ended: Date)?
+    /// The run whose records the last history-recorded operation wrote — its token changes with
+    /// each — for its message's Show in History (R13).
+    public var lastRecordedRun: (token: UUID, runId: UUID)? {
+        guard let token = lastRecordedRunToken, let runId = lastRecordedRunRecords.first?.runId else { return nil }
+        return (token, runId)
+    }
     /// Short-lived banner for in-app operation completion toasts. The severity drives the UI's
     /// icon, tint, and dismissal behavior.
     ///

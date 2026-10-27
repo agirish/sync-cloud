@@ -15,14 +15,20 @@ public enum SyncHistoryFilter {
     ///     matches everything.
     ///   - start: Keep records at or after this instant. `nil` imposes no lower bound.
     ///   - end: Keep records at or before this instant. `nil` imposes no upper bound.
+    ///   - runId: Keep only this run's records — Activity's Show in History (R13). `nil` keeps all.
     public static func apply(
         _ records: [SyncHistoryRecord],
         action: SyncAction?,
         search: String,
         start: Date? = nil,
-        end: Date? = nil
+        end: Date? = nil,
+        runId: UUID? = nil
     ) -> [SyncHistoryRecord] {
         var result = records
+
+        if let runId {
+            result = result.filter { $0.runId == runId }
+        }
 
         if let action {
             result = result.filter { $0.action == action }

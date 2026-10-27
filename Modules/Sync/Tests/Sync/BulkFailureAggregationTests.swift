@@ -38,7 +38,7 @@ import EventsTestSupport
         let error = try #require(manager.currentError)
         #expect(error.title == "Sync Failed")
         #expect(error.message.contains("2 items"))
-        #expect(error.message.contains("Activity Log"))
+        #expect(error.message.contains("Activity’s log"))
         // The alert carries the first failure's details (worker order is nondeterministic,
         // so "first" is whichever the run collected first — one of the two sources).
         #expect(error.path == "/src/a.txt" || error.path == "/src/b.txt")
@@ -106,7 +106,7 @@ import EventsTestSupport
         // Names where the failed ROWS are, not only where the error text is. `firstItem` is no
         // longer in the message — one name out of N was never the useful part, and the filter
         // shows all of them.
-        #expect(error.message == "Couldn’t copy 3 items. They are listed under the “Failed to transfer” filter; the reason for each is in the Activity Log.")
+        #expect(error.message == "Couldn’t copy 3 items. They are listed under the “Failed to transfer” filter; the reason for each is in Activity’s log (⌘L).")
         #expect(error.path == "/src/a.txt")
         #expect(error.reason == "disk full")
         #expect(error.isRetryable == false)

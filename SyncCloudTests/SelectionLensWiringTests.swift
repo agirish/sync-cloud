@@ -33,7 +33,8 @@ import Design
     @Test func everyWindowHandsTheAppearanceToItsLenses() throws {
         let app = try Self.source("SyncCloudApp.swift")
         let scenes = Self.windowScenes(app)
-        try #require(scenes.count >= 4, "the app declares at least four windows; found \(scenes.count)")
+        // Three since Activity took in the Activity Log and Sync History windows (TE232).
+        try #require(scenes.count >= 3, "the app declares at least three windows; found \(scenes.count)")
         for scene in scenes {
             // The scene's own text runs to the next `Window(`; its root modifiers sit inside it.
             let name = scene.prefix(while: { $0 != "\"" })

@@ -956,12 +956,11 @@ struct SyncCloudApp: App {
             // twice, in two menus, under two different names. A source scan cannot see this —
             // one of the two entries is never written down — which is why it survived to v4.2.
             //
-            // **Two of the three are supplied by hand, and only because they carry chords.** An
-            // automatic Window-menu entry has no key equivalent, so a scene whose item is a
-            // registered `AppChord` has its automatic entry suppressed (`.commandsRemoved()` at
-            // the scene) and a real item put here instead. Sync History has no chord and keeps its
-            // automatic one. Supplying them by hand also fixes their titles: the Window menu names
-            // windows, so "Activity Log", not "Open Activity Log".
+            // **Keyboard Shortcuts is supplied by hand, for its chord**: an automatic Window-menu
+            // entry has no key equivalent, so its scene's is suppressed (`.commandsRemoved()`) and a
+            // real item with ⌘/ put here. Activity keeps its automatic entry, with ⌘L put on it at
+            // launch (`ActivityMenuKey`). Sync History is Activity's History tab now; its item stays,
+            // under the name people know, and opens the window on that tab.
             //
             // **⌘/ is here because taking it out of Help took it out of the app.** `cd87b08e`
             // removed the auxiliary windows from Help — correctly, they were listed twice — and
@@ -970,7 +969,7 @@ struct SyncCloudApp: App {
             // documenting it. `everyDeclaredChordIsOnAMenuItem` is what would have said so, and
             // does now.
             CommandGroup(before: .windowArrangement) {
-                ActivityLogWindowCommand()      // ⌘L
+                SyncHistoryWindowCommand()      // Activity, on its History tab
                 ShortcutsWindowCommand()        // ⌘/
             }
         }
@@ -987,66 +986,34 @@ struct SyncCloudApp: App {
         // ⌘/ — see the note there. Without this the window appears in the Window menu twice.
         .commandsRemoved()
 
-        Window("Activity Log", id: "activity-log") {
+        // **One Activity window: Now · History · Log** (Run Room TE232, decision CR). It replaced
+        // the Activity Log and Sync History windows, which are its Log and History tabs.
+        //
+        // Its Window-menu entry is SwiftUI's automatic one, with ⌘L put on it by `ActivityMenuKey`.
+        // Neither obvious route works, both measured 2026-10-27: a scene's own `.keyboardShortcut`
+        // does not reach the automatic entry, and suppressing it for a hand-written item — with
+        // Keyboard Shortcuts' suppressed too — took the main window's own "SyncCloud" opener with
+        // them (`theMainWindowKeepsItsOpener`). Which tab it opens on is the window's own call (the
+        // last used, or Now while a problem waits — CT), made as it becomes key, since the automatic
+        // entry runs no code of ours first.
+        Window("Activity", id: ActivityCenter.windowID) {
             if isRunningTests {
                 Color.clear
             } else {
-                LogViewer()
+                ActivityWindowHost(syncManager: syncManager)
                     .environmentObject(Logger.shared)
+                    .modifier(RunWriteLockFromManager(syncManager: syncManager))
                     .appFontSizeFromSettings()
                     .nativeControlAccent()
                     .selectionLensAppearanceFromDefaults()
             }
         }
-        // Same chrome as the main window (and therefore as the Settings overlay that floats in
-        // it): the title bar is hidden so the window's glass background runs to the top edge,
-        // instead of a system-white slab above it. LogViewer already draws "Activity Log" as its
-        // own header row and insets it past the traffic lights.
+        // Same chrome as the main window: the title bar is hidden so the window's glass runs to
+        // the top edge, and the tabs sit past the traffic lights (`LogViewer.titleBarInset`).
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
         .restorationBehavior(isRunningTests ? .disabled : .automatic)   // as the main window's
-        // Suppressed because this scene's item is supplied by hand in `.commands` above, to keep
-        // ⌘L — see the note there. Without this the window appears in the Window menu twice.
-        //
-        // **Do not suppress all three.** Measured twice off the running app: with all three
-        // removed the window-list section comes back EMPTY — the main window's own "SyncCloud"
-        // opener goes with them, and closing the main window would leave no menu route back to
-        // it. The mechanism is not documented; the behaviour is reproducible. Two of three is
-        // where this now sits (Activity Log for ⌘L, Keyboard Shortcuts for ⌘/), and it is not a
-        // guess: `theMainWindowKeepsItsOpener` reads the built menu bar and fails if the main
-        // window's own opener goes. Sync History has no chord, so it has no reason to move.
-        .commandsRemoved()
-
-        // Durable Sync History (X2): its own window (not a bottom tab) so it doesn't collide with
-        // the main content. Reads the shared `SyncHistoryStore` the manager records into, and
-        // reverses the last run through the manager's undo stack behind an NSAlert confirmation.
-        Window("Sync History", id: "sync-history") {
-            if isRunningTests {
-                Color.clear
-            } else {
-                SyncHistoryView(
-                    store: .shared,
-                    onUndoLastSyncRun: {
-                        // Prompts only when the last recorded run is genuinely still on top of the
-                        // undo stack. Otherwise the honest reason (a non-sync action is on top, or
-                        // the stack reset on relaunch) comes back, and the History window shows it
-                        // itself — it used to land in the main window's banner, out of sight.
-                        syncManager.undoLastSyncRunAskingFirst(
-                            confirm: SyncOperationAlerts.confirmUndoLastSyncRun)
-                    }
-                )
-                .environmentObject(Logger.shared)
-                .modifier(RunWriteLockFromManager(syncManager: syncManager))
-                .appFontSizeFromSettings()
-                .nativeControlAccent()
-                .selectionLensAppearanceFromDefaults()
-            }
-        }
-        .windowResizability(.contentMinSize)
-        .restorationBehavior(isRunningTests ? .disabled : .automatic)   // as the main window's
-        // NOT suppressed: Sync History carries no chord, so its automatic Window-menu entry is
-        // exactly the item this app would otherwise write by hand — and it is the third scene, the
-        // one the "do not suppress all three" measurement above is about.
+        // NOT suppressed — see above; the main window's opener depends on it.
     }
 }
 
@@ -1169,6 +1136,8 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         PaneMenuOrigin.shared.install()
         // Edit ▸ Undo and ⌘Z wait while a long run is going, on the file operations' stack (CF).
         RunUndoGate.shared.install()
+        // Window ▸ Activity carries ⌘L (Run Room TE232).
+        ActivityMenuKey.install()
 
         // How this build is signed, on the very next line — ad-hoc means its first launch waits
         // behind the Documents-access dialog, which is the whole of speed audit P16 and was
@@ -1706,5 +1675,29 @@ private struct RunWriteLockFromManager: ViewModifier {
     func body(content: Content) -> some View {
         content.environment(\.runWriteLock,
                             syncManager.activeProgress.map { $0.runLockReason ?? Progress.genericRunLockReason })
+    }
+}
+
+/// The Activity window's content, observing the manager so its Running rows follow the file
+/// operation the main window publishes.
+private struct ActivityWindowHost: View {
+    @ObservedObject var syncManager: FileSyncManager
+
+    var body: some View {
+        ActivityWindow(center: .shared, activeProgress: syncManager.activeProgress,
+                       activeProgressStartedAt: syncManager.activeProgressStartedAt,
+                       runWriteLock: syncManager.activeProgress.map { $0.runLockReason ?? Progress.genericRunLockReason }) {
+            SyncHistoryView(
+                store: .shared,
+                runFilter: Binding(get: { ActivityCenter.shared.historyRun },
+                                   set: { ActivityCenter.shared.historyRun = $0 }),
+                showsTitle: false,
+                onUndoLastSyncRun: {
+                    // Prompts only when the last recorded run is genuinely still on top of the
+                    // undo stack; otherwise the honest reason comes back and the tab shows it
+                    // itself — it used to land in the main window's banner, out of sight.
+                    syncManager.undoLastSyncRunAskingFirst(confirm: SyncOperationAlerts.confirmUndoLastSyncRun)
+                })
+        }
     }
 }

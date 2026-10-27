@@ -198,6 +198,46 @@ extension ContentView {
         guard let banner else { return }
         OperationBannerView.announce(banner, offersUndo: banner.isUndoable && (undoManager?.canUndo ?? false)
                                      && runWriteLockReason == nil)
+        // Copied into Activity's Recent as it is published (Run Room R9), not spoken again (R19).
+        ActivityCenter.shared.record(banner, run: syncManager.lastRecordedRun,
+                                     finishedRun: syncManager.lastFinishedRun, seen: NSApp.isActive)
+    }
+
+    /// Where a Recent row's buttons go: this window's own doors (R12).
+    var activityDoors: ActivityDoors {
+        ActivityDoors(
+            openInEdit: { path in _ = handOffToEditor(path) },
+            reveal: { paths in
+                guard let first = paths.first else { return }
+                revealInBrowse(first, with: EditorRevealInBrowse.companions(of: paths), from: .activity)
+            },
+            download: { path in downloadFromEdit(path) },
+            showInHistory: { runId in
+                ActivityCenter.shared.historyRun = runId
+                ActivityCenter.shared.tab = .history
+                openWindow(id: ActivityCenter.windowID)
+            },
+            showInLog: { span in
+                ActivityCenter.shared.logSpan = span
+                ActivityCenter.shared.tab = .log
+                openWindow(id: ActivityCenter.windowID)
+            })
+    }
+}
+
+/// **Edit's own results into Recent** (Run Room R18): its PDF tools' and Fill & Sign's, which set
+/// their banner on Edit's model and never pass through the window's message. Observed here, in a
+/// view of its own, so the window does not observe Edit's PDF model.
+struct ActivityEditRecorder: View {
+    @ObservedObject var tools: EditorPDFTools
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onChange(of: tools.banner) { _, banner in
+                guard let banner else { return }
+                ActivityCenter.shared.record(banner, seen: NSApp.isActive)
+            }
     }
 }
 

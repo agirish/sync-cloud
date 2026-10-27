@@ -24,8 +24,9 @@ import AppKit
         menu.items.filter { !$0.isSeparatorItem }.map(\.title)
     }
 
-    /// Each auxiliary window is reachable, and reachable **once**.
-    @Test(arguments: ["Activity Log", "Sync History", "Keyboard Shortcuts"])
+    /// Each auxiliary window is reachable, and reachable **once**. Sync History is Activity's
+    /// History tab now (TE232), and keeps its item under the name people know.
+    @Test(arguments: ["Activity", "Sync History", "Keyboard Shortcuts"])
     func eachAuxiliaryWindowAppearsExactlyOnceInTheWholeMenuBar(window: String) throws {
         let everywhere = try (NSApp.mainMenu?.items ?? []).flatMap { top -> [String] in
             guard let sub = top.submenu else { return [] }
@@ -40,20 +41,24 @@ import AppKit
     /// **The main window keeps its own opener**, and this is the assertion that stops the obvious
     /// fix from shipping. Suppressing the automatic entries of all three auxiliary scenes with
     /// `.commandsRemoved()` takes the main window's "SyncCloud" opener with them — measured twice,
-    /// reproducibly — which would leave no menu route back after closing it. Only Activity Log's is
-    /// suppressed, and only because its item carries ⌘L, which an automatic entry cannot.
+    /// reproducibly — which would leave no menu route back after closing it. Only Keyboard Shortcuts'
+    /// is suppressed, for its ⌘/; suppressing Activity's too (for ⌘L) took the opener with it, again,
+    /// measured 2026-10-27 — so ⌘L is put on Activity's automatic entry instead (`ActivityMenuKey`).
     @Test func theMainWindowKeepsItsOpener() throws {
         #expect(Self.titles(try Self.menu("Window")).contains("SyncCloud"),
                 "the Window menu lost the main window's own entry — closing it would strand the user")
     }
 
-    /// ⌘L survives the move. It is a registered `AppChord` and a documented row in the ⌘/
-    /// reference; an automatic Window-menu entry carries no key equivalent, which is the whole
-    /// reason one item is still supplied by hand.
-    @Test func activityLogKeepsItsChord() throws {
-        let item = try #require(try Self.menu("Window").items.first { $0.title == "Activity Log" })
+    /// ⌘L survives the move to one Activity window (TE232). It is a registered `AppChord` and a
+    /// documented row in the ⌘/ reference. Activity's entry is SwiftUI's automatic one, which carries
+    /// no key equivalent — a scene's own `.keyboardShortcut` does not reach it (measured 2026-10-27)
+    /// — so `ActivityMenuKey` puts ⌘L on it. The Activity Log's old item is gone.
+    @Test func activityKeepsTheLogsChord() throws {
+        let window = try Self.menu("Window")
+        let item = try #require(window.items.first { $0.title == "Activity" })
         #expect(item.keyEquivalent == "l")
         #expect(item.keyEquivalentModifierMask == .command)
+        #expect(!Self.titles(window).contains("Activity Log"), "the retired Activity Log window still has an item")
     }
 
     /// **Every chord the app declares is actually on a menu item.**
@@ -165,7 +170,7 @@ import AppKit
         let help = Self.titles(try Self.menu("Help"))
         #expect(!help.contains("About SyncCloud"),
                 "Help still has an About — the application menu's own is supplied by AppKit and was never replaced, so this is the second one")
-        for window in ["Activity Log", "Sync History", "Keyboard Shortcuts",
+        for window in ["Activity", "Activity Log", "Sync History", "Keyboard Shortcuts",
                        "Open Activity Log", "Open Sync History"] {
             #expect(!help.contains(window), "Help still carries \(window)")
         }

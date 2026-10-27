@@ -2661,9 +2661,10 @@ struct NewTabCommand: View {
 /// ⌘W — and **it replaces File ▸ Close, so it has to still close things this app's tabs know
 /// nothing about.**
 ///
-/// The app has three auxiliary `Window` scenes (Keyboard Shortcuts, Activity Log, Sync History).
+/// The app has two auxiliary `Window` scenes (Keyboard Shortcuts, and Activity — which holds Sync
+/// History and the log as tabs).
 /// None of them publishes a focused value, so with one of them key this item's value is `nil` — and
-/// as a plain `.disabled(close == nil)` item it left ⌘W dead in all three, having taken the standard
+/// as a plain `.disabled(close == nil)` item it left ⌘W dead in each, having taken the standard
 /// Close group's place. That is a regression the tab feature has no business causing, so a `nil`
 /// value falls back to what the item replaced: close the key window.
 ///

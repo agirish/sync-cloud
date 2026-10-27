@@ -1,4 +1,5 @@
 import Testing
+import FileExplorer
 import AppKit
 @testable import SyncCloud
 
@@ -19,7 +20,7 @@ import AppKit
 @Suite struct TestHostWindowTests {
 
     /// Every `Window` scene `SyncCloudApp` declares.
-    static let sceneIds = [SyncCloudApp.mainWindowId, "keyboard-shortcuts", "activity-log", "sync-history"]
+    static let sceneIds = [SyncCloudApp.mainWindowId, "keyboard-shortcuts", ActivityCenter.windowID]
 
     @Test func noSceneWindowIsUp() {
         let up = NSApp.windows.filter { window in

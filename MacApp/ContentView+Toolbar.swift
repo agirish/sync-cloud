@@ -338,7 +338,7 @@ extension ContentView {
     }
 
     /// The window toolbar — the window-level controls, and only those: which workspace you're in,
-    /// and the three utilities (Settings, Activity Log, Info). Everything else lives where it acts: Scan is
+    /// and the three utilities (Settings, Activity, Info). Everything else lives where it acts: Scan is
     /// in each pane header, Find Duplicates in the Duplicates lens, and the file actions are
     /// the panes' contextual action bar.
     @ToolbarContentBuilder
@@ -410,7 +410,7 @@ extension ContentView {
             ToolbarItem(placement: .principal) {
                 RunCapsuleHost(activeProgress: syncManager.activeProgress,
                                activeProgressStartedAt: syncManager.activeProgressStartedAt,
-                               pdfTools: panePDFTools, saveAsPDF: paneSaveAsPDF,
+                               center: .shared, runWriteLock: runWriteLockReason,
                                style: toolbarStyles.run ?? .ring)
             }
         }
@@ -458,13 +458,13 @@ extension ContentView {
             // its own bug — and the toolbar is the one surface the picker's scrim does not cover.
             .disabled(pendingDestination != nil)
 
-            Button(action: { openWindow(id: "activity-log") }) {
-                // The window's own name, which is also what VoiceOver reads — "Logs" was a third
-                // name for it. The tooltip's lower-case "log" is the tooltip convention.
-                Label("Activity Log", systemImage: "list.bullet.rectangle")
-                    .shortcutKeycap(AppChord.activityLog.display)
+            // Activity — Now, History and Log in one window (Run Room TE232). It wears a dot while a
+            // problem nobody has seen waits there (TE224, decision CS), and opens on Now then.
+            ActivityToolbarButton(center: .shared) {
+                _ = ActivityCenter.shared.tabForOpening()
+                ActivityCenter.shared.markSeen()
+                openWindow(id: ActivityCenter.windowID)
             }
-            .help(ShortcutHint.tooltip("Activity log", AppChord.activityLog.display))
 
             // Info inspector toggle — available on every workspace (Compare shows both-sides
             // status; a lens shows the single source), so opening Info never yanks the rail over
@@ -493,5 +493,32 @@ extension ContentView {
             // user could not. Same rule for both, like the workspace bar and the ⌘K pill above.
             .disabled(pendingDestination != nil)
         }
+    }
+}
+
+/// **The toolbar's Activity button**, with a dot while a problem waits unseen (TE224, decision CS).
+/// Observes ``ActivityCenter`` itself, so the window does not.
+struct ActivityToolbarButton: View {
+    @ObservedObject var center: ActivityCenter
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label("Activity", systemImage: "list.bullet.rectangle")
+                .overlay(alignment: .topTrailing) {
+                    if center.hasUnseenProblem {
+                        Circle()
+                            .fill(SemanticColor.error)
+                            .frame(width: 7, height: 7)
+                            .offset(x: 3, y: -2)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .shortcutKeycap(AppChord.activityLog.display)
+        }
+        .help(ShortcutHint.tooltip(center.hasUnseenProblem ? "Activity — a problem you haven’t seen" : "Activity",
+                                   AppChord.activityLog.display))
+        .accessibilityLabel("Activity")
+        .accessibilityValue(center.hasUnseenProblem ? "A problem you haven’t seen" : "")
     }
 }
