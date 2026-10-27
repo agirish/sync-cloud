@@ -127,9 +127,10 @@ public enum MaterializationStatus {
     /// an iCloud container, or an iCloud-synced `~/Desktop` / `~/Documents` — which is where a folder
     /// is offered Download All. Path arithmetic plus at most one `getxattr`: a row's menu asks it on
     /// every render, and whether the folder holds anything cloud-only would take a walk to know.
-    public static func isInCloudLocation(_ path: String, home: String = NSHomeDirectory()) -> Bool {
+    public static func isInCloudLocation(_ path: String, home: String = NSHomeDirectory(),
+                                         domainOf: KeepDownloaded.DomainOf = KeepDownloaded.realDomainOf) -> Bool {
         KeepDownloaded.descendant(path, of: home + "/Library/CloudStorage") != nil
-            || KeepDownloaded.iCloudRoot(containing: path, home: home) != nil
+            || KeepDownloaded.iCloudRoot(containing: path, home: home, domainOf: domainOf) != nil
     }
 
     /// What one Download All asked for.

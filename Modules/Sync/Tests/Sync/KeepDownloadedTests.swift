@@ -36,11 +36,6 @@ import Foundation
             }
             return full
         }
-
-        func setDomain(_ domain: String, on relative: String) {
-            let full = path + "/" + relative
-            #expect(setxattr(full, KeepDownloaded.domainAttributeName, domain, domain.utf8.count, 0, 0) == 0)
-        }
     }
 
     // MARK: - Where the pin is offered
@@ -64,20 +59,43 @@ import Foundation
 
     /// `~/Desktop` and `~/Documents` are iCloud's only when Desktop & Documents sync made them so,
     /// which their domain attribute says — and only iCloud's domain counts.
+    ///
+    /// The domain is handed in, never staged: writing `com.apple.file-provider-domain-id` is
+    /// refused on the CI runner (a launchd service) while a Terminal shell may write it, so a test
+    /// that set it went red there and green here. Reading it is the next test's.
     @Test func desktopAndDocumentsAreOfferedOnlyWhenICloudOwnsThem() throws {
         let home = try Home()
         let doc = try home.make("Documents/Taxes/2026.pdf")
-        #expect(KeepDownloaded.state(ofPath: doc, home: home.path) == .unavailable)
-
-        home.setDomain("com.example.provider/X", on: "Documents")
-        #expect(KeepDownloaded.state(ofPath: doc, home: home.path) == .unavailable)
-
-        home.setDomain("com.apple.CloudDocs.iCloudDriveFileProvider/X", on: "Documents")
-        #expect(KeepDownloaded.state(ofPath: doc, home: home.path) == .off)
-        #expect(KeepDownloaded.state(ofPath: home.path + "/Documents", home: home.path) == .off)
-        // The other folder is asked about on its own.
         let desk = try home.make("Desktop/shot.png")
-        #expect(KeepDownloaded.state(ofPath: desk, home: home.path) == .unavailable)
+        let documents = home.path + "/Documents"
+        func owned(by domain: String?) -> KeepDownloaded.DomainOf {
+            { [documents] in $0 == documents ? domain : nil }
+        }
+
+        #expect(KeepDownloaded.state(ofPath: doc, home: home.path, domainOf: owned(by: nil)) == .unavailable)
+        #expect(KeepDownloaded.state(ofPath: doc, home: home.path,
+                                     domainOf: owned(by: "com.example.provider/X")) == .unavailable)
+
+        let iCloud = owned(by: "com.apple.CloudDocs.iCloudDriveFileProvider/X")
+        #expect(KeepDownloaded.state(ofPath: doc, home: home.path, domainOf: iCloud) == .off)
+        #expect(KeepDownloaded.state(ofPath: documents, home: home.path, domainOf: iCloud) == .off)
+        #expect(MaterializationStatus.isInCloudLocation(documents + "/Taxes", home: home.path, domainOf: iCloud))
+        // The other folder is asked about on its own.
+        #expect(KeepDownloaded.state(ofPath: desk, home: home.path, domainOf: iCloud) == .unavailable)
+    }
+
+    /// The real reader reads an attribute's bytes back as text, and answers nil for one that is
+    /// absent — on an unprotected name, which any process may write.
+    @Test func theDomainReaderReadsAnAttributesText() throws {
+        let home = try Home()
+        let folder = try home.make("Documents", directory: true)
+        let name = "com.abhishekgirish.SyncCloud.test-domain"
+        let value = "com.apple.CloudDocs.iCloudDriveFileProvider/X"
+        #expect(setxattr(folder, name, value, value.utf8.count, 0, 0) == 0)
+        #expect(KeepDownloaded.attribute(name, atPath: folder) == value)
+        #expect(KeepDownloaded.attribute(name + ".absent", atPath: folder) == nil)
+        // And the real domain reader asks the real attribute: absent on a folder nothing owns.
+        #expect(KeepDownloaded.realDomainOf(folder) == nil)
     }
 
     // MARK: - The pin itself
