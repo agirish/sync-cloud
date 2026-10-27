@@ -64,12 +64,21 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
         /// nil means the old, draining shape, so every manifest already on disk keeps its
         /// behaviour exactly.
         public var movesWholeFolder: Bool?
+        /// The moved item's file number (inode) — **filled in at apply time, never at plan
+        /// time**, like `bytes`, and for folders as well as files.
+        ///
+        /// A move keeps the number, so it is how the undo tells the item the landing put at
+        /// `dst` from one put there LATER under the same name: a W-2 replaced by a newer W-2, a
+        /// renamed folder swapped for a fresh one. The undo used to check only that something
+        /// stood at the path, and moved the newcomer back as though it were the original.
+        /// nil on records made before it existed; those fall back to `bytes`.
+        public var fileNumber: Int?
 
         public init(action: ActionKind, src: String? = nil, dst: String? = nil,
                     evidence: String? = nil, filesCarried: Int? = nil,
                     bytes: Int? = nil, md5: String? = nil,
                     collisionExpected: Bool? = nil, collidedInto: String? = nil,
-                    movesWholeFolder: Bool? = nil) {
+                    movesWholeFolder: Bool? = nil, fileNumber: Int? = nil) {
             self.action = action
             self.src = src
             self.dst = dst
@@ -80,6 +89,7 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
             self.collisionExpected = collisionExpected
             self.collidedInto = collidedInto
             self.movesWholeFolder = movesWholeFolder
+            self.fileNumber = fileNumber
         }
     }
 

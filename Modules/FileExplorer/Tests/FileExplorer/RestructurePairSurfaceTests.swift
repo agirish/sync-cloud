@@ -192,6 +192,48 @@ import Testing
         #expect(RestructureRender.inkedPixels(rep) > 1000)
     }
 
+    // MARK: Discard Plan (L10)
+
+    /// **A pair's saved plan could not be dropped.** Save for Later wrote a draft, the card said
+    /// "Review N operations", and the sheet it reopened offered Cancel, Save and Apply — so Help's
+    /// "reopen it and click Discard Plan" could not be followed. The button is drawn on a sheet
+    /// opened on a saved plan, and the host wires it to the store.
+    @Test func aSavedPairPlanCanBeDiscardedFromItsSheet() throws {
+        #expect(RestructurePairMergeSheet.offersDiscard(hasSavedDraft: true, canDiscard: true,
+                                                        landed: false))
+        #expect(!RestructurePairMergeSheet.offersDiscard(hasSavedDraft: false, canDiscard: true,
+                                                         landed: false), "nothing saved to drop")
+        #expect(!RestructurePairMergeSheet.offersDiscard(hasSavedDraft: true, canDiscard: true,
+                                                         landed: true), "a landing consumed it")
+
+        func sheet(saved: Bool) -> RestructurePairMergeSheet {
+            RestructurePairMergeSheet(
+                source: "Health/TODO/Dental", destination: "Health/Dental", kind: .mirroredInbox,
+                tree: Self.tree([
+                    "Health/TODO/Dental": ([], ["invoice.pdf"]),
+                    "Health/Dental": ([], ["other.pdf"]),
+                ]),
+                profileId: "p", accent: .blue, rationale: "merges the mirror",
+                onExport: { _ in .saved(filename: "f.json") },
+                hasSavedDraft: saved, onDiscardDraft: {}, onClose: {})
+        }
+        let with = try #require(RestructureRender.raster(sheet(saved: true), width: 560, height: 420))
+        let without = try #require(RestructureRender.raster(sheet(saved: false), width: 560,
+                                                            height: 420))
+        #expect(RestructureRender.differingPixels(with, without) > 100,
+                "a sheet opened on a saved plan draws a Discard Plan button")
+
+        let sources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer")
+        let host = try String(contentsOf: sources.appendingPathComponent("LensWorkspaceView.swift"),
+                              encoding: .utf8)
+        let pairSheet = try #require(host.range(of: "private func pairMergeSheet("))
+        let body = host[pairSheet.lowerBound...].prefix(4000)
+        #expect(body.contains("hasSavedDraft: store.draft(for: key) != nil"))
+        #expect(body.contains("onDiscardDraft: { store.removeDraft(for: key) }"))
+    }
+
     // MARK: The call site
 
     /// The routing rule is testable on its own, and a revert that went back to gating on

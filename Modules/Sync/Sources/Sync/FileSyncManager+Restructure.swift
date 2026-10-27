@@ -466,7 +466,18 @@ extension FileSyncManager {
         if let current = restructureStore, current !== store, current.isSameFile(as: store) {
             current.unsuppress(key)
         } else {
-            store.unsuppress(key)
+            // **The captured object writes only while the app still reads it (L8).** Once swapped
+            // out it is a snapshot from before the swap, and `save` writes the whole store: a
+            // landing recorded since into the same file by a reopened store (a Setup Save beside
+            // a hand-built profile reopens it) was written over, and that profile's ledger lost
+            // the landing. So a swapped-out store's file is read afresh and the one key cleared
+            // there.
+            if restructureStore === store {
+                store.unsuppress(key)
+            } else {
+                RestructureStore(directory: store.directory, profileId: store.profileId)
+                    .unsuppress(key)
+            }
             if let current = restructureStore, current !== store,
                let carried = current.carriedKey(key, from: store) {
                 current.unsuppress(carried)

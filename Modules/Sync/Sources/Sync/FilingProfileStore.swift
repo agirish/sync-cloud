@@ -570,6 +570,20 @@ extension FilingProfileStore {
     /// active folder lacks is never retired either (see ``retireSupersededProfiles``).
     public static let surveyArtifactNames = ["filing-corpus.json", "filing-memory.json"]
 
+    /// The plans Restructure's Export Plan wrote into a profile's folder — the
+    /// `restructure-<date>-<family>….json` files the sheet names (``RestructureStore/exportPlan(_:)``),
+    /// never the ledger `restructure.json` itself. Made by the user and named to them, so they
+    /// travel with the survey like the curated files and a folder holding one the active folder
+    /// lacks is never retired (M2: a survey refresh deleted them, permanently, with the folder).
+    /// Nil when the folder could not be listed.
+    public static func exportedPlanNames(inProfile id: String, in directory: URL,
+                                         fileManager: FileManaging) -> [String]? {
+        FileSyncManager.directoryNames(at: directory.appendingPathComponent(id).path,
+                                       fm: fileManager)?
+            .filter { $0.hasPrefix("restructure-") && $0.hasSuffix(".json") }
+            .sorted()
+    }
+
     /// **Retires derived profiles nothing can reach any more** — the directory and its index row.
     ///
     /// Every re-derivation writes a NEW profile directory and appends a row; `replacing:` above
@@ -670,6 +684,15 @@ extension FilingProfileStore {
             var stranded = (curatedArtifactNames + surveyArtifactNames).filter { name in
                 holds(url, name) && !holds(activeURL, name)
             }
+            // An export the active folder lacks is stranded too; a folder whose exports cannot
+            // be listed is kept, on the sweep's rule that unreadable is not disposable.
+            guard let exported = exportedPlanNames(inProfile: id, in: directory,
+                                                   fileManager: fileManager) else {
+                Logger.shared.warning("Filing profiles: kept \(id) — its folder could not be "
+                    + "listed for exported plans")
+                continue
+            }
+            stranded += exported.filter { !holds(activeURL, $0) }
             let progress = DocumentSurveyCheckpointStore.filename
             if holds(url, progress), !holds(activeURL, progress),
                !fileManager.fileExists(atPath: FilingSurveyStore.corpusURL(id: active, in: directory).path) {

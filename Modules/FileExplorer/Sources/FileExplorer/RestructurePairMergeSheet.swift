@@ -27,6 +27,12 @@ struct RestructurePairMergeSheet: View {
     var applyProgress: RestructureApplyProgress?
     let onExport: (RestructureManifest) -> RestructurePlanSheet.ExportResult
     var onApply: ((RestructureManifest) async -> RestructurePlanSheet.ApplyResult)?
+    /// Whether the sheet opens on a plan saved by an earlier Save for Later — read once, at open,
+    /// like the mapped sheet's `hasSavedDraft`.
+    var hasSavedDraft: Bool = false
+    /// Removes the saved plan: *Discard Plan*. Until it existed a pair's saved plan could only
+    /// be removed by landing it (L10), though Help says to reopen it and click Discard Plan.
+    var onDiscardDraft: (() -> Void)?
     let onClose: () -> Void
 
     @State private var createdAt = ""
@@ -338,6 +344,19 @@ struct RestructurePairMergeSheet: View {
                     .lineLimit(2)
             }
             Spacer()
+            // The mapped sheet's Discard Plan, word for word: destructive, never the default and
+            // with no key — ⏎ stays on Save for Later, the safe act.
+            if Self.offersDiscard(hasSavedDraft: hasSavedDraft, canDiscard: onDiscardDraft != nil,
+                                  landed: landed) {
+                Button("Discard Plan", role: .destructive) {
+                    onDiscardDraft?()
+                    onClose()
+                }
+                    .scaledFont(.system(size: 11))
+                    .disabled(applying)
+                    .help("Removes this saved plan, so its card no longer shows it as planned. "
+                          + "Nothing moves, and an exported file stays where it is.")
+            }
             Button(landed ? "Done" : "Cancel") { onClose() }
                 .scaledFont(.system(size: 11))
                 .keyboardShortcut(.cancelAction)
@@ -377,6 +396,11 @@ struct RestructurePairMergeSheet: View {
     /// nobody could place. Two things happen and both matter: a file is written that can be read
     /// in any text editor, and the plan is kept, so the finding's card swaps `Plan…` for `Review
     /// N operations` and still says so after a quit.
+    /// Discard Plan shows on a sheet opened on a saved plan, until a landing has consumed it.
+    static func offersDiscard(hasSavedDraft: Bool, canDiscard: Bool, landed: Bool) -> Bool {
+        hasSavedDraft && canDiscard && !landed
+    }
+
     static let exportHelp =
         "Keeps this plan without running it. The card swaps “Plan…” for “Review N operations” "
         + "and still says so after you quit, and the plan is also written as a dated JSON file "

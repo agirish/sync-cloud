@@ -146,11 +146,18 @@ import Testing
         let draft = RestructureManifest(profileId: a1, manifestId: "draft-1", createdAt: "x",
                                         family: "Finance", kind: .echoName, actions: [])
         store.saveDraft(.init(manifest: draft, savedAt: "2026-10-24T09:00:00"), for: Self.receipts)
+        let exported = try store.exportPlan(draft)
         try Self.land(a1, under: a0, at: 1, in: profiles)
 
         let b0 = try await walk(m, b, at: 2)
         Self.ledger(b0, profiles).suppress(Self.receipts)
+        #expect(!FileManager.default.fileExists(
+            atPath: profiles.appendingPathComponent("\(b0)/\(exported)").path),
+                "a plan exported for one folder's tree followed the walk to another folder")
         let a2 = try await walk(m, a, at: 3)
+        // M2: the plan the sheet named comes back beside the folder's survey with its history.
+        #expect(FileManager.default.fileExists(
+            atPath: profiles.appendingPathComponent("\(a2)/\(exported)").path))
 
         let back = Self.ledger(a2, profiles)
         #expect(back.isSuppressed(Self.forms), "the folder's suppression did not come back")

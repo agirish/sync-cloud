@@ -467,7 +467,8 @@ extension FileSyncManager {
             let history = RestructureRootMap.historyNames
             carryProfileArtifacts(from: previousId, to: newId, in: directory, fm: fm,
                                   names: FilingProfileStore.curatedArtifactNames.filter {
-                                      !history.contains($0) })
+                                      !history.contains($0) },
+                                  carryingExportedPlans: false)
             let file = { (id: String, name: String) in directory.appendingPathComponent("\(id)/\(name)") }
             guard let returning = RestructureRootMap.index(of: newRoot, in: entries),
                   history.contains(where: {
@@ -566,6 +567,9 @@ extension FileSyncManager {
         }
         // A history with only one of the two files gets an empty other.
         RestructureRootMap.startEmptyHistory(in: directory, profileId: newId)
+        // The plans exported in this folder come back with its history, so the folder they sit
+        // in is not kept forever for their sake once the map entry goes.
+        carryProfileArtifacts(from: entry.profileId, to: newId, in: directory, fm: fm, names: [])
         surveyFrom.append(entry.profileId)
         entries.remove(at: index)
         do {

@@ -426,6 +426,37 @@ import Testing
                 "a clashing mapping threw the saved plan away")
     }
 
+    /// **Close silently dropped a clashing edit** to a saved plan, beside Help's promise that
+    /// closing keeps a changed plan. The disposition is right — a clash is not a discard — so the
+    /// footer says so before the click; only the clash on a saved plan gets the sentence.
+    @Test func closingAClashingEditToASavedPlanSaysItKeepsTheOldOne() throws {
+        let seeded = [RestructureMapping.Row(source: "Federal")]
+        let edited = [RestructureMapping.Row(source: "Federal", target: "Forms")]
+        let clash: Result<RestructureManifest, RestructurePlanner.PlanRefusal> =
+            .failure(.conflictingTargets("Forms", "forms"))
+        func drops(_ plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>,
+                   rows: [RestructureMapping.Row] = edited, saved: Bool = true,
+                   exported: Bool = false) -> Bool {
+            RestructurePlanSheet.closeDropsEdit(
+                plan: plan, rows: rows, vocabulary: [],
+                baseline: .init(rows: seeded, vocabulary: [], hasDraft: saved),
+                landedOrExported: exported)
+        }
+        #expect(drops(clash))
+        #expect(!drops(clash, saved: false), "Cancel already says nothing is kept")
+        #expect(!drops(clash, rows: seeded), "nothing changed, nothing dropped")
+        #expect(!drops(.success(Self.keptPlan)), "a change that plans is kept")
+        #expect(!drops(.failure(.nothingMapped)), "all-keep discards, and the title says Close")
+        #expect(!drops(clash, exported: true))
+
+        let sources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer")
+        let sheet = try String(contentsOf: sources.appendingPathComponent("RestructurePlanSheet.swift"),
+                               encoding: .utf8)
+        #expect(sheet.contains("Text(Self.closeDropsEditSentence)"), "the footer draws it")
+    }
+
     /// **"Cancel" read as a discard** over a close that keeps the plan. Done after a landing;
     /// Close whenever a plan is or will be kept; Cancel only when closing leaves no trace.
     @Test func theCloseButtonSaysWhatClosingDoes() {

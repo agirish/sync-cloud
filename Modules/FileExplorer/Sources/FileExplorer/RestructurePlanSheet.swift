@@ -347,6 +347,23 @@ struct RestructurePlanSheet: View {
         }
     }
 
+    /// Whether closing now drops an edit made since the saved plan: a change that clashes derives
+    /// no plan, so the close leaves the saved one as it was (``closeDisposition``) — under a
+    /// button reading Close, beside Help's promise that closing keeps a changed plan. The footer
+    /// says so before the click rather than after it.
+    static func closeDropsEdit(
+        plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>,
+        rows: [RestructureMapping.Row], vocabulary: [String], baseline: Baseline,
+        landedOrExported: Bool) -> Bool {
+        guard baseline.hasDraft, !landedOrExported,
+              rows != baseline.rows || vocabulary != baseline.vocabulary,
+              case .failure(let refusal) = plan else { return false }
+        return refusal != .nothingMapped
+    }
+
+    static let closeDropsEditSentence =
+        "This change can’t be planned yet, so Close keeps the plan saved before."
+
     /// The footer's close button. **Not "Cancel" when closing keeps a plan** — it read as a
     /// discard over a close that saved the mapping. "Done" after a landing; "Close" whenever a
     /// plan is or will be kept (a draft is saved, exported or landed in part, or about to be
@@ -1358,7 +1375,13 @@ struct RestructurePlanSheet: View {
                     .scaledFont(.system(size: 10.5))
                     .foregroundStyle(.secondary)
             case nil:
-                EmptyView()
+                if Self.closeDropsEdit(plan: plan, rows: rows, vocabulary: vocabulary,
+                                       baseline: baseline, landedOrExported: landedOrExported) {
+                    Text(Self.closeDropsEditSentence)
+                        .scaledFont(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
             }
             Spacer()
             // The one way to drop a saved plan without landing it. Destructive, never the

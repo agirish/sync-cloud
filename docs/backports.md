@@ -12489,3 +12489,39 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s logWindow=%s historyWindow=%s
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | Separate Activity Log and Sync History windows; messages gone after 5 s; no capsule | RECORDED — not owed |
+
+---
+
+## Undo This Reorganization leaves a replaced item; exported plans follow the survey (M1, M2, L8, L10) — main only
+
+Four findings of the 2026-10-27 review of v6.0..v6.1. **M1:** the stored inverse checked only that
+something stood at a landed path, so a file saved over a landed one (or a folder made in place of a
+renamed one) was moved back as the original; the landing now records each item's file number, and
+the undo skips and names a different one (size for older records). **M2:** Export Plan wrote into
+the profile folder and a survey update deleted that folder with the file in it; exports are now
+carried with the survey and the retire sweep keeps a folder holding one the active folder lacks.
+**L8:** ⌘Z of Never Suggest saved a swapped-out store whole over a ledger a landing had written
+since. **L10:** a pair merge's saved plan had no Discard Plan; and the plan sheet's Close says when it
+keeps the earlier plan over a clashing edit.
+
+```sh
+S=Modules/Sync/Sources/Sync; F=Modules/FileExplorer/Sources/FileExplorer
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s apply=%s refusing=%s export=%s exportedNames=%s unsuppress=%s pairSheet=%s closeDisposition=%s\n' $l \
+  "$(git ls-tree --name-only origin/$l -- "$S/FileSyncManager+RestructureApply.swift" | wc -l | tr -d ' ')" \
+  "$(git show "origin/$l:$S/FileSyncManager+RestructureApply.swift" 2>/dev/null | grep -cF 'refusingReplacedItems')" \
+  "$(git show "origin/$l:$S/RestructureStore.swift" 2>/dev/null | grep -cF 'func exportPlan')" \
+  "$(git show "origin/$l:$S/FilingProfileStore.swift" 2>/dev/null | grep -cF 'exportedPlanNames')" \
+  "$(git show "origin/$l:$S/FileSyncManager+Restructure.swift" 2>/dev/null | grep -cF 'func unsuppressStructureFinding')" \
+  "$(git ls-tree --name-only origin/$l -- "$F/RestructurePairMergeSheet.swift" | wc -l | tr -d ' ')" \
+  "$(git show "origin/$l:$F/RestructurePlanSheet.swift" 2>/dev/null | grep -cF 'static func closeDisposition')"; done
+# measured 2026-10-27, against origin, before this landed (the change reads refusing>0
+# exportedNames>0):
+# main          apply=1 refusing=0 export=1 exportedNames=0 unsuppress=1 pairSheet=1 closeDisposition=1
+# v5.x          apply=1 refusing=0 export=1 exportedNames=0 unsuppress=0 pairSheet=1 closeDisposition=0
+# v4.x … v2.x   apply=0 refusing=0 export=0 exportedNames=0 unsuppress=0 pairSheet=0 closeDisposition=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | M1 (`apply=1 refusing=0`), and M2's export into the profile folder (`export=1`); its retire sweep has no stranded-file check at all, an older and wider gap. No ⌘Z of Never Suggest (`unsuppress=0`) and no Discard Plan anywhere (`closeDisposition=0`), so L8 and L10 do not apply | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Restructure (`apply=0`) | CLOSED — does not apply |

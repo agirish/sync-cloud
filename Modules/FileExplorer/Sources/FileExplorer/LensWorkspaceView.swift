@@ -4145,6 +4145,8 @@ public struct LensWorkspaceView: View {
                 }
                 return .applied(summary: summary)
             },
+            hasSavedDraft: store.draft(for: key) != nil,
+            onDiscardDraft: { store.removeDraft(for: key) },
             onClose: { planningFinding = nil })
     }
 

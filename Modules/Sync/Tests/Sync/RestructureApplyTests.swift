@@ -1284,6 +1284,120 @@ import Testing
                 "a merged file rode the rename-back into a folder it never lived in")
     }
 
+    /// Undo This Reorganization moves back the file the landing moved — not a newer one saved
+    /// under the same name since (M1). The newcomer here is the SAME size as the original, so
+    /// only the recorded file number can tell them apart; the old probe saw a file at the path
+    /// and sent it into `State Tax/` as though it were the landing's.
+    @Test func anUndoLeavesAFileSavedOverALandedOneWhereItIs() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let outcome = await world.manager.applyPlan(world.manifest)
+        #expect(outcome.refusal == nil)
+        let landed = world.root.appendingPathComponent("Tax/2013/Forms/ca-540.pdf")
+        let original = try String(contentsOf: landed, encoding: .utf8)
+        #expect(original == "ca-540", "the fixture must have merged ca-540.pdf into Forms/")
+        // A newer copy saved over it the way most apps save: a new file at the same name.
+        try FileManager.default.removeItem(at: landed)
+        try Self.write(landed, "ca-541")
+
+        let undo = await world.manager.undoReorganisation(manifestId: world.manifest.manifestId)
+        #expect(undo.refusal == nil, "everything else still goes back")
+        #expect(undo.skipped.contains { $0.contains("ca-540.pdf is not the one the landing put there") },
+                "the newcomer is named — skipped: \(undo.skipped)")
+        #expect(!FileManager.default.fileExists(
+            atPath: world.root.appendingPathComponent("Tax/2013/State Tax/ca-540.pdf").path),
+                "the newer file was moved into the folder the landing emptied")
+        #expect(try String(contentsOf: world.root.appendingPathComponent(
+            "Tax/2013/Federal Tax/ca-540.pdf"), encoding: .utf8) == "ca-541",
+                "it stays with the folder it was saved in, which the rename-back carries")
+        #expect(try String(contentsOf: world.root.appendingPathComponent(
+            "Tax/2013/Federal Tax/w2.pdf"), encoding: .utf8) == "w2")
+    }
+
+    /// The folder half of M1: a renamed folder set aside and replaced by a fresh one of the same
+    /// name is not renamed back — the fresh one is somebody else's.
+    @Test func anUndoLeavesAFolderMadeInPlaceOfARenamedOneWhereItIs() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let outcome = await world.manager.applyPlan(world.manifest)
+        #expect(outcome.refusal == nil)
+        let forms = world.root.appendingPathComponent("Tax/2013/Forms")
+        try FileManager.default.moveItem(at: forms,
+                                         to: world.root.appendingPathComponent("Tax/2013/Set Aside"))
+        try Self.write(forms.appendingPathComponent("new.pdf"), "new")
+
+        let undo = await world.manager.undoReorganisation(manifestId: world.manifest.manifestId)
+        #expect(undo.skipped.contains { $0.contains("Tax/2013/Forms/ is not the one the landing put there") },
+                "skipped: \(undo.skipped)")
+        #expect(FileManager.default.fileExists(atPath: forms.appendingPathComponent("new.pdf").path),
+                "the fresh folder keeps its name")
+        #expect(!FileManager.default.fileExists(
+            atPath: world.root.appendingPathComponent("Tax/2013/Federal Tax/new.pdf").path),
+                "the fresh folder was renamed back as though it were the landing's")
+    }
+
+    /// A ledger written before file numbers were recorded still refuses a replaced file whose
+    /// size differs from the one the landing measured.
+    @Test func anOlderLedgerFallsBackToTheRecordedSize() throws {
+        let root = try makeCanonicalTempRoot(prefix: "RestructureSizeDrift")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Self.write(root.appendingPathComponent("B/f.pdf"), "much longer than before")
+        let back = RestructureManifest.Action(action: .moveFile, src: "B/f.pdf", dst: "A/f.pdf",
+                                              bytes: 3)
+        let refused = FileSyncManager.executeRestructureActions(
+            [back], root: root.path, fm: FileManager.default, vetoUnlistedSourceFolders: false,
+            restoringMissingParents: true, refusingReplacedItems: true)
+        #expect(refused.filesMoved == 0)
+        #expect(refused.skipped.first?.contains("B/f.pdf is not the one") == true)
+        // A forward landing never refuses on this: it is what records the numbers.
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("A"),
+                                                withIntermediateDirectories: true)
+        let forward = FileSyncManager.executeRestructureActions(
+            [back], root: root.path, fm: FileManager.default, vetoUnlistedSourceFolders: false)
+        #expect(forward.filesMoved == 1)
+        #expect(forward.performed.first?.fileNumber != nil, "the landing records the file number")
+    }
+
+    /// ⌘Z of Never Suggest, after the same profile was reopened and a landing recorded into it,
+    /// must not write the store captured at the hide over the file the landing wrote (L8). That
+    /// store is a snapshot from before the landing; saving it whole dropped the landing's record
+    /// from the profile Undo This Reorganization re-points back to.
+    @Test func undoingNeverSuggestAfterALandingKeepsTheLandingInTheOldLedger() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        world.manager.undoManager = undo
+        world.manager.permanentDeleteConfirmer = { _ in true }
+        let finding = StructureFinding(kind: .shape, family: "Tax/Outbound")
+
+        undo.beginUndoGrouping()
+        world.manager.suppressStructureFinding(finding)
+        undo.endUndoGrouping()
+        // A Setup Save beside the hand-built profile: attach reopens the SAME profile's store.
+        world.manager.restructureStore = RestructureStore(directory: world.profiles, profileId: "t")
+
+        undo.beginUndoGrouping()
+        let outcome = await world.manager.applyPlan(world.manifest)
+        undo.endUndoGrouping()
+        #expect(outcome.refusal == nil)
+        let id = world.manifest.manifestId
+        #expect(RestructureStore(directory: world.profiles, profileId: "t").applied
+            .contains { $0.manifest.manifestId == id }, "premise: the landing is in t's ledger")
+
+        undo.undo()     // the landing's moves
+        for _ in 0..<600 where world.manager.activeFileOperationsCount > 0 {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        undo.undo()     // the hide
+        let old = RestructureStore(directory: world.profiles, profileId: "t")
+        #expect(old.applied.contains { $0.manifest.manifestId == id },
+                "the hide's store wrote its pre-landing state over t/restructure.json")
+        #expect(!old.isSuppressed(RestructureKey(finding)))
+        #expect(world.manager.restructureStore?.isSuppressed(RestructureKey(finding)) == false,
+                "the finding comes back in the store the app reads")
+    }
+
     /// The same-name-subfolder merge the planner itself derives must land whole: the subfolder
     /// is never a move src — only its files are — and the first veto called it "unlisted" and
     /// skipped its parent, half-landing every merge of this shape with a false sentence.
@@ -1518,6 +1632,56 @@ import Testing
             as? [String: Any])
         let rows = try #require(object["profiles"] as? [[String: Any]])
         #expect(rows.compactMap { $0["profileId"] as? String }.sorted() == afterSecond)
+    }
+
+    /// A plan written by Export Plan survives "Update the survey" (M2). It sat in the profile's
+    /// folder, the refresh carried only the curated files, and the retire sweep then removed
+    /// the old folder — permanently — with the file the sheet had named in it.
+    @Test func anExportedPlanFollowsTheSurveyThroughARefresh() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        // One refresh first, so the folder the export sits in is a DERIVED one the sweep may
+        // retire — the hand-built fixture is kept on its own rule.
+        #expect(await world.manager.refreshDerivedProfile(
+            now: Date(timeIntervalSince1970: 1_756_500_000)).refusal == nil)
+        let exportedIn = try #require(world.manager.filingProfileDirectoryId)
+        let name = try #require(try world.manager.restructureStore?.exportPlan(world.manifest))
+        let contents = try Data(contentsOf: world.profiles.appendingPathComponent("\(exportedIn)/\(name)"))
+
+        #expect(await world.manager.refreshDerivedProfile(
+            now: Date(timeIntervalSince1970: 1_756_500_100)).refusal == nil)
+        let active = try #require(world.manager.filingProfileDirectoryId)
+        #expect(active != exportedIn)
+        #expect(!Self.profileIds(in: world.profiles).contains(exportedIn),
+                "the folder it was exported into is retired once the plan has moved on")
+        #expect(try Data(contentsOf: world.profiles.appendingPathComponent("\(active)/\(name)"))
+                == contents, "the exported plan is beside the survey the app now reads")
+    }
+
+    /// The sweep's own half of M2: a folder holding an export the active folder lacks — a carry
+    /// that failed — is kept, the way it keeps one holding the only roster.
+    @Test func aFolderHoldingTheOnlyCopyOfAnExportIsNeverRetired() async throws {
+        final class ExportCopyRefusing: FileManager, @unchecked Sendable {
+            override func copyItem(at srcURL: URL, to dstURL: URL) throws {
+                if srcURL.lastPathComponent.hasPrefix("restructure-") {
+                    throw CocoaError(.fileWriteNoPermission)
+                }
+                try super.copyItem(at: srcURL, to: dstURL)
+            }
+        }
+        let world = try await Self.makeWorld(fileManager: { _ in ExportCopyRefusing() })
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        #expect(await world.manager.refreshDerivedProfile(
+            now: Date(timeIntervalSince1970: 1_756_500_000)).refusal == nil)
+        let exportedIn = try #require(world.manager.filingProfileDirectoryId)
+        let name = try #require(try world.manager.restructureStore?.exportPlan(world.manifest))
+
+        #expect(await world.manager.refreshDerivedProfile(
+            now: Date(timeIntervalSince1970: 1_756_500_100)).refusal == nil)
+        #expect(world.manager.filingProfileDirectoryId != exportedIn)
+        #expect(FileManager.default.fileExists(
+            atPath: world.profiles.appendingPathComponent("\(exportedIn)/\(name)").path),
+                "the only copy of the exported plan was deleted with its folder")
     }
 
     /// **A landing that can still be undone pins the profile it was applied under.** Undo

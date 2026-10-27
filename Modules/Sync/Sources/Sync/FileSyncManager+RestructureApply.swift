@@ -458,8 +458,8 @@ extension FileSyncManager {
         // The folder the write below would make — made first, or every copy has nowhere to land.
         try? fm.createDirectory(at: profilesDirectory.appendingPathComponent(newId),
                                 withIntermediateDirectories: true, attributes: nil)
-        FileSyncManager.carryProfileArtifacts(from: oldDirectoryId, to: newId,
-                                              in: profilesDirectory, fm: fm)
+        let carriedExports = FileSyncManager.carryProfileArtifacts(from: oldDirectoryId, to: newId,
+                                                                   in: profilesDirectory, fm: fm)
         let newStore = RestructureStore(directory: profilesDirectory, profileId: newId)
         // Which store this one carries on from, and through which renames — so an undo
         // registered against the old one can find its key here (`unsuppressStructureFinding`).
@@ -498,6 +498,9 @@ extension FileSyncManager {
                                                        in: profilesDirectory, now: now)
         } catch {
             for name in FilingProfileStore.curatedArtifactNames where !alreadyThere.contains(name) {
+                try? fm.removeItem(at: profilesDirectory.appendingPathComponent("\(newId)/\(name)"))
+            }
+            for name in carriedExports {
                 try? fm.removeItem(at: profilesDirectory.appendingPathComponent("\(newId)/\(name)"))
             }
             let folder = profilesDirectory.appendingPathComponent(newId)
@@ -807,7 +810,8 @@ extension FileSyncManager {
         let execution: RestructureExecution = await enqueueFileOperation {
             FileSyncManager.executeRestructureActions(actions, root: expandedRoot, fm: fm,
                                                       vetoUnlistedSourceFolders: false,
-                                                      restoringMissingParents: true)
+                                                      restoringMissingParents: true,
+                                                      refusingReplacedItems: true)
         }
         outcome.renamed = execution.renamed
         outcome.filesMoved = execution.filesMoved
@@ -1164,6 +1168,7 @@ extension FileSyncManager {
         _ actions: [RestructureManifest.Action], root: String, fm: FileManaging,
         vetoUnlistedSourceFolders: Bool = true,
         restoringMissingParents: Bool = false,
+        refusingReplacedItems: Bool = false,
         journal: RestructureLandingJournal? = nil,
         onProgress: (@Sendable (Int) -> Void)? = nil)
         -> RestructureExecution {
@@ -1281,6 +1286,31 @@ extension FileSyncManager {
         // before the rename-back was the other choice, and it is the worse one: it leaves a half
         // undone tree with no record that can finish it. Only the inverse does this — a forward
         // plan names the folders it creates, and a missing destination there is drift.
+        // **An undo moves back the item the landing moved, not whatever now has its name (M1).**
+        // A landing that put `W2.pdf` in `Forms/`, followed by a newer `W2.pdf` saved over it,
+        // used to send the newer one back into the old folder and count it "moved" — the only
+        // probe was that SOMETHING stood at the path. The landing recorded the item's file
+        // number (a move keeps it) and a file's size; a different number is a different item,
+        // left where it stands and named. A record from before the number existed falls back
+        // to the size. The same number with a new size is the same file edited in place, and
+        // it still goes back.
+        func replacedSinceLanding(_ action: RestructureManifest.Action, at path: String) -> Bool {
+            guard refusingReplacedItems,
+                  let attributes = try? fm.attributesOfItem(atPath: path) else { return false }
+            if let recorded = action.fileNumber,
+               let now = FileSyncManager.restructureFileNumber(in: attributes) {
+                return now != recorded
+            }
+            if action.action == .moveFile, let recorded = action.bytes,
+               let now = attributes[.size] as? Int {
+                return now != recorded
+            }
+            return false
+        }
+        func replacedSentence(_ item: String) -> String {
+            "\(item) is not the one the landing put there — it was replaced since, so it was "
+                + "left where it stands"
+        }
         func restoreParent(of relative: String) {
             guard restoringMissingParents else { return }
             let parent = (absolute(relative) as NSString).deletingLastPathComponent
@@ -1347,6 +1377,10 @@ extension FileSyncManager {
                     out.skipped.append("\(src)/ is no longer there — its rename was skipped")
                     continue
                 }
+                guard !replacedSinceLanding(action, at: srcPath) else {
+                    out.skipped.append(replacedSentence("\(src)/"))
+                    continue
+                }
                 // A taken destination turns a rename into a merge nobody reviewed — skipped,
                 // unless this is the case-only rename `safeMoveItem` owns the two-step for.
                 // The exemption holds only on a case-insensitive volume, where the existence
@@ -1361,6 +1395,9 @@ extension FileSyncManager {
                     refusedRenameDestinations.insert(dst)
                     continue
                 }
+                var performed = action
+                performed.fileNumber = (try? fm.attributesOfItem(atPath: srcPath))
+                    .flatMap(FileSyncManager.restructureFileNumber(in:))
                 do {
                     try FileSyncManager.safeMoveItem(at: URL(fileURLWithPath: srcPath),
                                                     to: URL(fileURLWithPath: dstPath),
@@ -1368,7 +1405,7 @@ extension FileSyncManager {
                     out.renamed += 1
                     out.renameItems.append((from: URL(fileURLWithPath: srcPath),
                                             to: URL(fileURLWithPath: dstPath)))
-                    out.performed.append(action)
+                    out.performed.append(performed)
                 } catch {
                     out.skipped.append("\(src)/ could not be renamed: \(error.localizedDescription)")
                 }
@@ -1394,6 +1431,10 @@ extension FileSyncManager {
                 let srcPath = absolute(src)
                 guard fm.fileExists(atPath: srcPath) else {
                     out.skipped.append("\(src) was deleted between plan and apply — skipped")
+                    continue
+                }
+                guard !replacedSinceLanding(action, at: srcPath) else {
+                    out.skipped.append(replacedSentence(src))
                     continue
                 }
                 restoreParent(of: dst)
@@ -1426,6 +1467,7 @@ extension FileSyncManager {
                     // that survives, and it costs the `attributesOfItem` call already being made.
                     let attributes = try? fm.attributesOfItem(atPath: srcPath)
                     performed.bytes = attributes?[.size] as? Int
+                    performed.fileNumber = attributes.flatMap(FileSyncManager.restructureFileNumber(in:))
                     try FileSyncManager.safeMoveItem(at: URL(fileURLWithPath: srcPath),
                                                     to: destination, fileManager: fm)
                     out.filesMoved += 1
@@ -1470,12 +1512,19 @@ extension FileSyncManager {
                     out.skipped.append("\(src)/ is no longer there — skipped")
                     continue
                 }
+                guard !replacedSinceLanding(action, at: srcPath) else {
+                    out.skipped.append(replacedSentence("\(src)/"))
+                    continue
+                }
                 guard !fm.fileExists(atPath: dstPath) else {
                     out.skipped.append("\(dst)/ appeared since the plan — \(src)/ was kept "
                         + "rather than merged unreviewed")
                     continue
                 }
                 restoreParent(of: dst)
+                var performed = action
+                performed.fileNumber = (try? fm.attributesOfItem(atPath: srcPath))
+                    .flatMap(FileSyncManager.restructureFileNumber(in:))
                 do {
                     try FileSyncManager.safeMoveItem(at: URL(fileURLWithPath: srcPath),
                                                     to: URL(fileURLWithPath: dstPath),
@@ -1483,7 +1532,7 @@ extension FileSyncManager {
                     out.foldersMovedWhole += 1
                     out.moveItems.append((from: URL(fileURLWithPath: srcPath),
                                           to: URL(fileURLWithPath: dstPath), overwritten: nil))
-                    out.performed.append(action)
+                    out.performed.append(performed)
                 } catch {
                     out.skipped.append("\(src)/ could not be moved: \(error.localizedDescription)")
                 }
@@ -1519,6 +1568,17 @@ extension FileSyncManager {
         // The last window may not have elapsed — the final count is the one that matters.
         report(force: true)
         return out
+    }
+
+    /// A `.systemFileNumber` as the ledger stores it. Test doubles hand back a bare integer
+    /// where a real file manager hands back an `NSNumber`.
+    nonisolated static func restructureFileNumber(in attributes: [FileAttributeKey: Any]) -> Int? {
+        switch attributes[.systemFileNumber] {
+        case let number as NSNumber: return number.intValue
+        case let number as UInt64: return Int(truncatingIfNeeded: number)
+        case let number as Int: return number
+        default: return nil
+        }
     }
 
     /// The verifier's disagreement in one line, for the Applied card. The log keeps every
@@ -1579,21 +1639,36 @@ extension FileSyncManager {
     /// Copies the per-profile artifacts the app reads into the new directory — the roster, the
     /// person verdicts, and everything Restructure remembers. Copied, never moved: the old
     /// directory is what Undo re-points to, and it keeps its own set.
+    ///
+    /// The plans Export Plan wrote come too, unless `carryingExportedPlans` is false (a walk of a
+    /// different folder, whose plans are about another tree): the sheet named the file "beside
+    /// your survey", and the survey is about to be this folder.
+    ///
+    /// - Returns: the exported plans it copied, for a caller that must take them back out.
+    @discardableResult
     nonisolated static func carryProfileArtifacts(
         from oldId: String, to newId: String, in directory: URL, fm: FileManaging,
-        names: [String] = FilingProfileStore.curatedArtifactNames) {
-        for name in names {
+        names: [String] = FilingProfileStore.curatedArtifactNames,
+        carryingExportedPlans: Bool = true) -> [String] {
+        let exported = carryingExportedPlans
+            ? FilingProfileStore.exportedPlanNames(inProfile: oldId, in: directory,
+                                                   fileManager: fm) ?? []
+            : []
+        var carriedExports: [String] = []
+        for name in names + exported {
             let source = directory.appendingPathComponent("\(oldId)/\(name)")
             let target = directory.appendingPathComponent("\(newId)/\(name)")
             guard fm.fileExists(atPath: source.path),
                   !fm.fileExists(atPath: target.path) else { continue }
             do {
                 try fm.copyItem(at: source, to: target)
+                if exported.contains(name) { carriedExports.append(name) }
             } catch {
                 Logger.shared.warning("Restructure: could not carry \(name) to \(newId): "
                     + error.localizedDescription)
             }
         }
+        return carriedExports
     }
 
     /// **A stopped document survey keeps its resume point across a re-derive (FR6).**

@@ -198,7 +198,8 @@ import Foundation
         #expect(manager.visibleStructureFindings.contains { $0.id == finding.id },
                 "undo cleared the old store and left the finding hidden in the new one")
         #expect(!swapped.isSuppressed(RestructureKey(finding)))
-        #expect(!original.isSuppressed(RestructureKey(finding)))
+        // From disk: the swapped-out object is not what the undo writes through (L8).
+        #expect(!RestructureStore(directory: dir, profileId: "t").isSuppressed(RestructureKey(finding)))
     }
 
     /// **⌘Z after a provider switch un-hid another profile's finding.** It cleared the key in
@@ -228,7 +229,8 @@ import Foundation
         undo.undo()
         #expect(other.isSuppressed(RestructureKey(finding)),
                 "undo un-hid a finding another profile had hidden on its own")
-        #expect(!original.isSuppressed(RestructureKey(finding)),
+        #expect(!RestructureStore(directory: dir, profileId: original.profileId)
+                    .isSuppressed(RestructureKey(finding)),
                 "undo did not clear the key in the store it was hidden in")
     }
 
@@ -266,7 +268,7 @@ import Foundation
         undo.undo()
         #expect(landed.suppressed.isEmpty,
                 "undo cleared the old spelling and left the re-keyed entry hidden")
-        #expect(!original.isSuppressed(key))
+        #expect(!RestructureStore(directory: dir, profileId: "t").isSuppressed(key))
     }
 
     /// A store reopened on the same file — the same profile loaded again — is the one the undo
