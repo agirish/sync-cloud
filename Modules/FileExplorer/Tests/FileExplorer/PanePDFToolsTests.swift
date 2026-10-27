@@ -568,6 +568,30 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(files() == ["A.pdf", "B.pdf"], "a copy cancelled while it was written stayed: \(files())")
     }
 
+    /// **A batch's sheet asks its question, then goes; the run is in the capsule** (Run Room CH): it
+    /// was a window-modal sheet for the whole batch. While the run goes it is a capsule entry in the
+    /// one-file run's slot — its title, the file in hand, and a Stop that stops it.
+    @Test func aBatchLeavesItsSheetForTheCapsule() async throws {
+        let paths = ["A.pdf", "B.pdf", "C.pdf"].map(path)
+        for file in paths { PDFFixtures.write(file, pages: 2) }
+        let batch = batch(.rotate(quarterTurns: 1), paths)
+        batch.showsSheet = true
+        #expect(RunCapsuleEntry.batch(batch) == nil, "a batch still asking its question is in the capsule")
+        var seen: (title: String, detail: String?, kind: RunCapsuleEntry.Kind)?
+        batch.fileStarted = { [weak batch] index in
+            guard index == 1, let batch, let entry = RunCapsuleEntry.batch(batch) else { return }
+            #expect(!batch.showsSheet, "the sheet stayed up through the run")
+            let run = entry.snapshot()
+            seen = (run.title, run.detail, entry.kind)
+            entry.cancel?()
+        }
+        await batch.run(.rotate(quarterTurns: 1))
+        #expect(seen?.title == "Rotating 3 PDFs")
+        #expect(seen?.detail == "B.pdf")
+        #expect(seen?.kind == .pdfTool, "the batch is not in the one-file run's slot")
+        #expect(batch.files[2].status == .skipped(.cancelled), "the capsule's Stop did not stop the batch")
+    }
+
     /// **A file moved away after it was chosen is said to be gone, by name** — not "PDFKit
     /// couldn't read it", in a banner whose sheet, listing the files, has already closed.
     @Test func aFileGoneMidBatchIsSaidToBeGoneByName() async throws {

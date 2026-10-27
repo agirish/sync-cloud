@@ -140,6 +140,8 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
     @Published public private(set) var progress: Progress?
     @Published public private(set) var isRunning = false
     @Published public var showsSheet = false
+    /// When the run began — what orders it among the window's other runs in the capsule.
+    public private(set) var startedAt: Date?
     @Published public var banner: EditorPDFToolBanner?
 
     /// Who the log lines say ran it — the workspace the menu was in.
@@ -196,6 +198,10 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         if let warning = await formWarning(for: tool, cancelled: flag), !flag.isCancelled {
             guard confirm(warning) else { return .declined }
         }
+        // **The sheet has asked its question, so it goes** (Run Room CH): the run goes on in the
+        // toolbar's capsule with its Stop, beside any other run, and the window stays usable.
+        startedAt = Date()
+        showsSheet = false
 
         for index in files.indices {
             if flag.isCancelled {

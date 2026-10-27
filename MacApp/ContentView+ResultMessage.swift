@@ -9,6 +9,9 @@ enum ResultMessageHome: Equatable {
     case pane(isLeft: Bool)
     /// The lens or the editor beside a source pane — the half of the window that has no file list.
     case workspace
+    /// The toolbar's capsule — a long run's ending, when the reader has moved on from where it was
+    /// started (Run Room CG, CP).
+    case toolbar
 }
 
 /// **Where a result message goes**: where the reader was working when it arrived.
@@ -21,11 +24,20 @@ enum ResultMessageHome: Equatable {
 ///   and otherwise to the lens or the editor — where To File's moves, Duplicates' merges and the
 ///   editor's saves happen. A collapsed pane is no place for it.
 ///
-/// **Messages with no pane of their own** — a background run finishing, a scan, a sync from the
-/// Differences list — follow the same rule: they show where the reader is working now. Decision BY
-/// sends background work to the toolbar capsule once it exists; that session should take those
-/// messages from here (see the side-session notes, 2026-10-25).
+/// **A long run's ending goes where it was started, if that is still on screen; otherwise to the
+/// capsule** (Run Room CG, CP). Nothing in the app runs unattended (R3), so "background" is a copy,
+/// a merge, a PDF tool or Save as PDF that ends after the reader moved to another workspace — a
+/// merge clicked in Organize finishing four minutes later in Browse. That ending would land in a
+/// pane the reader is not looking at, or in Browse's, about something Browse never did. Recent keeps
+/// it either way.
 enum ResultMessageRoute {
+    /// Whether a run's ending goes to the capsule: it was started in another workspace than the one
+    /// on screen. `nil` — no run ended just now — is the result of a click, which stays.
+    static func endsInCapsule(startedIn origin: Workspace?, showing current: Workspace) -> Bool {
+        guard let origin else { return false }
+        return origin != current
+    }
+
     static func home(layout: ContentView.ContentLayout, focusedPaneIsLeft: Bool,
                      lastWorkedInPane: Bool) -> ResultMessageHome {
         switch layout {
@@ -40,8 +52,43 @@ enum ResultMessageRoute {
 extension ContentView {
 
     var resultMessageHome: ResultMessageHome {
-        ResultMessageRoute.home(layout: contentLayout, focusedPaneIsLeft: focusedPane != .right,
-                                lastWorkedInPane: resultMessageInPane)
+        if let id = capsuleMessageID, syncManager.banner?.id == id { return .toolbar }
+        return ResultMessageRoute.home(layout: contentLayout, focusedPaneIsLeft: focusedPane != .right,
+                                       lastWorkedInPane: resultMessageInPane)
+    }
+
+    /// Where the run whose ending `banner` is was started — a pane PDF tool's or Save as PDF's
+    /// own, or the long file operation that ended a moment ago. `nil` for a click's result.
+    func runOrigin(ending banner: OperationBanner) -> Workspace? {
+        if let pending = pendingResultOrigin { return pending }
+        guard let ended = syncManager.lastFinishedRun?.ended, Date().timeIntervalSince(ended) < 2 else { return nil }
+        return fileOperationOrigin
+    }
+
+    /// The message as the capsule draws it (CG, TE233) — nil unless the message is the capsule's.
+    var capsuleMessage: ProgressCapsuleMessage? {
+        guard resultMessageHome == .toolbar, let banner = syncManager.banner else { return nil }
+        var actions: [ProgressCapsuleMessage.Action] = []
+        if banner.isUndoable, undoManager?.canUndo ?? false {
+            actions.append(.init(title: "Undo", help: runWriteLockReason ?? ShortcutHint.tooltip("Undo this operation", "⌘Z"),
+                                 isEnabled: runWriteLockReason == nil) {
+                guard !refusedWhileRunLocked() else { return }
+                undoManager?.undo()
+                syncManager.banner = nil
+            })
+        }
+        for followUp in banner.followUps {
+            actions.append(.init(title: followUp.title, help: followUp.help) { performFollowUp(followUp) })
+        }
+        let weight: ProgressCapsuleMessage.Weight
+        switch banner.severity {
+        case .success: weight = .success
+        case .warning: weight = .warning
+        case .error: weight = .failure
+        }
+        return ProgressCapsuleMessage(text: banner.message, weight: weight, actions: actions,
+                                      onClose: { syncManager.banner = nil },
+                                      onHover: { bannerDismissScheduler.hoverChanged(isHovering: $0) })
     }
 
     /// The message this pane shows, or nil when it is shown elsewhere — or there is none.
@@ -187,6 +234,7 @@ extension ContentView {
     /// A pane-launched PDF tool's or Save as PDF's ending, shown as the result message (TE207).
     func postPaneToolResult(_ result: PaneToolResult) {
         paneToolResultDoors = result
+        pendingResultOrigin = result.source == .saveAsPDF ? saveAsPDFOrigin : paneToolOrigin
         syncManager.banner = result.banner
     }
 
@@ -196,12 +244,19 @@ extension ContentView {
         lensSession.retireRuleOffer(unlessRiding: banner?.id)
         if paneToolResultDoors?.banner.id != banner?.id { paneToolResultDoors = nil }
         guard let banner else { return }
+        // Where its run was started decides whether it is the capsule's (CG, CP).
+        let toCapsule = ResultMessageRoute.endsInCapsule(startedIn: runOrigin(ending: banner),
+                                                         showing: selectedWorkspace)
+        pendingResultOrigin = nil
+        capsuleMessageID = toCapsule ? banner.id : nil
         OperationBannerView.announce(banner, offersUndo: banner.isUndoable && (undoManager?.canUndo ?? false)
                                      && runWriteLockReason == nil)
-        // Copied into Activity's Recent as it is published (Run Room R9), not spoken again (R19).
+        // Copied into Activity's Recent as it is published (Run Room R9), not spoken again (R19). A
+        // problem the capsule showed for five seconds while the reader worked elsewhere leaves the
+        // Activity button's dot (CS).
         ActivityCenter.shared.record(banner, run: syncManager.lastRecordedRun,
                                      finishedRun: syncManager.lastFinishedRun.map { ($0.started, $0.ended) },
-                                     seen: NSApp.isActive)
+                                     seen: NSApp.isActive && !toCapsule)
     }
 
     /// Where a Recent row's buttons go: this window's own doors (R12).

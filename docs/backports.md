@@ -12590,3 +12590,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s runLock=%s mergeProgress=%s m
 |---|---|---|
 | `v5.x` / `v4.x` | The merge's progress dialog closes when its trash ends while it still awaits its identity walk — display only, no run lock or ⌘Z gate there (`runLock=0`); no location-less count (`reachedTrash=0`). A copy awaits its identity walk with its progress up and cancellable, as `main` did | RECORDED — not owed |
 | `v3.x` / `v2.x` | No tail after the merge's trash (`mergeAwaitsWalk=0`); none of the rest | CLOSED — does not apply |
+
+---
+
+## Run endings in the capsule; batch PDF runs in the capsule (CG, CH, CU, TE230) — main only
+
+Run Room, 2026-10-27. A long run's ending shows where it was started, or — when the reader has
+moved to another workspace — in the toolbar capsule for five seconds, over any run still going
+(its count stays). A pane's PDF batch asks its question in a sheet that then closes; the run is in
+the capsule with Stop, where it was a window-modal sheet for the whole batch. The older lines have
+no capsule: a batch locks the window behind its sheet there.
+
+```sh
+S=Modules/FileExplorer/Sources/FileExplorer
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s batchSheet=%s\n' $l \
+  "$(git show origin/$l:$S/PanePDFTools.swift 2>/dev/null | grep -cF '// Rotate asks nothing: the sheet opens on its progress.')"; done
+# measured 2026-10-27, against origin, before this landed (the change reads 0 on main):
+# main          batchSheet=1
+# v5.x … v2.x   batchSheet=0 (no pane PDF tools)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No capsule and no pane PDF tools | CLOSED — does not apply |

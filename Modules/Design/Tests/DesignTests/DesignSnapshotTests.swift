@@ -159,6 +159,24 @@ import Testing
             named: style == .full ? "two-runs-full" : "two-runs-ring")
     }
 
+    /// A run's ending over a run still going (CU, TE233): ✓ in the ring, the message and its button,
+    /// and the count still saying one run goes on; in the ring rung, the glyph and the count.
+    @Test(arguments: [ProgressCapsuleStyle.full, .ring])
+    func progressCapsuleMessageOverARun(style: ProgressCapsuleStyle) {
+        let progress = Progress(totalUnitCount: 7363)
+        progress.completedUnitCount = 3336
+        progress.localizedDescription = "Merging “Photos”"
+        let message = ProgressCapsuleMessage(text: "Saved 4 compressed copies", weight: .success,
+                                             actions: [.init(title: "Reveal in Browse", help: "", perform: {})],
+                                             onClose: {})
+        assertViewSnapshot(
+            of: ProgressCapsule(run: ProgressCapsuleRun(progress: progress), style: style, onCancel: {},
+                                onShowRuns: {}, message: message)
+                .padding(12),
+            size: CGSize(width: style == .full ? 410 : 90, height: 52),
+            named: style == .full ? "message-over-run-full" : "message-over-run-ring")
+    }
+
     /// The list the count opens: each run with its own progress and Stop, the newest's the default
     /// button (TE219). Start times left out — "started … ago" reads the clock.
     @Test func progressCapsuleRunList() {

@@ -487,6 +487,27 @@ and key refusals are tested; this is what is not.
   other → one announcement, "2 new in Activity: …". A failure interrupts what VoiceOver was reading;
   a success waits. Focus the capsule with two runs → "Activity, 2 running. Merging Photos, …".
 
+## Run endings in the capsule; batch PDF runs leave their sheet (Run Room CG, CH, CU, TE230, 2026-10-27)
+
+- [ ] **Ending elsewhere.** Start a duplicate merge in Organize, switch to Browse before it ends → its
+  "Merged …" message shows in the capsule (✓, the words, Undo) for five seconds, not in Browse's
+  pane; then the capsule goes. It is in Activity's Recent. Let it end with a skipped file instead →
+  ⚠ in the capsule, and afterwards the red dot on the Activity button.
+- [ ] **Ending where it started.** The same merge, staying in Organize → the message is Organize's,
+  as before; nothing in the capsule.
+- [ ] **A message over a run.** Start a Compress of several PDFs from Browse, then a merge in
+  Organize; go to Browse when the Compress ends → the capsule says "Saved N compressed copies ·
+  Reveal in Browse" with "1 ⌄"; after 5 s the merge's progress is back.
+- [ ] **No jump.** At a width where the workspace bar shows its labels, with nothing running, let a
+  run's ending reach the capsule → the labels and ⌘K's "Go to…" stay as they are; at the narrowest
+  window it shows as the ring's ✓, its words in the tooltip.
+- [ ] **Batch sheet goes.** Select three PDFs in a pane, PDF Tools ▸ Compress → the sheet asks for the
+  strength; Save → the sheet closes and the capsule shows "Compressing 3 PDFs · 1 of 3"; browsing and
+  Quick Look work meanwhile; its Stop stops after the file in hand. Rotate All Pages on several opens
+  no sheet at all.
+- [ ] **Waiting.** Open a large PDF in Edit and start Find, then Compress one PDF from a pane → its row
+  in Activity shows a clock and "Compressing — waiting for other PDF work…".
+
 ## Undo waits for a long run (Banner Room CF, 2026-10-26)
 
 - [ ] **⌘Z waits.** Delete a file (its message offers Undo), then start a duplicate merge before the

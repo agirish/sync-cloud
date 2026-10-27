@@ -71,8 +71,8 @@ public final class PanePDFTools: ObservableObject {
         // over it, and a second request replaced `current` — taking the sheet, and the password
         // half-typed into it, down with it.
         case .single(let tools): return tools.running != nil || tools.sheet != nil
-        // A batch's sheet is up from the request to the end of its run — Rotate's included, which
-        // opens on its progress before its run has started.
+        // A batch's sheet is up from the request until its run starts; the run itself is in the
+        // capsule (CH).
         case .batch(let batch): return batch.isRunning || batch.showsSheet
         case nil: return false
         }
@@ -209,10 +209,17 @@ public final class PanePDFTools: ObservableObject {
         batch.host = host
         batch.isCloudOnly = isCloudOnly
         current = .batch(batch)
-        batch.showsSheet = true
-        // Rotate asks nothing: the sheet opens on its progress.
+        // Rotate asks nothing, so it opens no sheet: its run goes straight to the capsule (CH).
+        // Busy from now, not from its first turn — with no sheet up to say so, a second request in
+        // between would replace it.
         if case .rotate(let turns) = kind {
-            work = Task { @MainActor in await batch.run(.rotate(quarterTurns: turns)) }
+            preparing = true
+            work = Task { @MainActor in
+                preparing = false
+                await batch.run(.rotate(quarterTurns: turns))
+            }
+        } else {
+            batch.showsSheet = true
         }
     }
 }
@@ -315,8 +322,9 @@ struct PanePDFBatchLayer: View {
     let onResult: (PaneToolResult) -> Void
 
     var body: some View {
-        // A stack rather than a `Group`, for the sheet's sake — see ``PanePDFSingleLayer``. The run
-        // shows in its sheet; its ending is the pane's result message.
+        // A stack rather than a `Group`, for the sheet's sake — see ``PanePDFSingleLayer``. The sheet
+        // asks its question and closes; the run shows in the toolbar's capsule (CH), and its ending
+        // is the pane's result message.
         VStack(spacing: 0) {}
         .onChange(of: batch.banner, initial: true) { _, banner in
             guard let banner else { return }

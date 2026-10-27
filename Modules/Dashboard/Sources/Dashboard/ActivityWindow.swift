@@ -65,7 +65,9 @@ public struct ActivityWindow<History: View>: View {
                 LogViewer(span: $center.logSpan, showsTitle: false)
             }
         }
-        .frame(minWidth: 420, minHeight: 360)
+        // From the top: Now is only as tall as its rows, and a window taller than them centred the
+        // whole stack — tabs included — in it (seen on screen 2026-10-27).
+        .frame(minWidth: 420, maxWidth: .infinity, minHeight: 360, maxHeight: .infinity, alignment: .top)
         // Opening Activity is seeing it: the toolbar's dot goes (CS).
         .onAppear { center.markSeen() }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in

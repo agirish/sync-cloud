@@ -61,6 +61,47 @@ public struct ProgressCapsuleRun: Equatable, Sendable {
     }
 }
 
+/// **A message in the capsule** (Run Room CG, TE233): the ending of a run that finished after the
+/// reader moved on, which the window shows here rather than in a pane they are not looking at.
+public struct ProgressCapsuleMessage {
+    public enum Weight: Equatable, Sendable {
+        case success, warning, failure
+    }
+
+    /// A button beside the words: Undo, Reveal in Browse, Open in Edit.
+    public struct Action: Identifiable {
+        public let id: String
+        public var title: String
+        public var help: String
+        public var isEnabled: Bool
+        public var perform: () -> Void
+
+        public init(title: String, help: String, isEnabled: Bool = true, perform: @escaping () -> Void) {
+            id = title
+            self.title = title
+            self.help = help
+            self.isEnabled = isEnabled
+            self.perform = perform
+        }
+    }
+
+    public var text: String
+    public var weight: Weight
+    public var actions: [Action]
+    public var onClose: () -> Void
+    /// The pointer over the capsule holds the message, as over a pane's.
+    public var onHover: (Bool) -> Void
+
+    public init(text: String, weight: Weight, actions: [Action] = [], onClose: @escaping () -> Void,
+                onHover: @escaping (Bool) -> Void = { _ in }) {
+        self.text = text
+        self.weight = weight
+        self.actions = actions
+        self.onClose = onClose
+        self.onHover = onHover
+    }
+}
+
 /// How much of the toolbar the capsule has — decided by the toolbar's width ladder, never by the
 /// capsule (`WorkspaceBarMetrics`).
 public enum ProgressCapsuleStyle: Equatable, Sendable {
@@ -103,6 +144,9 @@ public struct ProgressCapsule: View {
     let onShowRuns: (() -> Void)?
     /// A click anywhere else on the capsule: opens Activity (TE220).
     let onOpen: (() -> Void)?
+    /// A message taking the capsule for its five seconds, over any run (decision CU): its words in
+    /// the run's place, ✓ or ✕ in the ring, and the count still saying how many runs go on.
+    let message: ProgressCapsuleMessage?
 
     @State private var hovering = false
     /// The window's hue for the ring's arc — a line, so the raw accent, not the system's `.tint`.
@@ -110,13 +154,15 @@ public struct ProgressCapsule: View {
 
     public init(run: ProgressCapsuleRun, style: ProgressCapsuleStyle,
                 othersRunning: [String] = [], onCancel: (() -> Void)?,
-                onShowRuns: (() -> Void)? = nil, onOpen: (() -> Void)? = nil) {
+                onShowRuns: (() -> Void)? = nil, onOpen: (() -> Void)? = nil,
+                message: ProgressCapsuleMessage? = nil) {
         self.run = run
         self.style = style
         self.othersRunning = othersRunning
         self.onCancel = onCancel
         self.onShowRuns = onShowRuns
         self.onOpen = onOpen
+        self.message = message
     }
 
     /// What the trailing button does: stop the one run, or open the list of several. Never both,
@@ -128,6 +174,10 @@ public struct ProgressCapsule: View {
     }
 
     var trailing: Trailing {
+        // Over a message the runs go on behind it: a count — even of one — says so, and opens them.
+        if message != nil {
+            return run.isIdle || onShowRuns == nil ? .none : .count(othersRunning.count + 1)
+        }
         if !othersRunning.isEmpty, onShowRuns != nil { return .count(othersRunning.count + 1) }
         return onCancel == nil ? .none : .stop
     }
@@ -135,7 +185,21 @@ public struct ProgressCapsule: View {
     public var body: some View {
         HStack(spacing: 8) {
             ring
-            if style == .full {
+            if let message, style == .full {
+                Text(message.text)
+                    .scaledFont(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                ForEach(message.actions.prefix(2)) { action in
+                    Button(action.title, action: action.perform)
+                        .buttonStyle(.hoverAffordance(.inline))
+                        .scaledFont(.system(size: 11, weight: .semibold))
+                        .disabled(!action.isEnabled)
+                        .help(action.help)
+                        .fixedSize()
+                }
+            } else if style == .full {
                 // The file in hand while the pointer is over it; the run's own words otherwise.
                 Text(run.note ?? (hovering ? (run.detail ?? run.title) : run.title))
                     .scaledFont(.system(size: 12, weight: .medium))
@@ -166,6 +230,15 @@ public struct ProgressCapsule: View {
                 .keyboardShortcut(AppChord.cancelOperation.key, modifiers: AppChord.cancelOperation.modifiers)
                 .help(ShortcutHint.tooltip(trailingHelp, AppChord.cancelOperation.display))
                 .accessibilityLabel(trailingAccessibilityLabel)
+            } else if let message, style == .full {
+                // No key: ⌘. stops runs, and there is none here.
+                Button(action: message.onClose) {
+                    Image(systemName: "xmark.circle.fill")
+                        .hoverInk()
+                }
+                .buttonStyle(.hoverAffordance(.inline))
+                .help("Close the message — it stays in Activity")
+                .accessibilityLabel("Close message")
             }
         }
         .padding(.leading, 8)
@@ -176,7 +249,10 @@ public struct ProgressCapsule: View {
         .contentShape(Capsule())
         // The stop and the count are buttons of their own and keep their clicks.
         .onTapGesture { onOpen?() }
-        .onHover { hovering = $0 }
+        .onHover { inside in
+            hovering = inside
+            message?.onHover(inside)
+        }
         .help(tooltip)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityText)
@@ -186,12 +262,14 @@ public struct ProgressCapsule: View {
     /// Every run, newest first, one to a line — and the count ahead of them for VoiceOver, which
     /// hears the capsule as one element (TE226).
     private var tooltip: String {
-        ([run.summary] + othersRunning).joined(separator: "\n")
+        let runs = run.isIdle && message != nil ? [] : [run.summary] + othersRunning
+        return ([message?.text].compactMap { $0 } + runs).joined(separator: "\n")
     }
 
     private var accessibilityText: String {
+        let said = message.map { [$0.text] } ?? []
         guard case .count(let count) = trailing else { return tooltip }
-        return "Activity, \(count) running. " + ([run.summary] + othersRunning).joined(separator: ". ")
+        return (said + ["Activity, \(count) running"] + [run.summary] + othersRunning).joined(separator: ". ")
     }
 
     private func trailingAction() {
@@ -247,7 +325,13 @@ public struct ProgressCapsule: View {
 
     /// Determinate while the run can count, a spinner while it cannot.
     @ViewBuilder private var ring: some View {
-        if run.isIdle {
+        if let message {
+            Image(systemName: Self.symbol(message.weight))
+                .font(.system(size: 14))
+                .foregroundStyle(Self.tint(message.weight))
+                .frame(width: ProgressCapsuleMetrics.ringSide, height: ProgressCapsuleMetrics.ringSide)
+                .accessibilityHidden(true)
+        } else if run.isIdle {
             Circle().stroke(.quaternary, lineWidth: 2.5)
                 .frame(width: ProgressCapsuleMetrics.ringSide, height: ProgressCapsuleMetrics.ringSide)
                 .accessibilityHidden(true)
@@ -264,6 +348,22 @@ public struct ProgressCapsule: View {
             .accessibilityHidden(true)
         } else {
             InlineSpinner()
+        }
+    }
+
+    static func symbol(_ weight: ProgressCapsuleMessage.Weight) -> String {
+        switch weight {
+        case .success: return "checkmark.circle.fill"
+        case .warning: return "exclamationmark.triangle.fill"
+        case .failure: return "xmark.octagon.fill"
+        }
+    }
+
+    static func tint(_ weight: ProgressCapsuleMessage.Weight) -> Color {
+        switch weight {
+        case .success: return SemanticColor.success
+        case .warning: return SemanticColor.warning
+        case .failure: return SemanticColor.error
         }
     }
 

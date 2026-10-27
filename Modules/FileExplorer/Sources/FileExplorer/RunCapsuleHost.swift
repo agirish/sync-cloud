@@ -14,8 +14,8 @@ import Design
 /// and Recent, in a popover under the capsule. While that is open the capsule stays, reading
 /// "Nothing running" once the last run ends, so the popover is not taken away with it (TE231).
 ///
-/// A pane-launched batch is not here: its sheet carries its own per-file progress and its Cancel,
-/// window-modal by design (``PanePDFToolsPresenter``).
+/// A pane-launched batch is here too, once its sheet has asked its question (decision CH): it ran
+/// in a window-modal sheet that locked the window for the length of the batch.
 public struct RunCapsuleHost: View {
     let activeProgress: Progress?
     let activeProgressStartedAt: Date?
@@ -23,16 +23,20 @@ public struct RunCapsuleHost: View {
     let runWriteLock: String?
     /// The long scans, listed under the runs in the popover — never in the capsule (TE228).
     let scans: [ProgressCapsuleListedRun]
+    /// A run's ending bound for the capsule (CG), over whatever runs (CU).
+    let message: ProgressCapsuleMessage?
     let style: ProgressCapsuleStyle
     @Environment(\.openWindow) private var openWindow
 
     public init(activeProgress: Progress?, activeProgressStartedAt: Date?, center: ActivityCenter,
-                runWriteLock: String?, scans: [ProgressCapsuleListedRun] = [], style: ProgressCapsuleStyle) {
+                runWriteLock: String?, scans: [ProgressCapsuleListedRun] = [],
+                message: ProgressCapsuleMessage? = nil, style: ProgressCapsuleStyle) {
         self.activeProgress = activeProgress
         self.activeProgressStartedAt = activeProgressStartedAt
         self.center = center
         self.runWriteLock = runWriteLock
         self.scans = scans
+        self.message = message
         self.style = style
     }
 
@@ -52,10 +56,10 @@ public struct RunCapsuleHost: View {
                 TimelineView(.periodic(from: .now, by: 0.1)) { _ in
                     ProgressCapsule(run: newest.snapshot(), style: style,
                                     othersRunning: entries.dropFirst().map { $0.snapshot().summary },
-                                    onCancel: newest.cancel, onShowRuns: open, onOpen: open)
+                                    onCancel: newest.cancel, onShowRuns: open, onOpen: open, message: message)
                 }
             } else {
-                ProgressCapsule(run: .idle, style: style, onCancel: nil, onOpen: open)
+                ProgressCapsule(run: .idle, style: style, onCancel: nil, onOpen: open, message: message)
             }
         }
         .popover(isPresented: $center.popoverIsOpen, arrowEdge: .bottom) {
@@ -92,11 +96,16 @@ public struct ActivityRunsReader<Content: View>: View {
     }
 
     public var body: some View {
-        if case .single(let tools) = pdfTools.current {
+        switch pdfTools.current {
+        case .single(let tools):
             RunCapsuleObserving(model: tools) { tools in
                 content(entries(pdfRun: RunCapsuleEntry.pdfTool(tools)))
             }
-        } else {
+        case .batch(let batch):
+            RunCapsuleObserving(model: batch) { batch in
+                content(entries(pdfRun: RunCapsuleEntry.batch(batch)))
+            }
+        case nil:
             content(entries(pdfRun: nil))
         }
     }
@@ -125,11 +134,16 @@ public struct RunCapsulePresence: View {
     }
 
     public var body: some View {
-        if case .single(let tools) = pdfTools.current {
+        switch pdfTools.current {
+        case .single(let tools):
             RunCapsuleObserving(model: tools) { tools in
                 report(RunCapsuleEntry.pdfTool(tools) != nil)
             }
-        } else {
+        case .batch(let batch):
+            RunCapsuleObserving(model: batch) { batch in
+                report(RunCapsuleEntry.batch(batch) != nil)
+            }
+        case nil:
             report(false)
         }
     }
@@ -166,15 +180,18 @@ public struct RunCapsuleEntry {
     /// stops being cancellable when only its undo is left to arm (`markFinishing`), and its Stop
     /// and ⌘. must go with it rather than stay as they were when the run appeared.
     var cancel: (() -> Void)? { currentCancel() }
+    /// A PDF run waiting its turn in the app's one PDF lane (R17) — a clock, not its tool.
+    let isWaiting: () -> Bool
 
     /// `cancel` is an autoclosure, so whatever it reads — `progress.isCancellable` — is read each
     /// time ``cancel`` is, not once here.
     init(kind: Kind, startedAt: Date?, snapshot: @escaping () -> ProgressCapsuleRun,
-         cancel: @autoclosure @escaping () -> (() -> Void)?) {
+         cancel: @autoclosure @escaping () -> (() -> Void)?, isWaiting: @escaping () -> Bool = { false }) {
         self.kind = kind
         self.startedAt = startedAt
         self.snapshot = snapshot
         self.currentCancel = cancel
+        self.isWaiting = isWaiting
     }
 
     /// Newest first (decision CI). A run with no start time sorts as the oldest; ties keep the
@@ -187,8 +204,8 @@ public struct RunCapsuleEntry {
     }
 
     public func listed() -> ProgressCapsuleListedRun {
-        ProgressCapsuleListedRun(id: "\(kind)", run: snapshot(), symbol: kind.symbol, startedAt: startedAt,
-                                 onCancel: cancel)
+        ProgressCapsuleListedRun(id: "\(kind)", run: snapshot(), symbol: isWaiting() ? "clock" : kind.symbol,
+                                 startedAt: startedAt, onCancel: cancel)
     }
 
     static func fileOperation(_ progress: Progress, startedAt: Date?) -> RunCapsuleEntry {
@@ -208,7 +225,38 @@ public struct RunCapsuleEntry {
                                       completed: Int64(pages?.page ?? 0), total: Int64(pages?.total ?? 0),
                                       detail: tools.path.map { ($0 as NSString).lastPathComponent },
                                       cancelTitle: "Stop", cancelHelp: "Stop — nothing is written")
-        }, cancel: { tools.cancelRun() })
+        }, cancel: { tools.cancelRun() }, isWaiting: { !(tools.running?.started ?? true) })
+    }
+
+    /// **A pane's batch, once its sheet has asked its question** (Run Room CH) — in the one-file
+    /// run's slot, since the two share one PDF run (R2): "Compressing 4 PDFs", 2 of 4, the file in
+    /// hand and its page, and Stop.
+    @MainActor static func batch(_ batch: EditorPDFBatch) -> RunCapsuleEntry? {
+        guard batch.isRunning, !batch.showsSheet else { return nil }
+        return RunCapsuleEntry(kind: .pdfTool, startedAt: batch.startedAt, snapshot: {
+            let title = batchTitle(batch.kind, count: batch.count)
+            guard let progress = batch.progress else {
+                return ProgressCapsuleRun(title: "\(title) — \(EditorPDFToolBannerView.waitingWords)",
+                                          cancelTitle: "Stop", cancelHelp: batchStopHelp)
+            }
+            let name = batch.files.indices.contains(progress.file - 1) ? batch.files[progress.file - 1].name : nil
+            let page = progress.page.flatMap { page in progress.pages.map { "page \(page) of \($0)" } }
+            return ProgressCapsuleRun(title: title, completed: Int64(progress.file), total: Int64(progress.files),
+                                      detail: [name, page].compactMap { $0 }.joined(separator: " · "),
+                                      cancelTitle: "Stop", cancelHelp: batchStopHelp)
+        }, cancel: { batch.cancel() }, isWaiting: { batch.progress == nil })
+    }
+
+    static let batchStopHelp = "Stop after this file — the copies already written stay"
+
+    /// "Compressing 4 PDFs" — what the run does, and to how many.
+    static func batchTitle(_ kind: EditorPDFBatchKind, count: Int) -> String {
+        let pdfs = count == 1 ? "1 PDF" : "\(count.formatted()) PDFs"
+        switch kind {
+        case .rotate: return "Rotating \(pdfs)"
+        case .compress: return "Compressing \(pdfs)"
+        case .cleanMetadata: return "Cleaning the metadata of \(pdfs)"
+        }
     }
 
     @MainActor static func saveAsPDF(_ model: PaneSaveAsPDF) -> RunCapsuleEntry? {

@@ -641,4 +641,33 @@ import FileExplorer
             #expect(set.resolved(fieldOpen: true, runShowing: true) == runStyles(contentWidth: contentWidth, labelWidths: widths, open: true))
         }
     }
+
+    /// **A message never makes the toolbar jump** (Run Room TE230). At every width, a message alone
+    /// leaves the workspace bar, the ⌘K pill and the field exactly as they are with no capsule —
+    /// wearing the full capsule where it fits beside them, the ring where it does not — and a run's
+    /// row is untouched by a message over it. Across the sweep, both rungs occur.
+    @Test func testAMessageTakesOnlyTheRoomAlreadyFree() {
+        let widths = labelWidths()
+        let search = searchWidths()
+        var rungs: Set<String> = []
+        for contentWidth in stride(from: Self.windowFloor, through: 2000, by: 7) {
+            let set = WorkspaceBarMetrics.styleSet(
+                contentWidth: contentWidth, labelWidths: widths,
+                searchLabelWidth: search.label, searchKeycapWidth: search.keycap,
+                fieldKeycapWidth: CommandPaletteBarMetrics.keycapWidth(symbol: GoToFieldMetrics.closeKeycap,
+                                                                       scale: 1),
+                scale: 1)
+            for open in [false, true] {
+                let bare = set.resolved(fieldOpen: open, runShowing: false)
+                let message = set.resolved(fieldOpen: open, runShowing: false, messageShowing: true)
+                #expect(message.workspace == bare.workspace && message.search == bare.search
+                        && message.field == bare.field, "a message re-seated the row at \(contentWidth)pt")
+                #expect(message.run != nil, "a message at \(contentWidth)pt had no capsule")
+                rungs.insert("\(message.run.map { "\($0)" } ?? "none")")
+                #expect(set.resolved(fieldOpen: open, runShowing: true, messageShowing: true)
+                        == set.resolved(fieldOpen: open, runShowing: true))
+            }
+        }
+        #expect(rungs == ["full", "ring"], "the sweep never reached one of the rungs: \(rungs)")
+    }
 }

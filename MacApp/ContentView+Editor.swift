@@ -672,6 +672,7 @@ extension ContentView {
     func startPanePDFTool(_ request: PDFToolRequest, paths: [String]) {
         guard !refusedWhileRunLocked() else { return }
         let writer = "PDF Tools in \(selectedWorkspace.title)"
+        paneToolOrigin = selectedWorkspace
         panePDFTools.host = PanePDFToolHost(
             didWrite: { path in
                 if selectedWorkspace == .editor { Task { await refreshEditorRail() } }
@@ -698,6 +699,7 @@ extension ContentView {
     func startSaveAsPDF(_ paths: [String]) {
         guard !refusedWhileRunLocked() else { return }
         let writer = "Save as PDF in \(selectedWorkspace.title)"
+        saveAsPDFOrigin = selectedWorkspace
         paneSaveAsPDF.fontScale = appFontScale
         paneSaveAsPDF.accent = glassHue.accentColor
         paneSaveAsPDF.host = PaneSaveAsPDFHost(

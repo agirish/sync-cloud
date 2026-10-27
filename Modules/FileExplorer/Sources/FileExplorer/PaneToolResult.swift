@@ -12,14 +12,22 @@ import Sync
 /// The message is plain `OperationBanner` data, so it routes, times out and is announced like the
 /// rest; the doors are the run's own host's, carried beside it for the message's buttons to call.
 public struct PaneToolResult {
+    /// Which run it ends — so the window can send it where that run was started (Run Room CP).
+    public enum Source: Equatable, Sendable {
+        case pdfTools
+        case saveAsPDF
+    }
+
     public let banner: OperationBanner
+    public let source: Source
     public let open: (String) -> Void
     public let reveal: ([String]) -> Void
     public let download: (String) -> Void
 
-    init(banner: OperationBanner, open: @escaping (String) -> Void, reveal: @escaping ([String]) -> Void,
-         download: @escaping (String) -> Void = { _ in }) {
+    init(banner: OperationBanner, source: Source = .pdfTools, open: @escaping (String) -> Void,
+         reveal: @escaping ([String]) -> Void, download: @escaping (String) -> Void = { _ in }) {
         self.banner = banner
+        self.source = source
         self.open = open
         self.reveal = reveal
         self.download = download
@@ -61,7 +69,7 @@ public struct PaneToolResult {
         }
         self.init(banner: OperationBanner(message: result.message, severity: severity,
                                           detail: result.detail, followUps: followUps),
-                  open: host.open, reveal: host.reveal)
+                  source: .saveAsPDF, open: host.open, reveal: host.reveal)
     }
 
     /// **The doors go to the files still there** — the rule Edit's banner and a batch's keep

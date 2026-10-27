@@ -45,4 +45,13 @@ import Testing
         #expect(view.contains("paneMessagePiece(isLeft: isLeft, message: message, atTop: barAtTop,"),
                 "the pane's list no longer docks the message beside its bar")
     }
+
+    /// **A long run's ending goes where it was started, unless the reader moved on** (Run Room CG,
+    /// CP): a merge clicked in Organize and ending in Browse goes to the capsule; ending in Organize,
+    /// to Organize's own place; a click's result, with no run behind it, never to the capsule.
+    @Test func aRunsEndingFollowsTheWorkspaceItStartedIn() {
+        #expect(ResultMessageRoute.endsInCapsule(startedIn: .filing, showing: .browse))
+        #expect(!ResultMessageRoute.endsInCapsule(startedIn: .filing, showing: .filing))
+        #expect(!ResultMessageRoute.endsInCapsule(startedIn: nil, showing: .browse))
+    }
 }

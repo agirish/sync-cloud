@@ -667,7 +667,8 @@ struct ContentView: View {
                                                       placeholder: .short)))
     /// Whichever of the two the row is actually wearing right now.
     var toolbarStyles: ToolbarBarStyles {
-        toolbarStyleSet.resolved(fieldOpen: showCommandPalette, runShowing: runCapsuleShowing)
+        toolbarStyleSet.resolved(fieldOpen: showCommandPalette, runShowing: runCapsuleShowing,
+                                 messageShowing: resultMessageHome == .toolbar && syncManager.banner != nil)
     }
     /// A pane-launched PDF tool run or Save as PDF showing in the toolbar capsule — reported by
     /// `RunCapsulePresence`, so this view need not observe the PDF models.
@@ -773,6 +774,15 @@ struct ContentView: View {
     /// The doors a pane-launched PDF tool's or Save as PDF's result hands to its message's
     /// follow-up buttons, for the message it was posted as. See `postPaneToolResult`.
     @State var paneToolResultDoors: PaneToolResult?
+    /// The message the toolbar's capsule shows instead of a pane (Run Room CG): a long run's ending
+    /// after the reader moved to another workspace.
+    @State var capsuleMessageID: UUID?
+    /// Where each long run was started, for its ending's route (CP).
+    @State var fileOperationOrigin: Workspace?
+    @State var paneToolOrigin: Workspace?
+    @State var saveAsPDFOrigin: Workspace?
+    /// The origin of the pane result being posted, read once by `resultMessageChanged`.
+    @State var pendingResultOrigin: Workspace?
     /// Whether "Save as rule…"'s offer is open over its message — the message is held until it
     /// closes (`BannerDismissScheduler.holdChanged`).
     @State var ruleOfferIsOpen = false
@@ -4547,6 +4557,10 @@ struct ContentView: View {
                 let ended = syncManager.lastFinishedRun.map { (title: $0.title, ended: $0.ended) }
                 OperationNotifier.postIfEnabled(for: banner, runTitle: OperationNotifier.runTitle(lastFinished: ended))
             }
+        }
+        // Where a long file operation was started, for its ending's route (Run Room CP).
+        .onChange(of: syncManager.activeProgress != nil) { _, running in
+            if running { fileOperationOrigin = selectedWorkspace }
         }
         // Edit ▸ Undo and ⌘Z wait during a run, on the file operations' stack only (CF).
         .onChange(of: runWriteLockReason, initial: true) { _, reason in

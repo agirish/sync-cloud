@@ -154,6 +154,29 @@ import Testing
         #expect(!older.isCancelled, "the key stopped the older run too")
     }
 
+    /// **A message over a run keeps the run's count, and ⌘. still reaches the runs** (decision CU):
+    /// the count, even of one, opens the list rather than stopping anything; and with no run left
+    /// the message has a close button that takes no key.
+    @Test func aMessageOverARunKeepsItsCount() async throws {
+        let progress = cancellable()
+        let opened = Presses(), closed = Presses()
+        let message = ProgressCapsuleMessage(text: "Saved 4 compressed copies", weight: .success,
+                                             onClose: { closed.count += 1 })
+        let capsule = ProgressCapsule(run: ProgressCapsuleRun(progress: progress), style: .full,
+                                      onCancel: { progress.cancel() }, onShowRuns: { opened.count += 1 },
+                                      message: message)
+        #expect(capsule.trailing == .count(1))
+        let window = try await host(AnyView(capsule))
+        defer { window.close() }
+        let commandPeriod = try key(window, keyCode: 47, characters: ".", modifiers: .command)
+        _ = window.performKeyEquivalent(with: commandPeriod)
+        #expect(opened.count == 1, "⌘. over a message did not open the runs")
+        #expect(!progress.isCancelled, "⌘. over a message stopped the run behind it")
+
+        let alone = ProgressCapsule(run: .idle, style: .full, onCancel: nil, message: message)
+        #expect(alone.trailing == .none, "a message with no run under it showed a count")
+    }
+
     /// **The count is grouped for the reader's locale**, like the title above it. The locale is
     /// pinned so the separator is a fact of the test; a cached formatter with no locale ignored
     /// it. Clamped to the total, as the bar is.
