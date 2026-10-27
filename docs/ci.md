@@ -19,6 +19,11 @@ it carries the measurements and the fix for each.
 
 - All seven packages: `Modules/{Sync, Events, Settings, Design, Dashboard,
   FileExplorer}` and `SyncCloudCLI`.
+- FileExplorer runs through `scripts/test-shards`: twelve chunks of whole suites,
+  three test processes at a time. Its suites are main-thread bound, so one
+  process uses one core — measured 2026-10-27 at 671 s wall and 725 s CPU, and
+  345 s sharded, on a busier machine. The run is red unless every chunk prints its
+  own count line and the counts add up to `swift test list`'s total.
 - Machine-pinned suites are marked at the declaration with
   `.machinePinned(_:)` and a reason, and the workflow sets
   `SYNCCLOUD_SKIP_MACHINE_PINNED=referenceImages` to exclude only the image

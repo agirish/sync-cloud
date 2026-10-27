@@ -76,7 +76,8 @@ All must hold before landing:
      while read sha rest; do [ -z "$(git show --stat --format= $sha)" ] && echo "EMPTY: $sha $rest"; done
    ```
 3. **Tests are green locally** for every changed package and every package that depends on it,
-   each run through `scripts/build-slot`.
+   each run through `scripts/build-slot`. Run FileExplorer as `scripts/test-shards
+   Modules/FileExplorer`, which takes its own slot and about half the time.
 4. **An app change is installed and seen running** (`CLAUDE.md` §6).
 5. **Any `docs/backports.md` row is inside the squash** (`CLAUDE.md` §1).
 6. **You have read what will land:** `git log --oneline origin/main..HEAD` and

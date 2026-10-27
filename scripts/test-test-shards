@@ -1,0 +1,109 @@
+#!/bin/bash
+# Tests for scripts/test-shards, against a fake `swift` on PATH: it lists a made-up package and
+# "runs" whatever a chunk's --filter matches, printing Swift Testing's count line. Takes a few
+# seconds; prints one line per check and exits non-zero if any check fails.
+set -u
+SHARDS="$(cd "$(dirname "$0")" && pwd)/test-shards"
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/test-shards-test.XXXXXX")
+export BUILD_SLOT_HELD=1  # run at once; the slot itself is scripts/build-slot's to test
+unset GITHUB_ACTIONS
+failures=0
+
+check() {  # check <description> <command…>
+  local what=$1; shift
+  if "$@"; then echo "ok   - $what"; else echo "FAIL - $what"; failures=$((failures + 1)); fi
+}
+same() { [ "$1" = "$2" ]; }
+
+# Suites whose names are prefixes of one another (Pane / PaneTabs), a nested suite (Pane.Inner),
+# parameterised and plain tests, and sizes that do not divide evenly.
+mkdir -p "$WORK/bin"
+{
+  for t in a b c; do echo "Pkg.Pane/$t()"; done
+  for t in a b; do echo "Pkg.Pane.Inner/$t()"; done
+  for t in a b c d e; do echo "Pkg.PaneTabs/$t()"; done
+  for s in $(seq 1 20); do for t in $(seq 1 $((s % 4 + 1))); do echo "Pkg.Suite$s/t$t()"; done; done
+} > "$WORK/list"
+listed=$(wc -l < "$WORK/list" | tr -d ' ')
+
+cat > "$WORK/bin/swift" <<'EOF'
+#!/bin/bash
+echo "$*" >> "$FAKE_DIR/calls"
+case "$1 $2" in
+  "build --build-tests") exit "${FAKE_BUILD_EXIT:-0}" ;;
+  "test list") cat "$FAKE_DIR/list"; exit 0 ;;
+esac
+filter=""; while [ $# -gt 0 ]; do [ "$1" = --filter ] && filter=$2; shift; done
+echo + >> "$FAKE_DIR/events"
+count=$(/usr/bin/python3 -c 'import re,sys; print(sum(1 for l in open(sys.argv[2]) if re.search(sys.argv[1], l.strip())))' "$filter" "$FAKE_DIR/list")
+grep -E "$filter" "$FAKE_DIR/list" >> "$FAKE_DIR/ran"
+sleep 0.3
+echo - >> "$FAKE_DIR/events"
+if [ -n "${FAKE_DIE:-}" ] && echo "$filter" | grep -q "$FAKE_DIE"; then exit 0; fi  # no count line
+[ -n "${FAKE_EXTRA:-}" ] && echo "$filter" | grep -q "$FAKE_EXTRA" && count=$((count + 1))
+if [ -n "${FAKE_FAIL:-}" ] && echo "$filter" | grep -q "$FAKE_FAIL"; then
+  echo "✘ Test run with $count tests in 1 suite failed after 0.1 seconds with 1 issue."; exit 1
+fi
+echo "✔ Test run with $count tests in 1 suite passed after 0.1 seconds."
+EOF
+chmod +x "$WORK/bin/swift"
+export PATH="$WORK/bin:$PATH" FAKE_DIR="$WORK"
+
+shards() {  # shards <args…>: one run in a fresh scratch state; exit status in $status
+  rm -f "$WORK/calls" "$WORK/events" "$WORK/ran"
+  "$SHARDS" "$@" > "$WORK/out" 2> "$WORK/err"; status=$?
+}
+
+# 1. Every listed test runs exactly once, and the verdict is green.
+shards --jobs 3 pkg
+check "a clean run exits 0" same "$status" 0
+check "every listed test ran exactly once" same "$(sort "$WORK/ran" | uniq -u | wc -l | tr -d ' ')" "$listed"
+check "no test ran twice" same "$(sort "$WORK/ran" | uniq -d | wc -l | tr -d ' ')" 0
+check "the tests are built once and listed once" \
+  same "$(grep -c '^build --build-tests' "$WORK/calls") $(grep -c '^test list' "$WORK/calls")" "1 1"
+check "every chunk skips the build and the lock" \
+  same "$(grep -- '--filter' "$WORK/calls" | grep -vc -- '--skip-build --ignore-lock')" 0
+check "it says how many ran" grep -q "all $listed tests ran in 12 chunks" "$WORK/err"
+
+# 2. A nested suite stays in its parent's chunk; a suite whose name extends another's does not
+#    ride along with it.
+pane=$(grep -- '--filter' "$WORK/calls" | grep 'Pkg\\.Pane[|)]' | head -1)
+check "Pane.Inner runs in Pane's chunk" grep -q 'Pkg.Pane.Inner/a()' <(
+  /usr/bin/python3 -c 'import re,sys; f=sys.argv[1].split("--filter ",1)[1]; [print(l.strip()) for l in open(sys.argv[2]) if re.search(f, l.strip())]' "$pane" "$WORK/list")
+check "Pane.Inner is never a group of its own (Pane's filter already takes it)" \
+  same "$(grep -- '--filter' "$WORK/calls" | grep -c 'Inner')" 0
+check "PaneTabs is not swept into Pane's filter" sh -c "! /usr/bin/python3 -c 'import re,sys; f=sys.argv[1].split(\"--filter \",1)[1]; sys.exit(0 if any(re.search(f,l.strip()) for l in open(sys.argv[2]) if l.startswith(\"Pkg.PaneTabs/\")) else 1)' '$pane' '$WORK/list'"
+
+# 3. Never more chunks at once than --jobs.
+peak=$(awk '/\+/{n++; if(n>p)p=n} /-/{n--} END{print p}' "$WORK/events")
+check "at most 3 chunks ran at once (peak $peak)" test "$peak" -le 3
+shards --jobs 1 pkg
+peak=$(awk '/\+/{n++; if(n>p)p=n} /-/{n--} END{print p}' "$WORK/events")
+check "--jobs 1 runs one chunk at a time (peak $peak)" same "$peak" 1
+
+# 4. The silent failures are red: a chunk whose process dies without a count line (swift test can
+#    still exit 0), a count that does not add up, and an ordinary failing chunk.
+FAKE_DIE='Suite1[|)]' shards pkg
+check "a chunk with no count line fails the run" same "$status" 1
+check "...and says so" grep -q "printed no test count" "$WORK/err"
+FAKE_EXTRA='Suite2[|)]' shards pkg
+check "a count that does not add up fails the run" same "$status" 1
+check "...and names both numbers" grep -q "$listed tests listed but $((listed + 1)) ran" "$WORK/err"
+FAKE_FAIL='Suite3[|)]' shards pkg
+check "a failing chunk fails the run" same "$status" 1
+check "...and the other chunks still ran" same "$(sort -u "$WORK/ran" | wc -l | tr -d ' ')" "$listed"
+FAKE_BUILD_EXIT=1 shards pkg
+check "a failed build fails the run without testing" same "$status:$(grep -c -- '--filter' "$WORK/calls")" "1:0"
+
+# 5. The same list always deals the same chunks.
+shards pkg; first=$(grep -- '--filter' "$WORK/calls" | sort)
+shards pkg; second=$(grep -- '--filter' "$WORK/calls" | sort)
+check "chunks are dealt deterministically" same "$first" "$second"
+
+# 6. Bad arguments are refused.
+"$SHARDS" --jobs 0 pkg > /dev/null 2>&1; check "--jobs 0 is refused" same "$?" 64
+"$SHARDS" > /dev/null 2>&1; check "no package is refused" same "$?" 64
+
+rm -rf "$WORK"
+if [ "$failures" -gt 0 ]; then echo "$failures check(s) failed"; exit 1; fi
+echo "all checks passed"

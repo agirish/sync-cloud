@@ -1,0 +1,193 @@
+#!/usr/bin/python3
+"""Run one package's tests as several test processes at once, and check together they ran all.
+
+    scripts/test-shards Modules/FileExplorer
+    scripts/test-shards --jobs 4 Modules/FileExplorer
+
+FileExplorer's suites are mostly @MainActor, so one test process is bound to one core: its main
+thread. Measured 2026-10-27, one run took 671 s of wall time and 725 s of CPU, its main thread
+averaging 72%. Splitting the suites across processes gives each its own main thread.
+
+Steps: build the tests once, list them (`swift test list`), deal whole top-level suites into
+chunks of about equal test count, then run the chunks as a queue, --jobs processes at a time
+(default 3), each `swift test --skip-build --ignore-lock --filter`. A test's count says little
+about its cost, so there are several chunks per job: a slow chunk holds up one job while the
+others drain the rest. Each chunk's output is held and printed whole when it ends, so chunks never
+interleave line by line.
+
+The verdict is red unless every chunk exits 0 and prints its own count line, and the counts add up
+to the listed total. The count line matters: a test process that dies can still leave `swift test`
+exiting 0, and a filter that matches nothing passes (docs/flaky-tests.md, the silent half).
+
+Outside CI it takes one build slot for the whole run, re-running itself under scripts/build-slot
+(CLAUDE.md §7); inside a slot or on the CI runner ($GITHUB_ACTIONS) it runs at once. Environment
+such as SYNCCLOUD_SKIP_MACHINE_PINNED reaches every chunk. Tests: scripts/test-test-shards.
+"""
+
+import os
+import re
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+
+DEFAULT_JOBS = 3
+CHUNKS_PER_JOB = 4
+SWIFT_TESTING_RUN = re.compile(r"Test run with (\d+) tests? (?:in \d+ suites? )?(passed|failed)")
+XCTEST_TOTAL = re.compile(r"Test Suite '(?:All tests|Selected tests)' (?:passed|failed)")
+XCTEST_EXECUTED = re.compile(r"Executed (\d+) tests?, with")
+
+
+def say(message):
+    sys.stderr.write("test-shards: %s\n" % message)
+    sys.stderr.flush()
+
+
+def usage():
+    say("usage: scripts/test-shards [--jobs N] <package-path>")
+    return 64
+
+
+def group_of(identifier):
+    """The top-level suite a test belongs to: `Module.Suite/test()` and `Module.Suite.Inner/…` →
+    `Module.Suite`. Nested suites stay with their parent, so a `.serialized` parent keeps its
+    children in its own process."""
+    path = identifier.split("/", 1)[0]
+    module, _, rest = path.partition(".")
+    return module + "." + rest.split(".", 1)[0] if rest else module
+
+
+def deal(identifiers, count):
+    """Whole suites into `count` chunks, largest first onto the lightest. Deterministic; the
+    chunks come back heaviest first and empty ones are dropped."""
+    sizes = {}
+    for identifier in identifiers:
+        group = group_of(identifier)
+        sizes[group] = sizes.get(group, 0) + 1
+    chunks = [[] for _ in range(count)]
+    loads = [0] * count
+    for group in sorted(sizes, key=lambda g: (-sizes[g], g)):
+        lightest = loads.index(min(loads))
+        chunks[lightest].append(group)
+        loads[lightest] += sizes[group]
+    dealt = [(groups, load) for groups, load in zip(chunks, loads) if groups]
+    return sorted(dealt, key=lambda chunk: -chunk[1])
+
+
+def filter_for(groups):
+    """A regex matching exactly these suites' tests and their nested suites' tests."""
+    return "^(?:%s)(?:[./]|$)" % "|".join(re.escape(group) for group in sorted(groups))
+
+
+def counted(log):
+    """Tests the chunk reports running: Swift Testing's count line plus XCTest's total, or None
+    when neither line is there (the process died, or nothing ran)."""
+    total, seen = 0, False
+    lines = log.splitlines()
+    for index, line in enumerate(lines):
+        match = SWIFT_TESTING_RUN.search(line)
+        if match:
+            total, seen = total + int(match.group(1)), True
+        elif XCTEST_TOTAL.search(line):
+            for following in lines[index + 1:index + 3]:
+                executed = XCTEST_EXECUTED.search(following)
+                if executed:
+                    total, seen = total + int(executed.group(1)), True
+                    break
+    return total if seen else None
+
+
+def run(package, jobs):
+    if subprocess.call(["swift", "build", "--build-tests", "--package-path", package]) != 0:
+        say("the build failed; no tests ran")
+        return 1
+    listing = subprocess.run(["swift", "test", "list", "--skip-build", "--package-path", package],
+                             stdout=subprocess.PIPE, universal_newlines=True)
+    identifiers = [line.strip() for line in listing.stdout.splitlines() if "/" in line]
+    if listing.returncode != 0 or not identifiers:
+        say("listing the tests failed (exit %d, %d listed)" % (listing.returncode,
+                                                              len(identifiers)))
+        return 1
+    chunks = deal(identifiers, jobs * CHUNKS_PER_JOB)
+    say("%d tests in %d suites: %d chunks, %d at a time" % (
+        len(identifiers), len({group_of(i) for i in identifiers}), len(chunks), jobs))
+
+    queue = [{"number": number, "groups": groups, "load": load}
+             for number, (groups, load) in enumerate(chunks, 1)]
+    running = []
+
+    def stop(signum, _frame):
+        for chunk in running:
+            if chunk["process"].poll() is None:
+                chunk["process"].terminate()
+        sys.exit(128 + signum)
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+
+    github = os.environ.get("GITHUB_ACTIONS") == "true"
+    began, problems, ran = time.time(), [], 0
+    while queue or running:
+        while queue and len(running) < jobs:
+            chunk = queue.pop(0)
+            chunk["log"] = tempfile.TemporaryFile(mode="w+")
+            # --ignore-lock: SwiftPM holds .build locked for a whole `swift test`, which would run
+            # the chunks one after another. They only read the build made above.
+            command = ["swift", "test", "--skip-build", "--ignore-lock", "--package-path", package,
+                       "--filter", filter_for(chunk["groups"])]
+            chunk["process"] = subprocess.Popen(command, stdout=chunk["log"],
+                                                stderr=subprocess.STDOUT)
+            chunk["start"] = time.time()
+            running.append(chunk)
+        for chunk in list(running):
+            status = chunk["process"].poll()
+            if status is None:
+                continue
+            running.remove(chunk)
+            chunk["log"].seek(0)
+            log = chunk["log"].read()
+            reported = counted(log)
+            title = "chunk %d/%d (%d tests listed)" % (chunk["number"], len(chunks),
+                                                      chunk["load"])
+            sys.stdout.write("::group::%s\n" % title if github else "=== %s\n" % title)
+            sys.stdout.write(log)
+            if github:
+                sys.stdout.write("::endgroup::\n")
+            sys.stdout.flush()
+            say("%s: exit %d, %s tests run, %.0f s" % (
+                title, status, "no count line —" if reported is None else reported,
+                time.time() - chunk["start"]))
+            if status != 0:
+                problems.append("chunk %d exited %d" % (chunk["number"], status))
+            if reported is None:
+                problems.append("chunk %d printed no test count" % chunk["number"])
+            else:
+                ran += reported
+        time.sleep(0.5)
+
+    if ran != len(identifiers) and not any("no test count" in p for p in problems):
+        problems.append("%d tests listed but %d ran" % (len(identifiers), ran))
+    if problems:
+        say("FAILED: " + "; ".join(problems))
+        return 1
+    say("all %d tests ran in %d chunks, %.0f s" % (ran, len(chunks), time.time() - began))
+    return 0
+
+
+def main(argv):
+    args, jobs = list(argv), DEFAULT_JOBS
+    if len(args) >= 2 and args[0] == "--jobs":
+        if not args[1].isdigit() or int(args[1]) < 1:
+            return usage()
+        jobs, args = int(args[1]), args[2:]
+    if len(args) != 1:
+        return usage()
+    if not os.environ.get("BUILD_SLOT_HELD") and os.environ.get("GITHUB_ACTIONS") != "true":
+        slot = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build-slot")
+        os.execv(slot, [slot, os.path.abspath(__file__)] + list(argv))
+    return run(args[0], jobs)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

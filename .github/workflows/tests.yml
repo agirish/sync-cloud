@@ -112,7 +112,14 @@ jobs:
             # x86_64 from it and then exits 1 despite passing. Forcing the
             # payload native fixes the exit code (verified both directions:
             # green suite -> 0, mutated failing test -> 1).
-            if ! arch -arm64 swift test --package-path "${pkg}"; then
+            # FileExplorer's suites are main-thread bound, so one test process uses one core;
+            # scripts/test-shards runs them as several processes and checks the counts add up.
+            if [ "${pkg}" = Modules/FileExplorer ]; then
+              run=(scripts/test-shards "${pkg}")
+            else
+              run=(swift test --package-path "${pkg}")
+            fi
+            if ! arch -arm64 "${run[@]}"; then
               failed+=("${pkg}")
             fi
             echo "::endgroup::"
