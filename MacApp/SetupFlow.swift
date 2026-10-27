@@ -356,8 +356,16 @@ enum SetupFlow {
     /// names, and `PeopleStore.save()` will not write over the file. A summary that counted it
     /// anyway would make a claim about the user's family out of directory listings, on the screen
     /// whose heading is "You're all set".
-    static func peopleSummary(otherCount: Int, rosterIsReadOnly: Bool) -> String {
+    ///
+    /// **Which refusal, said as Settings says it.** Both read "could not be read", which over a
+    /// roster read perfectly well — one id twice — sent the person looking for a broken file.
+    static func peopleSummary(otherCount: Int, rosterIsReadOnly: Bool,
+                              rosterRepeatsAnId: Bool = false) -> String {
         let others = "\(otherCount) other\(otherCount == 1 ? "" : "s")"
+        if rosterIsReadOnly, rosterRepeatsAnId {
+            return "\(others) listed, but people.json lists someone twice, so changes can’t be "
+                + "saved — fix it in Settings ▸ People"
+        }
         if rosterIsReadOnly {
             return "\(others) listed, but people.json could not be read — fix it in Settings ▸ People"
         }

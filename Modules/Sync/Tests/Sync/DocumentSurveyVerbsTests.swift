@@ -249,4 +249,62 @@ import EventsTestSupport
         #expect(result == .failure(.profileReplaced))
         #expect(reads.paths.isEmpty, "the plan for profile \(plan.profileId) read into it")
     }
+
+    /// **A reading the person paused carries on paused.** The run that carries it into the new
+    /// profile started reading at once, through a Pause nobody took back.
+    @Test func aReadingPausedByThePersonCarriesOnPaused() async throws {
+        let (manager, docs, _, reads, root) = try FilingResurveyTests.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
+        final class Machine { var hot = true }
+        let machine = Machine()
+        manager.machineConditions = { MachineConditions(heat: machine.hot ? .serious : .nominal) }
+        let plan = try await manager.planDocumentSurvey(root: docs).get()
+        let first = start(manager, plan)
+        #expect(await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .thermal })
+        await manager.pauseDocumentSurvey()
+        #expect(await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .user },
+                "premise: the person's Pause never showed")
+
+        #expect(await manager.stopDocumentSurveyBeforeReplacingProfile() == plan.root)
+        await first.task?.value
+        machine.hot = false
+        let again = try await manager.planDocumentSurvey(root: docs).get()
+        let carried = start(manager, again)
+
+        // Asked of the new run itself: a progress value the stopped run published late reads the same.
+        var heldByPause = false
+        let deadline = Date().addingTimeInterval(20)
+        while Date() < deadline, !carried.finished {
+            if await manager.documentSurveyRun?.isPausedByUser == true { heldByPause = true; break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(heldByPause, "the carried reading did not keep the person's Pause (\(reads.paths.count) read)")
+        #expect(reads.paths.isEmpty, "the carried reading read through the person's Pause")
+        #expect(!carried.finished)
+        await finish(manager, carried)
+
+        // Taken by that run: the next one starts as any run does.
+        let next = try await manager.planDocumentSurvey(root: docs).get()
+        let report = try await manager.runDocumentSurvey(plan: next).get()
+        #expect(report.isComplete, "a Pause carried once paused a later run too")
+    }
+
+    /// **Nothing is stopped while a reorganization lands**: the write refuses then, so the reading
+    /// would stop for a Save that writes nothing, and its restart be refused for the same landing.
+    @Test func aReadingIsNotStoppedForASaveALandingRefuses() async throws {
+        let (manager, docs, _, _, root) = try FilingResurveyTests.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
+        manager.machineConditions = { MachineConditions(heat: .serious) }
+        let plan = try await manager.planDocumentSurvey(root: docs).get()
+        let running = start(manager, plan)
+        #expect(await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .thermal })
+        manager.restructureLandingInProgress = true
+
+        let stopped = await manager.stopDocumentSurveyBeforeReplacingProfile()
+
+        #expect(stopped == nil, "the reading was stopped for a Save the landing refuses")
+        #expect(manager.documentSurveyRun != nil)
+        manager.restructureLandingInProgress = false
+        await finish(manager, running)
+    }
 }

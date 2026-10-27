@@ -70,7 +70,8 @@ struct PeopleScreen: View {
             // would silently do nothing.
             if model.rosterIsReadOnly {
                 SetupNote(text: SetupFlow.peopleSummary(otherCount: model.rosterNames.count,
-                                                        rosterIsReadOnly: true),
+                                                        rosterIsReadOnly: true,
+                                                        rosterRepeatsAnId: model.rosterRepeatsAnId),
                           systemImage: "exclamationmark.triangle")
             }
 

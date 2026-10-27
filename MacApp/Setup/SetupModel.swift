@@ -216,6 +216,8 @@ final class SetupModel: ObservableObject {
     /// Whether the roster on this Mac is one the store will refuse to write. Both refusals live in
     /// `PeopleStore.save()`; this is the store's own name for the pair.
     var rosterIsReadOnly: Bool { roster?.rosterIsReadOnly ?? false }
+    /// Whether the roster is read-only because it names one id twice, rather than unreadable.
+    var rosterRepeatsAnId: Bool { !(roster?.rosterIsUnreadable ?? true) && !(roster?.repeatedRosterIds.isEmpty ?? true) }
 
     /// The household to hand the walk, whether or not there is a roster on disk yet.
     ///

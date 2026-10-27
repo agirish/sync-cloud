@@ -24,7 +24,19 @@ import Testing
         return condition()
     }
 
-    private final class Machine { var hot = true }
+    private final class Machine {
+        var hot = true
+        /// Hot once this many documents are read, when set — so a reading stands paused part-way.
+        var hotAfter: Int?
+    }
+
+    /// Every document the extractor opened, in order.
+    private final class Reads: @unchecked Sendable {
+        private let lock = NSLock()
+        private var paths: [String] = []
+        func note(_ path: String) { lock.lock(); paths.append(path); lock.unlock() }
+        var all: [String] { lock.lock(); defer { lock.unlock() }; return paths }
+    }
 
     @MainActor
     private final class Fixture {
@@ -33,6 +45,7 @@ import Testing
         let profiles: URL
         let engine = FileSyncManager()
         let machine = Machine()
+        let reads = Reads()
         var starts: [Task<DocumentSurveyStarter.Outcome, Never>] = []
 
         init() throws {
@@ -51,9 +64,16 @@ import Testing
             }
             try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
             engine.filingProfilesDirectory = profiles
-            engine.filingSnippetExtractor = { try? String(contentsOfFile: $0, encoding: .utf8) }
+            let reads = reads
+            engine.filingSnippetExtractor = {
+                reads.note($0)
+                return try? String(contentsOfFile: $0, encoding: .utf8)
+            }
             let machine = machine
-            engine.machineConditions = { MachineConditions(heat: machine.hot ? .serious : .nominal) }
+            engine.machineConditions = {
+                let hot = machine.hotAfter.map { reads.all.count >= $0 } ?? machine.hot
+                return MachineConditions(heat: hot ? .serious : .nominal)
+            }
         }
 
         /// What `FilingArtifacts.attach` does, pointed at the scratch folder.
@@ -95,7 +115,8 @@ import Testing
 
     /// **A second Save stops the reading, and it carries on into the new profile** (his call,
     /// 2026-10-27). It used to be left to run: hours later it wrote what it learned into the
-    /// profile the Save had replaced, and the profile in use never had it.
+    /// profile the Save had replaced, and the profile in use never had it. **And from where it
+    /// stood**: two documents in at the Save, the carried reading opens only the other two.
     @Test(.timeLimit(.minutes(2)))
     func aSecondSaveCarriesTheReadingIntoTheNewProfile() async throws {
         let fixture = try Fixture()
@@ -105,6 +126,7 @@ import Testing
                                defaults: ScratchDefaults("setup-handover-d"), draftURL: nil,
                                onProfileWritten: { fixture.attach() },
                                onStartSurvey: { fixture.startReading($0) })
+        fixture.machine.hotAfter = 2
         model.changeWalkRoot(to: fixture.documents, thenLearn: true)
         await model.lastWalk?.value
         let failure = model.walkFailureReason ?? "still running"
@@ -131,6 +153,8 @@ import Testing
         }
         let handed = await fixture.starts[0].value
         #expect(handed == .handedOver, "the reading of \(first) was not stopped: \(handed)")
+        #expect(fixture.reads.all.count == 2, "premise: the first reading stood two documents in")
+        fixture.machine.hotAfter = nil
         fixture.machine.hot = false
         let carried = await fixture.starts[1].value
         guard case .ran(let report) = carried else {
@@ -141,6 +165,9 @@ import Testing
         #expect(fixture.corpusExists(in: second), "the reading never reached the profile in use")
         #expect(!fixture.corpusExists(in: first), "the reading landed in the profile the Save replaced")
         #expect(fixture.engine.filingMemory?.profileId == second)
+        let opened = fixture.reads.all
+        #expect(opened.count == 4 && Set(opened).count == 4,
+                "the carried reading opened again what was read before the Save: \(opened.map { ($0 as NSString).lastPathComponent })")
     }
 
     /// **A Save of another folder does not carry that folder's reading on**, and with Read

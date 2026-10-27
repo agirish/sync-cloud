@@ -207,10 +207,12 @@ struct SummaryScreen: View {
     private var peopleSummary: String {
         let names = model.rosterNames
         guard !names.isEmpty else {
-            return SetupFlow.peopleSummary(otherCount: 0, rosterIsReadOnly: model.rosterIsReadOnly)
+            return SetupFlow.peopleSummary(otherCount: 0, rosterIsReadOnly: model.rosterIsReadOnly,
+                                           rosterRepeatsAnId: model.rosterRepeatsAnId)
         }
         if model.rosterIsReadOnly {
-            return SetupFlow.peopleSummary(otherCount: names.count, rosterIsReadOnly: true)
+            return SetupFlow.peopleSummary(otherCount: names.count, rosterIsReadOnly: true,
+                                           rosterRepeatsAnId: model.rosterRepeatsAnId)
         }
         return names.prefix(4).joined(separator: ", ")
             + (names.count > 4 ? " and \(names.count - 4) more" : "")

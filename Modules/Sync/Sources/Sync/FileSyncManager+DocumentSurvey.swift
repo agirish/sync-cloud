@@ -434,6 +434,14 @@ extension FileSyncManager {
             documentSurveyEndWaiters = []
             for waiter in waiters { waiter.resume() }
         }
+        // A Pause carried from the run a profile write stopped (``stopDocumentSurveyBeforeReplacingProfile()``).
+        let carriesPause = documentSurveyPauseToCarry?.standardizedFileURL.path == root.standardizedFileURL.path
+        documentSurveyPauseToCarry = nil
+        if carriesPause {
+            await run.pause()
+            Logger.shared.info("Document survey: starts paused — it was paused when the folder survey "
+                               + "it read was replaced")
+        }
 
         let outcome = await run.run()
 
@@ -594,25 +602,34 @@ extension FileSyncManager {
     /// reads only what is left.
     ///
     /// Nothing is stopped when the write could not replace the active profile — a hand-built one
-    /// stays in use, and so does the reading of it.
+    /// stays in use, and so does the reading of it — nor while a reorganization lands, which the
+    /// write refuses: the reading would stop for a Save that writes nothing, and its restart be
+    /// refused for the same landing.
+    ///
+    /// **A Pause the person gave is carried over** (review of M4, 2026-10-27): the run that carries
+    /// the reading on starts paused, rather than reading through a Pause because a Save came between.
     ///
     /// - Returns: The folder of a reading stopped with documents still to read, which the caller
     ///   starts again once the new profile is in use; nil when nothing was stopped, or for a run
     ///   that had finished reading — its corpus is written, and the write carries it.
     public func stopDocumentSurveyBeforeReplacingProfile() async -> URL? {
         guard let run = documentSurveyRun, let directory = filingProfilesDirectory,
+              !restructureLandingInProgress,
               FilingProfileStore.mayRepoint(activeId: FilingProfileStore.activeProfileId(in: directory),
                                             in: directory) else { return nil }
         let root = run.root
+        let pausedByPerson = await run.isPausedByUser
         await run.stop()
         // Checked again after the hop: a run that ended during it has already let its waiters go.
         if documentSurveyRun === run {
             await withCheckedContinuation { documentSurveyEndWaiters.append($0) }
         }
         let unfinished = documentSurveyReport?.isComplete != true
+        documentSurveyPauseToCarry = unfinished && pausedByPerson ? root : nil
         Logger.shared.info("Document survey: stopped so a new folder survey can replace the one it "
                            + "reads" + (unfinished ? " — it carries on from here once that is in use"
-                                                   : " — it had already read everything"))
+                                                   : " — it had already read everything")
+                           + (unfinished && pausedByPerson ? ", paused as it was" : ""))
         return unfinished ? root : nil
     }
 }

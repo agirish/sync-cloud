@@ -754,6 +754,10 @@ public class FileSyncManager: ObservableObject {
     /// ``stopDocumentSurveyBeforeReplacingProfile()``. Resumed as the run lets go of its handle.
     var documentSurveyEndWaiters: [CheckedContinuation<Void, Never>] = []
 
+    /// The folder of a run the person had paused when a profile write stopped it, so the run that
+    /// carries it on starts paused too. Taken by the next run, whichever folder it reads.
+    var documentSurveyPauseToCarry: URL?
+
     /// The causes *Resume now* told the running survey to read through — see
     /// ``DocumentSurveyOverride``. Here rather than in the run because the conditions it is
     /// decided from are this actor's; cleared at the start of every run.

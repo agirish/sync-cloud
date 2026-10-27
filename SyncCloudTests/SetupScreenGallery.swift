@@ -150,4 +150,52 @@ import Testing
             }
         }
     }
+
+    /// People over a roster this sheet cannot write (review L1): the chips carry no ✕, Add is
+    /// greyed, and the note says why. Beside it, the same names on a roster that can change.
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["SETUP_GALLERY"] != nil))
+    func photographPeopleOverAReadOnlyRoster() async throws {
+        let out = URL(fileURLWithPath: ProcessInfo.processInfo.environment["SETUP_GALLERY"]!)
+        try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        let settings = await manager()
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("render-readonly-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("p"),
+                                                withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // One id twice: valid, and refused for writing until somebody says which record is meant.
+        try Data("""
+            { "schemaVersion": 1, "people": [
+                { "id": "mother", "displayName": "Mother" },
+                { "id": "mother", "displayName": "Mother D" },
+                { "id": "daughter", "displayName": "Daughter" },
+                { "id": "son", "displayName": "Son" } ] }
+            """.utf8).write(to: dir.appendingPathComponent("p/people.json"))
+        let rosters = [("readonly", PeopleStore(directory: dir, profileId: "p", profile: nil)),
+                       ("writable", try roster())]
+        let host = CGSize(width: 1200, height: 740)
+        for (tag, people) in rosters {
+            let sheet = SetupSheet(
+                settings: settings, peopleStore: people, glassHue: .blue,
+                glassLevel: .frosted, surfaceTint: 0, availableSize: host,
+                hasFilingProfile: true, defaults: ScratchDefaults("render-d"),
+                walk: SetupSheetFitTests.realisticWalk, startScreen: .people, draftURL: nil,
+                onOpenSettings: { _ in }, onFinish: {}, onDismiss: {})
+            let hv = NSHostingView(rootView: sheet.frame(width: host.width, height: host.height)
+                .background(Color(white: 0.97)))
+            hv.appearance = NSAppearance(named: .aqua)
+            hv.frame = CGRect(origin: .zero, size: host)
+            let window = NSWindow(contentRect: hv.frame, styleMask: [.borderless],
+                                  backing: .buffered, defer: false)
+            window.contentView = hv
+            window.orderFront(nil)
+            hv.layoutSubtreeIfNeeded()
+            for _ in 0..<8 { RunLoop.current.run(until: Date().addingTimeInterval(0.08)) }
+            guard let rep = hv.bitmapImageRepForCachingDisplay(in: hv.bounds) else { continue }
+            hv.cacheDisplay(in: hv.bounds, to: rep)
+            window.orderOut(nil)
+            try rep.representation(using: .png, properties: [:])?
+                .write(to: out.appendingPathComponent("people-\(tag).png"))
+        }
+    }
 }

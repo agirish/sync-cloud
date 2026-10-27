@@ -12613,3 +12613,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s batchSheet=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No capsule and no pane PDF tools | CLOSED — does not apply |
+
+---
+
+## Setup: a carried reading keeps its Pause; a landing stops nothing; which roster refusal — main only
+
+Review of the Setup fixes above, 2026-10-27. On `main`: a reading the person had paused carries on
+paused into the new profile (it read straight through the Pause); a Save during a reorganization's
+landing no longer stops the reading for a write the landing refuses; and Setup's read-only roster
+note says "lists someone twice" for a repeated id, where it said "could not be read" for both.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s notReadWord=%s carryStop=%s\n' $l \
+  "$(git show origin/$l:MacApp/SetupFlow.swift 2>/dev/null | grep -cF 'listed, but people.json could not be read')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+DocumentSurvey.swift 2>/dev/null | grep -c 'func stopDocumentSurveyBeforeReplacingProfile')"; done
+# measured 2026-10-27, against origin, before this landed:
+# main          notReadWord=1 carryStop=1
+# v5.x, v4.x    notReadWord=1 carryStop=0
+# v3.x, v2.x    notReadWord=0 carryStop=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` | "could not be read" for both refusals (`notReadWord=1`); no carried reading to pause (`carryStop=0`) | RECORDED — not owed |
+| `v3.x` / `v2.x` | None of it | CLOSED — does not apply |

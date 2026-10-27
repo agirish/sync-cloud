@@ -1256,6 +1256,7 @@ import Testing
                                hasFilingProfile: true, defaults: ScratchDefaults("setup-model-d"),
                                walk: nil, draftURL: nil)
         #expect(model.rosterIsReadOnly, "premise: the roster is read-only")
+        #expect(model.rosterRepeatsAnId, "a roster with one id twice was not told apart from an unreadable one")
         let shown = model.rosterNames
         #expect(shown.contains("Granny"), "premise: the chips show the roster")
 

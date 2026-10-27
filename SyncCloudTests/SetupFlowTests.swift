@@ -475,6 +475,12 @@ import Testing
         #expect(refused.contains("could not be read"))
         #expect(refused.contains("Settings ▸ People"), "it has to say where to fix it")
         #expect(refused != honest)
+
+        // A roster read perfectly well, with one id twice, is not called unreadable.
+        let repeated = SetupFlow.peopleSummary(otherCount: 6, rosterIsReadOnly: true,
+                                               rosterRepeatsAnId: true)
+        #expect(!repeated.contains("could not be read"), "a readable roster was called unreadable")
+        #expect(repeated.contains("lists someone twice") && repeated.contains("Settings ▸ People"))
     }
 
     @Test func theSummaryCountsInSingularAndPlural() {
@@ -807,6 +813,8 @@ import Testing
         // …and none is drawn on a roster this sheet cannot write (review L1).
         #expect(people.contains("onRemove: model.rosterIsReadOnly\n                              ? nil :"),
                 "People draws a ✕ on a read-only roster — the chip goes and the person comes back")
+        #expect(people.contains("rosterRepeatsAnId: model.rosterRepeatsAnId"),
+                "People's read-only note no longer says which refusal it is")
         #expect(people.components(separatedBy: "model.removePerson(").count - 1 == 1,
                 "People calls `removePerson` somewhere besides the question's Remove button")
         #expect(people.contains("if let name = model.personAwaitingRemoval { model.removePerson(named: name) }"),
