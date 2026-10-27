@@ -1,7 +1,7 @@
 #!/bin/bash
 # Tests for scripts/test-shards, against a fake `swift` on PATH: it lists a made-up package and
-# "runs" whatever a chunk's --filter matches, printing Swift Testing's count line. Takes a few
-# seconds; prints one line per check and exits non-zero if any check fails.
+# "runs" whatever a chunk's --filter matches, printing Swift Testing's count line. Takes about
+# a minute; prints one line per check and exits non-zero if any check fails.
 set -u
 SHARDS="$(cd "$(dirname "$0")" && pwd)/test-shards"
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/test-shards-test.XXXXXX")
@@ -35,19 +35,33 @@ case "$1 $2" in
 esac
 filter=""; while [ $# -gt 0 ]; do [ "$1" = --filter ] && filter=$2; shift; done
 echo + >> "$FAKE_DIR/events"
-count=$(/usr/bin/python3 -c 'import re,sys; print(sum(1 for l in open(sys.argv[2]) if re.search(sys.argv[1], l.strip())))' "$filter" "$FAKE_DIR/list")
+# How many listed tests the filter matches, and the CPU seconds the suites it matches cost (from
+# $FAKE_DIR/truecosts, "seconds<TAB>suite", 0 for a suite it does not name), which it burns; and
+# the wall seconds it reports, from $FAKE_DIR/walls where that names the suite, else the same.
+read count seconds wall < <(/usr/bin/python3 -c '
+import re, sys
+costs = dict((l.split("\t")[1].strip(), float(l.split("\t")[0])) for l in open(sys.argv[3]) if "\t" in l)
+hits = [l.strip() for l in open(sys.argv[2]) if re.search(sys.argv[1], l.strip())]
+suites = {h.split("/")[0] for h in hits}
+walls = dict((l.split("\t")[1].strip(), float(l.split("\t")[0])) for l in open(sys.argv[4]) if "\t" in l)
+print(len(hits), sum(costs.get(s, 0) for s in suites), sum(walls.get(s, costs.get(s, 0)) for s in suites))' \
+  "$filter" "$FAKE_DIR/list" "$FAKE_DIR/truecosts" "$FAKE_DIR/walls")
+/usr/bin/python3 -c 'import sys, time
+while time.process_time() < float(sys.argv[1]): pass' "$seconds"
 grep -E "$filter" "$FAKE_DIR/list" >> "$FAKE_DIR/ran"
 sleep 0.3
 echo - >> "$FAKE_DIR/events"
 if [ -n "${FAKE_DIE:-}" ] && echo "$filter" | grep -q "$FAKE_DIE"; then exit 0; fi  # no count line
 [ -n "${FAKE_EXTRA:-}" ] && echo "$filter" | grep -q "$FAKE_EXTRA" && count=$((count + 1))
 if [ -n "${FAKE_FAIL:-}" ] && echo "$filter" | grep -q "$FAKE_FAIL"; then
-  echo "✘ Test run with $count tests in 1 suite failed after 0.1 seconds with 1 issue."; exit 1
+  echo "✘ Test run with $count tests in 1 suite failed after $wall seconds with 1 issue."; exit 1
 fi
-echo "✔ Test run with $count tests in 1 suite passed after 0.1 seconds."
+echo "✔ Test run with $count tests in 1 suite passed after $wall seconds."
 EOF
 chmod +x "$WORK/bin/swift"
-export PATH="$WORK/bin:$PATH" FAKE_DIR="$WORK"
+export PATH="$WORK/bin:$PATH" FAKE_DIR="$WORK" TEST_SHARDS_COSTS="$WORK/costs"
+: > "$WORK/truecosts"
+: > "$WORK/walls"
 
 shards() {  # shards <args…>: one run in a fresh scratch state; exit status in $status
   rm -f "$WORK/calls" "$WORK/events" "$WORK/ran"
@@ -100,7 +114,72 @@ shards pkg; first=$(grep -- '--filter' "$WORK/calls" | sort)
 shards pkg; second=$(grep -- '--filter' "$WORK/calls" | sort)
 check "chunks are dealt deterministically" same "$first" "$second"
 
-# 6. Bad arguments are refused.
+# 6. --measure runs every suite in a process of its own and records what each one cost.
+printf '0.8\tPkg.Suite4\n0.4\tPkg.PaneTabs\n' > "$WORK/truecosts"
+shards --measure pkg
+suites=$(sed 's|/.*||; s|^\(Pkg\.[^.]*\).*|\1|' "$WORK/list" | sort -u | wc -l | tr -d ' ')
+check "--measure exits 0" same "$status" 0
+check "--measure runs each suite alone" same "$(grep -c -- '--filter' "$WORK/calls")" "$suites"
+check "--measure writes one row per suite" same "$(grep -vc '^#' "$WORK/costs/pkg.tsv")" "$suites"
+check "...costliest by the CPU each used, first" \
+  same "$(grep -v '^#' "$WORK/costs/pkg.tsv" | head -2 | cut -f2 | tr '\n' ,)" "Pkg.Suite4,Pkg.PaneTabs,"
+top=$(grep -v '^#' "$WORK/costs/pkg.tsv" | head -1 | cut -f1)
+check "...less what starting a process costs (Suite4 burned 0.8 s, recorded $top)" \
+  /usr/bin/python3 -c "import sys; sys.exit(0 if 0.6 <= $top <= 0.9 else 1)"
+check "...so the cheapest suite costs next to nothing" \
+  same "$(grep -v '^#' "$WORK/costs/pkg.tsv" | tail -1 | cut -f1)" 0.01
+check "...and a nested suite's tests count toward its parent" grep -q "	Pkg.Pane$" "$WORK/costs/pkg.tsv"
+check "...and quiets the output of suites that passed" same "$(grep -c '^=== ' "$WORK/out")" 0
+# A suite whose test run took less wall time than its CPU (work on several threads) costs its wall
+# time; one that waited idle (wall above CPU) costs its CPU.
+printf '0.8\tPkg.Suite4\n0.6\tPkg.Suite6\n' > "$WORK/truecosts"
+printf '0.2\tPkg.Suite4\n9\tPkg.Suite6\n' > "$WORK/walls"
+shards --measure pkg
+row() { grep "	Pkg.$1$" "$WORK/costs/pkg.tsv" | cut -f1; }
+check "a suite busy on several threads costs its wall time ($(row Suite4))" same "$(row Suite4)" 0.20
+check "a suite that waited idle costs its CPU ($(row Suite6))" \
+  /usr/bin/python3 -c "import sys; sys.exit(0 if 0.4 <= $(row Suite6) <= 0.7 else 1)"
+: > "$WORK/walls"
+echo "# sentinel: a red run must leave this alone" > "$WORK/costs/pkg.tsv"
+cp "$WORK/costs/pkg.tsv" "$WORK/kept"
+FAKE_FAIL='Suite3[|)]' shards --measure pkg
+check "a red --measure fails and writes nothing" \
+  sh -c "[ $status = 1 ] && cmp -s '$WORK/kept' '$WORK/costs/pkg.tsv'"
+check "...and says why" grep -q "no costs written" "$WORK/err"
+
+: > "$WORK/truecosts"
+
+# 7. Costs decide the deal: the costliest suite is in a chunk of its own and starts first, and
+#    several costly suites are spread across chunks rather than dealt together.
+everyone() {  # a costs file naming every suite at 1 s, then the given rows
+  sed 's|/.*||; s|^\(Pkg\.[^.]*\).*|\1|' "$WORK/list" | sort -u | sed 's/^/1\t/'
+  printf '%b' "$1"
+}
+everyone '100\tPkg.Suite7\n' > "$WORK/costs/pkg.tsv"
+shards pkg
+first=$(grep -- '--filter' "$WORK/calls" | head -1 | sed 's/.*--filter //')
+check "the costliest suite starts first, alone" same "$first" '^(?:Pkg\.Suite7)(?:[./]|$)'
+check "with costs there are two chunks per job" same "$(grep -c -- '--filter' "$WORK/calls")" 6
+check "it says where the costs came from" grep -q "costs from .*pkg.tsv ($suites of $suites suites named)" "$WORK/err"
+everyone '50\tPkg.Suite1\n50\tPkg.Suite2\n50\tPkg.Suite3\n50\tPkg.Suite5\n' > "$WORK/costs/pkg.tsv"
+shards pkg
+together=$(grep -- '--filter' "$WORK/calls" | grep -cE 'Suite[1235][|)].*Suite[1235][|)]')
+check "four costly suites land in four chunks" same "$together" 0
+check "...and every test still runs once" same "$(sort "$WORK/ran" | uniq -u | wc -l | tr -d ' ')" "$listed"
+rm "$WORK/costs/pkg.tsv"
+shards pkg
+check "with no costs file it says every test costs the same" grep -q "no costs file" "$WORK/err"
+
+# 8. A suite the costs file does not name costs its test count at the file's average per test.
+weigh=$(/usr/bin/python3 -c '
+import importlib.machinery, importlib.util, sys
+loader = importlib.machinery.SourceFileLoader("shards", sys.argv[1])
+module = importlib.util.module_from_spec(importlib.util.spec_from_loader("shards", loader))
+loader.exec_module(module)
+print(module.weigh({"A": 2, "B": 3, "New": 4}, {"A": 10.0, "B": 40.0})["New"])' "$SHARDS")
+check "an unnamed suite of 4 tests at 10 s a test costs 40 (got $weigh)" same "$weigh" 40.0
+
+# 9. Bad arguments are refused.
 "$SHARDS" --jobs 0 pkg > /dev/null 2>&1; check "--jobs 0 is refused" same "$?" 64
 "$SHARDS" > /dev/null 2>&1; check "no package is refused" same "$?" 64
 

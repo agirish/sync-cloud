@@ -90,6 +90,8 @@ import Testing
     /// The bar's keys are the verbs' chords, and show only with the caret in the text: elsewhere ⌘I
     /// is the Info inspector. Nothing held, nothing asked — no window here has a caret either.
     @Test func theFormatBarShowsItsKeysOnlyWithTheCaretInTheText() {
+        // `NSApp` stays nil until something makes the app; alone in a process, this suite is first.
+        _ = NSApplication.shared
         #expect(EditorFormatBar.keycap(.bold) == "⌘B")
         #expect(EditorFormatBar.keycap(.italic) == "⌘I")
         #expect(EditorFormatBar.keycap(.heading(1)) == nil, "a heading has no key to show")

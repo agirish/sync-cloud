@@ -3,21 +3,34 @@
 
     scripts/test-shards Modules/FileExplorer
     scripts/test-shards --jobs 4 Modules/FileExplorer
+    scripts/test-shards --measure Modules/FileExplorer
 
 FileExplorer's suites are mostly @MainActor, so one test process is bound to one core: its main
 thread. Measured 2026-10-27, one run took 671 s of wall time and 725 s of CPU, its main thread
 averaging 72%. Splitting the suites across processes gives each its own main thread.
 
 Steps: build the tests once, list them (`swift test list`), deal whole top-level suites into
-chunks of about equal test count, then run the chunks as a queue, --jobs processes at a time
-(default 3), each `swift test --skip-build --ignore-lock --filter`. A test's count says little
-about its cost, so there are several chunks per job: a slow chunk holds up one job while the
-others drain the rest. Each chunk's output is held and printed whole when it ends, so chunks never
-interleave line by line.
+chunks of about equal cost, then run the chunks as a queue, heaviest first, --jobs processes at a
+time (default 3), each `swift test --skip-build --ignore-lock --filter`. Each chunk's output is
+held and printed whole when it ends, so chunks never interleave line by line.
+
+A suite's cost is its seconds in scripts/test-costs/<package>.tsv, written by --measure, which
+runs every suite as a chunk of its own and records the smaller of its wall seconds and its CPU
+seconds. Each overstates what a suite holds a shared process up for: wall time counts idle waits,
+which overlap other suites' work, and CPU counts work spread across threads (one suite used 216 s
+of CPU in 49 s). Checked 2026-10-27 against twelve real chunks that took 22–268 s: predicted by
+the smaller, r = 0.94 and close in seconds; by CPU alone, r = 0.55; by test count, r = -0.04.
+
+A suite the file does not name (a new one) costs its test count times the file's average per
+test; with no file at all, every test costs the same. Costs only decide the balance — a stale file
+makes a run slower, never less complete. With costs there are two chunks per job, without them
+four: replaying the 2026-10-27 costs, 6 costed chunks finish in 281 s against 304 s for 12 by
+count (273 ideal). Refresh the file when one chunk keeps finishing well after the rest.
 
 The verdict is red unless every chunk exits 0 and prints its own count line, and the counts add up
 to the listed total. The count line matters: a test process that dies can still leave `swift test`
 exiting 0, and a filter that matches nothing passes (docs/flaky-tests.md, the silent half).
+--measure writes nothing unless its run is green.
 
 Outside CI it takes one build slot for the whole run, re-running itself under scripts/build-slot
 (CLAUDE.md §7); inside a slot or on the CI runner ($GITHUB_ACTIONS) it runs at once. Environment
@@ -33,8 +46,12 @@ import tempfile
 import time
 
 DEFAULT_JOBS = 3
-CHUNKS_PER_JOB = 4
+CHUNKS_PER_JOB = 4  # costs unknown: small chunks, so the queue absorbs a surprise
+CHUNKS_PER_JOB_COSTED = 2  # costs known: big, even chunks lose less to a lumpy tail
+COSTS = (os.environ.get("TEST_SHARDS_COSTS")  # the tests point it elsewhere
+         or os.path.join(os.path.dirname(os.path.abspath(__file__)), "test-costs"))
 SWIFT_TESTING_RUN = re.compile(r"Test run with (\d+) tests? (?:in \d+ suites? )?(passed|failed)")
+RUN_SECONDS = re.compile(r"Test run with \d+ tests? .*after ([\d.]+) seconds")
 XCTEST_TOTAL = re.compile(r"Test Suite '(?:All tests|Selected tests)' (?:passed|failed)")
 XCTEST_EXECUTED = re.compile(r"Executed (\d+) tests?, with")
 
@@ -45,7 +62,7 @@ def say(message):
 
 
 def usage():
-    say("usage: scripts/test-shards [--jobs N] <package-path>")
+    say("usage: scripts/test-shards [--jobs N] [--measure] <package-path>")
     return 64
 
 
@@ -58,21 +75,57 @@ def group_of(identifier):
     return module + "." + rest.split(".", 1)[0] if rest else module
 
 
-def deal(identifiers, count):
-    """Whole suites into `count` chunks, largest first onto the lightest. Deterministic; the
-    chunks come back heaviest first and empty ones are dropped."""
+def shown(path):
+    """A path as short as it can be said: relative inside the working directory, else whole."""
+    relative = os.path.relpath(path)
+    return path if relative.startswith("..") else relative
+
+
+def costs_path(package):
+    return os.path.join(COSTS, os.path.basename(os.path.normpath(package)) + ".tsv")
+
+
+def read_costs(path):
+    """{suite: seconds} from a costs file; empty when there is none."""
+    costs = {}
+    try:
+        with open(path) as handle:
+            for line in handle:
+                if line.startswith("#") or "\t" not in line:
+                    continue
+                seconds, suite = line.rstrip("\n").split("\t", 1)
+                costs[suite] = float(seconds)
+    except (OSError, ValueError):
+        return {}
+    return costs
+
+
+def weigh(sizes, costs):
+    """{suite: cost}: the recorded seconds, else the test count at the recorded average per test,
+    else the test count."""
+    known = [suite for suite in sizes if suite in costs]
+    per_test = (sum(costs[s] for s in known) / sum(sizes[s] for s in known)
+                if known and sum(sizes[s] for s in known) else 1.0)
+    return {suite: costs[suite] if suite in costs else sizes[suite] * per_test for suite in sizes}
+
+
+def deal(identifiers, count, costs=None):
+    """Whole suites into `count` chunks, costliest first onto the lightest. Deterministic; returns
+    (suites, tests, cost) per chunk, costliest chunk first, empty ones dropped."""
     sizes = {}
     for identifier in identifiers:
         group = group_of(identifier)
         sizes[group] = sizes.get(group, 0) + 1
+    weights = weigh(sizes, costs or {})
     chunks = [[] for _ in range(count)]
-    loads = [0] * count
-    for group in sorted(sizes, key=lambda g: (-sizes[g], g)):
+    loads = [0.0] * count
+    for group in sorted(sizes, key=lambda g: (-weights[g], -sizes[g], g)):
         lightest = loads.index(min(loads))
         chunks[lightest].append(group)
-        loads[lightest] += sizes[group]
-    dealt = [(groups, load) for groups, load in zip(chunks, loads) if groups]
-    return sorted(dealt, key=lambda chunk: -chunk[1])
+        loads[lightest] += weights[group]
+    dealt = [(groups, sum(sizes[g] for g in groups), load)
+             for groups, load in zip(chunks, loads) if groups]
+    return sorted(dealt, key=lambda chunk: (-chunk[2], sorted(chunk[0])))
 
 
 def filter_for(groups):
@@ -98,7 +151,26 @@ def counted(log):
     return total if seen else None
 
 
-def run(package, jobs):
+def write_costs(path, cpu, wall, listed, jobs):
+    """Each suite's cost: the smaller of its test run's wall seconds and its CPU seconds less the
+    cheapest suite's CPU (what starting a process costs every chunk alike)."""
+    startup = min(cpu.values())
+    costs = {suite: max(min(seconds - startup, wall.get(suite, seconds)), 0.01)
+             for suite, seconds in cpu.items()}
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path + ".new", "w") as handle:
+        handle.write("# Each top-level suite alone in a process: the smaller of its test run's\n"
+                     "# wall seconds and its CPU seconds less %.2f s (the cheapest suite's:\n"
+                     "# starting the process). %d suites, %d tests, measured %s, %d processes\n"
+                     "# at a time. Written by `scripts/test-shards --measure`; read by\n"
+                     "# scripts/test-shards.\n"
+                     % (startup, len(costs), listed, time.strftime("%Y-%m-%d"), jobs))
+        for suite in sorted(costs, key=lambda s: (-costs[s], s)):
+            handle.write("%.2f\t%s\n" % (costs[suite], suite))
+    os.replace(path + ".new", path)
+
+
+def run(package, jobs, measure):
     if subprocess.call(["swift", "build", "--build-tests", "--package-path", package]) != 0:
         say("the build failed; no tests ran")
         return 1
@@ -109,12 +181,19 @@ def run(package, jobs):
         say("listing the tests failed (exit %d, %d listed)" % (listing.returncode,
                                                               len(identifiers)))
         return 1
-    chunks = deal(identifiers, jobs * CHUNKS_PER_JOB)
-    say("%d tests in %d suites: %d chunks, %d at a time" % (
-        len(identifiers), len({group_of(i) for i in identifiers}), len(chunks), jobs))
+    suites = {group_of(i) for i in identifiers}
+    costs = {} if measure else read_costs(costs_path(package))
+    per_job = CHUNKS_PER_JOB_COSTED if costs else CHUNKS_PER_JOB
+    chunks = deal(identifiers, len(suites) if measure else jobs * per_job, costs)
+    say("%d tests in %d suites: %d chunks, %d at a time, %s" % (
+        len(identifiers), len(suites), len(chunks), jobs,
+        "measuring each suite alone" if measure else
+        "costs from %s (%d of %d suites named)" % (
+            shown(costs_path(package)), len(suites & set(costs)), len(suites))
+        if costs else "no costs file, so every test costs the same"))
 
-    queue = [{"number": number, "groups": groups, "load": load}
-             for number, (groups, load) in enumerate(chunks, 1)]
+    queue = [{"number": number, "groups": groups, "tests": tests, "cost": cost}
+             for number, (groups, tests, cost) in enumerate(chunks, 1)]
     running = []
 
     def stop(signum, _frame):
@@ -127,7 +206,7 @@ def run(package, jobs):
     signal.signal(signal.SIGINT, stop)
 
     github = os.environ.get("GITHUB_ACTIONS") == "true"
-    began, problems, ran = time.time(), [], 0
+    began, problems, ran, cpu, wall = time.time(), [], 0, {}, {}
     while queue or running:
         while queue and len(running) < jobs:
             chunk = queue.pop(0)
@@ -141,52 +220,71 @@ def run(package, jobs):
             chunk["start"] = time.time()
             running.append(chunk)
         for chunk in list(running):
-            status = chunk["process"].poll()
-            if status is None:
+            # wait4, not poll: its rusage counts the test helper the chunk's `swift test` reaped,
+            # which is where --measure's CPU seconds come from.
+            pid, raw, usage = os.wait4(chunk["process"].pid, os.WNOHANG)
+            if pid == 0:
                 continue
+            status = chunk["process"].returncode = os.waitstatus_to_exitcode(raw)
             running.remove(chunk)
             chunk["log"].seek(0)
             log = chunk["log"].read()
             reported = counted(log)
-            title = "chunk %d/%d (%d tests listed)" % (chunk["number"], len(chunks),
-                                                      chunk["load"])
-            sys.stdout.write("::group::%s\n" % title if github else "=== %s\n" % title)
-            sys.stdout.write(log)
-            if github:
-                sys.stdout.write("::endgroup::\n")
-            sys.stdout.flush()
+            title = ("suite %s" % chunk["groups"][0] if measure else
+                     "chunk %d/%d (%d tests listed, cost %.0f)" % (
+                         chunk["number"], len(chunks), chunk["tests"], chunk["cost"]))
+            if not measure or status != 0 or reported is None:
+                sys.stdout.write("::group::%s\n" % title if github else "=== %s\n" % title)
+                sys.stdout.write(log)
+                if github:
+                    sys.stdout.write("::endgroup::\n")
+                sys.stdout.flush()
             say("%s: exit %d, %s tests run, %.0f s" % (
                 title, status, "no count line —" if reported is None else reported,
                 time.time() - chunk["start"]))
             if status != 0:
-                problems.append("chunk %d exited %d" % (chunk["number"], status))
+                problems.append("%s exited %d" % (title, status))
             if reported is None:
-                problems.append("chunk %d printed no test count" % chunk["number"])
+                problems.append("%s printed no test count" % title)
             else:
                 ran += reported
+                if measure:
+                    suite = chunk["groups"][0]
+                    cpu[suite] = usage.ru_utime + usage.ru_stime
+                    seconds = [float(found) for found in RUN_SECONDS.findall(log)]
+                    if seconds:
+                        wall[suite] = sum(seconds)
         time.sleep(0.5)
 
     if ran != len(identifiers) and not any("no test count" in p for p in problems):
         problems.append("%d tests listed but %d ran" % (len(identifiers), ran))
     if problems:
         say("FAILED: " + "; ".join(problems))
+        if measure:
+            say("no costs written: a red run's timings are not trusted")
         return 1
     say("all %d tests ran in %d chunks, %.0f s" % (ran, len(chunks), time.time() - began))
+    if measure:
+        write_costs(costs_path(package), cpu, wall, len(identifiers), jobs)
+        say("wrote %s" % shown(costs_path(package)))
     return 0
 
 
 def main(argv):
-    args, jobs = list(argv), DEFAULT_JOBS
-    if len(args) >= 2 and args[0] == "--jobs":
-        if not args[1].isdigit() or int(args[1]) < 1:
+    args, jobs, measure = list(argv), DEFAULT_JOBS, False
+    while args and args[0].startswith("--"):
+        if args[0] == "--measure":
+            measure, args = True, args[1:]
+        elif args[0] == "--jobs" and len(args) >= 2 and args[1].isdigit() and int(args[1]) >= 1:
+            jobs, args = int(args[1]), args[2:]
+        else:
             return usage()
-        jobs, args = int(args[1]), args[2:]
     if len(args) != 1:
         return usage()
     if not os.environ.get("BUILD_SLOT_HELD") and os.environ.get("GITHUB_ACTIONS") != "true":
         slot = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build-slot")
         os.execv(slot, [slot, os.path.abspath(__file__)] + list(argv))
-    return run(args[0], jobs)
+    return run(args[0], jobs, measure)
 
 
 if __name__ == "__main__":
