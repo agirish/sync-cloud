@@ -133,6 +133,66 @@ public struct CloudDownloadRequest: Equatable, Sendable {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
+    /// How many of one Download All's files the pane watches, so their badges clear as they land.
+    /// Each watch is a ten-second poll of one `lstat` a second; a folder past this many files takes
+    /// longer than any watch lasts anyway, and its rows are one republish from correct.
+    static let folderWatchCap = 200
+
+    /// Download All, whole: request every cloud-only file below a folder, then announce the first
+    /// `folderWatchCap` of them so the posting pane watches them land, as one file's Download does.
+    ///
+    /// The walk blocks its thread — a cloud-only folder inside is waited on for up to
+    /// `DatalessFolderReads`' deadline — so it runs on a dispatch queue, never the main actor or
+    /// the cooperative pool. When the provider refused every file, the folder is revealed in Finder,
+    /// as a refused Download is.
+    ///
+    /// - Parameter walk: the walk; the app's is `MaterializationStatus.downloadContents`, and a
+    ///   test passes its own answer.
+    @MainActor
+    @discardableResult
+    public static func requestFolderDownload(
+        path: String, name: String, from paneToken: PaneToken,
+        through channel: NotificationCenter = .default,
+        walk: @escaping @Sendable (String) -> MaterializationStatus.FolderDownload = {
+            MaterializationStatus.downloadContents(ofFolder: $0)
+        },
+        whenUnavailable: @MainActor (URL) -> Void = revealInFinder
+    ) async -> MaterializationStatus.FolderDownload {
+        let result = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async { continuation.resume(returning: walk(path)) }
+        }
+        Logger.shared.info("Download All in “\(name)”: requested \(result.requested.count), refused \(result.refused.count), unreadable folders \(result.unreadable)")
+        if result.requested.isEmpty, !result.refused.isEmpty {
+            whenUnavailable(URL(fileURLWithPath: path))
+        }
+        for file in result.requested.prefix(folderWatchCap) {
+            post(path: file, from: paneToken, through: channel)
+        }
+        return result
+    }
+
+    /// Keep Downloaded, toggled: pin or unpin the item, and on pinning also request its download —
+    /// the provider would fetch it anyway, but only a request through this pane starts the watch
+    /// that clears the row's cloud badge when the content lands.
+    @MainActor
+    public static func setKeepDownloaded(_ kept: Bool, path: String, name: String, isDirectory: Bool,
+                                         from paneToken: PaneToken,
+                                         through channel: NotificationCenter = .default) {
+        do {
+            try KeepDownloaded.set(kept, atPath: path)
+            Logger.shared.info("\(kept ? "Keeping" : "Stopped keeping") “\(name)” downloaded")
+        } catch {
+            Logger.shared.warning("Could not \(kept ? "keep" : "stop keeping") “\(name)” downloaded (\(error.localizedDescription))")
+            return
+        }
+        guard kept else { return }
+        if isDirectory {
+            Task { await requestFolderDownload(path: path, name: name, from: paneToken, through: channel) }
+        } else if MaterializationStatus.isCloudOnly(atPath: path) {
+            requestDownload(path: path, name: name, from: paneToken, through: channel)
+        }
+    }
+
     /// The routing decision, extracted so it can be unit-tested: the request carried by
     /// `notification` if it belongs to the pane identified by `paneToken`, nil otherwise
     /// (another pane's request, or a payload this build does not recognise).

@@ -1548,6 +1548,35 @@ struct FileContextMenu: View {
         labelSaidFavorite == isFavoriteNow
     }
 
+    /// Keep Downloaded as a ticked item, or nothing outside iCloud Drive. The tick is the state the
+    /// menu was built with; a click sets the opposite of what it showed, which is what was asked.
+    @ViewBuilder
+    private func keepDownloadedToggle(for node: FileNode) -> some View {
+        let state = KeepDownloaded.state(ofPath: node.id)
+        if state != .unavailable {
+            let shown = state != .off
+            Toggle(isOn: Binding(get: { shown }, set: { kept in
+                CloudDownloadRequest.setKeepDownloaded(
+                    kept, path: node.id, name: node.name, isDirectory: node.isDirectory,
+                    from: PaneToken(isLeft: isLeft, isSingleSource: isSingleSource),
+                    through: downloadChannel)
+            })) {
+                Label("Keep Downloaded", systemImage: "pin")
+            }
+            .disabled(Self.keptByFolder(state) != nil)
+            .help(Self.keptByFolder(state).map {
+                "Kept downloaded by “\(($0 as NSString).lastPathComponent)”."
+            } ?? (shown ? "Lets macOS remove the download again when space is needed."
+                        : "Downloads it now and keeps it on this Mac, even when space is low."))
+        }
+    }
+
+    /// The folder whose pin keeps `state`'s item downloaded, when it is a folder's and not its own.
+    static func keptByFolder(_ state: KeepDownloaded.State) -> String? {
+        if case .inherited(let folder) = state { return folder }
+        return nil
+    }
+
     /// The row's own ☁ answer when it has one, a fresh `lstat` otherwise — Download's rule below.
     static func isCloudOnly(_ path: String) -> Bool {
         CloudOnlyBadgeCache.cached(path) ?? MaterializationStatus.isCloudOnly(atPath: path)
@@ -1683,6 +1712,26 @@ struct FileContextMenu: View {
                         Label("Download", systemImage: "icloud.and.arrow.down")
                     }
                 }
+                // A folder's Download: every cloud-only file in it, at any depth. Offered for any
+                // folder in a cloud location — whether it holds anything cloud-only would take a
+                // walk to know, and this body runs per visible row.
+                if singleNode.isDirectory, MaterializationStatus.isInCloudLocation(singleNode.id) {
+                    Button {
+                        Task {
+                            await CloudDownloadRequest.requestFolderDownload(
+                                path: singleNode.id, name: singleNode.name,
+                                from: PaneToken(isLeft: isLeft, isSingleSource: isSingleSource),
+                                through: downloadChannel)
+                        }
+                    } label: {
+                        Label("Download All", systemImage: "icloud.and.arrow.down")
+                    }
+                    .help("Downloads every file in “\(singleNode.name)” that is only in the cloud.")
+                }
+                // Finder's Keep Downloaded, iCloud Drive only — the one provider measured to
+                // honour it (`KeepDownloaded`). Ticked and greyed under a kept folder: the
+                // folder's pin keeps it whatever this row says.
+                keepDownloadedToggle(for: singleNode)
                 // **Its own section, under the open-and-inspect items** (mockup 11), so it never
                 // shifts Rename or anything below it — and never between Refresh and Open in Edit,
                 // which leads this branch. Hidden, not greyed, for a folder, a non-PDF or a

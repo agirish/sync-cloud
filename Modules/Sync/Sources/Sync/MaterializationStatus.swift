@@ -120,4 +120,66 @@ public enum MaterializationStatus {
     public static func download(atPath path: String) throws {
         try FileManager.default.startDownloadingUbiquitousItem(at: URL(fileURLWithPath: linkTarget(of: path)))
     }
+
+    // MARK: - A folder's Download All
+
+    /// Whether `path` is inside a cloud provider's folder — `~/Library/CloudStorage/<provider>`,
+    /// an iCloud container, or an iCloud-synced `~/Desktop` / `~/Documents` — which is where a folder
+    /// is offered Download All. Path arithmetic plus at most one `getxattr`: a row's menu asks it on
+    /// every render, and whether the folder holds anything cloud-only would take a walk to know.
+    public static func isInCloudLocation(_ path: String, home: String = NSHomeDirectory()) -> Bool {
+        KeepDownloaded.descendant(path, of: home + "/Library/CloudStorage") != nil
+            || KeepDownloaded.iCloudRoot(containing: path, home: home) != nil
+    }
+
+    /// What one Download All asked for.
+    public struct FolderDownload: Equatable, Sendable {
+        /// Cloud-only files whose download was requested.
+        public let requested: [String]
+        /// Cloud-only files the provider refused to download.
+        public let refused: [String]
+        /// Folders the walk could not read, so nothing under them was asked for.
+        public let unreadable: Int
+
+        public init(requested: [String], refused: [String], unreadable: Int) {
+            self.requested = requested
+            self.refused = refused
+            self.unreadable = unreadable
+        }
+    }
+
+    /// Requests every cloud-only file at any depth below the folder at `path`.
+    ///
+    /// **A walk, because the folder itself cannot be asked.** Measured 2026-10-27 on a cloud-only
+    /// iCloud folder: `startDownloadingUbiquitousItem` on the folder returned without throwing and
+    /// downloaded nothing in it, ten seconds on.
+    ///
+    /// **Blocks its thread — call it off the cooperative pool.** The walk is
+    /// `FileManaging.listing(of:)`, so a cloud-only folder inside is asked for through
+    /// `DatalessFolderReads` — at most their deadline per folder, and a provider that never answers
+    /// leaves that folder unexplored and counted in `unreadable`, never a hung walk. Listing a
+    /// cloud-only folder is what brings its contents on disk, so every level is reached.
+    ///
+    /// A link is never followed: the listing does not descend into a linked folder, and a link's
+    /// `lstat` never reads cloud-only, so nothing outside the folder is fetched.
+    public static func downloadContents(
+        ofFolder path: String,
+        using disk: FileManaging = FileManager.default,
+        statFlags: StatFlags = realStatFlags,
+        download: (String) throws -> Void = { try MaterializationStatus.download(atPath: $0) }
+    ) -> FolderDownload {
+        let listing = disk.listing(of: URL(fileURLWithPath: path, isDirectory: true), options: [])
+        var requested: [String] = []
+        var refused: [String] = []
+        for url in listing.urls where !url.hasDirectoryPath && isCloudOnly(atPath: url.path, statFlags: statFlags) {
+            do {
+                try download(url.path)
+                requested.append(url.path)
+            } catch {
+                refused.append(url.path)
+            }
+        }
+        let unreadable = listing.outcome == .unreadable ? 1 : listing.unreadableDescendants.count
+        return FolderDownload(requested: requested, refused: refused, unreadable: unreadable)
+    }
 }
