@@ -57,6 +57,24 @@ extension PDFFixtures {
         try? FileManager.default.removeItem(atPath: plain)
     }
 
+    /// Encrypted, yet every permission allowed and no password to open — an encryption dictionary
+    /// with nothing restricted. Clean Metadata still cannot run on it (the toolkit refuses any
+    /// encrypted file), and its skip must not blame an owner's restrictions it does not have (L11).
+    static func writeEncryptedUnrestricted(_ path: String, pages: Int = 1) {
+        let plain = path + ".plain.pdf"
+        write(plain, pages: pages)
+        let every: [PDFAccessPermissions] = [.allowsLowQualityPrinting, .allowsHighQualityPrinting,
+                                             .allowsDocumentChanges, .allowsDocumentAssembly,
+                                             .allowsContentCopying, .allowsContentAccessibility,
+                                             .allowsCommenting, .allowsFormFieldEntry]
+        let bits = every.reduce(UInt(0)) { $0 | $1.rawValue }
+        let document = PDFDocument(url: URL(fileURLWithPath: plain))!
+        document.write(to: URL(fileURLWithPath: path),
+                       withOptions: [.ownerPasswordOption: "owner-only",
+                                     .accessPermissionsOption: NSNumber(value: bits)])
+        try? FileManager.default.removeItem(atPath: plain)
+    }
+
     /// Pages that are one large noise picture each — a scan, as far as Compress is concerned: no
     /// text layer, and far more bytes than a redraw at a lower resolution needs.
     static func writeScan(_ path: String, pages: Int, pixels: Int = 900) {

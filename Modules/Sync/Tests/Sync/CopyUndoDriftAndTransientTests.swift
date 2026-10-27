@@ -433,6 +433,32 @@ import EventsTestSupport
         #expect(manager.banner?.message == "Undo left “Archive” in place — it isn’t empty")
     }
 
+    /// **…and a folder an action made inside it still goes with it.** A landing that creates
+    /// `Archive` and `Archive/2026` registers both in one ⌘Z, parent first — the order
+    /// `applyPlan` and the scaffold keep — so the child's undo runs first and the parent is
+    /// empty by its turn. Counting folders as content (L4) rests on that order.
+    @MainActor
+    @Test func oneUndoStillRemovesAFolderAndTheFolderMadeInsideIt() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "l4n")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let parent = base.appendingPathComponent("Archive")
+        let child = parent.appendingPathComponent("2026")
+        try FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
+        let manager = makeManager()
+        let undo = try #require(manager.undoManager)
+        let disk = ScratchTrash(in: base)
+        undo.beginUndoGrouping()
+        manager.registerCreateFolderUndo(url: parent, fileManager: disk)
+        manager.registerCreateFolderUndo(url: child, fileManager: disk)
+        undo.endUndoGrouping()
+
+        undo.undo()
+        await waitUntil("undo ops drain") { manager.activeFileOperationsCount == 0 }
+        #expect(!FileManager.default.fileExists(atPath: parent.path),
+                "banner: \(String(describing: manager.banner?.message))")
+        #expect(disk.names == ["2026", "Archive"], "the undone folders never reached the test's own Trash")
+    }
+
     /// **U1: a cloud-only folder inside is asked for first, bounded.** The undo walked the folder
     /// with a plain enumerator, so a dataless subfolder whose app has stopped held the serial file
     /// queue — and everything behind it — until the app answered. It now reads as unknown within

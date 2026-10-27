@@ -713,6 +713,27 @@ private struct PDFToolDelegate: FileActionDelegate {
                 + EditorPDFToolEngine.decryptStep, "\(String(describing: batch.banner?.detail))")
     }
 
+    /// **The case L11 named: encrypted, with nothing restricted.** The old sentence blamed its
+    /// owner's restrictions; the file has none. The fixture is checked first, so this cannot pass
+    /// over a file that is restricted after all.
+    @Test func cleanMetadataSaysEncryptedForAFileWithNoRestrictions() async throws {
+        let open = path("Open.pdf")
+        PDFFixtures.writeEncryptedUnrestricted(open)
+        let (encryptedButOpen, unrestricted) = await PDFKitSerialAccess.perform { () -> (Bool, Bool) in
+            guard let read = PDFDocument(url: URL(fileURLWithPath: open)) else { return (false, false) }
+            return (read.isEncrypted && !read.isLocked,
+                    read.allowsDocumentAssembly && read.allowsDocumentChanges && read.allowsCopying
+                        && read.allowsCommenting && read.allowsFormFieldEntry)
+        }
+        try #require(encryptedButOpen, "the fixture is not encrypted-but-open")
+        try #require(unrestricted, "the fixture restricts something — this case would not be L11's")
+        let batch = batch(.cleanMetadata, [open])
+        await batch.run(.cleanMetadata)
+        #expect(batch.files[0].status == .skipped(.passwordProtected))
+        #expect(batch.banner?.detail == "“Open.pdf” — it’s encrypted, so its metadata can’t be cleaned\n"
+                + EditorPDFToolEngine.decryptStep, "\(String(describing: batch.banner?.detail))")
+    }
+
     /// **One form question for the batch, naming only the files with a form** — and turned down,
     /// nothing is written.
     @Test func theFormWarningNamesOnlyTheFilesWithAForm() async throws {
