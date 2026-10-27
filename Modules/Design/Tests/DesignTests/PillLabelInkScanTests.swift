@@ -65,13 +65,19 @@ import Testing
         var found: Set<String> = []
         for call in washCalls {
             for start in Scan.occurrences(of: call, in: argument) where start > 0 {
-                let end = start - 1
+                // The receiver ends at the last non-blank before the call: a chain written one
+                // modifier to a line puts a newline and an indent there, which read as a receiver
+                // with no name and an inverted range.
+                var end = start - 1
+                while end >= 0, argument[end].isWhitespace { end -= 1 }
+                guard end >= 0 else { continue }
                 if argument[end] == ")", let open = partners[end] {
                     found.formUnion(names(in: String(argument[(open + 1)..<end])))
                 } else {
                     var i = end
                     while i >= 0, argument[i].isLetter || argument[i].isNumber || argument[i] == "_"
                             || argument[i] == "." || argument[i] == "?" || argument[i] == "!" { i -= 1 }
+                    guard i < end else { continue }
                     found.formUnion(names(in: String(argument[(i + 1)...end])))
                 }
             }
@@ -272,6 +278,11 @@ import Testing
         #expect(count("HStack(spacing: 4) { Text(\"\\(index + 1)\").foregroundStyle(isCurrent ? accent : Color.secondary) }.padding(.horizontal, 7).background { Capsule().fill(isCurrent ? accent.opacity(0.14) : Color.clear) }") == 1)
         #expect(count("Group { if worded { HStack { Text(t) } } else { Image(systemName: s) } }.foregroundStyle(railIsHidden ? accent : .primary).background(Capsule().fill(railIsHidden ? accent.opacity(0.18) : .clear))") == 1)
         #expect(count("ZStack { Text(t).foregroundColor(tint) }.background(tint.opacity(0.2))") == 1)
+        // A wash written one modifier to a line: the newline before `.opacity(` is not the receiver.
+        #expect(count("Text(t).foregroundStyle(tint)\n.background(tint\n    .opacity(0.2))") == 1)
+        // …and a hidden button in a `.background { }` — an `.opacity(0)` after a call on its own line,
+        // which crashed the scan's process (2026-10-27) — is no word on a wash.
+        #expect(count("VStack { Text(t) }\n.background {\n    Button(\"\", action: stop)\n        .keyboardShortcut(k)\n        .opacity(0)\n}") == 0)
         // Kept: label ink, the shared rule, a different colour, a glyph tile, a wash with no word,
         // a dot in the colour beside label-colour words, a glyph in the colour inside a washed card,
         // a deepened sentence, a run washed only.

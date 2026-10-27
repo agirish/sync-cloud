@@ -409,6 +409,7 @@ extension ContentView {
         if runCapsuleShowing {
             ToolbarItem(placement: .principal) {
                 RunCapsuleHost(activeProgress: syncManager.activeProgress,
+                               activeProgressStartedAt: syncManager.activeProgressStartedAt,
                                pdfTools: panePDFTools, saveAsPDF: paneSaveAsPDF,
                                style: toolbarStyles.run ?? .ring)
             }

@@ -3,6 +3,7 @@ import AppKit
 import PDFKit
 import SwiftUI
 import Sync
+import Design
 import FileExplorerTestSupport
 @testable import FileExplorer
 
@@ -228,6 +229,44 @@ private struct SaveDelegate: FileActionDelegate {
         #expect(files() == ["A.md", "A.pdf", "B.md", "C.md"])
         #expect(model.banner?.message == "Stopped. Saved 1 of 3 as PDF.")
         #expect(model.banner?.kind == .savedSeveral([path("A.pdf")]))
+    }
+
+    /// **A Save as PDF behind a newer run keeps its Stop** (TE217). The capsule draws the newest
+    /// run — here a merge published after the save began — and lists the save beside it with its
+    /// own Stop. It used to draw the first of a fixed order, file operations first, and the save's
+    /// only Stop was the capsule's ✕, which then stopped the merge. Pressing the listed Stop ends
+    /// the save between files and leaves the merge running.
+    @Test func aSaveBehindANewerRunKeepsItsOwnStop() async throws {
+        let paths = try ["A.md", "B.md", "C.md"].map { try write("SAVEASPDF-\($0)\n", $0) }
+        let model = model()
+        model.start(paths: paths, writer: "Save as PDF in a test")
+        let merge = Progress(totalUnitCount: 7363)
+        merge.localizedDescription = "Merging “Photos”"
+        merge.isCancellable = true
+        let entries = RunCapsuleEntry.newestFirst(
+            [RunCapsuleEntry.fileOperation(merge, startedAt: Date(timeIntervalSinceNow: 1)),
+             try #require(RunCapsuleEntry.saveAsPDF(model))].reversed())
+        #expect(entries.map(\.kind) == [.fileOperation, .saveAsPDF], "the newest run is not drawn first")
+        let listed = entries.map { $0.listed() }
+        #expect(listed[0].run.title == "Merging “Photos”")
+        let stopSave = try #require(listed[1].onCancel, "the save beside a newer run has no Stop")
+        stopSave()
+        await model.work?.value
+        #expect(model.banner?.message.hasPrefix("Stopped.") == true, "the save's Stop did not stop it")
+        #expect(!merge.isCancelled, "the save's Stop stopped the merge")
+    }
+
+    /// A run with no start time sorts as the oldest, and equal times keep the kinds' own order —
+    /// so the order never depends on how the runs were handed in.
+    @Test func runsWithoutATimeSortOldest() {
+        let now = Date()
+        func entry(_ kind: RunCapsuleEntry.Kind, _ at: Date?) -> RunCapsuleEntry {
+            RunCapsuleEntry(kind: kind, startedAt: at, snapshot: { ProgressCapsuleRun(title: "\(kind)") }, cancel: nil)
+        }
+        #expect(RunCapsuleEntry.newestFirst([entry(.fileOperation, nil), entry(.saveAsPDF, now)]).map(\.kind)
+                == [.saveAsPDF, .fileOperation])
+        #expect(RunCapsuleEntry.newestFirst([entry(.saveAsPDF, now), entry(.pdfTool, now)]).map(\.kind)
+                == [.pdfTool, .saveAsPDF])
     }
 
     /// One run at a time: a second request mid-run is told so, and none of its files is saved.

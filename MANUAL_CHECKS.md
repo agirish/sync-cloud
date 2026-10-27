@@ -437,6 +437,20 @@ and key refusals are tested; this is what is not.
 - [ ] **Narrow window.** Drag the window to its narrowest (760pt) during a run → the capsule is a ring
   with its ✕, still in the toolbar, with Settings, Activity Log and Info still visible beside it.
 
+## Two runs at once in the capsule (Run Room TE217–TE219, 2026-10-27)
+
+- [ ] **The newest run, and a count.** Save as PDF on six Word or Pages files from a pane's row menu,
+  then at once start a duplicate merge in Organize → the capsule shows the merge and, where its ✕ was,
+  "2 ⌄". Hover: the tooltip lists both runs, newest first.
+- [ ] **Each run has its own Stop.** Click "2 ⌄" → a list under the capsule: the merge with Cancel (the
+  blue default button) and the Save as PDF with Stop. Click Save as PDF's Stop → it stops after the
+  file in hand, its message says how far it got, and the merge goes on; the list closes, and the
+  capsule's ✕ is back for the merge.
+- [ ] **⌘. never stops a run unseen.** With both running, press ⌘. → the list opens and nothing stops;
+  ⌘. again (or Return) cancels the merge only.
+- [ ] **Narrow window.** At 760pt with both running → the ring and a filled "2" badge beside it; a click
+  on the badge opens the same list.
+
 ## Undo waits for a long run (Banner Room CF, 2026-10-26)
 
 - [ ] **⌘Z waits.** Delete a file (its message offers Undo), then start a duplicate merge before the

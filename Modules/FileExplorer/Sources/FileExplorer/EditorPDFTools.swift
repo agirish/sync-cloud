@@ -224,6 +224,8 @@ public final class EditorPDFTools: ObservableObject {
         /// Whether its lane turn has begun. Until then it is waiting behind other PDF work — a
         /// duplicate scan can hold the lane for minutes — and says so, rather than that it is busy.
         public var started = false
+        /// When it was asked for — what orders it among the window's other runs, newest first.
+        public let requestedAt = Date()
 
         init(_ tool: EditorPDFTool) {
             self.tool = tool.title

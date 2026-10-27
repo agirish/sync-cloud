@@ -110,6 +110,50 @@ import Testing
         #expect(presses.count == 1, "⌘. also pressed the Esc button beside the capsule")
     }
 
+    /// **With two or more runs, ⌘. opens the list and stops nothing** (TE219, decision CJ). The
+    /// capsule draws the newest run; a ✕ there would stop whichever run happened to be drawn, so
+    /// the one key the capsule registers moves to the count button. Both rungs — the ring shows
+    /// the count as a badge (TE225).
+    @Test(arguments: [ProgressCapsuleStyle.full, .ring])
+    func withSeveralRunsCommandPeriodOpensTheListInsteadOfStopping(style: ProgressCapsuleStyle) async throws {
+        let progress = cancellable()
+        let opened = Presses()
+        let capsule = ProgressCapsule(run: ProgressCapsuleRun(progress: progress), style: style,
+                                      othersRunning: ["Saving 6 files as PDF · 2 of 6"],
+                                      onCancel: { progress.cancel() }, onShowRuns: { opened.count += 1 })
+        #expect(capsule.trailing == .count(2))
+        let window = try await host(AnyView(capsule))
+        defer { window.close() }
+        let commandPeriod = try key(window, keyCode: 47, characters: ".", modifiers: .command)
+        #expect(window.performKeyEquivalent(with: commandPeriod), "⌘. was not claimed by the count button")
+        #expect(opened.count == 1, "⌘. did not open the list of runs")
+        #expect(!progress.isCancelled, "⌘. stopped the drawn run with another one going beside it")
+    }
+
+    /// **The list's ⌘. and Return stop the newest run, and only it** (decision CJ: the second ⌘.
+    /// stops what the capsule drew). The older run's Stop is its own button — reached by a click,
+    /// never by a key that names no run.
+    enum ListKey: CaseIterable, Sendable { case commandPeriod, returnKey }
+
+    @Test(arguments: ListKey.allCases)
+    func theListsKeysStopTheNewestRunOnly(listKey: ListKey) async throws {
+        let newest = cancellable(), older = cancellable()
+        let list = ProgressCapsuleRunList(runs: [
+            ProgressCapsuleListedRun(id: "merge", run: ProgressCapsuleRun(progress: newest), symbol: "doc.on.doc",
+                                     startedAt: Date(), onCancel: { newest.cancel() }),
+            ProgressCapsuleListedRun(id: "pdf", run: ProgressCapsuleRun(progress: older), symbol: "doc.richtext",
+                                     startedAt: Date(timeIntervalSinceNow: -60), onCancel: { older.cancel() }),
+        ])
+        let window = try await host(AnyView(list))
+        defer { window.close() }
+        let press = listKey == .commandPeriod
+            ? try key(window, keyCode: 47, characters: ".", modifiers: .command)
+            : try key(window, keyCode: 36, characters: "\r", modifiers: [])
+        if !window.performKeyEquivalent(with: press) { window.sendEvent(press) }
+        #expect(newest.isCancelled, "the key did not stop the newest run")
+        #expect(!older.isCancelled, "the key stopped the older run too")
+    }
+
     /// **The count is grouped for the reader's locale**, like the title above it. The locale is
     /// pinned so the separator is a fact of the test; a cached formatter with no locale ignored
     /// it. Clamped to the total, as the bar is.

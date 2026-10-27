@@ -80,23 +80,46 @@ public enum ProgressCapsuleMetrics {
 ///
 /// The stop button keeps the dialog's chord, ⌘. — and deliberately not Esc, since the whole window
 /// is live around it and Esc clears a pane's selection (`AppChord.cancelOperation`).
+///
+/// **With two or more runs the stop button gives way to a count, "2 ⌄"** (TE218, TE219): the
+/// capsule draws the newest run, and a ✕ there would stop whichever run happened to be drawn —
+/// which changes under the pointer when one ends. The count opens the list where each run has its
+/// own Stop, and takes ⌘. with it (decision CJ: the key opens the list, never stops a run unseen).
 public struct ProgressCapsule: View {
     let run: ProgressCapsuleRun
     let style: ProgressCapsuleStyle
-    /// How many other runs are going behind this one — shown as "+1", named in the tooltip.
+    /// The other runs going beside this one, newest first — counted on the button, named in the
+    /// tooltip.
     let othersRunning: [String]
     let onCancel: (() -> Void)?
+    /// Opens the list of every run — the count button's action, and ⌘.'s, while others run.
+    let onShowRuns: (() -> Void)?
 
     @State private var hovering = false
     /// The window's hue for the ring's arc — a line, so the raw accent, not the system's `.tint`.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
     public init(run: ProgressCapsuleRun, style: ProgressCapsuleStyle,
-                othersRunning: [String] = [], onCancel: (() -> Void)?) {
+                othersRunning: [String] = [], onCancel: (() -> Void)?,
+                onShowRuns: (() -> Void)? = nil) {
         self.run = run
         self.style = style
         self.othersRunning = othersRunning
         self.onCancel = onCancel
+        self.onShowRuns = onShowRuns
+    }
+
+    /// What the trailing button does: stop the one run, or open the list of several. Never both,
+    /// so the capsule registers ⌘. once.
+    enum Trailing: Equatable {
+        case stop
+        case count(Int)
+        case none
+    }
+
+    var trailing: Trailing {
+        if !othersRunning.isEmpty, onShowRuns != nil { return .count(othersRunning.count + 1) }
+        return onCancel == nil ? .none : .stop
     }
 
     public var body: some View {
@@ -122,22 +145,15 @@ public struct ProgressCapsule: View {
                         .fixedSize()
                 }
             }
-            if !othersRunning.isEmpty {
-                Text("+\(othersRunning.count)")
-                    .scaledFont(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
-            }
-            if let onCancel {
-                Button(action: onCancel) {
-                    Image(systemName: "xmark.circle.fill")
-                        .hoverInk()
+            if trailing != .none {
+                Button(action: { trailingAction() }) {
+                    trailingLabel
                 }
                 .buttonStyle(.hoverAffordance(.inline))
                 // ⌘. and deliberately not esc (see `AppChord.cancelOperation`).
                 .keyboardShortcut(AppChord.cancelOperation.key, modifiers: AppChord.cancelOperation.modifiers)
-                .help(ShortcutHint.tooltip(run.cancelHelp, AppChord.cancelOperation.display))
-                .accessibilityLabel(run.cancelTitle)
+                .help(ShortcutHint.tooltip(trailingHelp, AppChord.cancelOperation.display))
+                .accessibilityLabel(trailingAccessibilityLabel)
             }
         }
         .padding(.leading, 8)
@@ -149,11 +165,69 @@ public struct ProgressCapsule: View {
         .onHover { hovering = $0 }
         .help(tooltip)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(tooltip)
+        .accessibilityLabel(accessibilityText)
     }
 
+    /// Every run, newest first, one to a line — and the count ahead of them for VoiceOver, which
+    /// hears the capsule as one element (TE226).
     private var tooltip: String {
         ([run.summary] + othersRunning).joined(separator: "\n")
+    }
+
+    private var accessibilityText: String {
+        guard case .count(let count) = trailing else { return tooltip }
+        return "\(count) running. " + ([run.summary] + othersRunning).joined(separator: ". ")
+    }
+
+    private func trailingAction() {
+        switch trailing {
+        case .stop: onCancel?()
+        case .count: onShowRuns?()
+        case .none: break
+        }
+    }
+
+    private var trailingHelp: String {
+        guard case .count(let count) = trailing else { return run.cancelHelp }
+        return "\(count) running — show each with its own Stop"
+    }
+
+    private var trailingAccessibilityLabel: String {
+        guard case .count(let count) = trailing else { return run.cancelTitle }
+        return "\(count) running, show each"
+    }
+
+    /// The ✕, or the count: "2 ⌄" in the full capsule, a filled badge in the ring, where the
+    /// chevron has no room (TE225).
+    @ViewBuilder private var trailingLabel: some View {
+        switch trailing {
+        case .count(let count) where style == .full:
+            HStack(spacing: 2) {
+                Text("\(count)")
+                    .scaledFont(.system(size: 10.5, weight: .semibold))
+                    .monospacedDigit()
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 7, weight: .bold))
+            }
+            .padding(.leading, 6)
+            .padding(.trailing, 5)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(.background))
+            .overlay(Capsule().strokeBorder(.separator))
+            .fixedSize()
+        case .count(let count):
+            let hue = LiquidGlassHue(rawValue: glassHueRaw) ?? .blue
+            Text("\(count)")
+                .scaledFont(.system(size: 9.5, weight: .bold))
+                .monospacedDigit()
+                .foregroundStyle(hue.onAccentLabelColor)
+                .frame(minWidth: 15, minHeight: 15)
+                .background(Circle().fill(hue.accentFillColor))
+                .fixedSize()
+        default:
+            Image(systemName: "xmark.circle.fill")
+                .hoverInk()
+        }
     }
 
     /// Determinate while the run can count, a spinner while it cannot.

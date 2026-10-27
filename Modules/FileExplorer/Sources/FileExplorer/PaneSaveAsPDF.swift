@@ -97,6 +97,8 @@ public final class PaneSaveAsPDF: ObservableObject {
     public init() {}
 
     public var isRunning: Bool { progress != nil }
+    /// When the run in flight was asked for — what orders it among the window's other runs.
+    public private(set) var startedAt: Date?
 
     /// The request a row's menu or File ▸ made, over `paths`. `writer` names the workspace in the log.
     public func start(paths: [String], writer: String) {
@@ -110,6 +112,7 @@ public final class PaneSaveAsPDF: ObservableObject {
         stopRequested = false
         busyNote = nil
         banner = nil
+        startedAt = Date()
         progress = Progress(done: 0, total: paths.count, name: (paths[0] as NSString).lastPathComponent)
         work = Task { @MainActor in await run(paths, writer: writer) }
     }

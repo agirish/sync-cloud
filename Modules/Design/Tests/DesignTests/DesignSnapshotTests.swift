@@ -144,6 +144,39 @@ import Testing
             named: style == .full ? "mid-operation-full" : "mid-operation-ring")
     }
 
+    /// Two runs, both rungs: the newest run drawn, and the count where the ✕ was — "2 ⌄" in the
+    /// full capsule, a filled badge beside the ring (TE218, TE225).
+    @Test(arguments: [ProgressCapsuleStyle.full, .ring])
+    func progressCapsuleTwoRuns(style: ProgressCapsuleStyle) {
+        let progress = Progress(totalUnitCount: 7363)
+        progress.completedUnitCount = 736
+        progress.localizedDescription = "Merging “Photos”"
+        assertViewSnapshot(
+            of: ProgressCapsule(run: ProgressCapsuleRun(progress: progress), style: style,
+                                othersRunning: ["Compressing 4 PDFs · 2 of 4"], onCancel: {}, onShowRuns: {})
+                .padding(12),
+            size: CGSize(width: style == .full ? 410 : 90, height: 52),
+            named: style == .full ? "two-runs-full" : "two-runs-ring")
+    }
+
+    /// The list the count opens: each run with its own progress and Stop, the newest's the default
+    /// button (TE219). Start times left out — "started … ago" reads the clock.
+    @Test func progressCapsuleRunList() {
+        let merge = ProgressCapsuleRun(title: "Merging “Photos”", completed: 736, total: 7363, detail: "IMG_2034.jpg")
+        let pdf = ProgressCapsuleRun(title: "Compressing — page 14 of 40", detail: "Lease 2026.pdf",
+                                     cancelTitle: "Stop", cancelHelp: "Stop — nothing is written")
+        assertViewSnapshot(
+            of: ProgressCapsuleRunList(runs: [
+                ProgressCapsuleListedRun(id: "merge", run: merge, symbol: "doc.on.doc", startedAt: nil, onCancel: {}),
+                ProgressCapsuleListedRun(id: "pdf", run: pdf, symbol: "wrench.and.screwdriver", startedAt: nil,
+                                         onCancel: {}),
+            ])
+            // Offscreen, a default button paints grey unless its window reads as key.
+            .environment(\.controlActiveState, .key),
+            size: CGSize(width: ProgressCapsuleRunList.width, height: 160),
+            named: "two-runs")
+    }
+
     // MARK: Glass surfaces — the dark "bold" re-tune
 
     // Rendered at `.solid` on purpose: `.glassEffect` (the `.clear`/`.frosted` fill) doesn't render

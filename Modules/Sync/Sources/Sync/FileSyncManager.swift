@@ -2606,7 +2606,12 @@ public class FileSyncManager: ObservableObject {
     /// Real-time progress tracker for the currently active bulk file operation. While it is set
     /// the window greys every action that writes to disk (decision BZ) — each publisher names its
     /// run in ``Foundation/Progress/runLockReason`` for the tooltip that says why.
-    @Published public var activeProgress: Progress? = nil
+    @Published public var activeProgress: Progress? = nil {
+        didSet { if activeProgress !== oldValue { activeProgressStartedAt = activeProgress.map { _ in Date() } } }
+    }
+    /// When the run on ``activeProgress`` was published — what orders it among the window's other
+    /// runs, newest first, in the toolbar's capsule (TE218).
+    public private(set) var activeProgressStartedAt: Date?
     /// Short-lived banner for in-app operation completion toasts. The severity drives the UI's
     /// icon, tint, and dismissal behavior.
     ///

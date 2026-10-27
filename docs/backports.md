@@ -12418,3 +12418,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s sheets=%s sheetRoot=%s notNow
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF tool sheets (`sheets=0`); sentence-case buttons, the rule offer's "Not now" on every line (`notNow=2`) | RECORDED — not owed |
+
+---
+
+## Every run in the toolbar capsule keeps its Stop (TE217) — main only
+
+Run Room, 2026-10-27. The capsule drew the first of a file operation, a pane PDF tool run and Save
+as PDF in that fixed order, the others a grey "+1"; its ✕ stopped only the run it drew, so a Save as
+PDF behind a merge had no Stop until the merge ended. `main` draws the newest run and, with two or
+more, puts a count where the ✕ was: it (and ⌘.) opens a list with each run's own Stop. The older
+lines have no capsule — a long run there is the progress dialog.
+
+```sh
+S=Modules/FileExplorer/Sources/FileExplorer
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s host=%s plusN=%s\n' $l \
+  "$(git ls-tree --name-only origin/$l -- $S/RunCapsuleHost.swift | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:Modules/Design/Sources/Design/ProgressCapsule.swift 2>/dev/null | grep -cF 'Text("+\(othersRunning.count)")')"; done
+# measured 2026-10-27, against origin, before this landed (the change reads plusN=0 on main):
+# main          host=1 plusN=1
+# v5.x … v2.x   host=0 plusN=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No capsule (`host=0`): one run at a time behind the progress dialog | CLOSED — does not apply |
