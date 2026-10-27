@@ -574,7 +574,8 @@ extension SetupChip where Trailing == EmptyView {
 struct FlowChips: View {
     let items: [String]
     var subtitle: (String) -> String? = { _ in nil }
-    let onRemove: (String) -> Void
+    /// What a chip's ✕ does. nil draws no ✕ — a list that cannot be changed offers no way to.
+    let onRemove: ((String) -> Void)?
 
     var body: some View {
         if items.isEmpty {
@@ -584,26 +585,34 @@ struct FlowChips: View {
         } else {
             WrapLayout(spacing: 6) {
                 ForEach(items, id: \.self) { item in
-                    SetupChip(mark: .person, title: item, detail: subtitle(item), isFilled: true) {
-                        Button {
-                            onRemove(item)
-                        } label: {
-                            Image(systemName: "xmark")
-                                .scaledFont(.caption2)
-                                // `hoverInk` rather than a flat `.foregroundStyle(.secondary)`:
-                                // the style cannot lift a label's ink from outside, because the
-                                // label's own modifier is applied inside it.
-                                .hoverInk()
-                                // Room for the wash, cancelled below.
-                                .padding(3)
-                        }
-                        .buttonStyle(.hoverAffordance(.inline))
-                        .padding(-3)
-                        .help("Remove \(item) from the list")
-                        .accessibilityLabel("Remove \(item)")
+                    if let onRemove {
+                        removableChip(item, onRemove: onRemove)
+                    } else {
+                        SetupChip(mark: .person, title: item, detail: subtitle(item), isFilled: true)
                     }
                 }
             }
+        }
+    }
+
+    private func removableChip(_ item: String, onRemove: @escaping (String) -> Void) -> some View {
+        SetupChip(mark: .person, title: item, detail: subtitle(item), isFilled: true) {
+            Button {
+                onRemove(item)
+            } label: {
+                Image(systemName: "xmark")
+                    .scaledFont(.caption2)
+                    // `hoverInk` rather than a flat `.foregroundStyle(.secondary)`:
+                    // the style cannot lift a label's ink from outside, because the
+                    // label's own modifier is applied inside it.
+                    .hoverInk()
+                    // Room for the wash, cancelled below.
+                    .padding(3)
+            }
+            .buttonStyle(.hoverAffordance(.inline))
+            .padding(-3)
+            .help("Remove \(item) from the list")
+            .accessibilityLabel("Remove \(item)")
         }
     }
 }

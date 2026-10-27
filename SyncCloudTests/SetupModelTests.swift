@@ -1,5 +1,6 @@
 import Foundation
 import Settings
+import SwiftUI
 import Sync
 import Testing
 @testable import SyncCloud
@@ -244,7 +245,7 @@ import Testing
     /// The rebuild is heavy main-actor work. On You or People — where a reading usually lands,
     /// Continue never waiting — it ran under the user's typing, for a tree arrival at Structure
     /// builds anyway. Past Structure it is the only rebuild: Workspaces reads the loose-file routes.
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     func aReadingRebuildsThePreviewOnlyWhereItIsRead() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-where-\(UUID().uuidString)")
@@ -285,7 +286,7 @@ import Testing
     /// Change… does not wait for the reading it supersedes. The late result landed as the reading
     /// of the new folder, and Learn's primary — Continue over a finished reading — kept the old
     /// folder's tree under the new folder's name.
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     func aReadingOfTheOldFolderThatLandsLateIsDropped() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-late-\(UUID().uuidString)")
@@ -320,7 +321,7 @@ import Testing
     /// The landing guard checked the folder alone, so a Skip was overridden — Countries and
     /// Structure came back into a flow the user had just dropped them from — and Back to Learn
     /// again mid-reading had two walks land, each resetting the Countries ticks.
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     func onlyTheLatestAwaitedReadingLands() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-gen-\(UUID().uuidString)")
@@ -611,7 +612,7 @@ import Testing
 
     /// **A retry keeps the last failure on screen while it writes.** It was cleared before the
     /// write, so Structure jumped and Continue Without Saving vanished for the length of the press.
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     func aRetryKeepsTheFailureUpWhileItWrites() async throws {
         let (model, root, _) = try await failedSave("retry")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -626,7 +627,7 @@ import Testing
     ///
     /// The press advanced from whatever screen was current when it landed, so Back mid-write left
     /// for Countries and was carried straight back to Structure.
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     func backIsRefusedWhileSaveWrites() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-backsave-\(UUID().uuidString)")
@@ -1122,5 +1123,154 @@ import Testing
         let (model, started, walk) = try await save(besideAHandBuiltProfile: false)
         #expect(!model.walkNotInUse)
         #expect(started == [walk.root])
+    }
+
+    // MARK: - Review of the v6.1 Setup work, 2026-10-27
+
+    /// **Learn pressed while the folder is still being read starts no second reading.** Back to
+    /// Learn mid-reading still says Learn, and its press walked the same tree again beside the
+    /// first walk, which nothing cancels.
+    @Test(.timeLimit(.minutes(2)))
+    func learnWhileTheFolderIsBeingReadReadsItOnce() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-learn-twice-\(UUID().uuidString)")
+        let documents = root.appendingPathComponent("Documents")
+        for folder in ["Finance/US", "Family/Mother"] {
+            try FileManager.default.createDirectory(at: documents.appendingPathComponent(folder),
+                                                    withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = root.appendingPathComponent("profiles")
+        let model = await self.model(syncManager: engine)
+        model.changeWalkRoot(to: documents)
+        model.screen = .learn
+        // The test holds the main actor, so the reading cannot land before the second press.
+        model.pressLearnPrimary()
+        let first = try #require(model.lastWalk, "premise: Learn started a reading")
+        #expect(model.walkState.isRunning)
+        model.screen = .learn
+        #expect(model.learnPrimaryTitle == "Learn", "premise: Learn mid-reading still says Learn")
+
+        model.pressLearnPrimary()
+
+        #expect(model.lastWalk == first, "the second press started a second walk of the same folder")
+        await first.value
+        #expect(model.walkState.isDone, "the reading under way was dropped")
+    }
+
+    /// **Closing Setup after editing your name renames your record, rather than adding a second
+    /// "me"** (review M5). People hides "me", so the duplicate showed nowhere. The old name stays as
+    /// an alias, so the folders that call you by it still do.
+    @Test func editingYourNameAndClosingRenamesYourRecord() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-rename-me-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = PeopleStore(directory: dir, profileId: "rename", profile: nil)
+        store.add(displayName: "Abhishek", relationship: "me")
+        store.add(displayName: "Maya", relationship: "wife")
+        let id = try #require(store.people.first { $0.relationship == "me" }?.id)
+        let model = SetupModel(settings: await settings(), peopleStore: store, syncManager: nil,
+                               hasFilingProfile: true, defaults: ScratchDefaults("setup-model-d"),
+                               startScreen: .you, draftURL: nil)
+        model.onOpen()
+        #expect(model.draft.yourName == "Abhishek", "premise: You opens on the roster's name")
+
+        model.firstName = "Abhi"
+        model.surname = ""
+        model.commitBeforeClosing()
+
+        let mine = store.people.filter { PeopleOrder.tier(of: $0.relationship) == .yourself }
+        #expect(mine.count == 1, "closing left \(mine.map(\.displayName)) all marked as you")
+        #expect(mine.first?.id == id, "your record was replaced, not renamed")
+        #expect(mine.first?.displayName == "Abhi")
+        #expect(mine.first?.aliases.contains("Abhishek") == true,
+                "the old name was dropped, so folders named for it no longer find you")
+        #expect(store.people.map(\.displayName).sorted() == ["Abhi", "Maya"])
+    }
+
+    /// **A person added after a Save offers Save again, and the second Save holds them** (review
+    /// M6). Only the reading and the countries counted, so Structure rebuilt its preview from the
+    /// new household beside a Continue, and the profile on disk kept the old person axis.
+    @Test func aPersonAddedAfterSaveIsSavedAgain() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-rehousehold-\(UUID().uuidString)")
+        let profiles = root.appendingPathComponent("profiles")
+        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let engine = FileSyncManager()
+        engine.filingProfilesDirectory = profiles
+        let model = SetupModel(settings: await settings(), peopleStore: nil, syncManager: engine,
+                               hasFilingProfile: false, defaults: ScratchDefaults("setup-model-d"),
+                               walk: Self.walk(folders: ["Finance/US", "Family/Maya", "Family/Ravi"]),
+                               draftURL: nil,
+                               onProfileWritten: {
+                                   guard let id = FilingProfileStore.activeProfileId(in: profiles) else { return }
+                                   engine.filingPeopleStore = PeopleStore(directory: profiles,
+                                                                          profileId: id, profile: nil)
+                               })
+        model.screen = .people
+        model.newPersonField = "Maya"
+        model.commitTypedPerson()
+        #expect(await model.save(), "premise: the first Save wrote")
+        let first = try #require(model.writtenReport?.profileId)
+        #expect(!model.canWriteProfile,
+                "Save was offered again straight after it wrote, with nothing changed")
+
+        model.screen = .people
+        model.newPersonField = "Ravi"
+        model.commitTypedPerson()
+        _ = model.advance()
+
+        #expect(model.canWriteProfile,
+                "a person added after Save left Structure on Continue over a profile without them")
+        #expect(await model.save(), "the second Save wrote nothing")
+        let second = try #require(model.writtenReport?.profileId)
+        #expect(second != first)
+        let before = try #require(FilingProfileStore.profile(id: first, in: profiles))
+        let after = try #require(FilingProfileStore.profile(id: second, in: profiles))
+        #expect(before.folders["Family/Ravi"]?.axes["person"] == nil, "premise: the first had no Ravi")
+        #expect(after.folders["Family/Ravi"]?.axes["person"] == "Ravi",
+                "the second Save's profile does not hold Ravi")
+        #expect(!model.canWriteProfile)
+    }
+
+    /// **A roster Setup cannot write offers no ✕** (review L1). The chip vanished, the store
+    /// refused the save with a log line, and the person was back at the next launch.
+    @Test func aReadOnlyRosterOffersNoRemove() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-readonly-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("p"),
+                                                withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // One id twice: valid, and refused for writing until somebody says which record is meant.
+        try Data("""
+            { "schemaVersion": 1, "people": [
+                { "id": "elder", "displayName": "Elder" },
+                { "id": "elder", "displayName": "Elder F" },
+                { "id": "granny", "displayName": "Granny" } ] }
+            """.utf8).write(to: dir.appendingPathComponent("p/people.json"))
+        let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
+        let model = SetupModel(settings: await settings(), peopleStore: store, syncManager: nil,
+                               hasFilingProfile: true, defaults: ScratchDefaults("setup-model-d"),
+                               walk: nil, draftURL: nil)
+        #expect(model.rosterIsReadOnly, "premise: the roster is read-only")
+        let shown = model.rosterNames
+        #expect(shown.contains("Granny"), "premise: the chips show the roster")
+
+        model.requestRemovePerson(named: "Granny")
+
+        #expect(model.personAwaitingRemoval == nil, "a remove was offered on a roster that cannot change")
+        #expect(model.rosterNames == shown, "the chip went from a roster that cannot change")
+
+        // And the chip draws no ✕: the same chips, with and without a remove action.
+        func width(_ chips: FlowChips) -> CGFloat {
+            NSHostingController(rootView: chips).sizeThatFits(in: CGSize(width: 2000, height: 200)).width
+        }
+        let withRemove = width(FlowChips(items: ["Granny"], onRemove: { _ in }))
+        let without = width(FlowChips(items: ["Granny"], onRemove: nil))
+        #expect(without < withRemove,
+                "the chip with no remove action is as wide as one with a ✕ (\(without) vs \(withRemove))")
     }
 }

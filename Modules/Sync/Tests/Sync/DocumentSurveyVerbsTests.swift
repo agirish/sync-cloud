@@ -185,4 +185,68 @@ import EventsTestSupport
         #expect(result == .failure(.couldNotDiscardProgress))
         #expect(reads.paths.isEmpty, "started — and so resumed — beside progress it could not clear")
     }
+
+    // MARK: - A profile written while a reading runs (review M4)
+
+    /// **A stop made for a new profile waits for the run to end, and keeps what it read.** Setup's
+    /// Save writes the new profile straight after, and that write carries the progress across — so
+    /// the run must be over, its progress on disk, before the call returns.
+    @Test func aStopForANewProfileWaitsForTheRunToEnd() async throws {
+        let (manager, docs, _, reads, root) = try FilingResurveyTests.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
+        // Hot once two documents are read, so the run stands paused with progress behind it.
+        manager.machineConditions = {
+            MachineConditions(heat: reads.paths.count >= 2 ? .serious : .nominal)
+        }
+        let plan = try await manager.planDocumentSurvey(root: docs).get()
+        let result = Task { @MainActor in await manager.runDocumentSurvey(plan: plan) }
+        #expect(await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .thermal },
+                "premise: the run never paused, so the rest proves nothing")
+
+        let stopped = await manager.stopDocumentSurveyBeforeReplacingProfile()
+
+        #expect(stopped == plan.root, "a run stopped two documents in was reported as \(stopped.map(\.path) ?? "finished")")
+        #expect(manager.documentSurveyRun == nil,
+                "the call returned with the run still going — the write after it copies stale progress")
+        let answered = await result.value
+        #expect(answered == .failure(.stoppedForNewProfile),
+                "the stopped run answered \(answered) — a success puts “Stopped after …” on screen")
+        #expect((manager.resumableDocumentSurvey(root: docs)?.done ?? 0) >= 2,
+                "the progress was not on disk for the new profile to carry")
+    }
+
+    /// **Beside a hand-built profile nothing is stopped**: the write cannot replace it, so the
+    /// reading of it is still the reading of the profile in use.
+    @Test func aReadingOfAHandBuiltProfileIsNotStopped() async throws {
+        let (manager, docs, profiles, _, root) = try FilingResurveyTests.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try FilingProfileStore.writeProfile(
+            FolderProfile(profileId: "t", root: docs.path, folders: [:], personTokens: []),
+            in: profiles, builtBy: "by hand")
+        #expect(FilingProfileStore.activeProfileId(in: profiles) == "t", "premise: the hand-built one is active")
+        manager.machineConditions = { MachineConditions(heat: .serious) }
+        let plan = try await manager.planDocumentSurvey(root: docs).get()
+        let running = start(manager, plan)
+        #expect(await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .thermal })
+
+        let stopped = await manager.stopDocumentSurveyBeforeReplacingProfile()
+
+        #expect(stopped == nil, "a reading of the hand-built profile in use was stopped")
+        #expect(manager.documentSurveyRun != nil)
+        await finish(manager, running)
+    }
+
+    /// **A plan made for a profile since replaced is not run** — it would read into the old one.
+    @Test func aPlanForAReplacedProfileIsNotRun() async throws {
+        let (manager, docs, _, reads, root) = try FilingResurveyTests.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let plan = try await manager.planDocumentSurvey(root: docs).get()
+        // What Setup's Save and the attach after it leave behind.
+        manager.filingProfileDirectoryId = "walk-later"
+
+        let result = await manager.runDocumentSurvey(plan: plan)
+
+        #expect(result == .failure(.profileReplaced))
+        #expect(reads.paths.isEmpty, "the plan for profile \(plan.profileId) read into it")
+    }
 }

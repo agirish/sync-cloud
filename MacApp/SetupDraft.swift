@@ -109,6 +109,11 @@ struct SetupDraft: Codable, Equatable, Sendable {
     /// the way the roster itself compares names, and a match is *updated* rather than replaced —
     /// setup adding a full name must never delete one the user typed in Settings.
     ///
+    /// **Your own name, edited, renames your record** (review M5). Matched by name alone, "Abhishek"
+    /// edited to "Abhi" on You added a second "me" — and People hides "me", so neither showed.
+    /// Closing the sheet commits You, so Esc was enough. The old name stays on as an alias: the
+    /// folders that called you by it still do.
+    ///
     /// Returns the number of people added and the number updated, for the log line.
     @discardableResult
     @MainActor
@@ -118,10 +123,20 @@ struct SetupDraft: Codable, Equatable, Sendable {
         for person in draft.everyone {
             let name = person.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { continue }
-            if let existing = store.people.first(where: {
+            let byName = store.people.first(where: {
                 $0.displayName.compare(name, options: [.caseInsensitive, .diacriticInsensitive])
                     == .orderedSame
-            }) {
+            })
+            if byName == nil, PeopleOrder.tier(of: person.relationship) == .yourself,
+               var me = store.people.first(where: { PeopleOrder.tier(of: $0.relationship) == .yourself }) {
+                let previous = me.displayName
+                me.displayName = name
+                me.aliases = union(me.aliases, [previous])
+                me.fullNames = union(me.fullNames, person.fullNames)
+                store.update(me)
+                updated += 1
+                Logger.shared.info("Setup: renamed your roster record from “\(previous)” to “\(name)”")
+            } else if let existing = byName {
                 var merged = existing
                 merged.relationship = existing.relationship ?? person.relationship
                 merged.fullNames = union(existing.fullNames, person.fullNames)

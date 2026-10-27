@@ -309,10 +309,15 @@ final class SetupModel: ObservableObject {
     /// dropped in ``startWalk()``. So asking `walkState.isDone` is the whole answer.
     var hasReadingOfChosenFolder: Bool { walkState.isDone }
 
-    /// Learn's primary press. Reads the folder unless a reading of it is already in hand, and
-    /// moves on either way — **Continue never waits** (see ``startWalk()``).
+    /// Learn's primary press. Reads the folder unless a reading of it is already in hand or under
+    /// way, and moves on either way — **Continue never waits** (see ``startWalk()``).
+    ///
+    /// **A reading under way is the folder's reading.** Back to Learn mid-reading still says Learn,
+    /// and its press started a second full walk of the same tree beside the first, which nothing
+    /// cancels — on a big tree, minutes of disk read twice for one answer. Every way the folder
+    /// changes drops the reading (``invalidateProposals()``), so a running one is of this folder.
     func pressLearnPrimary() {
-        if !hasReadingOfChosenFolder { startWalk() }
+        if !hasReadingOfChosenFolder, !walkState.isRunning { startWalk() }
         _ = advance()
     }
 
@@ -755,6 +760,8 @@ final class SetupModel: ObservableObject {
     /// lands them in the new roster: from then on they ask like any other roster person, because
     /// ``namesAddedThisRun`` holds only what `addPerson` put there.
     func requestRemovePerson(named name: String) {
+        // People draws no ✕ here; this is the same refusal for any other caller.
+        guard !rosterIsReadOnly else { return }
         if roster != nil, !namesAddedThisRun.contains(name) {
             personAwaitingRemoval = name
         } else {
@@ -962,6 +969,8 @@ final class SetupModel: ObservableObject {
     private var writtenReadingNumber: Int?
     /// The countries the last successful Save wrote.
     private(set) var writtenCountries: Set<String>?
+    /// The household the last successful Save left on the roster — see ``currentReadingIsWritten``.
+    private var writtenHousehold: [Person]?
     /// The folder whose documents this run's Save started reading.
     private var surveyStartedRoot: URL?
 
@@ -971,9 +980,25 @@ final class SetupModel: ObservableObject {
     /// on Continue — the reading was written — while Summary listed the new countries and the
     /// profile on disk still held the old ones. A changed answer offers Save again, and that Save
     /// writes a profile that supersedes the first.
+    ///
+    /// **So is the household** (review M6). The profile's person axis is built from it, and a person
+    /// added or removed after a Save rebuilt Structure's preview from the new household beside a
+    /// Continue — the profile on disk kept the old one.
     var currentReadingIsWritten: Bool {
         walkState.isDone && writtenReadingNumber == readingNumber
             && writtenCountries == confirmedCountries
+            && writtenHousehold == Self.household(walkRegistry)
+    }
+
+    /// The people a profile is built from, in an order that does not depend on how they were added.
+    private static func household(_ registry: PersonRegistry?) -> [Person] {
+        (registry?.people ?? []).sorted { $0.id < $1.id }
+    }
+
+    /// Whether two folder URLs name one folder, through `/var` → `/private/var` and the like.
+    private static func sameFolder(_ a: URL, _ b: URL) -> Bool {
+        a.standardizedFileURL.resolvingSymlinksInPath().path
+            == b.standardizedFileURL.resolvingSymlinksInPath().path
     }
 
     /// Structure's secondary button: offered only once a Save has failed.
@@ -1017,6 +1042,15 @@ final class SetupModel: ObservableObject {
         defer { isSaving = false }
         let reading = readingNumber
         let countries = confirmedCountries
+        // **A reading under way is stopped before the write, and started again after it** (review
+        // M4, his call 2026-10-27). It reads into the profile it was planned for, so a second Save
+        // after a changed answer left it to land hours later in the profile just replaced. Stopped
+        // first, its progress is on disk for the write to carry across, and the restart reads only
+        // what is left.
+        let interrupted = await manager.stopDocumentSurveyBeforeReplacingProfile()
+        // Carried on into the new profile only when it is of the same folder: a reading of another
+        // one is not this Save's to start, and with Read Documents off nobody asked for it.
+        let carriesOn = interrupted.map { Self.sameFolder($0, walk.root) } ?? false
         let result = await manager.writeWalkProfile(tree: walk.tree, root: walk.root,
                                                     jurisdictionValues: countries,
                                                     registry: walkRegistry)
@@ -1032,18 +1066,26 @@ final class SetupModel: ObservableObject {
             // stages.
             onProfileWritten()
             applyDraftIfPossible()
+            // Taken from the roster the draft has just landed in, which is what the next
+            // comparison reads: the draft's own registry carries different ids for the same people.
+            writtenHousehold = Self.household(walkRegistry)
             Logger.shared.info("Setup saved profile '\(report.profileId)' — \(report.summary)")
             // **Only a profile in use is read.** A reading covers the profile this Mac uses, and
             // beside a hand-built one the walk's is saved unused — the summary says so — so reading
             // would spend hours on a folder this setup never pointed at. **And once per folder**:
-            // a second Save after a changed answer supersedes the profile, and the reading already
-            // under way covers it.
-            if savesStartReading, report.becameActive {
+            // a second Save after a changed answer does not start one over — it carries on the one
+            // it stopped.
+            if savesStartReading || carriesOn, report.becameActive {
                 surveyStartedRoot = walk.root
                 onStartSurvey(walk.root)
+            } else if let interrupted, !report.becameActive {
+                // Nothing replaced the profile the reading was of, so it carries on there.
+                onStartSurvey(interrupted)
             }
             return true
         case .failure(let failure):
+            // Nothing was replaced, so the reading carries on where it was.
+            if let interrupted { onStartSurvey(interrupted) }
             // The reading stays: it was the write that failed, and the tree is what a second
             // press needs.
             // The plain sentence on screen; the log keeps the store's own words.

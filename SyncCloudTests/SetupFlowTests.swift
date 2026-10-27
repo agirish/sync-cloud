@@ -802,8 +802,11 @@ import Testing
                 "Summary's Learn no longer goes back to the Learn screen")
         // People: a chip's ✕ asks about a roster person; only the question's Remove removes.
         let people = try source("Setup/PeopleScreen.swift")
-        #expect(people.contains("onRemove: { model.requestRemovePerson(named: $0) }"),
+        #expect(people.contains("? nil : { model.requestRemovePerson(named: $0) })"),
                 "People's ✕ no longer goes through `requestRemovePerson` — a roster person may go unasked")
+        // …and none is drawn on a roster this sheet cannot write (review L1).
+        #expect(people.contains("onRemove: model.rosterIsReadOnly\n                              ? nil :"),
+                "People draws a ✕ on a read-only roster — the chip goes and the person comes back")
         #expect(people.components(separatedBy: "model.removePerson(").count - 1 == 1,
                 "People calls `removePerson` somewhere besides the question's Remove button")
         #expect(people.contains("if let name = model.personAwaitingRemoval { model.removePerson(named: name) }"),

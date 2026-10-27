@@ -116,11 +116,6 @@ extension ContentView {
         return .offered(documents: documentSurveyPlan?.documents(for: documentSurveyRoot?.path))
     }
 
-    /// Starts a survey: the walk, then the read.
-    ///
-    /// **The walk is what produces the count the offer card could not know**, so it runs first and
-    /// its answer reaches the card before a single document is opened — which is exactly what the
-    /// uncounted offer promises.
     /// Starts the survey on a folder setup has just learned.
     ///
     /// **It moves the Organize scope to that folder first**, so the lenses answer about the tree
@@ -129,44 +124,30 @@ extension ContentView {
     /// folder this one.
     func startDocumentSurvey(learnedRoot: URL) {
         organizeScopePath = learnedRoot.path
-        startDocumentSurveyAction()
+        startDocumentSurvey(.read)
     }
 
+    /// The card's primary verb while it offers to read: *Read My Documents*, or — over a count of
+    /// nothing readable — *Look Again*, which only counts (``DocumentSurveyStarter/mode(for:)``).
     func startDocumentSurveyAction() {
-        startDocumentSurvey(startingOver: false)
+        startDocumentSurvey(DocumentSurveyStarter.mode(for: documentSurveyCardState))
     }
 
     /// The interrupted card's *Start over*, once the card has asked: the progress on disk is
     /// discarded and every document is read again. Through the same walk as a first start, so the
     /// plan, the count and the refusals are one path.
     func startDocumentSurveyOverAction() {
-        startDocumentSurvey(startingOver: true)
+        startDocumentSurvey(.startOver)
     }
 
-    private func startDocumentSurvey(startingOver: Bool) {
+    private func startDocumentSurvey(_ mode: DocumentSurveyStarter.Mode) {
         // Asked even when the profile names no folder: the plan's refusal says why on the banner.
         guard let asked = documentSurveyAskedFrom ?? documentSurveyRoot else { return }
         Task { @MainActor in
-            switch await syncManager.planDocumentSurvey(root: asked) {
-            case .failure(let refusal):
-                Logger.shared.info("Document survey: not started — \(refusal.sentence)")
-                syncManager.banner = .warning(refusal.sentence)
-            case .success(let plan):
-                documentSurveyPlan = DocumentSurveyPlanFacts(
-                    rootPath: plan.root.path, documents: plan.total,
-                    unreadableTypes: plan.skippedUnreadableTypes)
-                guard plan.total > 0 else {
-                    syncManager.banner = .success(
-                        "Nothing to read — no document here is in a format this app can open.")
-                    return
-                }
-                switch await syncManager.runDocumentSurvey(plan: plan, startingOver: startingOver) {
-                case .failure(let refusal): syncManager.banner = .warning(refusal.sentence)
-                case .success(let report):
-                    syncManager.banner = report.isComplete ? .success(report.summary)
-                                                           : .warning(report.summary)
-                }
-            }
+            let outcome = await DocumentSurveyStarter.start(
+                manager: syncManager, askedFrom: asked, mode: mode,
+                planned: { documentSurveyPlan = $0 })
+            if let banner = outcome.banner { syncManager.banner = banner }
         }
     }
 
@@ -180,7 +161,7 @@ extension ContentView {
             Task { await syncManager.resumeDocumentSurvey() }
             return
         }
-        startDocumentSurveyAction()
+        startDocumentSurvey(.read)
     }
 
     func pauseDocumentSurveyAction() {
@@ -189,5 +170,92 @@ extension ContentView {
 
     func stopDocumentSurveyAction() {
         Task { await syncManager.stopDocumentSurvey() }
+    }
+}
+
+/// Starting a survey — the walk, then the read — apart from the view, so a test can run it.
+///
+/// **The walk is what produces the count the offer card could not know**, so it runs first and its
+/// answer reaches the card before a single document is opened — which is exactly what the uncounted
+/// offer promises.
+@MainActor
+enum DocumentSurveyStarter {
+
+    enum Mode: Equatable {
+        /// Read the documents, carrying on from any progress on disk.
+        case read
+        /// Discard the progress on disk, then read every document.
+        case startOver
+        /// Count again and stop — *Look Again*.
+        case recountOnly
+    }
+
+    /// What a press of the card's primary does from `state`.
+    ///
+    /// **Look Again only counts** (review L2, his call 2026-10-27). It promised "Count the documents
+    /// here again" and ran the whole reading straight after the count, hours of it with no cost
+    /// shown. A count that now finds documents puts the card back on Read My Documents, with its
+    /// estimate.
+    static func mode(for state: DocumentSurveyCardState?) -> Mode {
+        state == .offered(documents: 0) ? .recountOnly : .read
+    }
+
+    /// What a start came to.
+    enum Outcome: Equatable {
+        case refused(FileSyncManager.DocumentSurveyRefusal)
+        case nothingToRead
+        /// *Look Again*'s answer: this many documents to read, and none read.
+        case counted(Int)
+        case ran(FileSyncManager.DocumentSurveyReport)
+        /// Stopped so Setup's new profile could take the reading over; Setup starts it again.
+        case handedOver
+
+        /// The banner it is told on, or nil for one that says nothing.
+        var banner: OperationBanner? {
+            switch self {
+            case .refused(let refusal): return .warning(refusal.sentence)
+            case .nothingToRead:
+                return .success("Nothing to read — no document here is in a format this app can open.")
+            case .counted: return nil   // the card says it, with its estimate
+            case .ran(let report):
+                return report.isComplete ? .success(report.summary) : .warning(report.summary)
+            case .handedOver: return nil
+            }
+        }
+    }
+
+    /// Plans, hands `planned` the count, and reads unless `mode` only counts.
+    ///
+    /// **A plan made for a profile Setup has since replaced is made again** (review M4): the walk
+    /// takes a while, a Save beside it writes a new profile, and the run refuses a plan for the old
+    /// one rather than read into it. Once, because the second plan is of the profile in use.
+    static func start(manager: FileSyncManager, askedFrom: URL, mode: Mode,
+                      planned: (DocumentSurveyPlanFacts) -> Void) async -> Outcome {
+        var replanned = false
+        while true {
+            let plan: FileSyncManager.DocumentSurveyPlan
+            switch await manager.planDocumentSurvey(root: askedFrom) {
+            case .failure(let refusal):
+                Logger.shared.info("Document survey: not started — \(refusal.sentence)")
+                return .refused(refusal)
+            case .success(let made): plan = made
+            }
+            planned(DocumentSurveyPlanFacts(rootPath: plan.root.path, documents: plan.total,
+                                            unreadableTypes: plan.skippedUnreadableTypes))
+            guard plan.total > 0 else { return .nothingToRead }
+            if mode == .recountOnly {
+                Logger.shared.info("Document survey: Look Again counted \(plan.total) document(s) "
+                                   + "to read — nothing read until Read My Documents is pressed")
+                return .counted(plan.total)
+            }
+            switch await manager.runDocumentSurvey(plan: plan, startingOver: mode == .startOver) {
+            case .success(let report): return .ran(report)
+            case .failure(.stoppedForNewProfile): return .handedOver
+            case .failure(.profileReplaced) where !replanned:
+                replanned = true
+                Logger.shared.info("Document survey: planned again for the profile now in use")
+            case .failure(let refusal): return .refused(refusal)
+            }
+        }
     }
 }

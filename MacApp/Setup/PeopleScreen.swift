@@ -35,7 +35,10 @@ struct PeopleScreen: View {
                 }
                 FlowChips(items: model.rosterNames,
                           subtitle: { model.relationship(of: $0).map { "· \($0)" } },
-                          onRemove: { model.requestRemovePerson(named: $0) })
+                          // No ✕ on a roster this sheet cannot write: the chip went, the store
+                          // refused, and the person was back at the next launch (review L1).
+                          onRemove: model.rosterIsReadOnly
+                              ? nil : { model.requestRemovePerson(named: $0) })
                 HStack(spacing: 6) {
                     TextField("Add someone…", text: $model.newPersonField)
                         .textFieldStyle(.roundedBorder)

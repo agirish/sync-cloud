@@ -105,6 +105,15 @@ extension FileSyncManager {
         /// *Start over* could not remove the unfinished progress. **Nothing starts**, because a run
         /// started beside it would adopt it — which is resuming, the thing not asked for.
         case couldNotDiscardProgress
+        /// The plan was made for a profile this Mac no longer uses — Setup saved a new one while
+        /// the plan was walking. **Run, it would write hours of reading into the profile just
+        /// replaced** (review M4); planned again, it reads into the one in use.
+        case profileReplaced
+        /// Stopped so a profile write could replace the profile it read — see
+        /// ``FileSyncManager/stopDocumentSurveyBeforeReplacingProfile()``. Its progress is kept, and
+        /// whoever stopped it starts it again on the new profile; **not a success**, whose
+        /// "Stopped after reading …" banner would sit over the reading carrying on.
+        case stoppedForNewProfile
 
         public var sentence: String {
             switch self {
@@ -141,6 +150,11 @@ extension FileSyncManager {
             case .couldNotDiscardProgress:
                 return "The unfinished progress could not be cleared, so nothing was started over. "
                     + "Move survey-progress.json aside to start again."
+            case .profileReplaced:
+                return "The folder survey changed while the reading was being set up. Nothing was read."
+            case .stoppedForNewProfile:
+                return "Stopped so the new folder survey could take over. Nothing has been lost — "
+                    + "the reading carries on from here."
             }
         }
     }
@@ -359,6 +373,13 @@ extension FileSyncManager {
         guard !filingSurveyLifecycle.isRunning else { return .failure(.alreadyRunning) }
         guard let directory = filingProfilesDirectory else { return .failure(.noProfileDirectory) }
         guard let extractor = filingSnippetExtractor else { return .failure(.noExtractor) }
+        // The id the plan was made with, asked the way the plan asks it.
+        guard plan.profileId == (filingProfileDirectoryId ?? filingMemory?.profileId
+                                 ?? filingFolderProfile?.profileId) else {
+            Logger.shared.info("Document survey: not started — it was planned for profile "
+                               + "'\(plan.profileId)', which this Mac no longer uses")
+            return .failure(.profileReplaced)
+        }
 
         if startingOver {
             let dropped = DocumentSurveyCheckpointStore.read(id: plan.profileId, in: directory)
@@ -407,7 +428,12 @@ extension FileSyncManager {
         }
 
         documentSurveyRun = run
-        defer { documentSurveyRun = nil }
+        defer {
+            documentSurveyRun = nil
+            let waiters = documentSurveyEndWaiters
+            documentSurveyEndWaiters = []
+            for waiter in waiters { waiter.resume() }
+        }
 
         let outcome = await run.run()
 
@@ -419,6 +445,8 @@ extension FileSyncManager {
                                + "\(plan.total). Progress is on disk; carrying on reads only the "
                                + "rest.")
             documentSurveyProgress = nil
+            // Only a stop made for a profile write has anyone waiting on it.
+            if !documentSurveyEndWaiters.isEmpty { return .failure(.stoppedForNewProfile) }
             return .success(DocumentSurveyReport(
                 rootPath: root.path,
                 documentsRead: outcome.documentsRead, documentsBlank: outcome.documentsBlank,
@@ -554,5 +582,37 @@ extension FileSyncManager {
     /// Stops the running survey at the next document boundary, keeping its progress.
     public func stopDocumentSurvey() async {
         await documentSurveyRun?.stop()
+    }
+
+    /// Stops the running survey before a profile write replaces the profile it reads, and waits
+    /// for it to end (review M4).
+    ///
+    /// **A run reads into the profile it was planned for.** A Setup Save that replaces the active
+    /// profile while one runs left it to finish hours later into the replaced one, beside an
+    /// active profile holding only the progress copied at Save time. Stopped first, its progress is
+    /// on disk before the write carries it across, so the run started again on the new profile
+    /// reads only what is left.
+    ///
+    /// Nothing is stopped when the write could not replace the active profile — a hand-built one
+    /// stays in use, and so does the reading of it.
+    ///
+    /// - Returns: The folder of a reading stopped with documents still to read, which the caller
+    ///   starts again once the new profile is in use; nil when nothing was stopped, or for a run
+    ///   that had finished reading — its corpus is written, and the write carries it.
+    public func stopDocumentSurveyBeforeReplacingProfile() async -> URL? {
+        guard let run = documentSurveyRun, let directory = filingProfilesDirectory,
+              FilingProfileStore.mayRepoint(activeId: FilingProfileStore.activeProfileId(in: directory),
+                                            in: directory) else { return nil }
+        let root = run.root
+        await run.stop()
+        // Checked again after the hop: a run that ended during it has already let its waiters go.
+        if documentSurveyRun === run {
+            await withCheckedContinuation { documentSurveyEndWaiters.append($0) }
+        }
+        let unfinished = documentSurveyReport?.isComplete != true
+        Logger.shared.info("Document survey: stopped so a new folder survey can replace the one it "
+                           + "reads" + (unfinished ? " — it carries on from here once that is in use"
+                                                   : " — it had already read everything"))
+        return unfinished ? root : nil
     }
 }

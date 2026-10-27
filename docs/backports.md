@@ -12525,3 +12525,36 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s apply=%s refusing=%s export=%
 |---|---|---|
 | `v5.x` | M1 (`apply=1 refusing=0`), and M2's export into the profile folder (`export=1`); its retire sweep has no stranded-file check at all, an older and wider gap. No ⌘Z of Never Suggest (`unsuppress=0`) and no Discard Plan anywhere (`closeDisposition=0`), so L8 and L10 do not apply | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Restructure (`apply=0`) | CLOSED — does not apply |
+
+---
+
+## Setup: a second Save carries the reading; your rename; household; read-only ✕; Look Again — main only
+
+Review of v6.1's non-forensic work, 2026-10-27 (M4, M5, M6, L1, L2 and the second Learn). On `main`:
+a Save while the documents are being read stops the reading, writes the new profile and starts it
+again there (it went on into the profile just replaced); editing your name renames your roster
+record (closing Setup added a second, hidden "me"); a person added or removed after a Save offers
+Save again; a read-only roster draws no ✕; Look Again only counts; Learn mid-reading starts no
+second walk.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s model=%s secondSave=%s learnRestarts=%s apply=%s nameOnly=%s liveX=%s lookAgain=%s\n' $l \
+  "$(git ls-tree --name-only origin/$l -- MacApp/Setup/SetupModel.swift | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:MacApp/Setup/SetupModel.swift 2>/dev/null | grep -cF 'onStartSurvey(walk.root)')" \
+  "$(git show origin/$l:MacApp/SetupSheet.swift 2>/dev/null | grep -cF 'primaryAction: { model.startWalk(); _ = model.advance() }')" \
+  "$(git show origin/$l:MacApp/SetupDraft.swift 2>/dev/null | grep -c 'static func apply')" \
+  "$(git show origin/$l:MacApp/SetupDraft.swift 2>/dev/null | grep -cF 'if let existing = store.people.first(where: {')" \
+  "$(git show origin/$l:MacApp/Setup/PeopleScreen.swift 2>/dev/null | grep -cF 'onRemove: { model.removePerson(named: $0) })')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DocumentSurveyCard.swift 2>/dev/null | grep -c 'title: "Look [Aa]gain"')"; done
+# measured 2026-10-27, against origin, before this landed:
+# main          model=1 secondSave=1 learnRestarts=0 apply=1 nameOnly=1 liveX=0 lookAgain=1
+# v5.x          model=1 secondSave=1 learnRestarts=1 apply=1 nameOnly=1 liveX=1 lookAgain=0
+# v4.x          model=0 secondSave=0 learnRestarts=0 apply=1 nameOnly=1 liveX=0 lookAgain=0
+# v3.x, v2.x    model=0 secondSave=0 learnRestarts=0 apply=0 nameOnly=0 liveX=0 lookAgain=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | Every Save starts a reading and nothing stops the one running, so the reading running at a second Save lands in the replaced profile (`secondSave=1`); Learn mid-reading walks again (`learnRestarts=1`); your name matched by display name only (`nameOnly=1`); ✕ live on a read-only roster (`liveX=1`); no Look Again card (`lookAgain=0`); no household check, since it has no written-reading check at all | RECORDED — not owed |
+| `v4.x` | No Setup model (`model=0`); the draft's name-only match (`nameOnly=1`), the shape behind the second "me"; its flow not traced | RECORDED — not owed |
+| `v3.x` / `v2.x` | None of it (`apply=0`) | CLOSED — does not apply |

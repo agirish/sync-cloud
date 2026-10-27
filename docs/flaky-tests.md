@@ -4451,3 +4451,20 @@ report) ended the whole process.
 **Fix, 2026-10-26.** All seven copies of the ledger (Dashboard, Design, Events, FileExplorer,
 Settings, Sync, the app's `SyncCloudTests`) append with `seekToEnd()` and `write(contentsOf:)` under
 `try?`. A line that can't be written only costs the next run's sweep that one name.
+
+### 44. A Setup folder walk finishes only near the end of the app suite, past a one-minute limit — FIXED
+
+**Symptom.** In the full app run, `SetupModelTests`' `aReadingRebuildsThePreviewOnlyWhereItIsRead`
+and `onlyTheLatestAwaitedReadingLands` fail with `Time limit was exceeded: 60.000 seconds`, at
+66–70 s; green under `-only-testing` at well under 10 s.
+
+**Mechanism.** A walk of a two-folder fixture does not take a minute; it waits. Started at the top of
+a ~70 s run of ~1,800 tests, its detached tree-building tasks finish only as the rest of the suite
+drains — the same starvation as mechanism 10. Measured on `main` before the limit moved: CI run
+40545262097 (2026-10-27) passed both at **61.7 s and 62.0 s** in a 68.0 s run, already at the limit.
+Eight more Setup tests (the 2026-10-27 review fixes) pushed both, and the two new walk tests in
+`SetupReadingHandOverTests`, past it on every local run: 3 of 3.
+
+**Fix, 2026-10-27.** Every walk test in `SetupModelTests` and `SetupReadingHandOverTests` has a
+two-minute limit. It is a hang guard, not a speed check: a walk that never lands still fails, at two
+minutes. Why the walk is starved for most of the run is not yet known.

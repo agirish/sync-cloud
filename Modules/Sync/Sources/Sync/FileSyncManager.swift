@@ -750,6 +750,10 @@ public class FileSyncManager: ObservableObject {
     /// state — `documentSurveyProgress` is what a view watches.
     var documentSurveyRun: DocumentSurveyRun?
 
+    /// Whoever is waiting for the running survey to end — see
+    /// ``stopDocumentSurveyBeforeReplacingProfile()``. Resumed as the run lets go of its handle.
+    var documentSurveyEndWaiters: [CheckedContinuation<Void, Never>] = []
+
     /// The causes *Resume now* told the running survey to read through — see
     /// ``DocumentSurveyOverride``. Here rather than in the run because the conditions it is
     /// decided from are this actor's; cleared at the start of every run.

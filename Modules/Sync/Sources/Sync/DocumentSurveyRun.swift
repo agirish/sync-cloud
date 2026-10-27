@@ -122,7 +122,8 @@ public actor DocumentSurveyRun {
     // MARK: - State
 
     private let profileId: String
-    private let root: URL
+    /// Internal so a stop made for a new profile can say which folder to carry on reading.
+    let root: URL
     private let salt: String
     private let plan: [String]
     private let stamps: [String: FilingSurvey.Stamp]
