@@ -217,6 +217,8 @@ public class FileSyncManager: ObservableObject {
     /// a confirmation shown for one run can tell, when it is answered, whether the run on top is
     /// still that one (FR26). The name cannot: every bulk run is "Sync run".
     private(set) var lastRecordedRunToken: UUID?
+    /// When the pairing was last armed — how recent the run is, for its message's Show in History.
+    private(set) var lastRecordedRunAt: Date?
     /// Whether any run armed the pairing this session — distinguishes "the pairing was
     /// invalidated" (a manual ⌘Z, a mixed delete, a manager swap) from "no sync run ever
     /// happened", so the refusal doesn’t claim history changed "since the last sync
@@ -248,6 +250,7 @@ public class FileSyncManager: ObservableObject {
         lastRecordedRunUndoName = undoManager?.undoActionName
         lastRecordedRunRecords = records
         lastRecordedRunToken = UUID()
+        lastRecordedRunAt = Date()
         hasArmedRunPairingThisSession = true
     }
 
@@ -2636,10 +2639,12 @@ public class FileSyncManager: ObservableObject {
     /// `cancelled` is whether it was stopped — its ending is then a stop, not a problem.
     public private(set) var lastFinishedRun: (started: Date, ended: Date, title: String?, cancelled: Bool)?
     /// The run whose records the last history-recorded operation wrote — its token changes with
-    /// each — for its message's Show in History (R13).
-    public var lastRecordedRun: (token: UUID, runId: UUID)? {
-        guard let token = lastRecordedRunToken, let runId = lastRecordedRunRecords.first?.runId else { return nil }
-        return (token, runId)
+    /// each — for its message's Show in History (R13). `recordedAt` is when: a run that ended in an
+    /// alert, with no message, must not hand its records to the next message, minutes later.
+    public var lastRecordedRun: (token: UUID, runId: UUID, recordedAt: Date)? {
+        guard let token = lastRecordedRunToken, let runId = lastRecordedRunRecords.first?.runId,
+              let recordedAt = lastRecordedRunAt else { return nil }
+        return (token, runId, recordedAt)
     }
     /// Short-lived banner for in-app operation completion toasts. The severity drives the UI's
     /// icon, tint, and dismissal behavior.

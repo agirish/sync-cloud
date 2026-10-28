@@ -58,9 +58,11 @@ enum OperationNotifier {
     /// The notification's user-info key for the message it reports — Recent's row id.
     nonisolated static let activityMessageKey = "activityMessage"
 
-    /// The run a message ends, by name — the last long run, when it ended a moment ago.
+    /// The run a message ends, by name — the last long run, when it ended a moment ago: within the
+    /// window's own rule for a run's ending (`ContentView.runOrigin(ending:)`). A run's message is
+    /// set in the turn its progress clears.
     nonisolated static func runTitle(lastFinished: (title: String?, ended: Date)?, now: Date = Date()) -> String? {
-        guard let lastFinished, now.timeIntervalSince(lastFinished.ended) < 10 else { return nil }
+        guard let lastFinished, now.timeIntervalSince(lastFinished.ended) < 2 else { return nil }
         return lastFinished.title
     }
 

@@ -780,15 +780,15 @@ enum HelpBook {
             Topic(id: "activity-log", title: "Activity, the log and troubleshooting", systemImage: "clock.arrow.circlepath", article: Article(
                 intro: "Every scan and file operation is logged. If something looks off, Activity is where to look — and its log is what to send if you need help.",
                 blocks: [
-                    .paragraph("Activity is one window with three tabs. Now lists what is running, each with its own Stop, and Recent: every message this session, in full, with its buttons — Undo, Reveal in Browse, Open in Edit — newest first, kept until you quit. History is Sync History. Log is the live event stream."),
+                    .paragraph("Activity is one window with three tabs. Now lists what is running, each with its own Stop, and Recent: every message this session, in full, with its buttons — Undo, Reveal in Browse, Open in Edit — newest first, the newest 50 kept until you quit. History is Sync History. Log is the live event stream."),
                     .bullets([
-                        "Open it from Window ▸ Activity, the Activity button in the toolbar, or ⌘L. It opens on the tab you used last.",
+                        "Open it from Window ▸ Activity, the Activity button in the toolbar, or ⌘L. It opens on the tab you used last since SyncCloud started.",
                         "Click the progress capsule in the middle of the toolbar for a quick look at Now; Open as Window at its foot opens the window.",
                         "A long run that ends after you moved to another workspace — a merge started in Organize finishing while you are in Browse — says so in the capsule for five seconds, with its Undo or Reveal, rather than in a pane you are not looking at. If another run is still going, the capsule’s count says so, and the run comes back after.",
                         "A PDF tool run on several files from a pane asks its question in a sheet and then goes on in the capsule, with Stop, so the window stays usable. A PDF run waiting for other PDF work shows a clock.",
                         "Reading documents, a duplicate scan and a reorganization being applied are listed in Now too, with Show, which goes to their card — their Pause and Stop stay there. They never bring up the capsule.",
                         "With “Notify when operations finish in the background” on in General, a notification names the run that ended; click it to open Activity on that message.",
-                        "A red dot on the Activity button means a problem arrived while you were away from SyncCloud. Activity opens on Now while it is there, and opening Activity clears it.",
+                        "A red dot on the Activity button means a problem arrived that you may not have seen: while you were away from SyncCloud, or shown in the capsule while you worked elsewhere. Activity opens on Now while it is there, and opening Activity clears it.",
                         "A run you stopped is listed in gray, saying what it kept — it is not a problem, so it leaves no red dot.",
                         "A message’s Undo in Recent works while its step is the newest one. After something newer, it says what to undo first; ⌘Z in the main window steps back through them.",
                         "Show in History narrows History to that run’s records; Show in Log narrows the log to the minutes around the message. Show All puts the whole list back.",

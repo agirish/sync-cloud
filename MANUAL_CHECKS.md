@@ -103,7 +103,7 @@ launch confirmed. Live overlay rendering is the human-only part.
 - [ ] **Dismissal.** ✕, Esc, and clicking the dimmed backdrop all close it. Opening Settings
   (⌘,) while Help is up closes Help (they never stack).
 - [ ] **Help-menu items.** Set Up SyncCloud… opens the setup sheet; Reveal Log File in Finder
-  selects ~/sync-cloud.log. Window ▸ Activity Log (⌘L) and Window ▸ Keyboard Shortcuts (⌘/)
+  selects ~/sync-cloud.log. Window ▸ Activity (⌘L) and Window ▸ Keyboard Shortcuts (⌘/)
   open their windows; SyncCloud ▸ About SyncCloud shows the standard About panel.
 
 ## CLI (Waves 1D, 2F) — spot checks (e2e-verified during the review)
@@ -412,7 +412,7 @@ Appearance), and nothing coral is left.
 - [ ] **A sheet's checkbox.** Organize ▸ Restructure, Plan… on a finding → the Plan sheet's
   checkboxes are the accent, not blue. (Sheets take the hue through `presentedNativeControlAccent`;
   before it they kept the Mac's accent on every hued window.)
-- [ ] **The other windows.** Open Sync History, the Activity Log and Keyboard Shortcuts → any switch,
+- [ ] **The other windows.** Open Activity (each of its tabs) and Keyboard Shortcuts → any switch,
   checkbox, slider or progress bar in them is the accent too.
 - [ ] **Button words stay readable.** In both appearances, a bordered button whose words wear the
   accent (Edit's Show Text Files, the PDF tool sheets' Cancel) reads clearly on its bezel; in dark
@@ -444,8 +444,8 @@ and key refusals are tested; this is what is not.
   "2 ⌄". Hover: the tooltip lists both runs, newest first.
 - [ ] **Each run has its own Stop.** Click "2 ⌄" → a list under the capsule: the merge with Cancel (the
   blue default button) and the Save as PDF with Stop. Click Save as PDF's Stop → it stops after the
-  file in hand, its message says how far it got, and the merge goes on; the list closes, and the
-  capsule's ✕ is back for the merge.
+  file in hand, its message says how far it got, and the merge goes on; once it has stopped the list
+  shows the merge alone. Close the list → the capsule's ✕ is back for the merge.
 - [ ] **⌘. never stops a run unseen.** With both running, press ⌘. → the list opens and nothing stops;
   ⌘. again (or Return) cancels the merge only.
 - [ ] **Narrow window.** At 760pt with both running → the ring and a filled "2" badge beside it; a click
@@ -499,11 +499,12 @@ and key refusals are tested; this is what is not.
 - [ ] **Ending where it started.** The same merge, staying in Organize → the message is Organize's,
   as before; nothing in the capsule.
 - [ ] **A message over a run.** Start a Compress of several PDFs from Browse, then a merge in
-  Organize; go to Browse when the Compress ends → the capsule says "Saved N compressed copies ·
+  Organize; stay in Organize when the Compress ends → the capsule says "Saved N compressed copies ·
   Reveal in Browse" with "1 ⌄"; after 5 s the merge's progress is back.
 - [ ] **No jump.** At a width where the workspace bar shows its labels, with nothing running, let a
   run's ending reach the capsule → the labels and ⌘K's "Go to…" stay as they are; at the narrowest
-  window it shows as the ring's ✓, its words in the tooltip.
+  window it shows as the ring's ✓, its words in the tooltip. Click the capsule while it says it →
+  Activity opens under it and the labels still stay as they are.
 - [ ] **Batch sheet goes.** Select three PDFs in a pane, PDF Tools ▸ Compress → the sheet asks for the
   strength; Save → the sheet closes and the capsule shows "Compressing 3 PDFs · 1 of 3"; browsing and
   Quick Look work meanwhile; its Stop stops after the file in hand. Rotate All Pages on several opens

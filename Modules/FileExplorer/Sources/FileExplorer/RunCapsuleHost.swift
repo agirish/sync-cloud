@@ -117,20 +117,27 @@ public struct ActivityRunsReader<Content: View>: View {
     }
 }
 
-/// Whether any pane-launched run is showing in the capsule — or Activity is open under it — what
-/// the toolbar needs to know to seat it, observed here so the window itself need not observe the
-/// PDF models (it does not; a run's progress would otherwise re-render the whole window).
+/// Whether any pane-launched run is showing in the capsule, and whether Activity is open under it
+/// — what the toolbar needs to know to seat it, observed here so the window itself need not observe
+/// the PDF models (it does not; a run's progress would otherwise re-render the whole window).
+///
+/// The popover is reported apart from the runs: it holds the row as it was when it opened (TE231),
+/// and is no run of its own — counted as one, a click on a capsule holding only a message folded
+/// the workspace names that message had been careful to leave alone (TE230).
 public struct RunCapsulePresence: View {
     @ObservedObject var center: ActivityCenter
     @ObservedObject var pdfTools: PanePDFTools
     @ObservedObject var saveAsPDF: PaneSaveAsPDF
     let onChange: (Bool) -> Void
+    let onPopoverChange: (Bool) -> Void
 
-    public init(center: ActivityCenter, onChange: @escaping (Bool) -> Void) {
+    public init(center: ActivityCenter, onChange: @escaping (Bool) -> Void,
+                onPopoverChange: @escaping (Bool) -> Void = { _ in }) {
         self.center = center
         pdfTools = center.panePDFTools
         saveAsPDF = center.paneSaveAsPDF
         self.onChange = onChange
+        self.onPopoverChange = onPopoverChange
     }
 
     public var body: some View {
@@ -149,10 +156,11 @@ public struct RunCapsulePresence: View {
     }
 
     private func report(_ pdfRunning: Bool) -> some View {
-        let showing = pdfRunning || saveAsPDF.isRunning || center.popoverIsOpen
+        let showing = pdfRunning || saveAsPDF.isRunning
         return Color.clear
             .frame(width: 0, height: 0)
             .onChange(of: showing, initial: true) { _, now in onChange(now) }
+            .onChange(of: center.popoverIsOpen, initial: true) { _, open in onPopoverChange(open) }
     }
 }
 

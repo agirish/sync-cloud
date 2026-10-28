@@ -64,9 +64,11 @@ import Sync
     /// message would be a wrong title.
     @Test func onlyARunThatJustEndedNamesTheNotification() {
         let now = Date()
-        #expect(OperationNotifier.runTitle(lastFinished: (title: "Copying 12 items", ended: now.addingTimeInterval(-2)),
+        #expect(OperationNotifier.runTitle(lastFinished: (title: "Copying 12 items", ended: now.addingTimeInterval(-1)),
                                            now: now) == "Copying 12 items")
-        #expect(OperationNotifier.runTitle(lastFinished: (title: "Copying 12 items", ended: now.addingTimeInterval(-60)),
+        // The same moment as the window's own routing: a copy that ended silently 5 s before
+        // another message is not that message's run.
+        #expect(OperationNotifier.runTitle(lastFinished: (title: "Copying 12 items", ended: now.addingTimeInterval(-5)),
                                            now: now) == nil)
         #expect(OperationNotifier.runTitle(lastFinished: nil, now: now) == nil)
     }

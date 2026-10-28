@@ -154,6 +154,24 @@ import Testing
         #expect(!older.isCancelled, "the key stopped the older run too")
     }
 
+    /// **In the Activity window neither key stops a run**: it is opened to read, and Return there
+    /// cancelled the newest run. Its Stops are clicked.
+    @Test(arguments: ListKey.allCases)
+    func theWindowsListTakesNoKeys(listKey: ListKey) async throws {
+        let newest = cancellable()
+        let list = ProgressCapsuleRunList(runs: [
+            ProgressCapsuleListedRun(id: "merge", run: ProgressCapsuleRun(progress: newest), symbol: "doc.on.doc",
+                                     startedAt: Date(), onCancel: { newest.cancel() }),
+        ], fillsWidth: true, takesKeys: false)
+        let window = try await host(AnyView(list))
+        defer { window.close() }
+        let press = listKey == .commandPeriod
+            ? try key(window, keyCode: 47, characters: ".", modifiers: .command)
+            : try key(window, keyCode: 36, characters: "\r", modifiers: [])
+        if !window.performKeyEquivalent(with: press) { window.sendEvent(press) }
+        #expect(!newest.isCancelled, "a key in the Activity window stopped the run")
+    }
+
     /// **A message over a run keeps the run's count, and ⌘. still reaches the runs** (decision CU):
     /// the count, even of one, opens the list rather than stopping anything; and with no run left
     /// the message has a close button that takes no key.

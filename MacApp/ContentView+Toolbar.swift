@@ -406,8 +406,9 @@ extension ContentView {
         // pill, which charges it before it lets either of them keep a word. A toolbar that does not
         // fit folds into the overflow chevron, and a run nobody can see or stop is the one thing
         // this item must never become.
-        // Also while a run's ending is the capsule's (CG) — with no run left, it holds the message.
-        if runCapsuleShowing || capsuleMessage != nil {
+        // Also while a run's ending is the capsule's (CG) — with no run left, it holds the message —
+        // and while Activity's popover hangs from it (TE231).
+        if runCapsuleShowing || capsuleMessage != nil || activityPopoverStyles != nil {
             ToolbarItem(placement: .principal) {
                 RunCapsuleHost(activeProgress: syncManager.activeProgress,
                                activeProgressStartedAt: syncManager.activeProgressStartedAt,

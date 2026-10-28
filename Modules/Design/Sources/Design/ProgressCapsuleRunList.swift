@@ -35,10 +35,14 @@ public struct ProgressCapsuleRunList: View {
     let runs: [ProgressCapsuleListedRun]
     /// The Activity window's card is as wide as the window; the popover is the capsule's width.
     let fillsWidth: Bool
+    /// Return and ⌘. stop the newest run — in the popover ⌘. on the capsule opened, never in the
+    /// Activity window, which is opened to read: Return there stopped a merge.
+    let takesKeys: Bool
 
-    public init(runs: [ProgressCapsuleListedRun], fillsWidth: Bool = false) {
+    public init(runs: [ProgressCapsuleListedRun], fillsWidth: Bool = false, takesKeys: Bool = true) {
         self.runs = runs
         self.fillsWidth = fillsWidth
+        self.takesKeys = takesKeys
     }
 
     public static let width: CGFloat = 380
@@ -54,7 +58,7 @@ public struct ProgressCapsuleRunList: View {
                 .accessibilityAddTraits(.isHeader)
             ForEach(Array(runs.enumerated()), id: \.element.id) { index, listed in
                 if index > 0 { Divider().padding(.leading, 12) }
-                ProgressCapsuleRunRow(listed: listed, isNewest: index == 0)
+                ProgressCapsuleRunRow(listed: listed, isNewest: takesKeys && index == 0)
             }
         }
         .padding(.bottom, 6)
@@ -63,7 +67,7 @@ public struct ProgressCapsuleRunList: View {
         .background {
             // ⌘. stops the newest, as Return does — a second key on its Stop, which a button
             // cannot carry, so it rides on one of its own that draws nothing.
-            if let newest = runs.first, let stop = newest.onCancel {
+            if takesKeys, let newest = runs.first, let stop = newest.onCancel {
                 Button("", action: stop)
                     .keyboardShortcut(AppChord.cancelOperation.key, modifiers: AppChord.cancelOperation.modifiers)
                     .opacity(0)

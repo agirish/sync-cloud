@@ -667,9 +667,14 @@ struct ContentView: View {
                                                       placeholder: .short)))
     /// Whichever of the two the row is actually wearing right now.
     var toolbarStyles: ToolbarBarStyles {
-        toolbarStyleSet.resolved(fieldOpen: showCommandPalette, runShowing: runCapsuleShowing,
-                                 messageShowing: resultMessageHome == .toolbar && syncManager.banner != nil)
+        if let held = activityPopoverStyles { return held }
+        return toolbarStyleSet.resolved(fieldOpen: showCommandPalette, runShowing: runCapsuleShowing,
+                                        messageShowing: resultMessageHome == .toolbar && syncManager.banner != nil)
     }
+    /// The row as it was when Activity's popover opened under the capsule, held until it closes
+    /// (TE231): nothing moves under the popover — not when its last run ends, and not when the
+    /// capsule it opened from held only a message, whose room was only what was free (TE230).
+    @State var activityPopoverStyles: ToolbarBarStyles?
     /// A pane-launched PDF tool run or Save as PDF showing in the toolbar capsule — reported by
     /// `RunCapsulePresence`, so this view need not observe the PDF models.
     @State var paneRunShowing = false
@@ -1471,9 +1476,11 @@ struct ContentView: View {
         .environment(\.runWriteLock, runWriteLockReason)
         // Whether a pane PDF run or Save as PDF is in the toolbar capsule — the toolbar's width
         // ladder has to seat it (`runCapsuleShowing`).
-        .background(RunCapsulePresence(center: .shared) { showing in
+        .background(RunCapsulePresence(center: .shared, onChange: { showing in
             paneRunShowing = showing
-        })
+        }, onPopoverChange: { open in
+            activityPopoverStyles = open ? toolbarStyles : nil
+        }))
         // Edit's own PDF tool and Fill & Sign results, which never pass through the window's
         // message, into Activity's Recent (R18).
         .background(ActivityEditRecorder(tools: editorPDF.tools))
@@ -4554,7 +4561,7 @@ struct ContentView: View {
             // Banners vanish with the window; when the app is in the background, mirror the
             // outcome as a system notification (General setting, default off).
             if let banner = newValue {
-                let ended = syncManager.lastFinishedRun.map { (title: $0.title, ended: $0.ended) }
+                let ended = fileRunEnded(by: banner).map { (title: $0.title, ended: $0.ended) }
                 OperationNotifier.postIfEnabled(for: banner, runTitle: OperationNotifier.runTitle(lastFinished: ended))
             }
         }

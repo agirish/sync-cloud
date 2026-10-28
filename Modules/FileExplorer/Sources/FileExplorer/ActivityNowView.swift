@@ -137,7 +137,8 @@ public struct ActivityNowView: View {
                     .padding(.top, 2)
             }
         } else {
-            ProgressCapsuleRunList(runs: runs, fillsWidth: fillsWidth)
+            // The window is wide and opened to read: its keys are not the runs' (only the popover's).
+            ProgressCapsuleRunList(runs: runs, fillsWidth: fillsWidth, takesKeys: !fillsWidth)
         }
     }
 

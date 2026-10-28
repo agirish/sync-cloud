@@ -672,6 +672,12 @@ extension ContentView {
     func startPanePDFTool(_ request: PDFToolRequest, paths: [String]) {
         guard !refusedWhileRunLocked() else { return }
         let writer = "PDF Tools in \(selectedWorkspace.title)"
+        // A request refused while a run goes leaves that run's origin and doors as they are: its
+        // ending still goes where it was started (CP), and its Reveal to its own files.
+        guard !panePDFTools.isBusy else {
+            panePDFTools.start(request, paths: paths, writer: writer)
+            return
+        }
         paneToolOrigin = selectedWorkspace
         panePDFTools.host = PanePDFToolHost(
             didWrite: { path in
@@ -699,6 +705,11 @@ extension ContentView {
     func startSaveAsPDF(_ paths: [String]) {
         guard !refusedWhileRunLocked() else { return }
         let writer = "Save as PDF in \(selectedWorkspace.title)"
+        // Refused while a run goes: that run keeps its origin and doors (see `startPanePDFTool`).
+        guard !paneSaveAsPDF.isRunning else {
+            paneSaveAsPDF.start(paths: paths, writer: writer)
+            return
+        }
         saveAsPDFOrigin = selectedWorkspace
         paneSaveAsPDF.fontScale = appFontScale
         paneSaveAsPDF.accent = glassHue.accentColor

@@ -25,6 +25,8 @@ public struct ActivityMessage: Identifiable, Equatable {
     /// The run was stopped by the reader — a grey ending saying what was kept, not a problem
     /// (TE221).
     public var isStopped = false
+    /// The repeats folded into this row (R14) — a notification names the one it reported.
+    public var foldedIDs: [UUID] = []
 
     public enum Source: Equatable {
         case window
@@ -54,6 +56,14 @@ public struct ActivityMessage: Identifiable, Equatable {
         let lower = text.lowercased()
         return ["stopped", "canceled"].contains { lower.hasPrefix($0) }
             || [" canceled", " stopped"].contains { lower.hasSuffix($0) || lower.hasSuffix($0 + ".") }
+    }
+
+    /// **A stop drawn grey** — unless it also failed: "Canceled. Nothing was saved · 1 failed" is a
+    /// problem the reader stopping it did not cause, and keeps its red and its dot.
+    static func isQuietStop(stopped: Bool, message: String, severity: OperationBanner.Severity) -> Bool {
+        guard stopped, severity != .error else { return false }
+        let lower = message.lowercased()
+        return !["failed", "couldn’t"].contains { lower.contains($0) }
     }
 
     /// The same words and the same weight — what folds a repeat into the row before it.
@@ -147,7 +157,11 @@ public final class ActivityCenter: ObservableObject {
     public func record(_ message: ActivityMessage, seen: Bool) {
         if let newest = recent.first, newest.saysTheSame(as: message) {
             recent[0].repeats += 1
+            recent[0].foldedIDs.append(message.id)
             recent[0].date = message.date
+            // Show in Log covers every repeat, not only the first.
+            recent[0].span = min(newest.span.lowerBound, message.span.lowerBound)
+                ... max(newest.span.upperBound, message.span.upperBound)
         } else {
             recent.insert(message, at: 0)
             if recent.count > Self.keep { recent.removeLast(recent.count - Self.keep) }
@@ -157,12 +171,14 @@ public final class ActivityCenter: ObservableObject {
     }
 
     /// The window's message, as it was published. `run` is the history run the manager last
-    /// recorded — attached once, to the first message after it, so a later message is not linked
-    /// to an old run's records. `finishedRun` is the last long run's minutes, when it ended just now.
-    public func record(_ banner: OperationBanner, run: (token: UUID, runId: UUID)?,
+    /// recorded — attached once, to the first message after it, and only when it was recorded just
+    /// now, so a later message is not linked to an old run's records. A run that ended in an alert
+    /// posts no message, and the next one may be a rename minutes later. `finishedRun` is the last
+    /// long run's minutes, when it ended just now.
+    public func record(_ banner: OperationBanner, run: (token: UUID, runId: UUID, recordedAt: Date)?,
                        finishedRun: (started: Date, ended: Date, cancelled: Bool)?, seen: Bool, now: Date = Date()) {
         var runId: UUID?
-        if let run, run.token != attachedRunToken {
+        if let run, run.token != attachedRunToken, now.timeIntervalSince(run.recordedAt) < Self.runLinkWindow {
             attachedRunToken = run.token
             runId = run.runId
         }
@@ -170,18 +186,29 @@ public final class ActivityCenter: ObservableObject {
         var stoppedRun = false
         if let finishedRun, now.timeIntervalSince(finishedRun.ended) < 10 {
             start = min(start, finishedRun.started)
-            stoppedRun = finishedRun.cancelled
+            // Only the run's own ending is its stop — set in the turn its progress cleared, and the
+            // first message after it: a delete or a failure a moment later is not.
+            if now.timeIntervalSince(finishedRun.ended) < 2, finishedRun.ended != stopClaimedBy {
+                stopClaimedBy = finishedRun.ended
+                stoppedRun = finishedRun.cancelled
+            }
         }
         var message = ActivityMessage(id: banner.id, date: now, message: banner.message, detail: banner.detail,
                                       severity: banner.severity, followUps: banner.followUps,
                                       undoStep: banner.isUndoable ? undoSteps.last : nil, runId: runId,
                                       span: start...now.addingTimeInterval(5))
-        message.isStopped = stoppedRun || ActivityMessage.saysStopped(banner.message)
+        message.isStopped = ActivityMessage.isQuietStop(stopped: stoppedRun || ActivityMessage.saysStopped(banner.message),
+                                                        message: banner.message, severity: banner.severity)
         record(message, seen: seen)
     }
 
     /// The history run already linked to a message.
     private var attachedRunToken: UUID?
+    /// The ended run whose ending a message already reported — when it ended, which names it.
+    private var stopClaimedBy: Date?
+    /// How long after its records are written a run's message may still arrive: the records are
+    /// written as its undo is registered, before the identity walks of its copies finish.
+    static let runLinkWindow: TimeInterval = 30
 
     /// Edit's own PDF tool and Fill & Sign results, which live on Edit's model rather than in the
     /// window's message (R18). Edit's disk-change and read-only notices are questions, not
@@ -191,7 +218,8 @@ public final class ActivityCenter: ObservableObject {
         var message = ActivityMessage(message: result.banner.message, detail: result.banner.detail,
                                       severity: result.banner.severity, followUps: result.banner.followUps,
                                       source: .edit)
-        message.isStopped = ActivityMessage.saysStopped(banner.message)
+        message.isStopped = ActivityMessage.isQuietStop(stopped: ActivityMessage.saysStopped(result.banner.message),
+                                                        message: result.banner.message, severity: result.banner.severity)
         record(message, seen: seen)
     }
 
@@ -207,7 +235,8 @@ public final class ActivityCenter: ObservableObject {
 
     /// The Activity window on Now, with `id`'s row picked out (TE227, R15).
     public func openWindow(highlighting id: UUID?) {
-        highlighted = id
+        // A repeat folded into an earlier row is that row.
+        highlighted = id.map { id in recent.first { $0.foldedIDs.contains(id) }?.id ?? id }
         tab = .now
         markSeen()
         windowRequests += 1

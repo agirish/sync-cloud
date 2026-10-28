@@ -65,6 +65,13 @@ extension ContentView {
         return fileOperationOrigin
     }
 
+    /// The long file operation `banner` may be the ending of — none for a pane PDF tool's or Save
+    /// as PDF's result, which ends a run of its own: a copy that ended a moment before it, saying
+    /// nothing, must not lend the PDF's message its title, its stop or its minutes.
+    func fileRunEnded(by banner: OperationBanner) -> (started: Date, ended: Date, title: String?, cancelled: Bool)? {
+        paneToolResultDoors?.banner.id == banner.id ? nil : syncManager.lastFinishedRun
+    }
+
     /// The message as the capsule draws it (CG, TE233) — nil unless the message is the capsule's.
     var capsuleMessage: ProgressCapsuleMessage? {
         guard resultMessageHome == .toolbar, let banner = syncManager.banner else { return nil }
@@ -255,7 +262,7 @@ extension ContentView {
         // problem the capsule showed for five seconds while the reader worked elsewhere leaves the
         // Activity button's dot (CS).
         ActivityCenter.shared.record(banner, run: syncManager.lastRecordedRun,
-                                     finishedRun: syncManager.lastFinishedRun.map { ($0.started, $0.ended, $0.cancelled) },
+                                     finishedRun: fileRunEnded(by: banner).map { ($0.started, $0.ended, $0.cancelled) },
                                      seen: NSApp.isActive && !toCapsule)
     }
 
@@ -287,7 +294,8 @@ extension ContentView {
                 case .duplicates: selectedOrganizeLens = .duplicates
                 case .restructure: selectedOrganizeLens = .restructure
                 }
-                NSApp.mainWindow?.makeKeyAndOrderFront(nil)
+                // Show is often clicked in the Activity window, which is then the main window.
+                openWindow(id: SyncCloudApp.mainWindowId)
             })
     }
 }

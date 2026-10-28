@@ -318,9 +318,12 @@ public struct SyncHistoryView: View {
                     EmptyStateView(
                         icon: "line.3.horizontal.decrease.circle",
                         title: "No matching records",
-                        message: "The current action, date range, and search hide all \(store.records.count) \(store.records.count == 1 ? "record" : "records").",
+                        message: "The current \(runFilter == nil ? "" : "run, ")action, date range, and search hide all \(store.records.count) \(store.records.count == 1 ? "record" : "records").",
                         primary: .init("Clear Filters", systemImage: "xmark.circle",
-                                       help: "Show every record — clears the action, date range, and search filters") {
+                                       help: "Show every record — clears the \(runFilter == nil ? "" : "run, ")action, date range, and search filters") {
+                            // The run a Recent row's Show in History picked too: its records may
+                            // have been trimmed from the history since.
+                            runFilter = nil
                             selectedAction = nil
                             dateRange = .all
                             searchText = ""
