@@ -12,6 +12,9 @@ let package = Package(
         // Test-only, the same way: linking it draws every hosting view's animations on the main
         // thread for the whole test process — see its header.
         .library(name: "TestProcessRendering", targets: ["TestProcessRendering"]),
+        // Test-only, the same way: linking it gives the whole test process a Find pasteboard of its
+        // own — see its header.
+        .library(name: "TestProcessFindPasteboard", targets: ["TestProcessFindPasteboard"]),
     ],
     dependencies: [
         // Test-only: visual snapshot regression net. The library product below does NOT
@@ -33,6 +36,7 @@ let package = Package(
         .target(name: "Design"),
         .target(name: "TestProcessTextChecking", linkerSettings: [.linkedFramework("AppKit")]),
         .target(name: "TestProcessRendering"),
+        .target(name: "TestProcessFindPasteboard", linkerSettings: [.linkedFramework("AppKit")]),
         .testTarget(
             name: "DesignTests",
             dependencies: [

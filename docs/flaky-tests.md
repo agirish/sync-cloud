@@ -2588,6 +2588,29 @@ account (`/tmp/hostile/OneDrive-Hostile`) and a root override putting it at
 "other pane") and new passed 10 in 10. The account list alone cannot do that: an account's root
 ends in its own folder name, so it never sits above iCloud's. It takes the override beside it.
 
+**The Find pasteboard is one of these too, and AppKit picks its name — 2026-10-27.** No test
+names it: `NSTextFinder` reads and writes `NSPasteboardNameFind` itself, through
+`+[NSPasteboard pasteboardWithName:]` (measured, nine calls for one Use Selection for Find and one
+Show Find). `LineEndingPathsTests` leaves `"one"` there (`findingInAFileChangesNothing`) and
+`"on"` (the find bar's own Replace test). `scripts/test-shards` made the overlap ordinary by
+running FileExplorer as three processes at once. The other process's write lands between
+`PlainTextEditor.seedFind` and the field read, and
+`EditorContentSearchModelTests.seedingFindKeepsTheMatchAndStepsToTheNext` fails twice: "the find
+field holds on" (or "one"), then ⌘G's selection as a knock-on. Seen on CI run 40555704709 and a
+local `scripts/test-shards` the same day; a same-SHA rerun passed.
+`theEditorSelectsAndSeedsFromTheRequest` has the same exposure. **Reproduce** with a second
+process writing `"on"` to `NSPasteboard(name: .find)` every 2 ms while
+`--filter EditorContentSearchModelTests` runs. Unfixed, both tests fail every time. Keep the
+writer alive only while that run does: it reaches every test process on the machine, CI included.
+**Fix:** `TestProcessFindPasteboard` (Design, test-only, linked by FileExplorer's tests) replaces
+`pasteboardWithName:` from a constructor so that the Find name resolves to
+`Apple CFPasteboard find.SyncCloudTests.<pid>`. The process releases that board at exit. With
+the writer running, `--filter
+'EditorContentSearchModel|EditorFindBar|EditorMenuChord|LineEndingPaths|TestProcessFindPasteboard'`
+passed 3 runs in 3. Suites in the same process still share the board, as they always did: the
+seeding tests run synchronously on the main actor, so no sibling can write it between their
+seeding and their read. `TestProcessFindPasteboardTests` fails if the target stops being linked.
+
 ### 19. `Task.yield()` assumed to park a test inside an async window — a VACUOUS green, not a red
 
 **Symptom.** There isn't one, which is the entry's point. A test that starts an async operation,
@@ -3418,7 +3441,9 @@ inside that window leaves the timer to message a freed finder. Two things ask fo
 The Find pasteboard is machine-wide — the ring of "A named NSPasteboard is machine-global, so two
 test PROCESSES share it" — and `LineEndingPathsTests`'
 `findingInAFileChangesNothing` writes `"one"` to it through Use Selection for Find — a word every
-find-bar fixture's text contains. So that test is the reason the others' bars find something; it
+find-bar fixture's text contains. (Since 2026-10-27 each test process has a Find pasteboard of its
+own, so that word now reaches only suites in its own process — the same section, "The Find
+pasteboard is one of these too".) So that test is the reason the others' bars find something; it
 never asked for a redraw itself in any run measured. What usually saves the process is another
 suite's `spin()` servicing the timer before the view goes: a dropped text view here is freed by a
 deferred run-loop block half a second or more later, not when the test returns.

@@ -90,6 +90,7 @@ let package = Package(
                 .product(name: "EventsTestSupport", package: "Events"),
                 .product(name: "TestProcessTextChecking", package: "Design"),
                 .product(name: "TestProcessRendering", package: "Design"),
+                .product(name: "TestProcessFindPasteboard", package: "Design"),
                 .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
                 .product(name: "PDFToolkitCore", package: "pdf-toolkit")
             ],
