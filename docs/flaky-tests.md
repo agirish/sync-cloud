@@ -661,6 +661,25 @@ still fails "ran 4 provider discoveries", idle (3/3) and under the hogs; a remov
 discovery fails at the wait after 1,380 polls; with the deadline set to zero the floor alone
 passes, 3/3.
 
+**A count that lands two hops after its request, 2026-10-27 — FIXED.**
+`EditorContentSearchModelTests.aNewQuestionEndsTheRunningSearch` failed in CI run 40614524397
+(FileExplorer chunk 3 of 6): `asked.ended == 1` read 0, then `== 2` read 1. `ended` counts a
+stream's end, two hops after the request: the 1 ms typing settle's task runs `run()`, whose
+`cancel()` ends the old stream, and its `onTermination` starts a `Task` that counts it. The wait
+between them was `settle()` — 50 yields, then a 30 ms sleep with nothing after it. Alone it passed
+200 of 200.
+
+Load did not reproduce it in 64 runs of the old suite: 30 `yes` spinners at load average 93 (20);
+twelve pool hogs in 50, 200 and 1,000 ms chunks, with and without 20 spinners (24); four main-actor
+hogs in 50 ms chunks (8); two main-actor hogs in 60–150 ms turns, free between them (12). A 60 ms
+sleep inside the counting `Task` reproduces it deterministically: the old suite fails 3 of 3 with
+CI's signature, `ended` one behind at every check, and the fixed one passes 3 of 3.
+
+Fixed by waiting on each positive assertion's own condition through `LayoutPumpWait.poll`, with a
+labelled `#expect` at the call site. The wait asks for `ended >= n`; the assertion still says
+`== n`. `settle()` is left only in front of the absences. Mutation-tested: with `cancel()` no longer
+cancelling the scan, the test fails at each wait, "after 449 passes", in 15.6 s, not a hang.
+
 **See.** `c2584e6` — *Poll the drill tests' observables instead of pumping a fixed window*;
 `3a4ee8a` — *Poll for the revealed search field's caret instead of a fixed pump*;
 `33bcc30d` — *Wait out the New Folder undo instead of guessing 100ms at it*;

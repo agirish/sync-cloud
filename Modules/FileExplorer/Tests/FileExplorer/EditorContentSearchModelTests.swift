@@ -31,9 +31,24 @@ import Sync
         var ended = 0
     }
 
+    /// The window an ABSENCE is given — a search that should not start, or a hit that should not
+    /// be asked for. Never what a positive assertion waits on: that is `waitFor`.
     private func settle() async {
         for _ in 0..<50 { await Task.yield() }
         try? await Task.sleep(for: .milliseconds(30))
+    }
+
+    /// Waits for what the next assertion needs, bounded by `LayoutPumpWait`'s floor of passes
+    /// rather than by seconds, and fails at the caller when it never comes.
+    ///
+    /// All of it arrives on scheduler turns: the typing settle's task, the scan's events, and a
+    /// stream's end, counted by the `Task` its `onTermination` starts. `settle()` was ample alone
+    /// and short of it in a loaded CI run (40614524397), where `ended` read 0 where it wanted 1.
+    /// See `docs/flaky-tests.md`, "Fixed pumps and fixed sleeps".
+    private func waitFor(_ what: String, sourceLocation: SourceLocation = #_sourceLocation,
+                         until condition: () -> Bool) async {
+        let wait = await LayoutPumpWait.poll(upTo: 5, until: condition)
+        #expect(wait.held, "\(what), after \(wait.passes) passes", sourceLocation: sourceLocation)
     }
 
     /// Names asks nothing; Contents with too little typed asks nothing; Contents asks once per
@@ -50,7 +65,7 @@ import Sync
         #expect(asked.queries.isEmpty, "one letter was searched for")
 
         model.request(folder: "/f", query: " lentils ")
-        await settle()
+        await waitFor("the trimmed question was never asked") { !asked.queries.isEmpty }
         model.request(folder: "/f", query: "lentils")
         await settle()
         #expect(asked.queries.map(\.0) == ["lentils"], "asked \(asked.queries)")
@@ -63,20 +78,24 @@ import Sync
         let (model, asked) = model()
         model.scope = .contents
         model.request(folder: "/f", query: "lentils")
-        await settle()
+        await waitFor("the first search was never asked") { !asked.queries.isEmpty }
         model.request(folder: "/f", query: "lentil soup")
-        await settle()
+        await waitFor("the new query was not asked, or the first search not ended") {
+            asked.queries.count >= 2 && asked.ended >= 1
+        }
         #expect(asked.queries.map(\.0) == ["lentils", "lentil soup"])
         #expect(asked.ended == 1, "the first search was not ended")
 
         model.request(folder: "/g", query: "lentil soup")
-        await settle()
+        await waitFor("the new folder was not asked, or the second search not ended") {
+            asked.queries.count >= 3 && asked.ended >= 2
+        }
         #expect(asked.ended == 2)
         #expect(model.key?.folder == "/g")
 
         model.scope = .names
         model.request(folder: "/g", query: "lentil soup")
-        await settle()
+        await waitFor("Names did not end the third search") { asked.ended >= 3 }
         #expect(asked.ended == 3)
         #expect(model.key == nil)
         #expect(model.textPhase == .idle)
@@ -88,8 +107,8 @@ import Sync
         model.typingSettle = .milliseconds(80)
         model.scope = .contents
         for prefix in ["le", "len", "lent", "lenti"] { model.request(folder: "/f", query: prefix) }
+        await waitFor("the last keystroke was never searched") { asked.queries.contains { $0.0 == "lenti" } }
         await settle()
-        try? await Task.sleep(for: .milliseconds(150))
         #expect(asked.queries.map(\.0) == ["lenti"])
     }
 
@@ -98,7 +117,7 @@ import Sync
         let (model, asked) = model()
         model.scope = .contents
         model.request(folder: "/f", query: "word")
-        await settle()
+        await waitFor("the search was never asked") { !asked.continuations.isEmpty }
         let stream = try! #require(asked.continuations.first)
         func hit(_ name: String) -> EditorContentHit {
             EditorContentHit(path: "/f/" + name, name: name, subfolder: "", kind: .text, lineCount: 1)
@@ -107,13 +126,15 @@ import Sync
         stream.yield(.hit(hit("a.md"), order: 0))
         stream.yield(.progress(.init(read: 2, found: 3, walked: true)))
         stream.yield(.hit(hit("b.md"), order: 1))
-        await settle()
+        await waitFor("the hits were not all taken") { model.textHits.count >= 3 }
         #expect(model.textHits.map(\.name) == ["a.md", "b.md", "c.md"])
         #expect(model.textPhase == .searching(.init(read: 2, found: 3, walked: true)))
         var summary = EditorContentSearch.Summary()
         summary.read = 3
         stream.yield(.finished(summary))
-        await settle()
+        await waitFor("the end was not taken") {
+            if case .finished = model.textPhase { true } else { false }
+        }
         #expect(model.textPhase == .finished(summary))
         #expect(model.firstResult?.hit.name == "a.md")
     }
