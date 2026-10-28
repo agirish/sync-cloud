@@ -103,18 +103,17 @@ import Sync
         while Date() < end { try? await Task.sleep(nanoseconds: 8_000_000) }
     }
 
-    /// Waits for `condition` — ARRIVAL, not a fixed time — up to a ceiling generous enough for a
-    /// loaded full run, where a mount has measured 18–43 s. A fixed pump expires on schedule and
-    /// then asserts against a pane that has not laid out (`docs/flaky-tests.md`, "quiescence is not
-    /// arrival"). Fixed pumps remain only where a test asserts that something did NOT happen.
+    /// Waits for `condition` — ARRIVAL, not a fixed time — and never gives up before
+    /// `LayoutPumpWait.pumpFloor` main-actor turns, however long they take. A fixed pump expires on
+    /// schedule and then asserts against a pane that has not laid out (`docs/flaky-tests.md`,
+    /// "quiescence is not arrival"); a ceiling in seconds alone does the same under load. This was
+    /// fifteen seconds and no floor until 2026-10-28, when a sharded run at load 38 had every
+    /// column report 0 rows when it gave up (mechanism 2). `poll`, not `pump`: these waits never
+    /// drove layout, and the floor was the part that was wrong. Fixed pumps remain only where a
+    /// test asserts that something did NOT happen.
     @discardableResult
     private func waitUntil(_ timeout: Double = 15, _ condition: () -> Bool) async -> Bool {
-        let end = Date().addingTimeInterval(timeout)
-        while Date() < end {
-            if condition() { return true }
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-        return condition()
+        await LayoutPumpWait.poll(upTo: timeout, until: condition).held
     }
 
     private func mount(components: [String] = ["a2", "b3"]) async -> Mounted {
@@ -131,10 +130,12 @@ import Sync
         box.browsePath = PaneBrowsePath(components: components)
         let m = Mounted(window: window, box: box, placement: placement)
         let directories = PaneBrowsePath(components: components).columnDirectories(treeRoot: Self.root)
-        await waitUntil {
+        let (held, passes) = await LayoutPumpWait.poll(upTo: 15) {
             self.columnLists(m).count == directories.count
                 && directories.allSatisfy { dir in self.ids(m, dir).filter { placement.rowBottoms[$0] != nil }.count >= 5 }
         }
+        // The pass count tells a starved wait (a handful) from a disproved one (hundreds).
+        #expect(held, "the columns had not all reported their rows after \(passes) turns")
         return m
     }
 

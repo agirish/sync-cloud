@@ -51,6 +51,10 @@ while time.process_time() < float(sys.argv[1]): pass' "$seconds"
 grep -E "$filter" "$FAKE_DIR/list" >> "$FAKE_DIR/ran"
 sleep 0.3
 echo - >> "$FAKE_DIR/events"
+if [ -n "${FAKE_HANG:-}" ] && echo "$filter" | grep -q "$FAKE_HANG"; then  # blocked for good,
+  echo "◇ Test fine() started."; echo "✔ Test fine() passed after 0.1 seconds."  # in a child
+  echo "◇ Test hung() started."; sleep 600.25 & wait; exit 0
+fi
 if [ -n "${FAKE_DIE:-}" ] && echo "$filter" | grep -q "$FAKE_DIE"; then exit 0; fi  # no count line
 [ -n "${FAKE_EXTRA:-}" ] && echo "$filter" | grep -q "$FAKE_EXTRA" && count=$((count + 1))
 if [ -n "${FAKE_FAIL:-}" ] && echo "$filter" | grep -q "$FAKE_FAIL"; then
@@ -108,6 +112,21 @@ check "a failing chunk fails the run" same "$status" 1
 check "...and the other chunks still ran" same "$(sort -u "$WORK/ran" | wc -l | tr -d ' ')" "$listed"
 FAKE_BUILD_EXIT=1 shards pkg
 check "a failed build fails the run without testing" same "$status:$(grep -c -- '--filter' "$WORK/calls")" "1:0"
+
+# 4b. A chunk that never ends is stopped, its output so far and a sample of it printed, and the
+#     run goes red; nothing it started is left running, and the other chunks still run.
+began=$SECONDS
+FAKE_HANG='Suite5[|)]' TEST_SHARDS_STALL=3 TEST_SHARDS_SAMPLE=1 TEST_SHARDS_HEARTBEAT=1 shards pkg
+check "a stalled chunk fails the run" same "$status" 1
+check "...and the run does not wait for it ($((SECONDS - began)) s)" test $((SECONDS - began)) -lt 40
+check "...naming the test that never finished" grep -q "STALLED after .*never finished: hung()$" "$WORK/err"
+check "...printing what the chunk wrote so far" grep -q "◇ Test hung() started." "$WORK/out"
+check "...and a sample of where it is stuck" grep -q "Call graph" "$WORK/out"
+check "...and saying which chunks are still going while it waits" grep -q "still running: chunk" "$WORK/err"
+check "...leaving nothing it started running" sh -c "! pgrep -f 'sleep 600.25' > /dev/null"
+check "...while every other chunk still ran" \
+  same "$(sort -u "$WORK/ran" | wc -l | tr -d ' ')" "$listed"
+check "...and no count mismatch is claimed on top" sh -c "! grep -q 'tests listed but' '$WORK/err'"
 
 # 5. The same list always deals the same chunks.
 shards pkg; first=$(grep -- '--filter' "$WORK/calls" | sort)

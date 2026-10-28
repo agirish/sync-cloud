@@ -421,6 +421,14 @@ It has been migrated to `LayoutPumpWait.pump(_ view:upTo:until:)` and now report
 failure. The run that surfaced it was made congested by new mounted-view suites landing alongside
 (the pane search); nothing about the defect was new, only the load.
 
+**A second sighting of the same shape, 2026-10-28 — `ColumnRowBottomsProbeTests`.** Its private
+`waitUntil` was fifteen seconds and no floor, under a comment claiming a loaded mount "has measured
+18–43 s" — a ceiling below its own measurement. A sharded FileExplorer run at load 38 failed
+`everyOpenColumnReportsItsVisibleRows` with every column at **0 rows**; five runs of the suite
+alone passed. Migrated to `LayoutPumpWait.poll` rather than `pump`, because its waits never drove
+layout and the floor was the part that was wrong; the mount now reports its turn count (an
+impossible condition, checked by mutation, gave up after 1117).
+
 The rest are listed by name, and by category, so the next sweep starts from a true inventory instead
 of rediscovering one — **and note that the grep recipe above is necessary but not sufficient**: it is
 blind to the `while !condition() && …` form and to waits outside `Modules`.
@@ -964,6 +972,14 @@ mechanism 6 describes.
 
 **Fix.** Retune from the test's own printed measurement rather than guessing, and validate that the
 assertion can fail using CPU spin — never `sleep`.
+
+**Or take the clock out, when the claim was never about time — 2026-10-28,
+`TreePreviewTargetTests.testTheWalkDoesNotReadTheWholeTree`.** It timed one call against a
+20,000-row subtree, `elapsed < 0.05`, to pin that the walk enters only the directory on the path.
+At load 29 it failed after waiting 66 s for its turn. That claim is structural, so it is now
+pinned by a decoy instead: a row inside the off-path directory that carries the wanted file's own
+path, which any walk entering that directory returns. A whole-tree scan, put in by mutation, fails
+it; no load can.
 
 **A ratio is not immune, 2026-08-03.** `HeaderLadderCostBenchmark.computingTheRungBeatsSearchingForIt`
 failed the full package with `speedup → 1.7575 > 1.8`, a 2.4% miss. Its comment argues a ratio

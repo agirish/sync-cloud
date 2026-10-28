@@ -32,6 +32,13 @@ to the listed total. The count line matters: a test process that dies can still 
 exiting 0, and a filter that matches nothing passes (docs/flaky-tests.md, the silent half).
 --measure writes nothing unless its run is green.
 
+A chunk still running after 20 minutes ($TEST_SHARDS_STALL seconds) is stopped with everything it
+started, and the run goes red: it prints the chunk's output so far, the tests that started and
+never finished, and a `sample` of its test helper, which names the call a stuck test is blocked in.
+Held output otherwise hides a hang entirely: on 2026-10-28 an unanswered TCC prompt blocked one
+chunk three times, and each CI job sat silent to its 90-minute limit. Every 5 minutes
+($TEST_SHARDS_HEARTBEAT) it also says which chunks are still running.
+
 Outside CI it takes one build slot for the whole run, re-running itself under scripts/build-slot
 (CLAUDE.md §7); inside a slot or on the CI runner ($GITHUB_ACTIONS) it runs at once. Environment
 such as SYNCCLOUD_SKIP_MACHINE_PINNED reaches every chunk. Tests: scripts/test-test-shards.
@@ -54,6 +61,14 @@ SWIFT_TESTING_RUN = re.compile(r"Test run with (\d+) tests? (?:in \d+ suites? )?
 RUN_SECONDS = re.compile(r"Test run with \d+ tests? .*after ([\d.]+) seconds")
 XCTEST_TOTAL = re.compile(r"Test Suite '(?:All tests|Selected tests)' (?:passed|failed)")
 XCTEST_EXECUTED = re.compile(r"Executed (\d+) tests?, with")
+STARTED = re.compile(r"◇ Test (.+?) started\.")
+ENDED = re.compile(r"[✔✘➜] Test (.+?) (?:passed|failed|skipped)")
+# A chunk still running this long is stopped and reported. The slowest chunk seen took 438 s at
+# load 47; a test blocked for good (an unanswered TCC prompt, 2026-10-28) would otherwise hold
+# the CI job to its 90-minute limit with nothing in the log.
+STALL_SECONDS = float(os.environ.get("TEST_SHARDS_STALL") or 1200)
+HEARTBEAT_SECONDS = float(os.environ.get("TEST_SHARDS_HEARTBEAT") or 300)
+SAMPLE_SECONDS = os.environ.get("TEST_SHARDS_SAMPLE") or "3"
 
 
 def say(message):
@@ -151,6 +166,70 @@ def counted(log):
     return total if seen else None
 
 
+def unfinished(log):
+    """Tests the log shows starting and never ending, in the order they started."""
+    ended = set(ENDED.findall(log))
+    return [test for test in dict.fromkeys(STARTED.findall(log)) if test not in ended]
+
+
+def descendants(pid):
+    """Every process below pid, nearest first."""
+    try:
+        table = subprocess.run(["ps", "-axo", "pid=,ppid=,comm="], stdout=subprocess.PIPE,
+                               universal_newlines=True).stdout
+    except OSError:
+        return []
+    children = {}
+    for line in table.splitlines():
+        fields = line.split(None, 2)
+        if len(fields) == 3 and fields[0].isdigit() and fields[1].isdigit():
+            children.setdefault(int(fields[1]), []).append((int(fields[0]), fields[2]))
+    found, frontier = [], [pid]
+    while frontier:
+        below = [child for parent in frontier for child in children.get(parent, [])]
+        found.extend(below)
+        frontier = [child for child, _ in below]
+    return found
+
+
+def sampled(pid):
+    """`sample`'s call graph of the chunk's test helper, which names what a stuck test waits on."""
+    helpers = [child for child, name in descendants(pid) if "testing-helper" in name
+               or name.endswith("xctest")] or [pid]
+    report = tempfile.NamedTemporaryFile(suffix=".sample.txt", delete=False)
+    report.close()
+    try:
+        subprocess.run(["sample", str(helpers[0]), SAMPLE_SECONDS, "-file", report.name],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        with open(report.name) as handle:
+            return handle.read()
+    except OSError:
+        return "(sample could not run)\n"
+    finally:
+        os.unlink(report.name)
+
+
+def end(process):
+    """Stop a chunk and everything it started: TERM, then KILL whatever is left after 5 s."""
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(process.pid, sig)
+        except OSError:
+            return
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if os.waitpid(process.pid, os.WNOHANG)[0] != 0:
+                break
+            time.sleep(0.1)
+        else:
+            continue
+        try:  # the chunk is gone; take anything it left in its group with it
+            os.killpg(process.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        return
+
+
 def write_costs(path, cpu, wall, listed, jobs):
     """Each suite's cost: the smaller of its test run's wall seconds and its CPU seconds less the
     cheapest suite's CPU (what starting a process costs every chunk alike)."""
@@ -198,8 +277,10 @@ def run(package, jobs, measure):
 
     def stop(signum, _frame):
         for chunk in running:
-            if chunk["process"].poll() is None:
-                chunk["process"].terminate()
+            try:
+                os.killpg(chunk["process"].pid, signal.SIGTERM)
+            except OSError:
+                pass
         sys.exit(128 + signum)
 
     signal.signal(signal.SIGTERM, stop)
@@ -207,6 +288,20 @@ def run(package, jobs, measure):
 
     github = os.environ.get("GITHUB_ACTIONS") == "true"
     began, problems, ran, cpu, wall = time.time(), [], 0, {}, {}
+    unreported, heartbeat = False, time.time()
+
+    def title_of(chunk):
+        return ("suite %s" % chunk["groups"][0] if measure else
+                "chunk %d/%d (%d tests listed, cost %.0f)" % (
+                    chunk["number"], len(chunks), chunk["tests"], chunk["cost"]))
+
+    def show(title, log):
+        sys.stdout.write("::group::%s\n" % title if github else "=== %s\n" % title)
+        sys.stdout.write(log)
+        if github:
+            sys.stdout.write("::endgroup::\n")
+        sys.stdout.flush()
+
     while queue or running:
         while queue and len(running) < jobs:
             chunk = queue.pop(0)
@@ -215,8 +310,9 @@ def run(package, jobs, measure):
             # the chunks one after another. They only read the build made above.
             command = ["swift", "test", "--skip-build", "--ignore-lock", "--package-path", package,
                        "--filter", filter_for(chunk["groups"])]
+            # A session of its own, so a stalled chunk can be stopped with all it started.
             chunk["process"] = subprocess.Popen(command, stdout=chunk["log"],
-                                                stderr=subprocess.STDOUT)
+                                                stderr=subprocess.STDOUT, start_new_session=True)
             chunk["start"] = time.time()
             running.append(chunk)
         for chunk in list(running):
@@ -224,21 +320,33 @@ def run(package, jobs, measure):
             # which is where --measure's CPU seconds come from.
             pid, raw, usage = os.wait4(chunk["process"].pid, os.WNOHANG)
             if pid == 0:
+                elapsed = time.time() - chunk["start"]
+                if elapsed < STALL_SECONDS:
+                    continue
+                running.remove(chunk)
+                # pread: the chunk still writes through the same file offset.
+                fd = chunk["log"].fileno()
+                log = os.pread(fd, os.fstat(fd).st_size, 0).decode("utf-8", "replace")
+                stuck = unfinished(log)
+                trace = sampled(chunk["process"].pid)
+                end(chunk["process"])
+                title = title_of(chunk)
+                show(title, log + "\n--- test-shards: still running after %.0f s, so stopped. "
+                     "Started and never finished: %s\n--- `sample` of its test helper:\n%s" % (
+                         elapsed, ", ".join(stuck) or "none", trace))
+                say("%s: STALLED after %.0f s; never finished: %s" % (
+                    title, elapsed, ", ".join(stuck) or "no test had started"))
+                problems.append("%s stalled after %.0f s" % (title, elapsed))
+                unreported = True
                 continue
             status = chunk["process"].returncode = os.waitstatus_to_exitcode(raw)
             running.remove(chunk)
             chunk["log"].seek(0)
             log = chunk["log"].read()
             reported = counted(log)
-            title = ("suite %s" % chunk["groups"][0] if measure else
-                     "chunk %d/%d (%d tests listed, cost %.0f)" % (
-                         chunk["number"], len(chunks), chunk["tests"], chunk["cost"]))
+            title = title_of(chunk)
             if not measure or status != 0 or reported is None:
-                sys.stdout.write("::group::%s\n" % title if github else "=== %s\n" % title)
-                sys.stdout.write(log)
-                if github:
-                    sys.stdout.write("::endgroup::\n")
-                sys.stdout.flush()
+                show(title, log)
             say("%s: exit %d, %s tests run, %.0f s" % (
                 title, status, "no count line —" if reported is None else reported,
                 time.time() - chunk["start"]))
@@ -246,6 +354,7 @@ def run(package, jobs, measure):
                 problems.append("%s exited %d" % (title, status))
             if reported is None:
                 problems.append("%s printed no test count" % title)
+                unreported = True
             else:
                 ran += reported
                 if measure:
@@ -254,9 +363,13 @@ def run(package, jobs, measure):
                     seconds = [float(found) for found in RUN_SECONDS.findall(log)]
                     if seconds:
                         wall[suite] = sum(seconds)
+        if running and time.time() - heartbeat >= HEARTBEAT_SECONDS:
+            heartbeat = time.time()
+            say("still running: " + ", ".join("chunk %d for %.0f s" % (
+                c["number"], heartbeat - c["start"]) for c in running))
         time.sleep(0.5)
 
-    if ran != len(identifiers) and not any("no test count" in p for p in problems):
+    if ran != len(identifiers) and not unreported:
         problems.append("%d tests listed but %d ran" % (len(identifiers), ran))
     if problems:
         say("FAILED: " + "; ".join(problems))

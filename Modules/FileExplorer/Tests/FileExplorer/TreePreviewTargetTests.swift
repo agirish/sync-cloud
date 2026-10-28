@@ -67,30 +67,29 @@ import UniformTypeIdentifiers
         #expect(item.path.hasSuffix("/Invoices/Q3/march.pdf"))
     }
 
-    /// The walk touches one directory's rows per level, never the tree. Asserted by giving it a
-    /// subtree big enough that a linear scan would be visible, and asking for the ONE file that is
-    /// not in it: the answer is nil either way, so this pins the cost, not the result.
+    /// The walk touches one directory's rows per level, never the tree: it enters only the
+    /// directory on the path. Pinned by a decoy rather than a clock — `Bulk`, sorted first, holds a
+    /// row carrying the wanted file's own path, so a walk that enters any directory off the path
+    /// (or scans the whole projection) returns the decoy instead of `Other`'s file.
+    ///
+    /// This was a 20,000-row subtree and `elapsed < 0.05` until 2026-10-28, when it failed at load
+    /// 29 after waiting its turn for 66 s: a wall-clock limit on one call measures the machine. A
+    /// clock still has a place for the cost, and it is `ColumnClickCostBenchmark`, which is
+    /// machine-pinned for that reason.
     @Test func testTheWalkDoesNotReadTheWholeTree() {
-        var wide: [FileNode] = []
-        for i in 0..<20_000 {
-            wide.append(FileNode(id: "\(Self.root)/Bulk/f\(i).txt", name: "f\(i).txt",
-                                 isDirectory: false))
-        }
-        let bulk = FileNode(id: "\(Self.root)/Bulk", name: "Bulk", isDirectory: true, children: wide)
+        let wanted = "\(Self.root)/Other/a.txt"
+        let decoy = FileNode(id: wanted, name: "decoy-in-Bulk.txt", isDirectory: false)
+        let bulk = FileNode(id: "\(Self.root)/Bulk", name: "Bulk", isDirectory: true,
+                            children: [FileNode(id: "\(Self.root)/Bulk/f0.txt", name: "f0.txt",
+                                                isDirectory: false), decoy])
         let other = FileNode(id: "\(Self.root)/Other", name: "Other", isDirectory: true,
-                             children: [FileNode(id: "\(Self.root)/Other/a.txt", name: "a.txt",
-                                                 isDirectory: false)])
+                             children: [FileNode(id: wanted, name: "a.txt", isDirectory: false)])
         let rows = PaneRow.project([bulk, other], side: .left, version: 1)
 
-        let started = Date()
-        let item = ColumnPreview.item(selection: ["\(Self.root)/Other/a.txt"], treeRows: rows)
-        let elapsed = Date().timeIntervalSince(started)
+        let item = ColumnPreview.item(selection: [wanted], treeRows: rows)
 
-        #expect(item?.name == "a.txt")
-        // Generous by three orders of magnitude against the walk's real cost, and still far under
-        // what descending into `Bulk` would take. The number is a smoke alarm, not a benchmark —
-        // `ColumnClickCostBenchmark` is where timings are measured properly.
-        #expect(elapsed < 0.05)
+        #expect(item?.name == "a.txt",
+                "the walk entered Bulk, a directory off the path, and found \(item?.name ?? "nothing")")
     }
 
     /// A folder is never previewed, whichever presentation resolved it — the tree's own copy of the
