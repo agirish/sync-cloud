@@ -1492,6 +1492,10 @@ struct FileContextMenu: View {
     /// iCloud Drive nobody answered holds a main-actor `lstat` until the job times out").
     var cloudHome: String = NSHomeDirectory()
 
+    /// Where those reads run: off the main thread, waited for only so long (`BoundedCloudRead`). A
+    /// test passes its own, so a read it holds up cannot stop another suite's menus reading.
+    var cloudReads: BoundedCloudRead = .shared
+
     /// The three doors onto the file-pair viewer that a row offers.
     ///
     /// **"Compare with…" is unconditional, and the other two are shortcuts past it.** Arming needs
@@ -1619,6 +1623,32 @@ struct FileContextMenu: View {
         CloudOnlyBadgeCache.cached(path) ?? MaterializationStatus.isCloudOnly(atPath: path)
     }
 
+    /// What Download and Keep Downloaded offer for `nodes`.
+    struct CloudOffers: Sendable {
+        let download: CloudDownloadOffer?
+        let keep: KeepDownloadedOffer?
+    }
+
+    /// Both offers, read off the main thread through `cloudReads` — or nil when the reads did not
+    /// answer in time, and the menu leaves both items out.
+    ///
+    /// A file is asked the badge memo first, read here on the main actor; `statsFiles` lets a file
+    /// the memo has not answered be `lstat`ed instead, which only the single-row menu does.
+    private func cloudOffers(for nodes: [FileNode], statsFiles: Bool) -> CloudOffers? {
+        let badges = nodes.reduce(into: [String: Bool]()) { known, node in
+            if !node.isDirectory { known[node.id] = CloudOnlyBadgeCache.cached(node.id) }
+        }
+        let home = cloudHome
+        return cloudReads.run {
+            CloudOffers(
+                download: CloudDownloadOffer.forSelection(
+                    nodes,
+                    isCloudOnly: { badges[$0] ?? (statsFiles ? MaterializationStatus.isCloudOnly(atPath: $0) : nil) },
+                    home: home),
+                keep: KeepDownloadedOffer.forSelection(nodes, state: { KeepDownloaded.state(ofPath: $0, home: home) }))
+        }
+    }
+
     static func resolvedSelection(node: FileNode, selection: Set<String>, tree: [FileNode]) -> [FileNode] {
         let effectiveSelection: Set<String>
         if selection.isEmpty {
@@ -1694,17 +1724,14 @@ struct FileContextMenu: View {
                 Divider()
             }
             // Several items: Download All and Keep Downloaded over the lot, in the same batch slot.
-            // Files are asked through the badge memo alone — this runs for every selected row on
-            // every render, so a fresh `lstat` per selected file would be paid rows × selection.
-            if count > 1 {
-                let offer = CloudDownloadOffer.forSelection(selectedNodes, isCloudOnly: { CloudOnlyBadgeCache.cached($0) },
-                                                            home: cloudHome)
-                let keep = KeepDownloadedOffer.forSelection(selectedNodes, state: { KeepDownloaded.state(ofPath: $0, home: cloudHome) })
-                if offer != nil || keep != nil {
-                    downloadItem(offer)
-                    keepDownloadedToggle(keep, for: selectedNodes)
-                    Divider()
-                }
+            // Files are asked through the badge memo alone — every selected row's menu that has been
+            // opened is rebuilt with its row, so a fresh `lstat` per selected file would be paid
+            // rows × selection.
+            if count > 1, let cloud = cloudOffers(for: selectedNodes, statsFiles: false),
+               cloud.download != nil || cloud.keep != nil {
+                downloadItem(cloud.download)
+                keepDownloadedToggle(cloud.keep, for: selectedNodes)
+                Divider()
             }
             if count == 1, let singleNode = selectedNodes.first {
                 // **First after the divider**, ahead of Get Info and Reveal in Finder. Edit is a
@@ -1739,14 +1766,16 @@ struct FileContextMenu: View {
                 // iCloud and was measured working on Google Drive; Dropbox and OneDrive are not
                 // measured. A refused request reveals the item in Finder rather than doing nothing.
                 // The row's own ☁ answer when it has one, which is what the row is showing; a
-                // fresh `lstat` otherwise. This body runs for every visible row on every render, so
-                // it asks the filesystem only for a file the row has not.
-                downloadItem(CloudDownloadOffer.forSelection([singleNode], isCloudOnly: { Self.isCloudOnly($0) }, home: cloudHome))
-                // Finder's Keep Downloaded, iCloud Drive only — the one provider measured to
-                // honour it (`KeepDownloaded`). Ticked and greyed under a kept folder: the
+                // fresh `lstat` otherwise, so it asks the filesystem only for a file the row has not.
+                //
+                // Finder's Keep Downloaded beside it, iCloud Drive only — the one provider measured
+                // to honour it (`KeepDownloaded`). Ticked and greyed under a kept folder: the
                 // folder's pin keeps it whatever this row says.
-                keepDownloadedToggle(KeepDownloadedOffer.forSelection([singleNode], state: { KeepDownloaded.state(ofPath: $0, home: cloudHome) }),
-                                     for: [singleNode])
+                //
+                // Both read off the main thread, and neither is offered when the reads hang.
+                let cloud = cloudOffers(for: [singleNode], statsFiles: true)
+                downloadItem(cloud?.download)
+                keepDownloadedToggle(cloud?.keep, for: [singleNode])
                 // **Its own section, under the open-and-inspect items** (mockup 11), so it never
                 // shifts Rename or anything below it — and never between Refresh and Open in Edit,
                 // which leads this branch. Hidden, not greyed, for a folder, a non-PDF or a

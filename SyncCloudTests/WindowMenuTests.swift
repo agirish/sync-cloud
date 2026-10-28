@@ -484,24 +484,41 @@ import AppKit
     /// memo of what the drawn row already found — and never with an `lstat` of its own, which on a
     /// wedged provider would stall every `ContentView` body pass. Both halves, because the memo
     /// read is one edit away from being "fixed" into the stat the row menu is allowed to make.
+    ///
+    /// The offer itself is `CloudDownloadOffer.forActiveSelection`, which also takes the folders'
+    /// one read off the main thread, so its body is scanned too.
     @Test func theMenuItemReadsTheBadgeCacheAndNeverStats() throws {
-        let url = URL(fileURLWithPath: #filePath)
+        let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ShortcutCommands.swift")
-        let source = sourceCodeOnly(try String(contentsOf: url, encoding: .utf8))
-        let start = try #require(source.range(of: "var shortcutPaneRowVerbs: PaneRowVerbs {"),
-                                 "shortcutPaneRowVerbs is gone — this scan would be vacuous")
-        let rest = source[start.upperBound...]
-        let end = try #require(rest.range(of: "\n    }\n"))
-        let body = String(rest[..<end.lowerBound])
-        #expect(body.contains("CloudOnlyBadgeCache.cached("),
-                "File ▸ Download no longer reads the badge's memo")
+        let body = try Self.scan(root.appendingPathComponent("MacApp/ShortcutCommands.swift"),
+                                 from: "var shortcutPaneRowVerbs: PaneRowVerbs {")
+        #expect(body.contains("CloudDownloadOffer.forActiveSelection("),
+                "File ▸ Download stopped asking for the active selection's offer")
         #expect(!body.contains("MaterializationStatus."),
                 "File ▸ Download stats the filesystem on every body pass")
-        #expect(body.contains("CloudDownloadOffer.forSelection("),
-                "File ▸ Download stopped asking the row menu's own question")
         #expect(body.contains("CloudDownloadRequest.request(offer"),
                 "File ▸ Download stopped sharing the row verb's body")
+
+        let offer = try Self.scan(
+            root.appendingPathComponent("Modules/FileExplorer/Sources/FileExplorer/CloudDownloadOffer.swift"),
+            from: "public static func forActiveSelection(")
+        #expect(offer.contains("CloudOnlyBadgeCache.cached("),
+                "File ▸ Download no longer reads the badge's memo")
+        #expect(!offer.contains("MaterializationStatus."),
+                "File ▸ Download stats the filesystem on every body pass")
+        #expect(offer.contains("forSelection("),
+                "File ▸ Download stopped asking the row menu's own question")
+        #expect(offer.contains("BoundedCloudRead.shared.run"),
+                "File ▸ Download reads a folder's domain on the main thread again")
+    }
+
+    /// The source of the function opening at `marker`, up to its closing brace at four spaces.
+    private static func scan(_ url: URL, from marker: String) throws -> String {
+        let source = sourceCodeOnly(try String(contentsOf: url, encoding: .utf8))
+        let start = try #require(source.range(of: marker), "\(marker) is gone — this scan would be vacuous")
+        let rest = source[start.upperBound...]
+        let end = try #require(rest.range(of: "\n    }\n"))
+        return String(rest[..<end.lowerBound])
     }
 
     @Test func anEmptySelectionOffersNothing() {

@@ -11,12 +11,17 @@ import Testing
 ///
 /// **Below a scratch home, never the real one.** The menu `lstat`s and `getxattr`s the row's path,
 /// and below the real `~/Library/Mobile Documents` that path is in iCloud Drive's File Provider
-/// domain: a process without the privacy grant for it waits, on the main actor, until someone
-/// answers the consent dialog. On the CI runner nobody does, and three runs hung for 90 minutes
-/// each (docs/flaky-tests.md, "A consent dialog for iCloud Drive nobody answered holds a
-/// main-actor `lstat` until the job times out"). Every item these tests expect offered is offered
+/// domain: a process without the privacy grant for it waits until someone answers the consent
+/// dialog. On the CI runner nobody does, and three runs hung for 90 minutes each, when the read was
+/// still made on the main actor (docs/flaky-tests.md, "A consent dialog for iCloud Drive nobody
+/// answered holds a main-actor `lstat` until the job times out"). It is made off it now, and the
+/// menu stops waiting, but the read itself would still be stuck. Every item these tests expect offered is offered
 /// only when the menu measures from `cloudHome`, so a menu that reached for the real home fails by
 /// name.
+///
+/// **Through a reader of their own** (`BoundedCloudRead`), with a deadline no loaded run reaches, so
+/// a read that is merely slow cannot leave an item out — and a held read in one test cannot stop
+/// another suite's menus reading.
 @MainActor
 @Suite struct CloudFolderMenuTests {
 
@@ -39,7 +44,8 @@ import Testing
         func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
     }
 
-    private static func items(for row: FileNode, selecting selection: [FileNode] = []) -> [NSMenuItem] {
+    private static func items(for row: FileNode, selecting selection: [FileNode] = [],
+                              reads: BoundedCloudRead = BoundedCloudRead(deadline: .seconds(30))) -> [NSMenuItem] {
         let menu = NSHostingMenu(rootView: FileContextMenu(
             row: PaneRow(side: .left, version: 1, node: row, children: nil),
             selection: Set(selection.map(\.id)),
@@ -47,7 +53,8 @@ import Testing
             otherTree: PaneTree(side: .right, version: 1, nodes: []),
             otherSelection: [], isLeft: true, currentPath: (row.id as NSString).deletingLastPathComponent,
             delegate: Stub(), otherPaneName: "Right", isSingleSource: true,
-            onQuickLook: { _ in }, selectionResolver: PaneSelectionResolver(), cloudHome: home))
+            onQuickLook: { _ in }, selectionResolver: PaneSelectionResolver(), cloudHome: home,
+            cloudReads: reads))
         menu.update()
         return menu.items
     }
@@ -87,6 +94,37 @@ import Testing
         let titles = Self.items(for: FileNode(id: path, name: Self.unique, isDirectory: true)).map(\.title)
         #expect(titles.contains("Download All"), "the menu reads \(titles)")
         #expect(titles.contains("Keep Downloaded"), "the menu reads \(titles)")
+    }
+
+    /// **A read that hangs leaves the items out instead of the app hanging** — the row menu is built
+    /// on the main thread at a right-click, and a wedged File Provider holds these reads for seconds.
+    /// And once the stuck read returns, the next build offers them again.
+    @Test func aStuckReadLeavesBothItemsOutUntilItReturns() async {
+        let reads = BoundedCloudRead(deadline: .milliseconds(50))
+        let release = DispatchSemaphore(value: 0)
+        #expect(reads.run { release.wait() } == nil, "the premise: this read is stuck")
+        let folder = FileNode(id: Self.home + "/Library/Mobile Documents/com~apple~CloudDocs/\(Self.unique)",
+                              name: Self.unique, isDirectory: true)
+
+        let stuck = Self.items(for: folder, reads: reads).map(\.title)
+        #expect(stuck.contains("Copy Path"), "the premise: a real menu was built — \(stuck)")
+        #expect(!stuck.contains("Download All"), "the menu reads \(stuck)")
+        #expect(!stuck.contains("Keep Downloaded"), "the menu reads \(stuck)")
+
+        release.signal()
+        #expect(await waitUntil { reads.recoveries == 1 }, "the stuck read never reported back")
+        let after = Self.items(for: folder, reads: reads).map(\.title)
+        #expect(after.contains("Download All"), "the menu reads \(after)")
+        #expect(after.contains("Keep Downloaded"), "the menu reads \(after)")
+    }
+
+    private func waitUntil(_ timeout: Double = 15, _ condition: () -> Bool) async -> Bool {
+        let end = Date().addingTimeInterval(timeout)
+        while Date() < end {
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+        return condition()
     }
 
     // MARK: - Several selected

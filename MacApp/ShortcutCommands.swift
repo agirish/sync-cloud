@@ -1867,8 +1867,9 @@ extension ContentView {
             // A file is answered from `CloudOnlyBadgeCache`, never a fresh `lstat`: this runs on
             // every `ContentView` body pass, and a selected row has been drawn, so its badge has
             // already recorded the answer. A row whose badge has not resolved yet reads `nil` and
-            // is left out for that pass — the next pass has it. A folder is a path check.
-            download: CloudDownloadOffer.forSelection(selection, isCloudOnly: { CloudOnlyBadgeCache.cached($0) })
+            // is left out for that pass — the next pass has it. A folder is a path check, and for
+            // one under `~/Desktop` or `~/Documents` an attribute read, made off the main thread.
+            download: CloudDownloadOffer.forActiveSelection(selection)
                 .map { offer in
                     PaneRowVerbs.SelectionDownload(title: offer.title, run: {
                         CloudDownloadRequest.request(offer, from: paneToken)

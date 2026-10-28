@@ -12664,3 +12664,28 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s writeWalk=%s refreshGuard=%s 
 |---|---|---|
 | `v5.x` | Setup's Save writes over a running Refresh, which lands in the replaced profile (`writeWalk=1`, `refreshGuard=0`); no starter or carry, so the rest does not apply | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Setup Save of a walked profile (`writeWalk=0`) | CLOSED — does not apply |
+
+---
+
+## The row menu's cloud reads run off the main thread, waited for 200 ms — main only
+
+2026-10-28. The row menu's Download and Keep Downloaded, and File ▸ Download, read an `lstat` and
+`getxattr`s inside a File Provider domain while the menu is built on the main thread — at a row's
+first right-click, and again with each render of a row whose menu has been opened. A wedged
+provider held the app there. On `main` they run on a private queue and the menu waits 200 ms; a
+read that hangs leaves both items out, and no other read starts until it returns. The older lines
+have neither item and none of these reads.
+
+```sh
+S=Modules/FileExplorer/Sources/FileExplorer
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s keep=%s offer=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/KeepDownloaded.swift 2>/dev/null | grep -c 'public enum KeepDownloaded')" \
+  "$(git show origin/$l:$S/CloudDownloadOffer.swift 2>/dev/null | grep -c 'public enum CloudDownloadOffer')"; done
+# measured 2026-10-28, against origin, before this landed:
+# main          keep=1 offer=1
+# v5.x … v2.x   keep=0 offer=0 (no Download or Keep Downloaded)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Download or Keep Downloaded, and no reads to move | CLOSED — does not apply |

@@ -52,8 +52,23 @@ public enum CloudDownloadOffer: Equatable, Sendable {
     }
 }
 
+extension CloudDownloadOffer {
+    /// File ▸ Download's offer for the active pane's selection, asked on every `ContentView` body
+    /// pass. A file is answered from the badge memo alone; a folder's cloud location — for one under
+    /// `~/Desktop` or `~/Documents`, the attribute naming their File Provider domain, which is the
+    /// read that hangs on a wedged provider — is read off the main thread (`BoundedCloudRead`). Nil
+    /// when nothing could be fetched, and when the read did not answer in time.
+    @MainActor
+    public static func forActiveSelection(_ nodes: [FileNode]) -> CloudDownloadOffer? {
+        let badges = nodes.reduce(into: [String: Bool]()) { known, node in
+            if !node.isDirectory { known[node.id] = CloudOnlyBadgeCache.cached(node.id) }
+        }
+        return BoundedCloudRead.shared.run { forSelection(nodes, isCloudOnly: { badges[$0] }) } ?? nil
+    }
+}
+
 /// What Keep Downloaded offers for a selection: its tick, and whether a click can change it.
-struct KeepDownloadedOffer: Equatable {
+struct KeepDownloadedOffer: Equatable, Sendable {
     /// Every item is kept — by its own pin or a folder's.
     let isOn: Bool
     /// Every item is kept by a folder above it, so no click here changes anything.
