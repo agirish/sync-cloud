@@ -198,6 +198,13 @@ loader.exec_module(module)
 print(module.weigh({"A": 2, "B": 3, "New": 4}, {"A": 10.0, "B": 40.0})["New"])' "$SHARDS")
 check "an unnamed suite of 4 tests at 10 s a test costs 40 (got $weigh)" same "$weigh" 40.0
 
+# 8b. --scratch-path reaches every swift call: the build, the listing and each chunk.
+shards --scratch-path "$WORK/scratch dir" pkg
+check "--scratch-path still runs every test" same "$status" 0
+check "...and every swift call is given it" \
+  same "$(grep -vc -- "--scratch-path $WORK/scratch dir" "$WORK/calls")" 0
+"$SHARDS" --scratch-path > /dev/null 2>&1; check "--scratch-path with no directory is refused" same "$?" 64
+
 # 9. Bad arguments are refused.
 "$SHARDS" --jobs 0 pkg > /dev/null 2>&1; check "--jobs 0 is refused" same "$?" 64
 "$SHARDS" > /dev/null 2>&1; check "no package is refused" same "$?" 64

@@ -4,6 +4,7 @@
     scripts/test-shards Modules/FileExplorer
     scripts/test-shards --jobs 4 Modules/FileExplorer
     scripts/test-shards --measure Modules/FileExplorer
+    scripts/test-shards --scratch-path ~/Library/Caches/…/FileExplorer Modules/FileExplorer
 
 FileExplorer's suites are mostly @MainActor, so one test process is bound to one core: its main
 thread. Measured 2026-10-27, one run took 671 s of wall time and 725 s of CPU, its main thread
@@ -41,7 +42,8 @@ chunk three times, and each CI job sat silent to its 90-minute limit. Every 5 mi
 
 Outside CI it takes one build slot for the whole run, re-running itself under scripts/build-slot
 (CLAUDE.md §7); inside a slot or on the CI runner ($GITHUB_ACTIONS) it runs at once. Environment
-such as SYNCCLOUD_SKIP_MACHINE_PINNED reaches every chunk. Tests: scripts/test-test-shards.
+such as SYNCCLOUD_SKIP_MACHINE_PINNED reaches every chunk. --scratch-path puts the build where CI
+keeps it between runs; every swift call it makes uses the same one. Tests: scripts/test-test-shards.
 """
 
 import os
@@ -77,7 +79,7 @@ def say(message):
 
 
 def usage():
-    say("usage: scripts/test-shards [--jobs N] [--measure] <package-path>")
+    say("usage: scripts/test-shards [--jobs N] [--measure] [--scratch-path DIR] <package-path>")
     return 64
 
 
@@ -249,11 +251,14 @@ def write_costs(path, cpu, wall, listed, jobs):
     os.replace(path + ".new", path)
 
 
-def run(package, jobs, measure):
-    if subprocess.call(["swift", "build", "--build-tests", "--package-path", package]) != 0:
+def run(package, jobs, measure, scratch=None):
+    # Where the package is, and where its build lives: every swift call here must agree on both,
+    # or the chunks would run a build other than the one just made.
+    where = ["--package-path", package] + (["--scratch-path", scratch] if scratch else [])
+    if subprocess.call(["swift", "build", "--build-tests"] + where) != 0:
         say("the build failed; no tests ran")
         return 1
-    listing = subprocess.run(["swift", "test", "list", "--skip-build", "--package-path", package],
+    listing = subprocess.run(["swift", "test", "list", "--skip-build"] + where,
                              stdout=subprocess.PIPE, universal_newlines=True)
     identifiers = [line.strip() for line in listing.stdout.splitlines() if "/" in line]
     if listing.returncode != 0 or not identifiers:
@@ -308,8 +313,8 @@ def run(package, jobs, measure):
             chunk["log"] = tempfile.TemporaryFile(mode="w+")
             # --ignore-lock: SwiftPM holds .build locked for a whole `swift test`, which would run
             # the chunks one after another. They only read the build made above.
-            command = ["swift", "test", "--skip-build", "--ignore-lock", "--package-path", package,
-                       "--filter", filter_for(chunk["groups"])]
+            command = ["swift", "test", "--skip-build", "--ignore-lock"] + where + [
+                "--filter", filter_for(chunk["groups"])]
             # A session of its own, so a stalled chunk can be stopped with all it started.
             chunk["process"] = subprocess.Popen(command, stdout=chunk["log"],
                                                 stderr=subprocess.STDOUT, start_new_session=True)
@@ -384,10 +389,12 @@ def run(package, jobs, measure):
 
 
 def main(argv):
-    args, jobs, measure = list(argv), DEFAULT_JOBS, False
+    args, jobs, measure, scratch = list(argv), DEFAULT_JOBS, False, None
     while args and args[0].startswith("--"):
         if args[0] == "--measure":
             measure, args = True, args[1:]
+        elif args[0] == "--scratch-path" and len(args) >= 2:
+            scratch, args = args[1], args[2:]
         elif args[0] == "--jobs" and len(args) >= 2 and args[1].isdigit() and int(args[1]) >= 1:
             jobs, args = int(args[1]), args[2:]
         else:
@@ -397,7 +404,7 @@ def main(argv):
     if not os.environ.get("BUILD_SLOT_HELD") and os.environ.get("GITHUB_ACTIONS") != "true":
         slot = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build-slot")
         os.execv(slot, [slot, os.path.abspath(__file__)] + list(argv))
-    return run(args[0], jobs, measure)
+    return run(args[0], jobs, measure, scratch)
 
 
 if __name__ == "__main__":

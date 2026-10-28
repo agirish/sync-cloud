@@ -41,6 +41,11 @@ on:
     # on the branch tip having been the last thing tested.
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      clean:
+        description: Build from scratch instead of from main's kept build
+        type: boolean
+        default: false
 
 # Branch pushes are TIP-ONLY; tags and manual dispatches are never cancelled.
 #
@@ -90,6 +95,31 @@ jobs:
           xcode-select -p
           swift --version
 
+      # Where the packages and the app build. `main` keeps its builds between runs, so a push
+      # recompiles only what changed: `actions/checkout` runs `git clean -ffdx`, which took the
+      # in-workspace `.build` and `.dd` every run and made each one compile all seven packages
+      # cold (~5 min). Tags and every other ref still build cold, in the job's temp directory,
+      # so a release's verdict never rests on an earlier build; so does a dispatch with
+      # `clean`. The kept build is keyed by the toolchain, and an old toolchain's is removed.
+      # `.noindex` keeps Spotlight out of it, as the workspace kept it away from the app copy.
+      - name: Build directory
+        id: build
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF}" = refs/heads/main ] && [ "${{ inputs.clean }}" != true ]; then
+            root="${HOME}/Library/Caches/SyncCloud-ci.noindex"
+            key="main-$(swift --version 2>&1 | shasum | cut -c1-12)"
+            mkdir -p "${root}/${key}"
+            find "${root}" -mindepth 1 -maxdepth 1 ! -name "${key}" -exec rm -rf {} +
+            dir="${root}/${key}"
+            echo "Kept build: ${dir} ($(du -sh "${dir}" | cut -f1))"
+          else
+            dir="${RUNNER_TEMP}/build"
+            mkdir -p "${dir}"
+            echo "Cold build: ${dir}"
+          fi
+          echo "dir=${dir}" >> "${GITHUB_OUTPUT}"
+
       # Run every package even after a failure so one run reports ALL broken
       # packages, not just the first.
       - name: Run package suites (reference-image suites skipped)
@@ -100,6 +130,7 @@ jobs:
           # cost off the shared runner); `all` is the setting to use if the
           # runner moves off the recording Mac.
           SYNCCLOUD_SKIP_MACHINE_PINNED: referenceImages,liveProfile
+          BUILD_DIR: ${{ steps.build.outputs.dir }}
         run: |
           set -uo pipefail
           failed=()
@@ -114,10 +145,11 @@ jobs:
             # green suite -> 0, mutated failing test -> 1).
             # FileExplorer's suites are main-thread bound, so one test process uses one core;
             # scripts/test-shards runs them as several processes and checks the counts add up.
+            scratch="${BUILD_DIR}/$(basename "${pkg}")"
             if [ "${pkg}" = Modules/FileExplorer ]; then
-              run=(scripts/test-shards "${pkg}")
+              run=(scripts/test-shards --scratch-path "${scratch}" "${pkg}")
             else
-              run=(swift test --package-path "${pkg}")
+              run=(swift test --package-path "${pkg}" --scratch-path "${scratch}")
             fi
             if ! arch -arm64 "${run[@]}"; then
               failed+=("${pkg}")
@@ -134,12 +166,14 @@ jobs:
       # guard stubs every window to Color.clear and skips prefs migration.
       # xcodegen by absolute path — the runner service PATH lacks Homebrew.
       # arch -arm64 for the same Rosetta exit-code reason as above.
-      # DerivedData stays inside the workspace so no Spotlight-visible app
-      # copy accumulates outside it.
+      # DerivedData lives in the build directory above: kept on `main`, cold
+      # elsewhere, and out of Spotlight either way.
       - name: App-target tests (xcodegen + xcodebuild)
+        env:
+          BUILD_DIR: ${{ steps.build.outputs.dir }}
         run: |
           set -uo pipefail
           arch -arm64 /opt/homebrew/bin/xcodegen
           arch -arm64 xcodebuild test -project SyncCloud.xcodeproj \
             -scheme SyncCloud -destination 'platform=macOS' \
-            -derivedDataPath .dd
+            -derivedDataPath "${BUILD_DIR}/dd"

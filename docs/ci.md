@@ -41,7 +41,17 @@ it carries the measurements and the fix for each.
   PATH is minimal) + `xcodebuild test -scheme SyncCloud`, both under
   `arch -arm64`. Safe next to a live SyncCloud instance: the app's
   `XCTestConfigurationFilePath` guard stubs windows to `Color.clear` and
-  skips prefs writes. DerivedData lives in `.dd/` inside the workspace.
+  skips prefs writes. DerivedData lives in the run's build directory (below).
+- **`main` keeps its builds between runs.** Every package's scratch path and
+  the app's DerivedData live under
+  `~/Library/Caches/SyncCloud-ci.noindex/main-<toolchain hash>/`, so a push
+  recompiles only what it changed. Before this, `actions/checkout`'s
+  `git clean -ffdx` took the in-workspace `.build` and `.dd` every run, and each
+  run compiled all seven packages cold (~5 min). Tags, maintenance lines and a
+  `workflow_dispatch` with `clean` still build cold in the job's temp directory,
+  so a release's verdict never rests on an earlier build. A new toolchain gets a
+  new directory and the old one is removed; `.noindex` keeps Spotlight out.
+  If a red looks like a stale build, dispatch with `clean` before bisecting.
 - The loop runs every package even after a failure so one run reports all
   broken packages.
 - **External dependency versions are pinned — `Package.resolved` is committed.**
