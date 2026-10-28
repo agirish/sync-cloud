@@ -64,7 +64,7 @@ import Sync
         let finishing = running()
         let window = try await host(finishing)
         defer { window.close() }
-        finishing.markFinishing()
+        finishing.markFinishing("the copy")
         try await settle(try #require(window.contentView))
 
         #expect(!window.performKeyEquivalent(with: try commandPeriod(window)),

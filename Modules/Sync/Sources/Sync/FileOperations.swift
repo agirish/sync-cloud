@@ -805,7 +805,7 @@ extension FileSyncManager {
         // **A merge that moved nothing out still put its emptied source in the Trash (U4)** — an
         // empty folder, or one holding only a `.DS_Store` — so that alone is a move ⌘Z must reverse.
         if !transferred.isEmpty || (isMove && !result.trashedMergeSources.isEmpty) {
-            progress?.markFinishing()
+            progress?.markFinishing(isMove ? "the move" : "the copy")
             if isMove {
                 // Awaited for the copy's reason below: the Trash items' identities are read off the
                 // main actor after registration, and until they are, whatever sits at a Trash path
@@ -1488,8 +1488,8 @@ extension FileSyncManager {
             progress.runLockReason = Progress.runLockReason(waitingFor: "the move to the Trash")
         }
 
-        let result = await enqueueFileOperation { [weak self, progress, prunedPaths, swallowedByAncestor] () -> (errors: [Error], items: [(original: URL, trashed: URL?, reachedTrash: Bool)], declined: Int, refused: Int) in
-            guard self != nil else { return ([], [], 0, 0) }
+        let result = await enqueueFileOperation { [weak self, progress, prunedPaths, swallowedByAncestor] () -> (errors: [Error], items: [(original: URL, trashed: URL?, reachedTrash: Bool)], declined: Int, refused: Int, stoppedShort: Bool) in
+            guard self != nil else { return ([], [], 0, 0, false) }
             // Publish progress only once this operation actually starts (see copyItems above).
             if let progress {
                 await MainActor.run { [weak self] in self?.activeProgress = progress }
@@ -1498,6 +1498,9 @@ extension FileSyncManager {
             var trashedItems: [(original: URL, trashed: URL?, reachedTrash: Bool)] = []
             var trashFailures: [URL] = []
             var refused = 0
+            // Set only when the loop leaves items unvisited at a Stop — a Stop pressed during the
+            // last item, or after it, stopped nothing.
+            var stoppedShort = false
 
             // The queue wait is over and the removals are about to run: let the caller's gate
             // re-verify its claim NOW, not when it formed it — a long operation queued ahead of
@@ -1537,7 +1540,7 @@ extension FileSyncManager {
             }
 
             for (index, path) in prunedPaths.enumerated() {
-                if progress?.isCancelled == true { break }
+                if progress?.isCancelled == true { stoppedShort = true; break }
 
                 await MainActor.run {
                     progress?.localizedAdditionalDescription = (path as NSString).lastPathComponent
@@ -1693,7 +1696,7 @@ extension FileSyncManager {
                     declined = trashFailures.count
                 }
             }
-            return (taskErrors, trashedItems, declined, refused)
+            return (taskErrors, trashedItems, declined, refused, stoppedShort)
         }
         
         let items = result.items
@@ -1847,18 +1850,25 @@ extension FileSyncManager {
         }
 
         if let progress, self.activeProgress === progress {
-            // A Stop pressed during the trash was the reader stopping the caller's run — the
+            // A Stop that left items unremoved was the reader stopping the caller's run — the
             // capsule showed only the trash's progress — so the run handed back carries it, and
-            // ends as a stop rather than as a problem (`lastFinishedRun.cancelled`, TE221).
-            if progress.isCancelled { resumingProgress?.cancel() }
+            // ends as a stop rather than as a problem (`lastFinishedRun.cancelled`, TE221). Not a
+            // Stop that came too late to stop anything: that run finished, and is not a stop.
+            if result.stoppedShort { resumingProgress?.cancel() }
             self.activeProgress = resumingProgress
+        } else if let resumingProgress, self.activeProgress !== resumingProgress {
+            // Not reachable from the window — every write is refused while a run holds the lock —
+            // but a direct caller could queue a run that publishes before this resumes. Its lock
+            // stands; the caller's tail then runs under that run's, not its own. Said, not fixed.
+            Logger.shared.warning("Delete: could not hand the run lock back to “\(resumingProgress.runTitle ?? "the run")” — “\(self.activeProgress?.runTitle ?? "nothing")” holds it")
         }
         let reachedTrash = items.filter(\.reachedTrash).count
         return DeleteOutcome(trashed: successfullyTrashed.count,
                              trashedWithoutLocation: reachedTrash - successfullyTrashed.count,
                              permanentlyDeleted: items.count - reachedTrash,
                              declined: result.declined,
-                             refusedByGate: result.refused)
+                             refusedByGate: result.refused,
+                             stoppedShort: result.stoppedShort)
     }
 }
 

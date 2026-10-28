@@ -5,7 +5,7 @@ extension Progress {
     private static let runTitleKey = ProgressUserInfoKey("SyncCloudRunTitle")
     private static let firstPublishedKey = ProgressUserInfoKey("SyncCloudFirstPublished")
 
-    /// The run's own name — "Copying 3 items" — kept when ``markFinishing()`` puts "Finishing…" in
+    /// The run's own name — "Copying 3 items" — kept when ``markFinishing(_:)`` puts "Finishing the copy…" in
     /// its description, for what names the run once it ends: its notification and Activity's row.
     public var runTitle: String? {
         userInfo[Self.runTitleKey] as? String ?? localizedDescription
@@ -43,11 +43,20 @@ extension Progress {
     /// copy, move or merge awaits before it reports done. Nothing is left that a Stop could stop,
     /// so the capsule drops its Stop and ⌘. and says so; the run lock stays up until the run
     /// returns, because ⌘Z must not reach an undo whose identities are still being read.
-    public func markFinishing() {
+    ///
+    /// `run` names it — "the copy", "the merge of “Photos”" — because the capsule and Activity
+    /// can show it beside other runs, and a bare "Finishing…" beside a PDF batch says which of
+    /// them is finishing.
+    public func markFinishing(_ run: String) {
         if userInfo[Self.runTitleKey] == nil, let title = localizedDescription {
             setUserInfoObject(title, forKey: Self.runTitleKey)
         }
         isCancellable = false
-        localizedDescription = "Finishing…"
+        localizedDescription = Self.finishingTitle(run)
+    }
+
+    /// "Finishing the copy…" — what a run reads while it arms its undo.
+    public static func finishingTitle(_ run: String) -> String {
+        "Finishing \(run)…"
     }
 }

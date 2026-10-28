@@ -1959,6 +1959,8 @@ extension FileSyncManager {
         // Set when the Trash took a redundant copy without saying where — recoverable by hand, but
         // no restore can be registered for it, so the fold is withheld from ⌘Z just the same.
         var anyTrashedWithoutLocation = false
+        // Set when a Stop left copies untrashed — see the trash below.
+        var stoppedDuringTrash = false
         // Copies refused at the trash step because their contents changed after the plan was
         // snapshotted — surfaced with a drift-specific warning below, like the keeper drift.
         var driftedCopies: [String] = []
@@ -2157,6 +2159,10 @@ extension FileSyncManager {
             if outcome.permanentlyDeleted > 0 { anyPermanentlyDeleted = true }
             if outcome.trashedWithoutLocation > 0 { anyTrashedWithoutLocation = true }
             declinedCopies = outcome.declined
+            // A Stop pressed while the trash ran stops the merge: it is the only Stop on screen
+            // then. Read from the trash's own answer — a Stop that came too late to leave anything
+            // behind stopped nothing, and the merge below ends as a completed one.
+            stoppedDuringTrash = outcome.stoppedShort
             // The disk is the ground truth for "did this copy leave", the same rule
             // `dropFullyRemovedGroups` follows: a gate refusal, a decline, a cancelled dialog and a
             // failure all leave a real folder behind, however the call accounted for it.
@@ -2166,7 +2172,7 @@ extension FileSyncManager {
             driftedCopies.append(contentsOf: gateRefusals.all)
         }
 
-        progress.markFinishing()
+        progress.markFinishing("the merge of “\(group.name)”")
 
         // **The registration tail — synchronous, start to finish.** No `await` may appear between
         // `beginUndoGrouping` and `endUndoGrouping`: the main actor cannot be interleaved inside a
@@ -2239,6 +2245,11 @@ extension FileSyncManager {
         await identityWalk?.value
         if copyFailed { return false }   // the alert is the feedback; no merge banner over it
 
+        // Whether this merge registered an undo — the offer every banner below makes or withholds.
+        // Asked once, so a partial ending offers the ⌘Z its folds really have (see the success
+        // banner's note for the two conditions).
+        let offersUndo = !copyUndoWithheld && (registersCopyUndo || trashedForUndo != nil)
+
         // Only drop the group and claim success when every redundant copy actually left the disk
         // and no error surfaced — otherwise keep the group (retry skips what already landed) and
         // never show a false "Merged" banner over an orphaned folder.
@@ -2256,13 +2267,21 @@ extension FileSyncManager {
                     ? "Merge of “\(group.name)” canceled — nothing was trashed, so every copy is still on disk. The \(totalFolded) file\(totalFolded == 1 ? "" : "s") already folded into \(group.keeper.name) can be undone with ⌘Z; the group stays listed and a retry skips what landed."
                     : "Merge of “\(group.name)” canceled — nothing was copied or trashed. The group stays listed.",
                                   undoable: totalFolded > 0)
+            } else if stoppedDuringTrash {
+                // Stopped while the copies went to the Trash: the folds stand, and so do the copies
+                // the trash had not reached.
+                banner = .warning("Merge of “\(group.name)” stopped — \(totalFolded) file\(totalFolded == 1 ? "" : "s") folded into \(group.keeper.name), and the copies not yet moved to the Trash are still on disk. The group stays listed and a retry skips what landed.",
+                                  undoable: offersUndo)
             } else if let drifted = driftedCopies.first {
-                banner = .warning("“\(drifted)” changed since it was scanned — it was left in place. Rescan before merging.")
+                banner = .warning("“\(drifted)” changed since it was scanned — it was left in place. Rescan before merging.",
+                                  undoable: offersUndo)
             } else if declinedCopies > 0 {
                 // The fold itself succeeded; the copies are still here because the user said so.
-                banner = .warning("Merged “\(group.name)” — folded \(totalFolded) file\(totalFolded == 1 ? "" : "s") into \(group.keeper.name), but \(declinedCopies == 1 ? "the redundant copy can’t" : "\(declinedCopies) redundant copies can’t") be moved to the Trash and you chose not to delete \(declinedCopies == 1 ? "it" : "them") permanently. \(declinedCopies == 1 ? "It stays" : "They stay") on disk and the group stays listed.")
+                banner = .warning("Merged “\(group.name)” — folded \(totalFolded) file\(totalFolded == 1 ? "" : "s") into \(group.keeper.name), but \(declinedCopies == 1 ? "the redundant copy can’t" : "\(declinedCopies) redundant copies can’t") be moved to the Trash and you chose not to delete \(declinedCopies == 1 ? "it" : "them") permanently. \(declinedCopies == 1 ? "It stays" : "They stay") on disk and the group stays listed.",
+                                  undoable: offersUndo)
             } else if totalFolded > 0 {
-                banner = .warning("Merged part of “\(group.name)” — some copies were left in place. Review and retry.")
+                banner = .warning("Merged part of “\(group.name)” — some copies were left in place. Review and retry.",
+                                  undoable: offersUndo)
             }
             return false
         }
@@ -2286,7 +2305,7 @@ extension FileSyncManager {
         // the user did BEFORE the merge, and the Edit menu names that step. Same rule the two
         // reclaim paths already follow through `DeleteOutcome.isUndoable`, stated here because the
         // merge builds its registration by hand and so has to answer the question itself.
-        let registeredUndo = !copyUndoWithheld && (registersCopyUndo || trashedForUndo != nil)
+        let registeredUndo = offersUndo
         banner = .success("Merged “\(group.name)” — folded \(totalFolded) file\(totalFolded == 1 ? "" : "s") into \(group.keeper.name).",
                           undoable: registeredUndo)
         Logger.shared.info("Duplicates: merged “\(group.name)” — folded \(totalFolded) file(s) into \(group.keeper.name)")

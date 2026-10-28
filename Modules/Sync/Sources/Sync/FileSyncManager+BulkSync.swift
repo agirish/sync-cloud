@@ -710,7 +710,7 @@ extension FileSyncManager {
         // Nothing left that Stop could stop: the capsule drops it, and so does the Differences
         // list's Cancel — which reads the flag only when it redraws, so the count is published
         // again to make it.
-        progress.markFinishing()
+        progress.markFinishing(isMove ? "the move" : "the sync")
         bulkSyncProgress = bulkSyncProgress
         // Outside the group (see the note at `identityWalks`): the run does not report complete
         // until every undo it registered is fully armed.

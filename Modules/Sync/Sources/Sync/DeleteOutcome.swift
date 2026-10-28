@@ -40,14 +40,19 @@ public struct DeleteOutcome: Sendable, Equatable {
     /// on after it. The gate itself surfaces WHICH paths were refused and why; this count lets
     /// the caller's accounting distinguish "refused at the last check" from "failed".
     public let refusedByGate: Int
+    /// A Stop ended the run with items not yet visited — left on disk because the reader asked,
+    /// not refused or failed. False for a Stop that came during the last item or after it: by
+    /// then nothing was left to stop.
+    public let stoppedShort: Bool
 
     public init(trashed: Int = 0, trashedWithoutLocation: Int = 0, permanentlyDeleted: Int = 0,
-                declined: Int = 0, refusedByGate: Int = 0) {
+                declined: Int = 0, refusedByGate: Int = 0, stoppedShort: Bool = false) {
         self.trashed = trashed
         self.trashedWithoutLocation = trashedWithoutLocation
         self.permanentlyDeleted = permanentlyDeleted
         self.declined = declined
         self.refusedByGate = refusedByGate
+        self.stoppedShort = stoppedShort
     }
 
     /// Items that actually left their place, by any route — what the old `Int` return meant.

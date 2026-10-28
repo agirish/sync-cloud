@@ -157,7 +157,7 @@ import EventsTestSupport
             // reading falls between the trash handing the lock back and this being set: both are
             // one main-actor stretch.
             #expect(sample?.isCancellable == false, "the merge's tail still offers Stop: \(String(describing: sample))")
-            #expect(sample?.title == "Finishing…", "\(String(describing: sample))")
+            #expect(sample?.title == "Finishing the merge of “\(pair.group.name)”…", "\(String(describing: sample))")
             // Handed back after the trash, the merge is still the run that began before it — not
             // the newest run in the capsule, nor one whose log span starts at the handback.
             #expect(sample.flatMap(\.startedAt).map { $0 < trashedAt } == true,
@@ -208,7 +208,7 @@ import EventsTestSupport
         #expect(!tail.isEmpty, "no read of the copy ran once it had landed — the tail was never observed")
         for sample in tail {
             #expect(sample.isCancellable == false, "Stop and ⌘. are live while only the undo is being armed: \(sample)")
-            #expect(sample.title == "Finishing…", "\(sample)")
+            #expect(sample.title == "Finishing the copy…", "\(sample)")
             #expect(sample.lockReason == Progress.runLockReason(waitingFor: "the copy"), "\(sample)")
         }
         #expect(manager.activeProgress == nil)
@@ -284,39 +284,101 @@ import EventsTestSupport
         #expect(!tail.isEmpty, "no read of the copy ran once its history was recorded — the tail was never observed")
         for sample in tail {
             #expect(sample.isCancellable == false, "Stop is live while only the undo is being armed: \(sample)")
-            #expect(sample.title == "Finishing…", "\(sample)")
+            #expect(sample.title == "Finishing the sync…", "\(sample)")
             #expect(sample.lockReason == Progress.runLockReason(waitingFor: "the sync"), "\(sample)")
         }
         #expect(redrawnFinishing, "nothing made the Differences list redraw once Stop had gone")
         #expect(manager.lastFinishedRun?.title == "Syncing 1 file", "\(String(describing: manager.lastFinishedRun?.title))")
     }
 
-    /// **A Stop during a merge's trash stops the merge.** The capsule shows the trash's own
-    /// progress then, so its Stop is the only one the reader has; the merge it hands back to used
-    /// to end uncancelled, and Activity showed the stopped merge as a problem (TE221).
+    /// A group of `count` redundant copies, each holding one file of its own, so each one folds.
+    private func makeGroup(_ base: URL, name: String, count: Int) throws -> (keeper: URL, redundant: [URL], group: DuplicateGroup) {
+        let keeper = base.appendingPathComponent("Keeper-\(name)")
+        try write(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
+        var copies = [DuplicateCopy(id: keeper.path, name: keeper.lastPathComponent, isDirectory: true, size: 4000,
+                                    itemCount: 1, modificationDate: nil, uniqueItemCount: 0, depth: 0,
+                                    isRecommendedKeeper: true)]
+        var redundant: [URL] = []
+        for i in 0..<count {
+            let r = base.appendingPathComponent("Redundant\(i)-\(name)")
+            try write(r.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
+            try write(r.appendingPathComponent("unique\(i).txt"), bytes: 4000, fill: UInt8(0x60 + i))
+            redundant.append(r)
+            copies.append(DuplicateCopy(id: r.path, name: r.lastPathComponent, isDirectory: true, size: 8000,
+                                        itemCount: 2, modificationDate: nil, uniqueItemCount: 1, depth: 0,
+                                        isRecommendedKeeper: false))
+        }
+        return (keeper, redundant, DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: name,
+                                                  isDirectory: true, copies: copies, reclaimableBytes: 4000))
+    }
+
+    /// The reader's Stop, pressed while the trash moves its first copy: on the trash's progress,
+    /// the only run on screen then. Returns what it landed on.
     @MainActor
-    @Test func aStopDuringAMergesTrashEndsTheMergeAsAStop() async throws {
+    private func stopDuringFirstTrash(_ fm: TailSampler, _ manager: FileSyncManager) -> LockedBox<String?> {
+        let stoppedTitle = LockedBox<String?>(nil)
+        fm.beforeTrash.withLock { $0 = { @MainActor in
+            guard stoppedTitle.withLock({ $0 }) == nil else { return }
+            stoppedTitle.withLock { $0 = manager.activeProgress?.localizedDescription ?? "" }
+            manager.activeProgress?.cancel()
+        } }
+        return stoppedTitle
+    }
+
+    /// **A Stop the trash could still act on stops the merge.** With the second copy not yet
+    /// reached, the trash leaves it; the merge ends as a stop the reader asked for, says so, and
+    /// keeps the ⌘Z its folds have (TE221).
+    @MainActor
+    @Test func aStopThatLeavesACopyUntrashedEndsTheMergeAsAStop() async throws {
         let base = try makeCanonicalTempRoot(prefix: "MergeTrashStop")
         defer { try? FileManager.default.removeItem(at: base) }
-        let pair = try makePair(base, name: "Stop-\(UUID().uuidString)")
+        let fixture = try makeGroup(base, name: "Stop-\(UUID().uuidString)", count: 2)
         let fm = TailSampler(trash: ScratchTrash(in: base), watched: "/nowhere", armedFromStart: false)
         let manager = FileSyncManager(fileManager: fm)
         manager.syncHistoryStore = makeTempHistoryStore(prefix: "MergeTrashStop")
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         manager.undoManager = UndoManager()
-        manager.duplicateGroups = [pair.group]
-        let stoppedTitle = LockedBox<String?>(nil)
-        fm.beforeTrash.withLock { $0 = { @MainActor in
-            stoppedTitle.withLock { $0 = manager.activeProgress?.localizedDescription }
-            manager.activeProgress?.cancel()
-        } }
+        manager.duplicateGroups = [fixture.group]
+        let stoppedTitle = stopDuringFirstTrash(fm, manager)
 
-        _ = await manager.mergeDuplicateGroup(pair.group)
+        let ok = await manager.mergeDuplicateGroup(fixture.group)
 
         #expect(stoppedTitle.withLock { $0 }?.hasPrefix("Moving") == true,
-                "premise: the Stop landed on the trash's progress, not the merge's: \(String(describing: stoppedTitle.withLock { $0 }))")
+                "premise: the Stop landed on the trash's progress: \(String(describing: stoppedTitle.withLock { $0 }))")
+        #expect(fm.trash.names.count == 1, "premise: the Stop left one copy untrashed: \(fm.trash.names)")
+        #expect(ok == false)
+        let banner = try #require(manager.banner)
+        #expect(banner.message.hasPrefix("Merge of “\(fixture.group.name)” stopped"), "\(banner.message)")
+        #expect(banner.isUndoable, "the stopped merge's folds have a ⌘Z, and the banner withheld it")
         let ended = try #require(manager.lastFinishedRun)
-        #expect(ended.title == "Merging “\(pair.group.name)”", "\(String(describing: ended.title))")
+        #expect(ended.title == "Merging “\(fixture.group.name)”", "\(String(describing: ended.title))")
         #expect(ended.cancelled, "the merge the reader stopped ended as if it had run to the end")
+    }
+
+    /// **A Stop too late to stop anything is not a stop.** Pressed while the trash moves the only
+    /// copy, it changes nothing — the copy goes, the merge completes — and the merge must end as a
+    /// completed one, not filed in Activity as a run the reader stopped.
+    @MainActor
+    @Test func aStopDuringTheLastCopysTrashLeavesTheMergeCompleted() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "MergeLateStop")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let fixture = try makeGroup(base, name: "Late-\(UUID().uuidString)", count: 1)
+        let fm = TailSampler(trash: ScratchTrash(in: base), watched: "/nowhere", armedFromStart: false)
+        let manager = FileSyncManager(fileManager: fm)
+        manager.syncHistoryStore = makeTempHistoryStore(prefix: "MergeLateStop")
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
+        manager.undoManager = UndoManager()
+        manager.duplicateGroups = [fixture.group]
+        let stoppedTitle = stopDuringFirstTrash(fm, manager)
+
+        let ok = await manager.mergeDuplicateGroup(fixture.group)
+
+        #expect(stoppedTitle.withLock { $0 }?.hasPrefix("Moving") == true, "premise: the Stop was pressed")
+        #expect(ok == true, "a Stop during the last copy's trash undid a merge that completed")
+        #expect(manager.banner?.message.hasPrefix("Merged “\(fixture.group.name)”") == true,
+                "\(String(describing: manager.banner?.message))")
+        #expect(manager.banner?.isUndoable == true)
+        let ended = try #require(manager.lastFinishedRun)
+        #expect(!ended.cancelled, "a merge that completed is filed as a run the reader stopped")
     }
 }
