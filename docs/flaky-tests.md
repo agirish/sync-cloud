@@ -425,6 +425,13 @@ It has been migrated to `LayoutPumpWait.pump(_ view:upTo:until:)` and now report
 failure. The run that surfaced it was made congested by new mounted-view suites landing alongside
 (the pane search); nothing about the defect was new, only the load.
 
+**A fixed sleep after a count, 2026-10-28 — `SystemClipboardHandoffTests.aCutThatCompletesLeavesNothingPastable`.**
+Its `settle` waits for the operation count to reach zero, then sleeps 10 ms and asserts the
+pasteboard was cleared. The clear runs in the paste task once `moveItems` *returns*, after the
+count drops, so at load 18 on CI the assertion read the board first. **Reproduced**: with the clear
+delayed 50 ms in the source, the old test failed and the fixed one passed; with the clear removed,
+the fixed one still fails. It now waits for the clear itself.
+
 **A second sighting of the same shape, 2026-10-28 — `ColumnRowBottomsProbeTests`.** Its private
 `waitUntil` was fifteen seconds and no floor, under a comment claiming a loaded mount "has measured
 18–43 s" — a ceiling below its own measurement. A sharded FileExplorer run at load 38 failed

@@ -406,6 +406,12 @@ import Settings
         await waitUntil("the paste to land") { FileManager.default.fileExists(atPath: landed) }
         await settle(manager)
         try #require(FileManager.default.fileExists(atPath: landed), "the move never happened")
+        // The clear runs in the paste task once `moveItems` RETURNS — after the operation count
+        // `settle` waits on has reached zero — so it is waited for, not assumed by a fixed sleep.
+        // It failed CI that way on 2026-10-28 at load 18, after 72 s.
+        await waitUntil("the completed cut to clear the pasteboard") {
+            SystemClipboard.fileURLs(from: pasteboard).isEmpty
+        }
 
         #expect(SystemClipboard.fileURLs(from: pasteboard).isEmpty,
                 "the pasteboard still names the file the cut moved away")
