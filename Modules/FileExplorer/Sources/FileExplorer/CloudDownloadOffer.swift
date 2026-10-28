@@ -31,14 +31,17 @@ public enum CloudDownloadOffer: Equatable, Sendable {
     ///   `~/Desktop` or `~/Documents` — asked once per offer rather than once per selected folder:
     ///   two hundred folders selected in Documents would otherwise read the same attribute two
     ///   hundred times, on every selected row's render.
+    /// - Parameter home: the home that app answer measures from — a test's scratch folder, so it
+    ///   never reads below the real one (`FileContextMenu.cloudHome`).
     public static func forSelection(
         _ nodes: [FileNode],
         isCloudOnly: (String) -> Bool?,
-        isInCloudLocation: ((String) -> Bool)? = nil
+        isInCloudLocation: ((String) -> Bool)? = nil,
+        home: String = NSHomeDirectory()
     ) -> CloudDownloadOffer? {
         let isInCloudLocation = isInCloudLocation ?? {
             let domains = DomainMemo()
-            return { MaterializationStatus.isInCloudLocation($0, domainOf: domains.domain(of:)) }
+            return { MaterializationStatus.isInCloudLocation($0, home: home, domainOf: domains.domain(of:)) }
         }()
         if nodes.count == 1, let file = nodes.first, !file.isDirectory {
             return isCloudOnly(file.id) == true ? .file(path: file.id, name: file.name) : nil

@@ -4602,3 +4602,77 @@ value. Check whether the view had a layer when the fixture set it.
 
 **See.** `PaneColumnsOverscrollReturnCycleTests.mount()` in
 `Modules/FileExplorer/Tests/FileExplorer/PaneColumnsScrollTests.swift`.
+
+### 46. A consent dialog for iCloud Drive nobody answered holds a main-actor `lstat` until the job times out — FIXED
+
+**Symptom.** No verdict at all. CI runs 40642260808, 40651769837 and 40664423055, all on `main` at
+`678ea0177` on 2026-10-28, were cancelled at the 1 h 30 m job limit in "Run package suites". In
+each, `scripts/test-shards` reported FileExplorer chunks 1–5 and never chunk 6/6 (651 tests, 75
+suites — the same suites every run, since the deal is deterministic). A chunk's output was then
+printed only when it ended, so the log named no test. Since `367e3bd40`, test-shards stops a chunk
+still running after 20 minutes and goes red with its output so far and the tests that never finished. Run 40719295633 passed on the same SHA, with chunk 6 taking 132 s.
+
+**Mechanism.** The test touched a path inside a File Provider domain, and the CI runner had no
+privacy grant for it. `CloudFolderMenuTests` (in chunk 6) built real row menus for spelled paths
+under the real `~/Library/Mobile Documents/com~apple~CloudDocs`. Keep Downloaded's answer `lstat`s
+and `getxattr`s that path. That is iCloud Drive's domain, so the kernel asks `sandboxd`, and
+`sandboxd` asks TCC whether the responsible process may access it
+(`TCCCreateIndirectObjectIdentityForFileProviderDomainFromPath`). The responsible process is the
+runner's launchd job, `./externals/<node>/bin/node ./bin/RunnerService.js`, which TCC knows by its
+path (`kTCCCodeIdentityIdentifierType = 1`). The syscall waits for the answer, on the main actor,
+where every suite in the chunk waits too.
+
+The runner had updated itself to 2.338.0 on 10-25, which rewrote `runsvc.sh` to start `node24`.
+The service process kept running `externals.2.337.0/node20`, which had the grant: its File Provider
+checks on 10-27 (16:26, 18:03, 18:34 local) were answered in 4–7 ms. At 04:50:29Z on 10-28 the
+service was restarted, and from then on the subject was `externals.2.338.0/node24/bin/node`, which
+had no grant. Each hung run then raised exactly one check, seconds into chunk 6, and got no answer:
+
+| Run | Chunk 6 began | Check raised | Answered |
+|---|---|---|---|
+| 40642260808 | 06:25:46Z | 06:26:22Z (+36 s) | 15:45:35Z |
+| 40651769837 | 07:57:12Z | 07:57:18Z (+6 s) | 15:45:35Z |
+| 40664423055 | 09:43:09Z | 09:43:28Z (+19 s) | 15:45:35Z |
+| 40719295633 (green) | 15:56:10Z | 15:56:17.680Z (+7 s) | 15:56:17.685Z |
+
+At 15:45:31Z the display woke. At 15:45:35.209Z there was a click in `UserNotificationCenter`, which
+draws the consent dialog, and 5 ms later `sandboxd` logged "access request result was 1" for all
+three pending checks at once. The runner was restarted at 15:46, and the next run was green because
+`node24` now had the grant.
+
+Which test asked was found by elimination and timing, not by a local repro. No Claude-launched test
+run on this Mac has raised a File Provider check, and an identity with no grant would put the
+dialog on his screen. `CloudFolderMenuTests` is the one suite in chunk 6 that reads below a real
+cloud root: the other suites that mention `~/Documents` only do string arithmetic, and the other
+row-menu suites spell `/a/…` or temporary paths. Its reads are an `lstat` and a `getxattr` of a
+name that does not exist directly inside `com~apple~CloudDocs`, so it is that lookup in the domain
+that raises the check.
+
+**Tell.** No verdict, a chunk or package that never reports, and in
+`log show --predicate 'process == "sandboxd" AND (eventMessage CONTAINS "FileProviderDomainFromPath" OR eventMessage CONTAINS "access request result")'`
+a check whose subject is the runner's `node` with no `result was` line after it. Answering the
+dialog clears it at once. Because TCC knows the subject by path, it should come back whenever the
+service restarts on a `node` path with no grant, such as after a self-update moves the bundled
+Node or after a re-install. That is inferred from this one restart, not tested on another. A
+`sandbox-exec` profile denying reads below the cloud roots is no tracer for it: a deny rule takes no
+report modifier, and a lookup of a name that does not exist fails before the sandbox's own check, so
+a suite like this one leaves nothing in the log either way. Grep the suites instead, for paths
+built from the real home under `Library/Mobile Documents`, `Library/CloudStorage`, `Desktop` and
+`Documents`.
+
+**What it is not.** Not load, and not the provider being slow: the check for the old `node20`
+identity was answered in milliseconds on the day the suite grew. It is the same family as "A privacy
+prompt nobody answered wedges `sandboxd`, so a move into the real Trash outlasts the wait", with a
+different service and a different subject, and here the wait has no bound at all.
+
+**Fix, 2026-10-28.** `FileContextMenu` takes a `cloudHome` (default `NSHomeDirectory()`, so the
+app is unchanged), which Download All and Keep Downloaded measure from (`CloudDownloadOffer.forSelection`
+gained the matching `home:`). `CloudFolderMenuTests` passes a home under `NSTemporaryDirectory()`
+that does not exist, so every path it spells is outside any File Provider domain. Each item the
+suite expects offered is offered only when the menu measures from that home, so a menu that reads
+the real home again fails by name rather than hanging. Answering the dialog on the runner remains
+the cure for the machine. The test change only removes this suite as the thing that asks.
+
+**See.** `KeepDownloaded.state(ofPath:home:domainOf:)` in
+`Modules/Sync/Sources/Sync/KeepDownloaded.swift`; `FileContextMenu.cloudHome` in
+`Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift`.

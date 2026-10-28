@@ -1484,6 +1484,14 @@ struct FileContextMenu: View {
     /// only a test isolating itself from the other suites passes anything else.
     var downloadChannel: NotificationCenter = .default
 
+    /// The home whose `~/Library/Mobile Documents`, `~/Library/CloudStorage`, `~/Desktop` and
+    /// `~/Documents` decide Download All and Keep Downloaded. A test passes a scratch folder: the
+    /// offers `lstat` and `getxattr` the row's path, and below the real home that path is in a File
+    /// Provider domain, where a process without the privacy grant blocks until someone answers the
+    /// consent dialog — on the CI runner, nobody (docs/flaky-tests.md, "A consent dialog for
+    /// iCloud Drive nobody answered holds a main-actor `lstat` until the job times out").
+    var cloudHome: String = NSHomeDirectory()
+
     /// The three doors onto the file-pair viewer that a row offers.
     ///
     /// **"Compare with…" is unconditional, and the other two are shortcuts past it.** Arming needs
@@ -1689,8 +1697,9 @@ struct FileContextMenu: View {
             // Files are asked through the badge memo alone — this runs for every selected row on
             // every render, so a fresh `lstat` per selected file would be paid rows × selection.
             if count > 1 {
-                let offer = CloudDownloadOffer.forSelection(selectedNodes, isCloudOnly: { CloudOnlyBadgeCache.cached($0) })
-                let keep = KeepDownloadedOffer.forSelection(selectedNodes, state: { KeepDownloaded.state(ofPath: $0) })
+                let offer = CloudDownloadOffer.forSelection(selectedNodes, isCloudOnly: { CloudOnlyBadgeCache.cached($0) },
+                                                            home: cloudHome)
+                let keep = KeepDownloadedOffer.forSelection(selectedNodes, state: { KeepDownloaded.state(ofPath: $0, home: cloudHome) })
                 if offer != nil || keep != nil {
                     downloadItem(offer)
                     keepDownloadedToggle(keep, for: selectedNodes)
@@ -1732,11 +1741,11 @@ struct FileContextMenu: View {
                 // The row's own ☁ answer when it has one, which is what the row is showing; a
                 // fresh `lstat` otherwise. This body runs for every visible row on every render, so
                 // it asks the filesystem only for a file the row has not.
-                downloadItem(CloudDownloadOffer.forSelection([singleNode], isCloudOnly: { Self.isCloudOnly($0) }))
+                downloadItem(CloudDownloadOffer.forSelection([singleNode], isCloudOnly: { Self.isCloudOnly($0) }, home: cloudHome))
                 // Finder's Keep Downloaded, iCloud Drive only — the one provider measured to
                 // honour it (`KeepDownloaded`). Ticked and greyed under a kept folder: the
                 // folder's pin keeps it whatever this row says.
-                keepDownloadedToggle(KeepDownloadedOffer.forSelection([singleNode], state: { KeepDownloaded.state(ofPath: $0) }),
+                keepDownloadedToggle(KeepDownloadedOffer.forSelection([singleNode], state: { KeepDownloaded.state(ofPath: $0, home: cloudHome) }),
                                      for: [singleNode])
                 // **Its own section, under the open-and-inspect items** (mockup 11), so it never
                 // shifts Rename or anything below it — and never between Refresh and Open in Edit,

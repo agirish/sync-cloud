@@ -7,7 +7,16 @@ import Testing
 /// **Where the row menu offers Download All and Keep Downloaded**, read off the real row menu
 /// through `NSHostingMenu`. Every path here is spelled, never created: both gates are decided from
 /// the path (and, for Keep Downloaded, from attributes a missing file does not have), so nothing is
-/// written under the real home.
+/// written anywhere.
+///
+/// **Below a scratch home, never the real one.** The menu `lstat`s and `getxattr`s the row's path,
+/// and below the real `~/Library/Mobile Documents` that path is in iCloud Drive's File Provider
+/// domain: a process without the privacy grant for it waits, on the main actor, until someone
+/// answers the consent dialog. On the CI runner nobody does, and three runs hung for 90 minutes
+/// each (docs/flaky-tests.md, "A consent dialog for iCloud Drive nobody answered holds a
+/// main-actor `lstat` until the job times out"). Every item these tests expect offered is offered
+/// only when the menu measures from `cloudHome`, so a menu that reached for the real home fails by
+/// name.
 @MainActor
 @Suite struct CloudFolderMenuTests {
 
@@ -38,15 +47,17 @@ import Testing
             otherTree: PaneTree(side: .right, version: 1, nodes: []),
             otherSelection: [], isLeft: true, currentPath: (row.id as NSString).deletingLastPathComponent,
             delegate: Stub(), otherPaneName: "Right", isSingleSource: true,
-            onQuickLook: { _ in }, selectionResolver: PaneSelectionResolver()))
+            onQuickLook: { _ in }, selectionResolver: PaneSelectionResolver(), cloudHome: home))
         menu.update()
         return menu.items
     }
 
     private static let unique = "never-on-disk-\(UUID().uuidString)"
+    /// A folder that does not exist, under the temporary directory: no File Provider domain.
+    private static let home = NSTemporaryDirectory() + "CloudFolderMenuTests-\(UUID().uuidString)"
 
     @Test func aFolderInAProvidersFolderOffersDownloadAllButNotKeepDownloaded() {
-        let path = NSHomeDirectory() + "/Library/CloudStorage/Dropbox/\(Self.unique)"
+        let path = Self.home + "/Library/CloudStorage/Dropbox/\(Self.unique)"
         let titles = Self.items(for: FileNode(id: path, name: Self.unique, isDirectory: true)).map(\.title)
         #expect(titles.contains("Download All"), "the menu reads \(titles)")
         // Measured ignored outside iCloud Drive, so not offered there.
@@ -62,7 +73,7 @@ import Testing
 
     /// A file is never offered Download All — its own Download is the file's verb.
     @Test func aFileInICloudOffersKeepDownloadedUntickedAndNotDownloadAll() throws {
-        let path = NSHomeDirectory() + "/Library/Mobile Documents/com~apple~CloudDocs/\(Self.unique).txt"
+        let path = Self.home + "/Library/Mobile Documents/com~apple~CloudDocs/\(Self.unique).txt"
         let items = Self.items(for: FileNode(id: path, name: Self.unique + ".txt", isDirectory: false))
         let keep = try #require(items.first { $0.title == "Keep Downloaded" },
                                 "the menu reads \(items.map(\.title))")
@@ -72,7 +83,7 @@ import Testing
     }
 
     @Test func aFolderInICloudOffersBoth() {
-        let path = NSHomeDirectory() + "/Library/Mobile Documents/com~apple~CloudDocs/\(Self.unique)"
+        let path = Self.home + "/Library/Mobile Documents/com~apple~CloudDocs/\(Self.unique)"
         let titles = Self.items(for: FileNode(id: path, name: Self.unique, isDirectory: true)).map(\.title)
         #expect(titles.contains("Download All"), "the menu reads \(titles)")
         #expect(titles.contains("Keep Downloaded"), "the menu reads \(titles)")
@@ -86,7 +97,7 @@ import Testing
 
     /// Two cloud folders selected: Download All over both, offered on either one's menu.
     @Test func severalCloudFoldersOfferDownloadAll() {
-        let base = NSHomeDirectory() + "/Library/CloudStorage/Dropbox/\(Self.unique)"
+        let base = Self.home + "/Library/CloudStorage/Dropbox/\(Self.unique)"
         let nodes = [Self.folder(base + "-a"), Self.folder(base + "-b")]
         let titles = Self.items(for: nodes[1], selecting: nodes).map(\.title)
         #expect(titles.contains("Download All"), "the menu reads \(titles)")
@@ -94,7 +105,7 @@ import Testing
     }
 
     @Test func severalICloudItemsOfferKeepDownloaded() throws {
-        let base = NSHomeDirectory() + "/Library/Mobile Documents/com~apple~CloudDocs/\(Self.unique)"
+        let base = Self.home + "/Library/Mobile Documents/com~apple~CloudDocs/\(Self.unique)"
         let nodes = [Self.folder(base + "-a"), Self.folder(base + "-b")]
         let items = Self.items(for: nodes[0], selecting: nodes)
         let keep = try #require(items.first { $0.title == "Keep Downloaded" }, "the menu reads \(items.map(\.title))")
@@ -105,7 +116,7 @@ import Testing
     /// Past the cap the tick would cost too much to draw, so the item is withheld — Download All,
     /// which costs no attribute reads, is not.
     @Test func pastTheCapKeepDownloadedIsWithheld() {
-        let base = NSHomeDirectory() + "/Library/Mobile Documents/com~apple~CloudDocs/\(Self.unique)"
+        let base = Self.home + "/Library/Mobile Documents/com~apple~CloudDocs/\(Self.unique)"
         let nodes = (0...KeepDownloadedOffer.selectionCap).map { Self.folder(base + "-\($0)") }
         let titles = Self.items(for: nodes[0], selecting: nodes).map(\.title)
         #expect(titles.contains("Download All"), "the menu reads \(titles)")
