@@ -188,16 +188,37 @@ import Design
         return rep
     }
 
+    /// Pixels whose red, green or blue moved by more than 0.02 — more than 5 of 255 in the 8-bit
+    /// samples every capture here holds (5/255 is 0.0196, 6/255 is 0.0235).
+    ///
+    /// **Read from the bytes, and skipping rows whose bytes match, because this is the suite's
+    /// whole cost.** It used to read `colorAt(x:y:)` twice per pixel, an `NSColor` each time, over
+    /// 1440×1240 pixels on every pass of `settled`: a 10 s sample on 2026-10-27 found 99% of the
+    /// main thread in here, and the suite cost 124 s alone, the most of any in the package. A
+    /// settled frame matches its predecessor byte for byte, so most comparisons are now one
+    /// `memcmp` per row.
+    /// Rows that differ still get the tolerant per-pixel test; byte equality alone would be
+    /// stricter than this, and could keep `settled` from ever going quiet.
+    ///
+    /// The same counts as the `colorAt` reading, checked by running both on every comparison the
+    /// suite makes: 54 of 54 agreed, three of them non-zero. Alpha is not compared, as before.
+    /// A capture in any other layout fails `Pixel.check` loudly and answers -1, which no
+    /// assertion here accepts.
     private func pixelsDiffering(_ lhs: NSBitmapImageRep, _ rhs: NSBitmapImageRep) -> Int {
         guard lhs.pixelsWide == rhs.pixelsWide, lhs.pixelsHigh == rhs.pixelsHigh else { return -1 }
+        guard Pixel.check(lhs), Pixel.check(rhs), !lhs.isPlanar, !rhs.isPlanar,
+              lhs.samplesPerPixel == rhs.samplesPerPixel,
+              let a = lhs.bitmapData, let b = rhs.bitmapData else { return -1 }
+        let samples = lhs.samplesPerPixel, rowBytes = lhs.pixelsWide * samples
         var differing = 0
         for y in 0..<lhs.pixelsHigh {
-            for x in 0..<lhs.pixelsWide {
-                guard let a = lhs.colorAt(x: x, y: y), let b = rhs.colorAt(x: x, y: y) else { continue }
-                let delta = max(abs(a.redComponent - b.redComponent),
-                                max(abs(a.greenComponent - b.greenComponent),
-                                    abs(a.blueComponent - b.blueComponent)))
-                if delta > 0.02 { differing += 1 }
+            let rowA = a + y * lhs.bytesPerRow, rowB = b + y * rhs.bytesPerRow
+            if memcmp(rowA, rowB, rowBytes) == 0 { continue }
+            for p in stride(from: 0, to: rowBytes, by: samples)
+            where abs(Int(rowA[p]) - Int(rowB[p])) > 5
+                || abs(Int(rowA[p + 1]) - Int(rowB[p + 1])) > 5
+                || abs(Int(rowA[p + 2]) - Int(rowB[p + 2])) > 5 {
+                differing += 1
             }
         }
         return differing
