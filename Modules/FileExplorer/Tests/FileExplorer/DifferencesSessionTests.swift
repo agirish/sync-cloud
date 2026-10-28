@@ -106,7 +106,7 @@ import Testing
         let view = try Self.source("DifferencesView.swift")
         #expect(view.contains("let scanDate = syncManager.lastScanReadAt ?? completed"),
                 "the pill's age is the scan's again — a comparison of an hours-old walk reads as just scanned")
-        #expect(view.contains("TimelineView(.periodic(from: syncManager.lastScanReadAt ?? completed, by: 30))"),
+        #expect(view.contains("TimelineView(ScanFreshnessSchedule(anchor: syncManager.lastScanReadAt ?? completed))"),
                 "the pill ticks from the scan, not from the date its age is measured from — the stale flip lands off the threshold")
     }
 

@@ -12689,3 +12689,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s keep=%s offer=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Download or Keep Downloaded, and no reads to move | CLOSED — does not apply |
+
+---
+
+## The Compare header ticks only where its freshness readout changes (speed audit 1) — main only
+
+Speed audit item 1 (was P19), 2026-10-28. The differences header's freshness timeline ticked every
+30 s from the scan, rebuilding the whole header — ladder, GeometryReader, both rows and their menus
+— 120 times an hour, idle or behind other windows; the longest recorded stalls began within 0.3 s
+of that tick. On `main` it ticks at the readout's change points only (`ScanFreshnessSchedule`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s period30=%s schedule=%s\n' $l \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DifferencesView.swift 2>/dev/null | grep -c 'TimelineView(.periodic(from: ')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DifferencesView.swift 2>/dev/null | grep -c 'ScanFreshnessSchedule')"; done
+# measured 2026-10-28, against origin, before this landed (main reads period30=0 schedule=1 after):
+# every line  period30=1 schedule=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The 30 s tick over the whole header (`period30=1`) | RECORDED — not owed |

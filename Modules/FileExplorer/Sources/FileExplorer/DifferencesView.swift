@@ -576,9 +576,7 @@ public struct DifferencesView: View {
                                      spokenDetail: nil, help: nil)
         }
         let scanDate = syncManager.lastScanReadAt ?? completed
-        let stamp = Calendar.current.isDateInToday(scanDate)
-            ? scanDate.formatted(date: .omitted, time: .standard)
-            : scanDate.formatted(date: .abbreviated, time: .standard)
+        let stamp = ScanFreshness.stamp(scanDate: scanDate, now: now)
         // `isScanShown`, not `isScanning`: most rescans finish inside a few hundred milliseconds,
         // and showing every one flashed "scanning…" over the count and straight back.
         if syncManager.isScanShown {
@@ -608,19 +606,19 @@ public struct DifferencesView: View {
                                  help: "This comparison may be out of date — last scanned \(stamp)")
     }
 
-    /// Runs `content` on a 30s tick so the age stays honest without the view polling.
+    /// Runs `content` again only when the dressing can change, so the age stays honest without the
+    /// view polling: `ScanFreshnessSchedule` ticks at the ladder's seams, the stale threshold and
+    /// the stamp's midnight — once an hour after the first, where a 30 s period rebuilt this whole
+    /// header 120 times an hour and the longest stalls on record began on that tick.
     ///
     /// Anchored to the date the age is measured from — `lastScanReadAt` — NOT to `Date()`: anchored
     /// to view creation the ticks sat on an arbitrary phase relative to the scan, so a "30s ago"
-    /// label could land anywhere within 30s of the truth — and, because `ScanFreshness.staleAfter`
-    /// is a whole number of 30s ticks, anchoring also puts the fresh→stale flip exactly on the
-    /// threshold instead of up to 30s late. Stated as a property of the constant rather than as its
-    /// value, which is what let this go on naming ten minutes for an hour after the threshold
-    /// moved. Pre-scan (`lastScanDate` nil) there is nothing to tick, so the content renders once.
+    /// label could land anywhere within 30s of the truth, and the fresh→stale flip late. Pre-scan
+    /// (`lastScanDate` nil) there is nothing to tick, so the content renders once.
     @ViewBuilder
     private func withScanFreshness(@ViewBuilder _ content: @escaping (CountPillDressing) -> some View) -> some View {
         if let completed = syncManager.lastScanDate {
-            TimelineView(.periodic(from: syncManager.lastScanReadAt ?? completed, by: 30)) { context in
+            TimelineView(ScanFreshnessSchedule(anchor: syncManager.lastScanReadAt ?? completed)) { context in
                 content(countPillDressing(at: context.date))
             }
         } else {
@@ -722,7 +720,7 @@ public struct DifferencesView: View {
     /// The whole row sits inside `withScanFreshness` rather than just the count pill, and that hoist
     /// is load-bearing rather than tidying. The pill's age run ("29m ago", and the inset capsule it
     /// grows when the scan goes stale) is worth up to 12pt of the row's width, and it changes on a
-    /// 30s `TimelineView` tick that does NOT re-run this `body`. With the ladder measured out here
+    /// `TimelineView` tick that does NOT re-run this `body`. With the ladder measured out here
     /// the rung would have been computed against an age the pill had since stopped drawing; measured
     /// inside, the arithmetic and the pill always see the same `dressing`.
     private func standardHeader(targets: DifferenceActionTargets, sorted: [FileDifference],

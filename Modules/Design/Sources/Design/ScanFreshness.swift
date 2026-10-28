@@ -58,9 +58,19 @@ public enum ScanFreshness {
                       isStale: elapsed >= staleAfter)
     }
 
+    /// The tooltip's timestamp: the time alone while the scan is from today, with the date once
+    /// it is not. Taking `now` rather than asking the wall clock is what lets
+    /// `ScanFreshnessSchedule` promise the stamp changes only at the midnight it ticks on.
+    public static func stamp(scanDate: Date, now: Date, calendar: Calendar = .current) -> String {
+        calendar.isDate(scanDate, inSameDayAs: now)
+            ? scanDate.formatted(date: .omitted, time: .standard)
+            : scanDate.formatted(date: .abbreviated, time: .standard)
+    }
+
     /// Coarse, glanceable buckets — half a minute, minutes, hours, days. Deliberately not
     /// second-precise (the badge answers "is this fresh?", not "exactly how old?"), and the two
-    /// sub-minute steps exist only because they cost nothing: the view ticks every 30s anyway.
+    /// sub-minute steps cost one tick each: the view ticks only where a label changes
+    /// (`ScanFreshnessSchedule`).
     ///
     /// Units FLOOR rather than round, so "N <unit> ago" always means at least N of that unit has
     /// elapsed and a label can never contradict the next coarser one. Rounding produced seam

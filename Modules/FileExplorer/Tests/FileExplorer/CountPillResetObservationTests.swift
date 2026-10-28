@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+import Design
 @testable import FileExplorer
 
 /// Why `DifferencesView.countPillToggle`'s `.onChange(of: hasScanned)` sits OUTSIDE
@@ -55,7 +56,7 @@ import Testing
         @ViewBuilder
         private func withScanFreshness(@ViewBuilder _ content: @escaping (String) -> some View) -> some View {
             if let scanDate = model.lastScanDate {
-                TimelineView(.periodic(from: scanDate, by: 30)) { _ in content("fresh") }
+                TimelineView(ScanFreshnessSchedule(anchor: scanDate)) { _ in content("fresh") }
             } else {
                 content("none")
             }
