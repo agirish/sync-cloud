@@ -34,6 +34,17 @@ enum FilingArtifacts {
     @discardableResult
     static func attach(to manager: FileSyncManager, recordingTrend: Bool = false) -> Bool {
         guard let profiles = FilingProfileStore.defaultDirectory() else { return false }
+        return attach(to: manager, profilesDirectory: profiles, recordingTrend: recordingTrend)
+    }
+
+    /// ``attach(to:recordingTrend:)`` against a given profiles directory — the seam tests use, so
+    /// a scratch folder stands in for the real one. `readSurveyedAt` is the corpus-stamp read,
+    /// passed so a test can see it runs off the main thread.
+    @discardableResult
+    static func attach(to manager: FileSyncManager, profilesDirectory profiles: URL,
+                       recordingTrend: Bool = false,
+                       readSurveyedAt: @escaping @Sendable (String, URL) -> Date?
+                           = FilingSurveyStore.surveyedAt(id:in:)) -> Bool {
 
         // **Handed over before the profile is read, and that is a fix rather than a tidy-up.**
         // These two are *where things live*, not things that were found: the path is known on any
@@ -76,10 +87,15 @@ enum FilingArtifacts {
         // old tree produced. Read from the same directory the artifacts came from.
         manager.filingArtifactFingerprint =
             FilingProfileStore.fingerprint(id: loaded.id, in: profiles)
-        // When a survey last looked (§4.1) — the corpus's stamp, read without building the
-        // documents dictionary. Nil for a corpus that predates the stamp, which the footnote
-        // has words for.
-        manager.filingSurveyedAt = FilingSurveyStore.surveyedAt(id: loaded.id, in: profiles)
+        // When a survey last looked (§4.1) — the corpus's stamp. Nil for a corpus that predates
+        // the stamp, which the footnote has words for.
+        //
+        // **Read off the main actor, and it arrives a moment late** (speed audit item 5). Even
+        // without building the documents dictionary the read parses the whole corpus — about
+        // 5 MB for a 9,500-document tree, 20–30 ms warm and more cold — before the first window,
+        // for a date only a footnote shows. Both readers, Restructure's footnote and the survey
+        // card's receipt, read the published value and leave the date out while it is nil.
+        readSurveyDate(into: manager, id: loaded.id, in: profiles, using: readSurveyedAt)
         // **O16's baseline point.** Here rather than in `structureReport`, which a view body
         // reads on every render — and the stamp answers from the trend before it counts
         // anything, so a profile already recorded costs nothing at launch. Without this call
@@ -97,5 +113,34 @@ enum FilingArtifacts {
                            + "\(manager.filingPeopleStore?.people.count ?? 0) person(s), "
                            + "\(manager.filingPersonTagStore?.tags.count ?? 0) person tag(s)")
         return true
+    }
+
+    /// The latest stamp read per manager, and its generation. Its result is published only if it
+    /// is still that manager's latest attach and nothing set the date since — a re-survey that
+    /// finished first publishes its own `now`, which a stale read must not overwrite.
+    private static var surveyDateReads:
+        [ObjectIdentifier: (generation: Int, task: Task<Void, Never>)] = [:]
+
+    /// The stamp read the latest attach to `manager` started and that has not landed yet, so a
+    /// test can await it. Nil once it has.
+    static func surveyDateRead(for manager: FileSyncManager) -> Task<Void, Never>? {
+        surveyDateReads[ObjectIdentifier(manager)]?.task
+    }
+
+    private static func readSurveyDate(into manager: FileSyncManager, id: String, in profiles: URL,
+                                       using read: @escaping @Sendable (String, URL) -> Date?) {
+        let key = ObjectIdentifier(manager)
+        let generation = (surveyDateReads[key]?.generation ?? 0) + 1
+        let seeded = manager.filingSurveyedAt
+        let task = Task.detached(priority: .userInitiated) {
+            let date = read(id, profiles)
+            await MainActor.run {
+                guard surveyDateReads[key]?.generation == generation else { return }
+                surveyDateReads[key] = nil   // it holds the manager; let it go once landed
+                guard manager.filingSurveyedAt == seeded else { return }
+                manager.filingSurveyedAt = date
+            }
+        }
+        surveyDateReads[key] = (generation, task)
     }
 }

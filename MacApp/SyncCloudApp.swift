@@ -180,6 +180,7 @@ struct SyncCloudApp: App {
     private let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     
     init() {
+        LaunchTiming.initBegan()
         // Apply the persisted log-level gate before anything logs; Settings → Advanced
         // updates both the default and the live gate from then on. (The launch breadcrumb lives in
         // the delegate's applicationDidFinishLaunching, which fires exactly once — App.init can be
@@ -601,9 +602,10 @@ struct SyncCloudApp: App {
         // under the test host, whose writes land in the developer's real profile directory.
         FilingArtifacts.attach(to: manager, recordingTrend: !isRunningTests)
 
-        if OnDeviceFilingClassifier.isAvailable {
-            manager.filingClassifierPrewarm = { OnDeviceFilingClassifier.prewarm() }
-        }
+        // Installed whether or not the model is available: `prewarm()` asks that itself, off the
+        // main thread. Asking here held the first window (speed audit item 4: likely 5.4 s on
+        // the first launch after a macOS update) and fixed the answer for the whole session.
+        manager.filingClassifierPrewarm = { OnDeviceFilingClassifier.prewarm() }
         _syncManager = StateObject(wrappedValue: manager)
         // ContentView.onAppear awaits discoverProviders() as part of its bootstrap sequence, so
         // skip the init-triggered scan here to avoid discovering providers twice on launch.
@@ -615,6 +617,7 @@ struct SyncCloudApp: App {
         ))
         // CRITICAL: Link the manager to the delegate so the termination guard is active.
         appDelegate.adoptSyncManager(manager)
+        LaunchTiming.initEnded()
     }
 
     /// The Settings conflict policy's answer for a collision, or nil when the policy says ask
@@ -1134,6 +1137,7 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         let version = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"
         Logger.shared.info("SyncCloud \(version) (build \(build)) launched")
+        if let line = LaunchTiming.report() { Logger.shared.info(line) }
 
         // The Go menu's ⌃⇥ / ⌃⇧⇥ twins: hidden behind their ⇧⌘ items, keys live (SH3).
         GoMenuDuplicates.install()
@@ -1707,5 +1711,26 @@ private struct ActivityWindowHost: View {
                     syncManager.undoLastSyncRunAskingFirst(confirm: SyncOperationAlerts.confirmUndoLastSyncRun)
                 })
         }
+    }
+}
+
+/// How long launch held the main thread before the first window (speed audit batch B): App.init's
+/// own time, and from its start to `applicationDidFinishLaunching`. First init only — SwiftUI may
+/// re-run `App.init`, and a later run says nothing about launch.
+@MainActor
+enum LaunchTiming {
+    private static var began: ContinuousClock.Instant?
+    private static var ended: ContinuousClock.Instant?
+
+    static func initBegan() { if began == nil { began = .now } }
+    static func initEnded() { if ended == nil, began != nil { ended = .now } }
+
+    /// The `[launch]` line, or nil when App.init was never timed.
+    static func report(now: ContinuousClock.Instant = .now) -> String? {
+        guard let began, let ended else { return nil }
+        func ms(_ d: Duration) -> Int {
+            Int(d.components.seconds * 1000 + d.components.attoseconds / 1_000_000_000_000_000)
+        }
+        return "[launch] App.init took \(ms(ended - began)) ms; launched \(ms(now - began)) ms after it began"
     }
 }

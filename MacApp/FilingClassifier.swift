@@ -86,14 +86,25 @@ enum OnDeviceFilingClassifier {
     /// Safe to call repeatedly; a no-op when the model isn't available. Callable from anywhere
     /// (the manager's prewarm seam is a @Sendable sync closure): the fire-and-forget hop puts the
     /// session touch on the main actor, where the storage lives.
-    static func prewarm() {
+    ///
+    /// **Availability is asked off the main thread.** It used to be asked in `SyncCloudApp.init`,
+    /// before the first window, and is the likely cause of a 5.4 s launch after a macOS update.
+    /// `isAvailable` is the probe; tests pass their own to see where it runs, and await the
+    /// returned task.
+    @discardableResult
+    static func prewarm(isAvailable probe: @escaping @Sendable () -> Bool = { isAvailable })
+        -> Task<Void, Never> {
+        Task.detached(priority: .utility) {
+            guard probe() else { return }
+            await warm()
+        }
+    }
+
+    @MainActor private static func warm() {
         #if canImport(FoundationModels)
         if #available(macOS 26.0, *) {
-            guard case .available = SystemLanguageModel.default.availability else { return }
-            Task { @MainActor in
-                if warmSession == nil { warmSession = LanguageModelSession() }
-                warmSession?.prewarm()
-            }
+            if warmSession == nil { warmSession = LanguageModelSession() }
+            warmSession?.prewarm()
         }
         #endif
     }
@@ -187,7 +198,9 @@ enum OnDeviceFilingClassifier {
     }
 
     /// Whether on-device classification can run right now (framework present, OS new enough, model
-    /// downloaded and enabled). Cheap to call; used to gate the Settings toggle and injection.
+    /// downloaded and enabled). Not cheap: a 5.4 s main-thread hold on the first launch after a
+    /// macOS update was traced to it, by log order. Ask it off the main thread, as the classifier's
+    /// async closure and `prewarm()` do.
     static var isAvailable: Bool {
         #if canImport(FoundationModels)
         if #available(macOS 26.0, *) {

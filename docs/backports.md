@@ -12761,3 +12761,28 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s encryption=%s saveAsPDF=%s ke
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | None of the three items, and no reads to move | CLOSED — does not apply |
+
+---
+
+## Launch asks for the on-device model and the survey date off the main thread (speed audit 4, 5) — main only
+
+Speed audit items 4 and 5 (were P69, P18), 2026-10-28. On `main`, `SyncCloudApp.init` no longer
+asks `OnDeviceFilingClassifier.isAvailable` before the first window: the prewarm hook is installed
+unconditionally and `prewarm()` asks availability in a detached task (the likely cause of a
+5.4 s launch after a macOS update). `FilingArtifacts.attach` reads the corpus's `surveyedAt` stamp in a
+detached task and publishes it on main when it arrives, unless a re-survey or a later attach set
+the date first. A `[launch]` INFO line after "launched" gives App.init's time and init→launched.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s availabilityGates=%s attachReadsStamp=%s\n' $l \
+  "$(git show origin/$l:MacApp/SyncCloudApp.swift 2>/dev/null | grep -c 'if OnDeviceFilingClassifier.isAvailable {')" \
+  "$(git show origin/$l:MacApp/FilingArtifacts.swift 2>/dev/null | grep -c 'manager.filingSurveyedAt = FilingSurveyStore.surveyedAt')"; done
+# measured 2026-10-28, against origin, before this landed (main reads 1 and 0 after):
+# main/v5.x  availabilityGates=2 attachReadsStamp=1
+# v4.x/v3.x/v2.x  availabilityGates=2 attachReadsStamp=0 (no survey stamp on those lines)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | Launch asks availability on main (`availabilityGates=2`) | RECORDED — not owed |
+| `v5.x` | The survey-date read inside attach, on main (`attachReadsStamp=1`) | RECORDED — not owed |
