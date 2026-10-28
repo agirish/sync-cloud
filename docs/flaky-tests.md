@@ -64,6 +64,10 @@ group at all* rather than a fast one — a zero-duration group still defers thro
 starves identically. `thePullHomeShipsAnimated` pins the 0.25 s default, because once every mount
 injects zero nothing reads what the app ships; both halves were mutation-checked.
 
+The same suite went red again on 2026-10-27 for a different reason, a sub-pixel move in milliseconds
+rather than a burned wait: see "A clip view parked before its window's first display cycle is
+pixel-aligned later, by AppKit".
+
 **See.** `92e2bdf` — *Decide the column reveal's tests by the code, not the machine's power state*;
 `bd3a1e96` — *Pin the reveal animation the app ships* (the default nothing was reading);
 `Modules/FileExplorer/Tests/FileExplorer/ColumnPreviewRevealTests.swift`.
@@ -4468,3 +4472,48 @@ Eight more Setup tests (the 2026-10-27 review fixes) pushed both, and the two ne
 **Fix, 2026-10-27.** Every walk test in `SetupModelTests` and `SetupReadingHandOverTests` has a
 two-minute limit. It is a hang guard, not a speed check: a walk that never lands still fails, at two
 minutes. Why the walk is starved for most of the run is not yet known.
+
+### 45. A clip view parked before its window's first display cycle is pixel-aligned later, by AppKit — FIXED
+
+**Symptom.** `PaneColumnsOverscrollReturnCycleTests.testAFractionalOffsetIsLeftAloneNotCorrectedForever`
+red with "the watchdog corrected a sub-point offset — the repeating-pull loop is back", on CI runs
+40562428654 (`e181d2ca5`, 21.4 s) and 40586781685 (`660e00ddf`, 4.55 s), 2026-10-27; neither commit
+touches Columns. Both had the same values: `parked → (-0.4, 0.33)`, `clip.bounds.origin → (-0.5, 0.5)`.
+The watchdog cannot produce `(-0.5, 0.5)`: the only origin it ever sets is `legalOrigin`, which is
+`(0, 0)` here. Nor is it the 2026-08-08 starvation under "The machine decides the verdict —
+throttled CoreAnimation", which burns its whole wait and reports a start state.
+
+**Mechanism.** `NSClipView` aligns its bounds origin to the backing's pixels, in
+`-[NSClipView _alignOriginOfBoundsRectToBackingIfNeeded:]` (reached from `_selfBoundsChanged`), and
+that method does nothing while the clip has no layer. Overriding `constrainBoundsRect` does not stop
+it. A view gets its layer when its window builds the layer tree, which happens on the window's first
+display cycle (`NSWindowUpdateLayerTree`), not when the view is added. When the layer arrives,
+`-[NSClipView setLayer:]` aligns the origin it finds. So:
+
+- the layer tree is built before the park: the park is aligned at once, `(-0.4, 0.33)` reads back as
+  `(-0.5, 0.5)`, and the test pins that;
+- the park lands first: it reads back unaligned, and the next display cycle moves it to
+  `(-0.5, 0.5)` while the test waits, which the test reports as the watchdog's doing.
+
+The 0.3 s pump before the park is what usually let the display cycle run first. On both red runs it
+did not; why the cycle did not run in 0.3 s was not measured. The failed durations (21.4 s and
+4.55 s, against about 1.1 s idle) say the main thread was heavily loaded.
+
+Measured in a standalone AppKit rig built like the fixture: parking before any run-loop turn read
+back `(-0.4, 0.33)`, then the first display cycle set `(-0.5, 0.5)` from `-[NSClipView setLayer:]`
+under `NSWindowUpdateLayerTree`. Parking after `window.displayIfNeeded()` read back `(-0.5, 0.5)` at
+once. `layoutIfNeeded()` and `wantsLayer = true` on the content view do not build the layer.
+In the suite, deleting the 0.3 s pump turned the test red with the CI values, on an idle machine.
+
+**Fix, 2026-10-27.** The suite's `mount()` calls `window.displayIfNeeded()` before it returns, so
+every clip has its layer before a test touches it, and the fractional test requires `clip.layer`
+before it parks. With the fix, the test passed 3 of 3 with the 0.3 s pump deleted. Taking `displayIfNeeded()` back
+out, it fails at that `#require` instead of blaming the watchdog; and with the watchdog's tolerance
+mutated to 0.01 it still goes red, the clip pulled to `(0, 0)`.
+
+**Tell.** A clip-view or scroll-view origin assertion off by **less than a pixel** — the expected
+value unaligned, the actual value on the half- (or whole-) point grid — with no code that sets that
+value. Check whether the view had a layer when the fixture set it.
+
+**See.** `PaneColumnsOverscrollReturnCycleTests.mount()` in
+`Modules/FileExplorer/Tests/FileExplorer/PaneColumnsScrollTests.swift`.

@@ -501,6 +501,13 @@ import Sync
         watchdog.pullDuration = 0
         document.addSubview(watchdog)
         window.contentView?.addSubview(scroller)
+        // Builds the layer tree now instead of at the window's first display cycle. A clip with no
+        // layer skips AppKit's pixel alignment, and the cycle that gives it one aligns whatever
+        // origin it finds, so a test that set one before then would see it move under no code of
+        // ours. A starved run can go past the pump below without that cycle. See
+        // `docs/flaky-tests.md`, "A clip view parked before its window's first display cycle is
+        // pixel-aligned later, by AppKit".
+        window.displayIfNeeded()
         return (window, scroller, clip)
     }
 
@@ -650,14 +657,17 @@ import Sync
     /// pulling those made the watchdog correct the same fraction every quiescence interval all
     /// night — each pull an animated `setBoundsOrigin`, visible as jitter on the left pane's
     /// first column. A sub-tolerance offset must be left exactly where it is, forever.
-    @Test func testAFractionalOffsetIsLeftAloneNotCorrectedForever() async {
+    @Test func testAFractionalOffsetIsLeftAloneNotCorrectedForever() async throws {
         let (window, _, clip) = mount()
         defer { _ = window }
         await pump(seconds: 0.3)
 
         // `setBoundsOrigin` itself pixel-rounds (−0.4 became −0.5 on this backing), so the pin
         // is against the value that actually landed — what matters is that the watchdog never
-        // "corrects" it to zero.
+        // "corrects" it to zero. It rounds only once the clip has a layer; without one, the
+        // window's next display cycle rounds it while the wait below runs, and that reads as a
+        // correction.
+        try #require(clip.layer != nil, "the clip has no layer yet, so AppKit would align the park later")
         clip.setBoundsOrigin(NSPoint(x: -0.4, y: 0.33))
         let parked = clip.bounds.origin
         #expect(parked != .zero, "fixture failed to park the clip off the mathematical home")
