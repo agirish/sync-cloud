@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Combine
 import Events
 import EventsTestSupport
 @testable import Sync
@@ -30,6 +31,8 @@ import EventsTestSupport
         /// The run's history is recorded — which happens in the same main-actor stretch as its
         /// undo registration, so a sample with this set was taken in the tail.
         let historyRecorded: Bool
+        /// When the window takes the run on `activeProgress` to have started.
+        let startedAt: Date?
     }
 
     /// A real `FileManager` whose off-main `attributesOfItem` for a path under `watched` takes a
@@ -44,6 +47,7 @@ import EventsTestSupport
         let read = LockedBox<(@MainActor () -> Sample?)?>(nil)
         let samples = LockedBox<[Sample?]>([])
         let rendezvousExpired = LockedBox<Bool>(false)
+        let trashedAt = LockedBox<Date?>(nil)
 
         init(trash: ScratchTrash, watched: String, armedFromStart: Bool, trashReportsNoLocation: Bool = false) {
             self.trash = trash
@@ -53,8 +57,16 @@ import EventsTestSupport
             super.init()
         }
 
+        /// Run on the main queue as the trash starts — the reader's Stop, pressed mid-trash. The
+        /// trash runs on a pool thread and the main actor is free (the merge awaits the operation).
+        let beforeTrash = LockedBox<(@MainActor () -> Void)?>(nil)
+
         override func trashItem(at url: URL, resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+            if let stop = beforeTrash.withLock({ $0 }) {
+                DispatchQueue.main.sync { MainActor.assumeIsolated { stop() } }
+            }
             try trash.trashItem(at: url, resultingItemURL: trashReportsNoLocation ? nil : resultingItemURL)
+            trashedAt.withLock { $0 = $0 ?? Date() }
             armed.withLock { $0 = true }
         }
 
@@ -80,7 +92,8 @@ import EventsTestSupport
         manager.activeProgress.map {
             Sample(title: $0.localizedDescription, lockReason: $0.runLockReason,
                    isCancellable: $0.isCancellable, completed: $0.completedUnitCount, total: $0.totalUnitCount,
-                   historyRecorded: !manager.lastRecordedRunRecords.isEmpty)
+                   historyRecorded: !manager.lastRecordedRunRecords.isEmpty,
+                   startedAt: manager.activeProgressStartedAt)
         }
     }
 
@@ -121,11 +134,15 @@ import EventsTestSupport
         manager.undoManager = UndoManager()
         manager.duplicateGroups = [pair.group]
         fm.read.withLock { $0 = { @MainActor in Self.sample(manager) } }
+        var banners: [OperationBanner] = []
+        let watch = manager.$banner.sink { if let banner = $0 { banners.append(banner) } }
+        defer { watch.cancel() }
 
         let ok = await manager.mergeDuplicateGroup(pair.group)
 
         #expect(ok == true, "the merge did not complete, so the samples below describe nothing")
         #expect(fm.trash.names == [pair.redundant.lastPathComponent], "premise: the merge trashed its copy")
+        let trashedAt = try #require(fm.trashedAt.withLock { $0 })
         #expect(fm.rendezvousExpired.withLock { $0 } == false, "a main-actor sample never ran inside the walk")
         // A read can land while the trash's own progress is still up — an identity walk started
         // at the fold may run late. That is the trash's lock, held for the merge; every other
@@ -141,8 +158,25 @@ import EventsTestSupport
             // one main-actor stretch.
             #expect(sample?.isCancellable == false, "the merge's tail still offers Stop: \(String(describing: sample))")
             #expect(sample?.title == "Finishing…", "\(String(describing: sample))")
+            // Handed back after the trash, the merge is still the run that began before it — not
+            // the newest run in the capsule, nor one whose log span starts at the handback.
+            #expect(sample.flatMap(\.startedAt).map { $0 < trashedAt } == true,
+                    "the merge was taken to have started at its handback: \(String(describing: sample)), trashed at \(trashedAt)")
         }
         #expect(manager.activeProgress == nil, "the merge left its lock up after it returned")
+        // What names it once it ended — its notification, Activity's row — is the merge's own
+        // title over the merge's own minutes, not "Finishing…".
+        let ended = try #require(manager.lastFinishedRun)
+        #expect(ended.title == "Merging “\(pair.group.name)”", "\(String(describing: ended.title))")
+        #expect(ended.started < trashedAt, "the merge's span starts at its handback")
+        // The trash's own banner, posted before the merge registers anything, offers no undo: one
+        // made then would point at the step below the merge's.
+        let trashBanners = banners.filter { $0.message.contains("to the Trash") }
+        #expect(!trashBanners.isEmpty, "premise: the trash posted its banner")
+        #expect(trashBanners.allSatisfy { !$0.isUndoable },
+                "the merge's trash offered an undo it had not registered: \(trashBanners.map(\.message))")
+        #expect(banners.last?.message.hasPrefix("Merged") == true && banners.last?.isUndoable == true,
+                "the merge's own banner lost its offer: \(String(describing: banners.last))")
     }
 
     /// **L7.** A copy whose files have all landed is only arming its undo: Stop and ⌘. go, the
@@ -178,6 +212,8 @@ import EventsTestSupport
             #expect(sample.lockReason == Progress.runLockReason(waitingFor: "the copy"), "\(sample)")
         }
         #expect(manager.activeProgress == nil)
+        #expect(manager.lastFinishedRun?.title == "Copying 1 item",
+                "the ended copy is named for its tail: \(String(describing: manager.lastFinishedRun?.title))")
     }
 
     /// **L3, the merge's log.** A copy the Trash took without saying where is in the Trash; the
@@ -209,5 +245,78 @@ import EventsTestSupport
                 "the log says a copy sitting in the Trash was deleted permanently: \(lines)")
         #expect(lines.contains { $0.contains("moved to the Trash with no location reported") && $0.contains("NOT registered") },
                 "\(lines)")
+    }
+
+    /// **L7, for Sync All.** The bulk run arms its undo too, with its Stop live: the capsule's and
+    /// the Differences list's, which reads the flag only when it redraws.
+    @MainActor
+    @Test(.parksAThread) func aBulkSyncArmingItsUndoOffersNoStop() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "BulkTailStop")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let left = base.appendingPathComponent("src"), right = base.appendingPathComponent("dst")
+        try write(left.appendingPathComponent("a.txt"), bytes: 100, fill: 0x41)
+        try FileManager.default.createDirectory(at: right, withIntermediateDirectories: true)
+        let fm = TailSampler(trash: ScratchTrash(in: base), watched: right.path, armedFromStart: true)
+        let manager = FileSyncManager(fileManager: fm)
+        manager.syncHistoryStore = makeTempHistoryStore(prefix: "BulkTailStop")
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
+        manager.undoManager = UndoManager()
+        let diff = FileDifference(relativePath: "a.txt", leftItemPath: left.appendingPathComponent("a.txt").path,
+                                  rightItemPath: right.appendingPathComponent("a.txt").path,
+                                  type: .missingOnRight, action: .copyToRight, description: "Missing on right",
+                                  leftFileSize: 100)
+        manager.rawDifferences = [diff]
+        manager.differences = [diff]
+        fm.read.withLock { $0 = { @MainActor in Self.sample(manager) } }
+        // The Differences list redraws when the count is published: one published while the run
+        // is no longer cancellable is what takes its Cancel down.
+        var redrawnFinishing = false
+        let watch = manager.$bulkSyncProgress.sink { value in
+            if value != nil, manager.activeProgress?.isCancellable == false { redrawnFinishing = true }
+        }
+        defer { watch.cancel() }
+
+        await manager.syncAll(direction: .copyToRight)
+
+        #expect(FileManager.default.fileExists(atPath: right.appendingPathComponent("a.txt").path), "premise: the sync copied")
+        #expect(fm.rendezvousExpired.withLock { $0 } == false, "a main-actor sample never ran")
+        let tail = fm.samples.withLock { $0 }.compactMap { $0 }.filter(\.historyRecorded)
+        #expect(!tail.isEmpty, "no read of the copy ran once its history was recorded — the tail was never observed")
+        for sample in tail {
+            #expect(sample.isCancellable == false, "Stop is live while only the undo is being armed: \(sample)")
+            #expect(sample.title == "Finishing…", "\(sample)")
+            #expect(sample.lockReason == Progress.runLockReason(waitingFor: "the sync"), "\(sample)")
+        }
+        #expect(redrawnFinishing, "nothing made the Differences list redraw once Stop had gone")
+        #expect(manager.lastFinishedRun?.title == "Syncing 1 file", "\(String(describing: manager.lastFinishedRun?.title))")
+    }
+
+    /// **A Stop during a merge's trash stops the merge.** The capsule shows the trash's own
+    /// progress then, so its Stop is the only one the reader has; the merge it hands back to used
+    /// to end uncancelled, and Activity showed the stopped merge as a problem (TE221).
+    @MainActor
+    @Test func aStopDuringAMergesTrashEndsTheMergeAsAStop() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "MergeTrashStop")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let pair = try makePair(base, name: "Stop-\(UUID().uuidString)")
+        let fm = TailSampler(trash: ScratchTrash(in: base), watched: "/nowhere", armedFromStart: false)
+        let manager = FileSyncManager(fileManager: fm)
+        manager.syncHistoryStore = makeTempHistoryStore(prefix: "MergeTrashStop")
+        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
+        manager.undoManager = UndoManager()
+        manager.duplicateGroups = [pair.group]
+        let stoppedTitle = LockedBox<String?>(nil)
+        fm.beforeTrash.withLock { $0 = { @MainActor in
+            stoppedTitle.withLock { $0 = manager.activeProgress?.localizedDescription }
+            manager.activeProgress?.cancel()
+        } }
+
+        _ = await manager.mergeDuplicateGroup(pair.group)
+
+        #expect(stoppedTitle.withLock { $0 }?.hasPrefix("Moving") == true,
+                "premise: the Stop landed on the trash's progress, not the merge's: \(String(describing: stoppedTitle.withLock { $0 }))")
+        let ended = try #require(manager.lastFinishedRun)
+        #expect(ended.title == "Merging “\(pair.group.name)”", "\(String(describing: ended.title))")
+        #expect(ended.cancelled, "the merge the reader stopped ended as if it had run to the end")
     }
 }

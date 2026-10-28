@@ -1748,7 +1748,11 @@ extension FileSyncManager {
             // Reporting only the removals would leave them believing the kept ones went too.
             let kept = result.declined == 0 ? "" :
                 " — kept \(result.declined.formatted()) that can’t be moved to the Trash"
-            self.banner = .success(deleted + kept, undoable: successfullyTrashed.count == items.count)
+            // Not with a handback: the caller registers the undo after this returns, so an offer
+            // made now points at whatever step tops the stack before it — Activity pins its Undo
+            // to that step, and after a ⌘Z of the caller's run that is an older operation.
+            self.banner = .success(deleted + kept,
+                                   undoable: restoreUndoHandback == nil && successfullyTrashed.count == items.count)
         }
         // **One line at THIS level for anything the gate kept.** The two shipped gates log per
         // refused path themselves, but `removalGate` is a public caller-supplied closure with no
@@ -1843,6 +1847,10 @@ extension FileSyncManager {
         }
 
         if let progress, self.activeProgress === progress {
+            // A Stop pressed during the trash was the reader stopping the caller's run — the
+            // capsule showed only the trash's progress — so the run handed back carries it, and
+            // ends as a stop rather than as a problem (`lastFinishedRun.cancelled`, TE221).
+            if progress.isCancelled { resumingProgress?.cancel() }
             self.activeProgress = resumingProgress
         }
         let reachedTrash = items.filter(\.reachedTrash).count

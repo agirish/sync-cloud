@@ -623,6 +623,9 @@ public class FileSyncManager: ObservableObject {
     /// `duplicateGroups` publishes so observers of the results always read a matching value;
     /// reset by `clearDuplicates`.
     @Published public internal(set) var duplicateScanSkips = DuplicateScanSkips()
+    /// The kept-separate keys the last duplicate scan found a copy of missing from its tree —
+    /// groups no scan can flag again, so not counted or promised back (see `keptSeparateKeys`).
+    @Published var keptSeparateGoneKeys: Set<String> = []
     /// IDs of duplicate groups whose merge is currently in flight. A merge can run for minutes
     /// (it re-hashes the keeper, copies unique files, then trashes the folded copy); this both
     /// guards re-entry — a second click would re-plan against the half-merged keeper and mint
@@ -2618,10 +2621,10 @@ public class FileSyncManager: ObservableObject {
         didSet {
             guard activeProgress !== oldValue else { return }
             if let finished = oldValue, let started = activeProgressStartedAt {
-                lastFinishedRun = (started: started, ended: Date(), title: finished.localizedDescription,
+                lastFinishedRun = (started: started, ended: Date(), title: finished.runTitle,
                                    cancelled: finished.isCancelled)
             }
-            activeProgressStartedAt = activeProgress.map { _ in Date() }
+            activeProgressStartedAt = activeProgress.map { $0.firstPublished() }
         }
     }
     /// When the run on ``activeProgress`` was published — what orders it among the window's other

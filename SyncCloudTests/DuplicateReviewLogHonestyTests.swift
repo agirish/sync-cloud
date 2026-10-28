@@ -59,7 +59,9 @@ import Foundation
         #expect(code.contains("removalGate:"),
                 "the removal lost its last-moment gate")
         // The branch, and both of its answers. An unconditional revert loses all three.
-        #expect(code.contains("outcome.trashed > 0"),
+        // Asked of the permanent count: a copy the Trash took without a location counts in neither
+        // `trashed` nor `permanentlyDeleted`, and asking `trashed > 0` logged it deleted permanently.
+        #expect(code.contains("outcome.permanentlyDeleted == 0"),
                 "the log no longer asks how the copy left, so it reports one outcome for both")
         #expect(code.contains("Trashed the right duplicate copy"),
                 "the trashed case lost its sentence")

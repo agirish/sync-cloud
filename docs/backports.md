@@ -12588,7 +12588,7 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s runLock=%s mergeProgress=%s m
 
 | Line | Carries | Status |
 |---|---|---|
-| `v5.x` / `v4.x` | The merge's progress dialog closes when its trash ends while it still awaits its identity walk — display only, no run lock or ⌘Z gate there (`runLock=0`); no location-less count (`reachedTrash=0`). A copy awaits its identity walk with its progress up and cancellable, as `main` did | RECORDED — not owed |
+| `v5.x` / `v4.x` | The merge's progress dialog closes when its trash ends while it still awaits its identity walk — display only, no run lock or ⌘Z gate there (`runLock=0`); no location-less count (`reachedTrash=0`). A copy, and Sync All (`for walk in identityWalks` twice), await their identity walks with its progress up and cancellable, as `main` did | RECORDED — not owed |
 | `v3.x` / `v2.x` | No tail after the merge's trash (`mergeAwaitsWalk=0`); none of the rest | CLOSED — does not apply |
 
 ---

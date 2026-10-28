@@ -834,25 +834,33 @@ import Combine
     /// exact copy paths, so no scan can ever match it again: "You’ve kept 2 groups separate" and
     /// "they come back with this scan" both counted a group that cannot come back. Forgotten all
     /// the same, so the store does not keep it forever.
+    ///
+    /// Known from the scan's own tree, not from a stat per copy: the lens counts these from its
+    /// body, on every redraw. So nothing is known gone until a scan has looked — the control below.
     @MainActor
-    @Test func aKeptGroupWithACopyGoneIsNeitherCountedNorPromisedBack() throws {
+    @Test func aKeptGroupWithACopyGoneIsNeitherCountedNorPromisedBack() async throws {
         let base = try makeCanonicalTempRoot(prefix: "KeptSeparateGone")
         defer { try? FileManager.default.removeItem(at: base) }
         let x = base.path
-        for path in ["a.pdf", "b/a.pdf", "c/n.txt"] {
-            try write(base.appendingPathComponent(path), bytes: 10, fill: 0x41)
+        for path in ["a/report.pdf", "b/report.pdf", "c/n.txt"] {
+            try write(base.appendingPathComponent(path), bytes: 5000, fill: 0x41)
         }
         let manager = FileSyncManager()
         let suite = "DuplicatesIgnoreTest-\(UUID().uuidString)"
         manager.duplicateIgnoreDefaults = UserDefaults(suiteName: suite)!
         defer { wipeDefaultsSuite(suite) }
-        let live = "\(x)/a.pdf\n\(x)/b/a.pdf"
+        let live = "\(x)/a/report.pdf\n\(x)/b/report.pdf"
         let oneGone = "\(x)/c/n.txt\n\(x)/d/n.txt"   // d/n.txt was never written
         let allGone = "\(x)/e/m.txt\n\(x)/f/m.txt"
         manager.ignoredDuplicateKeys = [oneGone, allGone, live]
+        // The control: before any scan has looked, nothing is known gone.
+        #expect(manager.keptSeparateKeys(under: x) == [oneGone, allGone, live])
 
+        await manager.findDuplicates(root: base)
+        #expect(!manager.duplicateGroups.contains { $0.ignoreKey == live },
+                "premise: the live group stays kept separate")
         #expect(manager.keptSeparateKeys(under: x) == [live],
-                "the lens counts a kept group whose copies are no longer all on disk")
+                "the lens counts a kept group whose copies the scan did not find")
         #expect(manager.forgetKeptSeparateGroups(under: x) == 1)
         #expect(manager.banner?.message == "Forgot 1 group kept separate — this scan flags it again if it’s still a duplicate.")
         #expect(manager.ignoredDuplicateKeys.isEmpty, "a dead key was left in the store")

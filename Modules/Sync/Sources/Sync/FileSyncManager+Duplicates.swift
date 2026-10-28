@@ -380,6 +380,9 @@ extension FileSyncManager {
                                                 multiLink: multiLinkPaths.count,
                                                 textUnreadable: textUnreadable,
                                                 unverifiable: hashOutcome.unverifiable)
+        // From the tree in hand, not the disk: the lens counts these on every redraw, and a stat
+        // per copy from a view body is main-thread I/O on whatever volume the copies are on.
+        keptSeparateGoneKeys = Self.goneKeptSeparateKeys(ignored, under: root.path, tree: tree)
         self.duplicateGroups = groups.filter { !ignored.contains($0.ignoreKey) }
         // Published with the results, not at scan start: the root labels what's on screen, and a
         // cancelled rescan of a different folder must not relabel the previous results.
@@ -554,14 +557,31 @@ extension FileSyncManager {
     /// whole put "You’ve kept 12 groups separate" under a scan that could only ever have shown two
     /// of them, and *Show them again* forgot all twelve, everywhere, with no way back.
     ///
-    /// **Nor every key under the root: only those whose copies are all still on disk.** A key is
+    /// **Nor every key under the root: not those the last scan found a copy of gone.** A key is
     /// the cluster's exact copy paths, so one with a copy gone can never match a scan again — it
     /// was counted in "You’ve kept N groups separate" and promised back by *Show them again* all
-    /// the same. One `fileExists` per copy; the set is the user's own clicks, so it stays small.
+    /// the same. Read from ``keptSeparateGoneKeys``, which the scan fills from its own tree: this
+    /// is counted from the lens's body, where a stat per copy would be disk I/O on the main thread.
     public func keptSeparateKeys(under root: String?) -> Set<String> {
-        keptSeparateKeysInFolder(root).filter { key in
-            key.split(separator: "\n").allSatisfy { fileManager.fileExists(atPath: String($0)) }
+        keptSeparateKeysInFolder(root).subtracting(keptSeparateGoneKeys)
+    }
+
+    /// The keys under `root` with a copy the scan's tree does not hold. A copy outside every walk
+    /// (an ignored subtree) reads as gone too, which is the same answer: no scan of `root` can
+    /// flag that group.
+    nonisolated static func goneKeptSeparateKeys(_ keys: Set<String>, under root: String,
+                                                 tree: [FileNode]) -> Set<String> {
+        let under = keys.filter { keptSeparateKey($0, isUnder: root) }
+        guard !under.isEmpty else { return [] }
+        var present = Set<String>()
+        func walk(_ nodes: [FileNode]) {
+            for node in nodes {
+                present.insert(node.id)
+                if let children = node.children { walk(children) }
+            }
         }
+        walk(tree)
+        return under.filter { key in key.split(separator: "\n").contains { !present.contains(String($0)) } }
     }
 
     /// Every kept-separate key below `root`, its copies on disk or not.
@@ -635,6 +655,7 @@ extension FileSyncManager {
         duplicateGroups = []
         duplicateScanRoot = nil
         duplicateScanSkips = DuplicateScanSkips()
+        keptSeparateGoneKeys = []
         hasFoundDuplicates = false
         // Re-arm the auto-rescan: switching back to this provider should behave like a fresh
         // launch, exactly as Storage's restore does after `clearStorageLens()`.
@@ -1418,8 +1439,10 @@ extension FileSyncManager {
         // **Say which way it went.** `removed` folds together the two outcomes `DeleteOutcome`
         // exists to separate: on a Trash-less volume — exFAT, most SMB shares — the copy was
         // destroyed permanently, and calling that "Trashed" sends anyone reading the log to a
-        // Trash that never received it.
-        Logger.shared.info(outcome.trashed > 0
+        // Trash that never received it. Asked of the permanent count, not the trashed one: a copy the
+        // Trash took without a location counts in neither `trashed` nor `permanentlyDeleted`, and is
+        // in the Trash.
+        Logger.shared.info(outcome.permanentlyDeleted == 0
             ? "Duplicates: trashed the compared copy \(copy.path), keeping \(keeper.path), reclaimed \(Self.formatBytes(bytes))"
             : "Duplicates: permanently deleted the compared copy \(copy.path), keeping \(keeper.path), reclaimed \(Self.formatBytes(bytes))")
         removeResolvedDuplicateCopy(atPath: copy.path)

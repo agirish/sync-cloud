@@ -2,6 +2,24 @@ import Foundation
 
 extension Progress {
     private static let runLockReasonKey = ProgressUserInfoKey("SyncCloudRunLockReason")
+    private static let runTitleKey = ProgressUserInfoKey("SyncCloudRunTitle")
+    private static let firstPublishedKey = ProgressUserInfoKey("SyncCloudFirstPublished")
+
+    /// The run's own name — "Copying 3 items" — kept when ``markFinishing()`` puts "Finishing…" in
+    /// its description, for what names the run once it ends: its notification and Activity's row.
+    public var runTitle: String? {
+        userInfo[Self.runTitleKey] as? String ?? localizedDescription
+    }
+
+    /// When this run was FIRST published on `activeProgress`. A run published again — a merge
+    /// handed back its progress after its trash (`deleteItems(resumingProgress:)`) — keeps its
+    /// start, so it is not taken for the newest run in the capsule, nor its ending's log span cut
+    /// to the minutes after the trash.
+    func firstPublished(now: Date = Date()) -> Date {
+        if let date = userInfo[Self.firstPublishedKey] as? Date { return date }
+        setUserInfoObject(now, forKey: Self.firstPublishedKey)
+        return now
+    }
 
     /// **Why the window's writes are greyed while this run is `activeProgress`** — "Wait for the
     /// copy to finish" — said in the tooltip of every action it disables (decision BZ). Set by
@@ -26,6 +44,9 @@ extension Progress {
     /// so the capsule drops its Stop and ⌘. and says so; the run lock stays up until the run
     /// returns, because ⌘Z must not reach an undo whose identities are still being read.
     public func markFinishing() {
+        if userInfo[Self.runTitleKey] == nil, let title = localizedDescription {
+            setUserInfoObject(title, forKey: Self.runTitleKey)
+        }
         isCancellable = false
         localizedDescription = "Finishing…"
     }

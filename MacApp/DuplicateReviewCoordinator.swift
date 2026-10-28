@@ -706,7 +706,9 @@ struct DuplicateReviewCoordinator {
             // exists to separate, and this line is in the log he audits: on a Trash-less volume —
             // exFAT, most SMB shares — the copy was destroyed permanently, and calling that
             // "Trashed" sends anyone reading the log to a Trash that never received it.
-            Logger.shared.info(outcome.trashed > 0
+            // The permanent count decides, as in `resolveDuplicatePair`: a copy trashed without a
+            // location is in neither `trashed` nor `permanentlyDeleted`.
+            Logger.shared.info(outcome.permanentlyDeleted == 0
                                ? "Trashed the right duplicate copy \(review.deletePath)"
                                : "Permanently deleted the right duplicate copy \(review.deletePath)")
             selectedWorkspace = .filing
