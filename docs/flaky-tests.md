@@ -164,7 +164,11 @@ a test is a bet that the machine will not be busy, and this repo's runner IS the
 `FileSyncManagerFilingTests` and `MergeUndoGroupingAndGateTests` still carry hand-rolled
 `ContinuousClock` deadlines; they have not misfired, and they are not swept here on that basis, but
 they are where to look first if either goes red under load. *The first one went red on 2026-10-25:*
-`parkUntilReleased`, now bounded in scheduler turns — mechanism 40.
+`parkUntilReleased`, now bounded in scheduler turns — mechanism 40. *And again on 2026-10-28*, at
+its six arrival waits: four tests failed together on a docs-only commit with the classifier never
+reached (`calls == 0`) after ten seconds of a main-actor `Task.yield()` spin, the classifier being
+pool work. They now go through `awaitArrival`, on the same turn floor; not reproduced, since hogs
+that take the pool first starve the tests before their clocks start.
 
 **A third spelling, in the app target — `EditorAutosaveDriverTests`, 2026-09-26 — FIXED, and
 REPRODUCED.** Three CI runs on `main` in a row (638edd11, 08597a94, 3eabd911) went red on one

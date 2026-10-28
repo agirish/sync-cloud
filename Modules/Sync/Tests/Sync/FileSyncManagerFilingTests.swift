@@ -46,6 +46,31 @@ func parkUntilReleased(_ released: Flag, timedOut: Flag, timeout: TimeInterval =
     }
 }
 
+/// Waits, on the main actor, for work the test launched to reach the classifier.
+///
+/// **Bounded by ``signalTurnFloor`` scheduler turns as well as by seconds**, like
+/// ``parkUntilReleased``. These waits were a hand-rolled ten-second `ContinuousClock` deadline over
+/// a `Task.yield()` spin. The classifier runs on the cooperative pool and the spin on the main
+/// actor, so a backed-up pool could spend the seconds before the classifier ever started: on
+/// 2026-10-28 four tests here failed together on a docs-only commit, each with `calls == 0` after
+/// the full ten. A turn needs the pool as well as the main actor, so a starved pool stops this
+/// clock instead of spending it. Not reproduced — hogs that took the pool first starved the tests
+/// too, so their clocks never ran — so the case rests on the floor, as mechanism 40's did. A
+/// timeout is recorded with the seconds and turns spent, never passed over in silence.
+@MainActor
+func awaitArrival(_ what: Comment, timeout: TimeInterval = 10,
+                  sourceLocation: SourceLocation = #_sourceLocation,
+                  _ arrived: () -> Bool) async {
+    let deadline = TurnDeadline(seconds: timeout, turns: signalTurnFloor)
+    while !arrived() {
+        if deadline.hasPassed {
+            #expect(arrived(), "\(what.rawValue) — \(deadline.spent)", sourceLocation: sourceLocation)
+            return
+        }
+        try? await Task.sleep(nanoseconds: 1_000_000)
+    }
+}
+
 /// A tiny thread-safe call counter for injected closures, lock-backed for the same reason as
 /// ``Flag``: it is written from a classifier closure in another isolation domain and read from
 /// the test's spins.
@@ -1252,8 +1277,7 @@ private final class SnippetBox: @unchecked Sendable {
 
         let first = Task { @MainActor in await manager.tryAnotherFolder(for: s) }
         // Let the first call reach the classifier and park there (bounded, same reason).
-        let arrival = ContinuousClock.now.advanced(by: .seconds(10))
-        while calls.value == 0, ContinuousClock.now < arrival { await Task.yield() }
+        await awaitArrival("the first re-ask must reach the classifier") { calls.value != 0 }
         #expect(calls.value == 1, "the first re-ask must reach the classifier")
 
         await manager.tryAnotherFolder(for: s)   // the second rapid click
@@ -1331,8 +1355,7 @@ private final class SnippetBox: @unchecked Sendable {
 
         // Round-trip A reaches the classifier and parks there (wedged — no timeout exists).
         let a = Task { @MainActor in await manager.tryAnotherFolder(for: s) }
-        let arrivalA = ContinuousClock.now.advanced(by: .seconds(10))
-        while calls.value == 0, ContinuousClock.now < arrivalA { await Task.yield() }
+        await awaitArrival("round-trip A must reach the classifier") { calls.value != 0 }
         #expect(calls.value == 1, "round-trip A must reach the classifier")
 
         // The user switches providers away and back (clearFiling releases /X), and a rescan
@@ -1344,8 +1367,7 @@ private final class SnippetBox: @unchecked Sendable {
 
         // Round-trip B starts for the recreated card and parks in turn.
         let b = Task { @MainActor in await manager.tryAnotherFolder(for: s) }
-        let arrivalB = ContinuousClock.now.advanced(by: .seconds(10))
-        while calls.value < 2, ContinuousClock.now < arrivalB { await Task.yield() }
+        await awaitArrival("round-trip B must reach the classifier") { calls.value >= 2 }
         #expect(calls.value == 2, "round-trip B must reach the classifier")
         #expect(manager.filingTryAnotherInFlight[s.id] != nil, "B's re-ask is out, so its guard is armed")
 
@@ -1403,8 +1425,7 @@ private final class SnippetBox: @unchecked Sendable {
         manager.filingSuggestions = [s]
 
         let a = Task { @MainActor in await manager.tryAnotherFolder(for: s) }
-        let arrival = ContinuousClock.now.advanced(by: .seconds(10))
-        while calls.value == 0, ContinuousClock.now < arrival { await Task.yield() }
+        await awaitArrival("round-trip A must reach the classifier") { calls.value != 0 }
         #expect(calls.value == 1, "round-trip A must reach the classifier")
 
         // Provider switch releases A's entry; the rescan recreates the card — same id, fresh
@@ -1453,8 +1474,7 @@ private final class SnippetBox: @unchecked Sendable {
         manager.filingSuggestions = [s]
 
         let a = Task { @MainActor in await manager.tryAnotherFolder(for: s) }
-        let arrival = ContinuousClock.now.advanced(by: .seconds(10))
-        while calls.value == 0, ContinuousClock.now < arrival { await Task.yield() }
+        await awaitArrival("round-trip A must reach the classifier") { calls.value != 0 }
         #expect(calls.value == 1, "round-trip A must reach the classifier")
 
         // A rescan runs to COMPLETION while A is parked — the real state machine: begin, the
@@ -1508,8 +1528,7 @@ private final class SnippetBox: @unchecked Sendable {
         manager.publishFilingSuggestions([s])
 
         let a = Task { @MainActor in await manager.tryAnotherFolder(for: s) }
-        let arrival = ContinuousClock.now.advanced(by: .seconds(10))
-        while calls.value == 0, ContinuousClock.now < arrival { await Task.yield() }
+        await awaitArrival("round-trip A must reach the classifier") { calls.value != 0 }
         #expect(calls.value == 1, "round-trip A must reach the classifier")
 
         // A rescan starts and is CANCELLED while A is parked: `beginScan` bumps the epoch, the
