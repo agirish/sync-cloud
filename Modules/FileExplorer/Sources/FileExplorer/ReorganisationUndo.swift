@@ -38,7 +38,21 @@ public enum ReorganisationUndo {
             return .warning("Reorganization undone — \(outcome.summary). The log names what "
                             + "could not be moved back.")
         }
+        // A file edited — or a document saved over one — since the landing goes back too, and
+        // is named here: the undo cannot tell the two apart, so the person checks it.
+        if !outcome.changedSince.isEmpty {
+            return .warning("Reorganization undone — \(outcome.summary). "
+                            + changedSentence(outcome.changedSince))
+        }
         return .success("Reorganization undone — \(outcome.summary).")
+    }
+
+    /// Names what changed since the landing and went back anyway — the first three, by name.
+    static func changedSentence(_ items: [String]) -> String {
+        let names = items.prefix(3).map { "“\(($0 as NSString).lastPathComponent)”" }
+        let more = items.count > 3 ? " and \(items.count - 3) more" : ""
+        return "\(names.joined(separator: ", "))\(more) had changed since the "
+            + "reorganization and went back too — check \(items.count == 1 ? "it" : "them")."
     }
 
     /// Asks, then runs the inverse and reports. A record the ledger no longer has is not asked

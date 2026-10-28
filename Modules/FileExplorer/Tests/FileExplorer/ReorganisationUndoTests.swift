@@ -63,6 +63,22 @@ import Testing
         #expect(banner.message.contains("1 skipped"))
     }
 
+    /// An undo that moved back files changed since the landing names them — it cannot tell an
+    /// edit from a document saved over one, so the person checks (his call, 2026-10-27).
+    @Test func anUndoNamesWhatHadChangedSince() {
+        var outcome = FileSyncManager.RestructureApplyOutcome()
+        outcome.filesMoved = 5
+        outcome.changedSince = ["Tax/Forms/W2.pdf", "Tax/Forms/1099.pdf"]
+        let banner = ReorganisationUndo.banner(after: outcome)
+        #expect(banner.severity == .warning, "a changed file went back under a success banner")
+        #expect(banner.message == "Reorganization undone — 0 renames · 5 moved · 2 changed since, "
+                + "moved back. “W2.pdf”, “1099.pdf” had changed since the reorganization and went "
+                + "back too — check them.")
+        #expect(ReorganisationUndo.changedSentence(["a/1", "a/2", "a/3", "a/4", "a/5"])
+                == "“1”, “2”, “3” and 2 more had changed since the reorganization and went back "
+                + "too — check them.")
+    }
+
     // MARK: The run
 
     private func manager(holding record: RestructureStore.AppliedRecord) throws -> (FileSyncManager, URL) {

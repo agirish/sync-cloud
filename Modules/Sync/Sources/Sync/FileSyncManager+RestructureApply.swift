@@ -115,6 +115,9 @@ extension FileSyncManager {
         /// Sentences naming what was skipped and why — a folder holding unlisted files, a source
         /// that vanished, a destination that got taken. Reported, never silent (invariant 2).
         public var skipped: [String] = []
+        /// An undo's items that had changed since the landing — edited, or a document saved over
+        /// one — and were moved back all the same, named so the person can check them.
+        public var changedSince: [String] = []
         /// The independent verifier's disagreements — reported on the card and in the log, and
         /// never rolled back on their own (invariant 6).
         public var verifierMismatches: [String] = []
@@ -149,6 +152,9 @@ extension FileSyncManager {
             }
             if collisions > 0 {
                 parts.append("\(collisions) name collision\(collisions == 1 ? "" : "s"), both kept")
+            }
+            if !changedSince.isEmpty {
+                parts.append("\(changedSince.count) changed since, moved back")
             }
             if !skipped.isEmpty { parts.append("\(skipped.count) skipped") }
             return parts.joined(separator: " · ")
@@ -820,6 +826,11 @@ extension FileSyncManager {
         outcome.collisions = execution.collisions
         outcome.removedEmpty = execution.removedEmpty
         outcome.skipped = execution.skipped
+        outcome.changedSince = execution.changedSince
+        for item in execution.changedSince {
+            Logger.shared.info("Restructure undo \(manifestId): \(item) had changed since the "
+                + "landing — moved back")
+        }
         // Off the main actor and through the serial queue, for the reason the apply's own
         // verify documents: two stats per performed action is a main-thread hang on a big
         // landing, and the queue's order is what keeps "after the moves, before anything
@@ -1084,6 +1095,9 @@ extension FileSyncManager {
         var collisions = 0
         var removedEmpty = 0
         var skipped: [String] = []
+        /// An undo's items that were not as the landing left them — edited, or saved over — and
+        /// were moved back anyway (see `landedIdentity`). Named, never silent.
+        var changedSince: [String] = []
         /// The actions that ran, with `collidedInto` and `bytes` filled from the disk.
         var performed: [RestructureManifest.Action] = []
         /// Directory renames — registered for ⌘Z as their OWN batch, before the content moves,
@@ -1292,38 +1306,37 @@ extension FileSyncManager {
         // undone tree with no record that can finish it. Only the inverse does this — a forward
         // plan names the folders it creates, and a missing destination there is drift.
         // **An undo moves back the item the landing moved, not whatever now has its name (M1).**
-        // A landing that put `W2.pdf` in `Forms/`, followed by a newer `W2.pdf` saved over it,
-        // used to send the newer one back into the old folder and count it "moved" — the only
-        // probe was that SOMETHING stood at the path. The landing recorded the item's file
-        // number (a move keeps it), its creation date and a file's size. The same number is the
-        // same item, edited in place or not. A different number is still the same item when
-        // the creation date matches — a safe save swaps in a new file but keeps the old one's
-        // creation date — and a different item when it does not. A record from before either
-        // existed falls back to the size.
-        func replacedSinceLanding(_ action: RestructureManifest.Action, at path: String) -> Bool {
+        // A landing that put `W2.pdf` in `Forms/`, followed by a newer `W2.pdf` dropped in its
+        // place, used to send the newcomer back into the old folder and count it "moved" — the
+        // only probe was that SOMETHING stood at the path.
+        //
+        // **But an edit and a same-name swap look alike, and the undo must not strand edits.**
+        // Most apps save by swapping in a new file (`replaceItemAt`), which gets a new file number
+        // and keeps the old creation date — and so does a different document saved over this one
+        // through a Save dialog's Replace (measured 2026-10-27). No metadata tells the two apart.
+        // His call (2026-10-27): only an item that is clearly new — a different file number AND
+        // a creation date more than a second away — is left where it stands. Anything else that
+        // changed (number, creation date or, for a file, size) goes back and is NAMED, so the
+        // card says which files were not as the landing left them. A record from before the
+        // number and date were kept has only the size, and size alone never refuses.
+        enum LandedIdentity { case same, changed, different }
+        func landedIdentity(_ action: RestructureManifest.Action, at path: String) -> LandedIdentity {
             guard refusingReplacedItems,
-                  let attributes = try? fm.attributesOfItem(atPath: path) else { return false }
-            if let recorded = action.fileNumber,
-               FileSyncManager.restructureFileNumber(in: attributes) == recorded {
-                return false
-            }
-            if let recorded = action.created,
-               let now = (attributes[.creationDate] as? Date)?.timeIntervalSince1970 {
-                return now != recorded
-            }
-            if let recorded = action.fileNumber,
-               let now = FileSyncManager.restructureFileNumber(in: attributes) {
-                return now != recorded
-            }
-            if action.action == .moveFile, let recorded = action.bytes,
-               let now = attributes[.size] as? Int {
-                return now != recorded
-            }
-            return false
+                  let attributes = try? fm.attributesOfItem(atPath: path) else { return .same }
+            let sizeChanged = action.action == .moveFile
+                && action.bytes.map { $0 != attributes[.size] as? Int } == true
+            let number = FileSyncManager.restructureFileNumber(in: attributes)
+            let numberDiffers = action.fileNumber != nil && number != nil && number != action.fileNumber
+            let created = (attributes[.creationDate] as? Date)?.timeIntervalSince1970
+            let createdDiffers = action.created.flatMap { recorded in
+                created.map { abs($0 - recorded) > 1 } } ?? false
+            if numberDiffers && createdDiffers { return .different }
+            if numberDiffers || createdDiffers || sizeChanged { return .changed }
+            return .same
         }
-        func replacedSentence(_ item: String) -> String {
-            "\(item) is not the one the landing put there — it was replaced since, so it was "
-                + "left where it stands"
+        func differentSentence(_ item: String) -> String {
+            "\(item) is a different item from the one the landing put there — it was left where "
+                + "it stands"
         }
         func restoreParent(of relative: String) {
             guard restoringMissingParents else { return }
@@ -1391,8 +1404,9 @@ extension FileSyncManager {
                     out.skipped.append("\(src)/ is no longer there — its rename was skipped")
                     continue
                 }
-                guard !replacedSinceLanding(action, at: srcPath) else {
-                    out.skipped.append(replacedSentence("\(src)/"))
+                let identity = landedIdentity(action, at: srcPath)
+                guard identity != .different else {
+                    out.skipped.append(differentSentence("\(src)/"))
                     continue
                 }
                 // A taken destination turns a rename into a merge nobody reviewed — skipped,
@@ -1416,6 +1430,7 @@ extension FileSyncManager {
                                                     to: URL(fileURLWithPath: dstPath),
                                                     fileManager: fm)
                     out.renamed += 1
+                    if identity == .changed { out.changedSince.append("\(src)/") }
                     out.renameItems.append((from: URL(fileURLWithPath: srcPath),
                                             to: URL(fileURLWithPath: dstPath)))
                     out.performed.append(performed)
@@ -1446,8 +1461,9 @@ extension FileSyncManager {
                     out.skipped.append("\(src) was deleted between plan and apply — skipped")
                     continue
                 }
-                guard !replacedSinceLanding(action, at: srcPath) else {
-                    out.skipped.append(replacedSentence(src))
+                let identity = landedIdentity(action, at: srcPath)
+                guard identity != .different else {
+                    out.skipped.append(differentSentence(src))
                     continue
                 }
                 restoreParent(of: dst)
@@ -1484,6 +1500,7 @@ extension FileSyncManager {
                     try FileSyncManager.safeMoveItem(at: URL(fileURLWithPath: srcPath),
                                                     to: destination, fileManager: fm)
                     out.filesMoved += 1
+                    if identity == .changed { out.changedSince.append(src) }
                     out.moveItems.append((from: URL(fileURLWithPath: srcPath),
                                           to: destination, overwritten: nil))
                     out.performed.append(performed)
@@ -1525,8 +1542,9 @@ extension FileSyncManager {
                     out.skipped.append("\(src)/ is no longer there — skipped")
                     continue
                 }
-                guard !replacedSinceLanding(action, at: srcPath) else {
-                    out.skipped.append(replacedSentence("\(src)/"))
+                let identity = landedIdentity(action, at: srcPath)
+                guard identity != .different else {
+                    out.skipped.append(differentSentence("\(src)/"))
                     continue
                 }
                 guard !fm.fileExists(atPath: dstPath) else {
@@ -1542,6 +1560,7 @@ extension FileSyncManager {
                                                     to: URL(fileURLWithPath: dstPath),
                                                     fileManager: fm)
                     out.foldersMovedWhole += 1
+                    if identity == .changed { out.changedSince.append("\(src)/") }
                     out.moveItems.append((from: URL(fileURLWithPath: srcPath),
                                           to: URL(fileURLWithPath: dstPath), overwritten: nil))
                     out.performed.append(performed)
@@ -1683,12 +1702,21 @@ extension FileSyncManager {
         var carriedExports: [String] = []
         for name in names + exported {
             let source = directory.appendingPathComponent("\(oldId)/\(name)")
-            let target = directory.appendingPathComponent("\(newId)/\(name)")
-            guard fm.fileExists(atPath: source.path),
-                  !fm.fileExists(atPath: target.path) else { continue }
+            var target = directory.appendingPathComponent("\(newId)/\(name)")
+            guard fm.fileExists(atPath: source.path) else { continue }
+            if fm.fileExists(atPath: target.path) {
+                // **An export of the same name is not necessarily the same plan.** A re-export
+                // after a landing, or a take-up over newer history, has its own contents; skipped
+                // by name, the old folder's version went when the sweep retired that folder.
+                // Identical bytes are the same file; anything else is kept beside it.
+                guard exported.contains(name),
+                      let theirs = try? Data(contentsOf: source),
+                      (try? Data(contentsOf: target)) != theirs else { continue }
+                target = FileSyncManager.generateUniqueURL(for: target, fileManager: fm)
+            }
             do {
                 try fm.copyItem(at: source, to: target)
-                if exported.contains(name) { carriedExports.append(name) }
+                if exported.contains(name) { carriedExports.append(target.lastPathComponent) }
             } catch {
                 Logger.shared.warning("Restructure: could not carry \(name) to \(newId): "
                     + error.localizedDescription)

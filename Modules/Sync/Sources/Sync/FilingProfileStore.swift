@@ -692,7 +692,17 @@ extension FilingProfileStore {
                     + "listed for exported plans")
                 continue
             }
-            stranded += exported.filter { !holds(activeURL, $0) }
+            // By contents, not name: two exports of one name can be two plans, and the active
+            // folder holding the other one does not make this one disposable.
+            let activeExports = Set((exportedPlanNames(inProfile: active, in: directory,
+                                                       fileManager: fileManager) ?? [])
+                .compactMap { try? Data(contentsOf: activeURL.appendingPathComponent($0)) })
+            stranded += exported.filter { name in
+                guard let bytes = try? Data(contentsOf: url.appendingPathComponent(name)) else {
+                    return true
+                }
+                return !activeExports.contains(bytes)
+            }
             let progress = DocumentSurveyCheckpointStore.filename
             if holds(url, progress), !holds(activeURL, progress),
                !fileManager.fileExists(atPath: FilingSurveyStore.corpusURL(id: active, in: directory).path) {

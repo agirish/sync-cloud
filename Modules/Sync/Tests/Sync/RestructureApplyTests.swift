@@ -1284,49 +1284,55 @@ import Testing
                 "a merged file rode the rename-back into a folder it never lived in")
     }
 
-    /// Undo This Reorganization moves back the file the landing moved — not a newer one saved
-    /// under the same name since (M1). The newcomer here is the SAME size as the original, so
-    /// only the recorded file number can tell them apart; the old probe saw a file at the path
-    /// and sent it into `State Tax/` as though it were the landing's.
-    @Test func anUndoLeavesAFileSavedOverALandedOneWhereItIs() async throws {
+    /// Back-dates an item's creation date, so a test can put a later file beside one "made long
+    /// ago" — the whole fixture is otherwise made within the second the tolerance allows.
+    static func madeLongAgo(_ url: URL) throws {
+        try FileManager.default.setAttributes([.creationDate: Date(timeIntervalSince1970: 1_600_000_000)],
+                                              ofItemAtPath: url.path)
+    }
+
+    /// Undo This Reorganization moves back the file the landing moved — not a new one put at its
+    /// name since (M1). The newcomer here is the SAME size as the original; its own file number
+    /// and creation date are what tell it apart. The old probe saw a file at the path and sent it
+    /// into `State Tax/` as though it were the landing's.
+    @Test func anUndoLeavesANewFilePutInPlaceOfALandedOneWhereItIs() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        try Self.madeLongAgo(world.root.appendingPathComponent("Tax/2013/State Tax/ca-540.pdf"))
         let outcome = await world.manager.applyPlan(world.manifest)
         #expect(outcome.refusal == nil)
         let landed = world.root.appendingPathComponent("Tax/2013/Forms/ca-540.pdf")
-        let original = try String(contentsOf: landed, encoding: .utf8)
-        #expect(original == "ca-540", "the fixture must have merged ca-540.pdf into Forms/")
-        // A newer copy saved over it the way most apps save: a new file at the same name.
+        #expect(try String(contentsOf: landed, encoding: .utf8) == "ca-540",
+                "the fixture must have merged ca-540.pdf into Forms/")
+        // A new file at the same name — a download dropped in place.
         try FileManager.default.removeItem(at: landed)
         try Self.write(landed, "ca-541")
 
         let undo = await world.manager.undoReorganisation(manifestId: world.manifest.manifestId)
         #expect(undo.refusal == nil, "everything else still goes back")
-        #expect(undo.skipped.contains { $0.contains("ca-540.pdf is not the one the landing put there") },
+        #expect(undo.skipped.contains { $0.contains("ca-540.pdf is a different item") },
                 "the newcomer is named — skipped: \(undo.skipped)")
         #expect(!FileManager.default.fileExists(
             atPath: world.root.appendingPathComponent("Tax/2013/State Tax/ca-540.pdf").path),
-                "the newer file was moved into the folder the landing emptied")
+                "the new file was moved into the folder the landing emptied")
         #expect(try String(contentsOf: world.root.appendingPathComponent(
             "Tax/2013/Federal Tax/ca-540.pdf"), encoding: .utf8) == "ca-541",
                 "it stays with the folder it was saved in, which the rename-back carries")
-        #expect(try String(contentsOf: world.root.appendingPathComponent(
-            "Tax/2013/Federal Tax/w2.pdf"), encoding: .utf8) == "w2")
     }
 
-    /// **An edited file is still the landing's file.** Most apps save by swapping in a new file
-    /// (`replaceItemAt`), which gives it a new file number — so the first cut of M1 left every
-    /// merged file edited after a landing out of the undo, as "replaced". The save keeps the
-    /// creation date; a file that is really new does not.
-    @Test func anUndoStillPutsBackAFileEditedSinceTheLanding() async throws {
+    /// **An edited file goes back, and is named.** Most apps save by swapping in a new file
+    /// (`replaceItemAt`): a new file number, the old creation date. So does a different document
+    /// saved over this one through a Save dialog's Replace — the two cannot be told apart, and
+    /// his call (2026-10-27) is to move it back and say so rather than strand an edit.
+    @Test func anUndoPutsBackAFileSavedOverSinceAndNamesIt() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        try Self.madeLongAgo(world.root.appendingPathComponent("Tax/2013/State Tax/ca-540.pdf"))
         let outcome = await world.manager.applyPlan(world.manifest)
         #expect(outcome.refusal == nil)
         let landed = world.root.appendingPathComponent("Tax/2013/Forms/ca-540.pdf")
         let numberBefore = try FileManager.default.attributesOfItem(atPath: landed.path)[.systemFileNumber]
             as? NSNumber
-        // The save most apps make: a new file, swapped in over the old one.
         let staged = world.root.deletingLastPathComponent().appendingPathComponent("ca-540 edit")
         try Data("ca-540, amended".utf8).write(to: staged)
         _ = try FileManager.default.replaceItemAt(landed, withItemAt: staged)
@@ -1337,9 +1343,11 @@ import Testing
         let undo = await world.manager.undoReorganisation(manifestId: world.manifest.manifestId)
         #expect(undo.refusal == nil)
         #expect(!undo.skipped.contains { $0.contains("ca-540.pdf") }, "skipped: \(undo.skipped)")
+        #expect(undo.changedSince == ["Tax/2013/Forms/ca-540.pdf"], "\(undo.changedSince)")
+        #expect(undo.summary.contains("1 changed since, moved back"))
         #expect(try String(contentsOf: world.root.appendingPathComponent(
             "Tax/2013/State Tax/ca-540.pdf"), encoding: .utf8) == "ca-540, amended",
-                "the edited file went back where the landing took it from")
+                "the saved-over file went back where the landing took it from")
     }
 
     /// A plan exported after a landing comes back with the survey when the landing is undone —
@@ -1365,6 +1373,7 @@ import Testing
     @Test func anUndoLeavesAFolderMadeInPlaceOfARenamedOneWhereItIs() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        try Self.madeLongAgo(world.root.appendingPathComponent("Tax/2013/Federal Tax"))
         let outcome = await world.manager.applyPlan(world.manifest)
         #expect(outcome.refusal == nil)
         let forms = world.root.appendingPathComponent("Tax/2013/Forms")
@@ -1373,7 +1382,7 @@ import Testing
         try Self.write(forms.appendingPathComponent("new.pdf"), "new")
 
         let undo = await world.manager.undoReorganisation(manifestId: world.manifest.manifestId)
-        #expect(undo.skipped.contains { $0.contains("Tax/2013/Forms/ is not the one the landing put there") },
+        #expect(undo.skipped.contains { $0.contains("Tax/2013/Forms/ is a different item") },
                 "skipped: \(undo.skipped)")
         #expect(FileManager.default.fileExists(atPath: forms.appendingPathComponent("new.pdf").path),
                 "the fresh folder keeps its name")
@@ -1382,26 +1391,80 @@ import Testing
                 "the fresh folder was renamed back as though it were the landing's")
     }
 
-    /// A ledger written before file numbers were recorded still refuses a replaced file whose
-    /// size differs from the one the landing measured.
-    @Test func anOlderLedgerFallsBackToTheRecordedSize() throws {
-        let root = try makeCanonicalTempRoot(prefix: "RestructureSizeDrift")
+    /// The rule at its edges, on the executor: a different number with a creation date inside a
+    /// second is a save (a provider may round the date), so it goes back named; a different
+    /// number AND a date well away is a new item, left. A ledger from before either was kept has
+    /// only the size, and size alone never refuses — v6.1 moved an edited file back.
+    @Test func onlyAClearlyNewItemIsRefused() throws {
+        let root = try makeCanonicalTempRoot(prefix: "RestructureIdentity")
         defer { try? FileManager.default.removeItem(at: root) }
-        try Self.write(root.appendingPathComponent("B/f.pdf"), "much longer than before")
-        let back = RestructureManifest.Action(action: .moveFile, src: "B/f.pdf", dst: "A/f.pdf",
-                                              bytes: 3)
-        let refused = FileSyncManager.executeRestructureActions(
-            [back], root: root.path, fm: FileManager.default, vetoUnlistedSourceFolders: false,
-            restoringMissingParents: true, refusingReplacedItems: true)
-        #expect(refused.filesMoved == 0)
-        #expect(refused.skipped.first?.contains("B/f.pdf is not the one") == true)
-        // A forward landing never refuses on this: it is what records the numbers.
+        func undo(_ action: RestructureManifest.Action) throws -> FileSyncManager.RestructureExecution {
+            try? FileManager.default.removeItem(at: root.appendingPathComponent("A"))
+            return FileSyncManager.executeRestructureActions(
+                [action], root: root.path, fm: FileManager.default, vetoUnlistedSourceFolders: false,
+                restoringMissingParents: true, refusingReplacedItems: true)
+        }
+        func back(number: Int?, createdOffset: Double?, bytes: Int?) throws -> RestructureManifest.Action {
+            try? FileManager.default.removeItem(at: root.appendingPathComponent("B"))
+            try Self.write(root.appendingPathComponent("B/f.pdf"), "much longer than before")
+            let attributes = try FileManager.default.attributesOfItem(
+                atPath: root.appendingPathComponent("B/f.pdf").path)
+            let created = (attributes[.creationDate] as? Date)!.timeIntervalSince1970
+            return RestructureManifest.Action(action: .moveFile, src: "B/f.pdf", dst: "A/f.pdf",
+                                              bytes: bytes, fileNumber: number,
+                                              created: createdOffset.map { created + $0 })
+        }
+        let rounded = try undo(try back(number: -1, createdOffset: 0.4, bytes: nil))
+        #expect(rounded.filesMoved == 1 && rounded.changedSince == ["B/f.pdf"])
+        let new = try undo(try back(number: -1, createdOffset: -3_600, bytes: nil))
+        #expect(new.filesMoved == 0)
+        #expect(new.skipped.first?.contains("B/f.pdf is a different item") == true)
+        let old = try undo(try back(number: nil, createdOffset: nil, bytes: 3))
+        #expect(old.filesMoved == 1, "an old ledger refused an edited file by its size")
+        #expect(old.changedSince == ["B/f.pdf"], "and it is named")
+        let untouched = try undo(try back(number: nil, createdOffset: nil,
+                                          bytes: "much longer than before".utf8.count))
+        #expect(untouched.filesMoved == 1 && untouched.changedSince.isEmpty)
+    }
+
+    /// A forward landing never refuses on identity: it is what records it.
+    @Test func aLandingRecordsTheIdentityItsUndoChecks() throws {
+        let root = try makeCanonicalTempRoot(prefix: "RestructureIdentityForward")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Self.write(root.appendingPathComponent("B/f.pdf"), "x")
         try FileManager.default.createDirectory(at: root.appendingPathComponent("A"),
                                                 withIntermediateDirectories: true)
         let forward = FileSyncManager.executeRestructureActions(
-            [back], root: root.path, fm: FileManager.default, vetoUnlistedSourceFolders: false)
+            [.init(action: .moveFile, src: "B/f.pdf", dst: "A/f.pdf", bytes: 99)],
+            root: root.path, fm: FileManager.default, vetoUnlistedSourceFolders: false)
         #expect(forward.filesMoved == 1)
-        #expect(forward.performed.first?.fileNumber != nil, "the landing records the file number")
+        #expect(forward.performed.first?.fileNumber != nil)
+        #expect(forward.performed.first?.created != nil)
+    }
+
+    /// Two exports of one name can be two plans: one made before a landing and one made after,
+    /// under the same date and family. The undo's carry back used to skip the second by name,
+    /// leaving it beside a survey nothing reads; it is now kept beside the first.
+    @Test func anUndoKeepsBothExportsOfOneName() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let first = try #require(try world.manager.restructureStore?.exportPlan(world.manifest))
+        #expect(await world.manager.applyPlan(world.manifest).refusal == nil)
+        var second = world.manifest
+        second.note = "a second look"
+        #expect(try world.manager.restructureStore?.exportPlan(second) == first,
+                "premise: the same name")
+
+        #expect(await world.manager.undoReorganisation(
+            manifestId: world.manifest.manifestId).refusal == nil)
+        let names = try #require(FilingProfileStore.exportedPlanNames(
+            inProfile: "t", in: world.profiles, fileManager: FileManager.default))
+        let contents = Set(try names.map {
+            try Data(contentsOf: world.profiles.appendingPathComponent("t/\($0)")) })
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        #expect(contents == [try encoder.encode(world.manifest), try encoder.encode(second)],
+                "names: \(names)")
     }
 
     /// ⌘Z of Never Suggest, after the same profile was reopened and a landing recorded into it,
@@ -1728,6 +1791,41 @@ import Testing
         #expect(FileManager.default.fileExists(
             atPath: world.profiles.appendingPathComponent("\(exportedIn)/\(name)").path),
                 "the only copy of the exported plan was deleted with its folder")
+    }
+
+    /// The sweep keeps an export by its contents, not its name: the active folder holding a
+    /// different plan under the same name does not make this one disposable (review, 225ac205f).
+    @Test func aSameNamedExportElsewhereDoesNotRetireThisOne() async throws {
+        final class SwitchableExportCopy: FileManager, @unchecked Sendable {
+            nonisolated(unsafe) var refusing = true
+            override func copyItem(at srcURL: URL, to dstURL: URL) throws {
+                if refusing, srcURL.lastPathComponent.hasPrefix("restructure-") {
+                    throw CocoaError(.fileWriteNoPermission)
+                }
+                try super.copyItem(at: srcURL, to: dstURL)
+            }
+        }
+        let fm = SwitchableExportCopy()
+        let world = try await Self.makeWorld(fileManager: { _ in fm })
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        #expect(await world.manager.refreshDerivedProfile(
+            now: Date(timeIntervalSince1970: 1_756_500_000)).refusal == nil)
+        let first = try #require(world.manager.filingProfileDirectoryId)
+        let name = try #require(try world.manager.restructureStore?.exportPlan(world.manifest))
+        // The carry fails, so the first folder holds the only copy and is kept.
+        #expect(await world.manager.refreshDerivedProfile(
+            now: Date(timeIntervalSince1970: 1_756_500_100)).refusal == nil)
+        // Another plan exported under the same name in the folder now active.
+        var other = world.manifest
+        other.note = "another plan"
+        #expect(try world.manager.restructureStore?.exportPlan(other) == name)
+        fm.refusing = false
+        #expect(await world.manager.refreshDerivedProfile(
+            now: Date(timeIntervalSince1970: 1_756_500_200)).refusal == nil)
+
+        #expect(FileManager.default.fileExists(
+            atPath: world.profiles.appendingPathComponent("\(first)/\(name)").path),
+                "the first plan was deleted because the active folder held another of its name")
     }
 
     /// **A landing that can still be undone pins the profile it was applied under.** Undo
