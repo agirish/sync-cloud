@@ -112,6 +112,59 @@ import Testing
         #expect(MainThreadHitchMonitor.hitchCount == 1)
     }
 
+    // MARK: The end of the turn
+
+    /// **The turn ends at the last end-of-turn observer.** Core Animation commits at order
+    /// 2,000,000, after an order-0 observer has already seen `beforeWaiting`; the layout and drawing
+    /// in that commit are the turn's work too. Here the order-0 edge comes 5 ms in and the commit
+    /// runs to 400 ms: closed at the early edge, this turn was a 5 ms non-event.
+    @Test("Layout and drawing after the order-0 observer count as the turn's work")
+    func theCommitCountsAsWork() {
+        fresh()
+        MainThreadHitchMonitor.note(.afterWaiting, at: 800.000)
+        let early = MainThreadHitchMonitor.note(.beforeWaiting, edge: .early, at: 800.005)
+        #expect(early == nil)
+        let hitch = MainThreadHitchMonitor.note(.beforeWaiting, edge: .late, at: 800.400)
+        #expect(abs((hitch ?? 0) - 0.4) < 0.001)
+        #expect(MainThreadHitchMonitor.hitchCount == 1)
+    }
+
+    /// The early edge alone closes nothing, and a later turn is timed from its own wake.
+    @Test("The order-0 edge marks the turn without closing it")
+    func theEarlyEdgeClosesNothing() {
+        fresh()
+        MainThreadHitchMonitor.note(.afterWaiting, at: 900.0)
+        MainThreadHitchMonitor.note(.exit, edge: .early, at: 900.5)
+        #expect(MainThreadHitchMonitor.hitchCount == 0)
+        let hitch = MainThreadHitchMonitor.note(.exit, edge: .late, at: 900.6)
+        #expect(abs((hitch ?? 0) - 0.6) < 0.001)
+    }
+
+    /// Both spans, the CPU time and the app's state, in one line — the CPU figure is what tells a
+    /// starved main thread (CPU well under the span) from a working one.
+    @Test("A hitch line gives both spans, CPU time and the app's state")
+    func theHitchLineSaysEverything() {
+        let line = MainThreadHitchMonitor.hitchLine(elapsed: 0.8123, ownWork: 0.1204, cpu: 0.05,
+                                                    context: "app inactive, every window occluded")
+        #expect(line == "[hitch] main thread busy 812.3ms (120.4ms before the end-of-turn observers), "
+                + "CPU 50.0ms, app inactive, every window occluded")
+        #expect(MainThreadHitchMonitor.hitchLine(elapsed: 0.02, ownWork: nil, cpu: nil, context: "x")
+                == "[hitch] main thread busy 20.0ms, x")
+    }
+
+    /// The CPU span is the main thread's own between wake and close, from the injected readings.
+    @Test("The turn's CPU time is read at wake and at close")
+    func theCPUSpanIsTheTurns() {
+        fresh()
+        MainThreadHitchMonitor.note(.afterWaiting, at: 1000.0, cpu: 7.0)
+        MainThreadHitchMonitor.note(.beforeWaiting, edge: .early, at: 1000.1, cpu: 7.05)
+        let hitch = MainThreadHitchMonitor.note(.beforeWaiting, edge: .late, at: 1000.3, cpu: 7.25)
+        #expect(hitch != nil)
+        #expect(MainThreadHitchMonitor.lastLineForTesting
+                == "[hitch] main thread busy 300.0ms (100.0ms before the end-of-turn observers), CPU 250.0ms, "
+                + MainThreadHitchMonitor.appContext())
+    }
+
     // MARK: The clock
 
     /// Monotonic, so a system clock adjustment mid-measurement cannot produce a negative or absurd

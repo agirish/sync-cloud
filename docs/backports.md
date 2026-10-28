@@ -12710,3 +12710,28 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s period30=%s schedule=%s\n' $l
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The 30 s tick over the whole header (`period30=1`) | RECORDED — not owed |
+
+---
+
+## A stall leaves a stack; the hitch monitor counts the commit (speed audit 2, 3) — main only
+
+Speed audit items 2 and 3 (were P59, P60), 2026-10-28. On `main` the main-thread hitch monitor and
+the display-cycle trace close a turn at the highest-order end-of-turn observer, after Core
+Animation's commit, where order 0 counted the commit's layout and drawing as idle; each `[hitch]`
+line adds the pre-commit span, CPU time, app-active and occlusion. A new `MainThreadStallWatch`,
+on in every build, notices 1 s without a main-queue turn, samples the main thread's stack from
+inside the process at once and runs `/usr/bin/sample` beside it, writes both into one file under
+`~/Library/Logs/SyncCloud/Stalls/`, and logs one INFO `[stall]` line naming it. Diagnostics only: no
+user-facing behaviour changes.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s lateEnd=%s stallWatch=%s\n' $l \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/MainThreadHitchMonitor.swift 2>/dev/null | grep -c 'CFIndex.max')" \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/MainThreadStallWatch.swift | wc -l | tr -d ' ')"; done
+# measured 2026-10-28, against origin, before this landed (main reads lateEnd=1 stallWatch=1 after):
+# every line  lateEnd=0 stallWatch=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The order-0 turn end and no stall stacks (`lateEnd=0`, `stallWatch=0`) | RECORDED — not owed |

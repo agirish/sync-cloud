@@ -189,9 +189,13 @@ public enum DisplayCycleTrace {
         // window churning hard enough to matter is precisely one that may not reach it promptly —
         // `.afterWaiting` closes the previous cycle at the start of the next turn, so a storm is
         // still reported rather than accumulating into the following one.
+        //
+        // The highest order, not 0: Core Animation's commit observer runs at 2,000,000 in the same
+        // `beforeWaiting` phase, and the layout it flushes makes constraint passes of its own. At
+        // order 0 the cycle closed before them, and they were counted into a cycle of their own.
         let activity: CFRunLoopActivity = [.beforeWaiting, .afterWaiting]
         let obs = CFRunLoopObserverCreateWithHandler(
-            kCFAllocatorDefault, activity.rawValue, true, 0
+            kCFAllocatorDefault, activity.rawValue, true, CFIndex.max
         ) { _, _ in
             MainActor.assumeIsolated { _ = endCycle(describe: describeWindow) }
         }

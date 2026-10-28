@@ -1,3 +1,4 @@
+import AppKit
 import CoreFoundation
 import Events
 import Foundation
@@ -26,6 +27,15 @@ import Foundation
 ///
 /// Only turns over `threshold` are reported — a hitch is what the user feels, and logging every
 /// turn would bury the log the way the scroll trace nearly did.
+///
+/// **The turn ends at the LAST end-of-turn observer, not the first.** Core Animation's commit
+/// observer sits at order 2,000,000 in the same `beforeWaiting`/`exit` phase, and the layout and
+/// drawing a commit flushes run inside it. An order-0 end closed the turn before any of that, so
+/// it counted as idle. Both edges are observed: order 0 marks where the turn's own work stopped,
+/// the highest order closes it, and each `[hitch]` line gives both spans.
+///
+/// A stall long enough to want a stack is `MainThreadStallWatch`'s job, not this type's: this
+/// reports only after a turn ends, which a wedged turn never does.
 @MainActor
 public enum MainThreadHitchMonitor {
     /// Turns longer than this earn their own line. One frame at 60 Hz.
@@ -53,6 +63,23 @@ public enum MainThreadHitchMonitor {
     static let busyReportFloor: Double = 0.10
 
     private static var observer: CFRunLoopObserver?
+    /// The second observer, at the highest order, that closes the turn after the commit.
+    private static var lateObserver: CFRunLoopObserver?
+
+    /// Which end-of-turn observer a `beforeWaiting` or `exit` came from.
+    enum Edge {
+        /// Order 0: the turn's own work is done, the end-of-turn observers are about to run.
+        case early
+        /// The highest order: everything has run, Core Animation's commit included.
+        case late
+    }
+
+    /// When the order-0 observer saw the turn's end — `nil` until it does, and when the turn was
+    /// closed without it.
+    private static var earlyEnd: CFTimeInterval?
+    /// The main thread's CPU time when the turn began. Read on the main thread, so it is the main
+    /// thread's own: CPU well under the wall span means the thread was starved, close to it, working.
+    private static var cpuBegan: CFTimeInterval?
     /// When the current turn started. `nil` while the run loop is asleep, which is the state that
     /// makes this immune to hold time: a pressed button with nothing happening is a sleeping run
     /// loop, and a sleeping run loop is not timed.
@@ -63,6 +90,8 @@ public enum MainThreadHitchMonitor {
     private(set) static var worst: CFTimeInterval = 0
     private(set) static var hitchCount = 0
     private(set) static var totalHitchTime: CFTimeInterval = 0
+    /// The last `[hitch]` line, so a test can read it without capturing the log.
+    private(set) static var lastLineForTesting: String?
 
     /// The open duty-cycle window: when it started, how much of it the main thread has been busy,
     /// how many turns that took, and the worst single one.
@@ -88,9 +117,17 @@ public enum MainThreadHitchMonitor {
         let obs = CFRunLoopObserverCreateWithHandler(
             kCFAllocatorDefault, activities.rawValue, true, 0
         ) { _, activity in
-            MainActor.assumeIsolated { _ = note(activity) }
+            MainActor.assumeIsolated { _ = note(activity, edge: .early) }
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), obs, .commonModes)
+        let ends: CFRunLoopActivity = [.beforeWaiting, .exit]
+        let late = CFRunLoopObserverCreateWithHandler(
+            kCFAllocatorDefault, ends.rawValue, true, CFIndex.max
+        ) { _, activity in
+            MainActor.assumeIsolated { _ = note(activity, edge: .late) }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), late, .commonModes)
+        lateObserver = late
         // `.commonModes`, not `.defaultMode`: the modal tracking loops this exists to see through —
         // `NSTableView`'s mouse tracking above all — run in their own mode, and an observer
         // registered only for the default mode would go quiet during exactly the work being hunted.
@@ -103,7 +140,9 @@ public enum MainThreadHitchMonitor {
     static func stop() {
         guard let observer else { return }
         CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
+        if let lateObserver { CFRunLoopRemoveObserver(CFRunLoopGetMain(), lateObserver, .commonModes) }
         self.observer = nil
+        lateObserver = nil
         turnBegan = nil
     }
 
@@ -111,25 +150,42 @@ public enum MainThreadHitchMonitor {
     /// point of this type is that its timing is honest, and a suite that could not feed it a
     /// synthetic sequence of activities would be taking that on faith.
     ///
+    /// - Parameter edge: which end-of-turn observer a `beforeWaiting` or `exit` came from. Only
+    ///   `.late` closes the turn; `.early` marks where its own work stopped.
     /// - Returns: the hitch duration when this activity ended a turn that exceeded `threshold`.
     @discardableResult
-    static func note(_ activity: CFRunLoopActivity, at now: CFTimeInterval = CACurrentMediaTimeShim()) -> CFTimeInterval? {
+    static func note(_ activity: CFRunLoopActivity, edge: Edge = .late,
+                     at now: CFTimeInterval = CACurrentMediaTimeShim(),
+                     cpu: CFTimeInterval = callingThreadCPUTime()) -> CFTimeInterval? {
         switch activity {
         case .afterWaiting:
             // Woke up: a turn begins.
             turnBegan = now
+            cpuBegan = cpu
+            earlyEnd = nil
             return nil
         case .beforeWaiting, .exit:
-            // About to sleep: the turn is over, and everything since waking was work.
             guard let began = turnBegan else { return nil }
+            guard edge == .late else {
+                // The turn's own work is done; the commit's layout and drawing are still to come.
+                if earlyEnd == nil { earlyEnd = now }
+                return nil
+            }
+            // About to sleep: the turn is over, and everything since waking was work.
             turnBegan = nil
             let elapsed = now - began
+            let ownWork = earlyEnd.map { $0 - began }
+            let cpuSpent = cpuBegan.map { cpu - $0 }
+            earlyEnd = nil
+            cpuBegan = nil
             accumulate(elapsed, at: now)
             guard elapsed >= threshold else { return nil }
             hitchCount += 1
             totalHitchTime += elapsed
             worst = max(worst, elapsed)
-            Logger.shared.debug(String(format: "[hitch] main thread busy %.1fms", elapsed * 1000))
+            let line = hitchLine(elapsed: elapsed, ownWork: ownWork, cpu: cpuSpent, context: appContext())
+            lastLineForTesting = line
+            Logger.shared.debug(line)
             return elapsed
         default:
             return nil
@@ -169,11 +225,36 @@ public enum MainThreadHitchMonitor {
         windowWorst = 0
     }
 
+    /// One `[hitch]` line: the whole turn, how much of it came before the end-of-turn observers
+    /// (the rest is layout, drawing and the commit), the main thread's CPU time over it, and
+    /// whether the app was in front and had a window on screen — a turn that runs while the app is
+    /// hidden is a different suspect from one under the user's pointer.
+    static func hitchLine(elapsed: CFTimeInterval, ownWork: CFTimeInterval?, cpu: CFTimeInterval?,
+                          context: String) -> String {
+        var line = String(format: "[hitch] main thread busy %.1fms", elapsed * 1000)
+        if let ownWork {
+            line += String(format: " (%.1fms before the end-of-turn observers)", ownWork * 1000)
+        }
+        if let cpu { line += String(format: ", CPU %.1fms", cpu * 1000) }
+        return line + ", " + context
+    }
+
+    /// "app active, window visible" and its negations, read on the main thread. A test process has
+    /// no `NSApp`, which reads as inactive with nothing visible.
+    static func appContext() -> String {
+        let app = NSApp
+        let active = app?.isActive ?? false
+        let visible = app?.windows.contains { $0.occlusionState.contains(.visible) } ?? false
+        return "app \(active ? "active" : "inactive"), \(visible ? "window visible" : "every window occluded")"
+    }
+
     static func reset() {
         worst = 0
         hitchCount = 0
         totalHitchTime = 0
         turnBegan = nil
+        earlyEnd = nil
+        cpuBegan = nil
         windowBegan = nil
         windowBusy = 0
         windowTurns = 0
@@ -185,4 +266,10 @@ public enum MainThreadHitchMonitor {
 /// cannot be moved by a system clock adjustment mid-measurement the way a wall clock can.
 func CACurrentMediaTimeShim() -> CFTimeInterval {
     CFTimeInterval(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1_000_000_000
+}
+
+/// The CPU time the CALLING thread has used. The monitor's observers run on the main thread, so
+/// there it is the main thread's.
+func callingThreadCPUTime() -> CFTimeInterval {
+    CFTimeInterval(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)) / 1_000_000_000
 }

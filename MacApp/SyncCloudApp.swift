@@ -369,6 +369,10 @@ struct SyncCloudApp: App {
             // repeat App.init calls noted above are harmless, and it installs nothing at all on a
             // normal launch.
             MainThreadHitchMonitor.startIfEnabled()
+            // Unlike the hitch monitor, always on: it is the one thing that takes a stack while the
+            // main thread is stalled, and the stalls it is for happen in the installed app.
+            MainThreadStallWatch.shared.start()
+            MainThreadStallWatch.stallOnceIfAsked()
 
             // Undo the one thing the preview's old sizing rule made people do to their columns.
             // Idempotent by its own flag, so the repeat App.init calls noted above are harmless.
