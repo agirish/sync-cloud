@@ -269,17 +269,23 @@ worker fork another. Ruled out by direct A/B on this machine:
 wedged), LaunchAgent vs interactive `./run.sh` (both wedge). The arm64 agent
 wedged in 3 of 3 runs, at a different spawn each time.
 
-Current mitigation: the agent runs as the **osx-x64 build under Rosetta**
+The mitigation was to run the agent as the **osx-x64 build under Rosetta**
 (`~/actions-runner-synccloud-x64`, same registration — the `.runner` /
 `.credentials*` files are arch-independent and were copied over), which takes
-a different fork path through the translation layer. If a run wedges anyway:
-kill the `Runner.Worker` processes, restart the runner, re-run the workflow.
-Track the OS bug before blaming test code — every wedge so far happened in
-the runner agent, never in `swift test`.
+a different fork path through the translation layer. **That is no longer how
+it runs.** As of 2026-10-28 the LaunchAgent starts the native arm64 agent in
+`~/actions-runner-synccloud` (2.338.0, node24), Rosetta is not installed on
+this Mac (`arch -x86_64` answers "Bad CPU type"), and the x64 copy is unused.
+If a run wedges the way described above, that is the first thing to revisit.
+If a run wedges anyway: kill the `Runner.Worker` processes, restart the runner,
+re-run the workflow with a fresh `workflow_dispatch`. Track the OS bug before
+blaming test code — every wedge so far happened in the runner agent, never in
+`swift test`.
 
 ### Rosetta corollary: `swift test` exit code lies under x86_64
 
-Under the x64 agent, `swift test` inherits x86_64 and then **exits 1 with
+Historical while the agent is native, and kept because the workflow still
+carries its fix. Under the x64 agent, `swift test` inherits x86_64 and then **exits 1 with
 every test passing** (isolated by A/B: same workspace + native arm64 → 0;
 x86_64 → 1; env and cwd innocent). The workflow therefore runs the payload
 as `arch -arm64 swift test …`. When checking test outcomes by hand, never
