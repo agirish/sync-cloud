@@ -680,6 +680,24 @@ labelled `#expect` at the call site. The wait asks for `ended >= n`; the asserti
 `== n`. `settle()` is left only in front of the absences. Mutation-tested: with `cancel()` no longer
 cancelling the scan, the test fails at each wait, "after 449 passes", in 15.6 s, not a hang.
 
+**Load does reproduce it, given one hog with a short gap.** Beside the old suite under `--filter`,
+one main-actor test holding the main thread 60 ms at a time with 1 ms free between turned it red
+**4 of 4, at load average 2**, with CI's signature: `== 1` and `== 2` red, `== 3` green. Four
+main-actor tests in 250 ms chunks, 1 ms apart, did not (0 of 8, with and without 20 spinners), and
+neither did sixteen pool tests (0 of 8). The red is ordering, not starvation:
+
+- On a free main actor the 50 yields finish before the typing settle's 1 ms sleep ends.
+- If another job takes the main thread inside that millisecond and holds it past 30 ms, both
+  sleeps end while it runs. The settle's task, then the test's wake-up, queue behind it, in that
+  order.
+- The settle's task runs `run()` first. But the job that counts the end is queued only as `run()`
+  runs, so it lands behind the wake-up, and the test reads `ended` before it.
+
+A main actor that is busy all the time cannot do this. The test's own yields queue behind the hogs
+as well, and the chain finishes between them. `== 3` held because Names ends the search inside the
+test's own `request`, so its count is queued before the first yield. The fixed suite passed
+9 of 9 beside the same hog, 3 of them with 20 spinners too.
+
 **See.** `c2584e6` — *Poll the drill tests' observables instead of pumping a fixed window*;
 `3a4ee8a` — *Poll for the revealed search field's caret instead of a fixed pump*;
 `33bcc30d` — *Wait out the New Folder undo instead of guessing 100ms at it*;
