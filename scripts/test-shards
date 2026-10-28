@@ -33,7 +33,7 @@ to the listed total. The count line matters: a test process that dies can still 
 exiting 0, and a filter that matches nothing passes (docs/flaky-tests.md, the silent half).
 --measure writes nothing unless its run is green.
 
-A chunk still running after 20 minutes ($TEST_SHARDS_STALL seconds) is stopped with everything it
+A chunk still running after 20 awake minutes ($TEST_SHARDS_STALL seconds) is stopped with all it
 started, and the run goes red: it prints the chunk's output so far, the tests that started and
 never finished, and a `sample` of its test helper, which names the call a stuck test is blocked in.
 Held output otherwise hides a hang entirely: on 2026-10-28 an unanswered TCC prompt blocked one
@@ -63,11 +63,14 @@ SWIFT_TESTING_RUN = re.compile(r"Test run with (\d+) tests? (?:in \d+ suites? )?
 RUN_SECONDS = re.compile(r"Test run with \d+ tests? .*after ([\d.]+) seconds")
 XCTEST_TOTAL = re.compile(r"Test Suite '(?:All tests|Selected tests)' (?:passed|failed)")
 XCTEST_EXECUTED = re.compile(r"Executed (\d+) tests?, with")
-STARTED = re.compile(r"◇ Test (.+?) started\.")
-ENDED = re.compile(r"[✔✘➜] Test (.+?) (?:passed|failed|skipped)")
+# STARTED skips the run's own banner; ENDED takes a parameterized test's "with N test cases" too.
+STARTED = re.compile(r"◇ Test (?!run started\.)(.+?) started\.")
+ENDED = re.compile(r"[✔✘➜] Test (.+?)(?: with \d+ test cases?)? (?:passed|failed|skipped)")
 # A chunk still running this long is stopped and reported. The slowest chunk seen took 438 s at
-# load 47; a test blocked for good (an unanswered TCC prompt, 2026-10-28) would otherwise hold
-# the CI job to its 90-minute limit with nothing in the log.
+# load 47; a test blocked for good (an unanswered TCC prompt, 2026-10-28) would otherwise hold the
+# CI job to its 90-minute limit with nothing in the log. Timed on the monotonic clock, which stands
+# still while the Mac sleeps: on 2026-10-28 it hibernated 18 minutes on a flat battery, and the
+# wall clock stopped three healthy chunks the moment it woke.
 STALL_SECONDS = float(os.environ.get("TEST_SHARDS_STALL") or 1200)
 HEARTBEAT_SECONDS = float(os.environ.get("TEST_SHARDS_HEARTBEAT") or 300)
 SAMPLE_SECONDS = os.environ.get("TEST_SHARDS_SAMPLE") or "3"
@@ -218,8 +221,8 @@ def end(process):
             os.killpg(process.pid, sig)
         except OSError:
             return
-        deadline = time.time() + 5
-        while time.time() < deadline:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
             if os.waitpid(process.pid, os.WNOHANG)[0] != 0:
                 break
             time.sleep(0.1)
@@ -292,8 +295,8 @@ def run(package, jobs, measure, scratch=None):
     signal.signal(signal.SIGINT, stop)
 
     github = os.environ.get("GITHUB_ACTIONS") == "true"
-    began, problems, ran, cpu, wall = time.time(), [], 0, {}, {}
-    unreported, heartbeat = False, time.time()
+    began, problems, ran, cpu, wall = time.monotonic(), [], 0, {}, {}
+    unreported, heartbeat = False, time.monotonic()
 
     def title_of(chunk):
         return ("suite %s" % chunk["groups"][0] if measure else
@@ -318,14 +321,14 @@ def run(package, jobs, measure, scratch=None):
             # A session of its own, so a stalled chunk can be stopped with all it started.
             chunk["process"] = subprocess.Popen(command, stdout=chunk["log"],
                                                 stderr=subprocess.STDOUT, start_new_session=True)
-            chunk["start"] = time.time()
+            chunk["start"] = time.monotonic()
             running.append(chunk)
         for chunk in list(running):
             # wait4, not poll: its rusage counts the test helper the chunk's `swift test` reaped,
             # which is where --measure's CPU seconds come from.
             pid, raw, usage = os.wait4(chunk["process"].pid, os.WNOHANG)
             if pid == 0:
-                elapsed = time.time() - chunk["start"]
+                elapsed = time.monotonic() - chunk["start"]
                 if elapsed < STALL_SECONDS:
                     continue
                 running.remove(chunk)
@@ -354,7 +357,7 @@ def run(package, jobs, measure, scratch=None):
                 show(title, log)
             say("%s: exit %d, %s tests run, %.0f s" % (
                 title, status, "no count line —" if reported is None else reported,
-                time.time() - chunk["start"]))
+                time.monotonic() - chunk["start"]))
             if status != 0:
                 problems.append("%s exited %d" % (title, status))
             if reported is None:
@@ -368,8 +371,8 @@ def run(package, jobs, measure, scratch=None):
                     seconds = [float(found) for found in RUN_SECONDS.findall(log)]
                     if seconds:
                         wall[suite] = sum(seconds)
-        if running and time.time() - heartbeat >= HEARTBEAT_SECONDS:
-            heartbeat = time.time()
+        if running and time.monotonic() - heartbeat >= HEARTBEAT_SECONDS:
+            heartbeat = time.monotonic()
             say("still running: " + ", ".join("chunk %d for %.0f s" % (
                 c["number"], heartbeat - c["start"]) for c in running))
         time.sleep(0.5)
@@ -381,7 +384,7 @@ def run(package, jobs, measure, scratch=None):
         if measure:
             say("no costs written: a red run's timings are not trusted")
         return 1
-    say("all %d tests ran in %d chunks, %.0f s" % (ran, len(chunks), time.time() - began))
+    say("all %d tests ran in %d chunks, %.0f s" % (ran, len(chunks), time.monotonic() - began))
     if measure:
         write_costs(costs_path(package), cpu, wall, len(identifiers), jobs)
         say("wrote %s" % shown(costs_path(package)))

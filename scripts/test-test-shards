@@ -52,7 +52,9 @@ grep -E "$filter" "$FAKE_DIR/list" >> "$FAKE_DIR/ran"
 sleep 0.3
 echo - >> "$FAKE_DIR/events"
 if [ -n "${FAKE_HANG:-}" ] && echo "$filter" | grep -q "$FAKE_HANG"; then  # blocked for good,
-  echo "◇ Test fine() started."; echo "✔ Test fine() passed after 0.1 seconds."  # in a child
+  echo "◇ Test run started."; echo "◇ Test fine() started."  # in a child
+  echo "✔ Test fine() passed after 0.1 seconds."; echo "◇ Test each(_:) started."
+  echo "✔ Test each(_:) with 3 test cases passed after 0.1 seconds."
   echo "◇ Test hung() started."; sleep 600.25 & wait; exit 0
 fi
 if [ -n "${FAKE_DIE:-}" ] && echo "$filter" | grep -q "$FAKE_DIE"; then exit 0; fi  # no count line
