@@ -288,4 +288,104 @@ import Testing
         #expect(fixture.corpusExists(in: "walk-new"), "the reading never reached the profile in use")
         #expect(!fixture.corpusExists(in: "walk-old"), "the overtaken plan read into the old profile")
     }
+
+    /// **A plan overtaken by a Save of another folder is not made again** (review, 2026-10-27).
+    /// A plan walks the profile's own folder, so planning again read the folder the Save switched
+    /// to — with Read Documents off, hours on documents nobody asked to have read.
+    @Test func aPlanOvertakenByASaveOfAnotherFolderReadsNothing() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        fixture.machine.hot = false
+        let elsewhere = fixture.root.appendingPathComponent("Elsewhere")
+        let url = elsewhere.appendingPathComponent("Taxes/2023/w2.pdf")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try Data("Wage and tax statement for the year, from the employer to the employee, with the amounts withheld.".utf8)
+            .write(to: url)
+        _ = try FilingProfileStore.writeProfile(
+            FolderProfile(profileId: "walk-old", root: fixture.documents.path, folders: [:],
+                          personTokens: []),
+            in: fixture.profiles)
+        fixture.attach()
+        fixture.engine.wholeTreeProbeBudget = 1
+        var asked = 0
+        let profiles = fixture.profiles
+        fixture.engine.largeWalkConfirmer = { _ in
+            asked += 1
+            if asked == 1 {
+                // A Save of another folder, as Setup's lands mid-walk.
+                _ = try? FilingProfileStore.writeProfile(
+                    FolderProfile(profileId: "walk-elsewhere", root: elsewhere.path, folders: [:],
+                                  personTokens: []),
+                    in: profiles)
+                fixture.attach()
+            }
+            return true
+        }
+
+        let outcome = await DocumentSurveyStarter.start(manager: fixture.engine,
+                                                        askedFrom: fixture.documents,
+                                                        mode: .read, planned: { _ in })
+
+        #expect(outcome == .refused(.profileReplaced), "the overtaken plan came to \(outcome)")
+        #expect(fixture.reads.all.isEmpty,
+                "read \(fixture.reads.all.map { ($0 as NSString).lastPathComponent }) — the folder the Save switched to")
+        #expect(!fixture.corpusExists(in: "walk-elsewhere"))
+        #expect(!fixture.corpusExists(in: "walk-old"))
+    }
+
+    /// **A Save whose reading does not stop in time writes nothing, and the reading reads on**
+    /// (review, 2026-10-27). A stop lands between documents, and the Save — with Back greyed
+    /// while it ran — waited for a document whose text never came.
+    @Test(.timeLimit(.minutes(2)))
+    func aSaveWhoseReadingDoesNotStopInTimeWritesNothing() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        fixture.machine.hot = false
+        final class Gate: @unchecked Sendable {
+            private let lock = NSLock()
+            private var _entered = false, _released = false
+            var entered: Bool { lock.lock(); defer { lock.unlock() }; return _entered }
+            var released: Bool { lock.lock(); defer { lock.unlock() }; return _released }
+            func enter() { lock.lock(); _entered = true; lock.unlock() }
+            func release() { lock.lock(); _released = true; lock.unlock() }
+        }
+        let gate = Gate()
+        fixture.engine.filingSnippetExtractor = { path in
+            gate.enter()
+            let deadline = Date().addingTimeInterval(100)
+            while !gate.released, Date() < deadline { try? await Task.sleep(for: .milliseconds(20)) }
+            return try? String(contentsOfFile: path, encoding: .utf8)
+        }
+        fixture.engine.documentSurveyStopWait = .milliseconds(300)
+        let model = SetupModel(settings: await settings(), peopleStore: nil,
+                               syncManager: fixture.engine, hasFilingProfile: false,
+                               defaults: ScratchDefaults("setup-handover-d"), draftURL: nil,
+                               onProfileWritten: { fixture.attach() },
+                               onStartSurvey: { fixture.startReading($0) })
+        model.changeWalkRoot(to: fixture.documents, thenLearn: true)
+        await model.lastWalk?.value
+        try #require(model.walkState.isDone, "premise: the folder was read")
+        model.confirmedCountries = ["US"]
+        #expect(await model.save(), "premise: the first Save wrote")
+        let first = try #require(model.writtenReport?.profileId)
+        #expect(await waitUntil(seconds: 90) { gate.entered }, "premise: no document read began")
+
+        model.toggleCountry("IN")
+        let wrote = await model.save()
+
+        #expect(!wrote, "the Save went ahead over a reading that had not stopped")
+        #expect(model.writtenReport?.profileId == first, "a second profile was written")
+        #expect(model.saveFailure?.contains("still reading") == true,
+                "the failure line says \(model.saveFailure ?? "nothing")")
+        #expect(fixture.starts.count == 1, "the reading was started a second time")
+        gate.release()
+        let outcome = await fixture.starts[0].value
+        guard case .ran(let report) = outcome else {
+            Issue.record("the reading did not read on: \(outcome)")
+            return
+        }
+        #expect(report.isComplete)
+        #expect(fixture.corpusExists(in: first), "the reading did not land in the profile in use")
+    }
 }

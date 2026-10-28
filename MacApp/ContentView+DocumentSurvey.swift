@@ -214,9 +214,13 @@ enum DocumentSurveyStarter {
     /// **A plan made for a profile Setup has since replaced is made again** (review M4): the walk
     /// takes a while, a Save beside it writes a new profile, and the run refuses a plan for the old
     /// one rather than read into it. Once, because the second plan is of the profile in use.
+    ///
+    /// **And only for the same folder** (review, 2026-10-27). A plan always walks the profile's own
+    /// folder, so after a Save of another folder — Read Documents off — planning again read that
+    /// folder instead: hours on documents nobody asked to have read.
     static func start(manager: FileSyncManager, askedFrom: URL, mode: Mode,
                       planned: (DocumentSurveyPlanFacts) -> Void) async -> Outcome {
-        var replanned = false
+        var overtaken: URL?
         while true {
             let plan: FileSyncManager.DocumentSurveyPlan
             switch await manager.planDocumentSurvey(root: askedFrom) {
@@ -224,6 +228,11 @@ enum DocumentSurveyStarter {
                 Logger.shared.info("Document survey: not started — \(refusal.sentence)")
                 return .refused(refusal)
             case .success(let made): plan = made
+            }
+            if let overtaken, overtaken.standardizedFileURL.path != plan.root.standardizedFileURL.path {
+                Logger.shared.info("Document survey: not started — the profile now in use is of "
+                                   + "\(plan.root.path), not \(overtaken.path), the folder it was asked to read")
+                return .refused(.profileReplaced)
             }
             planned(DocumentSurveyPlanFacts(rootPath: plan.root.path, documents: plan.total,
                                             unreadableTypes: plan.skippedUnreadableTypes))
@@ -236,9 +245,9 @@ enum DocumentSurveyStarter {
             switch await manager.runDocumentSurvey(plan: plan, startingOver: mode == .startOver) {
             case .success(let report): return .ran(report)
             case .failure(.stoppedForNewProfile): return .handedOver
-            case .failure(.profileReplaced) where !replanned:
-                replanned = true
-                Logger.shared.info("Document survey: planned again for the profile now in use")
+            case .failure(.profileReplaced) where overtaken == nil:
+                overtaken = plan.root
+                Logger.shared.info("Document survey: planning again for the profile now in use")
             case .failure(let refusal): return .refused(refusal)
             }
         }

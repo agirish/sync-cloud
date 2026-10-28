@@ -203,9 +203,9 @@ import EventsTestSupport
         #expect(await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .thermal },
                 "premise: the run never paused, so the rest proves nothing")
 
-        let stopped = await manager.stopDocumentSurveyBeforeReplacingProfile()
+        let stopped = await manager.stopDocumentSurveyBeforeReplacingProfile(savingFolder: docs)
 
-        #expect(stopped == plan.root, "a run stopped two documents in was reported as \(stopped.map(\.path) ?? "finished")")
+        #expect(stopped == .stopped(plan.root), "a run stopped two documents in was reported as \(stopped)")
         #expect(manager.documentSurveyRun == nil,
                 "the call returned with the run still going — the write after it copies stale progress")
         let answered = await result.value
@@ -229,9 +229,9 @@ import EventsTestSupport
         let running = start(manager, plan)
         #expect(await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .thermal })
 
-        let stopped = await manager.stopDocumentSurveyBeforeReplacingProfile()
+        let stopped = await manager.stopDocumentSurveyBeforeReplacingProfile(savingFolder: docs)
 
-        #expect(stopped == nil, "a reading of the hand-built profile in use was stopped")
+        #expect(stopped == .nothingStopped, "a reading of the hand-built profile in use was stopped")
         #expect(manager.documentSurveyRun != nil)
         await finish(manager, running)
     }
@@ -265,7 +265,7 @@ import EventsTestSupport
         #expect(await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .user },
                 "premise: the person's Pause never showed")
 
-        #expect(await manager.stopDocumentSurveyBeforeReplacingProfile() == plan.root)
+        #expect(await manager.stopDocumentSurveyBeforeReplacingProfile(savingFolder: docs) == .stopped(plan.root))
         await first.task?.value
         machine.hot = false
         let again = try await manager.planDocumentSurvey(root: docs).get()
@@ -300,11 +300,158 @@ import EventsTestSupport
         #expect(await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .thermal })
         manager.restructureLandingInProgress = true
 
-        let stopped = await manager.stopDocumentSurveyBeforeReplacingProfile()
+        let stopped = await manager.stopDocumentSurveyBeforeReplacingProfile(savingFolder: docs)
 
-        #expect(stopped == nil, "the reading was stopped for a Save the landing refuses")
+        #expect(stopped == .nothingStopped, "the reading was stopped for a Save the landing refuses")
         #expect(manager.documentSurveyRun != nil)
         manager.restructureLandingInProgress = false
         await finish(manager, running)
+    }
+
+    // MARK: - Review of the carry, 2026-10-27
+
+    /// Stands a run paused by the person, and returns it.
+    private func pausedByThePerson(_ manager: FileSyncManager, docs: URL) async throws -> Running {
+        manager.machineConditions = { MachineConditions(heat: .serious) }
+        let plan = try await manager.planDocumentSurvey(root: docs).get()
+        let running = start(manager, plan)
+        #expect(await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .thermal })
+        await manager.pauseDocumentSurvey()
+        #expect(await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .user })
+        return running
+    }
+
+    /// **A Save of another folder carries no Pause forward.** The reading it stopped is not
+    /// carried on, so a later run of that folder — Resume, Start over — started paused, and
+    /// nobody had paused it.
+    @Test(.timeLimit(.minutes(1)))
+    func aSaveOfAnotherFolderCarriesNoPause() async throws {
+        let (manager, docs, _, reads, root) = try FilingResurveyTests.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = try await pausedByThePerson(manager, docs: docs)
+        let elsewhere = root.appendingPathComponent("Elsewhere")
+
+        #expect(await manager.stopDocumentSurveyBeforeReplacingProfile(savingFolder: elsewhere)
+                == .stopped(try #require(manager.documentSurveyFolder)))
+        await first.task?.value
+        manager.machineConditions = nil
+        let plan = try await manager.planDocumentSurvey(root: docs).get()
+        let report = try await manager.runDocumentSurvey(plan: plan).get()
+
+        #expect(report.isComplete, "the later run started paused (\(reads.paths.count) read)")
+    }
+
+    /// **A carried Pause is taken by the next run to start, even one refused before it reads**,
+    /// so it cannot wait for a later run nobody paused.
+    @Test(.timeLimit(.minutes(1)))
+    func aCarriedPauseIsTakenByARefusedRun() async throws {
+        let (manager, docs, _, _, root) = try FilingResurveyTests.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = try await pausedByThePerson(manager, docs: docs)
+        #expect(await manager.stopDocumentSurveyBeforeReplacingProfile(savingFolder: docs)
+                == .stopped(try #require(manager.documentSurveyFolder)))
+        await first.task?.value
+        manager.machineConditions = nil
+        let plan = try await manager.planDocumentSurvey(root: docs).get()
+
+        let extractor = manager.filingSnippetExtractor
+        manager.filingSnippetExtractor = nil
+        #expect(await manager.runDocumentSurvey(plan: plan) == .failure(.noExtractor),
+                "premise: the carried run is refused")
+        manager.filingSnippetExtractor = extractor
+
+        let report = try await manager.runDocumentSurvey(plan: plan).get()
+        #expect(report.isComplete, "a Pause carried for a refused run paused the next one")
+    }
+
+    /// **The wait for a stop is bounded, and a run that outlasts it reads on.** A stop lands
+    /// between documents; a document whose text never came held the Save — and the sheet, whose
+    /// Back waits on it — for good.
+    @Test(.timeLimit(.minutes(1)))
+    func aStopThatDoesNotLandInTimeLeavesTheRunReading() async throws {
+        let (manager, docs, _, reads, root) = try FilingResurveyTests.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
+        final class Gate: @unchecked Sendable {
+            private let lock = NSLock()
+            private var _entered = false, _released = false
+            var entered: Bool { lock.lock(); defer { lock.unlock() }; return _entered }
+            var released: Bool { lock.lock(); defer { lock.unlock() }; return _released }
+            func enter() { lock.lock(); _entered = true; lock.unlock() }
+            func release() { lock.lock(); _released = true; lock.unlock() }
+        }
+        let gate = Gate()
+        manager.filingSnippetExtractor = { path in
+            reads.note(path)
+            gate.enter()
+            // Bounded: released by the test, or at the suite's own limit.
+            let deadline = Date().addingTimeInterval(50)
+            while !gate.released, Date() < deadline { try? await Task.sleep(for: .milliseconds(20)) }
+            return try? String(contentsOfFile: path, encoding: .utf8)
+        }
+        manager.documentSurveyStopWait = .milliseconds(300)
+        let plan = try await manager.planDocumentSurvey(root: docs).get()
+        let result = Task { @MainActor in await manager.runDocumentSurvey(plan: plan) }
+        #expect(await waitUntil(seconds: 20) { gate.entered }, "premise: no document read began")
+
+        let stopped = await manager.stopDocumentSurveyBeforeReplacingProfile(savingFolder: docs)
+
+        #expect(stopped == .stillReading, "the wait answered \(stopped)")
+        #expect(manager.documentSurveyRun != nil, "the run was let go")
+        gate.release()
+        let report = try await result.value.get()
+        #expect(report.isComplete, "the stop was not withdrawn: the run ended at \(report.stoppedAt ?? -1)")
+    }
+
+    /// **A profile write is refused while the documents are being read into the profile it would
+    /// replace.** A Refresh holds the survey's lifecycle with no run to stop, and it wrote what it
+    /// learned into the replaced profile when it finished. Beside a hand-built profile the write
+    /// replaces nothing, and goes ahead.
+    @Test func aWriteIsRefusedWhileARefreshReadsIntoTheProfileItWouldReplace() async throws {
+        let (manager, docs, profiles, _, root) = try FilingResurveyTests.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let tree = await FileSyncManager.buildTree(url: docs, sortOption: .name)
+        _ = manager.beginScan(\.filingSurveyLifecycle, status: "Looking for new folders…")
+
+        let refused = await manager.writeWalkProfile(tree: tree, root: docs)
+
+        guard case .failure(.documentsBeingRead) = refused else {
+            Issue.record("the write over a running Refresh came to \(refused)")
+            manager.endScan(\.filingSurveyLifecycle)
+            return
+        }
+        #expect(FilingProfileStore.activeProfileId(in: profiles) == nil, "the refused write named a profile")
+
+        // Beside a hand-built profile nothing is replaced.
+        _ = try FilingProfileStore.writeProfile(
+            FolderProfile(profileId: "t", root: docs.path, folders: [:], personTokens: []),
+            in: profiles, builtBy: "by hand")
+        let beside = await manager.writeWalkProfile(tree: tree, root: docs)
+        guard case .success(let report) = beside else {
+            Issue.record("a write beside a hand-built profile was refused: \(beside)")
+            return
+        }
+        #expect(!report.becameActive)
+        manager.endScan(\.filingSurveyLifecycle)
+    }
+
+    /// **A Save the moment a run starts finds it, and stops it before it reads.** The run took its
+    /// handle only after adopting the checkpoint — an await — so a Save in between found no run to
+    /// stop, and the run then read into the profile the Save replaced.
+    @Test(.timeLimit(.minutes(1)))
+    func aSaveAsARunStartsFindsItBeforeItReads() async throws {
+        let (manager, docs, _, reads, root) = try FilingResurveyTests.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let plan = try await manager.planDocumentSurvey(root: docs).get()
+        let result = Task { @MainActor in await manager.runDocumentSurvey(plan: plan) }
+        // The first moment the run is seen under way — inside its first await.
+        let deadline = Date().addingTimeInterval(20)
+        while !manager.filingSurveyLifecycle.isRunning, Date() < deadline { await Task.yield() }
+        #expect(manager.filingSurveyLifecycle.isRunning, "premise: the run never started")
+
+        let stopped = await manager.stopDocumentSurveyBeforeReplacingProfile(savingFolder: docs)
+
+        #expect(stopped == .stopped(plan.root), "a Save as the run started found \(stopped)")
+        #expect(await result.value == .failure(.stoppedForNewProfile))
+        #expect(reads.paths.isEmpty, "the run read \(reads.paths.count) document(s) after the Save")
     }
 }

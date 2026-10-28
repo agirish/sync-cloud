@@ -757,11 +757,15 @@ public class FileSyncManager: ObservableObject {
     var documentSurveyRun: DocumentSurveyRun?
 
     /// Whoever is waiting for the running survey to end — see
-    /// ``stopDocumentSurveyBeforeReplacingProfile()``. Resumed as the run lets go of its handle.
-    var documentSurveyEndWaiters: [CheckedContinuation<Void, Never>] = []
+    /// ``stopDocumentSurveyBeforeReplacingProfile(savingFolder:)``. Resumed with `true` as the run
+    /// lets go of its handle, or with `false` by the wait's own bound.
+    var documentSurveyEndWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
 
-    /// The folder of a run the person had paused when a profile write stopped it, so the run that
-    /// carries it on starts paused too. Taken by the next run, whichever folder it reads.
+    /// How long a profile write waits for a stopped survey to finish the document it is reading.
+    public var documentSurveyStopWait: Duration = .seconds(60)
+
+    /// The folder of a run the person had paused when a profile write of the same folder stopped
+    /// it, so the run that carries it on starts paused too. Taken by the next run to start.
     var documentSurveyPauseToCarry: URL?
 
     /// The causes *Resume now* told the running survey to read through — see

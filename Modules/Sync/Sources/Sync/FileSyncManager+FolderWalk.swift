@@ -68,6 +68,10 @@ extension FileSyncManager {
         /// its corpus replay ends, over whatever a walk wrote meanwhile — and the walk's carry
         /// would copy files the landing is still writing.
         case landingInProgress
+        /// The documents are being read — a Refresh, which has no handle to stop, or a reading
+        /// started after Setup stopped the last one — and the write would replace the profile that
+        /// reading writes into, which then lands in the replaced one (review, 2026-10-27).
+        case documentsBeingRead
 
         public var description: String {
             switch self {
@@ -81,6 +85,9 @@ extension FileSyncManager {
                 return "the profile could not be written — \(why)"
             case .landingInProgress:
                 return "a reorganization is landing, so the profile was not written"
+            case .documentsBeingRead:
+                return "the documents are being read into the profile this would replace, so it "
+                    + "was not written"
             }
         }
 
@@ -101,6 +108,8 @@ extension FileSyncManager {
                 return why
             case .landingInProgress:
                 return "A reorganization is landing — save once it finishes."
+            case .documentsBeingRead:
+                return "SyncCloud is reading your documents — save once that finishes."
             }
         }
 
@@ -240,6 +249,17 @@ extension FileSyncManager {
             Logger.shared.warning("Folder walk refused: a reorganization is landing, and its "
                 + "re-derive would replace this profile when it finishes")
             return .failure(.landingInProgress)
+        }
+        // **Nor while the documents are being read into the profile this would replace.** Setup
+        // stops a reading first and carries it on; a Refresh has nothing to stop, and wrote what it
+        // learned into the replaced profile once it finished. Beside a hand-built profile nothing
+        // is replaced, so the write goes ahead.
+        if filingSurveyLifecycle.isRunning,
+           FilingProfileStore.mayRepoint(activeId: FilingProfileStore.activeProfileId(in: directory),
+                                         in: directory) {
+            Logger.shared.warning("Folder walk refused: the documents are being read into the "
+                + "profile this would replace")
+            return .failure(.documentsBeingRead)
         }
 
         // Read BEFORE the write re-points the index — the profile this walk may be replacing.

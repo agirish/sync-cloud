@@ -261,6 +261,12 @@ public actor DocumentSurveyRun {
         stopRequested = true
     }
 
+    /// Takes back a ``stop()`` the run has not yet reached — for a profile write that gave up
+    /// waiting for it. A stop already acted on stays acted on.
+    public func withdrawStop() {
+        stopRequested = false
+    }
+
     // MARK: - The loop
 
     /// Reads the plan, from wherever the run currently stands.

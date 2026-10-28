@@ -12637,3 +12637,30 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s notReadWord=%s carryStop=%s\n
 |---|---|---|
 | `v5.x` / `v4.x` | "could not be read" for both refusals (`notReadWord=1`); no carried reading to pause (`carryStop=0`) | RECORDED — not owed |
 | `v3.x` / `v2.x` | None of it | CLOSED — does not apply |
+
+---
+
+## Setup's Save waits for no Refresh, re-plans only its own folder, bounds its stop — main only
+
+Overall review of the Setup carry, 2026-10-27. On `main`: a Setup Save that would replace the profile
+being read is refused while the documents are read with nothing Setup can stop (a Refresh), which
+otherwise landed in the replaced profile; a reading overtaken while it planned is planned again
+only for the same folder; a run takes its handle before its first await, so a Save as it starts
+stops it; a carried Pause is taken by the next run and carried only for the same folder; and the
+Save's wait for a stop is bounded (60 s), leaving the reading reading if it runs out.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s writeWalk=%s refreshGuard=%s starter=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+FolderWalk.swift 2>/dev/null | grep -c 'func writeWalkProfile')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+FolderWalk.swift 2>/dev/null | grep -c 'documentsBeingRead')" \
+  "$(git show origin/$l:MacApp/ContentView+DocumentSurvey.swift 2>/dev/null | grep -c 'enum DocumentSurveyStarter')"; done
+# measured 2026-10-27, against origin, before this landed (it reads refreshGuard>0 on main after):
+# main          writeWalk=1 refreshGuard=0 starter=1
+# v5.x          writeWalk=1 refreshGuard=0 starter=0
+# v4.x, v3.x, v2.x  writeWalk=0 refreshGuard=0 starter=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | Setup's Save writes over a running Refresh, which lands in the replaced profile (`writeWalk=1`, `refreshGuard=0`); no starter or carry, so the rest does not apply | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Setup Save of a walked profile (`writeWalk=0`) | CLOSED — does not apply |

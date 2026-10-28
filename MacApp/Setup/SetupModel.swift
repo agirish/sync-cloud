@@ -1049,7 +1049,17 @@ final class SetupModel: ObservableObject {
         // after a changed answer left it to land hours later in the profile just replaced. Stopped
         // first, its progress is on disk for the write to carry across, and the restart reads only
         // what is left.
-        let interrupted = await manager.stopDocumentSurveyBeforeReplacingProfile()
+        let interrupted: URL?
+        switch await manager.stopDocumentSurveyBeforeReplacingProfile(savingFolder: walk.root) {
+        case .nothingStopped: interrupted = nil
+        case .stopped(let folder): interrupted = folder
+        case .stillReading:
+            // The reading reads on, and nothing is written over it: a press a moment later finds it
+            // between documents.
+            saveFailure = "SyncCloud is still reading one of your documents — save again in a moment."
+            Logger.shared.warning("Setup did not save: the document reading did not stop in time")
+            return false
+        }
         // Carried on into the new profile only when it is of the same folder: a reading of another
         // one is not this Save's to start, and with Read Documents off nobody asked for it.
         let carriesOn = interrupted.map { Self.sameFolder($0, walk.root) } ?? false
