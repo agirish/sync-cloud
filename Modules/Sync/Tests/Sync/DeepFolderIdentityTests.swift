@@ -829,7 +829,10 @@ private final class FirstAttributesGate: FileManaging, @unchecked Sendable {
         lock.lock(); let first = !gated; if first { gated = true }; lock.unlock()
         guard first else { return }
         entered.signal()
-        if release.wait(timeout: .now() + 10) == .timedOut {
+        // In scheduler turns as well as seconds: the release comes after the test's ⌘Z and a
+        // `waitUntil`, which a loaded runner paces in turns (flaky-tests.md, "A park's bound
+        // counted seconds while its release waited for scheduler turns").
+        if !release.wait(until: TurnDeadline(seconds: 10, turns: parkTurnFloor)) {
             lock.lock(); timedOut = true; lock.unlock()
         }
     }

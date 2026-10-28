@@ -238,7 +238,7 @@ import Testing
                 "if self.wait(timeout: .now() + 0.05) == .success { return true }",   // wait(until:)'s slice
             ],
             "DeepFolderIdentityTests.swift": [
-                "if release.wait(timeout: .now() + 10) == .timedOut {",   // FirstAttributesGate
+                "if !release.wait(until: TurnDeadline(seconds: 10, turns: parkTurnFloor)) {",   // FirstAttributesGate
                 "Thread.sleep(forTimeInterval: 0.005)",                   // brief: a scheduling nudge
             ],
             "ProgressAccountingTests.swift": ["if gate.wait(timeout: .now() + 10) == .timedOut {"],
@@ -249,7 +249,7 @@ import Testing
             "RestructureApplyGuardTests.swift": [
                 "if fire { entered.signal(); release.wait() }",
             ],
-            "MergeUndoPromiseTests.swift": ["if release.wait(timeout: .now() + 10) == .timedOut {"],
+            "MergeUndoPromiseTests.swift": ["if !release.wait(until: TurnDeadline(seconds: 10, turns: parkTurnFloor)) {"],
             "BulkSyncCancellationAndReservationTests.swift": [
                 "if barrier.wait(timeout: .now() + 30) == .timedOut { recordTimeout() }",
                 "Thread.sleep(forTimeInterval: 0.005)",

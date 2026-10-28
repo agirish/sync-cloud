@@ -302,7 +302,9 @@ import EventsTestSupport
                 }
                 if first {
                     entered.signal()
-                    if release.wait(timeout: .now() + 10) == .timedOut {
+                    // Turns as well as seconds, as `FirstAttributesGate`'s: the release waits on a
+                    // 600 ms grace loop of main-actor sleeps.
+                    if !release.wait(until: TurnDeadline(seconds: 10, turns: parkTurnFloor)) {
                         state.withLock { $0.timedOut = true }
                     }
                 }

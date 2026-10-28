@@ -4351,10 +4351,17 @@ spent. "Gave up after 10.0 s and 400+ turns" was disproved. A count far below it
 300 s ceiling ended it, so something stopped the main actor.
 
 **Still seconds-only, and not swept here:** the gates private to their suites —
-`FirstAttributesGate` (`DeepFolderIdentityTests`), `ProgressAccountingTests`' and
-`MergeUndoPromiseTests`' semaphores, `MergeUndoGroupingAndGateTests`' rendezvous,
+`ProgressAccountingTests`' semaphore, `MergeUndoGroupingAndGateTests`' rendezvous,
 `BulkSyncCancellationAndReservationTests`' barrier — and the park budget's own give-up. Each one is a
 one-line change to `wait(until: TurnDeadline(…))` if it goes red the same way.
+
+Two of that list did, and are converted (2026-10-27). `FirstAttributesGate`
+(`DeepFolderIdentityTests.anUndoInvokedBeforeTheIdentityWalkResolvesWaitsForItInsteadOfNoOping`):
+`!fm.releasedByTimeout` after 16.4 s in CI run 40621816945, the package at 43 s against 28 s; the
+undo had waited and then removed the copy, so only the release, behind a ⌘Z and a `waitUntil`,
+came late. `MergeUndoPromiseTests`' destination-stat gate
+(`aMergeDoesNotReportDoneBeforeItsCopyUndoIdentityIsRecorded`): red twice on CI at `513171f61`, its
+release behind a 600 ms grace loop of main-actor sleeps. Both park at `parkTurnFloor` now.
 
 ### 41. A move returned before its undo had read the Trash, so the fixture's stranger was recorded as the original — FIXED
 
