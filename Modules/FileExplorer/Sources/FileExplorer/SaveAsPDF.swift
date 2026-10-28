@@ -72,25 +72,26 @@ public enum SaveAsPDFOffer: Equatable, Sendable {
     }
 
     /// **The row menu's answer, and File ▸ Save as PDF's.** The cloud lookup is the row's own — the
-    /// badge's memo, else an `lstat` — and a batch's answer is the one PDF Tools holds for the same
-    /// selection (``PanePDFSelectionCloud``), so the two items ask the filesystem once between them.
+    /// badge's memo, else an `lstat`, read off the main thread and withheld when it does not answer
+    /// in time — and a batch's answer is held for a second, as PDF Tools' is
+    /// (``PanePDFSelectionCloud``).
     @MainActor
     public static func forSelection(_ nodes: [FileNode]) -> SaveAsPDFOffer? {
-        if nodes.count > 1 {
-            let paths = nodes.map(\.linkTarget)
-            return offer(for: nodes, isCloudOnly: { _ in
-                PanePDFSelectionCloud.anyCloudOnly(paths, isCloudOnly: FileContextMenu.isCloudOnly)
-            })
-        }
-        return offer(for: nodes, isCloudOnly: FileContextMenu.isCloudOnly)
+        forSelection(nodes, reads: .shared)
+    }
+
+    /// The same, through a reader of the caller's: the row menu's `cloudReads`.
+    @MainActor
+    static func forSelection(_ nodes: [FileNode], reads: BoundedCloudRead) -> SaveAsPDFOffer? {
+        offer(for: nodes, anyCloudOnly: { PanePDFSelectionCloud.anyCloudOnly(nodes, reads: reads) })
     }
 
     /// The cheap rules first — a flag the node holds and path math — so a selection with a folder or
-    /// a JPEG in it never pays a cloud lookup.
-    static func offer(for nodes: [FileNode], isCloudOnly: (String) -> Bool) -> SaveAsPDFOffer? {
+    /// a JPEG in it never pays a cloud lookup. Nil, too, when the lookup gave no answer.
+    static func offer(for nodes: [FileNode], anyCloudOnly: () -> Bool?) -> SaveAsPDFOffer? {
         guard !nodes.isEmpty,
               nodes.allSatisfy({ !$0.isDirectory && SaveAsPDFKind.of(path: $0.id) != nil }),
-              !nodes.contains(where: { isCloudOnly($0.linkTarget) })
+              anyCloudOnly() == false
         else { return nil }
         if nodes.count == 1, let node = nodes.first { return .single(path: node.id) }
         return .several(paths: nodes.map(\.id))

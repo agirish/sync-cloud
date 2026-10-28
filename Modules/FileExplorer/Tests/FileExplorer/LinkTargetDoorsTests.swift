@@ -13,6 +13,9 @@ import Sync
 /// satisfy it. Asked about the link, as every door used to ask, each one answers "local".
 @MainActor
 @Suite(.serialized) final class LinkTargetDoorsTests {
+    /// The suite's own reader, with a deadline no loaded run reaches: on the shared one a read
+    /// merely slowed by load would leave an offer out, and stop every other suite's reads with it.
+    static let reads = BoundedCloudRead(deadline: .seconds(30))
 
     let folder = NSTemporaryDirectory() + "link-target-doors-" + UUID().uuidString
 
@@ -135,12 +138,12 @@ import Sync
         // The walk's flag, and a node built without one — which is asked.
         for isLink in [true, nil] as [Bool?] {
             let selected = node(cloudLink, isLink: isLink)
-            #expect(PanePDFToolOffer.forSelection([selected]) == nil, "PDF Tools offered (isSymbolicLink \(String(describing: isLink)))")
+            #expect(PanePDFToolOffer.forSelection([selected], reads: Self.reads) == nil, "PDF Tools offered (isSymbolicLink \(String(describing: isLink)))")
         }
-        #expect(PanePDFToolOffer.forSelection([node(localFile, isLink: false), node(cloudLink, isLink: true)]) == nil)
+        #expect(PanePDFToolOffer.forSelection([node(localFile, isLink: false), node(cloudLink, isLink: true)], reads: Self.reads) == nil)
         #expect(PDFMenuEncryption.probes == probes, "selecting the link probed the file it points to")
 
-        #expect(PanePDFToolOffer.forSelection([node(localLink, isLink: true)]) == .single(path: localLink, encryption: .none))
+        #expect(PanePDFToolOffer.forSelection([node(localLink, isLink: true)], reads: Self.reads) == .single(path: localLink, encryption: .none))
         #expect(PDFMenuEncryption.probes == probes + 1)
     }
 
@@ -155,9 +158,9 @@ import Sync
         func node(_ path: String) -> FileNode {
             FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: false, isSymbolicLink: true)
         }
-        #expect(SaveAsPDFOffer.forSelection([node(cloudLink)]) == nil)
-        #expect(SaveAsPDFOffer.forSelection([node(localLink), node(cloudLink)]) == nil)
-        #expect(SaveAsPDFOffer.forSelection([node(localLink)]) == .single(path: localLink))
+        #expect(SaveAsPDFOffer.forSelection([node(cloudLink)], reads: Self.reads) == nil)
+        #expect(SaveAsPDFOffer.forSelection([node(localLink), node(cloudLink)], reads: Self.reads) == nil)
+        #expect(SaveAsPDFOffer.forSelection([node(localLink)], reads: Self.reads) == .single(path: localLink))
     }
 
     // MARK: Markdown images

@@ -12735,3 +12735,29 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s lateEnd=%s stallWatch=%s\n' $
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The order-0 turn end and no stall stacks (`lateEnd=0`, `stallWatch=0`) | RECORDED — not owed |
+
+---
+
+## PDF Tools', Save as PDF's and Keep Downloaded's reads leave the main thread too — main only
+
+2026-10-28, the follow-up to the row above. The row menu's PDF Tools and Save as PDF, and File ▸'s,
+`lstat`ed a file no badge had answered and read a PDF's protection on the main thread; Keep
+Downloaded's click read each pin and wrote it there, measured from the default home. On `main` the
+offers' reads go through `BoundedCloudRead` and are withheld when it does not answer in 200 ms, and
+the click reads and writes on a serial queue of its own, from the menu's `cloudHome`. The older
+lines have none of these items.
+
+```sh
+S=Modules/FileExplorer/Sources/FileExplorer
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s encryption=%s saveAsPDF=%s keepClick=%s\n' $l \
+  "$(git show origin/$l:$S/PanePDFToolMenu.swift 2>/dev/null | grep -c 'enum PDFMenuEncryption')" \
+  "$(git show origin/$l:$S/SaveAsPDF.swift 2>/dev/null | grep -c 'public enum SaveAsPDFOffer')" \
+  "$(git show origin/$l:$S/CloudDownloadRequest.swift 2>/dev/null | grep -c 'func setKeepDownloaded')"; done
+# measured 2026-10-28, against origin, before this landed:
+# main          encryption=1 saveAsPDF=1 keepClick=1
+# v5.x … v2.x   encryption=0 saveAsPDF=0 keepClick=0 (no PDF Tools, Save as PDF or Keep Downloaded)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | None of the three items, and no reads to move | CLOSED — does not apply |

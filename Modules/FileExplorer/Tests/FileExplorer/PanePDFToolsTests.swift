@@ -46,6 +46,9 @@ private struct PDFToolDelegate: FileActionDelegate {
 /// lane: each awaits its own run, so a crowded lane makes them slow, never wrong.
 @MainActor
 @Suite(.serialized) final class PanePDFToolsTests {
+    /// The suite's own reader, with a deadline no loaded run reaches: on the shared one a read
+    /// merely slowed by load would leave an offer out, and stop every other suite's reads with it.
+    static let reads = BoundedCloudRead(deadline: .seconds(30))
 
     let folder = NSTemporaryDirectory() + "pane-pdf-tools-" + UUID().uuidString
 
@@ -96,7 +99,8 @@ private struct PDFToolDelegate: FileActionDelegate {
                                    otherTree: PaneTree(side: .right, version: 1, nodes: []),
                                    otherSelection: [], isLeft: true, currentPath: "/",
                                    delegate: delegate, otherPaneName: "Right", isSingleSource: false,
-                                   onQuickLook: { _ in }, selectionResolver: PaneSelectionResolver())
+                                   onQuickLook: { _ in }, selectionResolver: PaneSelectionResolver(),
+                                   cloudReads: Self.reads)
         return rings(AnyView(VStack(alignment: .leading, spacing: 0) { menu }.frame(width: 260)), height: 900)
             .map(\.width)
     }
@@ -171,8 +175,7 @@ private struct PDFToolDelegate: FileActionDelegate {
             // The whole menu, item for item, is the menu with no tools at all.
             let drawn = Self.drawnRowWidths(nodes, delegate: delegate)
             #expect(drawn == Self.drawnRowWidths(nodes, delegate: baseline), "\(label) draws a PDF Tools submenu: \(drawn)")
-            #expect(PanePDFToolOffer.offer(for: nodes, isCloudOnly: FileContextMenu.isCloudOnly,
-                                           encryption: { _ in .none }) == nil, "\(label) is offered tools")
+            #expect(PanePDFToolOffer.forSelection(nodes, reads: Self.reads) == nil, "\(label) is offered tools")
         }
         // …and two plain PDFs DO draw it, so the absences above are the rule and not a blind test.
         let two = Self.drawnRowWidths([node(pdf), node(other)], delegate: delegate)
@@ -245,13 +248,13 @@ private struct PDFToolDelegate: FileActionDelegate {
             ("a PDF with a cloud-only PDF", [node(pdf), node(cloud)]),
         ]
         for (label, nodes) in hidden {
-            #expect(PanePDFToolOffer.forSelection(nodes) == nil, "\(label) is offered tools")
+            #expect(PanePDFToolOffer.forSelection(nodes, reads: Self.reads) == nil, "\(label) is offered tools")
         }
-        #expect(PanePDFToolOffer.forSelection([node(pdf)]) == .single(path: pdf, encryption: .none))
-        #expect(PanePDFToolOffer.forSelection([node(restricted)]) == .single(path: restricted, encryption: .restrictedOnly),
+        #expect(PanePDFToolOffer.forSelection([node(pdf)], reads: Self.reads) == .single(path: pdf, encryption: .none))
+        #expect(PanePDFToolOffer.forSelection([node(restricted)], reads: Self.reads) == .single(path: restricted, encryption: .restrictedOnly),
                 "one file's protection is not the probe's")
-        #expect(PanePDFToolOffer.forSelection([node(locked)]) == .single(path: locked, encryption: .lockedToOpen))
-        #expect(PanePDFToolOffer.forSelection([node(pdf), node(other)]) == .several(paths: [pdf, other]))
+        #expect(PanePDFToolOffer.forSelection([node(locked)], reads: Self.reads) == .single(path: locked, encryption: .lockedToOpen))
+        #expect(PanePDFToolOffer.forSelection([node(pdf), node(other)], reads: Self.reads) == .several(paths: [pdf, other]))
     }
 
     /// The submenu's name, on the row and in File ▸ — a batch counts its files.
@@ -663,17 +666,64 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(batch.files[0].status == .skipped(.inTheCloud))
     }
 
-    /// The selection's cloud answer is walked once per render pass, not once per selected row.
-    @Test func aSelectionsCloudAnswerIsWalkedOncePerPass() {
-        var asked = 0
-        let paths = ["/x/\(UUID().uuidString)/A.pdf", "/x/B.pdf"]
+    /// Several files' cloud answer is walked once a second, not once per pass: the menu bar asks it
+    /// on every window render. One file is asked afresh, and no answer is never held.
+    @Test func aSelectionsCloudAnswerIsWalkedOncePerSecond() {
+        var walks = 0
+        let nodes = [node("/x/\(UUID().uuidString)/A.pdf"), node("/x/B.pdf")]
         let now = Date()
         for _ in 0..<5 {
-            _ = PanePDFSelectionCloud.anyCloudOnly(paths, now: now) { _ in asked += 1; return false }
+            _ = PanePDFSelectionCloud.anyCloudOnly(nodes, now: now) { _ in walks += 1; return false }
         }
-        #expect(asked == 2, "the selection was walked \(asked / 2) times")
-        _ = PanePDFSelectionCloud.anyCloudOnly(paths, now: now.addingTimeInterval(2)) { _ in asked += 1; return false }
-        #expect(asked == 4, "a stale answer was served")
+        #expect(walks == 1, "the selection was walked \(walks) times")
+        _ = PanePDFSelectionCloud.anyCloudOnly(nodes, now: now.addingTimeInterval(2)) { _ in walks += 1; return false }
+        #expect(walks == 2, "a stale answer was served")
+
+        let one = [node("/x/\(UUID().uuidString)/C.pdf")]
+        for _ in 0..<2 { _ = PanePDFSelectionCloud.anyCloudOnly(one, now: now) { _ in walks += 1; return false } }
+        #expect(walks == 4, "one file's answer was held")
+        let unanswered = [node("/x/\(UUID().uuidString)/D.pdf"), node("/x/E.pdf")]
+        for _ in 0..<2 { _ = PanePDFSelectionCloud.anyCloudOnly(unanswered, now: now) { _ in walks += 1; return nil } }
+        #expect(walks == 6, "a walk that gave no answer was held")
+    }
+
+    /// **A read the provider holds withholds the offers, not the main thread.** The cloud `lstat`
+    /// and the protection probe go through `BoundedCloudRead`; while one is stuck, PDF Tools and
+    /// Save as PDF are left out for any file they would need a read for — where reading on the main
+    /// thread would have answered, from this local folder, and offered both. What the memos already
+    /// know needs no read, and is offered as before; once the read returns, so is the rest.
+    @Test func aHeldReadWithholdsTheOffersAndTheMemosStillAnswer() async throws {
+        let reads = BoundedCloudRead(deadline: .milliseconds(50))
+        let known = path("Known.pdf"), fresh = path("Fresh.pdf"), unprobed = path("Unprobed.pdf")
+        let note = path("Fresh.md")
+        for pdf in [known, fresh, unprobed] { PDFFixtures.write(pdf, pages: 1) }
+        try Data("x\n".utf8).write(to: URL(fileURLWithPath: note))
+        func file(_ path: String) -> FileNode {
+            FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: false, isSymbolicLink: false)
+        }
+        // `unprobed`'s badge has answered, but its protection was never read.
+        for pdf in [known, unprobed] { CloudOnlyBadgeCache.record(pdf, isCloudOnly: false) }
+        defer { for pdf in [known, unprobed] { CloudOnlyBadgeCache.forget(pdf) } }
+        // The memos learn `known` while reads answer.
+        #expect(PanePDFToolOffer.forSelection([file(known)], reads: reads) == .single(path: known, encryption: .none))
+
+        let release = DispatchSemaphore(value: 0)
+        #expect(reads.run { release.wait(); return 0 } == nil, "the held read answered")
+        #expect(PanePDFToolOffer.forSelection([file(known)], reads: reads) == .single(path: known, encryption: .none),
+                "a file both memos know was withheld")
+        #expect(PanePDFToolOffer.forSelection([file(fresh)], reads: reads) == nil, "an unread PDF was offered tools")
+        #expect(PanePDFToolOffer.forSelection([file(unprobed)], reads: reads) == nil,
+                "a PDF whose protection was never read was offered tools")
+        #expect(PanePDFToolOffer.forSelection([file(known), file(fresh)], reads: reads) == nil,
+                "an unread batch was offered tools")
+        #expect(SaveAsPDFOffer.forSelection([file(note)], reads: reads) == nil, "an unread note was offered Save as PDF")
+
+        release.signal()
+        let end = Date().addingTimeInterval(15)
+        while reads.recoveries == 0, Date() < end { try? await Task.sleep(nanoseconds: 8_000_000) }
+        #expect(reads.recoveries == 1, "the held read never reported back")
+        #expect(PanePDFToolOffer.forSelection([file(fresh)], reads: reads) == .single(path: fresh, encryption: .none))
+        #expect(SaveAsPDFOffer.forSelection([file(note)], reads: reads) == .single(path: note))
     }
 
     /// **A batch says when a copy lost its original's restrictions**, as one file's run does —

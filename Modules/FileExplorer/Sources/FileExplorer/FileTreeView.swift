@@ -1593,15 +1593,17 @@ struct FileContextMenu: View {
 
     /// Keep Downloaded as a ticked item, or nothing outside iCloud Drive or past
     /// `KeepDownloadedOffer.selectionCap` items. The tick is the state the menu was built with; a
-    /// click sets the opposite of what it showed, which is what was asked.
+    /// click sets the opposite of what it showed, which is what was asked — off the main thread, and
+    /// measured from the same `cloudHome` the tick was.
     @ViewBuilder
     private func keepDownloadedToggle(_ offer: KeepDownloadedOffer?, for nodes: [FileNode]) -> some View {
         if let offer {
             Toggle(isOn: Binding(get: { offer.isOn }, set: { kept in
-                CloudDownloadRequest.setKeepDownloaded(
-                    kept, for: nodes,
-                    from: PaneToken(isLeft: isLeft, isSingleSource: isSingleSource),
-                    through: downloadChannel)
+                let pane = PaneToken(isLeft: isLeft, isSingleSource: isSingleSource)
+                Task { [downloadChannel, cloudHome] in
+                    await CloudDownloadRequest.setKeepDownloaded(
+                        kept, for: nodes, from: pane, through: downloadChannel, home: cloudHome)
+                }
             })) {
                 Label("Keep Downloaded", systemImage: "pin")
             }
@@ -1616,11 +1618,6 @@ struct FileContextMenu: View {
         let them = count == 1 ? "it" : "them"
         return offer.isOn ? "Lets macOS remove the download again when space is needed."
                           : "Downloads \(them) now and keeps \(them) on this Mac, even when space is low."
-    }
-
-    /// The row's own ☁ answer when it has one, a fresh `lstat` otherwise — Download's rule below.
-    static func isCloudOnly(_ path: String) -> Bool {
-        CloudOnlyBadgeCache.cached(path) ?? MaterializationStatus.isCloudOnly(atPath: path)
     }
 
     /// What Download and Keep Downloaded offer for `nodes`.
@@ -1674,9 +1671,8 @@ struct FileContextMenu: View {
     ///
     /// **A row outside the selection answers from the row.** It acts on itself alone — the rule
     /// above — and a row cut from `tree` itself (same side, same version) holds the very node the
-    /// walk would find, by `PaneRow`'s stamp invariant. That is every row but the selected ones, on
-    /// every render: SwiftUI builds this menu with its row, not only when it opens. A row from some
-    /// other publish still walks, so a stale row gets the answer it always got.
+    /// walk would find, by `PaneRow`'s stamp invariant. That is every row but the selected ones. A
+    /// row from some other publish still walks, so a stale row gets the answer it always got.
     ///
     /// One qualification, and it changes nothing a verb does. A tree can hold two nodes at one path
     /// — iCloud's linked Documents and Desktop appear under `~` and inside iCloud Drive
@@ -1711,7 +1707,7 @@ struct FileContextMenu: View {
             // selection holds anything a tool could not read — a folder, another kind, a cloud-only
             // file. The single-file submenu lives in its own section of the branch below.
             if count > 1, delegate.canRunPDFTools,
-               case .several(let paths)? = PanePDFToolOffer.forSelection(selectedNodes) {
+               case .several(let paths)? = PanePDFToolOffer.forSelection(selectedNodes, reads: cloudReads) {
                 PanePDFToolsSubmenu(offer: .several(paths: paths), delegate: delegate)
                 Divider()
             }
@@ -1719,7 +1715,7 @@ struct FileContextMenu: View {
             // a PDF hides this item, and anything but PDFs hides that one. Hidden for a folder, a
             // kind nothing converts, or a cloud-only file, as the tools are.
             if count > 1, delegate.canSaveAsPDF,
-               case .several(let paths)? = SaveAsPDFOffer.forSelection(selectedNodes) {
+               case .several(let paths)? = SaveAsPDFOffer.forSelection(selectedNodes, reads: cloudReads) {
                 SaveAsPDFMenuItem(offer: .several(paths: paths), delegate: delegate)
                 Divider()
             }
@@ -1779,8 +1775,8 @@ struct FileContextMenu: View {
                 // **Its own section, under the open-and-inspect items** (mockup 11), so it never
                 // shifts Rename or anything below it — and never between Refresh and Open in Edit,
                 // which leads this branch. Hidden, not greyed, for a folder, a non-PDF or a
-                // cloud-only file: nothing in it could run.
-                if delegate.canRunPDFTools, let offer = PanePDFToolOffer.forSelection([singleNode]) {
+                // cloud-only file: nothing in it could run. Hidden too when its reads hang.
+                if delegate.canRunPDFTools, let offer = PanePDFToolOffer.forSelection([singleNode], reads: cloudReads) {
                     Divider()
                     PanePDFToolsSubmenu(offer: offer, delegate: delegate)
                         .lockedDuringRun()
@@ -1788,7 +1784,7 @@ struct FileContextMenu: View {
                 // **Save as PDF, in PDF Tools' own section** (CV1) — a file that can become a PDF
                 // shows it where a PDF shows its tools, so Rename never moves. A PDF keeps its tools
                 // and is never offered this.
-                if delegate.canSaveAsPDF, let offer = SaveAsPDFOffer.forSelection([singleNode]) {
+                if delegate.canSaveAsPDF, let offer = SaveAsPDFOffer.forSelection([singleNode], reads: cloudReads) {
                     Divider()
                     SaveAsPDFMenuItem(offer: offer, delegate: delegate)
                         .lockedDuringRun()
@@ -1799,12 +1795,12 @@ struct FileContextMenu: View {
                 }
                 .lockedDuringRun()
                 // Offered only when this provider will actually reject the name — a finding, not a
-                // standing menu item. **This runs with the ROW, not only when the menu opens:**
-                // SwiftUI builds a row's context menu each time the row renders, so everything in
-                // this body is paid per visible row, per click (see `PaneSelectionResolver`). The
-                // delegate answers from `RiskyNameBadgeCache`'s memo for a name with nothing wrong,
-                // and all of this body but the selection walks came to 4 of its 281 samples
-                // (2026-09-27) — but nothing costlier belongs here.
+                // standing menu item. **This runs on the main thread, at the right-click, before the
+                // menu shows** — and again with each later render of a row whose menu has been
+                // opened (measured 2026-10-28 on macOS 27; not, as once believed, with every visible
+                // row). The delegate answers from `RiskyNameBadgeCache`'s memo for a name with
+                // nothing wrong, and all of this body but the selection walks came to 4 of its 281
+                // samples (2026-09-27) — but nothing costlier belongs here.
                 if let risky = delegate.riskyName(for: singleNode) {
                     Button(action: { delegate.handleFixName(singleNode) }) {
                         // No ellipsis (LN13): it renames at once, undoably — nothing more is asked.

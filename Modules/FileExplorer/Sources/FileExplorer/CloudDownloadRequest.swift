@@ -196,17 +196,47 @@ public struct CloudDownloadRequest: Equatable, Sendable {
     /// on pinning also request the downloads. The provider would fetch them anyway, but only a
     /// request through this pane starts the watch that clears a row's cloud badge.
     ///
-    /// - Parameter state: what each node's pin is now; the app's reads the attribute, a test
-    ///   passes its own.
+    /// **The reads and the pins run on `keepQueue`, never the main actor** the click arrives on.
+    /// Each is a `getxattr`, `setxattr` or `lstat` inside iCloud Drive — microseconds when healthy
+    /// (~15, ~40 and ~2 µs, measured 2026-10-28), seconds when a wedged File Provider holds them.
+    /// Unlike a menu's offer the click is not abandoned at a deadline: it is an act, so it finishes
+    /// whenever the provider lets it. Serial, so two clicks land in the order they were made. Only
+    /// the download request comes back to the main actor.
+    ///
+    /// - Parameter home: whose iCloud Drive, `~/Desktop` and `~/Documents` decide the state — the
+    ///   menu's `cloudHome`, so a test's scratch home is the one asked.
+    /// - Parameter state: what each node's pin is now; nil reads the attribute below `home`, and a
+    ///   test passes its own.
     @MainActor
     public static func setKeepDownloaded(
         _ kept: Bool, for nodes: [FileNode], from paneToken: PaneToken,
         through channel: NotificationCenter = .default,
-        state: (String) -> KeepDownloaded.State = { KeepDownloaded.state(ofPath: $0) },
-        pin: (Bool, String) throws -> Void = { try KeepDownloaded.set($0, atPath: $1) },
-        isCloudOnly: (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) },
+        home: String = NSHomeDirectory(),
+        state: (@Sendable (String) -> KeepDownloaded.State)? = nil,
+        pin: @escaping @Sendable (Bool, String) throws -> Void = { try KeepDownloaded.set($0, atPath: $1) },
+        isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) },
         download: (@MainActor (CloudDownloadOffer) -> Void)? = nil
-    ) {
+    ) async {
+        let state = state ?? { KeepDownloaded.state(ofPath: $0, home: home) }
+        let offer = await withCheckedContinuation { continuation in
+            keepQueue.async {
+                continuation.resume(returning: pinning(kept, nodes, state: state, pin: pin, isCloudOnly: isCloudOnly))
+            }
+        }
+        guard let offer else { return }
+        // Through THIS pane, so its watch is the one that hears it — never a default pane's.
+        if let download { download(offer) } else { request(offer, from: paneToken, through: channel) }
+    }
+
+    /// Where Keep Downloaded's clicks read and write, one after another.
+    private static let keepQueue = DispatchQueue(label: "com.synccloud.keep-downloaded", qos: .userInitiated)
+
+    /// The click's filesystem half: the pins, and what to download after — nil when nothing was
+    /// pinned or it is an unpin.
+    private static func pinning(
+        _ kept: Bool, _ nodes: [FileNode], state: (String) -> KeepDownloaded.State,
+        pin: (Bool, String) throws -> Void, isCloudOnly: (String) -> Bool
+    ) -> CloudDownloadOffer? {
         let changing = nodes.filter { state($0.id) == (kept ? .off : .on) }
         var pinned: [FileNode] = []
         for node in changing {
@@ -218,10 +248,8 @@ public struct CloudDownloadRequest: Equatable, Sendable {
                 Logger.shared.warning("Could not \(kept ? "keep" : "stop keeping") “\(node.name)” downloaded (\(error.localizedDescription))")
             }
         }
-        guard kept, let offer = CloudDownloadOffer.forSelection(
-            pinned, isCloudOnly: isCloudOnly, isInCloudLocation: { _ in true }) else { return }
-        // Through THIS pane, so its watch is the one that hears it — never a default pane's.
-        if let download { download(offer) } else { request(offer, from: paneToken, through: channel) }
+        guard kept else { return nil }
+        return CloudDownloadOffer.forSelection(pinned, isCloudOnly: isCloudOnly, isInCloudLocation: { _ in true })
     }
 
     /// The routing decision, extracted so it can be unit-tested: the request carried by

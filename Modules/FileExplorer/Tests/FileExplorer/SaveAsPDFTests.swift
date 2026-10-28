@@ -46,6 +46,9 @@ private struct SaveDelegate: FileActionDelegate {
 /// Serialized: the runs print through WebKit and AppKit, one operation at a time per process.
 @MainActor
 @Suite(.serialized) final class SaveAsPDFTests {
+    /// The suite's own reader, with a deadline no loaded run reaches: on the shared one a read
+    /// merely slowed by load would leave an offer out, and stop every other suite's reads with it.
+    static let reads = BoundedCloudRead(deadline: .seconds(30))
 
     let folder = NSTemporaryDirectory() + "save-as-pdf-" + UUID().uuidString
 
@@ -401,10 +404,10 @@ private struct SaveDelegate: FileActionDelegate {
             ("a .docx with a cloud-only deck", [node(doc), node(cloud)]),
         ]
         for (label, nodes) in hidden {
-            #expect(SaveAsPDFOffer.forSelection(nodes) == nil, "\(label) is offered Save as PDF")
+            #expect(SaveAsPDFOffer.forSelection(nodes, reads: Self.reads) == nil, "\(label) is offered Save as PDF")
         }
-        #expect(SaveAsPDFOffer.forSelection([node(doc)]) == .single(path: doc))
-        #expect(SaveAsPDFOffer.forSelection([node(doc), node(md)]) == .several(paths: [doc, md]))
+        #expect(SaveAsPDFOffer.forSelection([node(doc)], reads: Self.reads) == .single(path: doc))
+        #expect(SaveAsPDFOffer.forSelection([node(doc), node(md)], reads: Self.reads) == .several(paths: [doc, md]))
         #expect(SaveAsPDFOffer.several(paths: [doc, md, pdf]).title == "Save as PDF · 3 files")
         #expect(SaveAsPDFOffer.single(path: doc).title == "Save as PDF")
     }
@@ -420,7 +423,8 @@ private struct SaveDelegate: FileActionDelegate {
                                    otherTree: PaneTree(side: .right, version: 1, nodes: []),
                                    otherSelection: [], isLeft: true, currentPath: "/",
                                    delegate: delegate, otherPaneName: "Right", isSingleSource: false,
-                                   onQuickLook: { _ in }, selectionResolver: PaneSelectionResolver())
+                                   onQuickLook: { _ in }, selectionResolver: PaneSelectionResolver(),
+                                   cloudReads: Self.reads)
         return rings(AnyView(VStack(alignment: .leading, spacing: 0) { menu }.frame(width: 260)), height: 900)
             .map(\.width)
     }

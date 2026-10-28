@@ -25,7 +25,8 @@ public enum CloudDownloadOffer: Equatable, Sendable {
     ///
     /// - Parameter isCloudOnly: the caller's answer for a file. The row menu asks the badge memo
     ///   and, for its own single row, a fresh `lstat`; File ▸ Download and a multi-selection ask
-    ///   the memo alone, because they are asked on every render, for every selected row.
+    ///   the memo alone — File ▸ on every window render, and a multi-selection's menu once per
+    ///   selected row opened, each rebuilt with its row.
     /// - Parameter isInCloudLocation: a test's answer for a folder. The app's is
     ///   `MaterializationStatus.isInCloudLocation`, with its one attribute read — the domain of
     ///   `~/Desktop` or `~/Documents` — asked once per offer rather than once per selected folder:
@@ -78,8 +79,10 @@ struct KeepDownloadedOffer: Equatable, Sendable {
 
     /// Above this many items the multi-selection is not offered Keep Downloaded at all. The tick
     /// costs an `lstat` and a `getxattr` per item per level — ~9 µs, measured 2026-10-27 — and the
-    /// row menu is built for every selected row on every render, so the price is the selection's
-    /// size squared: 20 is a few milliseconds at worst, 200 would be a third of a second.
+    /// menu waits for it at the right-click, and again whenever an opened row's menu is rebuilt with
+    /// its row. Off the main thread now (`BoundedCloudRead`), but the wait is the same, and a read
+    /// that outlives the deadline stops every menu's reads until it returns: 20 is well under a
+    /// millisecond a level, where a selection of thousands could pass the 200 ms a wedge is told by.
     static let selectionCap = 20
 
     /// The offer for `nodes`, or nil when any of them is outside iCloud Drive (where the pin was

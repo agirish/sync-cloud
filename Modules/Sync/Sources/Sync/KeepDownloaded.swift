@@ -47,10 +47,10 @@ public enum KeepDownloaded {
 
     /// Whether the item at `path` is kept downloaded.
     ///
-    /// Asked by a row's context menu, which is built every time the row renders, so it is cheap: a
-    /// path outside iCloud costs string comparisons (and, under `~/Desktop` or `~/Documents`, one
-    /// `getxattr` on that folder); one inside costs an `lstat` and a `getxattr` per folder between
-    /// it and the iCloud root. A link in iCloud is asked about as the file it points to, which is
+    /// Asked by a row's context menu while it is built, which the right-click waits on, so it is
+    /// cheap: a path outside iCloud costs string comparisons (and, under `~/Desktop` or
+    /// `~/Documents`, one `getxattr` on that folder); one inside costs an `lstat` and a `getxattr`
+    /// per folder between it and the iCloud root. A link in iCloud is asked about as the file it points to, which is
     /// the file the pin would fetch; a link elsewhere is not offered, wherever it points.
     public static func state(ofPath path: String, home: String = NSHomeDirectory(),
                              domainOf: DomainOf = realDomainOf) -> State {
