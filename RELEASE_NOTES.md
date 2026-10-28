@@ -5,6 +5,111 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v6.2 — DRAFT, not released
+
+> What is on `main` since v6.1. It may still change before v6.2 is cut, and nothing here is
+> installable from a release yet.
+
+**Everything running, in one place.** v6.2 gathers the app's runs and messages into one Activity
+window. Several runs can go at once, each with its own Stop, and every message stays readable
+after its five seconds, with its Undo. A run that ends while you are elsewhere tells you where you
+are. Download All fetches a whole cloud folder, and Keep Downloaded holds iCloud Drive files on
+this Mac. Undo This Reorganization leaves a file that isn't its own where it stands, and names
+what changed since. Setup no longer reads documents into a profile a later Save replaced.
+
+Requires **macOS 26**, unchanged from v6.1.
+
+### Activity
+
+- **One window for runs and history.** Activity has three tabs: Now, History and Log. It replaces
+  the separate Activity Log and Sync History windows. Open it from Window ▸ Activity, the Activity
+  button in the toolbar or ⌘L. It opens on the tab you used last, or on Now while the Activity
+  button's dot is up; Window ▸ Sync History opens it on History.
+- **Several runs at once, each with its own Stop.** The toolbar capsule shows the newest run. With
+  two or more it shows a count, "2 ⌄", that opens a list with a Stop for each. In v6.1 the capsule
+  showed runs in a fixed order, and a Save as PDF behind a merge had no Stop until the merge ended.
+  ⌘. opens the list rather than stopping a run you can't see; a second ⌘. stops the newest. Click the
+  capsule for a quick look at Now, or Open as Window.
+- **Recent keeps every message.** A message that left the pane after five seconds, or was replaced
+  by the next one, is no longer lost. Now's Recent lists every message since SyncCloud started, in
+  full, with its buttons, newest first. It keeps the newest 50, and repeats fold into one row with a
+  count, "×4". A message's Undo works while its step is the newest. After something newer, it says
+  what to undo first: "Undo the newer “Rename” first." Show in History and Show in Log narrow those
+  tabs to the run's records and the minutes around it. A run you stopped is gray and says what it
+  kept.
+- **A result finds you.** A long run that ends after you moved to another workspace shows its
+  message, with its Undo, in the toolbar capsule, not in a pane you aren't looking at. A red dot on
+  the Activity button marks a problem you may not have seen. A background notification names the
+  run that ended, and a click opens Activity on that message. VoiceOver reads results that arrive
+  together as one sentence.
+- **Long scans and PDF batches.** Reading documents, a duplicate scan and a reorganization being
+  applied are listed in Now, with Show, and never take over the capsule. A PDF tool run on several
+  files from a pane asks its question, closes its sheet and goes on in the capsule, with Stop. A PDF
+  run waiting for other PDF work shows a clock.
+- **A run that is finishing says so.** While a copy, move, sync or merge records its undo, the
+  capsule reads "Finishing the copy…", with no Stop and no ⌘., which would have stopped nothing. A
+  duplicate merge keeps file actions and ⌘Z grayed until its Undo is ready; in v6.1 they came back
+  while it was still recording.
+
+### Downloading
+
+- **Download All.** Right-click a folder in iCloud Drive, Google Drive, Dropbox or OneDrive for
+  Download All. It downloads every file inside it that is still in the cloud, at any depth, in the
+  background, and the rows update as the files arrive. On a selection of several files and folders,
+  it covers them all. File ▸ Download reads Download All for a cloud folder or several items.
+- **Keep Downloaded**, on a file or folder in iCloud Drive, is Finder's own setting. SyncCloud
+  downloads the item now, and macOS keeps it on this Mac rather than removing it when space runs
+  low. Anything inside a folder kept downloaded shows it ticked and grayed. It works on up to 20
+  items at once.
+
+### Undo and Restructure
+
+- **Undo This Reorganization leaves a different file where it is.** In v6.1 the undo checked only
+  that something stood at each path it had filled, so a different file saved there went back in
+  place of the original. A reorganization now records each item's file number and creation date.
+  The undo leaves a file that is clearly new where it stands, and the log names it. A file edited
+  since, which most apps save by swapping in a new file, still goes back, and the banner names it so
+  you can check it.
+- **An exported plan is kept.** A plan you exported with Export Plan now moves with the folder's
+  survey when the survey is updated, and goes back with it when a reorganization is undone.
+- **Undoing New Folder keeps a folder that holds only folders.** v6.1 trashed one.
+- **Smaller fixes.** ⌘Z of Never Suggest This Again no longer overwrites what a reorganization
+  recorded since. Show them again counts only groups whose copies are still on disk. A pair merge's
+  saved plan offers Discard Plan, and the plan sheet says when Close keeps the earlier plan.
+
+### Setup
+
+- **A second Save while documents are being read** stops the reading, writes the new profile and
+  carries the reading on there, paused if you had paused it. In v6.1 the reading finished, hours
+  later, into the profile the Save had just replaced. While a Refresh reads, which can't be
+  stopped, a Save that would replace its profile is refused.
+- **The roster.** Editing your name renames your own record; in v6.1, closing Setup added a second,
+  hidden one. Adding or removing a person after a Save offers Save again. A roster Setup can't write
+  shows no remove buttons, and one that lists someone twice says so.
+- **Look Again only counts** the documents in a folder that had none to read; Read My Documents does
+  the reading. Pressing Learn during a reading no longer starts a second walk of the folder. Help
+  now says that each folder Setup learns keeps its own Restructure history.
+
+### Around the app
+
+- **Title Case on buttons**, as Setup's buttons had in v6.1: Try Another Folder, Not Now, Keep
+  Separate, Scan Again and the rest that were still in sentence case.
+- **Words you can read on PDF sheets.** In the PDF tool sheets, only the default button takes the
+  accent. Buttons such as Keep Current Values and Clear All draw their words in the label color.
+  Before, the sheet tinted their words with the accent, which read poorly at Green.
+- **Clean Metadata names an encrypted PDF.** Skipping one, it says the file is encrypted rather than
+  that its owner doesn't allow changes. It points to PDF Tools ▸ Remove Password…, which writes an
+  unencrypted copy.
+
+### Known limitations
+
+- A reorganization landed by v6.1 or earlier recorded only sizes. Its undo can't tell a new file
+  from the one it put there: it moves back whatever stands at the path, and names any file whose
+  size changed.
+- Keep Downloaded is offered in iCloud Drive only. Google Drive and OneDrive ignored it when tested.
+
+---
+
 ## v6.1
 
 **Safer with your files.** v6.1 adds no new workspace. It closes the ways the tools that move,
