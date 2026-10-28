@@ -157,6 +157,20 @@ the benchmark to fail there for machine reasons, not code reasons, and plan
 to re-validate (and re-record/re-calibrate) on the new machine — see the
 re-record workflow in `Modules/Design/Tests/DesignTests/SNAPSHOTS.md`.
 
+## Docs-only pushes start no run
+
+A branch push that changes only root-level Markdown (`CLAUDE.md`, `ROADMAP.md`, …) or files under
+`docs/` starts no run: no build reads them, and every repo-wide scan reads only `.swift` and `.plist`
+files. Three are read by tests and still run: `RELEASE_NOTES.md` and `docs/releases.html`
+(`PageStripCopyClaimTests`, `HelpBookTests`) and `README.md` (`HelpBookTests`). Markdown anywhere
+else — a test's fixture, a package README — still runs, and so does every tag push, since GitHub
+never applies path filters to tags. A skipped push also no longer cancels the code run before it, so
+that run's verdict covers the docs commit on top. Measured when this was added (2026-10-28): 10 of
+429 commits since 10-14 would have skipped.
+
+**If you add a test that reads a doc**, add that file to the re-included paths in
+`.github/workflows/tests.yml` in the same commit, or a push touching only it will never be tested.
+
 ## Tip-only verdicts on branches
 
 Branch pushes to `main` or `v2.x` share **one concurrency group per ref** with

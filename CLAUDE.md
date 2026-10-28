@@ -67,6 +67,8 @@ Do not stop to report and wait. In order:
 
 1. **Watch CI for the SHA you pushed** — `gh run list --branch main --limit 3`. Fix a red your commit
    caused, forward, through the same steps. Read [`docs/flaky-tests.md`](docs/flaky-tests.md) first.
+   A push that changes only root-level Markdown or `docs/` starts no run (`docs/ci.md`), so there is
+   nothing to watch; `RELEASE_NOTES.md`, `README.md` and `docs/releases.html` still run.
 2. **Pick up the next pending item** — your own follow-ups first, then open items the roadmap and
    memory list as built-but-not-pushed or planned. Check `git worktree list` and the running
    sessions so you do not take over another session's work.

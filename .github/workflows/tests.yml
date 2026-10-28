@@ -40,6 +40,22 @@ on:
     # Release tags get the full suite too: cutting v2.9 or v3.0 must not rely
     # on the branch tip having been the last thing tested.
     tags: ['v*']
+    # A branch push that changes only root-level Markdown or docs/ starts no
+    # run: no build reads those files, and every repo scan reads only .swift
+    # and .plist. Three are tested, so they are put back:
+    # PageStripCopyClaimTests reads RELEASE_NOTES.md and docs/releases.html,
+    # and HelpBookTests reads those and README.md. .github/ is named outright
+    # rather than trusting `**` to match a dot-directory. Path filters never
+    # apply to tag pushes, so a release always runs. Checked 2026-10-28: 10 of
+    # 429 commits since 10-14 would have skipped.
+    paths:
+      - '**'
+      - '.github/**'
+      - '!*.md'
+      - '!docs/**'
+      - 'RELEASE_NOTES.md'
+      - 'README.md'
+      - 'docs/releases.html'
   workflow_dispatch:
     inputs:
       clean:
