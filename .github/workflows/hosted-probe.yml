@@ -49,7 +49,8 @@ jobs:
       # printed on one line, so the job summary is the probe's answer.
       - name: Build and test
         run: |
-          set -uo pipefail
+          # GitHub runs this with `bash -e`; without `+e` the first red package ends the probe.
+          set +e -uo pipefail
           failed=()
           for pkg in ${{ matrix.packages }}; do
             echo "::group::${pkg}"
@@ -90,7 +91,7 @@ jobs:
 
       - name: App-target tests (xcodegen + xcodebuild)
         run: |
-          set -uo pipefail
+          set +e -uo pipefail
           began=$(date +%s)
           xcodegen
           xcodebuild test -project SyncCloud.xcodeproj -scheme SyncCloud \
