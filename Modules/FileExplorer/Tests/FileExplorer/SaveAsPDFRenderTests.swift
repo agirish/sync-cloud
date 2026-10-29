@@ -285,7 +285,7 @@ import EventsTestSupport
 
     /// **A deck of pictures of words comes out searchable** — each slide's words on its own page,
     /// found by PDFKit's search where the picture shows them (R2, ``PictureText``).
-    @Test func aDeckOfPicturesOfWordsIsSearchable() async throws {
+    @Test(.machinePinned(.textRecognition)) func aDeckOfPicturesOfWordsIsSearchable() async throws {
         let output = try await SaveAsPDFRender.render(try Self.fixture("PictureWords.pptx"))
         let document = try read(output)
         #expect(output.pageCount == 2)
@@ -335,7 +335,7 @@ import EventsTestSupport
     ///
     /// **Five renders, because each has one chance.** Only a view's first drawing after the decode
     /// can come out blank. Without `decoding = 'sync'`, 19 of 20 renders did (2026-10-20).
-    @Test func aPictureSlideDrawnLateIsStillDrawn() async throws {
+    @Test(.machinePinned(.textRecognition)) func aPictureSlideDrawnLateIsStillDrawn() async throws {
         let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("ql-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: scratch) }
@@ -354,7 +354,7 @@ import EventsTestSupport
     /// **A deck mixing a text slide with a picture of words reads the picture only** — the picture's
     /// page gets its words, and the text slide's page reads exactly as the file's text made it,
     /// with nothing recognised laid over it.
-    @Test func aMixedDeckReadsOnlyItsPictureSlides() async throws {
+    @Test(.machinePinned(.textRecognition)) func aMixedDeckReadsOnlyItsPictureSlides() async throws {
         let path = try Self.fixture("Mixed.pptx")
         let output = try await SaveAsPDFRender.render(path)
         let document = try read(output)
@@ -374,7 +374,7 @@ import EventsTestSupport
     }
 
     /// **The words are invisible** — each page draws pixel for pixel as it did without them.
-    @Test func recognisedTextDrawsNothing() async throws {
+    @Test(.machinePinned(.textRecognition)) func recognisedTextDrawsNothing() async throws {
         let plain = try await SaveAsPDFRender.officePDF(try Self.fixture("PictureWords.pptx"), kind: .presentation,
                                                         settings: SaveAsPDFRender.Settings())
         let read = try #require(PictureText.searchable(plain), "Vision read no words in the fixture")
@@ -395,7 +395,7 @@ import EventsTestSupport
     /// every request away while macOS recompiles its models does not leave the deck unsearchable
     /// (`docs/flaky-tests.md`, "Vision's Neural Engine refuses text requests for hours"). The
     /// refusal is made here; the CPU read is Vision's own.
-    @Test func aRefusedRecognitionIsReadAgainOnTheCPU() async throws {
+    @Test(.machinePinned(.textRecognition)) func aRefusedRecognitionIsReadAgainOnTheCPU() async throws {
         let plain = try await SaveAsPDFRender.officePDF(try Self.fixture("PictureWords.pptx"), kind: .presentation,
                                                         settings: SaveAsPDFRender.Settings())
         let page = try #require(PDFComposer.document(plain)?.page(at: 1))

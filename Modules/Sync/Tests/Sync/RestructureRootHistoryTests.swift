@@ -645,7 +645,7 @@ import Testing
 
     /// iCloud Drive comes back (review C11): a folder in it missing — iCloud signed out — is not
     /// gone, at any depth, so its history entry and profile folder stay.
-    @Test func aFolderInICloudDriveIsNeverGone() throws {
+    @Test(.machinePinned(.iCloudDrive)) func aFolderInICloudDriveIsNeverGone() throws {
         let profiles = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: profiles) }
         try FileManager.default.createDirectory(at: profiles.appendingPathComponent("p"),

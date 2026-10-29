@@ -40,16 +40,48 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Sync, Events, Settings, CLI
-            packages: Modules/Sync Modules/Events Modules/Settings SyncCloudCLI
-          - name: Design, Dashboard
-            packages: Modules/Design Modules/Dashboard
+          # Five jobs: the Free plan's limit for macOS. Sync has a VM of its own, run as two
+          # processes, because on 3 vCPUs its 3,900 tests queued on one main actor starved their
+          # own waits (2026-10-29: 25 timeouts, tests taking 38-52 s that take under one here).
+          - name: Sync
+            packages: Modules/Sync
+            builds: Modules/Sync/.build
+          - name: Events, Settings, CLI, Design
+            packages: Modules/Events Modules/Settings SyncCloudCLI Modules/Design
+            builds: |
+              Modules/Events/.build
+              Modules/Settings/.build
+              SyncCloudCLI/.build
+              Modules/Design/.build
+          - name: Dashboard
+            packages: Modules/Dashboard
+            builds: Modules/Dashboard/.build
           - name: FileExplorer
             packages: Modules/FileExplorer
+            builds: Modules/FileExplorer/.build
     env:
       SYNCCLOUD_SKIP_MACHINE_PINNED: all
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # scripts/restore-mtimes dates each file by its own last commit
+
+      # A cached build is reused only if the sources it was built from look older than it: a fresh
+      # checkout stamps every file now, so each is re-dated by its last commit first, and only what
+      # a newer commit changed recompiles. Keyed by the Xcode build and the pinned dependencies;
+      # every run saves its own entry and restores the newest. GitHub keeps 10 GB per repo.
+      - name: Date files by their last commit
+        id: toolchain
+        run: |
+          scripts/restore-mtimes
+          echo "xcode=$(xcodebuild -version | tail -1 | awk '{print $NF}')" >> "${GITHUB_OUTPUT}"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ matrix.builds }}
+          key: hosted-${{ matrix.name }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('**/Package.resolved') }}-${{ github.run_id }}
+          restore-keys: |
+            hosted-${{ matrix.name }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('**/Package.resolved') }}-
+            hosted-${{ matrix.name }}-${{ steps.toolchain.outputs.xcode }}-
 
       - name: Toolchain and machine
         run: |
@@ -71,11 +103,11 @@ jobs:
             began=$(date +%s)
             swift build --build-tests --package-path "${pkg}"
             built=$(date +%s)
-            if [ "${pkg}" = Modules/FileExplorer ]; then
-              scripts/test-shards "${pkg}"
-            else
-              swift test --skip-build --package-path "${pkg}"
-            fi
+            case "${pkg}" in
+              Modules/FileExplorer) scripts/test-shards "${pkg}" ;;
+              Modules/Sync) scripts/test-shards --jobs 2 "${pkg}" ;;
+              *) swift test --skip-build --package-path "${pkg}" ;;
+            esac
             status=$?
             ended=$(date +%s)
             echo "::endgroup::"
@@ -95,9 +127,24 @@ jobs:
     runs-on: xcode-27
     timeout-minutes: 120
     env:
-      SYNCCLOUD_SKIP_MACHINE_PINNED: all
+      # xcodebuild hands a test process only the variables prefixed TEST_RUNNER_ (stripping the
+      # prefix), so the plain name never reached the app's tests: SetupAccentTests, marked
+      # pixelSampling, ran on the VM anyway.
+      TEST_RUNNER_SYNCCLOUD_SKIP_MACHINE_PINNED: all
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Date files by their last commit
+        id: toolchain
+        run: |
+          scripts/restore-mtimes
+          echo "xcode=$(xcodebuild -version | tail -1 | awk '{print $NF}')" >> "${GITHUB_OUTPUT}"
+      - uses: actions/cache@v4
+        with:
+          path: .dd
+          key: hosted-app-${{ steps.toolchain.outputs.xcode }}-${{ github.run_id }}
+          restore-keys: hosted-app-${{ steps.toolchain.outputs.xcode }}-
 
       - name: Toolchain
         run: |
@@ -110,7 +157,7 @@ jobs:
           began=$(date +%s)
           xcodegen
           xcodebuild test -project SyncCloud.xcodeproj -scheme SyncCloud \
-            -destination 'platform=macOS' -derivedDataPath "${RUNNER_TEMP}/dd"
+            -destination 'platform=macOS' -derivedDataPath .dd
           status=$?
           line="app target: exit ${status}, $(( $(date +%s) - began )) s"
           echo "PROBE ${line}"

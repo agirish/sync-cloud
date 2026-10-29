@@ -13,6 +13,10 @@ let info = NSPrintInfo.shared
 print("paper \(info.paperName?.rawValue ?? "nil") \(info.paperSize) printer \(info.printer.name) "
       + "margins \(info.topMargin) \(info.leftMargin) \(info.bottomMargin) \(info.rightMargin)")
 print("printers \(NSPrinter.printerNames)")
+// Save as PDF's rich-text route prints through a fresh NSPrintInfo (SaveAsPDFRender.printInfo);
+// DocumentPDF.PageGeometry.from already falls back when this box is empty with no printer.
+let fresh = NSPrintInfo()
+print("fresh NSPrintInfo imageable \(fresh.imageablePageBounds) paper \(fresh.paperSize)")
 
 let size = NSSize(width: 800, height: 140)
 let image = NSImage(size: size)

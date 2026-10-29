@@ -1089,7 +1089,7 @@ extension PDFFixtures {
     /// **The overlay over a real page view**: it lets clicks through to PDFKit unless it has
     /// something to do with them, places at the pointer, drags in one undo step, and answers ⌘Z —
     /// while the reader itself never claims Undo, whose menu PDFKit validates its own way.
-    @Test func theOverlayPlacesAtThePointerAndOnlyTakesTheClicksItUses() async throws {
+    @Test(.machinePinned(.layoutMetrics)) func theOverlayPlacesAtThePointerAndOnlyTakesTheClicksItUses() async throws {
         let (pdf, _) = try await letter(pages: 1)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 700), styleMask: [.titled],
                               backing: .buffered, defer: false)

@@ -95,7 +95,12 @@ import AppKit
         #expect(previousControl.title == "Previous Tab")
         #expect(go.index(of: previousControl) == go.index(of: previous) + 1, "⌃⇧⇥ is not beside its twin")
         #expect(previousControl.isHidden, "Previous Tab is drawn twice")
-        #expect(previousControl.allowsKeyEquivalentWhenHidden && control.allowsKeyEquivalentWhenHidden)
+        // One assertion per item, each naming its state: on a hosted CI VM this failed with both in
+        // one `&&`, which could not say which item had lost its live key.
+        #expect(previousControl.allowsKeyEquivalentWhenHidden,
+                "⌃⇧⇥ \"\(previousControl.title)\" (hidden \(previousControl.isHidden)) has no live key while hidden")
+        #expect(control.allowsKeyEquivalentWhenHidden,
+                "⌃⇥ \"\(control.title)\" (hidden \(control.isHidden)) has no live key while hidden")
 
         let original = control.title
         defer { control.title = original }

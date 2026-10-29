@@ -173,7 +173,7 @@ import Design
     /// Setting the inset makes the text view re-fit itself at its current width, which inside
     /// `setFrameSize` is still the OLD one; unguarded, that nested pass undid the inset and a later
     /// re-fit redid it — three re-wraps a frame across the Expand animation, measured in the app.
-    @Test func aResizeSetsTheInsetOnceAndNeverBackToTheOldWidth() {
+    @Test(.machinePinned(.layoutMetrics)) func aResizeSetsTheInsetOnceAndNeverBackToTheOldWidth() {
         let rig = hosted(width: 1000, column: 720)
         defer { withExtendedLifetime(rig.window) {} }
         rig.view.layoutSubtreeIfNeeded()

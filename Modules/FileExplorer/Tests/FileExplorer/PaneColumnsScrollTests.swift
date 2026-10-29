@@ -657,7 +657,7 @@ import Sync
     /// pulling those made the watchdog correct the same fraction every quiescence interval all
     /// night — each pull an animated `setBoundsOrigin`, visible as jitter on the left pane's
     /// first column. A sub-tolerance offset must be left exactly where it is, forever.
-    @Test func testAFractionalOffsetIsLeftAloneNotCorrectedForever() async throws {
+    @Test(.machinePinned(.layoutMetrics)) func testAFractionalOffsetIsLeftAloneNotCorrectedForever() async throws {
         let (window, _, clip) = mount()
         defer { _ = window }
         await pump(seconds: 0.3)
@@ -809,7 +809,7 @@ import Sync
     }
 
     /// The live signature: parked stretched above the top, pulled flat once at rest.
-    @Test func testAListParkedInTopOverscrollIsPulledHome() async throws {
+    @Test(.machinePinned(.layoutMetrics)) func testAListParkedInTopOverscrollIsPulledHome() async throws {
         let (window, clip, probe) = mount()
         defer { _ = window }
         await pump(seconds: 0.3)

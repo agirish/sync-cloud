@@ -2,10 +2,10 @@
 
 `.github/workflows/tests.yml` runs the seven SPM package test suites on every
 push to `main` or `v2.x` and on every `v*` release tag (so cutting a release
-validates the exact commit being tagged), on a self-hosted runner
-(GitHub-hosted macOS minutes bill at
-10x on a private repo, and the hosted toolchain lags the one this repo is
-developed against).
+validates the exact commit being tagged), on a self-hosted runner: this Mac. The repo is
+public, so GitHub's standard hosted runners would cost nothing, and their `xcode-27` image matches
+this Mac's toolchain; whether they can carry routine CI is what `hosted-probe.yml` is measuring
+(2026-10-29).
 
 **A red run is not automatically a red commit.** The runner is this Mac, and several
 mechanisms here fail tests for reasons unrelated to the code — throttled CoreAnimation on
@@ -107,6 +107,16 @@ reason:
 | `referenceImages` | compares against PNGs recorded on one Mac | Design, Dashboard, FileExplorer, Settings | **excluded** |
 | `pixelSampling` | reads painted pixels out of a live renderer (`colorAt(`) | Design, Dashboard, FileExplorer, Settings | runs |
 | `calibratedTiming` | latency thresholds tuned on this hardware | FileExplorer | runs |
+| `layoutMetrics` | laid-out text, window and control geometry that tracks fonts, screen size and scale | Dashboard, Design, FileExplorer, app | runs |
+| `textRecognition` | Vision text recognition, which errors on GitHub's hosted VMs | FileExplorer | runs |
+| `iCloudDrive` | needs a signed-in iCloud Drive folder | Sync | runs |
+| `liveProfile` | the developer's live filing profile and document tree | Sync | **excluded** |
+
+The app target's tests read the switch through `xcodebuild`, which hands a test process only
+variables prefixed `TEST_RUNNER_`: set `TEST_RUNNER_SYNCCLOUD_SKIP_MACHINE_PINNED` there, or the
+app's pinned suites run regardless. The hosted-runner probe (`.github/workflows/hosted-probe.yml`,
+run by hand) excludes `all`; on 2026-10-29 its VM had a 1024×768 screen at scale 1, no printers, no
+working Vision text recognition and no iCloud Drive, which is what the last three rows answer.
 
 **No count is kept here, and no list of suite names.** Both drift the moment a
 suite is added — this table said "Seventeen suites … 12 pixelSampling …

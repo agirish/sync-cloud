@@ -395,9 +395,13 @@ func waitUntil(
     sourceLocation: SourceLocation = #_sourceLocation,
     _ condition: () -> Bool
 ) async {
+    // Bounded by scheduler turns as well as seconds (``TurnDeadline``): on a hosted 3-vCPU VM,
+    // 2026-10-29, thirteen of these gave up at the 50-poll floor after more than five seconds,
+    // their own polls starved by a main actor every suite was queued on. A turn needs the pool
+    // and the main actor, so a starved run stops this clock instead of spending it.
     var polls = 0
-    let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
-    while polls < waitPollFloor || ContinuousClock.now < deadline {
+    let deadline = TurnDeadline(seconds: timeout, turns: waitPollFloor)
+    while polls < waitPollFloor || !deadline.hasPassed {
         polls += 1
         if condition() { return }
         try? await Task.sleep(nanoseconds: 10_000_000)
@@ -405,7 +409,7 @@ func waitUntil(
     // The poll count IS the diagnosis, so it goes in the message: a wait that gave up after a
     // handful was starved and says nothing about the code, while one that gave up after hundreds
     // was genuinely disproved.
-    #expect(condition(), "\(what.rawValue) — still false after \(polls) polls",
+    #expect(condition(), "\(what.rawValue) — still false after \(polls) polls; \(deadline.spent)",
             sourceLocation: sourceLocation)
 }
 
@@ -435,8 +439,8 @@ func closeTheUndoEventGroup(_ undoManager: UndoManager?,
         return
     }
     var polls = 0
-    let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
-    while polls < waitPollFloor || ContinuousClock.now < deadline {
+    let deadline = TurnDeadline(seconds: timeout, turns: waitPollFloor)  // as `waitUntil`
+    while polls < waitPollFloor || !deadline.hasPassed {
         polls += 1
         if undoManager.groupingLevel == 0 { return }
         try? await Task.sleep(nanoseconds: 10_000_000)

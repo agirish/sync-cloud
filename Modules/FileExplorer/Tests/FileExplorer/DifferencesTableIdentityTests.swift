@@ -226,7 +226,7 @@ import Testing
 
     /// The load-bearing one. Drag a column to a width nothing would choose on its own, flip the
     /// grouping preference, and the width is still there — on the same table view.
-    @Test func widthSurvivesTheGroupingToggle() async throws {
+    @Test(.machinePinned(.layoutMetrics)) func widthSurvivesTheGroupingToggle() async throws {
         let (host, window, store) = mount(grouped: false)
         defer { window.contentView = nil }
 

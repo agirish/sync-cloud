@@ -97,7 +97,7 @@ import Design
     }
 
     /// **With no cap — Readable Line Length off, or Wrap Lines off — the page is the whole editor.**
-    @Test func withNoCapThePageSpansTheEditor() throws {
+    @Test(.machinePinned(.pixelSampling)) func withNoCapThePageSpansTheEditor() throws {
         for wraps in [true, false] {
             let rig = hosted(width: 1000, column: nil, wraps: wraps, appearance: .aqua)
             defer { withExtendedLifetime(rig.window) {} }
@@ -182,7 +182,7 @@ import Design
 
     /// **With no cap the clip's page is edge to edge** — wrapped, and unwrapped too, where a
     /// sideways overscroll shows the clip past the text's right end.
-    @Test func withNoCapTheClipsPageIsEdgeToEdge() throws {
+    @Test(.machinePinned(.pixelSampling)) func withNoCapTheClipsPageIsEdgeToEdge() throws {
         for wraps in [true, false] {
             let rig = hosted(width: 1000, column: nil, wraps: wraps, appearance: .aqua)
             defer { withExtendedLifetime(rig.window) {} }

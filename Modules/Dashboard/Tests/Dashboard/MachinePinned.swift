@@ -30,6 +30,13 @@ enum MachinePinnedReason: String {
     /// differently across macOS releases and display configurations, so a different host fails
     /// these for machine reasons rather than code reasons.
     case layoutMetrics
+    /// Recognises text with Vision. A Mac answers; GitHub's hosted macOS VMs do not — measured
+    /// 2026-10-29, `VNRecognizeTextRequest` fails there with `nilError` — so the verdict says
+    /// nothing about the code on a host without it.
+    case textRecognition
+    /// Needs a real iCloud Drive folder (`~/Library/Mobile Documents/com~apple~CloudDocs`), which
+    /// exists only where an Apple Account is signed in — never on a hosted CI VM.
+    case iCloudDrive
     /// Reads the developer's **live** filing profile and real document tree.
     ///
     /// Pinned for two separate reasons, and the second is the one that bit. It is *semantically*

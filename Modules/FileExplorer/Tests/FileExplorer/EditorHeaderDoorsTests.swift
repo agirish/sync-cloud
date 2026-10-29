@@ -285,7 +285,7 @@ import FileExplorerTestSupport
     /// has) — plus a floor on the name at each. See the two constants for the floors and why.
     /// Mutation: force the worded capsule in the name row and 260pt fails at every size — the
     /// capsule alone is 198–251pt there, and the name is pushed out.
-    @Test func theNameRowFitsWithALongNameAtEveryTextSize() throws {
+    @Test(.machinePinned(.layoutMetrics)) func theNameRowFitsWithALongNameAtEveryTextSize() throws {
         let long = try document(named: "Quarterly household budget reconciliation notes for 2026.md")
         let short = try document(named: "a.md")
         let padding = 2 * EditorDocumentHeader<EmptyView>.horizontalPadding

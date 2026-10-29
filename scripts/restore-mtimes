@@ -1,0 +1,42 @@
+#!/usr/bin/python3
+"""Set every tracked file's modification time to the time of the last commit that touched it.
+
+    scripts/restore-mtimes
+
+A fresh checkout stamps every file with the moment it was written, so a build directory restored
+from a CI cache looks older than all of its sources and SwiftPM recompiles everything. With each
+file dated by its own last commit, only the files a newer commit changed are newer than the cached
+build, and only they recompile. Needs the full history (`actions/checkout` with `fetch-depth: 0`);
+on a shallow clone every file gets the one commit's time. Used by the hosted-runner workflows.
+"""
+
+import os
+import subprocess
+import sys
+
+
+def main():
+    listed = subprocess.run(["git", "ls-files", "-z"], stdout=subprocess.PIPE, check=True).stdout
+    pending = {path for path in listed.decode("utf-8", "surrogateescape").split("\0") if path}
+    total = len(pending)
+    log = subprocess.Popen(["git", "log", "--format=%x00%ct", "--name-only", "--no-renames"],
+                           stdout=subprocess.PIPE, universal_newlines=True, errors="surrogateescape")
+    stamp = None
+    for line in log.stdout:
+        line = line.rstrip("\n")
+        if line.startswith("\0"):
+            stamp = int(line[1:])
+        elif line in pending and stamp is not None:
+            os.utime(line, (stamp, stamp), follow_symlinks=False)
+            pending.discard(line)
+            if not pending:
+                log.kill()
+                break
+    log.wait()
+    sys.stderr.write("restore-mtimes: dated %d of %d tracked files by their last commit\n"
+                     % (total - len(pending), total))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
