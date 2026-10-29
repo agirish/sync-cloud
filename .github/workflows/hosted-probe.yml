@@ -82,11 +82,12 @@ jobs:
       # Restore and save are separate steps because actions/cache saves only when the job passes,
       # and the jobs that most need a warm build are the ones still going red.
       - uses: actions/cache/restore@v4
+        id: restore
         with:
           path: ${{ matrix.builds }}
-          key: hosted-${{ matrix.slug }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('**/Package.resolved') }}-${{ github.run_id }}
+          key: hosted-${{ matrix.slug }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('Modules/*/Package.resolved', 'SyncCloudCLI/Package.resolved') }}-${{ github.run_id }}
           restore-keys: |
-            hosted-${{ matrix.slug }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('**/Package.resolved') }}-
+            hosted-${{ matrix.slug }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('Modules/*/Package.resolved', 'SyncCloudCLI/Package.resolved') }}-
             hosted-${{ matrix.slug }}-${{ steps.toolchain.outputs.xcode }}-
 
       - name: Toolchain and machine
@@ -127,11 +128,13 @@ jobs:
             exit 1
           fi
 
+      # The restore step's own key: hashing again here would also read the Package.resolved files
+      # inside the restored .build/checkouts, and every save would land under a different hash.
       - uses: actions/cache/save@v4
         if: always()
         with:
           path: ${{ matrix.builds }}
-          key: hosted-${{ matrix.slug }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('**/Package.resolved') }}-${{ github.run_id }}
+          key: ${{ steps.restore.outputs.cache-primary-key }}
 
   app:
     name: App target
@@ -153,6 +156,7 @@ jobs:
           scripts/restore-mtimes
           echo "xcode=$(xcodebuild -version | tail -1 | awk '{print $NF}')" >> "${GITHUB_OUTPUT}"
       - uses: actions/cache/restore@v4
+        id: restore
         with:
           path: .dd
           key: hosted-app-${{ steps.toolchain.outputs.xcode }}-${{ github.run_id }}
@@ -180,4 +184,4 @@ jobs:
         if: always()
         with:
           path: .dd
-          key: hosted-app-${{ steps.toolchain.outputs.xcode }}-${{ github.run_id }}
+          key: ${{ steps.restore.outputs.cache-primary-key }}
