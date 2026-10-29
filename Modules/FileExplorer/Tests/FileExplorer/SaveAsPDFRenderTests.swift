@@ -87,7 +87,7 @@ import EventsTestSupport
     @Test func richTextIsText() async throws {
         let output = try await SaveAsPDFRender.render(try Self.fixture("Memo.rtf"))
         let text = allText(try read(output))
-        #expect(output.pageCount == 1)
+        #expect(output.pageCount == 1, "a one-page memo came out as \(output.pageCount) pages")
         #expect(text.contains("Lease Renewal Heading"))
         #expect(text.contains("SAVEASPDF-WORD-MARKER"))
     }

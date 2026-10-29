@@ -134,8 +134,14 @@ import Events
 
     // MARK: 1. Mid-run cancellation of a parallel bulk run
 
+    /// Needs more than four cores. The four workers must all block inside a copy at once, the
+    /// cooperative pool is as wide as the core count, and the release needs a thread of its own:
+    /// on GitHub's 3-vCPU VMs the rendezvous could never form and the barrier timed out every run.
     @MainActor
-    @Test(.parksThreads(4)) func syncAllCancelledMidRunFinishesInFlightItemsAndTakesNoMore() async throws {
+    @Test(.parksThreads(4),
+          .enabled(if: ProcessInfo.processInfo.activeProcessorCount > 4,
+                   "four workers blocked at once plus the release need more than four cores"))
+    func syncAllCancelledMidRunFinishesInFlightItemsAndTakesNoMore() async throws {
         let disk = MockFileManager()
         try disk.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try disk.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)

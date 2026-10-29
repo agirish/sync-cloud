@@ -44,9 +44,11 @@ jobs:
           # processes, because on 3 vCPUs its 3,900 tests queued on one main actor starved their
           # own waits (2026-10-29: 25 timeouts, tests taking 38-52 s that take under one here).
           - name: Sync
+            slug: sync
             packages: Modules/Sync
             builds: Modules/Sync/.build
           - name: Events, Settings, CLI, Design
+            slug: core   # cache keys may not contain commas
             packages: Modules/Events Modules/Settings SyncCloudCLI Modules/Design
             builds: |
               Modules/Events/.build
@@ -54,9 +56,11 @@ jobs:
               SyncCloudCLI/.build
               Modules/Design/.build
           - name: Dashboard
+            slug: dashboard
             packages: Modules/Dashboard
             builds: Modules/Dashboard/.build
           - name: FileExplorer
+            slug: fileexplorer
             packages: Modules/FileExplorer
             builds: Modules/FileExplorer/.build
     env:
@@ -78,10 +82,10 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ${{ matrix.builds }}
-          key: hosted-${{ matrix.name }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('**/Package.resolved') }}-${{ github.run_id }}
+          key: hosted-${{ matrix.slug }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('**/Package.resolved') }}-${{ github.run_id }}
           restore-keys: |
-            hosted-${{ matrix.name }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('**/Package.resolved') }}-
-            hosted-${{ matrix.name }}-${{ steps.toolchain.outputs.xcode }}-
+            hosted-${{ matrix.slug }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('**/Package.resolved') }}-
+            hosted-${{ matrix.slug }}-${{ steps.toolchain.outputs.xcode }}-
 
       - name: Toolchain and machine
         run: |
