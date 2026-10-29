@@ -7,7 +7,8 @@ import Sync
 /// be dismissed early by a stale timer that merely compares values.
 ///
 /// Dismissal rules by severity: success and warning auto-dismiss after their configured delay
-/// (warnings get a longer window); errors are sticky and stay until manually closed.
+/// (warnings get a longer window); errors are sticky and stay until manually closed. A message
+/// the toolbar's capsule shows gets a longer window of its own (`capsuleNanoseconds`).
 /// Hovering the banner pauses the timer; on hover exit the FULL delay restarts (not the
 /// remainder) — a deliberate simplification: the user was just reading the banner, so it earns
 /// a fresh window.
@@ -17,14 +18,19 @@ final class BannerDismissScheduler {
     struct Delays {
         var successNanoseconds: UInt64 = 5_000_000_000
         var warningNanoseconds: UInt64 = 10_000_000_000
+        /// **A message in the toolbar's capsule, success or warning** (Run Room CG). The capsule
+        /// holds a run's ending only when the reader has moved on from where it was started, so it
+        /// is never where they are looking — and never under the pointer, which is what holds a
+        /// pane's message open while it is read. Five seconds there came and went unseen.
+        var capsuleNanoseconds: UInt64 = 10_000_000_000
 
         static let standard = Delays()
 
         /// `nil` means the banner never auto-dismisses (sticky).
-        func delayNanoseconds(for severity: OperationBanner.Severity) -> UInt64? {
+        func delayNanoseconds(for severity: OperationBanner.Severity, inCapsule: Bool = false) -> UInt64? {
             switch severity {
-            case .success: return successNanoseconds
-            case .warning: return warningNanoseconds
+            case .success: return inCapsule ? capsuleNanoseconds : successNanoseconds
+            case .warning: return inCapsule ? capsuleNanoseconds : warningNanoseconds
             case .error: return nil
             }
         }
@@ -64,9 +70,11 @@ final class BannerDismissScheduler {
     /// Call from the view's `onChange` whenever the banner changes.
     /// - Parameters:
     ///   - newValue: The new banner (`nil` when the banner was cleared).
+    ///   - inCapsule: Whether the toolbar's capsule shows it rather than a pane or the workspace.
     ///   - dismiss: Runs on the main actor after the severity's delay, unless superseded,
     ///     cancelled, or the banner is sticky.
-    func bannerChanged(to newValue: OperationBanner?, dismiss: @escaping @MainActor () -> Void) {
+    func bannerChanged(to newValue: OperationBanner?, inCapsule: Bool = false,
+                       dismiss: @escaping @MainActor () -> Void) {
         cancelTimer()
         currentDelay = nil
         self.dismiss = nil
@@ -78,7 +86,7 @@ final class BannerDismissScheduler {
             isHeld = false
             return
         }
-        guard let delay = delays.delayNanoseconds(for: banner.severity) else { return }
+        guard let delay = delays.delayNanoseconds(for: banner.severity, inCapsule: inCapsule) else { return }
         currentDelay = delay
         self.dismiss = dismiss
         // A banner replaced while the pointer is over it stays paused until hover exit.
@@ -101,9 +109,10 @@ final class BannerDismissScheduler {
     /// `currentDelay` both still nil), so an `onAppear` that fires a second time for the same
     /// instance cannot restart a countdown that is already running — or resurrect one for a banner
     /// the user has since dismissed.
-    func adoptExistingBanner(_ banner: OperationBanner?, dismiss: @escaping @MainActor () -> Void) {
+    func adoptExistingBanner(_ banner: OperationBanner?, inCapsule: Bool = false,
+                             dismiss: @escaping @MainActor () -> Void) {
         guard let banner, dismissTask == nil, currentDelay == nil else { return }
-        bannerChanged(to: banner, dismiss: dismiss)
+        bannerChanged(to: banner, inCapsule: inCapsule, dismiss: dismiss)
     }
 
     /// Call from the banner view's `onHover`. Entering pauses the auto-dismiss timer;

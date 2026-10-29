@@ -12786,3 +12786,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s availabilityGates=%s attachRe
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | Launch asks availability on main (`availabilityGates=2`) | RECORDED — not owed |
 | `v5.x` | The survey-date read inside attach, on main (`attachReadsStamp=1`) | RECORDED — not owed |
+
+---
+
+## A capsule message stays 10 s, a pane's still 5 s (Run Room CG) — main only
+
+The owner's call of 2026-10-28. A run's ending that the toolbar's capsule shows, success or warning,
+auto-dismisses after 10 s instead of 5 s (`BannerDismissScheduler.Delays.capsuleNanoseconds`). The
+capsule shows it only when the reader has moved to another workspace, so it is never under the
+pointer, and a pane's message is held open by hover while it is read. Pane and workspace messages
+keep 5 s and 10 s; errors stay sticky everywhere.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s capsuleMessage=%s capsuleWindow=%s\n' $l \
+  "$(git show origin/$l:Modules/Design/Sources/Design/ProgressCapsule.swift 2>/dev/null | grep -c 'struct ProgressCapsuleMessage')" \
+  "$(git show origin/$l:MacApp/BannerDismissScheduler.swift 2>/dev/null | grep -c 'capsuleNanoseconds')"; done
+# measured 2026-10-28, against origin, before this landed (main reads 1 1 after):
+# main          capsuleMessage=1 capsuleWindow=0
+# v5.x … v2.x   capsuleMessage=0 capsuleWindow=0 (no capsule; messages float 5 s at the window's top)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No toolbar capsule, so no capsule window | CLOSED — does not apply |

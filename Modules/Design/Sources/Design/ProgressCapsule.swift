@@ -144,7 +144,7 @@ public struct ProgressCapsule: View {
     let onShowRuns: (() -> Void)?
     /// A click anywhere else on the capsule: opens Activity (TE220).
     let onOpen: (() -> Void)?
-    /// A message taking the capsule for its five seconds, over any run (decision CU): its words in
+    /// A message taking the capsule for its ten seconds, over any run (decision CU): its words in
     /// the run's place, ✓ or ✕ in the ring, and the count still saying how many runs go on.
     let message: ProgressCapsuleMessage?
 

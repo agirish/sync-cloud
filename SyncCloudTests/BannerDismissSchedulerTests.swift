@@ -64,9 +64,11 @@ private final class ManualSleeper: @unchecked Sendable {
 
     private static let successDelay: UInt64 = 200_000_000
     private static let warningDelay: UInt64 = 500_000_000
+    private static let capsuleDelay: UInt64 = 700_000_000
     private static let testDelays = BannerDismissScheduler.Delays(
         successNanoseconds: successDelay,
-        warningNanoseconds: warningDelay
+        warningNanoseconds: warningDelay,
+        capsuleNanoseconds: capsuleDelay
     )
 
     @MainActor
@@ -139,6 +141,32 @@ private final class ManualSleeper: @unchecked Sendable {
 
         clock.releaseAll()
         await waitUntil("the warning dismisses when its window elapses") { dismissCount == 1 }
+    }
+
+    @MainActor
+    @Test func theCapsulesMessageGetsTheCapsuleWindowAndAnErrorStaysSticky() async {
+        let clock = ManualSleeper()
+        let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
+        var dismissCount = 0
+
+        scheduler.bannerChanged(to: .success("Moved “Untitled.md” to the Trash"), inCapsule: true) { dismissCount += 1 }
+        await waitUntil("the success timer starts") { clock.requestedDelays.count == 1 }
+        scheduler.bannerChanged(to: .warning("3 copied; 2 failed"), inCapsule: true) { dismissCount += 1 }
+        await waitUntil("the warning timer starts") { clock.requestedDelays.count == 2 }
+        #expect(clock.requestedDelays == [Self.capsuleDelay, Self.capsuleDelay])
+
+        // Sticky in the capsule as anywhere: no timer at all.
+        scheduler.bannerChanged(to: .error("Copy failed"), inCapsule: true) { dismissCount += 1 }
+        #expect(scheduler.currentTimerTask == nil)
+
+        // The standard windows: the capsule's outlasts a pane's success, and is no shorter than its warning.
+        let standard = BannerDismissScheduler.Delays.standard
+        #expect(standard.capsuleNanoseconds > standard.successNanoseconds)
+        #expect(standard.capsuleNanoseconds >= standard.warningNanoseconds)
+
+        clock.releaseAll()
+        await waitUntil("both superseded timers finish") { clock.pendingCount == 0 }
+        #expect(dismissCount == 0)
     }
 
     @MainActor

@@ -246,11 +246,13 @@ extension ContentView {
     }
 
     /// Everything a new message owes beyond its timer: VoiceOver hears it (TE211), and a rule offer
-    /// riding in the message it replaced leaves with that message (CB).
-    func resultMessageChanged(to banner: OperationBanner?) {
+    /// riding in the message it replaced leaves with that message (CB). Returns whether the message
+    /// is the capsule's, for its timer.
+    @discardableResult
+    func resultMessageChanged(to banner: OperationBanner?) -> Bool {
         lensSession.retireRuleOffer(unlessRiding: banner?.id)
         if paneToolResultDoors?.banner.id != banner?.id { paneToolResultDoors = nil }
-        guard let banner else { return }
+        guard let banner else { return false }
         // Where its run was started decides whether it is the capsule's (CG, CP).
         let toCapsule = ResultMessageRoute.endsInCapsule(startedIn: runOrigin(ending: banner),
                                                          showing: selectedWorkspace)
@@ -259,11 +261,12 @@ extension ContentView {
         OperationBannerView.announce(banner, offersUndo: banner.isUndoable && (undoManager?.canUndo ?? false)
                                      && runWriteLockReason == nil)
         // Copied into Activity's Recent as it is published (Run Room R9), not spoken again (R19). A
-        // problem the capsule showed for five seconds while the reader worked elsewhere leaves the
+        // problem the capsule showed for its ten seconds while the reader worked elsewhere leaves the
         // Activity button's dot (CS).
         ActivityCenter.shared.record(banner, run: syncManager.lastRecordedRun,
                                      finishedRun: fileRunEnded(by: banner).map { ($0.started, $0.ended, $0.cancelled) },
                                      seen: NSApp.isActive && !toCapsule)
+        return toCapsule
     }
 
     /// Where a Recent row's buttons go: this window's own doors (R12).

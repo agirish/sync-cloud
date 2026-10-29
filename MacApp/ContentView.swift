@@ -4549,15 +4549,16 @@ struct ContentView: View {
         // banner or this scheduler is already tracking one, so a re-appearance can't restart the
         // countdown.
         .onAppear {
-            bannerDismissScheduler.adoptExistingBanner(syncManager.banner) {
+            bannerDismissScheduler.adoptExistingBanner(syncManager.banner, inCapsule: resultMessageHome == .toolbar) {
                 syncManager.banner = nil
             }
         }
         .onChange(of: syncManager.banner) { _, newValue in
-            bannerDismissScheduler.bannerChanged(to: newValue) {
+            // Routed first: the capsule's message gets a longer window than a pane's.
+            let inCapsule = resultMessageChanged(to: newValue)
+            bannerDismissScheduler.bannerChanged(to: newValue, inCapsule: inCapsule) {
                 syncManager.banner = nil
             }
-            resultMessageChanged(to: newValue)
             // Banners vanish with the window; when the app is in the background, mirror the
             // outcome as a system notification (General setting, default off).
             if let banner = newValue {
