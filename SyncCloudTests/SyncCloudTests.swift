@@ -54,8 +54,8 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
                 "the quit guard counts only queued file operations, and a landing queues none")
     }
 
-    /// SwiftUI may re-run `App.init`, creating a throwaway `FileSyncManager` that `@StateObject`
-    /// discards. Adopting that orphan would leave the quit guard watching an operation count
+    /// SwiftUI may re-run `App.init`, creating a throwaway `FileSyncManager` that `@State`
+    /// discards (as `@StateObject` did before speed audit item 9). Adopting that orphan would leave the quit guard watching an operation count
     /// that is always zero, so only the first adopted manager may stick.
     @MainActor
     @Test func testQuitGuardKeepsFirstManagerAcrossAppReinit() async throws {

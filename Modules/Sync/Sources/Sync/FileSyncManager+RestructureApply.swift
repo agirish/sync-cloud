@@ -600,6 +600,8 @@ extension FileSyncManager {
                 // is unchanged so the greppable line does not move.
                 Logger.shared.warning("Restructure re-derive \(ledgerId ?? "(no landing)"): the replayed "
                     + "corpus could not be written under \(newId): \(failure)")
+                // The old folder's date must not stand under the new one, which has no corpus.
+                filingSurveyedAt = nil
             } else {
                 // **Published only when the write succeeded**, which is what the old `do` block
                 // did: a memory in hand that never reached disk must not become the live one.
@@ -940,7 +942,12 @@ extension FileSyncManager {
                                                   profileId: loaded.id)
             filingArtifactFingerprint = FilingProfileStore.fingerprint(id: loaded.id,
                                                                       in: profilesDirectory)
-            filingSurveyedAt = FilingSurveyStore.surveyedAt(id: loaded.id, in: profilesDirectory)
+            // Off the main actor: the stamp read parses the whole corpus, ~5 MB (speed audit 5).
+            let restoredId = loaded.id
+            let restoredDate = await Task.detached(priority: .userInitiated) {
+                FilingSurveyStore.surveyedAt(id: restoredId, in: profilesDirectory)
+            }.value
+            if filingProfileDirectoryId == restoredId { filingSurveyedAt = restoredDate }
             // A folder its own re-derive left without a survey gets it back, off this actor.
             await finishInterruptedSurveyReplay()
         }
@@ -1801,8 +1808,14 @@ extension FileSyncManager {
         }.value
         // Published only onto the folder it was carried for: a walk or landing meanwhile moved on.
         guard let memory, filingProfileDirectoryId == id else { return false }
+        // The stamp read parses the whole corpus; off the main actor, and published only if the
+        // folder is still the one it was read for.
+        let surveyedAt = await Task.detached(priority: .utility) {
+            FilingSurveyStore.surveyedAt(id: id, in: directory)
+        }.value
+        guard filingProfileDirectoryId == id else { return false }
         filingMemory = memory
-        filingSurveyedAt = FilingSurveyStore.surveyedAt(id: id, in: directory)
+        filingSurveyedAt = surveyedAt
         filingArtifactFingerprint = FilingProfileStore.fingerprint(id: id, in: directory)
         return true
     }

@@ -72,10 +72,24 @@ import FileExplorer
         let content = try Self.source("ContentView.swift")
         #expect(content.contains("@State var goToQuery = GoToQuery()"),
                 "the query is held some other way — check `ContentView` does not observe it")
-        #expect(!content.contains("@StateObject var goToQuery") && !content.contains("@ObservedObject var goToQuery"),
-                "`ContentView` observes the query, so every keystroke redraws the window")
-        #expect(!content.contains("goToQuery.text") && !content.contains("of: goToQuery"),
-                "`ContentView.swift` reads the query, which makes its body depend on every keystroke")
+        // Every file `ContentView`'s body is assembled from, not just the one that declares it.
+        let macApp = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp")
+        let parts = try FileManager.default.contentsOfDirectory(atPath: macApp.path)
+            .filter { $0.hasPrefix("ContentView") && $0.hasSuffix(".swift") }
+        #expect(parts.count > 5, "found \(parts.count) ContentView files — this check is aimed wrong")
+        for part in parts {
+            let source = try Self.source(part)
+            #expect(!source.contains("@StateObject var goToQuery") && !source.contains("@ObservedObject var goToQuery"),
+                    "`\(part)` observes the query, so every keystroke redraws the window")
+            #expect(!source.contains("goToQuery.text") && !source.contains("of: goToQuery"),
+                    "`\(part)` reads the query, which makes the window's body depend on every keystroke")
+        }
+        // An `@Observable` class is tracked by any body that merely reads it; only an
+        // `ObservableObject` held in `@State` keeps the window out of it.
+        let host = try Self.source("CommandPaletteHost.swift")
+        #expect(host.contains("final class GoToQuery: ObservableObject"))
+        #expect(!host.contains("@Observable\nfinal class GoToQuery") && !host.contains("@Observable final class GoToQuery"))
     }
 
     @Test func thePillTakesTheResolvedRungRatherThanAFixedOne() throws {

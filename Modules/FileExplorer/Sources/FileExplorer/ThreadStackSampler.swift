@@ -29,7 +29,7 @@ enum ThreadStackSampler {
     /// stack first: a stall can end while this is still being scheduled, and a file with no stack
     /// at all reads as a failure.
     static func sample(thread: thread_act_t, every interval: TimeInterval, limit: TimeInterval,
-                       stop: () -> Bool) -> Samples {
+                       stop: (_ latest: [UInt]) -> Bool) -> Samples {
         #if arch(arm64)
         let capacity = max(1, Int(limit / interval) + 1)
         let frames = UnsafeMutablePointer<UInt>.allocate(capacity: capacity * maxDepth)
@@ -45,7 +45,8 @@ enum ThreadStackSampler {
             case .failure(let error): failure = error.code
             }
             taken += 1
-            if taken < capacity, Date() < deadline, !stop() { Thread.sleep(forTimeInterval: interval) } else { break }
+            let latest = Array(UnsafeBufferPointer(start: frames + (taken - 1) * maxDepth, count: depths[taken - 1]))
+            if taken < capacity, Date() < deadline, !stop(latest) { Thread.sleep(forTimeInterval: interval) } else { break }
         } while true
         let stacks = (0..<taken).compactMap { i in
             depths[i] > 0 ? Array(UnsafeBufferPointer(start: frames + i * maxDepth, count: depths[i])) : nil
@@ -58,7 +59,7 @@ enum ThreadStackSampler {
 
     /// One stack of `thread`, innermost first; empty if it could not be read.
     static func snapshot(of thread: thread_act_t) -> [UInt] {
-        sample(thread: thread, every: 1, limit: 0, stop: { true }).stacks.first ?? []
+        sample(thread: thread, every: 1, limit: 0, stop: { _ in true }).stacks.first ?? []
     }
 
     /// Whether `stack` is a thread idle in its OUTERMOST run loop: the kernel's `mach_msg`, then
@@ -74,13 +75,18 @@ enum ThreadStackSampler {
     /// draining the main queue. Those show a second `__CFRunLoopRun`, or a caller other than the
     /// event loop below CoreFoundation. A lock, a semaphore, a sleep or a blocked `open` waits in
     /// the kernel without `mach_msg` at all. Symbolicates, so only call it with the thread running.
-    static func isParkedInRunLoop(_ stack: [UInt], enteredFrom entry: String = "HIToolbox") -> Bool {
+    ///
+    /// `loops` is how many run loops deep an idle thread may sit: 2 while a modal session is up,
+    /// whose loop runs in a mode that drains the main queue, so a heartbeat held there is the
+    /// system's doing too.
+    static func isParkedInRunLoop(_ stack: [UInt], enteredFrom entry: String = "HIToolbox",
+                                  loops: Int = 1) -> Bool {
         let frames = stack.map(frame(of:))
         var i = 0
         while i < frames.count, frames[i].image == "libsystem_kernel.dylib" { i += 1 }
         guard i > 0, i < frames.count, frames[i - 1].symbol.hasPrefix("mach_msg"),
               frames[i].symbol == "__CFRunLoopServiceMachPort",
-              frames.filter({ $0.symbol == "__CFRunLoopRun" }).count == 1,
+              frames.filter({ $0.symbol == "__CFRunLoopRun" }).count == loops,
               let caller = frames[i...].first(where: { $0.image != "CoreFoundation" })
         else { return false }
         return caller.image == entry

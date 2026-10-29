@@ -97,6 +97,13 @@ public final class MainThreadStallWatch: @unchecked Sendable {
     /// The held heartbeat: when it was posted, and the idle stack that excused it.
     private var held: (postedAt: TimeInterval, stack: [UInt])?
     private var heldReported = 0
+    /// A held heartbeat's first busy look after idle ones. A timer turn of a few milliseconds can
+    /// run while the system still holds the heartbeat, so one busy look is not yet a stall: it
+    /// restarts the clock, and only a second busy look a full `stallAfter` later is sampled.
+    private var busyAfterHold = false
+    /// Whether a modal session was up at the last answered heartbeat. Its loop nests inside the
+    /// event loop and drains the main queue, so it idles two loops deep.
+    private var modalUp = false
     private var lastSample: TimeInterval?
     private(set) var samplesTaken = 0
 
@@ -163,7 +170,8 @@ public final class MainThreadStallWatch: @unchecked Sendable {
                 let answered = Self.now()
                 // Read here, on the main thread, while it is free: once it stalls nothing can be.
                 let context = isMain ? MainActor.assumeIsolated { MainThreadHitchMonitor.appContext() } : nil
-                self?.state.async { self?.answered(at: answered, context: context) }
+                let modal = isMain ? MainActor.assumeIsolated { NSApp.modalWindow != nil } : false
+                self?.state.async { self?.modalUp = modal; self?.answered(at: answered, context: context) }
             }
             // Checked on its own deadline rather than at the next beat, which could be up to a
             // beat later — time a short stall cannot spare: the sample has to start inside it.
@@ -175,20 +183,24 @@ public final class MainThreadStallWatch: @unchecked Sendable {
 
     private func check() {
         let now = Self.now()
-        guard let posted, now - posted.at >= configuration.stallAfter, sampling == nil,
-              samplesTaken < configuration.perSession,
-              lastSample.map({ now - $0 >= configuration.minimumGap }) ?? true
-        else { return }
+        guard let posted, now - posted.at >= configuration.stallAfter, sampling == nil else { return }
         // An idle main thread with a heartbeat still queued is the system holding the app back,
         // not the app stalling. Checked from one stack — microseconds, and taken off this queue's
         // clock — before anything is spent on it: each false sample cost a 230 KB file, a run
-        // of `sample`, and the minute and the per-launch budget a real stall would need.
+        // of `sample`, and the minute and the per-launch budget a real stall would need. Checked
+        // BEFORE the budget and the gap, so the clock keeps restarting while they hold sampling
+        // off; otherwise the first stall after the gap was dated from a heartbeat a minute old.
         if let thread {
             let stack = ThreadStackSampler.snapshot(of: thread)
-            if ThreadStackSampler.isParkedInRunLoop(stack, enteredFrom: configuration.runLoopEntry) {
+            if isIdle(stack) {
                 if held == nil {
                     held = (posted.at, stack)
                     heldWhileIdle += 1
+                }
+                busyAfterHold = false
+                // A stall whose sample ended while it went on, now over: its end is here.
+                if let unfinished = unfinishedStall, unfinished.began == posted.at {
+                    reportEnd(of: unfinished, at: now)
                 }
                 // The stall clock restarts here: if the app does stall once it wakes, the line must
                 // not blame it for the time the system held it. It also means the next look is a
@@ -196,8 +208,34 @@ public final class MainThreadStallWatch: @unchecked Sendable {
                 self.posted = (now, threadCPU())
                 return
             }
+            if held != nil, !busyAfterHold {
+                busyAfterHold = true
+                self.posted = (now, threadCPU())
+                return
+            }
         }
+        guard samplesTaken < configuration.perSession,
+              lastSample.map({ now - $0 >= configuration.minimumGap }) ?? true
+        else { return }
+        // A heartbeat excused as idle and then caught stalling is a stall, not a hold: it gets
+        // the stall's line alone, not a "held by the system" line beside it.
+        held = nil
+        busyAfterHold = false
         beginSample(stallBegan: posted.at, cpuBegan: posted.cpu, at: now)
+    }
+
+    private func isIdle(_ stack: [UInt]) -> Bool {
+        ThreadStackSampler.isParkedInRunLoop(stack, enteredFrom: configuration.runLoopEntry, loops: 1)
+            || (modalUp && ThreadStackSampler.isParkedInRunLoop(stack, enteredFrom: configuration.runLoopEntry, loops: 2))
+    }
+
+    private func reportEnd(of unfinished: (began: TimeInterval, cpuBegan: TimeInterval?), at time: TimeInterval) {
+        var line = String(format: "[stall] the stall noticed earlier ended after %.2f s", time - unfinished.began)
+        if let cpuBegan = unfinished.cpuBegan, let cpu = threadCPU() {
+            line += String(format: ", main thread CPU %.2f s", cpu - cpuBegan)
+        }
+        report(line)
+        unfinishedStall = nil
     }
 
     private func answered(at time: TimeInterval, context: String?) {
@@ -215,12 +253,7 @@ public final class MainThreadStallWatch: @unchecked Sendable {
             if let sampling, began == sampling.stallBegan {
                 sampledStallEnded = (time, threadCPU())
             } else if let unfinished = unfinishedStall, began == unfinished.began {
-                var line = String(format: "[stall] the stall noticed earlier ended after %.2f s", time - began)
-                if let cpuBegan = unfinished.cpuBegan, let cpu = threadCPU() {
-                    line += String(format: ", main thread CPU %.2f s", cpu - cpuBegan)
-                }
-                report(line)
-                unfinishedStall = nil
+                reportEnd(of: unfinished, at: time)
             }
         }
         posted = nil
@@ -241,8 +274,18 @@ public final class MainThreadStallWatch: @unchecked Sendable {
         let limit = TimeInterval(configuration.sampleSeconds)
         if let thread {
             snapshots.async { [weak self] in
-                let stacks = ThreadStackSampler.sample(thread: thread, every: interval, limit: limit) {
-                    self?.state.sync { self?.sampledStallEnded != nil } ?? true
+                // The stall ends at the first stack that shows the thread idle again, not when the
+                // heartbeat finally runs: the system can hold that heartbeat on past the stall (on
+                // 10-29 a 2.0 s sleep was logged as 2.89 s, 0.8 s of it idle).
+                let stacks = ThreadStackSampler.sample(thread: thread, every: interval, limit: limit) { latest in
+                    guard let self else { return true }
+                    let idle = self.state.sync { self.isIdle(latest) }
+                    if idle {
+                        let at = Self.now(), cpu = self.state.sync { self.threadCPU() }
+                        self.state.sync { if self.sampledStallEnded == nil { self.sampledStallEnded = (at, cpu) } }
+                        return true
+                    }
+                    return self.state.sync { self.sampledStallEnded != nil }
                 }
                 let text = ThreadStackSampler.render(stacks, interval: interval)
                 self?.state.async { self?.part(stacks: text) }

@@ -34,8 +34,20 @@ import Foundation
         return selection.filter { all.contains($0) }
     }
 
+    /// SplitMix64: seeded, so a red trial can be rerun as it was.
+    private struct SeededGenerator: RandomNumberGenerator {
+        var state: UInt64
+        mutating func next() -> UInt64 {
+            state &+= 0x9E37_79B9_7F4A_7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+            return z ^ (z >> 31)
+        }
+    }
+
     @Test func prunesExactlyAsTheFullWalkDid() {
-        var rng = SystemRandomNumberGenerator()
+        var rng = SeededGenerator(state: 0x5C_A11D)
         for trial in 0..<20 {
             let manager = FileSyncManager()
             let before = Self.tree(root: "/l\(trial)", width: 6, depth: 4)
@@ -55,8 +67,10 @@ import Foundation
 
             let expected = Self.referencePrune(selection, in: after)
             #expect(manager.selectedLeftPaths == expected, "trial \(trial)")
-            // The fixture really removed something, or the comparison proves nothing.
-            #expect(expected.count < selection.count, "trial \(trial) pruned nothing")
+            // The fixture really removed a SELECTED path that was in the tree — the path that was
+            // never there is pruned by any rule, so it cannot be the evidence.
+            let selectedAndRemoved = selection.subtracting(["/l\(trial)/never-there"]).subtracting(expected)
+            #expect(!selectedAndRemoved.isEmpty, "trial \(trial) removed no selected path from the tree")
         }
     }
 

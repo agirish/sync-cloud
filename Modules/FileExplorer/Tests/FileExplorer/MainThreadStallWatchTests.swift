@@ -54,7 +54,7 @@ import Testing
         }
 
         // The sample records 2 s and then symbolicates; bounded, never open-ended.
-        let deadline = Date().addingTimeInterval(20)
+        let deadline = Date().addingTimeInterval(45)
         while lines.stalls.isEmpty, Date() < deadline { try await Task.sleep(for: .milliseconds(100)) }
         // Long enough for a second, wrongful sample to have been started and reported.
         try await Task.sleep(for: .seconds(3))
@@ -262,7 +262,7 @@ import Testing
         defer { watch.stop() }
         func stall() { queue.async { lines.thread = pthread_mach_thread_np(pthread_self()); Thread.sleep(forTimeInterval: 2) } }
         func waitForStalls(_ n: Int) async throws {
-            let deadline = Date().addingTimeInterval(25)
+            let deadline = Date().addingTimeInterval(45)
             while lines.stalls.count < n, Date() < deadline { try await Task.sleep(for: .milliseconds(100)) }
         }
         stall()
@@ -272,5 +272,45 @@ import Testing
         if gap == 0 { try await waitForStalls(2) } else { try await Task.sleep(for: .seconds(5)) }
         #expect(watch.samplesTaken == (gap == 0 ? 2 : 1))
         #expect(lines.stalls.count == (gap == 0 ? 2 : 1), "\(lines.stalls)")
+    }
+
+    /// A stall that follows a hold, whose heartbeat the system goes on holding after it: the line
+    /// dates it from the busy look, not the hold, and ends it at the first idle stack, not when
+    /// the heartbeat finally runs — here, never.
+    @Test("A stall after a hold is dated by its own stacks")
+    func aStallAfterAHoldIsDatedByItsOwnStacks() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stall-watch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var configuration = MainThreadStallWatch.Configuration()
+        configuration.directory = directory
+        configuration.beat = 0.2
+        configuration.minimumGap = 0
+        configuration.runLoopEntry = "Foundation"
+        let thread = RunLoopThread()
+        let port = thread.startAndWait()
+        defer { thread.finish() }
+        let lines = Lines()
+        let held = DispatchQueue(label: "stall-watch-held-then-stalled")
+        held.suspend()
+        defer { held.resume() }
+        let watch = MainThreadStallWatch(configuration: configuration, queue: held,
+                                         thread: { port }, report: { lines.append($0) })
+        watch.start()
+        defer { watch.stop() }
+        try await Task.sleep(for: .seconds(2.5))          // held over an idle loop
+        #expect(watch.heldWhileIdle == 1 && watch.samplesTaken == 0)
+        thread.perform { Thread.sleep(forTimeInterval: 3) }
+        let deadline = Date().addingTimeInterval(45)
+        while lines.stalls.isEmpty, Date() < deadline { try await Task.sleep(for: .milliseconds(100)) }
+        let line = try #require(lines.stalls.first, "the stall after the hold was never reported")
+        let lasted = try #require(line.range(of: "it lasted ").map { line[$0.upperBound...].prefix { "0123456789.".contains($0) } })
+        let seconds = try #require(Double(lasted), "\(line)")
+        // Dated from the busy look (up to `stallAfter` into the 3 s sleep), ended at the idle
+        // stack after it: at most 3 s. Dated from the hold it would be 5 s or more.
+        #expect(seconds > 0.5 && seconds <= 3.2, "\(line)")
+        // One line for the heartbeat: the stall's, not a "waited … held by the system" beside it.
+        #expect(!lines.all.contains { $0.contains("a heartbeat waited") }, "\(lines.all)")
+        #expect(line.contains("1 earlier heartbeat(s) this launch were held by the system"), "\(line)")
     }
 }

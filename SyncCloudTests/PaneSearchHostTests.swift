@@ -196,6 +196,10 @@ import Sync
         let body = source[start.upperBound...]
         let idle = try #require(body.range(of: "guard !PaneLogic.searchStaysIdle("),
                                 "`recomputeSearch` no longer returns early for an idle search")
+        // The guard has to leave, not merely fall through to the bump below it.
+        let guardEnd = try #require(body[idle.upperBound...].range(of: "else {"))
+        #expect(body[guardEnd.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("return }"),
+                "the idle guard no longer returns")
         let bump = try #require(body.range(of: "SearchGeneration) + 1"),
                                 "the generation bump moved — re-aim this check")
         let write = try #require(body.range(of: "leftSearchResults = results"),

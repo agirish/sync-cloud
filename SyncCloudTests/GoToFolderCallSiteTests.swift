@@ -190,6 +190,12 @@ import FileExplorer
     /// `rows` is read by `setQuery`, by the panel's body, and by every ↑ ↓. Before the memo a key
     /// ranked twice and each arrow twice more, against a query that had not moved. Driven through
     /// the controller and a mounted panel, so the body's read is a real one.
+    /// A few main-queue turns, so the mounted panel re-renders and its body really reads the rows
+    /// before anything is counted.
+    private func settle() async {
+        for _ in 0..<3 { try? await Task.sleep(for: .milliseconds(30)) }
+    }
+
     @Test func typingRanksOnceAndMovingRanksNothing() async {
         let host = NSWindow(contentRect: CGRect(x: -9_000, y: -9_000, width: 900, height: 600),
                             styleMask: [.borderless], backing: .buffered, defer: false)
@@ -213,7 +219,8 @@ import FileExplorer
 
         let before = state.rankingRuns
         controller.setQuery("le")
-        _ = state.rows                                   // the view's read, made to happen
+        await settle()                                   // the mounted panel's own body read
+        _ = state.rows                                   // and one more, made to happen
         #expect(state.rows.contains { $0.title.contains("Legal") },
                 "the query matched nothing — the fixture proves nothing about ranking")
         #expect(state.rankingRuns - before == 1,
@@ -221,8 +228,10 @@ import FileExplorer
 
         let afterTyping = state.rankingRuns
         controller.move(by: 1)
+        await settle()
         _ = state.rows
         controller.move(by: -1)
+        await settle()
         _ = state.rows
         #expect(state.rankingRuns == afterTyping,
                 "moving the highlight re-ranked \(state.rankingRuns - afterTyping) time(s) for a query that had not changed")

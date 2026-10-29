@@ -4396,8 +4396,8 @@ struct ContentView: View {
         // The TREE VERSION is part of the key on purpose: a result set names paths in a tree that
         // has since been rebuilt, and a scan, a delete or a hidden-files toggle leaves hits pointing
         // at rows that no longer exist — the walk would then reveal nothing and select a ghost. It
-        // costs a republish one re-search of a query that is usually empty (which returns without
-        // walking anything).
+        // costs nothing when no query is typed: `recomputeSearch` returns before stamping a new
+        // generation, so an idle republish publishes nothing (speed audit item 7).
         .task(id: PaneSearchRecomputeKey(isLeft: isLeft,
                                          query: paneSearchState(isLeft: isLeft).wrappedValue.query,
                                          treeVersion: pane.tree.version,

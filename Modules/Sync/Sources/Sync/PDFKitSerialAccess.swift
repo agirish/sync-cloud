@@ -93,12 +93,19 @@ public enum PDFKitSerialAccess {
     /// starts, and a cancelled task's block still runs when its turn comes — Compare Copies paged
     /// past ten pages queued ten opens and draws at 1,600 px, each holding up the lane that Edit's
     /// PDFs, Print and the column preview wait on. Once `body` has started it runs to the end.
+    /// How many `performUnlessCancelled` blocks have been put on the lane's queue. Test
+    /// instrumentation, like `peakConcurrentParses`: a test waits on it to know a block is queued
+    /// before it cancels, rather than sleeping and hoping.
+    public static var queuedUnlessCancelledCount: Int { queuedUnlessCancelled.withLock { $0 } }
+    private static let queuedUnlessCancelled = OSAllocatedUnfairLock(initialState: 0)
+
     public static func performUnlessCancelled<T: Sendable>(
         _ body: @escaping @Sendable () -> T
     ) async -> T? {
         let cancelled = OSAllocatedUnfairLock(initialState: false)
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
+                queuedUnlessCancelled.withLock { $0 += 1 }
                 queue.async {
                     if cancelled.withLock({ $0 }) {
                         continuation.resume(returning: nil)

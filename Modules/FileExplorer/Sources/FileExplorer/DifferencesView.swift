@@ -625,7 +625,11 @@ public struct DifferencesView: View {
                 content(countPillDressing(at: context.date))
             }
             // Ticks can be a day apart; after a sleep or a clock or zone change, start over.
-            .onReceive(ScanFreshnessSchedule.clockChanges) { clockEpoch &+= 1 }
+            .onReceive(ScanFreshnessSchedule.clockChanges) {
+                // `Calendar.current` is read on the restart; make sure it has the new zone.
+                NSTimeZone.resetSystemTimeZone()
+                clockEpoch &+= 1
+            }
         } else {
             content(countPillDressing(at: Date()))
         }
