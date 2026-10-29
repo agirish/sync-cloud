@@ -602,9 +602,13 @@ import Testing
         return (model, root, blocker)
     }
 
+    /// Whether a press's task has returned, for `startSaving`'s premise message.
+    @MainActor private final class PressFinished { var value = false }
+
     /// Starts a Save and returns once it is writing — the state the window shows mid-press.
     private func startSaving(_ model: SetupModel) async throws -> Task<Void, Never> {
-        let press = Task { await model.saveAndContinue() }
+        let finished = PressFinished()
+        let press = Task { await model.saveAndContinue(); finished.value = true }
         // Every turn, since the write can be brief — but bounded by time as well as by turns: on a
         // 3-vCPU hosted VM, 1,000 yields ran out before the press had started (2026-10-29).
         let deadline = ContinuousClock.now.advanced(by: .seconds(10))
@@ -613,7 +617,11 @@ import Testing
             yields += 1
             await Task.yield()
         }
-        #expect(model.isSaving, "premise: the Save is in flight (\(yields) yields)")
+        // Says which way a miss went: a press that never ran, or one that ran and never saved.
+        #expect(model.isSaving, """
+            premise: the Save is in flight (\(yields) yields; the press \(finished.value ? "had already finished" : "had not finished"); \
+            failure line: \(model.saveFailure ?? "none"))
+            """)
         return press
     }
 
