@@ -605,8 +605,15 @@ import Testing
     /// Starts a Save and returns once it is writing — the state the window shows mid-press.
     private func startSaving(_ model: SetupModel) async throws -> Task<Void, Never> {
         let press = Task { await model.saveAndContinue() }
-        for _ in 0..<1000 where !model.isSaving { await Task.yield() }
-        #expect(model.isSaving, "premise: the Save is in flight")
+        // Every turn, since the write can be brief — but bounded by time as well as by turns: on a
+        // 3-vCPU hosted VM, 1,000 yields ran out before the press had started (2026-10-29).
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        var yields = 0
+        while !model.isSaving, yields < 1000 || ContinuousClock.now < deadline {
+            yields += 1
+            await Task.yield()
+        }
+        #expect(model.isSaving, "premise: the Save is in flight (\(yields) yields)")
         return press
     }
 

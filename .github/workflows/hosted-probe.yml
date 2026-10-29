@@ -79,7 +79,9 @@ jobs:
         run: |
           scripts/restore-mtimes
           echo "xcode=$(xcodebuild -version | tail -1 | awk '{print $NF}')" >> "${GITHUB_OUTPUT}"
-      - uses: actions/cache@v4
+      # Restore and save are separate steps because actions/cache saves only when the job passes,
+      # and the jobs that most need a warm build are the ones still going red.
+      - uses: actions/cache/restore@v4
         with:
           path: ${{ matrix.builds }}
           key: hosted-${{ matrix.slug }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('**/Package.resolved') }}-${{ github.run_id }}
@@ -125,6 +127,12 @@ jobs:
             exit 1
           fi
 
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: ${{ matrix.builds }}
+          key: hosted-${{ matrix.slug }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('**/Package.resolved') }}-${{ github.run_id }}
+
   app:
     name: App target
     if: ${{ inputs.suites }}
@@ -144,7 +152,7 @@ jobs:
         run: |
           scripts/restore-mtimes
           echo "xcode=$(xcodebuild -version | tail -1 | awk '{print $NF}')" >> "${GITHUB_OUTPUT}"
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         with:
           path: .dd
           key: hosted-app-${{ steps.toolchain.outputs.xcode }}-${{ github.run_id }}
@@ -167,3 +175,9 @@ jobs:
           echo "PROBE ${line}"
           echo "- ${line}" >> "${GITHUB_STEP_SUMMARY}"
           exit "${status}"
+
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .dd
+          key: hosted-app-${{ steps.toolchain.outputs.xcode }}-${{ github.run_id }}
