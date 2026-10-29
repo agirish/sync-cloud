@@ -1,0 +1,102 @@
+# A PROBE, run by hand: can GitHub's free hosted macOS runners carry this repo's CI?
+#
+# The repo is public, so standard hosted runners cost nothing and have no minute cap; the Free
+# plan runs up to five macOS jobs at once. `xcode-27` is the image matching this Mac's toolchain
+# (macOS 27.0.1, Xcode 27.1 27A9275), a public preview. This workflow changes nothing about
+# tests.yml and never runs on a push. What it answers, per job: does it build, does it pass, and
+# how long do the build and the tests take on a 3-vCPU M1 VM starting cold.
+#
+# Machine-pinned suites are skipped (`all`): their reference images, sampled pixels and timing
+# thresholds belong to the self-hosted Mac (docs/ci.md, "Machine-pinned tests").
+
+name: hosted-probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  packages:
+    name: ${{ matrix.name }}
+    runs-on: xcode-27
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Sync, Events, Settings, CLI
+            packages: Modules/Sync Modules/Events Modules/Settings SyncCloudCLI
+          - name: Design, Dashboard
+            packages: Modules/Design Modules/Dashboard
+          - name: FileExplorer
+            packages: Modules/FileExplorer
+    env:
+      SYNCCLOUD_SKIP_MACHINE_PINNED: all
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain and machine
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+          sysctl -n hw.ncpu hw.memsize machdep.cpu.brand_string
+          df -h "${GITHUB_WORKSPACE}" | tail -1
+
+      # Every package runs even after a failure, and each one's build and test seconds are
+      # printed on one line, so the job summary is the probe's answer.
+      - name: Build and test
+        run: |
+          set -uo pipefail
+          failed=()
+          for pkg in ${{ matrix.packages }}; do
+            echo "::group::${pkg}"
+            began=$(date +%s)
+            swift build --build-tests --package-path "${pkg}"
+            built=$(date +%s)
+            if [ "${pkg}" = Modules/FileExplorer ]; then
+              scripts/test-shards "${pkg}"
+            else
+              swift test --skip-build --package-path "${pkg}"
+            fi
+            status=$?
+            ended=$(date +%s)
+            echo "::endgroup::"
+            line="${pkg}: exit ${status}, build $((built - began)) s, tests $((ended - built)) s"
+            echo "PROBE ${line}"
+            echo "- ${line}" >> "${GITHUB_STEP_SUMMARY}"
+            [ "${status}" -eq 0 ] || failed+=("${pkg}")
+          done
+          if [ "${#failed[@]}" -gt 0 ]; then
+            echo "FAILED packages: ${failed[*]}"
+            exit 1
+          fi
+
+  app:
+    name: App target
+    runs-on: xcode-27
+    timeout-minutes: 120
+    env:
+      SYNCCLOUD_SKIP_MACHINE_PINNED: all
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          which xcodegen || brew install xcodegen
+
+      - name: App-target tests (xcodegen + xcodebuild)
+        run: |
+          set -uo pipefail
+          began=$(date +%s)
+          xcodegen
+          xcodebuild test -project SyncCloud.xcodeproj -scheme SyncCloud \
+            -destination 'platform=macOS' -derivedDataPath "${RUNNER_TEMP}/dd"
+          status=$?
+          line="app target: exit ${status}, $(( $(date +%s) - began )) s"
+          echo "PROBE ${line}"
+          echo "- ${line}" >> "${GITHUB_STEP_SUMMARY}"
+          exit "${status}"
