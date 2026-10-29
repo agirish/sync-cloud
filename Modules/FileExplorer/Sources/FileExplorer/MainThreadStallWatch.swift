@@ -41,6 +41,15 @@ public final class MainThreadStallWatch: @unchecked Sendable {
         public var perSession = 20
         /// Stack files kept in `directory`; older ones are deleted after each new one.
         public var keep = 30
+        /// How long `sample` may run past its own seconds before it is stopped and the file is
+        /// finished without it. A `sample` that never exits must not switch the watch off.
+        public var sampleGrace: TimeInterval = 30
+        /// The image whose frame enters the watched thread's outermost run loop — HIToolbox's event
+        /// loop on the main thread. See `ThreadStackSampler.isParkedInRunLoop`.
+        public var runLoopEntry = "HIToolbox"
+        /// A heartbeat the system held this long over an idle app gets one INFO line, so a wrong
+        /// idle verdict could never hide stalls without a trace. At most `perSession` of them.
+        public var reportHeldAfter: TimeInterval = 3
         /// Where stack files go.
         public var directory: URL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Logs/SyncCloud/Stalls", isDirectory: true)
@@ -75,9 +84,19 @@ public final class MainThreadStallWatch: @unchecked Sendable {
     private var lastContext = "app state unknown"
     /// The stall being recorded, and the two halves of its file as they arrive.
     private var sampling: (stallBegan: TimeInterval, cpuBegan: TimeInterval?, file: URL,
-                           stacks: String?, sampleStatus: Int32?)?
-    /// How long the stall being sampled lasted, once the heartbeat finally ran.
-    private var sampledStallEnded: TimeInterval?
+                           stacks: String?, sampleStatus: Int32?, process: Process?)?
+    /// When the stall being sampled ended, once its heartbeat finally ran, and the watched
+    /// thread's CPU time then — read at the end of the stall, not when the file is finished
+    /// seconds later, or the line credits the stall with work done after it.
+    private var sampledStallEnded: (at: TimeInterval, cpu: TimeInterval?)?
+    /// A stall whose line went out while it was still going: its end gets a line of its own.
+    private var unfinishedStall: (began: TimeInterval, cpuBegan: TimeInterval?)?
+    /// Overdue heartbeats while the main thread sat idle in its run loop — held back by the
+    /// system, not stalls. Counted once per heartbeat, so the next real stall's line can say so.
+    private(set) var heldWhileIdle = 0
+    /// The held heartbeat: when it was posted, and the idle stack that excused it.
+    private var held: (postedAt: TimeInterval, stack: [UInt])?
+    private var heldReported = 0
     private var lastSample: TimeInterval?
     private(set) var samplesTaken = 0
 
@@ -160,12 +179,49 @@ public final class MainThreadStallWatch: @unchecked Sendable {
               samplesTaken < configuration.perSession,
               lastSample.map({ now - $0 >= configuration.minimumGap }) ?? true
         else { return }
+        // An idle main thread with a heartbeat still queued is the system holding the app back,
+        // not the app stalling. Checked from one stack — microseconds, and taken off this queue's
+        // clock — before anything is spent on it: each false sample cost a 230 KB file, a run
+        // of `sample`, and the minute and the per-launch budget a real stall would need.
+        if let thread {
+            let stack = ThreadStackSampler.snapshot(of: thread)
+            if ThreadStackSampler.isParkedInRunLoop(stack, enteredFrom: configuration.runLoopEntry) {
+                if held == nil {
+                    held = (posted.at, stack)
+                    heldWhileIdle += 1
+                }
+                // The stall clock restarts here: if the app does stall once it wakes, the line must
+                // not blame it for the time the system held it. It also means the next look is a
+                // full `stallAfter` away, rather than suspending the thread twice a second for hours.
+                self.posted = (now, threadCPU())
+                return
+            }
+        }
         beginSample(stallBegan: posted.at, cpuBegan: posted.cpu, at: now)
     }
 
     private func answered(at time: TimeInterval, context: String?) {
-        if let sampling, let began = posted?.at, began == sampling.stallBegan {
-            sampledStallEnded = time
+        if let held {
+            let wait = time - held.postedAt
+            if wait >= configuration.reportHeldAfter, heldReported < configuration.perSession {
+                heldReported += 1
+                report(String(format: "[stall] a heartbeat waited %.1f s with the main thread idle in its run loop "
+                              + "— held by the system, not sampled. Its stack: ", wait)
+                       + ThreadStackSampler.describe(held.stack, count: 6))
+            }
+            self.held = nil
+        }
+        if let began = posted?.at {
+            if let sampling, began == sampling.stallBegan {
+                sampledStallEnded = (time, threadCPU())
+            } else if let unfinished = unfinishedStall, began == unfinished.began {
+                var line = String(format: "[stall] the stall noticed earlier ended after %.2f s", time - began)
+                if let cpuBegan = unfinished.cpuBegan, let cpu = threadCPU() {
+                    line += String(format: ", main thread CPU %.2f s", cpu - cpuBegan)
+                }
+                report(line)
+                unfinishedStall = nil
+            }
         }
         posted = nil
         if let context { lastContext = context }
@@ -176,7 +232,7 @@ public final class MainThreadStallWatch: @unchecked Sendable {
                                                 formatOptions: [.withFullDate, .withTime, .withDashSeparatorInDate])
         let file = configuration.directory.appendingPathComponent("stall-\(stamp).txt")
         try? FileManager.default.createDirectory(at: configuration.directory, withIntermediateDirectories: true)
-        sampling = (stallBegan, cpuBegan, file, nil, nil)
+        sampling = (stallBegan, cpuBegan, file, nil, nil, nil)
         sampledStallEnded = nil
         lastSample = now
         samplesTaken += 1
@@ -204,10 +260,18 @@ public final class MainThreadStallWatch: @unchecked Sendable {
         process.standardError = FileHandle.nullDevice
         process.terminationHandler = { [weak self] finished in
             let status = finished.terminationStatus
-            self?.state.async { self?.part(sampleStatus: status) }
+            // Only for its own stall: a `sample` stopped at the timeout can exit after the next
+            // stall began, and must not close that one's file.
+            self?.state.async { if self?.sampling?.file == file { self?.part(sampleStatus: status) } }
         }
         do {
             try process.run()
+            sampling?.process = process
+            state.asyncAfter(deadline: .now() + limit + configuration.sampleGrace) { [weak self] in
+                guard let self, let open = self.sampling, open.file == file, open.sampleStatus == nil else { return }
+                open.process?.terminate()
+                self.part(sampleStatus: -2)
+            }
         } catch {
             part(sampleStatus: -1)
         }
@@ -216,17 +280,27 @@ public final class MainThreadStallWatch: @unchecked Sendable {
     /// Where `sample` writes, before its report is put under the in-process stacks.
     private static func sampleFile(_ file: URL) -> URL { file.appendingPathExtension("sample") }
 
-    /// Takes one half of the stall's file, and finishes once both are in.
+    /// Takes one half of the stall's file, and finishes once both are in. The in-process stacks
+    /// are written the moment they exist: `sample` records and symbolicates for 10–17 s after a
+    /// stall, and someone who force-quits a frozen app in that time should still leave a stack.
     private func part(stacks: String? = nil, sampleStatus: Int32? = nil) {
         guard sampling != nil else { return }
-        if let stacks { sampling?.stacks = stacks }
+        if let stacks {
+            sampling?.stacks = stacks
+            if sampling?.sampleStatus == nil, let file = sampling?.file {
+                try? (stacks + "\n---- /usr/bin/sample still running ----\n")
+                    .write(to: file, atomically: true, encoding: .utf8)
+            }
+        }
         if let sampleStatus { sampling?.sampleStatus = sampleStatus }
         guard let done = sampling, let text = done.stacks, let status = done.sampleStatus else { return }
         let fm = FileManager.default
         let sampled = Self.sampleFile(done.file)
         var body = text
-        if let report = try? String(contentsOf: sampled, encoding: .utf8) {
+        if let report = try? String(contentsOf: sampled, encoding: .utf8), !report.isEmpty {
             body += "\n---- /usr/bin/sample, every thread, started about half a second after the stall was noticed ----\n\n" + report
+        } else if status == -2 {
+            body += "\n---- /usr/bin/sample did not finish in time and was stopped ----\n"
         } else {
             body += "\n---- /usr/bin/sample wrote nothing (exit \(status)) ----\n"
         }
@@ -242,13 +316,17 @@ public final class MainThreadStallWatch: @unchecked Sendable {
         let wrote = FileManager.default.fileExists(atPath: sampling.file.path)
         var line = String(format: "[stall] main thread went %.1f s without a turn", configuration.stallAfter)
         if let ended = sampledStallEnded {
-            line += String(format: " — it lasted %.2f s", ended - sampling.stallBegan)
+            line += String(format: " — it lasted %.2f s", ended.at - sampling.stallBegan)
         } else {
             line += String(format: " — still stalled %.2f s in", now - sampling.stallBegan)
+            unfinishedStall = (sampling.stallBegan, sampling.cpuBegan)
         }
-        if let began = sampling.cpuBegan, let cpu = threadCPU() {
-            let wall = (sampledStallEnded ?? now) - sampling.stallBegan
+        if let began = sampling.cpuBegan, let cpu = sampledStallEnded.map({ $0.cpu }) ?? threadCPU() {
+            let wall = (sampledStallEnded?.at ?? now) - sampling.stallBegan
             line += String(format: ", main thread CPU %.2f s of %.2f s", cpu - began, wall)
+        }
+        if heldWhileIdle > 0 {
+            line += "; \(heldWhileIdle) earlier heartbeat(s) this launch were held by the system over an idle app, not sampled"
         }
         line += "; before it: \(lastContext)"
         line += wrote ? ". Stack: \(sampling.file.path)" : ". No stack file could be written (sample exit \(status))"
@@ -256,14 +334,22 @@ public final class MainThreadStallWatch: @unchecked Sendable {
         prune()
     }
 
+    /// Keeps the newest `keep` stack files, newest by modification date — the names are local
+    /// time with no offset, so a clock or zone change would misorder them. Also clears `.sample`
+    /// files a quit left behind before they were merged.
     private func prune() {
         let fm = FileManager.default
         guard let files = try? fm.contentsOfDirectory(at: configuration.directory,
                                                       includingPropertiesForKeys: [.contentModificationDateKey])
         else { return }
-        let stacks = files.filter { $0.lastPathComponent.hasPrefix("stall-") && $0.pathExtension == "txt" }
-            .sorted { $0.lastPathComponent > $1.lastPathComponent }
+        func modified(_ url: URL) -> Date {
+            (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+        }
+        let named = files.filter { $0.lastPathComponent.hasPrefix("stall-") }
+        let stacks = named.filter { $0.pathExtension == "txt" }.sorted { modified($0) > modified($1) }
         for old in stacks.dropFirst(configuration.keep) { try? fm.removeItem(at: old) }
+        // Runs once a stall is finished, so no `.sample` here belongs to one in progress.
+        for orphan in named where orphan.pathExtension == "sample" { try? fm.removeItem(at: orphan) }
     }
 
     /// Stalls the main thread once, three seconds after launch, when the app is launched with

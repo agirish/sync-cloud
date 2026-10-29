@@ -55,6 +55,8 @@ public struct DifferencesView: View {
     }
     /// Hover state for the count pill: a slight grow signals the pill is clickable (post-scan only).
     @State private var isCountPillHovered = false
+    /// Bumped on wake, clock and time-zone changes, so the sparse freshness timeline restarts.
+    @State private var clockEpoch = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Read here rather than inside `LabelMetrics` because a `ScaledFont` cannot see the
     /// environment — the same reason `Text.scaledFont(_:scale:)` takes the scale as an argument.
@@ -618,9 +620,12 @@ public struct DifferencesView: View {
     @ViewBuilder
     private func withScanFreshness(@ViewBuilder _ content: @escaping (CountPillDressing) -> some View) -> some View {
         if let completed = syncManager.lastScanDate {
-            TimelineView(ScanFreshnessSchedule(anchor: syncManager.lastScanReadAt ?? completed)) { context in
+            TimelineView(ScanFreshnessSchedule(anchor: syncManager.lastScanReadAt ?? completed,
+                                               epoch: clockEpoch)) { context in
                 content(countPillDressing(at: context.date))
             }
+            // Ticks can be a day apart; after a sleep or a clock or zone change, start over.
+            .onReceive(ScanFreshnessSchedule.clockChanges) { clockEpoch &+= 1 }
         } else {
             content(countPillDressing(at: Date()))
         }

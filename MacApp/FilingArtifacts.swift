@@ -61,6 +61,9 @@ enum FilingArtifacts {
 
         guard let loaded = FilingProfileStore.active(in: profiles) else { return false }
 
+        // A different profile's date must not stand under this one while its own read runs:
+        // Restructure's footnote would say "surveyed N days ago" about the profile just left.
+        if manager.filingProfileDirectoryId != loaded.id { manager.filingSurveyedAt = nil }
         manager.filingFolderProfile = loaded.profile
         manager.filingMemory = loaded.memory
         // …and the id it was read UNDER, so the re-survey writes back to the same folder. The four
@@ -116,10 +119,16 @@ enum FilingArtifacts {
     }
 
     /// The latest stamp read per manager, and its generation. Its result is published only if it
-    /// is still that manager's latest attach and nothing set the date since — a re-survey that
-    /// finished first publishes its own `now`, which a stale read must not overwrite.
+    /// is still that manager's latest attach, the manager still holds the profile it was read for,
+    /// and nothing set the date since — a re-survey that finished first publishes its own `now`,
+    /// which a stale read must not overwrite.
     private static var surveyDateReads:
         [ObjectIdentifier: (generation: Int, task: Task<Void, Never>)] = [:]
+
+    /// Only ever counts up. Numbering from the entry above restarted at 1 once a read had landed
+    /// and removed it, so a third attach could share the first one's number and let that older
+    /// read publish over the newest.
+    private static var lastSurveyDateRead = 0
 
     /// The stamp read the latest attach to `manager` started and that has not landed yet, so a
     /// test can await it. Nil once it has.
@@ -130,14 +139,18 @@ enum FilingArtifacts {
     private static func readSurveyDate(into manager: FileSyncManager, id: String, in profiles: URL,
                                        using read: @escaping @Sendable (String, URL) -> Date?) {
         let key = ObjectIdentifier(manager)
-        let generation = (surveyDateReads[key]?.generation ?? 0) + 1
+        lastSurveyDateRead += 1
+        let generation = lastSurveyDateRead
         let seeded = manager.filingSurveyedAt
         let task = Task.detached(priority: .userInitiated) {
             let date = read(id, profiles)
             await MainActor.run {
                 guard surveyDateReads[key]?.generation == generation else { return }
                 surveyDateReads[key] = nil   // it holds the manager; let it go once landed
-                guard manager.filingSurveyedAt == seeded else { return }
+                // Undo and the interrupted-survey replay switch or set the date without an
+                // attach; a read for the profile they left must not land under the new one.
+                guard manager.filingProfileDirectoryId == id,
+                      manager.filingSurveyedAt == seeded else { return }
                 manager.filingSurveyedAt = date
             }
         }

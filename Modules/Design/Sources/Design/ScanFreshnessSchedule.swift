@@ -1,3 +1,5 @@
+import AppKit
+import Combine
 import SwiftUI
 
 /// The instants at which `ScanFreshness`'s readout can change, as a `TimelineSchedule`: 30 s, 1 min,
@@ -11,22 +13,45 @@ import SwiftUI
 /// stalls on record began within 0.3 s of that tick. This yields the same label at the same
 /// moments and nothing in between.
 ///
-/// Each point is `nudge` past its seam: `anchor + 30` minus `anchor` can come out a hair under 30 in
-/// floating point, and `relative` floors, so an exact point could land on the OLD label and leave
-/// it showing until the next seam.
-public struct ScanFreshnessSchedule: TimelineSchedule, Sendable {
+/// Each point is `nudge` past its seam, a cheap guard: `relative` floors, so a tick delivered a hair
+/// before its seam would draw the OLD label and leave it showing until the next one. (Whole-second
+/// offsets from today's dates are exact in floating point, so this is not routine rounding.)
+///
+/// **Sparse ticks need restarting when the clock moves under them.** A 30 s period was wrong by
+/// at most 30 s after a sleep, a clock change or a time-zone change; a schedule an hour or a day
+/// between ticks could leave the age or the stamp wrong for that long. `epoch` is bumped on each
+/// of those (`clockChanges`), and a schedule with a new epoch restarts from now.
+public struct ScanFreshnessSchedule: TimelineSchedule, Sendable, Equatable {
     public let anchor: Date
     public let staleAfter: TimeInterval
     public let calendar: Calendar
+    /// Bumped by the view when `clockChanges` fires, so the timeline restarts from now.
+    public let epoch: Int
 
     static let nudge: TimeInterval = 0.01
 
     public init(anchor: Date, staleAfter: TimeInterval = ScanFreshness.staleAfter,
-                calendar: Calendar = .current) {
+                calendar: Calendar = .current, epoch: Int = 0) {
         self.anchor = anchor
         self.staleAfter = staleAfter
         self.calendar = calendar
+        self.epoch = epoch
     }
+
+    /// Fires when a schedule's ticks may no longer fall where its readout changes: the Mac woke
+    /// (timers may have counted only awake time), the clock was set, or the time zone changed
+    /// (the stamp's midnight and its wording move). On the main queue.
+    /// One publisher, built once: a view body reads it on every run, twice in the Compare header.
+    @MainActor
+    public static let clockChanges: AnyPublisher<Void, Never> = {
+        Publishers.MergeMany(
+            NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification),
+            NotificationCenter.default.publisher(for: .NSSystemClockDidChange),
+            NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange))
+            .map { _ in () }
+            .receive(on: DispatchQueue.main)
+            .eraseToAnyPublisher()
+    }()
 
     /// `startDate` first, so the view draws at once, then every change point after it.
     public func entries(from startDate: Date, mode: TimelineScheduleMode) -> AnyIterator<Date> {

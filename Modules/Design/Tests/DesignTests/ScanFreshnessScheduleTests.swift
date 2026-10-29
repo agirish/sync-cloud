@@ -1,6 +1,8 @@
 import Testing
 import Foundation
 import SwiftUI
+import AppKit
+import Combine
 @testable import Design
 
 /// The Compare header's timeline ticks exactly where its readout changes: the pill's age, its
@@ -25,9 +27,8 @@ import SwiftUI
         return calendar
     }
 
-    /// Fractional anchors on purpose: `anchor + 30 - anchor` can floor to 29 there, which an
-    /// un-nudged point would land on the old label. One anchor sits late in its day, so the stamp's
-    /// midnight falls inside the first hour, between minute seams.
+    /// Fractional anchors, so seams fall between whole seconds. One anchor sits late in its day, so
+    /// the stamp's midnight falls inside the first hour, between minute seams.
     private var cases: [(anchor: Date, zone: String)] {
         [(Date(timeIntervalSinceReferenceDate: 815_000_000.123_456), "Asia/Kolkata"),
          (Date(timeIntervalSinceReferenceDate: 815_000_000.123_456), "America/Los_Angeles"),
@@ -52,7 +53,8 @@ import SwiftUI
                     #expect(reading(anchor, tick.addingTimeInterval(-0.02), cal) != here,
                             "\(zone): a wasted tick at +\(tick.timeIntervalSince(anchor)) s")
                 }
-                let end = index + 1 < ticks.count ? ticks[index + 1] : anchor.addingTimeInterval(horizon)
+                let end = index + 1 < ticks.count ? ticks[index + 1]
+                    : anchor.addingTimeInterval(horizon + ScanFreshnessSchedule.nudge)
                 // Every second for the first two hours, where seams are dense; every 7 s after.
                 // Up to the seam itself: each tick lands `nudge` after its seam, so the last
                 // `nudge` before a tick already shows the next label.
@@ -104,5 +106,29 @@ import SwiftUI
             .entries(from: anchor, mode: .normal).prefix(200))
         #expect(ticks.contains { abs($0.timeIntervalSince(anchor) - (3 * 86_400 + 90 + ScanFreshnessSchedule.nudge)) < 0.001 })
         #expect(ticks == ticks.sorted())
+    }
+
+    /// A wake, clock or zone change bumps the view's epoch, and a schedule with a new epoch is a
+    /// different schedule — which is what makes the timeline restart from now rather than wait
+    /// out a tick that may be a day away.
+    @Test func aNewEpochIsANewSchedule() {
+        let anchor = Date(timeIntervalSince1970: 1_000_000.37)
+        let cal = calendar("UTC")
+        #expect(ScanFreshnessSchedule(anchor: anchor, calendar: cal, epoch: 0)
+                == ScanFreshnessSchedule(anchor: anchor, calendar: cal, epoch: 0))
+        #expect(ScanFreshnessSchedule(anchor: anchor, calendar: cal, epoch: 0)
+                != ScanFreshnessSchedule(anchor: anchor, calendar: cal, epoch: 1))
+    }
+
+    /// The three events that move the clock under a sparse schedule each fire `clockChanges`.
+    @MainActor @Test func clockChangesFiresOnZoneClockAndWake() async {
+        var fired = 0
+        let sub = ScanFreshnessSchedule.clockChanges.sink { fired += 1 }
+        defer { sub.cancel() }
+        NotificationCenter.default.post(name: .NSSystemTimeZoneDidChange, object: nil)
+        NotificationCenter.default.post(name: .NSSystemClockDidChange, object: nil)
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didWakeNotification, object: nil)
+        for _ in 0..<50 where fired < 3 { try? await Task.sleep(for: .milliseconds(20)) }
+        #expect(fired == 3)
     }
 }
