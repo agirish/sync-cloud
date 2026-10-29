@@ -112,10 +112,14 @@ extension ContentView {
                                       hasAnchors: anchors != nil) {
         case .clear:
             syncManager.banner = nil
+        case .flashInActivity:
+            syncManager.banner = nil
+            ActivityCenter.shared.flashRow(for: banner.id)
         case .landInActivity:
             syncManager.banner = nil
-            CapsuleFlightLanding.shared.arrived()
+            CapsuleFlightLanding.shared.arrived(banner.id)
         case .fly:
+            CapsuleFlightLanding.shared.takeOff(banner.id)
             withDesignAnimation(ProgressCapsuleFlight.foldAnimation, reduceMotion: reduceMotion) {
                 capsuleFoldingID = banner.id
             }
@@ -123,14 +127,17 @@ extension ContentView {
                 try? await Task.sleep(for: .seconds(ProgressCapsuleFlight.foldDuration))
                 capsuleFoldingID = nil
                 // Replaced or closed while it folded: the newer message is not this one's to clear.
-                guard syncManager.banner?.id == banner.id else { return }
+                guard syncManager.banner?.id == banner.id else {
+                    CapsuleFlightLanding.shared.callOff(banner.id)
+                    return
+                }
                 syncManager.banner = nil
                 // Measured again after the fold: the toolbar may have re-laid out under it.
                 if let ends = CapsuleFlightAnchors.shared.frames() {
                     CapsuleFlight.fly(Self.capsuleWeight(banner.severity), from: ends.capsule, to: ends.activity,
-                                      over: ends.host) { CapsuleFlightLanding.shared.arrived() }
+                                      over: ends.host) { CapsuleFlightLanding.shared.arrived(banner.id) }
                 } else {
-                    CapsuleFlightLanding.shared.arrived()
+                    CapsuleFlightLanding.shared.arrived(banner.id)
                 }
             }
         }
@@ -288,6 +295,9 @@ extension ContentView {
     /// is the capsule's, for its timer.
     @discardableResult
     func resultMessageChanged(to banner: OperationBanner?) -> Bool {
+        // A capsule problem's dot waits only while its message is on screen or in flight: replaced,
+        // or cleared without a flight (Undo, a follow-up), it shows now rather than never.
+        if banner != nil || CapsuleFlightLanding.shared.flying == nil { ActivityCenter.shared.releaseDot() }
         lensSession.retireRuleOffer(unlessRiding: banner?.id)
         if paneToolResultDoors?.banner.id != banner?.id { paneToolResultDoors = nil }
         guard let banner else { return false }
@@ -303,7 +313,7 @@ extension ContentView {
         // Activity button's dot (CS).
         ActivityCenter.shared.record(banner, run: syncManager.lastRecordedRun,
                                      finishedRun: fileRunEnded(by: banner).map { ($0.started, $0.ended, $0.cancelled) },
-                                     seen: NSApp.isActive && !toCapsule)
+                                     seen: NSApp.isActive && !toCapsule, dotWaits: toCapsule)
         return toCapsule
     }
 

@@ -1,4 +1,7 @@
+import Foundation
 import Testing
+import FileExplorer
+import Sync
 @testable import SyncCloud
 
 /// How a result message leaves on its own — the capsule's flies into Activity; nothing else does.
@@ -31,8 +34,31 @@ import Testing
         #expect(exit(.toolbar, hasAnchors: false) == .landInActivity)
     }
 
-    @Test func activityAlreadyOpenUnderTheCapsuleClearsItInPlace() {
-        #expect(exit(.toolbar, activityIsOpen: true) == .clear)
-        #expect(exit(.toolbar, reduceMotion: true, activityIsOpen: true) == .clear)
+    @Test func activityAlreadyOpenUnderTheCapsuleFlashesItsRowInstead() {
+        #expect(exit(.toolbar, activityIsOpen: true) == .flashInActivity)
+        #expect(exit(.toolbar, reduceMotion: true, activityIsOpen: true) == .flashInActivity)
+        // A pane's message is not in the popover's way: it just goes.
+        #expect(exit(.workspace, activityIsOpen: true) == .clear)
+    }
+
+    /// The landing releases a held dot and flashes the message's row; calling a flight off does
+    /// neither, and leaves no message in the air.
+    @MainActor
+    @Test func landingReleasesTheDotAndFlashesTheRow() {
+        let center = ActivityCenter()
+        let landing = CapsuleFlightLanding()
+        let warning = OperationBanner.warning("Moved 2 of 3 items to the Trash")
+        center.record(warning, run: nil, finishedRun: nil, seen: false, dotWaits: true)
+
+        landing.takeOff(warning.id)
+        landing.callOff(UUID())
+        #expect(landing.flying == warning.id, "calling off another message's flight grounded this one")
+        #expect(!center.showsDot)
+
+        landing.arrived(warning.id, in: center)
+        #expect(landing.flying == nil)
+        #expect(landing.arrivals == 1)
+        #expect(center.showsDot)
+        #expect(center.flashedRow == warning.id)
     }
 }

@@ -174,6 +174,15 @@ public struct ActivityNowView: View {
                     .background(message.id == center.highlighted
                                 ? RoundedRectangle(cornerRadius: Radius.chip).fill(LiquidGlassHue.stored().accentColor.opacity(0.14))
                                 : nil)
+                    // A capsule message arriving while Activity is open flashes its row once. A
+                    // fade, so Reduce Motion keeps it.
+                    .keyframeAnimator(initialValue: 0.0, trigger: center.flashes) { row, glow in
+                        row.background(RoundedRectangle(cornerRadius: Radius.chip)
+                            .fill(LiquidGlassHue.stored().accentColor.opacity(message.id == center.flashedRow ? glow : 0)))
+                    } keyframes: { _ in
+                        LinearKeyframe(0.22, duration: 0.15)
+                        LinearKeyframe(0, duration: 1.45)
+                    }
                     .id(message.id)
             }
         }

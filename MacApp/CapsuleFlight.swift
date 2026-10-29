@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Design
+import FileExplorer
 
 /// **How a result message leaves when nobody undid or followed it** — its time ran out, or ✕.
 ///
@@ -11,6 +12,8 @@ import Design
 enum ResultMessageExit: Equatable {
     /// Clear it where it is.
     case clear
+    /// Clear it, and flash its row in the Activity popover that is open under the capsule.
+    case flashInActivity
     /// Clear it, and the Activity button glows once: Reduce Motion's answer, and the answer when the
     /// flight has nowhere to start or land.
     case landInActivity
@@ -21,8 +24,9 @@ enum ResultMessageExit: Equatable {
                      hasAnchors: Bool) -> ResultMessageExit {
         guard home == .toolbar else { return .clear }
         // The popover hangs from the capsule and already lists the message in Recent; a ring flying
-        // out from under it to the button that opened it says nothing the list does not.
-        guard !activityIsOpen else { return .clear }
+        // out from under it to the button that opened it says nothing the list does not. Its row
+        // flashes instead.
+        guard !activityIsOpen else { return .flashInActivity }
         guard !reduceMotion, hasAnchors else { return .landInActivity }
         return .fly
     }
@@ -73,13 +77,29 @@ struct CapsuleFlightAnchor: NSViewRepresentable {
     }
 }
 
-/// **The landing**, as the Activity button sees it: a count it animates on.
+/// **The landing**, as the Activity button sees it: a count it animates on — and the message in the
+/// air, whose problem dot waits for it (`ActivityCenter.dotHeldFor`).
 @MainActor
 final class CapsuleFlightLanding: ObservableObject {
     static let shared = CapsuleFlightLanding()
     @Published private(set) var arrivals = 0
+    /// The message folding or flying now. Its banner is cleared before the ring lands, and that
+    /// clearing must not release the dot early.
+    private(set) var flying: UUID?
 
-    func arrived() { arrivals &+= 1 }
+    func takeOff(_ id: UUID) { flying = id }
+
+    /// Called off without landing: the message was replaced while it folded.
+    func callOff(_ id: UUID) { if flying == id { flying = nil } }
+
+    /// The message is in Activity: the button bumps, a held dot appears, and an open Activity's
+    /// row for it flashes.
+    func arrived(_ id: UUID, in center: ActivityCenter = .shared) {
+        if flying == id { flying = nil }
+        arrivals &+= 1
+        center.releaseDot()
+        center.flashRow(for: id)
+    }
 }
 
 /// Draws a flight over the window, in a panel of its own.

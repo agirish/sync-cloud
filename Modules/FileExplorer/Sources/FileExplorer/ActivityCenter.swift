@@ -122,6 +122,15 @@ public final class ActivityCenter: ObservableObject {
     /// A problem arrived that nobody has seen — the toolbar's Activity button wears a dot until
     /// Activity is opened (TE224, decision CS).
     @Published public private(set) var hasUnseenProblem = false
+    /// **A problem the capsule is still showing**, whose dot waits until the message goes into
+    /// Activity — the ring lands on the button and the dot appears with it. Set only when no dot was
+    /// already showing, so a hold never hides an older problem's.
+    @Published public private(set) var dotHeldFor: UUID?
+    /// Whether the Activity button wears its dot now.
+    public var showsDot: Bool { hasUnseenProblem && dotHeldFor == nil }
+    /// The Recent row a capsule message arriving flashes once, and the count its flash animates on.
+    @Published public private(set) var flashedRow: UUID?
+    @Published public private(set) var flashes = 0
     /// The Activity window's tab — the last one used, which the button and ⌘L reopen (CT).
     @Published public var tab: ActivityTab = .now
     /// Show in History's run, and Show in Log's minutes: set by a Recent row, read by the tab.
@@ -153,8 +162,9 @@ public final class ActivityCenter: ObservableObject {
 
     /// Writes a message into Recent: folded into the newest row when it says the same again, then
     /// trimmed to the newest fifty. `seen` is whether it showed where the reader was looking — a
-    /// problem that did not leaves the dot on the Activity button.
-    public func record(_ message: ActivityMessage, seen: Bool) {
+    /// problem that did not leaves the dot on the Activity button. `dotWaits`: the message is the
+    /// capsule's, so its dot waits for ``releaseDot()``.
+    public func record(_ message: ActivityMessage, seen: Bool, dotWaits: Bool = false) {
         if let newest = recent.first, newest.saysTheSame(as: message) {
             recent[0].repeats += 1
             recent[0].foldedIDs.append(message.id)
@@ -167,7 +177,22 @@ public final class ActivityCenter: ObservableObject {
             if recent.count > Self.keep { recent.removeLast(recent.count - Self.keep) }
         }
         // A stop the reader asked for is not a problem they missed.
-        if message.severity != .success, !message.isStopped, !seen { hasUnseenProblem = true }
+        if message.severity != .success, !message.isStopped, !seen {
+            if dotWaits, !hasUnseenProblem { dotHeldFor = message.id }
+            hasUnseenProblem = true
+        }
+    }
+
+    /// The held problem's message went into Activity — landed, or was replaced or cleared, which
+    /// must not lose its dot.
+    public func releaseDot() {
+        if dotHeldFor != nil { dotHeldFor = nil }
+    }
+
+    /// Flashes `messageID`'s row once — a repeat folded into an earlier row is that row.
+    public func flashRow(for messageID: UUID) {
+        flashedRow = recent.first { $0.foldedIDs.contains(messageID) }?.id ?? messageID
+        flashes &+= 1
     }
 
     /// The window's message, as it was published. `run` is the history run the manager last
@@ -176,7 +201,8 @@ public final class ActivityCenter: ObservableObject {
     /// posts no message, and the next one may be a rename minutes later. `finishedRun` is the last
     /// long run's minutes, when it ended just now.
     public func record(_ banner: OperationBanner, run: (token: UUID, runId: UUID, recordedAt: Date)?,
-                       finishedRun: (started: Date, ended: Date, cancelled: Bool)?, seen: Bool, now: Date = Date()) {
+                       finishedRun: (started: Date, ended: Date, cancelled: Bool)?, seen: Bool, dotWaits: Bool = false,
+                       now: Date = Date()) {
         var runId: UUID?
         if let run, run.token != attachedRunToken, now.timeIntervalSince(run.recordedAt) < Self.runLinkWindow {
             attachedRunToken = run.token
@@ -199,7 +225,7 @@ public final class ActivityCenter: ObservableObject {
                                       span: start...now.addingTimeInterval(5))
         message.isStopped = ActivityMessage.isQuietStop(stopped: stoppedRun || ActivityMessage.saysStopped(banner.message),
                                                         message: banner.message, severity: banner.severity)
-        record(message, seen: seen)
+        record(message, seen: seen, dotWaits: dotWaits)
     }
 
     /// The history run already linked to a message.
@@ -226,11 +252,13 @@ public final class ActivityCenter: ObservableObject {
     public func clear() {
         recent = []
         hasUnseenProblem = false
+        dotHeldFor = nil
     }
 
     /// Activity was opened: whatever problem was waiting has been seen.
     public func markSeen() {
         if hasUnseenProblem { hasUnseenProblem = false }
+        releaseDot()
     }
 
     /// The Activity window on Now, with `id`'s row picked out (TE227, R15).

@@ -524,14 +524,17 @@ struct ActivityToolbarButton: View {
         Button(action: action) {
             Label("Activity", systemImage: "list.bullet.rectangle")
                 .overlay(alignment: .topTrailing) {
-                    if center.hasUnseenProblem {
+                    // Shown as a capsule problem's ring lands, popping in with it.
+                    if center.showsDot {
                         Circle()
                             .fill(SemanticColor.error)
                             .frame(width: 7, height: 7)
                             .offset(x: 3, y: -2)
+                            .transition(.scale(scale: 0.2).combined(with: .opacity))
                             .accessibilityHidden(true)
                     }
                 }
+                .designAnimation(.spring(response: 0.28, dampingFraction: 0.55), value: center.showsDot)
                 .shortcutKeycap(AppChord.activityLog.display)
                 .background(CapsuleFlightAnchor(end: .activity))
                 .keyframeAnimator(initialValue: Landing(), trigger: landing.arrivals) { label, value in
@@ -554,9 +557,9 @@ struct ActivityToolbarButton: View {
                     }
                 }
         }
-        .help(ShortcutHint.tooltip(center.hasUnseenProblem ? "Activity — a problem you haven’t seen" : "Activity",
+        .help(ShortcutHint.tooltip(center.showsDot ? "Activity — a problem you haven’t seen" : "Activity",
                                    AppChord.activityLog.display))
         .accessibilityLabel("Activity")
-        .accessibilityValue(center.hasUnseenProblem ? "A problem you haven’t seen" : "")
+        .accessibilityValue(center.showsDot ? "A problem you haven’t seen" : "")
     }
 }

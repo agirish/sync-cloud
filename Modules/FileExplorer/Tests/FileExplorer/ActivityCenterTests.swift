@@ -216,4 +216,56 @@ import Sync
         center.record(OperationBanner.warning("Skipped 3 items"), run: nil, finishedRun: nil, seen: true)
         #expect(center.recent[0].undoStep == nil)
     }
+
+    /// A problem the capsule shows keeps its dot until the message goes into Activity.
+    @Test func aCapsuleProblemsDotWaitsForItsLanding() {
+        let center = ActivityCenter()
+        let warning = OperationBanner.warning("Moved 2 of 3 items to the Trash")
+        center.record(warning, run: nil, finishedRun: nil, seen: false, dotWaits: true)
+        #expect(center.hasUnseenProblem)
+        #expect(!center.showsDot, "the dot showed while the capsule was still showing the problem")
+        center.releaseDot()
+        #expect(center.showsDot)
+    }
+
+    /// A hold never hides a dot that was already showing for an older problem.
+    @Test func aHoldLeavesAnOlderProblemsDotShowing() {
+        let center = ActivityCenter()
+        center.record(message("Copy failed", .error), seen: false)
+        center.record(message("Moved 2 of 3", .warning), seen: false, dotWaits: true)
+        #expect(center.dotHeldFor == nil)
+        #expect(center.showsDot)
+    }
+
+    /// Opening Activity sees the problem, held or not; Clear drops the hold with the rows.
+    @Test func seeingOrClearingDropsTheHold() {
+        let center = ActivityCenter()
+        center.record(message("Moved 2 of 3", .warning), seen: false, dotWaits: true)
+        center.markSeen()
+        #expect(center.dotHeldFor == nil && !center.showsDot)
+        center.record(message("Copy failed", .error), seen: false, dotWaits: true)
+        center.clear()
+        #expect(center.dotHeldFor == nil && !center.showsDot)
+    }
+
+    /// A success never lights the dot, so it holds nothing.
+    @Test func aSuccessHoldsNoDot() {
+        let center = ActivityCenter()
+        center.record(message("Moved “Untitled.md” to the Trash"), seen: false, dotWaits: true)
+        #expect(center.dotHeldFor == nil && !center.showsDot)
+    }
+
+    /// The arriving message's row flashes — a repeat folded into an earlier row flashes that row.
+    @Test func aFlashPicksOutTheArrivingRowAndFiresOncePerArrival() {
+        let center = ActivityCenter()
+        let first = OperationBanner.success("Copied “a.txt” to Backup")
+        let second = OperationBanner.success("Copied “a.txt” to Backup")
+        center.record(first, run: nil, finishedRun: nil, seen: true)
+        center.record(second, run: nil, finishedRun: nil, seen: true)
+        center.flashRow(for: second.id)
+        #expect(center.flashedRow == center.recent[0].id)
+        #expect(center.flashes == 1)
+        center.flashRow(for: second.id)
+        #expect(center.flashes == 2, "a second arrival of the same row must flash again")
+    }
 }

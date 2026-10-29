@@ -12863,3 +12863,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s rankMemo=%s paneIdle=%s prune
 |---|---|---|
 | `v5.x` | All five costs (`rankMemo=0`, `paneIdle=0`, `pruneWalk=1`, `appStateObject=1`, `laneCancel=0`) | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | The pruning walk and the App scene's subscription; ⌘K and pane search where the line has them | RECORDED — not owed |
+
+---
+
+## A capsule problem's dot appears as it lands; its Recent row flashes (Run Room CG) — main only
+
+The mockup's two extras, 2026-10-29. A warning or error the toolbar's capsule shows keeps its
+Activity dot until its ring lands on the button (`ActivityCenter.dotHeldFor`, `showsDot`); replaced,
+undone or followed instead, it shows the dot at once, and a hold never hides an older problem's dot.
+The landing flashes the message's Recent row once in an open popover or Activity window; with the
+popover open the message clears in place and its row flashes (`ResultMessageExit.flashInActivity`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s heldDot=%s flight=%s\n' $l \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/ActivityCenter.swift 2>/dev/null | grep -c 'dotHeldFor')" \
+  "$(git show origin/$l:MacApp/CapsuleFlight.swift 2>/dev/null | grep -c 'enum ResultMessageExit')"; done
+# measured 2026-10-29, against origin, before this landed (main reads heldDot>0 after):
+# main          heldDot=0 flight=1
+# v5.x … v2.x   heldDot=0 flight=0 (no capsule, no Activity button)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No capsule flight or Activity dot to hold | CLOSED — does not apply |
