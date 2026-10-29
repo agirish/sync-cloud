@@ -15,7 +15,8 @@ window. Several runs can go at once, each with its own Stop, and every message s
 after its five seconds, with its Undo. A run that ends while you are elsewhere tells you where you
 are. Download All fetches a whole cloud folder, and Keep Downloaded holds iCloud Drive files on
 this Mac. Undo This Reorganization leaves a file that isn't its own where it stands, and names
-what changed since. Setup no longer reads documents into a profile a later Save replaced.
+what changed since. Setup no longer reads documents into a profile a later Save replaced. A
+right-click no longer waits on a cloud service that has stopped answering.
 
 Requires **macOS 26**, unchanged from v6.1.
 
@@ -89,6 +90,24 @@ Requires **macOS 26**, unchanged from v6.1.
 - **Look Again only counts** the documents in a folder that had none to read; Read My Documents does
   the reading. Pressing Learn during a reading no longer starts a second walk of the folder. Help
   now says that each folder Setup learns keeps its own Restructure history.
+
+### Fewer freezes
+
+- **A right-click no longer waits on the cloud.** Download, PDF Tools and Save as PDF, on a row's
+  menu and in the File menu, read a cloud file's state, and a PDF's protection, on the main thread
+  as the menu opened. A cloud service that had stopped answering could freeze the app. These reads,
+  and Keep Downloaded's, now run in the background. An answer that takes more than 200 ms leaves its
+  item out of the menu, which puts it back once the read returns.
+- **Launch reads less on the main thread.** Whether Apple's on-device model is available, and the
+  date of the last folder survey, are now read in the background, so neither holds up the app at
+  launch. A model turned on after launch is warmed too.
+- **Compare's header redraws only when its age changes.** The age of the last scan in Compare's
+  header redrew the whole header every 30 seconds, 120 times an hour, even when idle or behind other
+  windows. It now redraws only when the age it shows changes.
+- **A freeze leaves a record.** When the main thread goes a second without answering, SyncCloud
+  samples its stack into a file in `~/Library/Logs/SyncCloud/Stalls/`, and the log names the file. It
+  takes at most one sample a minute and 20 a launch, and keeps the newest 30 files. They stay on this
+  Mac.
 
 ### Around the app
 

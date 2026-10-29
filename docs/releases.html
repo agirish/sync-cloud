@@ -137,7 +137,7 @@
 
   <article class="rel draft">
     <div class="rel-head"><span class="v">v6.2</span><span class="tag draft">In development</span></div>
-    <p class="lede"><b>Everything running, in one place.</b> v6.2 gathers the app's runs and messages into one Activity window. Several runs can go at once, each with its own Stop, and every message stays readable after its five seconds, with its Undo. A run that ends while you are elsewhere tells you where you are. Download All fetches a whole cloud folder, and Keep Downloaded holds iCloud Drive files on this Mac. Undo This Reorganization leaves a file that isn't its own where it stands, and names what changed since. Setup no longer reads documents into a profile a later Save replaced. Requires <b>macOS 26</b>, unchanged from v6.1.</p>
+    <p class="lede"><b>Everything running, in one place.</b> v6.2 gathers the app's runs and messages into one Activity window. Several runs can go at once, each with its own Stop, and every message stays readable after its five seconds, with its Undo. A run that ends while you are elsewhere tells you where you are. Download All fetches a whole cloud folder, and Keep Downloaded holds iCloud Drive files on this Mac. Undo This Reorganization leaves a file that isn't its own where it stands, and names what changed since. Setup no longer reads documents into a profile a later Save replaced. A right-click no longer waits on a cloud service that has stopped answering. Requires <b>macOS 26</b>, unchanged from v6.1.</p>
     <div class="grp">
       <h3>Activity</h3>
       <ul class="flist">
@@ -171,6 +171,15 @@
         <li><span class="ic">▤</span><span><b>A second Save while documents are being read</b> stops the reading, writes the new profile and carries the reading on there, paused if you had paused it. In v6.1 the reading finished, hours later, into the profile the Save had just replaced. While a Refresh reads, which can't be stopped, a Save that would replace its profile is refused.</span></li>
         <li><span class="ic">▤</span><span><b>The roster.</b> Editing your name renames your own record; in v6.1, closing Setup added a second, hidden one. Adding or removing a person after a Save offers Save again. A roster Setup can't write shows no remove buttons, and one that lists someone twice says so.</span></li>
         <li><span class="ic">▤</span><span><b>Look Again only counts</b> the documents in a folder that had none to read; Read My Documents does the reading. Pressing Learn during a reading no longer starts a second walk of the folder. Help now says that each folder Setup learns keeps its own Restructure history. </span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Fewer freezes</h3>
+      <ul class="flist">
+        <li><span class="ic">&#9201;</span><span><b>A right-click no longer waits on the cloud.</b> Download, PDF Tools and Save as PDF, on a row's menu and in the File menu, read a cloud file's state, and a PDF's protection, on the main thread as the menu opened. A cloud service that had stopped answering could freeze the app. These reads, and Keep Downloaded's, now run in the background. An answer that takes more than 200 ms leaves its item out of the menu, which puts it back once the read returns.</span></li>
+        <li><span class="ic">&#9201;</span><span><b>Launch reads less on the main thread.</b> Whether Apple's on-device model is available, and the date of the last folder survey, are now read in the background, so neither holds up the app at launch. A model turned on after launch is warmed too.</span></li>
+        <li><span class="ic">&#9201;</span><span><b>Compare's header redraws only when its age changes.</b> The age of the last scan in Compare's header redrew the whole header every 30 seconds, 120 times an hour, even when idle or behind other windows. It now redraws only when the age it shows changes.</span></li>
+        <li><span class="ic">&#9201;</span><span><b>A freeze leaves a record.</b> When the main thread goes a second without answering, SyncCloud samples its stack into a file in <code>~/Library/Logs/SyncCloud/Stalls/</code>, and the log names the file. It takes at most one sample a minute and 20 a launch, and keeps the newest 30 files. They stay on this Mac. </span></li>
       </ul>
     </div>
     <div class="grp">
