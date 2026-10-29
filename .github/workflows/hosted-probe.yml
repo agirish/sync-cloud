@@ -13,13 +13,27 @@ name: hosted-probe
 
 on:
   workflow_dispatch:
+    inputs:
+      suites:
+        description: Run the package and app suites too (off runs only the environment report)
+        type: boolean
+        default: true
 
 permissions:
   contents: read
 
 jobs:
+  # What the host answers for the things machine-pinned tests depend on. About a minute.
+  environment:
+    name: Environment
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift scripts/hosted-environment.swift
+
   packages:
     name: ${{ matrix.name }}
+    if: ${{ inputs.suites }}
     runs-on: xcode-27
     timeout-minutes: 120
     strategy:
@@ -77,6 +91,7 @@ jobs:
 
   app:
     name: App target
+    if: ${{ inputs.suites }}
     runs-on: xcode-27
     timeout-minutes: 120
     env:
