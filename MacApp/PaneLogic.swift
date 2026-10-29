@@ -136,6 +136,16 @@ enum PaneLogic {
                    annotatesSides: !query.isEmpty && !isSingleSource)
     }
 
+    /// Whether a recomputation would only re-publish "no search": the results on hand answer no
+    /// query, and neither does the field. Every tree publish re-keys the search task, and before
+    /// this a pane with nothing typed came back ~150 ms later with a fresh generation — results
+    /// that compared unequal by that stamp alone, so the window and its panes re-rendered with
+    /// identical output (speed audit item 7). `query` is the field's raw text, normalized here the
+    /// way `PaneSearchResults` stores it.
+    static func searchStaysIdle(previous: PaneSearchResults, query: String) -> Bool {
+        !previous.isActive && PaneTreeSearch.normalizedQuery(query).isEmpty
+    }
+
     /// Whether landing `results` over `previous` is a NEW QUESTION — the one recomputation event
     /// that fires a reveal (the other trigger, ↩/⇧↩, bumps the nonce at its own call site).
     ///

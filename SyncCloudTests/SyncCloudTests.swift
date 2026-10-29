@@ -59,6 +59,10 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     /// that is always zero, so only the first adopted manager may stick.
     @MainActor
     @Test func testQuitGuardKeepsFirstManagerAcrossAppReinit() async throws {
+        // Put back afterwards: the static is the host app's own, and a test that reads it
+        // (`AppSceneObservationTests`) must not find this test's manager, or nothing, there.
+        let hostManager = SyncCloudAppDelegate.sharedSyncManager
+        defer { SyncCloudAppDelegate.sharedSyncManager = hostManager }
         SyncCloudAppDelegate.sharedSyncManager = nil
         let delegate = SyncCloudAppDelegate()
         let liveManager = FileSyncManager()

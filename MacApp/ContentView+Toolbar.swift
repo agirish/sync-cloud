@@ -426,9 +426,10 @@ extension ContentView {
         // member of the utility group: those three are glyph buttons and this is a field-shaped
         // resting surface — dropping it in among them would read as a button that had grown.
         ToolbarItem(placement: .primaryAction) {
-            GoToFieldBar(
+            GoToFieldHost(
+                query: goToQuery,
+                onQuery: { palettePanel.setQuery($0) },
                 mode: goToFieldMode,
-                query: $goToQuery,
                 chord: AppChord.commandPalette.display,
                 focusToken: goToFocusToken,
                 accent: glassHue.accentColor,

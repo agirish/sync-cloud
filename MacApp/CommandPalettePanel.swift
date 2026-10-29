@@ -120,9 +120,23 @@ final class CommandPaletteState: ObservableObject {
         return kind
     }
 
+    /// The rows for the query they were ranked for. **Ranking is the palette's whole cost** —
+    /// every surveyed folder scored against the query, ~16 ms over 3,081 of them — and `rows` is
+    /// read twice per keystroke (`setQuery`, then the panel's body) and again on every ↑ ↓, none of
+    /// which but the first asks anything new (speed audit item 6). The index is a snapshot and the
+    /// probe answers from its own memo, so the query is the only input that can move.
+    private var ranked: (query: String, rows: [PaletteRow])?
+    /// How many times the rows were actually ranked. Test instrumentation, like
+    /// `PDFKitSerialAccess.peakConcurrentParses`; nothing in the app reads it.
+    private(set) var rankingRuns = 0
+
     var rows: [PaletteRow] {
-        PaletteRouter.rows(query: query, index: index,
-                           probe: pathProbe == nil ? nil : { [self] in probeKind($0) })
+        if let ranked, ranked.query == query { return ranked.rows }
+        rankingRuns += 1
+        let rows = PaletteRouter.rows(query: query, index: index,
+                                      probe: pathProbe == nil ? nil : { [self] in probeKind($0) })
+        ranked = (query, rows)
+        return rows
     }
 
     /// Typing moves the selection with the list rather than leaving it where it was: an index into

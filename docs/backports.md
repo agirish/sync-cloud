@@ -12833,3 +12833,33 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s capsuleMessage=%s flight=%s\n
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No toolbar capsule or Activity button, so nothing to fly between | CLOSED — does not apply |
+
+---
+
+## ⌘K, pane search, selection pruning, the App scene and Compare's renders (speed audit 6–10) — main only
+
+Speed audit items 6–10 (were P28, P31, P32, P64, P66), 2026-10-29. On `main`: ⌘K ranks the folders
+once per query rather than twice per key and per arrow, and its query no longer lives in the
+window's body; a tree publish with no pane search typed publishes no new results; `pruneSelection`
+looks the selection up in the per-version path index rather than walking the tree into a set; the
+App holds the manager as `@State`, so a publish no longer re-runs the scene and its `.commands`;
+and a Compare Copies page render whose task is cancelled before the PDF lane frees never opens or
+draws its page (`PDFKitSerialAccess.performUnlessCancelled`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s rankMemo=%s paneIdle=%s pruneWalk=%s appStateObject=%s laneCancel=%s compareRenders=%s\n' $l \
+  "$(git show origin/$l:MacApp/CommandPalettePanel.swift 2>/dev/null | grep -c 'private var ranked')" \
+  "$(git show origin/$l:MacApp/ContentView+PaneSearch.swift 2>/dev/null | grep -c 'searchStaysIdle')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager.swift 2>/dev/null | grep -c 'collectPaths(in: leftTree')" \
+  "$(git show origin/$l:MacApp/SyncCloudApp.swift 2>/dev/null | grep -c '@StateObject private var syncManager')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/PDFKitSerialAccess.swift 2>/dev/null | grep -c 'performUnlessCancelled')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PagePairRaster.swift 2>/dev/null | grep -cF 'PDFKitSerialAccess.perform {')"; done
+# measured 2026-10-29, against origin, before this landed (main reads 1 1 0 0 1 1 after):
+# main/v5.x  rankMemo=0 paneIdle=0 pruneWalk=1 appStateObject=1 laneCancel=0 compareRenders=2
+# v4.x … v2.x  the same, compareRenders=0 (no Compare Copies); v3.x/v2.x have no ⌘K panel, v2.x no pane search
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | All five costs (`rankMemo=0`, `paneIdle=0`, `pruneWalk=1`, `appStateObject=1`, `laneCancel=0`) | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | The pruning walk and the App scene's subscription; ⌘K and pane search where the line has them | RECORDED — not owed |

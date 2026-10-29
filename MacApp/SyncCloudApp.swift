@@ -99,6 +99,10 @@ struct SyncCloudApp: App {
     /// the delegate's Dock-reopen hook tells the main window apart from auxiliary scenes
     /// (Activity Log).
     static let mainWindowId = "main"
+    /// How many times `body` has run. Test instrumentation, like
+    /// `PDFKitSerialAccess.peakConcurrentParses` — `AppSceneObservationTests` holds a manager
+    /// publish to zero of these; nothing in the app reads it.
+    @MainActor static var sceneBodyRuns = 0
 
     @NSApplicationDelegateAdaptor(SyncCloudAppDelegate.self) var appDelegate
 
@@ -106,7 +110,14 @@ struct SyncCloudApp: App {
     /// removes them in `deinit`, so a monitor nobody retains stops reporting the moment it is
     /// collected — and the survey would then never notice a sleeping display, silently.
     @State private var machineConditionsMonitor: MachineConditionsMonitor
-    @StateObject private var syncManager: FileSyncManager
+    /// **`@State`, not `@StateObject`.** A state object subscribes the whole scene to every publish,
+    /// and the manager publishes constantly: measured 2026-10-29, ten publishes re-ran this body and
+    /// rebuilt its `.commands` tree ten times (speed audit item 9). Nothing here renders from the
+    /// manager — every reader below observes it itself (`ContentView`, `ActivityWindowHost`,
+    /// `RunWriteLockFromManager`), and the menus' states arrive as focused values — so holding it
+    /// only for its lifetime loses nothing. Built eagerly in `init`, so nothing needed the
+    /// object's lazy construction either.
+    @State private var syncManager: FileSyncManager
     @StateObject private var settings: SettingsManager
     /// Drives the in-window settings overlay. Hoisted to App scope so the ⌘, menu command can
     /// open it; ContentView renders the overlay and owns which tab is shown.
@@ -606,7 +617,7 @@ struct SyncCloudApp: App {
         // main thread. Asking here held the first window (speed audit item 4: likely 5.4 s on
         // the first launch after a macOS update) and fixed the answer for the whole session.
         manager.filingClassifierPrewarm = { OnDeviceFilingClassifier.prewarm() }
-        _syncManager = StateObject(wrappedValue: manager)
+        _syncManager = State(wrappedValue: manager)
         // ContentView.onAppear awaits discoverProviders() as part of its bootstrap sequence, so
         // skip the init-triggered scan here to avoid discovering providers twice on launch.
         // overridesDomainName scopes path/name override reads to the app's own defaults
@@ -671,6 +682,7 @@ struct SyncCloudApp: App {
     }
     
     var body: some Scene {
+        let _ = Self.sceneBodyRuns += 1
         // A single-window `Window` scene, not a WindowGroup: two ContentViews would share one
         // FileSyncManager and the App-level showSettings, so a second window re-ran the full
         // bootstrap (redundant discovery + rescan, provider re-selection over live panes) and
@@ -1121,7 +1133,7 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
 
     /// Wires the termination guard to `manager`, keeping the first manager when one is already
     /// wired (both instance and static ref, so the guard works on every quit attempt). SwiftUI
-    /// may re-run `App.init`, but `@StateObject` keeps only the first manager alive — re-wiring
+    /// may re-run `App.init`, but `@State` keeps only the first manager alive — re-wiring
     /// on a later init would point the quit guard at an orphan whose operation count is always 0.
     func adoptSyncManager(_ manager: FileSyncManager) {
         guard syncManager == nil, Self.sharedSyncManager == nil else { return }

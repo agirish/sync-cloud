@@ -92,8 +92,11 @@ extension ContentView {
     /// nodes in RAM, no disk access, no new scan. On the single-source rail there is no opposite pane
     /// — `nil`, so no annotation is produced rather than a wrong one.
     func recomputeSearch(isLeft: Bool) async {
-        let pane = paneContext(isLeft: isLeft)
         let query = (isLeft ? leftPaneSearch : rightPaneSearch).query
+        // Nothing asked and nothing showing: a republish would only stamp a new generation.
+        guard !PaneLogic.searchStaysIdle(previous: paneSearchResults(isLeft: isLeft), query: query)
+        else { return }
+        let pane = paneContext(isLeft: isLeft)
         let plan = PaneLogic.searchPlan(isLeft: isLeft, isSingleSource: layoutMode == .singleSource,
                                         query: query)
         let generation = (isLeft ? leftSearchGeneration : rightSearchGeneration) + 1

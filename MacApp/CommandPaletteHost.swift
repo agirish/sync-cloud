@@ -46,6 +46,41 @@ extension FocusedValues {
     }
 }
 
+// MARK: - The toolbar field's query
+
+/// What is typed in the toolbar's Go-to field, in an object of its own.
+///
+/// **So that typing redraws the field and nothing else** — the reason `EditorBuffer` is split
+/// from `EditorDocument`. As `@State` text on `ContentView`, every keystroke invalidated the window's
+/// body, which read it to forward it to the list. `ContentView` holds this without observing it;
+/// `GoToFieldHost` observes it and forwards each change (speed audit item 6).
+@MainActor
+final class GoToQuery: ObservableObject {
+    @Published var text = ""
+}
+
+/// `GoToFieldBar`, bound to the query object and forwarding every keystroke to the list that is
+/// answering it.
+struct GoToFieldHost: View {
+    @ObservedObject var query: GoToQuery
+    let onQuery: (String) -> Void
+    let mode: GoToFieldBar.Mode
+    let chord: String
+    let focusToken: Int
+    let accent: Color
+    let onOpen: () -> Void
+    let onMove: (Int) -> Void
+    let onSubmit: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        GoToFieldBar(mode: mode, query: $query.text, chord: chord, focusToken: focusToken,
+                     accent: accent, onOpen: onOpen, onMove: onMove, onSubmit: onSubmit,
+                     onCancel: onCancel)
+            .onChange(of: query.text) { _, typed in onQuery(typed) }
+    }
+}
+
 // MARK: - ContentView's half
 
 extension ContentView {
@@ -101,7 +136,7 @@ extension ContentView {
         let index = paletteIndex
         let state = CommandPaletteState(index: index, pathProbe: Self.pathKind)
         // The field is what the user types into now, so it opens first and the list follows it.
-        goToQuery = ""
+        goToQuery.text = ""
         showCommandPalette = true
         goToFocusToken += 1
         palettePanel.present(
@@ -117,7 +152,7 @@ extension ContentView {
                 // **that was deferred past v4.2 on 2026-08-19**, so clearing is the shipped rule
                 // rather than a placeholder. The argument for the memory, and the ↩ hazard that
                 // sets its length, are kept in ROADMAP v4 §7 for whoever picks it up.
-                goToQuery = ""
+                goToQuery.text = ""
                 // **Here, not in the field's own teardown.** Measured: by the time SwiftUI removes
                 // the field from the window, AppKit has already dropped the field editor and the
                 // window is its own first responder — a rule asked at that point correctly declines

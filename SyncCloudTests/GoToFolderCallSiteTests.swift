@@ -184,6 +184,57 @@ import FileExplorer
                 "the mounted view re-checked the disk on its own \(counter.calls.count - beforeIdle) time(s) while nothing changed")
     }
 
+    /// **A keystroke ranks the folders once, and an arrow key not at all** (speed audit item 6).
+    ///
+    /// Ranking scores every surveyed folder against the query — ~16 ms over 3,081 of them — and
+    /// `rows` is read by `setQuery`, by the panel's body, and by every ↑ ↓. Before the memo a key
+    /// ranked twice and each arrow twice more, against a query that had not moved. Driven through
+    /// the controller and a mounted panel, so the body's read is a real one.
+    @Test func typingRanksOnceAndMovingRanksNothing() async {
+        let host = NSWindow(contentRect: CGRect(x: -9_000, y: -9_000, width: 900, height: 600),
+                            styleMask: [.borderless], backing: .buffered, defer: false)
+        host.isReleasedWhenClosed = false
+        let controller = CommandPalettePanelController()
+        let index = PaletteIndex(
+            providers: [PaletteProvider(id: "p", name: "Docs", isMounted: true,
+                                        isCurrent: true, root: "/Users/x/Documents")],
+            providerRoot: "/Users/x/Documents",
+            folders: ["Legal", "Legal/Contracts", "Taxes", "Taxes/2025", "Health"],
+            home: "/Users/x", isScanning: false, hasSurvey: true)
+        let state = CommandPaletteState(index: index)
+        controller.present(over: host, state: state, accent: .blue, glassLevel: .frosted,
+                           anchor: { CGRect(x: host.frame.minX + 60, y: host.frame.maxY - 80,
+                                            width: 420, height: 28) },
+                           onRun: { _ in }, onDismiss: {})
+        await waitUntil("the panel was placed, so the view is really reading the rows") {
+            (host.childWindows?.first?.frame.width ?? 0) == 420
+        }
+        defer { controller.dismiss(); host.orderOut(nil) }
+
+        let before = state.rankingRuns
+        controller.setQuery("le")
+        _ = state.rows                                   // the view's read, made to happen
+        #expect(state.rows.contains { $0.title.contains("Legal") },
+                "the query matched nothing — the fixture proves nothing about ranking")
+        #expect(state.rankingRuns - before == 1,
+                "one keystroke ranked the folders \(state.rankingRuns - before) times")
+
+        let afterTyping = state.rankingRuns
+        controller.move(by: 1)
+        _ = state.rows
+        controller.move(by: -1)
+        _ = state.rows
+        #expect(state.rankingRuns == afterTyping,
+                "moving the highlight re-ranked \(state.rankingRuns - afterTyping) time(s) for a query that had not changed")
+
+        // A new query is a new question: the memo must not answer it with the old rows.
+        controller.setQuery("tax")
+        #expect(state.rankingRuns == afterTyping + 1)
+        #expect(state.rows.contains { $0.title.contains("Taxes") }
+                    && !state.rows.contains { $0.title.contains("Legal") },
+                "the rows still answer the previous query")
+    }
+
     private static func source(_ name: String) throws -> String {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()

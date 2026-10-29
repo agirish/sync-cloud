@@ -4,8 +4,8 @@ import Foundation
 /// **Every path that clears the rasters must also orphan the render in flight.**
 ///
 /// `.task(id:)` cancels the running render when the mode, page or pair changes, and Swift
-/// cancellation is cooperative: the two `PagePairRaster` awaits resume regardless and nothing
-/// below them asks `Task.isCancelled`. So the ONLY thing standing between a superseded render and
+/// cancellation is cooperative: a render already drawing finishes, and the two `PagePairRaster`
+/// awaits resume regardless. So the ONLY thing standing between a superseded render and
 /// the state it is about to overwrite is `guard rasterToken == token`. The two completion points
 /// take that guard; the two CLEARERS have to rotate the token, or that guard is still satisfied
 /// when the superseded run lands and it re-fills what was just cleared — two full-page CGImages

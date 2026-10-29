@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// **One lane for every PDFKit parse in the process.**
 ///
@@ -82,6 +83,32 @@ public enum PDFKitSerialAccess {
     public static func perform<T: Sendable>(_ body: @escaping @Sendable () -> T) async -> T {
         await withCheckedContinuation { continuation in
             queue.async { continuation.resume(returning: counted(body)) }
+        }
+    }
+
+    /// ``perform``, for work nobody will want once its task is cancelled: `nil` without running
+    /// `body` when the task is cancelled before its turn comes.
+    ///
+    /// **`perform` alone cannot be cancelled.** Its block is on the queue the moment the task
+    /// starts, and a cancelled task's block still runs when its turn comes — Compare Copies paged
+    /// past ten pages queued ten opens and draws at 1,600 px, each holding up the lane that Edit's
+    /// PDFs, Print and the column preview wait on. Once `body` has started it runs to the end.
+    public static func performUnlessCancelled<T: Sendable>(
+        _ body: @escaping @Sendable () -> T
+    ) async -> T? {
+        let cancelled = OSAllocatedUnfairLock(initialState: false)
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                queue.async {
+                    if cancelled.withLock({ $0 }) {
+                        continuation.resume(returning: nil)
+                    } else {
+                        continuation.resume(returning: counted(body))
+                    }
+                }
+            }
+        } onCancel: {
+            cancelled.withLock { $0 = true }
         }
     }
 }

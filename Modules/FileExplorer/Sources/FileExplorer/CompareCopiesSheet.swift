@@ -584,8 +584,9 @@ struct FilePairCompareView<Verdict: View>: View {
             pairing = PagePairing(leftPages: await leftCount ?? 0, rightPages: await rightCount ?? 0)
         }
         // One in-flight render per side, re-keyed on the page and the mode's need for a raster.
-        // Cancelled by `.task(id:)` when the page changes, which is what stops a 300-page document
-        // from queueing 300 renders behind a scan.
+        // Cancelled by `.task(id:)` when the page changes, and a cancelled render that has not
+        // reached the PDF lane yet never opens or draws its page — which is what stops paging
+        // through a 300-page document from queueing 300 renders behind a scan.
         .task(id: rasterKey) { await refreshRasters() }
         // **A page search does not outlive the mode that started it.** ↑/↓ only searches in a
         // pixel mode, and a search still walking when the reader leaves one would land its jump
@@ -1286,8 +1287,8 @@ struct FilePairCompareView<Verdict: View>: View {
     /// Drops the rasters AND orphans whatever is still rendering them.
     ///
     /// **One helper because there are two clearers and both have to rotate.** `.task(id:)` cancels
-    /// the render in flight, and Swift cancellation is cooperative: the two `PagePairRaster` awaits
-    /// resume anyway and nothing below them asks `Task.isCancelled`. So the only thing between a
+    /// the render in flight, and Swift cancellation is cooperative: a render already drawing
+    /// finishes and the two `PagePairRaster` awaits resume anyway. So the only thing between a
     /// superseded render and the state it is about to overwrite is `guard rasterToken == token` —
     /// and a clear that leaves the token alone leaves that guard satisfied. The run then re-fills
     /// `rasters` and `pageComparison` a moment after they were cleared: two full-page CGImages and
@@ -1348,7 +1349,9 @@ struct FilePairCompareView<Verdict: View>: View {
                                                          longEdge: PagePairRaster.compareLongEdge)
             let (l, r) = (await leftImage, await rightImage)
             // A raster that lands after the user has paged on describes a page nobody is looking at.
-            guard rasterToken == token else { return }
+            // A cancelled one may be no raster at all (`PagePairRaster.render`), not a page that
+            // failed to render.
+            guard rasterToken == token, !Task.isCancelled else { return }
             rasters = (l?.cgImage, r?.cgImage)
             heldRasterKey = decodeKey
             heldComparisonKey = nil

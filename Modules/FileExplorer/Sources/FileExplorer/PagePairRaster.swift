@@ -53,8 +53,12 @@ enum PagePairRaster {
     /// The `CGImage` crosses back in the `SendableImage` box rather than as `Data` — a PNG round
     /// trip moves the decompression to whoever unwraps it, which for a preview is the main thread
     /// at draw time.
+    ///
+    /// `nil` without opening the document when its task is cancelled before the lane comes free —
+    /// a reader paging on leaves the pages they passed unrendered (see
+    /// ``PDFKitSerialAccess/performUnlessCancelled(_:)``).
     static func render(path: String, page index: Int, longEdge: CGFloat) async -> SendableImage? {
-        await PDFKitSerialAccess.perform {
+        await PDFKitSerialAccess.performUnlessCancelled { () -> SendableImage? in
             guard let doc = PDFDocument(url: URL(fileURLWithPath: path)), !doc.isLocked,
                   index >= 0, index < doc.pageCount, let page = doc.page(at: index) else {
                 return nil
@@ -81,7 +85,7 @@ enum PagePairRaster {
             ctx.translateBy(x: -bounds.origin.x, y: -bounds.origin.y)
             page.draw(with: .mediaBox, to: ctx)
             return ctx.makeImage().map(SendableImage.init)
-        }
+        } ?? nil
     }
 
     /// Reads a raster image file (the `.image` pair kind) at a bounded size.

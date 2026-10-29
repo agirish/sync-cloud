@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 import Sync
 @testable import SyncCloud
 
@@ -155,6 +156,52 @@ import Sync
     @Test func testAWhitespaceOnlyEditIsNotANewQuestion() {
         #expect(!PaneLogic.searchAsksNewQuestion(previous: results("tax", generation: 1),
                                                  results: results("  tax ", generation: 2)))
+    }
+
+    // MARK: - When a recomputation publishes nothing
+
+    /// **A republish with nothing typed publishes nothing** (speed audit item 7). Every tree
+    /// publish re-keys the search task; with no query it used to come back with a new generation,
+    /// and results compare by generation, so the window and its panes re-rendered with identical
+    /// output — in Compare, both panes, every publish.
+    @Test func testAnEmptyQueryRepublishStaysIdle() {
+        #expect(PaneLogic.searchStaysIdle(previous: .empty(side: .left), query: ""))
+        #expect(PaneLogic.searchStaysIdle(previous: results("", generation: 4), query: ""))
+        // Whitespace is no query either — `PaneSearchResults` stores it normalized to empty.
+        #expect(PaneLogic.searchStaysIdle(previous: results("", generation: 4), query: "  "))
+        // What the idle results would have been is equal to what is held, but for the stamp —
+        // which is the whole re-render this rule saves.
+        #expect(results("", generation: 4) != results("", generation: 5))
+    }
+
+    /// And it never swallows a real change: a typed query must run, and so must clearing one, or
+    /// the old hits stay drawn with nothing in the field.
+    @Test func testAQueryOrItsClearingStillRuns() {
+        #expect(!PaneLogic.searchStaysIdle(previous: .empty(side: .left), query: "tax"))
+        #expect(!PaneLogic.searchStaysIdle(previous: results("tax", generation: 2), query: ""))
+        #expect(!PaneLogic.searchStaysIdle(previous: results("tax", generation: 2), query: "tax"))
+    }
+
+    /// The rule only saves the publish if it runs BEFORE the generation is bumped and the results
+    /// are written. `recomputeSearch` lives on `ContentView`, which a test cannot mount, so its
+    /// order is read from the source.
+    @Test func testTheIdleCheckRunsBeforeAnythingIsPublished() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/ContentView+PaneSearch.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read ContentView+PaneSearch.swift — this check is vacuous")
+        let start = try #require(source.range(of: "func recomputeSearch(isLeft: Bool) async {"),
+                                 "`recomputeSearch` is gone or renamed — re-aim this check")
+        let body = source[start.upperBound...]
+        let idle = try #require(body.range(of: "guard !PaneLogic.searchStaysIdle("),
+                                "`recomputeSearch` no longer returns early for an idle search")
+        let bump = try #require(body.range(of: "SearchGeneration) + 1"),
+                                "the generation bump moved — re-aim this check")
+        let write = try #require(body.range(of: "leftSearchResults = results"),
+                                 "the results write moved — re-aim this check")
+        #expect(idle.lowerBound < bump.lowerBound && idle.lowerBound < write.lowerBound,
+                "the idle check runs after the generation is bumped, so an empty republish still publishes")
     }
 
     // MARK: - When the search re-runs

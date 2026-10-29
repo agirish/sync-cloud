@@ -36,8 +36,17 @@ import FileExplorer
         // `GoToFieldBar` as of §7: the pill and the field it becomes are one control, and the
         // toolbar draws that one. It still renders `CommandPaletteBar` for its closed state — the
         // pill's own suite measures a view the toolbar reaches through this.
-        #expect(toolbar.contains("GoToFieldBar("),
+        // Through `GoToFieldHost`, which is the field bound to the query object (speed audit item 6).
+        #expect(toolbar.contains("GoToFieldHost("),
                 "the toolbar no longer draws the Go-to control — the render tests are measuring a view nothing shows")
+        let host = try Self.source("CommandPaletteHost.swift")
+        #expect(host.contains("GoToFieldBar(mode: mode, query: $query.text"),
+                "`GoToFieldHost` no longer draws the Go-to control bound to the query it observes")
+        // Every keystroke reaches the list — from the host, which is what observes the query.
+        #expect(host.contains(".onChange(of: query.text) { _, typed in onQuery(typed) }"),
+                "the field’s keystrokes are no longer forwarded to the list")
+        #expect(toolbar.contains("onQuery: { palettePanel.setQuery($0) }"),
+                "the field’s keystrokes are forwarded to something other than the palette")
         #expect(toolbar.contains("toggleCommandPalette()"),
                 "the control is wired to something other than the palette")
         // The field's keys reach the list, and through the controller rather than by reading rows
@@ -52,6 +61,21 @@ import FileExplorer
         #expect(toolbar.contains("chord: AppChord.commandPalette.display"),
                 "the pill's key is a hand-written string again — it can now disagree with the menu item")
         #expect(!toolbar.contains("chord: \"⌘K\""))
+    }
+
+    /// **A keystroke in the field redraws the field, not the window** (speed audit item 6). The
+    /// query used to be `@State` text on `ContentView`, read by its body to forward each change, so
+    /// every key re-ran the window's whole body. It is an object now, held by `ContentView` without
+    /// observing it, and only `GoToFieldHost` reads it. A source check, because `ContentView` cannot
+    /// be mounted in a test; it pins the two things that would bring the redraw back.
+    @Test func theWindowDoesNotObserveTheGoToQuery() throws {
+        let content = try Self.source("ContentView.swift")
+        #expect(content.contains("@State var goToQuery = GoToQuery()"),
+                "the query is held some other way — check `ContentView` does not observe it")
+        #expect(!content.contains("@StateObject var goToQuery") && !content.contains("@ObservedObject var goToQuery"),
+                "`ContentView` observes the query, so every keystroke redraws the window")
+        #expect(!content.contains("goToQuery.text") && !content.contains("of: goToQuery"),
+                "`ContentView.swift` reads the query, which makes its body depend on every keystroke")
     }
 
     @Test func thePillTakesTheResolvedRungRatherThanAFixedOne() throws {

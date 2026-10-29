@@ -695,8 +695,10 @@ struct ContentView: View {
         return true
     }
     /// What is typed in the toolbar's Go-to field. Held here rather than in the panel's state so
-    /// the field can redraw (its trailing key becomes a clear button) without observing it.
-    @State var goToQuery = ""
+    /// the field can redraw (its trailing key becomes a clear button) without observing it — and
+    /// in an object this view holds but does not observe, so a keystroke redraws the field and
+    /// not the window (speed audit item 6). `GoToFieldHost` is its only observer.
+    @State var goToQuery = GoToQuery()
     /// Bumped to claim the caret: on open, and again on ⌘K while already open — where it also
     /// selects what is there, so the next keystroke replaces it.
     @State var goToFocusToken = 0
@@ -1286,8 +1288,6 @@ struct ContentView: View {
             } action: { styles in
                 toolbarStyleSet = styles
             }
-            // Every keystroke in the toolbar field, forwarded to the list that is answering it.
-            .onChange(of: goToQuery) { _, typed in palettePanel.setQuery(typed) }
             .toolbar { mainToolbar }
             // Names the window on the two surfaces that read `NSWindow.title` whether or not a
             // title bar is drawn — the Window menu and Mission Control. Zero-sized, in the

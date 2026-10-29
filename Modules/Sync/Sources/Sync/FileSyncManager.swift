@@ -2117,21 +2117,29 @@ public class FileSyncManager: ObservableObject {
     /// it). A stale path absent from the current tree is simply dropped, matching `findNodes`.
     public func leftNodes(for paths: Set<String>) -> [FileNode] {
         guard !paths.isEmpty else { return [] }
-        if leftNodeIndexCache?.version != publishedLeftTreeVersion {
-            leftNodeIndexCache = (publishedLeftTreeVersion, Self.buildNodeIndex(leftTree))
-        }
-        let index = leftNodeIndexCache!.index
+        let index = leftNodeIndex()
         return paths.compactMap { index[$0] }
     }
 
     /// Right-pane counterpart of `leftNodes(for:)`.
     public func rightNodes(for paths: Set<String>) -> [FileNode] {
         guard !paths.isEmpty else { return [] }
+        let index = rightNodeIndex()
+        return paths.compactMap { index[$0] }
+    }
+
+    private func leftNodeIndex() -> [String: FileNode] {
+        if leftNodeIndexCache?.version != publishedLeftTreeVersion {
+            leftNodeIndexCache = (publishedLeftTreeVersion, Self.buildNodeIndex(leftTree))
+        }
+        return leftNodeIndexCache!.index
+    }
+
+    private func rightNodeIndex() -> [String: FileNode] {
         if rightNodeIndexCache?.version != publishedRightTreeVersion {
             rightNodeIndexCache = (publishedRightTreeVersion, Self.buildNodeIndex(rightTree))
         }
-        let index = rightNodeIndexCache!.index
-        return paths.compactMap { index[$0] }
+        return rightNodeIndexCache!.index
     }
 
     /// Cached structures generated asynchronously upon app load to eliminate blocking when switching providers.
@@ -3790,22 +3798,22 @@ public class FileSyncManager: ObservableObject {
     /// ghost selection. A pane whose tree is still loading is skipped: progressive loading
     /// publishes a shallow (root-children-only) tree before the deep walk finishes, and pruning
     /// against it would wipe a still-valid deeper selection.
+    ///
+    /// Looked up in the same per-version path index the action bar resolves the selection
+    /// through, so a publish walks each tree once for both rather than once each (speed audit
+    /// item 8). Skipped outright when the pane has no selection
+    /// (the common case, e.g. the post-scan prune during launch churn).
     public func pruneSelection() {
-        // Collecting every path in a pane's tree is a full main-thread walk — skip it
-        // outright when the pane has no selection (the common case, e.g. the post-scan
-        // prune during launch churn).
         if !isLoadingLeftTree, !selectedLeftPaths.isEmpty {
-            var allLeftPaths = Set<String>()
-            collectPaths(in: leftTree, into: &allLeftPaths)
-            let prunedLeft = selectedLeftPaths.filter { allLeftPaths.contains($0) }
+            let index = leftNodeIndex()
+            let prunedLeft = selectedLeftPaths.filter { index[$0] != nil }
             if prunedLeft != selectedLeftPaths {
                 selectedLeftPaths = prunedLeft
             }
         }
         if !isLoadingRightTree, !selectedRightPaths.isEmpty {
-            var allRightPaths = Set<String>()
-            collectPaths(in: rightTree, into: &allRightPaths)
-            let prunedRight = selectedRightPaths.filter { allRightPaths.contains($0) }
+            let index = rightNodeIndex()
+            let prunedRight = selectedRightPaths.filter { index[$0] != nil }
             if prunedRight != selectedRightPaths {
                 selectedRightPaths = prunedRight
             }
@@ -3820,15 +3828,6 @@ public class FileSyncManager: ObservableObject {
             guard let self else { return }
             self.hasPendingSelectionPrune = false
             self.pruneSelection()
-        }
-    }
-    
-    private func collectPaths(in tree: [FileNode], into paths: inout Set<String>) {
-        for node in tree {
-            paths.insert(node.id)
-            if let children = node.children {
-                collectPaths(in: children, into: &paths)
-            }
         }
     }
 
