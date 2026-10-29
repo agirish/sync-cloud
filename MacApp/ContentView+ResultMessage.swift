@@ -87,15 +87,53 @@ extension ContentView {
         for followUp in banner.followUps {
             actions.append(.init(title: followUp.title, help: followUp.help) { performFollowUp(followUp) })
         }
-        let weight: ProgressCapsuleMessage.Weight
-        switch banner.severity {
-        case .success: weight = .success
-        case .warning: weight = .warning
-        case .error: weight = .failure
+        return ProgressCapsuleMessage(text: banner.message, weight: Self.capsuleWeight(banner.severity), actions: actions,
+                                      onClose: { retireResultMessage() },
+                                      onHover: { bannerDismissScheduler.hoverChanged(isHovering: $0) },
+                                      isFolding: capsuleFoldingID == banner.id)
+    }
+
+    static func capsuleWeight(_ severity: OperationBanner.Severity) -> ProgressCapsuleMessage.Weight {
+        switch severity {
+        case .success: return .success
+        case .warning: return .warning
+        case .error: return .failure
         }
-        return ProgressCapsuleMessage(text: banner.message, weight: weight, actions: actions,
-                                      onClose: { syncManager.banner = nil },
-                                      onHover: { bannerDismissScheduler.hoverChanged(isHovering: $0) })
+    }
+
+    /// **The message leaves on its own** — its time ran out, or ✕ — rather than being undone or
+    /// followed, which clear it where it is. The capsule's folds into its ring and flies into the
+    /// Activity button (`ResultMessageExit`); every other message just goes.
+    func retireResultMessage() {
+        guard let banner = syncManager.banner else { return }
+        let anchors = CapsuleFlightAnchors.shared.frames()
+        switch ResultMessageExit.exit(home: resultMessageHome, reduceMotion: reduceMotion,
+                                      activityIsOpen: ActivityCenter.shared.popoverIsOpen,
+                                      hasAnchors: anchors != nil) {
+        case .clear:
+            syncManager.banner = nil
+        case .landInActivity:
+            syncManager.banner = nil
+            CapsuleFlightLanding.shared.arrived()
+        case .fly:
+            withDesignAnimation(ProgressCapsuleFlight.foldAnimation, reduceMotion: reduceMotion) {
+                capsuleFoldingID = banner.id
+            }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(ProgressCapsuleFlight.foldDuration))
+                capsuleFoldingID = nil
+                // Replaced or closed while it folded: the newer message is not this one's to clear.
+                guard syncManager.banner?.id == banner.id else { return }
+                syncManager.banner = nil
+                // Measured again after the fold: the toolbar may have re-laid out under it.
+                if let ends = CapsuleFlightAnchors.shared.frames() {
+                    CapsuleFlight.fly(Self.capsuleWeight(banner.severity), from: ends.capsule, to: ends.activity,
+                                      over: ends.host) { CapsuleFlightLanding.shared.arrived() }
+                } else {
+                    CapsuleFlightLanding.shared.arrived()
+                }
+            }
+        }
     }
 
     /// The message this pane shows, or nil when it is shown elsewhere — or there is none.

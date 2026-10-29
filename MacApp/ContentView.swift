@@ -782,6 +782,8 @@ struct ContentView: View {
     /// The message the toolbar's capsule shows instead of a pane (Run Room CG): a long run's ending
     /// after the reader moved to another workspace.
     @State var capsuleMessageID: UUID?
+    /// The capsule message folding into its ring on its way into Activity (`retireResultMessage`).
+    @State var capsuleFoldingID: UUID?
     /// Where each long run was started, for its ending's route (CP).
     @State var fileOperationOrigin: Workspace?
     @State var paneToolOrigin: Workspace?
@@ -4550,14 +4552,14 @@ struct ContentView: View {
         // countdown.
         .onAppear {
             bannerDismissScheduler.adoptExistingBanner(syncManager.banner, inCapsule: resultMessageHome == .toolbar) {
-                syncManager.banner = nil
+                retireResultMessage()
             }
         }
         .onChange(of: syncManager.banner) { _, newValue in
             // Routed first: the capsule's message gets a longer window than a pane's.
             let inCapsule = resultMessageChanged(to: newValue)
             bannerDismissScheduler.bannerChanged(to: newValue, inCapsule: inCapsule) {
-                syncManager.banner = nil
+                retireResultMessage()
             }
             // Banners vanish with the window; when the app is in the background, mirror the
             // outcome as a system notification (General setting, default off).

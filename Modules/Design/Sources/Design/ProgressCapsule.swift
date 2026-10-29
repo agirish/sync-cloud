@@ -91,14 +91,18 @@ public struct ProgressCapsuleMessage {
     public var onClose: () -> Void
     /// The pointer over the capsule holds the message, as over a pane's.
     public var onHover: (Bool) -> Void
+    /// **On its way into Activity** (``ProgressCapsuleFlight``): the words and buttons are gone and
+    /// the capsule has narrowed to its ring, which is about to lift out and fly to the button.
+    public var isFolding: Bool
 
     public init(text: String, weight: Weight, actions: [Action] = [], onClose: @escaping () -> Void,
-                onHover: @escaping (Bool) -> Void = { _ in }) {
+                onHover: @escaping (Bool) -> Void = { _ in }, isFolding: Bool = false) {
         self.text = text
         self.weight = weight
         self.actions = actions
         self.onClose = onClose
         self.onHover = onHover
+        self.isFolding = isFolding
     }
 }
 
@@ -182,10 +186,21 @@ public struct ProgressCapsule: View {
         return onCancel == nil ? .none : .stop
     }
 
+    /// Folding into its ring on the way to Activity: the ring alone, in a capsule its own size.
+    private var isFolding: Bool { message?.isFolding ?? false }
+
+    /// The toolbar's reservation for the item, which never changes — a fold narrows the drawn
+    /// capsule inside it, centred, so the toolbar's width ladder is not re-run mid-flight.
+    private var itemWidth: CGFloat {
+        style == .full ? ProgressCapsuleMetrics.fullWidth : ProgressCapsuleMetrics.ringWidth
+    }
+
     public var body: some View {
         HStack(spacing: 8) {
             ring
-            if let message, style == .full {
+            if isFolding {
+                EmptyView()
+            } else if let message, style == .full {
                 Text(message.text)
                     .scaledFont(.system(size: 12, weight: .medium))
                     .lineLimit(1)
@@ -221,7 +236,9 @@ public struct ProgressCapsule: View {
                         .fixedSize()
                 }
             }
-            if trailing != .none {
+            if isFolding {
+                EmptyView()
+            } else if trailing != .none {
                 Button(action: { trailingAction() }) {
                     trailingLabel
                 }
@@ -241,9 +258,9 @@ public struct ProgressCapsule: View {
                 .accessibilityLabel("Close message")
             }
         }
-        .padding(.leading, 8)
+        .padding(.leading, isFolding ? 6 : 8)
         .padding(.trailing, 6)
-        .frame(width: style == .full ? ProgressCapsuleMetrics.fullWidth : ProgressCapsuleMetrics.ringWidth,
+        .frame(width: isFolding ? ProgressCapsuleMetrics.height : itemWidth,
                height: ProgressCapsuleMetrics.height)
         .background(Capsule().fill(.quaternary.opacity(0.5)))
         .contentShape(Capsule())
@@ -257,6 +274,8 @@ public struct ProgressCapsule: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityText)
         .accessibilityAction(named: "Show Activity") { onOpen?() }
+        .frame(width: itemWidth)
+        .designAnimation(ProgressCapsuleFlight.foldAnimation, value: isFolding)
     }
 
     /// Every run, newest first, one to a line — and the count ahead of them for VoiceOver, which

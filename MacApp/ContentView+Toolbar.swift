@@ -416,6 +416,8 @@ extension ContentView {
                                scans: ActivityScanRows.rows(syncManager) { ActivityCenter.shared.doors.showScan($0) },
                                message: capsuleMessage,
                                style: toolbarStyles.run ?? .ring)
+                    // Where a message's ring takes off for Activity (`retireResultMessage`).
+                    .background(CapsuleFlightAnchor(end: .capsule))
             }
         }
 
@@ -505,6 +507,17 @@ extension ContentView {
 struct ActivityToolbarButton: View {
     @ObservedObject var center: ActivityCenter
     let action: () -> Void
+    /// A capsule message arriving (`CapsuleFlight`): the button bumps and glows once.
+    @ObservedObject private var landing = CapsuleFlightLanding.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
+
+    /// One landing: the bump, and a glow in the window's hue. Under Reduce Motion the glow alone —
+    /// it is a fade, not motion.
+    struct Landing {
+        var scale: CGFloat = 1
+        var glow: Double = 0
+    }
 
     var body: some View {
         Button(action: action) {
@@ -519,6 +532,26 @@ struct ActivityToolbarButton: View {
                     }
                 }
                 .shortcutKeycap(AppChord.activityLog.display)
+                .background(CapsuleFlightAnchor(end: .activity))
+                .keyframeAnimator(initialValue: Landing(), trigger: landing.arrivals) { label, value in
+                    label
+                        .scaleEffect(reduceMotion ? 1 : value.scale)
+                        .background(
+                            RoundedRectangle(cornerRadius: Radius.control)
+                                .fill((LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor.opacity(value.glow))
+                                .padding(-5)
+                        )
+                } keyframes: { _ in
+                    KeyframeTrack(\.scale) {
+                        CubicKeyframe(1.18, duration: ProgressCapsuleFlight.landDuration * 0.35)
+                        CubicKeyframe(0.97, duration: ProgressCapsuleFlight.landDuration * 0.35)
+                        CubicKeyframe(1, duration: ProgressCapsuleFlight.landDuration * 0.3)
+                    }
+                    KeyframeTrack(\.glow) {
+                        LinearKeyframe(0.24, duration: 0.16)
+                        LinearKeyframe(0, duration: 0.5)
+                    }
+                }
         }
         .help(ShortcutHint.tooltip(center.hasUnseenProblem ? "Activity — a problem you haven’t seen" : "Activity",
                                    AppChord.activityLog.display))

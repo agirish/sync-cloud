@@ -12809,3 +12809,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s capsuleMessage=%s capsuleWind
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No toolbar capsule, so no capsule window | CLOSED — does not apply |
+
+---
+
+## A capsule message folds and flies into Activity (Run Room CG) — main only
+
+The owner's call of 2026-10-29, from the mockup he approved. When the capsule's message leaves on
+its own — its time runs out, or ✕ — it folds into its ring (220 ms), the ring flies in a panel over
+the window to the toolbar's Activity button (480 ms), and the button bumps and glows (320 ms).
+Undo and a follow-up still clear it where it is. Reduce Motion, an Activity popover already open,
+or an end the toolbar has folded behind its chevron skips the flight; the first and last still glow
+the button. Pane and workspace messages are unchanged.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s capsuleMessage=%s flight=%s\n' $l \
+  "$(git show origin/$l:Modules/Design/Sources/Design/ProgressCapsule.swift 2>/dev/null | grep -c 'struct ProgressCapsuleMessage')" \
+  "$(git show origin/$l:MacApp/CapsuleFlight.swift 2>/dev/null | grep -c 'enum ResultMessageExit')"; done
+# measured 2026-10-29, against origin, before this landed (main reads 1 1 after):
+# main          capsuleMessage=1 flight=0
+# v5.x … v2.x   capsuleMessage=0 flight=0 (no capsule, no Activity button)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No toolbar capsule or Activity button, so nothing to fly between | CLOSED — does not apply |
