@@ -171,41 +171,41 @@ that run's verdict covers the docs commit on top. Measured when this was added (
 **If you add a test that reads a doc**, add that file to the re-included paths in
 `.github/workflows/tests.yml` in the same commit, or a push touching only it will never be tested.
 
-## Tip-only verdicts on branches
+## Branch verdicts: the running run finishes, then the newest push
 
-Branch pushes to `main` or `v2.x` share **one concurrency group per ref** with
-`cancel-in-progress: true`, so during a burst of landings only the newest push
-keeps a run: each push cancels the group's older runs, both the one already
-executing on the runner and any still queued. Two separate mechanisms produce
-that, and it helps to know both when reading a cancelled run:
+Branch pushes to one ref share **one concurrency group** with
+`cancel-in-progress: false`. A run that has started always finishes; a push that
+arrives meanwhile waits, and runs once it ends. GitHub Actions holds at most one
+*pending* run per group and evicts the older pending one on the next push —
+unconditionally, no setting controls it — so a burst of landings tests the commit
+already running and then the newest; the pushes between them never start.
 
-- `cancel-in-progress: true` cancels runs that have already **started** (they
-  have a job with partial logs).
-- Independently, GitHub Actions holds at most one *pending* run per group and
-  evicts the older pending one on the next push — unconditionally, no setting
-  controls it. An evicted run has **no jobs at all**
+- An evicted push shows `cancelled` with **no jobs at all**
   (`gh api repos/{owner}/{repo}/actions/runs/<id>/jobs --jq .total_count` → `0`).
-
-Either way, a `cancelled` run on a branch means **superseded by a newer push**,
-not broken.
+  That is supersession, not breakage.
+- A run that **started** and shows `cancelled` is not supersession: someone
+  cancelled it, or the job hit its 90-minute timeout. Read its log.
 
 Tags and `workflow_dispatch` runs keep **per-commit groups** (a SHA suffix in
 the group key) and are never cancelled: cutting a release must get its own
 verdict even if the branch moves during the run, and a deliberate manual re-run
-must not be killable by an unrelated push. The ref stays in the key so a tag
+must not be displaced by an unrelated push. The ref stays in the key so a tag
 never shares a group with the branch push at the same commit.
 
-History, because this policy has now gone both ways: ref-wide grouping
-originally dropped verdicts *silently* (2026-08-01 — v2.x `389b38fb` and
-`234e4312`, main `957e173d`, all evicted with zero jobs one second after the
-next push, unrescuable by `gh run rerun` while the burst lasted), and the fix
-was per-(ref, SHA) groups so every commit stayed bisectable. On 2026-08-09 that
-was deliberately reversed: the runner is the developer's own Mac, a run costs
-4-7 min of its time, and stale runs during a burst starved both the machine and
-the tip's verdict. The trade is explicit now — a commit superseded mid-burst
-has no verdict of its own, and bisecting a break found at the tip may need old
-SHAs re-run by hand. Do that in a quiet moment: `gh run rerun` re-enters the
-shared branch group, so a stale-SHA rerun and a live tip run cancel each other.
+**Never `gh run rerun` a branch run.** It re-enters the shared branch group, and
+while pending it evicts the tip's own queued run. Re-run with a fresh
+`gh workflow run tests.yml --ref main` instead, which has a group of its own.
+
+History, because this policy has gone three ways. Ref-wide grouping first
+dropped verdicts *silently* (2026-08-01 — v2.x `389b38fb` and `234e4312`, main
+`957e173d`, all evicted with zero jobs), and the fix was per-(ref, SHA) groups so
+every commit stayed bisectable. On 2026-08-09 that was reversed to tip-only, with
+each push also cancelling the run in progress: a run cost 4-7 min of the
+developer's own Mac, and stale runs during a burst starved both the machine and
+the tip's verdict. On 2026-10-28 the cancelling half was dropped. With `main`'s
+kept build a run takes about 14 minutes, and runs cancelled 20-30 minutes in had
+thrown that time away. Letting a started run finish costs the tip up to one run
+of extra wait and gives one more commit a verdict of its own.
 
 Verifying a push therefore means checking the run for the **branch tip**:
 
@@ -213,10 +213,12 @@ Verifying a push therefore means checking the run for the **branch tip**:
 gh run list --commit <tip-sha> --workflow tests.yml
 ```
 
-The tip having no run, or a cancelled one, is as bad as red — nothing newer
-superseded it, so something ate its run. For an *intermediate* SHA of a burst,
-cancelled-with-a-newer-green-descendant is the expected state, but remember its
-content passed only as part of the descendant, not on its own.
+A tip run that is queued behind a running one is normal. The tip having no run,
+or a cancelled one, is as bad as red: nothing newer superseded it, so something
+ate its run. A docs-only push has no run by design (above). For an
+*intermediate* SHA of a burst, evicted-with-a-newer-green-descendant is the
+expected state, but remember its content passed only as part of the descendant,
+not on its own.
 
 ### One commit on `main` does not build: `cb2147b9` — skip it when bisecting
 
@@ -236,7 +238,7 @@ commit spells it `LensWorkspaceView.refineHelp`.
 **Two things let it through, and both are worth knowing rather than the commit
 itself.** The fix was written but **amended into the following commit instead of
 this one**, so the branch tip was always green and the defect existed only at an
-intermediate SHA. And tip-only verdicts (above) mean no run ever compiled this SHA
+intermediate SHA. And evicted pushes (above) mean no run ever compiled this SHA
 on its own — the policy that saves the machine 4-7 minutes per superseded commit
 is exactly the policy that cannot catch this. The general rule: **when a rename
 lands, let each commit build before writing the next one**, because nothing in CI

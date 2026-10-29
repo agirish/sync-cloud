@@ -63,30 +63,28 @@ on:
         type: boolean
         default: false
 
-# Branch pushes are TIP-ONLY; tags and manual dispatches are never cancelled.
+# A branch push never cancels a run that has started; the newest push waits for
+# it, then runs. Tags and manual dispatches are never cancelled either.
 #
-# A burst of landings on main or v2.x tests only the newest SHA: all branch
-# pushes to one ref share a concurrency group, and `cancel-in-progress: true`
-# makes each new push cancel the group's older runs — the one executing on the
-# runner as well as any still queued. (Those are two separate mechanisms:
-# `cancel-in-progress` governs runs that have dispatched a job, while GitHub
-# separately holds at most ONE *pending* run per group and evicts the older
-# pending one on the next push, unconditionally. Under this ref-wide group both
-# now pull in the same direction.) A superseded run shows `cancelled`; if it was
-# evicted while pending it has ZERO jobs
-# (`gh api .../actions/runs/<id>/jobs --jq .total_count` → 0). Either way that
-# is supersession, not a failure.
+# All branch pushes to one ref share a concurrency group. A started run always
+# finishes (`cancel-in-progress: false`), and GitHub holds at most ONE *pending*
+# run per group, evicting the older pending one on the next push,
+# unconditionally. So a burst of landings tests the commit already running and
+# then the newest one; any push between them is evicted before it starts, shows
+# `cancelled` with ZERO jobs (`gh api .../actions/runs/<id>/jobs --jq
+# .total_count` → 0), and has no verdict of its own. That is supersession, not
+# a failure. A started run showing `cancelled` is not supersession any more:
+# someone cancelled it, or the job hit its timeout.
 #
-# This deliberately reverses the per-(ref, SHA) groups introduced 2026-08-01
-# (v2.x 91248cd / main 8abb0b2). That design bought a bisectable verdict for
-# every SHA at 4-7 min of runner time per commit — and the runner is the
-# developer's own Mac, so during a burst stale runs starved both the machine
-# and the tip's verdict. Decided 2026-08-09: the tip's verdict arriving fast is
-# worth more than intermediate SHAs having their own. The cost is real, though:
-# a commit superseded mid-burst has NO verdict of its own, so a break found at
-# the tip may need old SHAs re-run by hand to bisect. Do that in a quiet
-# moment: `gh run rerun` re-enters this same group, so a rerun of a stale SHA
-# and a live tip run will cancel each other.
+# History. Per-(ref, SHA) groups (2026-08-01) gave every SHA a verdict at 4-7
+# min of runner time each; 2026-08-09 moved to tip-only, where each push also
+# cancelled the run in progress, so during a burst stale runs stopped starving
+# the machine. Reversed in part 2026-10-28: with main's kept build a run takes
+# about 14 min, and a run cancelled 20-30 min in had thrown that time away
+# while the next one started cold. Letting a started run finish costs the tip
+# up to one run of extra wait and gives one more commit its own verdict.
+# Never `gh run rerun` a branch run: it re-enters this group and, pending,
+# evicts the tip's own queued run. Use `workflow_dispatch`, which has its own.
 #
 # Tags and workflow_dispatch keep per-commit groups (the SHA suffix below) and
 # are never cancelled: cutting v2.9 or v3.0 must get its own verdict even if
@@ -97,7 +95,7 @@ on:
 # same checkout, same verdict — so nothing is lost.
 concurrency:
   group: tests-${{ github.ref }}-${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')) && 'branch-tip' || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') }}
+  cancel-in-progress: false
 
 jobs:
   package-tests:
