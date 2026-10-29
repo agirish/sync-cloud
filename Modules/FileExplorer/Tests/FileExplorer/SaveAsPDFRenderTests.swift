@@ -92,6 +92,31 @@ import EventsTestSupport
         #expect(text.contains("SAVEASPDF-WORD-MARKER"))
     }
 
+    /// **Margins the printer cannot reach still make one page.** The print system moves them out to
+    /// what it reaches, so the page is shorter than the one asked for; a view laid out a page tall
+    /// spilled onto a second, empty page. Paper with no margins at all is out of reach of every
+    /// printer, and of the box a Mac with none reports (GitHub's hosted VM: the bottom 40 points).
+    @Test func richTextBeyondThePrintersReachIsOnePage() async throws {
+        let paper = CGSize(width: 612, height: 792)
+        let reach = SaveAsPDFRender.printInfo(paper: paper, margins: NSEdgeInsets()).imageablePageBounds
+        try #require(reach.width > 0 && reach.height < paper.height,
+                     "this print system reaches the whole sheet (\(reach)), so nothing is moved")
+        let settings = SaveAsPDFRender.Settings(
+            geometry: DocumentPDF.PageGeometry(paper: paper, content: CGRect(origin: .zero, size: paper)))
+        let output = try await SaveAsPDFRender.render(try Self.fixture("Memo.rtf"), settings: settings)
+        let document = try read(output)
+        #expect(output.pageCount == 1, "a one-page memo came out as \(output.pageCount) pages")
+        #expect(pageText(document, 0).contains("Lease Renewal Heading"))
+        #expect(pageText(document, 0).contains("SAVEASPDF-WORD-MARKER"))
+    }
+
+    @Test func printableIsWhatThePrinterReaches() {
+        let content = CGRect(x: 36, y: 36, width: 540, height: 720)
+        #expect(SaveAsPDFRender.printable(content, reach: CGRect(x: 18, y: 40, width: 576, height: 734))
+                == CGRect(x: 36, y: 40, width: 540, height: 716))
+        #expect(SaveAsPDFRender.printable(content, reach: .zero) == content)
+    }
+
     // MARK: Word — Quick Look's page, printed
 
     /// **Quick Look still writes HTML for each Office fixture** — the premise every route below

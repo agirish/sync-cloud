@@ -150,9 +150,20 @@ enum SaveAsPDFRender {
     /// **Light, and black where the file names no colour.** A text view takes its default colour
     /// from the appearance, and a PDF saved in dark mode would otherwise be white words on white
     /// paper.
+    ///
+    /// **Laid out on the page AppKit will print, not the one asked for.** The print system moves a
+    /// margin narrower than the printer can reach out to where it can, so the page is smaller than
+    /// `geometry.content` — and the asked-for geometry comes from `NSPrintInfo.shared`, which need
+    /// not know the printer the operation uses. A view a page tall left the last few points of an
+    /// empty page over: with no printer the bottom 40 points are out of reach, and a one-page memo
+    /// at half-inch margins printed as two (measured on GitHub's hosted VM, 2026-10-29).
     static func textSystemPDF(_ text: NSAttributedString, geometry: DocumentPDF.PageGeometry) async throws -> Data {
-        let content = geometry.content
-        let view = NSTextView(frame: NSRect(x: 0, y: 0, width: content.width, height: content.height))
+        let info = printInfo(paper: geometry.paper, margins: NSEdgeInsets())
+        let content = printable(geometry.content, reach: info.imageablePageBounds)
+        (info.topMargin, info.leftMargin) = (info.paperSize.height - content.maxY, content.minX)
+        (info.bottomMargin, info.rightMargin) = (content.minY, info.paperSize.width - content.maxX)
+        // Rounded down: the paper can come back a fraction short of what was set (611.99997 for 612).
+        let view = NSTextView(frame: NSRect(x: 0, y: 0, width: content.width, height: content.height.rounded(.down)))
         view.appearance = NSAppearance(named: .aqua)
         view.isVerticallyResizable = true
         view.isHorizontallyResizable = false
@@ -168,11 +179,16 @@ enum SaveAsPDFRender {
         view.textStorage?.setAttributedString(painted)
         view.sizeToFit()
 
-        let info = printInfo(paper: geometry.paper,
-                             margins: NSEdgeInsets(top: geometry.paper.height - content.maxY, left: content.minX,
-                                                   bottom: content.minY, right: geometry.paper.width - content.maxX))
         let operation = NSPrintOperation(view: view, printInfo: info)
         return try await savePrint(operation, info: info) { operation.run() }
+    }
+
+    /// `content` cut to what the printer reaches — the page AppKit prints on. An empty reach, as a
+    /// print system with no printers can report, leaves `content` whole.
+    nonisolated static func printable(_ content: CGRect, reach: CGRect) -> CGRect {
+        guard reach.width > 0, reach.height > 0 else { return content }
+        let page = content.intersection(reach)
+        return page.isNull ? content : page
     }
 
     // MARK: - Word, Excel, PowerPoint: Quick Look's HTML, drawn by WebKit

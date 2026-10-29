@@ -12886,3 +12886,22 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s heldDot=%s flight=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No capsule flight or Activity dot to hold | CLOSED — does not apply |
+
+## Save as PDF lays rich text out on the page the printer reaches — main only
+
+2026-10-29. An RTF, or a Word file on its text-system route, was laid out a full page tall at the
+margins asked for; where the printer cannot reach them (no printer at all: the bottom 40 points)
+AppKit prints a shorter page, and a one-page memo came out as two. `SaveAsPDFRender.printable` cuts
+the page to the print system's reach first.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s render=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'Modules/FileExplorer/Sources/FileExplorer/SaveAsPDFRender.swift')"; done
+# measured 2026-10-29, against origin, before this landed:
+# main          render=1
+# v5.x … v2.x   render=0 (no Save as PDF)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Save as PDF | CLOSED — does not apply |
