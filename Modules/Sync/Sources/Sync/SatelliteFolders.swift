@@ -65,7 +65,8 @@ public struct DocumentIdentityIndex: Sendable {
     ///
     /// **A content index is an append-only log, not a map from path to digest.** Its key is (path,
     /// mtime, size, file number, ctime), so editing a file adds a SECOND record for the same path
-    /// and the old one survives until it ages out — 30 days, per ``ContentHashCache/maxEntryAge``.
+    /// and the old one survives until it ages out — 30 days after its last use, per
+    /// ``ContentHashCache/maxEntryAge``, and nothing looks its old key up again.
     /// Reading the records straight into a dictionary therefore let the last one in array order
     /// win, and that order is `ContentHashCache.save`'s `entries.map` over a Swift `Dictionary`:
     /// arbitrary, and reseeded every launch. Measured on the real index, 13 paths under the

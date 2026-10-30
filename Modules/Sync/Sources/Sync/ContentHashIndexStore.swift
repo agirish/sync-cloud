@@ -1,7 +1,8 @@
 import Events
 import Foundation
 
-/// One persisted digest: the ``ContentHashKey`` fields, the hash, and when it was recorded.
+/// One persisted digest: the ``ContentHashKey`` fields, the hash, when it was recorded, and when a
+/// lookup last used it.
 ///
 /// `mtime` stays a `TimeInterval` rather than being quantized the way ``FilingVerdictKey`` does it.
 /// The reason is that this field must reproduce a key built at hashing time from
@@ -20,9 +21,13 @@ public struct ContentHashRecord: Codable, Sendable, Equatable {
     /// key the disk could not answer them for, and in a record written before they existed.
     public let fileNumber: UInt64?
     public let statusChanged: TimeInterval?
+    /// When a lookup last used this digest — what ``ContentHashCache/maxEntryAge`` counts from.
+    /// Absent in a record written before it existed, which then counts from `storedAt`.
+    public let lastUsed: Date?
 
     public init(path: String, mtime: TimeInterval, size: Int, hex: String, storedAt: Date,
-                fileNumber: UInt64? = nil, statusChanged: TimeInterval? = nil) {
+                fileNumber: UInt64? = nil, statusChanged: TimeInterval? = nil,
+                lastUsed: Date? = nil) {
         self.path = path
         self.mtime = mtime
         self.size = size
@@ -30,6 +35,7 @@ public struct ContentHashRecord: Codable, Sendable, Equatable {
         self.storedAt = storedAt
         self.fileNumber = fileNumber
         self.statusChanged = statusChanged
+        self.lastUsed = lastUsed
     }
 }
 
@@ -47,11 +53,15 @@ public enum ContentHashIndexStore {
     ///
     /// **Not bumped for FR59's two new fields, deliberately.** They decode as absent from an older
     /// file, and an entry keyed without them can never match the key a real file is now looked up
-    /// by (its `stat` always answers them), so an old byte-hash entry is never served — it simply
-    /// ages out under ``ContentHashCache/maxEntryAge``, as an edited file's old record always has
-    /// (readers already take the newest record per path). The fingerprint index's keys carry the
-    /// two fields as well (`fingerprintCacheKey`), so its old entries age out the same way, one
-    /// PDF parse per document on the first scan after.
+    /// by (its `stat` always answers them), so an old byte-hash entry is never served — nothing
+    /// uses it, so it ages out under ``ContentHashCache/maxEntryAge``, as an edited file's old
+    /// record always has (readers already take the newest record per path). The fingerprint
+    /// index's keys carry the two fields as well (`fingerprintCacheKey`), so its old entries age
+    /// out the same way, one PDF parse per document on the first scan after.
+    ///
+    /// **Nor for `lastUsed`, for the same reason**: it decodes as absent from an older file and
+    /// counts from `storedAt` there, and an older build reading a newer file ignores it and ages
+    /// entries out by `storedAt`, as it always did.
     public static let currentSchema = 1
 
     /// `~/Library/Application Support/SyncCloud/content-hash-index.json`. Alongside the verdict
@@ -66,9 +76,9 @@ public enum ContentHashIndexStore {
     /// holding ``ContentFingerprint`` digests, for ``ContentHashCache/sharedFingerprints``.
     ///
     /// Its own file, so a change to ``ContentFingerprint/scheme`` can be answered by deleting this
-    /// one and nothing else. (Nothing deletes it today: a digest carries its scheme in the string
-    /// it hashed, so an old entry simply stops matching new ones and ages out under
-    /// ``ContentHashCache/maxEntryAge`` — wrong-looking rather than wrong.)
+    /// one and nothing else — and since an entry lives while it is used, deleting it is the ONLY
+    /// answer: an unchanged file keeps being served its old-scheme digest for as long as scans
+    /// keep finding it. See ``ContentFingerprint/scheme``.
     public static func defaultFingerprintURL(fileManager: FileManager = .default) -> URL? {
         guard let support = fileManager.urls(for: .applicationSupportDirectory,
                                              in: .userDomainMask).first else { return nil }

@@ -150,7 +150,7 @@ import Foundation
     }
 
     /// **A document copied over under its old dates is fingerprinted again (FR59).** The
-    /// fingerprint index persists thirty days, and a copy takes the source's dates (FR32): replace
+    /// fingerprint index keeps an entry while it is used, and a copy takes the source's dates (FR32): replace
     /// a document with a same-size one carrying the old modification date and its path, mtime and
     /// size are all unchanged, so a key of those three served the replaced document's fingerprint,
     /// and Duplicates could call a different file "same text" and offer to trash a copy. The key

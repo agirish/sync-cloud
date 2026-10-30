@@ -13078,3 +13078,29 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s linkTable=%s fastPath=%s\n' $
 |---|---|---|
 | `v5.x` | The lookup that normalizes on every miss | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No linked-folder table | CLOSED — does not apply |
+
+---
+
+## The digest caches keep an entry while it is used (speed audit 20) — main only
+
+Speed audit item 20 (was P50), 2026-10-30. On `main`: a cache hit moves an entry's `lastUsed`
+stamp (at most once a day) and the index drops an entry 30 days after its last use, not 30 days
+after it was hashed, so a full scan's entries no longer all expire together. Safe only because the
+key carries `st_ino` and `st_ctime` (FR59, above): without them the 30-day cap from hashing is what
+bounds trust in a digest for a file rewritten under its old date.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s persist=%s expiryFromHashing=%s ctime=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/ContentHashCache.swift 2>/dev/null | grep -cF 'func enablePersistence')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/ContentHashCache.swift 2>/dev/null | grep -cF 'now.timeIntervalSince(record.storedAt) <= Self.maxEntryAge')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/ContentHashCache.swift 2>/dev/null | grep -cF 'statusChanged')"; done
+# measured 2026-10-30, against origin, before this landed (the change reads expiryFromHashing=0):
+# main                     persist=1 expiryFromHashing=1 ctime=6
+# v5.x / v4.x / v3.x       persist=1 expiryFromHashing=1 ctime=0
+# v2.x                     persist=0 expiryFromHashing=0 ctime=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` | Expiry from hashing, on the (path, mtime, size) key | DEFERRED — scope call: needs the FR59 key first, or keeping a used entry trusts a rewritten file's old digest for good |
+| `v2.x` | An in-memory cache only (`persist=0`) | CLOSED — does not apply |

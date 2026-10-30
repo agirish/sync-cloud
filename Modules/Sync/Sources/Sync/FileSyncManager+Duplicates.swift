@@ -409,7 +409,7 @@ extension FileSyncManager {
     /// reused verbatim: path, mtime and size, plus the file number and status-change time
     /// (``ContentHashKey/diskIdentity(atPath:)``, FR59). The triple alone could not see a document
     /// replaced by a same-size one carrying its dates — what a copy over it leaves, since copies
-    /// take the source's dates — and this index persists thirty days, so the old fingerprint was
+    /// take the source's dates — and this index keeps an entry while it is used, so the old fingerprint was
     /// served and Duplicates could call a different file "same text". nil when the file has no
     /// readable mtime, which means this document is fingerprinted every scan rather than cached
     /// under an unstable key.

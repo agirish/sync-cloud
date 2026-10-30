@@ -188,6 +188,168 @@ import Testing
         #expect(await second.hash(for: key("/root/b.bin", mtime: 1000)) == "b")   // still fresh
     }
 
+    // MARK: Kept while used
+
+    private static let day: TimeInterval = 24 * 60 * 60
+
+    /// One launch: load the file at `now`, look `keys` up at `now`, save, wait for the write.
+    private func launch(_ url: URL, at now: Date, using keys: [ContentHashKey]) async -> ContentHashCache {
+        let cache = ContentHashCache()
+        await cache.enablePersistence(at: url, now: now)
+        for key in keys { _ = await cache.hash(for: key, at: now) }
+        await cache.save()
+        ContentHashIndexStore.waitForPendingWrites()
+        return cache
+    }
+
+    @Test func aUsedEntrySurvivesPastThirtyDaysFromHashing() async throws {
+        // The batch expiry this exists to end: an entry hashed once and looked up every week was
+        // dropped thirty days after the hashing, however often it had been used since.
+        let url = try indexURL("kept-alive")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let hashed = Date(timeIntervalSince1970: 1_800_000_000)
+        let used = key("/root/used.bin", mtime: 1000)
+        let unused = key("/root/unused.bin", mtime: 1000)
+
+        let first = ContentHashCache()
+        await first.enablePersistence(at: url, now: hashed)
+        await first.store("u", for: used, at: hashed)
+        await first.store("n", for: unused, at: hashed)
+        await first.save()
+        ContentHashIndexStore.waitForPendingWrites()
+
+        // Used on day 20 by a later launch, and on day 45 by another.
+        _ = await launch(url, at: hashed.addingTimeInterval(20 * Self.day), using: [used])
+        _ = await launch(url, at: hashed.addingTimeInterval(45 * Self.day), using: [used])
+
+        // Day 70: seventy days from hashing, twenty-five from the last use.
+        let reader = ContentHashCache()
+        let adopted = await reader.enablePersistence(at: url, now: hashed.addingTimeInterval(70 * Self.day))
+        #expect(adopted == 1)
+        #expect(await reader.hash(for: used) == "u")
+        #expect(await reader.hash(for: unused) == nil)   // never used: gone on day 30, as before
+
+        // The hashing stamp did not move — readers take the newest DIGEST per path by it.
+        let record = try #require(ContentHashIndexStore.load(from: url).first { $0.path == used.path })
+        #expect(record.storedAt == hashed)
+        #expect(record.lastUsed == hashed.addingTimeInterval(45 * Self.day))
+    }
+
+    @Test func anUnusedEntryLeavesThirtyDaysAfterItsLastUse() async throws {
+        let url = try indexURL("last-use")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let hashed = Date(timeIntervalSince1970: 1_800_000_000)
+        let a = key("/root/a.bin", mtime: 1000)
+
+        let first = ContentHashCache()
+        await first.enablePersistence(at: url, now: hashed)
+        await first.store("a", for: a, at: hashed)
+        await first.save()
+        ContentHashIndexStore.waitForPendingWrites()
+        let lastUse = hashed.addingTimeInterval(10 * Self.day)
+        _ = await launch(url, at: lastUse, using: [a])
+
+        let justInside = ContentHashCache()
+        #expect(await justInside.enablePersistence(at: url, now: lastUse.addingTimeInterval(ContentHashCache.maxEntryAge - 60)) == 1)
+        let justPast = ContentHashCache()
+        #expect(await justPast.enablePersistence(at: url, now: lastUse.addingTimeInterval(ContentHashCache.maxEntryAge + 60)) == 0)
+    }
+
+    @Test func aScansHitsMarkTheIndexForSavingOnce() async throws {
+        // A moved stamp has to reach the file or it dies with the launch — but one scan is many
+        // hits, and the file must be written once for all of them, by the save the scan makes.
+        let url = try indexURL("dirty-once")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let hashed = Date(timeIntervalSince1970: 1_800_000_000)
+        let keys = (0..<50).map { key("/root/f\($0).bin", mtime: 1000) }
+
+        let cache = ContentHashCache()
+        await cache.enablePersistence(at: url, now: hashed)
+        for k in keys { await cache.store("h", for: k, at: hashed) }
+        await cache.save()
+        #expect(await cache.savesWritten == 1)
+
+        // A scan two days on: fifty hits, one save, one write.
+        let scan = hashed.addingTimeInterval(2 * Self.day)
+        for k in keys { _ = await cache.hash(for: k, at: scan) }
+        await cache.save()
+        await cache.save()
+        #expect(await cache.savesWritten == 2)
+        ContentHashIndexStore.waitForPendingWrites()
+        #expect(ContentHashIndexStore.load(from: url).allSatisfy { $0.lastUsed == scan })
+
+        // Another scan an hour later moves nothing, so it writes nothing.
+        for k in keys { _ = await cache.hash(for: k, at: scan.addingTimeInterval(3600)) }
+        await cache.save()
+        #expect(await cache.savesWritten == 2)
+    }
+
+    @Test func anIndexWrittenBeforeLastUsedLoadsAndCountsFromHashing() async throws {
+        // Every index on disk today has `storedAt` and no `lastUsed`. It must load under the same
+        // schema, and each entry's last use is taken to be its hashing.
+        let url = try indexURL("old-format")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        let hashed = Date(timeIntervalSince1970: 1_800_000_000)
+        // `JSONEncoder`'s default date shape: seconds since 2001-01-01.
+        let json = #"{"schema":1,"records":[{"path":"/root/a.bin","mtime":1000,"size":4096,"hex":"a","#
+            + #""storedAt":\#(hashed.timeIntervalSinceReferenceDate),"fileNumber":7,"statusChanged":1000}]}"#
+        try Data(json.utf8).write(to: url)
+        let a = ContentHashKey(path: "/root/a.bin", mtime: 1000, size: 4096, fileNumber: 7, statusChanged: 1000)
+
+        let record = try #require(ContentHashIndexStore.load(from: url).first)
+        #expect(record.lastUsed == nil)
+        let inside = ContentHashCache()
+        #expect(await inside.enablePersistence(at: url, now: hashed.addingTimeInterval(ContentHashCache.maxEntryAge - 60)) == 1)
+        #expect(await inside.hash(for: a, at: hashed) == "a")
+        let past = ContentHashCache()
+        #expect(await past.enablePersistence(at: url, now: hashed.addingTimeInterval(ContentHashCache.maxEntryAge + 60)) == 0)
+    }
+
+    @Test func anEntryKeptAliveStillMissesAFileRewrittenUnderItsOldDate() async throws {
+        // Why keeping a used entry is safe (FR59): a write moves the status-change time the key
+        // carries, so a file rewritten with its size kept and its mtime restored never matches the
+        // entry — however long use has kept that entry alive.
+        let dir = try makeCanonicalTempRoot(prefix: "HashIndex-rewrite")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("index.json")
+        let file = dir.appendingPathComponent("doc.bin")
+        let fixedDate = Date(timeIntervalSince1970: 1_600_000_000)
+        try Data("AAAAAA".utf8).write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: fixedDate], ofItemAtPath: file.path)
+        func diskKey() throws -> ContentHashKey {
+            let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+            return try #require(FileContentVerifier.cacheKey(statPath: file.path, attributes: attributes, size: 6))
+        }
+        let before = try diskKey()
+
+        let hashed = Date(timeIntervalSince1970: 1_800_000_000)
+        let cache = ContentHashCache()
+        await cache.enablePersistence(at: url, now: hashed)
+        await cache.store("digest-of-A", for: before, at: hashed)
+        await cache.save()
+        ContentHashIndexStore.waitForPendingWrites()
+        _ = await launch(url, at: hashed.addingTimeInterval(25 * Self.day), using: [before])
+
+        try Data("BBBBBB".utf8).write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: fixedDate], ofItemAtPath: file.path)
+        let after = try diskKey()
+        #expect(after.path == before.path && after.mtime == before.mtime && after.size == before.size)
+
+        let reader = ContentHashCache()
+        #expect(await reader.enablePersistence(at: url, now: hashed.addingTimeInterval(50 * Self.day)) == 1)
+        #expect(await reader.hash(for: before, at: hashed) == "digest-of-A")   // kept alive by use
+        #expect(await reader.hash(for: after, at: hashed) == nil)             // and still not trusted
+    }
+
+    @Test func bumpingTheFingerprintSchemeMeansDeletingTheFingerprintIndex() {
+        // A tripwire. An entry now lives while it is used, so after a scheme bump an unchanged
+        // document keeps its old-scheme digest for good — nothing ages it out any more. If this
+        // fails, ship the deletion of `content-fingerprint-index.json` with the bump.
+        #expect(ContentFingerprint.scheme == "pdf-text-1")
+    }
+
     // MARK: Failure modes
 
     @Test func aCorruptOrForeignSchemaFileLoadsAsEmpty() async throws {

@@ -4,9 +4,9 @@ import Foundation
 /// — the triple the sync engine uses to decide a file is unchanged — and, where the disk answers,
 /// its file number and status-change time.
 ///
-/// **The last two are what make a digest safe to keep for thirty days (FR59).** The cache persists
-/// (`enablePersistence`, opted into at launch) and trusts an entry for ``ContentHashCache/maxEntryAge``,
-/// and the triple alone cannot see an edit that restores the date — `exiftool -P`, `touch -r`,
+/// **The last two are what make a digest safe to keep for as long as it is used (FR59).** The cache
+/// persists (`enablePersistence`, opted into at launch) and keeps an entry until it has gone unused for
+/// ``ContentHashCache/maxEntryAge``, and the triple alone cannot see an edit that restores the date — `exiftool -P`, `touch -r`,
 /// `rsync -t`, any tool that preserves mtime — and keeps the size. Such a file read as identical,
 /// and Verify could offer to copy over the side that really differed. The status-change time
 /// (`st_ctime`) moves on every write and every metadata change, and nothing but the kernel can set
@@ -55,8 +55,8 @@ public struct ContentHashKey: Hashable, Sendable {
 /// Hashing runs off the main actor in `Task.detached(priority: .utility)` with several concurrent
 /// hashers, so the cache must serialize its own mutable state: it is an `actor`, matching the house
 /// style of `VerifyResultsCollector`. Entries live for the process, and — once persistence is on —
-/// across launches for up to ``maxEntryAge``; the key's status-change time is what keeps an entry
-/// that old from being believed about a file edited under a restored date (FR59).
+/// across launches until one goes unused for ``maxEntryAge``; the key's status-change time is what
+/// keeps an entry that old from being believed about a file edited under a restored date (FR59).
 public actor ContentHashCache {
 
     /// A single shared cache for the whole session. Kept here (not as a stored property on the
@@ -141,12 +141,15 @@ public actor ContentHashCache {
     /// essentially nothing.
     private let maxEntries: Int
 
-    /// A digest plus when it was recorded. The timestamp exists only for persistence — it is what
-    /// lets a reloaded entry age out (see ``maxEntryAge``) instead of living forever, and it is
-    /// preserved across a save/load round trip so reloading does not reset an entry's age.
+    /// A digest, when it was recorded, and when a lookup last used it. Both stamps exist only for
+    /// persistence and both survive a save/load round trip, so reloading resets neither.
+    /// `lastUsed` is what a reloaded entry ages out by (see ``maxEntryAge``); `storedAt` stays the
+    /// hashing time, because readers of the index file take the newest DIGEST per path by it
+    /// (`DocumentIdentityIndex`), and a hit says nothing about which state of a file is newer.
     struct Entry: Sendable {
         let hex: String
         let storedAt: Date
+        var lastUsed: Date
     }
 
     private var entries: [ContentHashKey: Entry] = [:]
@@ -173,11 +176,28 @@ public actor ContentHashCache {
 
     /// The cached hex digest for `key`, or `nil` if this file (at this mtime and size) has not been
     /// hashed this session.
-    public func hash(for key: ContentHashKey) -> String? {
-        guard let entry = entries[key] else { lookupMisses += 1; return nil }
+    ///
+    /// **A hit keeps the entry alive** — it moves `lastUsed`, which is what ``maxEntryAge`` counts
+    /// from — and marks the index for saving, so the move outlives the launch. Only when the stamp
+    /// is at least ``lastUsedResolution`` old, though: every move makes the next `save()` rewrite
+    /// the whole file, and a rewrite moves the file's date, which is what sends satellite homes and
+    /// To File's already-filed index back to decoding both index files. Stamping every hit would
+    /// buy that on every scan of the day, for an expiry counted in days anyway. A scan's hits are
+    /// therefore written at most once a day, by the save the scan already makes.
+    public func hash(for key: ContentHashKey, at now: Date = Date()) -> String? {
+        guard var entry = entries[key] else { lookupMisses += 1; return nil }
         lookupHits += 1
+        if now.timeIntervalSince(entry.lastUsed) >= Self.lastUsedResolution {
+            entry.lastUsed = now
+            entries[key] = entry
+            unsavedChanges += 1
+        }
         return entry.hex
     }
+
+    /// How stale `lastUsed` may grow before a hit moves it — see ``hash(for:at:)``. An entry is
+    /// therefore dropped between ``maxEntryAge`` and ``maxEntryAge`` plus a day after its last use.
+    static let lastUsedResolution: TimeInterval = 24 * 60 * 60
 
     /// Lookups served and lookups missed, since this instance was created.
     ///
@@ -202,8 +222,8 @@ public actor ContentHashCache {
         if entries[key] == nil {
             insertionOrder.append(key)
         }
-        entries[key] = Entry(hex: hex, storedAt: now)
-        unsavedInsertions += 1
+        entries[key] = Entry(hex: hex, storedAt: now, lastUsed: now)
+        unsavedChanges += 1
 
         // A key is appended only when it is ABSENT from `entries`, and it can only become absent by
         // being evicted — which advances `evictedPrefix` past its slot. So a key never appears twice
@@ -225,14 +245,31 @@ public actor ContentHashCache {
 
     // MARK: - Persistence
 
-    /// How stale a reloaded entry may be before it is dropped on load.
+    /// How long a reloaded entry may go UNUSED before it is dropped on load — counted from its last
+    /// hit, not from when it was hashed.
     ///
-    /// The key handles invalidation for every ordinary edit, because writing a file moves its
-    /// mtime — and, since FR59, for a *deliberate* mtime reset that preserves the byte count too,
-    /// because the write still moved the status-change time the key now carries. Thirty days is
-    /// the blast-radius bound it always was, for whatever the key still cannot see (a disk whose
-    /// stat answers no status-change time keys as the old triple), and the reason
-    /// `DEFERRED_ENHANCEMENTS.md` #9 asked for an age cap alongside the schema version.
+    /// **It used to count from hashing, and that made the cache expire in batches.** A hit never
+    /// moved the stamp, so every entry one full scan wrote left on the same day thirty days later,
+    /// and the next scan re-read everything — about five minutes for ~9,200 PDFs — however often
+    /// the files had been looked up in between.
+    ///
+    /// The cap from hashing was a trust bound: it limited how long a digest was believed about a
+    /// file rewritten with its date restored (`exiftool -P`, `touch -r`, `rsync -t`) and its size
+    /// kept, which the old (path, mtime, size) key could not see. Since FR59 (1f9fdbb37) the key
+    /// carries the file number and status-change time too, and a write always moves `st_ctime` —
+    /// nothing but the kernel sets it — so such a rewrite no longer matches the entry at all, and a
+    /// file replaced at the same path by one carrying the old dates has a new file number. The key
+    /// now does the invalidating, and an entry that still matches is as trustworthy on day 300 as
+    /// on day 1. So the owner chose (10-30) to keep an entry while it is used.
+    ///
+    /// Thirty days of DISUSE stays, because something must drop the entries no lookup can reach
+    /// any more: a deleted or edited file's old key, and every entry written before FR59, whose key
+    /// lacks the two fields a real file is now looked up by. Those are never hit, so they leave
+    /// thirty days after their last use, as before. What the key still cannot see — a disk whose
+    /// stat answers no status-change time keys as the old triple — has no bound but disuse now;
+    /// such a disk is a test double's path in practice, since every local and File Provider
+    /// volume answers `stat`. `DEFERRED_ENHANCEMENTS.md` #9 asked for this age cap alongside the
+    /// schema version.
     public static let maxEntryAge: TimeInterval = 30 * 24 * 60 * 60
 
     /// Where this cache persists, or nil for a purely in-memory session cache.
@@ -243,9 +280,15 @@ public actor ContentHashCache {
     /// them reading and writing the user's real index. The app opts in at startup.
     private var persistenceURL: URL?
 
-    /// Insertions since the last successful save. `save()` is a no-op at zero, so a lens that runs
-    /// entirely off cache hits does not rewrite an unchanged multi-megabyte file.
-    private var unsavedInsertions = 0
+    /// Insertions and moved `lastUsed` stamps since the last successful save. `save()` is a no-op
+    /// at zero, so a lens that runs entirely off cache hits within a day of their last use does
+    /// not rewrite an unchanged multi-megabyte file.
+    private var unsavedChanges = 0
+
+    /// Saves that found something to write, since this instance was created. Test
+    /// instrumentation, like ``lookupHits``: it is what shows a scan's hits are written once, not
+    /// once per hit. Nothing outside tests should read it.
+    private(set) var savesWritten = 0
 
     /// Points this cache at `url` and loads whatever is already there.
     ///
@@ -269,25 +312,30 @@ public actor ContentHashCache {
     /// stayed behind it; nothing failed, because the cost is invisible unless a scan happens to be
     /// hashing while the launch load runs, which is precisely when it is paid.
     public nonisolated func enablePersistence(at url: URL, now: Date = Date()) async -> Int {
-        let records = ContentHashIndexStore.load(from: url).sorted { $0.storedAt < $1.storedAt }
+        let records = ContentHashIndexStore.load(from: url).sorted {
+            ($0.lastUsed ?? $0.storedAt, $0.storedAt) < ($1.lastUsed ?? $1.storedAt, $1.storedAt)
+        }
         return await adopt(records, from: url, now: now)
     }
 
     /// Points the cache at `url` and merges `records` into it. Split out of `enablePersistence`
     /// only so the decode can happen off the actor; nothing else should call this.
     ///
-    /// - Precondition: `records` arrives oldest first (`storedAt` ascending), so the adopted run is
-    ///   itself a FIFO queue. The CALLER sorts — a sort is not a dictionary insert, and this
+    /// - Precondition: `records` arrives least recently used first (`lastUsed`, then `storedAt`,
+    ///   ascending), so the adopted run is itself a FIFO queue with the stalest entries in front. The CALLER sorts — a sort is not a dictionary insert, and this
     ///   function's whole reason to exist is that only dictionary inserts run here.
     private func adopt(_ records: [ContentHashRecord], from url: URL, now: Date) -> Int {
         persistenceURL = url
         var adoptedKeys: [ContentHashKey] = []
         for record in records {
-            guard now.timeIntervalSince(record.storedAt) <= Self.maxEntryAge else { continue }
+            // A record written before `lastUsed` existed was last used, as far as anyone knows, when
+            // it was hashed — the one stamp it has.
+            let lastUsed = record.lastUsed ?? record.storedAt
+            guard now.timeIntervalSince(lastUsed) <= Self.maxEntryAge else { continue }
             let key = ContentHashKey(path: record.path, mtime: record.mtime, size: record.size,
                                      fileNumber: record.fileNumber, statusChanged: record.statusChanged)
             guard entries[key] == nil else { continue }
-            entries[key] = Entry(hex: record.hex, storedAt: record.storedAt)
+            entries[key] = Entry(hex: record.hex, storedAt: record.storedAt, lastUsed: lastUsed)
             adoptedKeys.append(key)
         }
 
@@ -307,7 +355,7 @@ public actor ContentHashCache {
             entries[insertionOrder[evictedPrefix]] = nil
             evictedPrefix += 1
         }
-        // `unsavedInsertions` is deliberately NOT reset here. Adoption never incremented it —
+        // `unsavedChanges` is deliberately NOT reset here. Adoption never incremented it —
         // these entries are assigned directly rather than through `store` — so zeroing it would
         // not be "adopting isn't new information", it would be discarding the dirty flag for
         // whatever was hashed BEFORE the load landed. The load is detached at launch and can land
@@ -316,16 +364,19 @@ public actor ContentHashCache {
         return adoptedKeys.count
     }
 
-    /// Writes the index if anything new has been hashed since the last save. Off the caller's
-    /// thread and serialized — see ``ContentHashIndexStore/saveInBackground(_:to:)``.
+    /// Writes the index if anything new has been hashed, or a hit has moved an entry's `lastUsed`,
+    /// since the last save. Off the caller's thread and serialized — see
+    /// ``ContentHashIndexStore/saveInBackground(_:to:)``.
     public func save() {
-        guard let persistenceURL, unsavedInsertions > 0 else { return }
+        guard let persistenceURL, unsavedChanges > 0 else { return }
         let records = entries.map { key, entry in
             ContentHashRecord(path: key.path, mtime: key.mtime, size: key.size,
                               hex: entry.hex, storedAt: entry.storedAt,
-                              fileNumber: key.fileNumber, statusChanged: key.statusChanged)
+                              fileNumber: key.fileNumber, statusChanged: key.statusChanged,
+                              lastUsed: entry.lastUsed)
         }
-        unsavedInsertions = 0
+        unsavedChanges = 0
+        savesWritten += 1
         ContentHashIndexStore.saveInBackground(records, to: persistenceURL)
     }
 
@@ -342,13 +393,13 @@ public actor ContentHashCache {
     /// Verify each call unconditionally — would write them all back out. Clearing the memory too
     /// costs the current session some re-hashing, which is exactly what the user asked for.
     ///
-    /// `unsavedInsertions` is reset because there is genuinely nothing left to write; that is the
+    /// `unsavedChanges` is reset because there is genuinely nothing left to write; that is the
     /// one case where zeroing it is not discarding a dirty flag (compare `adopt`, which must not).
     public func forgetPersistedIndex() {
         entries.removeAll()
         insertionOrder.removeAll()
         evictedPrefix = 0
-        unsavedInsertions = 0
+        unsavedChanges = 0
         if let persistenceURL { ContentHashIndexStore.deleteInBackground(at: persistenceURL) }
     }
 

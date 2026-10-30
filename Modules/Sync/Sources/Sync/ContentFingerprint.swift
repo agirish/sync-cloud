@@ -81,12 +81,12 @@ public enum ContentFingerprint {
     /// persisted index is keyed on (path, mtime, size, file number, ctime) — the scheme is nowhere
     /// in the key — so after a bump every unchanged file keeps being served the digest it was given
     /// under the old rule, while anything new or edited gets one under the new rule. The two never
-    /// collide; they simply never match, so a re-stamped pair straddling the bump goes unreported
-    /// until the old entries age out under ``ContentHashCache/maxEntryAge`` (30 days). One-way
-    /// toward a missed group rather than a false one, and self-healing — but silent, and up to a
-    /// month long.
+    /// collide; they simply never match, so a re-stamped pair straddling the bump goes unreported.
+    /// One-way toward a missed group rather than a false one — but silent, and **no longer
+    /// self-healing**: an entry now lives while it is used (``ContentHashCache/maxEntryAge``), so a
+    /// file every scan finds keeps its old-scheme digest for good.
     ///
-    /// So bumping this means deleting the fingerprint index with it. It has its own file precisely
+    /// So bumping this means deleting the fingerprint index with it, every time. It has its own file precisely
     /// so that costs nothing else: Settings ▸ Saved scan data already clears it, or delete
     /// ``ContentHashIndexStore/defaultFingerprintURL(fileManager:)``. Budget one full re-read of
     /// the tree afterwards (~5.5 minutes for 10,569 documents).
