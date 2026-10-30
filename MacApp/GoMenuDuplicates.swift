@@ -69,8 +69,24 @@ enum GoMenuDuplicates {
     /// `GoMenuDuplicatesTests` when a ⌃ item is found without its live key.
     static private(set) var trail: [String] = []
 
-    /// Off with `GO_PROBE=0`, which leaves the hook exactly as it was before the probe.
+    /// Off with `GO_PROBE=0`, which leaves the hook as it was before the probe but for the cheap
+    /// bookkeeping below.
     static let probing = ProcessInfo.processInfo.environment["GO_PROBE"] != "0"
+
+    /// Probe bookkeeping, kept even with `GO_PROBE=0` because it costs a set insert per apply:
+    /// every ⌃ item an apply on Go has met, how many applies ran and when the last did, the Go menu
+    /// install found, and how many notifications of each kind reached an apply.
+    static private(set) var metItems: Set<ObjectIdentifier> = []
+    static private(set) var applies = 0
+    static private(set) var lastApply: TimeInterval = 0
+    static private(set) var installedGo: ObjectIdentifier?
+    static private(set) var reached: [String: Int] = [:]
+
+    private static func keep(_ go: NSMenu) {
+        applies += 1
+        lastApply = ProcessInfo.processInfo.systemUptime
+        for item in go.items where shouldHide(item) != nil { metItems.insert(ObjectIdentifier(item)) }
+    }
 
     static func describe(_ menu: NSMenu?) -> String {
         guard let menu else { return "nil" }
@@ -128,6 +144,8 @@ enum GoMenuDuplicates {
                     }
                     if probing { record(note, applied: true) }
                     apply(to: go)
+                    keep(go)
+                    reached[(menu === go ? "go " : "main ") + note.name.rawValue, default: 0] += 1
                 }
             }
         }
@@ -140,7 +158,11 @@ enum GoMenuDuplicates {
             note("install: go \(describe(goMenu)), main has \(NSApp.mainMenu?.items.count ?? -1) items")
             for item in goMenu?.items ?? [] { note("  at install " + describe(item)) }
         }
-        if let go = goMenu { apply(to: go) }
+        if let go = goMenu {
+            apply(to: go)
+            keep(go)
+            installedGo = ObjectIdentifier(go)
+        }
         if probing { watch() }
     }
 

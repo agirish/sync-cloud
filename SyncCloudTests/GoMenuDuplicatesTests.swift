@@ -104,6 +104,10 @@ import AppKit
         do {
             // The hosted-VM probe: what the hook saw, then Go as it stands — on a pass too, to compare.
             print("GO-PROBE trail\n" + GoMenuDuplicates.trail.map { "GO-PROBE " + $0 }.joined(separator: "\n"))
+            print("GO-PROBE ⌃⇥ met by an apply: \(GoMenuDuplicates.metItems.contains(ObjectIdentifier(control))), "
+                  + "⌃⇧⇥: \(GoMenuDuplicates.metItems.contains(ObjectIdentifier(previousControl))); "
+                  + "\(GoMenuDuplicates.applies) applies, the last \(ProcessInfo.processInfo.systemUptime - GoMenuDuplicates.lastApply) s ago; "
+                  + "Go is install's: \(GoMenuDuplicates.installedGo == ObjectIdentifier(go)); reached \(GoMenuDuplicates.reached)")
             print("GO-PROBE now " + GoMenuDuplicates.describe(go) + "\n"
                   + go.items.map { "GO-PROBE   " + GoMenuDuplicates.describe($0) }.joined(separator: "\n"))
         }
