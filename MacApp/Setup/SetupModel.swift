@@ -106,6 +106,10 @@ final class SetupModel: ObservableObject {
     @Published private(set) var isSaving = false
     /// Why the last Save wrote nothing, while Structure is still on screen to say it.
     @Published private(set) var saveFailure: String?
+    /// Awaited once a Save is in flight, before it asks the engine anything. A no-op in the app; a
+    /// test parks a press here to act mid-write. Watching `isSaving` instead was a race: on a 3-vCPU
+    /// hosted VM a whole press could run between two of the test's turns, never seen in flight.
+    var saveInFlight: @MainActor () async -> Void = {}
 
     /// Whether Learn has a folder to read. The button is disabled without one — the alternative is
     /// a press that silently does nothing and a sheet that then cannot reach Structure.
@@ -1042,6 +1046,7 @@ final class SetupModel: ObservableObject {
         // a retry made Structure jump — the failure line went, then came back — and dropped
         // "Continue Without Saving" for the length of the write, so its disabled state never showed.
         defer { isSaving = false }
+        await saveInFlight()
         let reading = readingNumber
         let countries = confirmedCountries
         // **A reading under way is stopped before the write, and started again after it** (review

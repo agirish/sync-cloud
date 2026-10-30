@@ -602,27 +602,35 @@ import Testing
         return (model, root, blocker)
     }
 
-    /// Whether a press's task has returned, for `startSaving`'s premise message.
-    @MainActor private final class PressFinished { var value = false }
-
-    /// Starts a Save and returns once it is writing — the state the window shows mid-press.
-    private func startSaving(_ model: SetupModel) async throws -> Task<Void, Never> {
-        let finished = PressFinished()
-        let press = Task { await model.saveAndContinue(); finished.value = true }
-        // Every turn, since the write can be brief — but bounded by time as well as by turns: on a
-        // 3-vCPU hosted VM, 1,000 yields ran out before the press had started (2026-10-29).
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        var yields = 0
-        while !model.isSaving, yields < 1000 || ContinuousClock.now < deadline {
-            yields += 1
-            await Task.yield()
+    /// Holds a press at `SetupModel.saveInFlight` until the test lets it go.
+    @MainActor private final class SaveGate {
+        private var waiter: CheckedContinuation<Void, Never>?
+        private var opened = false
+        var parked: Bool { waiter != nil }
+        func park() async {
+            guard !opened else { return }
+            await withCheckedContinuation { waiter = $0 }
         }
-        // Says which way a miss went: a press that never ran, or one that ran and never saved.
-        #expect(model.isSaving, """
-            premise: the Save is in flight (\(yields) yields; the press \(finished.value ? "had already finished" : "had not finished"); \
-            failure line: \(model.saveFailure ?? "none"))
-            """)
-        return press
+        func open() {
+            opened = true
+            waiter?.resume()
+            waiter = nil
+        }
+    }
+
+    /// Starts a Save and returns once it is parked mid-write — the state the window shows
+    /// mid-press — with the gate that lets it finish. Open the gate before awaiting the press.
+    ///
+    /// It used to start the press and poll `isSaving`, which on a 3-vCPU hosted VM missed the whole
+    /// press about one run in four: the diagnostic said "the press had already finished" every time.
+    private func startSaving(_ model: SetupModel) async throws -> (press: Task<Void, Never>, gate: SaveGate) {
+        let gate = SaveGate()
+        model.saveInFlight = { await gate.park() }
+        let press = Task { await model.saveAndContinue() }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !gate.parked, ContinuousClock.now < deadline { await Task.yield() }
+        #expect(gate.parked && model.isSaving, "premise: the Save is parked in flight")
+        return (press, gate)
     }
 
     /// **A retry keeps the last failure on screen while it writes.** It was cleared before the
@@ -631,10 +639,11 @@ import Testing
     func aRetryKeepsTheFailureUpWhileItWrites() async throws {
         let (model, root, _) = try await failedSave("retry")
         defer { try? FileManager.default.removeItem(at: root) }
-        let press = try await startSaving(model)
+        let (press, gate) = try await startSaving(model)
         #expect(model.saveFailure != nil, "the failure line was cleared before the retry finished")
         #expect(model.structureSecondaryTitle != nil,
                 "Continue Without Saving left the footer while the retry wrote")
+        gate.open()
         await press.value
     }
 
@@ -656,18 +665,20 @@ import Testing
                                      syncManager: engine)
         model.screen = .structure
         #expect(model.canGoBack, "premise: Back is offered on Structure")
-        var press = try await startSaving(model)
+        var (press, gate) = try await startSaving(model)
         #expect(!model.canGoBack, "Back is offered while Save writes")
         model.retreat()
         #expect(model.screen == .structure, "Back left Structure mid-write, for \(model.screen)")
+        gate.open()
         await press.value
         #expect(model.screen == .workspaces, "premise: the Save moved on")
 
         // However the sheet left Structure, a Save that lands elsewhere does not move it.
         model.toggleCountry("IN")
         model.screen = .structure
-        press = try await startSaving(model)
+        (press, gate) = try await startSaving(model)
         model.screen = .countries
+        gate.open()
         await press.value
         #expect(model.writtenReport != nil)
         #expect(model.screen == .countries, "a Save landing on Countries carried it to \(model.screen)")
