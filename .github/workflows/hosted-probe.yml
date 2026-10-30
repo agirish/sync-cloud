@@ -26,6 +26,10 @@ on:
         description: How many app-target jobs to run side by side, as a JSON list, e.g. [1,2,3,4,5]
         type: string
         default: '[1]'
+      app-repeat:
+        description: How many times each app-target job runs the tests, each in a fresh test host
+        type: string
+        default: '1'
       go-probe:
         description: GoMenuDuplicates' probe in the app target (0 runs the hook exactly as before it)
         type: string
@@ -191,16 +195,25 @@ jobs:
       - name: App-target tests (xcodegen + xcodebuild)
         env:
           ONLY_TESTING: ${{ inputs.app-only-testing }}
+          REPEAT: ${{ inputs.app-repeat }}
         run: |
           set +e -uo pipefail
           began=$(date +%s)
           xcodegen
           only=()
           [ -z "${ONLY_TESTING}" ] || only=("-only-testing:${ONLY_TESTING}")
-          xcodebuild test -project SyncCloud.xcodeproj -scheme SyncCloud \
-            -destination 'platform=macOS' -derivedDataPath .dd ${only[@]+"${only[@]}"}
-          status=$?
-          line="app target: exit ${status}, $(( $(date +%s) - began )) s"
+          # The first pass builds; any further pass reruns the same build in a fresh test host.
+          status=0
+          for pass in $(seq 1 "${REPEAT}"); do
+            action=test
+            [ "${pass}" -eq 1 ] || action=test-without-building
+            xcodebuild "${action}" -project SyncCloud.xcodeproj -scheme SyncCloud \
+              -destination 'platform=macOS' -derivedDataPath .dd ${only[@]+"${only[@]}"}
+            result=$?
+            echo "PROBE pass ${pass}: exit ${result}"
+            [ "${result}" -eq 0 ] || status=${result}
+          done
+          line="app target: exit ${status}, ${REPEAT} passes, $(( $(date +%s) - began )) s"
           echo "PROBE ${line}"
           echo "- ${line}" >> "${GITHUB_STEP_SUMMARY}"
           exit "${status}"
