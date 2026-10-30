@@ -120,6 +120,13 @@ Requires **macOS 26**, unchanged from v6.1.
   instead of trailing it.
 - **⌘K does less per keystroke.** It ranks folders once per keystroke instead of twice, an arrow key
   ranks nothing, and typing no longer redraws the whole window.
+- **Rescans stay fast after a month.** The caches of file hashes and document fingerprints dropped
+  every entry 30 days after it was made, however often it was used, so a full scan's entries all
+  expired together and the next scan read every file again. An entry now stays while it is used and
+  goes 30 days after its last use. A file rewritten since is still read again.
+- **A scanned PDF is read once.** A duplicate rescan re-read every PDF with too little text to
+  fingerprint, such as an image-only scan. It now remembers them. A PDF it couldn't read, such as
+  one not yet downloaded, is still tried on every scan.
 
 ### Around the app
 
