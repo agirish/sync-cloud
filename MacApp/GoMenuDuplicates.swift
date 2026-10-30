@@ -44,8 +44,9 @@ enum GoMenuDuplicates {
     static func apply(to menu: NSMenu) {
         for item in menu.items {
             guard let hide = shouldHide(item) else { continue }
-            if menu === goMenu, !item.allowsKeyEquivalentWhenHidden || item.isHidden != hide {
-                note("apply sets " + describe(item))
+            if probing, menu === goMenu {
+                if !item.allowsKeyEquivalentWhenHidden || item.isHidden != hide { note("apply sets " + describe(item)) }
+                watch(item)
             }
             if !item.allowsKeyEquivalentWhenHidden { item.allowsKeyEquivalentWhenHidden = true }
             if item.isHidden != hide { item.isHidden = hide }
@@ -67,6 +68,9 @@ enum GoMenuDuplicates {
     /// notification that names Go, the main menu or a ⌃ item, and every `apply`. Printed by
     /// `GoMenuDuplicatesTests` when a ⌃ item is found without its live key.
     static private(set) var trail: [String] = []
+
+    /// Off with `GO_PROBE=0`, which leaves the hook exactly as it was before the probe.
+    static let probing = ProcessInfo.processInfo.environment["GO_PROBE"] != "0"
 
     static func describe(_ menu: NSMenu?) -> String {
         guard let menu else { return "nil" }
@@ -110,27 +114,101 @@ enum GoMenuDuplicates {
                 // AppKit changes menus on the main thread; anything else is left alone rather than
                 // trapped in `assumeIsolated`.
                 guard Thread.isMainThread else {
-                    let menu = (note.object as? NSMenu)?.title ?? "?"
-                    DispatchQueue.main.async { Self.note("off-main \(note.name.rawValue) '\(menu)'") }
+                    if probing {
+                        let menu = (note.object as? NSMenu)?.title ?? "?"
+                        DispatchQueue.main.async { Self.note("off-main \(note.name.rawValue) '\(menu)'") }
+                    }
                     return
                 }
                 let menu = note.object as? NSMenu
                 MainActor.assumeIsolated {
                     guard let go = goMenu, menu === go || menu === NSApp.mainMenu else {
-                        record(note, applied: false)
+                        if probing { record(note, applied: false) }
                         return
                     }
-                    record(note, applied: true)
+                    if probing { record(note, applied: true) }
                     apply(to: go)
                 }
             }
         }
-        observers.append(NotificationCenter.default.addObserver(forName: NSMenu.didRemoveItemNotification,
-                                                                object: nil, queue: nil) { note in
-            guard Thread.isMainThread else { return }
-            MainActor.assumeIsolated { record(note, applied: false) }
-        })
-        note("install: go \(describe(goMenu)), main has \(NSApp.mainMenu?.items.count ?? -1) items")
+        if probing {
+            observers.append(NotificationCenter.default.addObserver(forName: NSMenu.didRemoveItemNotification,
+                                                                    object: nil, queue: nil) { note in
+                guard Thread.isMainThread else { return }
+                MainActor.assumeIsolated { record(note, applied: false) }
+            })
+            note("install: go \(describe(goMenu)), main has \(NSApp.mainMenu?.items.count ?? -1) items")
+            for item in goMenu?.items ?? [] { note("  at install " + describe(item)) }
+        }
         if let go = goMenu { apply(to: go) }
+        if probing { watch() }
+    }
+
+    /// Probe: KVO on every ⌃ item the hook has met, with the stack that changed it, and a 0.2 s
+    /// poll of Go that notes each ⌃ item it has not met before and each one it finds unflagged.
+    private static var watched: [ObjectIdentifier: [NSKeyValueObservation]] = [:]
+    private static var reported: Set<String> = []
+
+    /// The callers outside this probe, Swift's runtime and KVO: "module:symbol", innermost first.
+    private static func stack() -> String {
+        Thread.callStackSymbols.compactMap { line -> String? in
+            let fields = line.split(separator: " ", omittingEmptySubsequences: true)
+            guard fields.count > 3 else { return nil }
+            let module = String(fields[1])
+            let symbol = fields[3...].prefix { $0 != "+" }.joined(separator: " ")
+            if ["libswiftCore.dylib", "libswift_Concurrency.dylib", "Foundation"].contains(module)
+                || symbol.contains("GoMenuDuplicates") || symbol.hasPrefix("NSKeyValue") || symbol.hasPrefix("_NSSetObjectValue")
+                || symbol.hasPrefix("$sxs5Error") || symbol.hasPrefix("$sScM14assume") { return nil }
+            return "\(module.prefix(12)):\(symbol.prefix(70))"
+        }.prefix(16).joined(separator: " < ")
+    }
+
+    private static func watch(_ item: NSMenuItem) {
+        let key = ObjectIdentifier(item)
+        guard watched[key] == nil else { return }
+        note("watching " + describe(item))
+        func changed(_ what: String) -> (NSMenuItem, Any) -> Void {
+            { item, _ in
+                guard Thread.isMainThread else {
+                    let trace = stack()
+                    DispatchQueue.main.async { note("KVO \(what) OFF MAIN by " + trace) }
+                    return
+                }
+                MainActor.assumeIsolated { note("KVO \(what) → " + describe(item) + " by " + stack()) }
+            }
+        }
+        watched[key] = [
+            item.observe(\.allowsKeyEquivalentWhenHidden, options: [.new]) { i, c in changed("live")(i, c) },
+            item.observe(\.keyEquivalent, options: [.new]) { i, c in changed("key")(i, c) },
+            item.observe(\.keyEquivalentModifierMask, options: [.new]) { i, c in changed("mask")(i, c) },
+            item.observe(\.title, options: [.new]) { i, c in changed("title")(i, c) },
+            item.observe(\.menu, options: [.new]) { i, c in changed("menu")(i, c) },
+        ]
+    }
+
+    private static func watch() {
+        let began = ProcessInfo.processInfo.systemUptime
+        Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { timer in
+            MainActor.assumeIsolated {
+                if ProcessInfo.processInfo.systemUptime - began > 600 { timer.invalidate(); return }
+                guard let go = goMenu else {
+                    if reported.insert("no go").inserted { note("poll: no Go menu") }
+                    return
+                }
+                if reported.insert("go \(describe(go))").inserted { note("poll: Go is \(describe(go))") }
+                for item in go.items where item.keyEquivalent == AppChord.switchPaneFocus.appKitKeyEquivalent
+                    || item.title.hasPrefix("Focus ") || item.title == NextTabCommand.title {
+                    let id = describe(item).prefix(6)
+                    if watched[ObjectIdentifier(item)] == nil {
+                        note("poll: unmet ⌃ item " + describe(item))
+                        watch(item)
+                    }
+                    if !item.allowsKeyEquivalentWhenHidden, shouldHide(item) != nil,
+                       reported.insert("unflagged \(id)").inserted {
+                        note("poll: UNFLAGGED " + describe(item))
+                    }
+                }
+            }
+        }
     }
 }
