@@ -49,6 +49,11 @@ extension FileSyncManager {
             let hashes = await Self.hashFiles(bytePaths, fileManager: fm, cache: .shared)
             for (path, hex) in hashes { identities[path] = "b:" + hex }
         }
+        // Saved here as Duplicates saves its own: this scan's new digests, and the last-used
+        // stamps its hits moved, are otherwise lost at quit unless a duplicate scan saves later.
+        await ContentHashCache.shared.save()
+        await ContentHashCache.sharedFingerprints.save()
+        await ContentHashCache.sharedTextless.save()
         guard !identities.isEmpty else { return suggestions }
 
         var marked = 0
@@ -84,8 +89,10 @@ extension FileSyncManager {
         let hashURL = directory.appendingPathComponent("content-hash-index.json")
         let fingerprintURL = directory.appendingPathComponent("content-fingerprint-index.json")
         // Date and size, both: a rewrite inside one timestamp tick still moves the size.
-        let key = [providerRoot] + [hashURL, fingerprintURL].map { url in
-            let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        // And the directory, so an index read from one place is never served for another; the
+        // files' links are followed, or a linked index would never look changed.
+        let key = [providerRoot, directory.path] + [hashURL, fingerprintURL].map { url in
+            let attributes = try? FileManager.default.attributesOfItem(atPath: url.resolvingSymlinksInPath().path)
             let date = (attributes?[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate
             return "\(date ?? -1) \((attributes?[.size] as? Int) ?? -1)"
         }

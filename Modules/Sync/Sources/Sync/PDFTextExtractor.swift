@@ -50,12 +50,18 @@ public enum PDFTextExtractor {
     /// **The availability check runs before the lane, not on it.** It is a `stat` and a resource
     /// read, not PDFKit, and on a tree that lives in cloud storage most of the documents a scan is
     /// handed fail it — each one used to take the lane's turn, and hold up Edit's PDFs, Print and
-    /// the column preview behind it, only to be turned away. The cost is a window: a file evicted
-    /// between this check and its turn is opened anyway, which downloads that one file.
+    /// the column preview behind it, only to be turned away.
+    ///
+    /// **The `lstat` half is asked again on the lane**, just before the open. The lane's queue can
+    /// be seconds long on a cold scan, and a file "Optimize Storage" evicts in that wait would
+    /// otherwise be opened there — a synchronous download that holds the lane, and everything
+    /// queued behind it, for its whole length. The dataless flag is one `lstat`, no resource read.
     public static func read(atPath path: String,
                             isAvailable: @Sendable (String) -> Bool = FilingSurvey.isAvailable) async -> ExtractedDocument? {
         guard ContentFingerprint.canFingerprint(path: path), isAvailable(path) else { return nil }
-        return await PDFKitSerialAccess.perform { readSync(path, isAvailable: { _ in true }) }
+        return await PDFKitSerialAccess.perform {
+            readSync(path, isAvailable: { !MaterializationStatus.isCloudOnly(atPath: $0) })
+        }
     }
 
     /// What reading `path` came to, three ways — see ``FingerprintReading``. Not read is

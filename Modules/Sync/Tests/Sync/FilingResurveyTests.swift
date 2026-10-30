@@ -332,6 +332,22 @@ import EventsTestSupport
 
     // MARK: - What the survey says in the log
 
+    /// A survey left behind by a cut-off re-derive is read back a moment after launch, off the main
+    /// actor. A Refresh in that window could read the corpus as absent and write over the replay's.
+    @Test func aRefreshIsRefusedWhileASurveyIsReadBack() async throws {
+        let (manager, docs, _, _, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
+        manager.surveyReplaysInFlight = 2
+        let refused = await manager.resurveyFilingMemory(root: docs)
+        #expect(refused.foldersLearned == 0, "a Refresh ran while a survey replay was in flight")
+        manager.surveyReplaysInFlight -= 1
+        #expect(await manager.resurveyFilingMemory(root: docs).foldersLearned == 0,
+                "one replay finishing let a Refresh in while another was still carrying")
+        manager.surveyReplaysInFlight -= 1
+        let ran = await manager.resurveyFilingMemory(root: docs)
+        #expect(ran.foldersLearned > 0, "the control: the same Refresh learns once the replay is done")
+    }
+
     /// The closing line counts folders, and it must count them the way every other line in this app
     /// does: `N folder(s)`, never a bare plural that renders "1 folders".
     ///

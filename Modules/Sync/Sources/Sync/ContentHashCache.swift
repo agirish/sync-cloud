@@ -14,7 +14,8 @@ import Foundation
 /// path by one carrying the old dates. Both come from one path `stat`, never from the descriptor,
 /// so a hit still never opens the file (a cloud-only placeholder would be downloaded).
 ///
-/// nil for both where the disk cannot answer — a test double's paths — which keys exactly as the
+/// nil for both where the disk cannot answer — a test double's path, a failed stat, or a FAT or
+/// exFAT volume, whose "ctime" is the modification time (see `diskIdentity`) — which keys exactly as the
 /// triple always did. The cost of the extra fields is misses, never wrong answers: a metadata change
 /// that leaves the bytes alone (a tag, a permission) re-hashes the file once.
 public struct ContentHashKey: Hashable, Sendable {
@@ -36,13 +37,52 @@ public struct ContentHashKey: Hashable, Sendable {
     }
 
     /// The file number and status-change time of `path`, by one `stat` (which follows a link, as
-    /// the read does). nil for both when the stat fails.
+    /// the read does). nil for both when the stat fails — and when the file's volume does not keep
+    /// a status-change time worth the name.
+    ///
+    /// **FAT and exFAT have no real ctime.** They answer `stat`, but with the modification time in
+    /// its place, so a rewrite whose date is put back (`touch -t`) restores "ctime" too, and the file
+    /// number can stay the same (measured 10-30 on MS-DOS and ExFAT disk images: inode 4 before and
+    /// after, ctime equal to mtime). An identity from such a volume would protect nothing while
+    /// keeping a digest alive for as long as it is used. nil instead keys the file by the triple, as
+    /// before FR59, and ``ContentHashCache`` ages a key without an identity from when it was hashed.
     public static func diskIdentity(atPath path: String) -> (fileNumber: UInt64, statusChanged: TimeInterval)? {
+        diskIdentity(atPath: path, fileSystemType: fileSystemType(atPath:))
+    }
+
+    /// ``diskIdentity(atPath:)`` with the volume's type asked through `fileSystemType` — the seam a
+    /// test takes, since a FAT volume cannot be conjured on the machine that runs the suite.
+    ///
+    /// **Asked on every call, not remembered per volume.** One `statfs` is a syscall beside the
+    /// `stat` already paid; a verdict remembered by device number could outlive the disk it was
+    /// about (macOS reuses device nodes: eject an APFS disk, attach an exFAT one, and the new one
+    /// would inherit "apfs"), and a failed `statfs` — a file deleted mid-scan — would have marked
+    /// the whole volume identity-less for the launch.
+    static func diskIdentity(atPath path: String,
+                             fileSystemType: (String) -> String?) -> (fileNumber: UInt64, statusChanged: TimeInterval)? {
         var info = stat()
-        guard stat(path, &info) == 0 else { return nil }
+        guard stat(path, &info) == 0, let type = fileSystemType(path),
+              keepsStatusChanges(fileSystemType: type) else { return nil }
         let changed = TimeInterval(info.st_ctimespec.tv_sec) + TimeInterval(info.st_ctimespec.tv_nsec) / 1_000_000_000
         return (UInt64(info.st_ino), changed)
     }
+
+    /// Whether a volume of this type keeps a real status-change time: APFS and HFS+.
+    static func keepsStatusChanges(fileSystemType type: String) -> Bool {
+        ["apfs", "hfs"].contains(type)
+    }
+
+    /// `statfs`'s `f_fstypename` for the volume holding `path`; nil if the call fails.
+    static func fileSystemType(atPath path: String) -> String? {
+        var fs = statfs()
+        guard statfs(path, &fs) == 0 else { return nil }
+        return withUnsafeBytes(of: fs.f_fstypename) { raw in
+            String(decoding: raw.prefix { $0 != 0 }, as: UTF8.self)
+        }
+    }
+
+    /// Whether this key carries the identity that makes a digest safe to keep while it is used.
+    var hasDiskIdentity: Bool { fileNumber != nil && statusChanged != nil }
 }
 
 /// SHA-256 cache keyed by ``ContentHashKey`` — in memory, and persisted to disk when the app opts in
@@ -201,7 +241,9 @@ public actor ContentHashCache {
     public func hash(for key: ContentHashKey, at now: Date = Date()) -> String? {
         guard var entry = entries[key] else { lookupMisses += 1; return nil }
         lookupHits += 1
-        if now.timeIntervalSince(entry.lastUsed) >= Self.lastUsedResolution {
+        // Only a key with a disk identity is kept alive by use; without one (FAT, exFAT, a failed
+        // stat) nothing would catch a rewrite under a restored date, so it ages from its hashing.
+        if key.hasDiskIdentity, now.timeIntervalSince(entry.lastUsed) >= Self.lastUsedResolution {
             entry.lastUsed = now
             entries[key] = entry
             unsavedChanges += 1
@@ -279,10 +321,9 @@ public actor ContentHashCache {
     /// Thirty days of DISUSE stays, because something must drop the entries no lookup can reach
     /// any more: a deleted or edited file's old key, and every entry written before FR59, whose key
     /// lacks the two fields a real file is now looked up by. Those are never hit, so they leave
-    /// thirty days after their last use, as before. What the key still cannot see — a disk whose
-    /// stat answers no status-change time keys as the old triple — has no bound but disuse now;
-    /// such a disk is a test double's path in practice, since every local and File Provider
-    /// volume answers `stat`. `DEFERRED_ENHANCEMENTS.md` #9 asked for this age cap alongside the
+    /// thirty days after their last use, as before. A key WITHOUT the identity — a FAT or exFAT
+    /// volume, a failed stat, a test double — is not kept alive by use: it ages from its hashing,
+    /// as every entry did before, because nothing would catch a rewrite under a restored date. `DEFERRED_ENHANCEMENTS.md` #9 asked for this age cap alongside the
     /// schema version.
     public static let maxEntryAge: TimeInterval = 30 * 24 * 60 * 60
 
@@ -344,10 +385,12 @@ public actor ContentHashCache {
         for record in records {
             // A record written before `lastUsed` existed was last used, as far as anyone knows, when
             // it was hashed — the one stamp it has.
-            let lastUsed = record.lastUsed ?? record.storedAt
-            guard now.timeIntervalSince(lastUsed) <= Self.maxEntryAge else { continue }
             let key = ContentHashKey(path: record.path, mtime: record.mtime, size: record.size,
                                      fileNumber: record.fileNumber, statusChanged: record.statusChanged)
+            // A key without a disk identity ages from its hashing whatever its last use: see
+            // `diskIdentity` — nothing would catch a rewrite under a restored date.
+            let lastUsed = key.hasDiskIdentity ? (record.lastUsed ?? record.storedAt) : record.storedAt
+            guard now.timeIntervalSince(lastUsed) <= Self.maxEntryAge else { continue }
             guard entries[key] == nil else { continue }
             entries[key] = Entry(hex: record.hex, storedAt: record.storedAt, lastUsed: lastUsed)
             adoptedKeys.append(key)

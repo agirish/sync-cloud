@@ -138,6 +138,8 @@ public enum ContentFingerprint {
     /// certainly produce, `textlessScansOfTheSameShapeAreNotOneDocument` shows what happens without
     /// the floor when it does, and eight is a judgement — there is no knee in the data to pick it
     /// from. If a real corpus ever shows it declining documents that mattered, lower it.
+    /// (Changing this re-reads the documents cached as too short: their marker names it — see
+    /// ``tooLittleTextMarker``.)
     public static let minimumTokens = 8
 
     /// The digest, or nil when this document has not said enough to be identified by its text.
@@ -207,9 +209,11 @@ public enum ContentFingerprint {
     /// it, and ``DocumentIdentityIndex/build(hashes:fingerprints:providerRoot:existsOnDisk:)``
     /// drops one should it ever reach the fingerprint index.
     ///
-    /// It carries ``scheme`` because the token floor is one of the rules the scheme versions; a
-    /// marker from another scheme is read as a miss and the document is read again.
-    public static let tooLittleTextMarker = noFingerprintPrefix + scheme
+    /// It carries ``scheme`` and the floor itself. The floor moving does not change any digest, so
+    /// lowering it is unlikely to come with a scheme bump (which costs a cold re-read of every
+    /// document); a marker naming the old floor is then read as a miss, and a document the new
+    /// floor would fingerprint is read again rather than declined from the cache for good.
+    public static let tooLittleTextMarker = noFingerprintPrefix + scheme + ":floor\(minimumTokens)"
 
     static let noFingerprintPrefix = "none:"
 

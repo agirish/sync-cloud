@@ -1801,6 +1801,10 @@ extension FileSyncManager {
     public func finishInterruptedSurveyReplay() async -> Bool {
         guard let directory = filingProfilesDirectory, let id = filingProfileDirectoryId,
               let profile = filingFolderProfile else { return false }
+        // Counted, not flagged: launch, Setup's re-attach and Undo can each start one, and the
+        // first to finish must not clear the guard while another is still carrying.
+        surveyReplaysInFlight += 1
+        defer { surveyReplaysInFlight -= 1 }
         let memory = await Task.detached(priority: .utility) { () -> FilingMemory?? in
             guard FileSyncManager.recoverInterruptedSurveyReplay(into: id, profile: profile,
                                                                  in: directory) else { return nil }

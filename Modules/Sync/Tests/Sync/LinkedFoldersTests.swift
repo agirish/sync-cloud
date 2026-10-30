@@ -32,7 +32,9 @@ import Testing
         ]
         let roots = ["/r", "/r/", "/r//", "~", "~/", home, home + "/", "/", "//", "", "/a/\u{301}",
                      "/a/\u{301}/", "/a", "/a/", "~/Documents/Health", home + "/Documents/Health",
-                     "~nobody", "/r/~", "r"]
+                     "~nobody", "/r/~", "r",
+                     // Doubled slashes inside or in front: `normalizedRoot` collapses them.
+                     "//r", "/a//", "/x//r", home + "//Documents//Health"]
         for root in roots {
             #expect(PathBoundary.linkedFolders(atRoot: root, in: links)
                     == links[PathBoundary.normalizedRoot(root)] ?? [:], "\(root)")

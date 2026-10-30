@@ -331,6 +331,29 @@ import Testing
         #expect(log.recorded.count == 2)
     }
 
+    /// The other half of the refusal: the negatives sharing the BYTE-hash cache, which Verify and
+    /// Duplicates read as digests just the same.
+    @MainActor
+    @Test func aTextlessCacheSharedWithTheByteCacheIsRefused() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("Scans/receipt.pdf"), bytes: 6000, fill: 0x41)
+        let log = ReadLog()
+        let shared = ContentHashCache()
+        let manager = FileSyncManager()
+        for _ in 0..<2 {
+            manager.clearDuplicates()
+            await manager.findDuplicates(root: root, cache: shared,
+                                         textFingerprint: { log.record($0); return .tooLittleText },
+                                         fingerprintCache: ContentHashCache(), textlessCache: shared)
+        }
+        #expect(await shared.hash(for: try #require(
+            FileSyncManager.fingerprintCacheKey(forPath: root.appendingPathComponent("Scans/receipt.pdf").path,
+                                                fileManager: FileManager.default))) == nil,
+                "a negative landed in the byte-hash cache")
+        #expect(log.recorded.count == 2, "the declined negative cache should leave the document read every scan")
+    }
+
     @MainActor
     @Test func aDocumentThatCouldNotBeReadIsTriedAgainNextScan() async throws {
         // Not on this disk, locked, unparseable: none of that is a fact about the document's text,
@@ -380,5 +403,24 @@ import Testing
                                                              extract: { log.record($0); return .digest("FP") })
         #expect(out[doc.path] == "FP")
         #expect(log.recorded == [doc.path])
+    }
+
+    /// A negative recorded under another token floor is a miss too: the floor can move without a
+    /// scheme bump, and a document the new floor would fingerprint must be read again.
+    @Test func aNegativeFromAnotherFloorIsAMiss() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let doc = root.appendingPathComponent("A/floor.pdf")
+        try write(doc, bytes: 6000, fill: 0x41)
+        let textless = ContentHashCache()
+        let key = try #require(FileSyncManager.fingerprintCacheKey(forPath: doc.path, fileManager: FileManager.default))
+        await textless.store("none:\(ContentFingerprint.scheme):floor\(ContentFingerprint.minimumTokens + 1)", for: key)
+        let log = ReadLog()
+        let out = await FileSyncManager.fingerprintDocuments([doc.path], fileManager: FileManager.default,
+                                                             cache: ContentHashCache(), textless: textless,
+                                                             extract: { log.record($0); return .digest("FP") })
+        #expect(out[doc.path] == "FP")
+        #expect(log.recorded == [doc.path])
+        #expect(ContentFingerprint.tooLittleTextMarker.hasSuffix(":floor\(ContentFingerprint.minimumTokens)"))
     }
 }

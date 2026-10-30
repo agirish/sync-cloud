@@ -9,9 +9,15 @@ import Testing
         return dir.appendingPathComponent("index.json")
     }
 
+    /// A key as a real APFS file gives it — with a file number and a status-change time — unless
+    /// `identity` is false, as a FAT or exFAT file's is.
     private func key(_ path: String, mtime: TimeInterval = 1_700_000_000.123_456_7,
-                     size: Int = 4096) -> ContentHashKey {
-        ContentHashKey(path: path, mtime: mtime, size: size)
+                     size: Int = 4096, identity: Bool = true) -> ContentHashKey {
+        identity
+            ? ContentHashKey(path: path, mtime: mtime, size: size,
+                             fileNumber: UInt64(truncatingIfNeeded: path.utf8.reduce(5381) { $0 &* 33 &+ Int($1) }),
+                             statusChanged: mtime + 1)
+            : ContentHashKey(path: path, mtime: mtime, size: size)
     }
 
     // MARK: Round trip
@@ -155,8 +161,8 @@ import Testing
         let cache = ContentHashCache()
         let adopted = await cache.enablePersistence(at: url, now: now)
         #expect(adopted == 1)
-        #expect(await cache.hash(for: key("/root/fresh.bin", mtime: 1000)) == "f")
-        #expect(await cache.hash(for: key("/root/stale.bin", mtime: 1000)) == nil)
+        #expect(await cache.hash(for: key("/root/fresh.bin", mtime: 1000, identity: false)) == "f")
+        #expect(await cache.hash(for: key("/root/stale.bin", mtime: 1000, identity: false)) == nil)
     }
 
     @Test func reloadingDoesNotResetAnEntrysAge() async throws {
@@ -233,6 +239,53 @@ import Testing
         let record = try #require(ContentHashIndexStore.load(from: url).first { $0.path == used.path })
         #expect(record.storedAt == hashed)
         #expect(record.lastUsed == hashed.addingTimeInterval(45 * Self.day))
+    }
+
+    /// A key with no disk identity — a FAT or exFAT file, whose "ctime" is its mtime — is not kept
+    /// alive by use: nothing would catch a rewrite under a restored date, so it ages from its
+    /// hashing, as every entry did before keep-while-used.
+    @Test func aKeyWithoutDiskIdentityAgesFromItsHashing() async throws {
+        let url = try indexURL("weak-identity")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let hashed = Date(timeIntervalSince1970: 1_800_000_000)
+        let weak = key("/Volumes/USB/used.bin", mtime: 1000, identity: false)
+        let strong = key("/root/used.bin", mtime: 1000)
+
+        let first = ContentHashCache()
+        await first.enablePersistence(at: url, now: hashed)
+        await first.store("w", for: weak, at: hashed)
+        await first.store("s", for: strong, at: hashed)
+        await first.save()
+        ContentHashIndexStore.waitForPendingWrites()
+
+        // Both used on day 20 and day 25.
+        _ = await launch(url, at: hashed.addingTimeInterval(20 * Self.day), using: [weak, strong])
+        _ = await launch(url, at: hashed.addingTimeInterval(25 * Self.day), using: [weak, strong])
+
+        // Day 40: forty from hashing, fifteen from the last use.
+        let reader = ContentHashCache()
+        await reader.enablePersistence(at: url, now: hashed.addingTimeInterval(40 * Self.day))
+        #expect(await reader.hash(for: strong) == "s", "a used entry with an identity is kept")
+        #expect(await reader.hash(for: weak) == nil, "a used entry without one outlived thirty days from hashing")
+    }
+
+    /// A FAT or exFAT volume yields no identity at all, so its files key as the old triple.
+    @Test func aVolumeWithoutRealStatusChangesYieldsNoIdentity() throws {
+        // The temporary directory is APFS on every Mac this runs on: the control.
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("identity-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("a.bin")
+        try Data([1, 2, 3]).write(to: file)
+        #expect(ContentHashKey.diskIdentity(atPath: file.path) != nil, "APFS answered no identity")
+        #expect(ContentHashKey.diskIdentity(atPath: dir.appendingPathComponent("missing").path) == nil)
+        // The same real file, its volume reported as FAT, exFAT, or not at all: no identity.
+        for type in ["msdos", "exfat", "smbfs", "nfs"] {
+            #expect(ContentHashKey.diskIdentity(atPath: file.path, fileSystemType: { _ in type }) == nil, "\(type)")
+        }
+        #expect(ContentHashKey.diskIdentity(atPath: file.path, fileSystemType: { _ in nil }) == nil)
+        #expect(ContentHashKey.diskIdentity(atPath: file.path, fileSystemType: { _ in "apfs" }) != nil)
+        #expect(ContentHashKey.diskIdentity(atPath: file.path, fileSystemType: { _ in "hfs" }) != nil)
     }
 
     @Test func anUnusedEntryLeavesThirtyDaysAfterItsLastUse() async throws {
@@ -444,7 +497,7 @@ import Testing
         let reader = ContentHashCache()
         await reader.enablePersistence(at: url, now: now)
         #expect(await reader.hash(for: key("/root/mid-scan.bin", mtime: 1000)) == "measured")
-        #expect(await reader.hash(for: key("/root/from-disk.bin", mtime: 1000)) == "disk")
+        #expect(await reader.hash(for: key("/root/from-disk.bin", mtime: 1000, identity: false)) == "disk")
     }
 
     @Test func adoptedEntriesAreEvictedBeforeOnesHashedThisSession() async throws {

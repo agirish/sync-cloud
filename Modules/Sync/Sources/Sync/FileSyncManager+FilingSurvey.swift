@@ -83,6 +83,14 @@ extension FileSyncManager {
     public func resurveyFilingMemory(root requested: URL, taxonomy: [FileNode]? = nil,
                                      now: Date = Date()) async -> FilingSurveyReport {
         guard !filingSurveyLifecycle.isRunning else { return .none }
+        // A survey a cut-off re-derive left behind is being carried in, off the main actor, a
+        // moment after launch (`finishInterruptedSurveyReplay`). A Refresh in that window could read
+        // the corpus as absent while the replay writes one, then write over it.
+        guard surveyReplaysInFlight == 0 else {
+            Logger.shared.info("Refresh refused — a survey left by an earlier reorganisation is still being "
+                + "read back; run it again in a moment")
+            return .none
+        }
         // The landing guard's OTHER direction: a landing refuses to start while this survey
         // runs, but this survey could start while a landing sat suspended in its re-derive
         // awaits — walking a tree the inverse was mid-reshape, then writing memory and the
@@ -207,10 +215,11 @@ extension FileSyncManager {
         // already did the same steps detached. Everything that refuses is in the first hop,
         // unchanged and in the same order, and nothing in either hop touches `self`.
         guard let prepared = await Task.detached(priority: .userInitiated, operation: {
-            witness?()
-            return Self.prepareResurvey(walked: walked, root: root, previousMemory: previousMemory,
-                                        profileId: profileId, directory: directory,
-                                        isAvailable: isAvailable)
+            let prepared = Self.prepareResurvey(walked: walked, root: root, previousMemory: previousMemory,
+                                                profileId: profileId, directory: directory,
+                                                isAvailable: isAvailable)
+            witness?()   // after the decode, so a test sees where the heavy step ran, not just a hop
+            return prepared
         }).value else { return .none }
         if Task.isCancelled { return .none }
         let tree = prepared.tree
@@ -268,10 +277,10 @@ extension FileSyncManager {
         let fingerprint: String?
         do {
             (memory, wrote, fingerprint) = try await Task.detached(priority: .userInitiated) {
-                witness?()
                 let merged = FilingSurvey.merge(corpus: corpus, tree: tree, read: readDocuments)
                 let memory = FilingSurvey.buildMemory(corpus: merged, folderModified: tree.folders,
                                                       profileId: profileId)
+                witness?()   // after the build: the step that held the window for over a second
                 let wrote = try FilingSurveyStore.write(corpus: merged, memory: memory,
                                                         previousMemory: previousMemory, id: profileId,
                                                         in: directory, root: rootPath, now: now)

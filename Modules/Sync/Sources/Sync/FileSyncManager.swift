@@ -1135,6 +1135,9 @@ public class FileSyncManager: ObservableObject {
     /// seam a test reads to prove the corpus decode and the memory build stay off the main thread.
     /// nil in the app.
     var filingResurveyOffMainWitness: (@Sendable () -> Void)?
+    /// How many `finishInterruptedSurveyReplay` calls are carrying a cut-off survey in; Refresh
+    /// refuses while any is.
+    var surveyReplaysInFlight = 0
     /// Digest of the artifacts above, mixed into every ``FilingVerdictKey`` so a re-survey does not
     /// replay answers composed against the old tree. See ``FilingProfileStore/fingerprint(id:in:)``.
     ///
