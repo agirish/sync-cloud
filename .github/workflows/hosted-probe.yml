@@ -18,6 +18,18 @@ on:
         description: Run the package and app suites too (off runs only the environment report)
         type: boolean
         default: true
+      packages:
+        description: Run the package jobs (off runs only the environment report and the app target)
+        type: boolean
+        default: true
+      app-copies:
+        description: How many app-target jobs to run side by side, as a JSON list, e.g. [1,2,3,4,5]
+        type: string
+        default: '[1]'
+      app-only-testing:
+        description: Run only this test identifier in the app target, e.g. SyncCloudTests/GoMenuDuplicatesTests
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -33,7 +45,7 @@ jobs:
 
   packages:
     name: ${{ matrix.name }}
-    if: ${{ inputs.suites }}
+    if: ${{ inputs.suites && inputs.packages }}
     runs-on: xcode-27
     timeout-minutes: 120
     strategy:
@@ -137,10 +149,14 @@ jobs:
           key: ${{ steps.restore.outputs.cache-primary-key }}
 
   app:
-    name: App target
+    name: App target ${{ matrix.copy }}
     if: ${{ inputs.suites }}
     runs-on: xcode-27
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        copy: ${{ fromJSON(inputs.app-copies) }}
     env:
       # xcodebuild hands a test process only the variables prefixed TEST_RUNNER_ (stripping the
       # prefix), so the plain name never reached the app's tests: SetupAccentTests, marked
@@ -159,7 +175,7 @@ jobs:
         id: restore
         with:
           path: .dd
-          key: hosted-app-${{ steps.toolchain.outputs.xcode }}-${{ github.run_id }}
+          key: hosted-app-${{ steps.toolchain.outputs.xcode }}-${{ github.run_id }}-${{ matrix.copy }}
           restore-keys: hosted-app-${{ steps.toolchain.outputs.xcode }}-
 
       - name: Toolchain
@@ -168,12 +184,16 @@ jobs:
           which xcodegen || brew install xcodegen
 
       - name: App-target tests (xcodegen + xcodebuild)
+        env:
+          ONLY_TESTING: ${{ inputs.app-only-testing }}
         run: |
           set +e -uo pipefail
           began=$(date +%s)
           xcodegen
+          only=()
+          [ -z "${ONLY_TESTING}" ] || only=("-only-testing:${ONLY_TESTING}")
           xcodebuild test -project SyncCloud.xcodeproj -scheme SyncCloud \
-            -destination 'platform=macOS' -derivedDataPath .dd
+            -destination 'platform=macOS' -derivedDataPath .dd ${only[@]+"${only[@]}"}
           status=$?
           line="app target: exit ${status}, $(( $(date +%s) - began )) s"
           echo "PROBE ${line}"

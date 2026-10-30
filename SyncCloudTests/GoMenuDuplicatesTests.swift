@@ -101,6 +101,12 @@ import AppKit
                 "⌃⇧⇥ \"\(previousControl.title)\" (hidden \(previousControl.isHidden)) has no live key while hidden")
         #expect(control.allowsKeyEquivalentWhenHidden,
                 "⌃⇥ \"\(control.title)\" (hidden \(control.isHidden)) has no live key while hidden")
+        do {
+            // The hosted-VM probe: what the hook saw, then Go as it stands — on a pass too, to compare.
+            print("GO-PROBE trail\n" + GoMenuDuplicates.trail.map { "GO-PROBE " + $0 }.joined(separator: "\n"))
+            print("GO-PROBE now " + GoMenuDuplicates.describe(go) + "\n"
+                  + go.items.map { "GO-PROBE   " + GoMenuDuplicates.describe($0) }.joined(separator: "\n"))
+        }
 
         let original = control.title
         defer { control.title = original }
