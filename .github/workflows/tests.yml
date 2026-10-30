@@ -172,6 +172,10 @@ jobs:
       - name: App-target tests (xcodegen + xcodebuild)
         env:
           BUILD_DIR: ${{ steps.build.outputs.dir }}
+          # The package step's exclusions, for the app's tests too. xcodebuild hands a test process
+          # only variables prefixed TEST_RUNNER_ (stripping the prefix), so without this the app's
+          # referenceImages and liveProfile suites would run here. None exists yet (2026-10-30).
+          TEST_RUNNER_SYNCCLOUD_SKIP_MACHINE_PINNED: referenceImages,liveProfile
         run: |
           set -uo pipefail
           arch -arm64 /opt/homebrew/bin/xcodegen
