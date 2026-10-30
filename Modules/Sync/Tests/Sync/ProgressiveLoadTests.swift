@@ -133,8 +133,16 @@ import Testing
     /// still ran — a following duplicate then wasn't deduped and cancel-restarted it, reopening
     /// the strand race the dedupe exists to close. Sequence: A(K1) superseded by B(K2), C(K1)
     /// registers K1 again, A finally unwinds; A must not release C's key.
+    ///
+    /// Needs more than three cores: A, B and C each hold a walk's pool thread at once, the pool is as
+    /// wide as the core count, and any other test holding one thread then keeps C from starting. On
+    /// GitHub's 3-vCPU VMs the holds timed out that way (2026-10-30), as the rendezvous in
+    /// `BulkSyncCancellationAndReservationTests` did every run.
     @MainActor
-    @Test(.parksThreads(3)) func testStaleRefreshUnwindKeepsNewerSameKeyRefreshDeduped() async throws {
+    @Test(.parksThreads(3),
+          .enabled(if: ProcessInfo.processInfo.activeProcessorCount > 3,
+                   "three walks held at once leave a three-core pool nothing to run the rest on"))
+    func testStaleRefreshUnwindKeepsNewerSameKeyRefreshDeduped() async throws {
         final class CompletionFlag { var done = false }
 
         let mockFM = MockFileManager()

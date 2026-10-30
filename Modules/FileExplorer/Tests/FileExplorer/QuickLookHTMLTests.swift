@@ -67,8 +67,10 @@ struct QuickLookHTMLTests {
         defer { standIn.remove() }
         let started = ContinuousClock.now
         #expect(await standIn.preview()?.deletingLastPathComponent().lastPathComponent == "run2.qlpreview")
-        // About 11 s: the guard, the 5 s grace, a second run. Unkilled, the wedge would end at 600 s.
-        #expect(ContinuousClock.now - started < .seconds(120), "the wedged run was left to end on its own")
+        // About 11 s here: the guard, the 5 s grace, a second run. Unkilled, the wedge would end at
+        // 600 s, which is all this bound is for. It was 120 s until GitHub's hosted VMs took 127 s
+        // twice (2026-10-29/30) with the guard working; where that time went was not measured.
+        #expect(ContinuousClock.now - started < .seconds(300), "the wedged run was left to end on its own")
         #expect(standIn.runCount == 2)
         #expect(standIn.alive.isEmpty)
     }
