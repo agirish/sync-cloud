@@ -61,6 +61,10 @@ targets:
   SyncCloudTests:
     type: bundle.unit-test
     platform: macOS
+    # The app's own target, stated: left out, the bundle takes the SDK's version, so the Xcode 27.2
+    # update (2026-10-30) made `xcodebuild test` refuse to run on this Mac's macOS 27.0.1 —
+    # "doesn't match SyncCloudTests's macOS 27.2 deployment target".
+    deploymentTarget: "26.0"
     sources:
       - path: SyncCloudTests
       # `LogCapture`, compiled in rather than linked. Linking the `EventsTestSupport` product here
