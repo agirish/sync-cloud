@@ -7,10 +7,20 @@ import Sync
 /// How a result message leaves on its own — the capsule's flies into Activity; nothing else does.
 @Suite struct ResultMessageExitTests {
 
-    private func exit(_ home: ResultMessageHome, reduceMotion: Bool = false, activityIsOpen: Bool = false,
-                      hasAnchors: Bool = true) -> ResultMessageExit {
-        ResultMessageExit.exit(home: home, reduceMotion: reduceMotion, activityIsOpen: activityIsOpen,
-                               hasAnchors: hasAnchors)
+    private func exit(_ home: ResultMessageHome, mirrored: Bool = false, reduceMotion: Bool = false,
+                      activityIsOpen: Bool = false, hasAnchors: Bool = true) -> ResultMessageExit {
+        ResultMessageExit.exit(home: home, mirroredInCapsule: mirrored, reduceMotion: reduceMotion,
+                               activityIsOpen: activityIsOpen, hasAnchors: hasAnchors)
+    }
+
+    /// A run's ending a pane shows and the capsule mirrors goes into Activity from the capsule, by
+    /// the capsule's own rules.
+    @Test func aMirroredRunsEndingFliesFromTheCapsule() {
+        #expect(exit(.pane(isLeft: true), mirrored: true) == .fly)
+        #expect(exit(.workspace, mirrored: true) == .fly)
+        #expect(exit(.pane(isLeft: true), mirrored: true, reduceMotion: true) == .landInActivity)
+        #expect(exit(.pane(isLeft: true), mirrored: true, hasAnchors: false) == .landInActivity)
+        #expect(exit(.pane(isLeft: true), mirrored: true, activityIsOpen: true) == .flashInActivity)
     }
 
     @Test func theCapsulesMessageFliesIntoActivity() {

@@ -5,10 +5,11 @@ import FileExplorer
 
 /// **How a result message leaves when nobody undid or followed it** — its time ran out, or ✕.
 ///
-/// A pane's or the workspace's message simply goes: it was where the reader was working, and they
-/// saw it. The capsule's was shown while they worked elsewhere (Run Room CG), so it folds into its
-/// ring and flies into the Activity button, where Recent keeps it — the ✕'s own tooltip already
-/// promised "it stays in Activity". Pure, so each refusal is testable without a toolbar.
+/// A click's result in a pane or the workspace simply goes: it was where the reader was working,
+/// and they saw it. A message the capsule shows — its own (Run Room CG), or a run's ending it
+/// mirrors from a pane — folds into its ring and flies into the Activity button, where Recent keeps
+/// it; the ✕'s own tooltip already promised "it stays in Activity". Pure, so each refusal is
+/// testable without a toolbar.
 enum ResultMessageExit: Equatable {
     /// Clear it where it is.
     case clear
@@ -20,9 +21,9 @@ enum ResultMessageExit: Equatable {
     /// Fold, fly, land.
     case fly
 
-    static func exit(home: ResultMessageHome, reduceMotion: Bool, activityIsOpen: Bool,
-                     hasAnchors: Bool) -> ResultMessageExit {
-        guard home == .toolbar else { return .clear }
+    static func exit(home: ResultMessageHome, mirroredInCapsule: Bool = false, reduceMotion: Bool,
+                     activityIsOpen: Bool, hasAnchors: Bool) -> ResultMessageExit {
+        guard home == .toolbar || mirroredInCapsule else { return .clear }
         // The popover hangs from the capsule and already lists the message in Recent; a ring flying
         // out from under it to the button that opened it says nothing the list does not. Its row
         // flashes instead.

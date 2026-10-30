@@ -54,4 +54,17 @@ import Testing
         #expect(!ResultMessageRoute.endsInCapsule(startedIn: .filing, showing: .filing))
         #expect(!ResultMessageRoute.endsInCapsule(startedIn: nil, showing: .browse))
     }
+
+    /// A run's ending in the workspace it started in goes to the pane, and the capsule that showed
+    /// the run mirrors it; one that went to the capsule is not mirrored too, and a click had no run.
+    @Test func theCapsuleMirrorsARunsEndingThatAPaneShows() {
+        #expect(ResultMessageRoute.mirrorsInCapsule(startedIn: .browse, showing: .browse))
+        #expect(!ResultMessageRoute.mirrorsInCapsule(startedIn: .filing, showing: .browse))
+        #expect(!ResultMessageRoute.mirrorsInCapsule(startedIn: nil, showing: .browse))
+        // Never both: a message is the capsule's own or a mirror, not each.
+        for origin in [Workspace.browse, .filing, nil] as [Workspace?] {
+            #expect(!(ResultMessageRoute.endsInCapsule(startedIn: origin, showing: .browse)
+                      && ResultMessageRoute.mirrorsInCapsule(startedIn: origin, showing: .browse)))
+        }
+    }
 }

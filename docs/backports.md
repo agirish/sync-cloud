@@ -12905,3 +12905,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s render=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Save as PDF | CLOSED — does not apply |
+
+---
+
+## The capsule mirrors a run's ending, then carries it into Activity — main only
+
+The owner's call of 2026-10-29. A run the capsule showed and whose ending a pane (or the editor)
+shows no longer vanishes from the capsule the instant it ends — a one-file delete's run lasted
+0.2 s. The capsule shows the ending's words with its ✓, no buttons, for exactly as long as the
+pane's message (one timer, held by hover over either), then folds and flies into Activity.
+Undo, a follow-up or the pane's ✕ clears both in place (`ResultMessageRoute.mirrorsInCapsule`,
+`ResultMessageExit` `mirroredInCapsule:`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s mirror=%s\n' $l \
+  "$(git show origin/$l:MacApp/ContentView+ResultMessage.swift 2>/dev/null | grep -c 'mirrorsInCapsule')"; done
+# measured 2026-10-29, against origin, before this landed (main reads >0 after):
+# main/v5.x … v2.x   mirror=0 (v5.x and older have no capsule)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No toolbar capsule to mirror into | CLOSED — does not apply |

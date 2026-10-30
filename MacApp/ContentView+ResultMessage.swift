@@ -38,6 +38,15 @@ enum ResultMessageRoute {
         return origin != current
     }
 
+    /// **Whether the capsule mirrors a run's ending that a pane shows** (2026-10-29): the run was
+    /// on screen in the capsule, so its ending stays there too, as long as the pane's message does,
+    /// rather than the capsule vanishing the instant the run ends — a delete's run lasted a fifth of
+    /// a second, and read as a notification too short to see. A click's result had no run there.
+    static func mirrorsInCapsule(startedIn origin: Workspace?, showing current: Workspace) -> Bool {
+        guard let origin else { return false }
+        return origin == current
+    }
+
     static func home(layout: ContentView.ContentLayout, focusedPaneIsLeft: Bool,
                      lastWorkedInPane: Bool) -> ResultMessageHome {
         switch layout {
@@ -72,9 +81,16 @@ extension ContentView {
         paneToolResultDoors?.banner.id == banner.id ? nil : syncManager.lastFinishedRun
     }
 
-    /// The message as the capsule draws it (CG, TE233) — nil unless the message is the capsule's.
+    /// The message as the capsule draws it (CG, TE233) — nil unless the message is the capsule's,
+    /// or a run's ending the capsule mirrors from a pane, with the pane's buttons left to the pane.
     var capsuleMessage: ProgressCapsuleMessage? {
-        guard resultMessageHome == .toolbar, let banner = syncManager.banner else { return nil }
+        guard let banner = syncManager.banner else { return nil }
+        if resultMessageHome != .toolbar {
+            guard capsuleMirrorID == banner.id else { return nil }
+            return ProgressCapsuleMessage(text: banner.message, weight: Self.capsuleWeight(banner.severity),
+                                          onClose: {}, onHover: { bannerDismissScheduler.hoverChanged(isHovering: $0) },
+                                          isFolding: capsuleFoldingID == banner.id, showsClose: false)
+        }
         var actions: [ProgressCapsuleMessage.Action] = []
         if banner.isUndoable, undoManager?.canUndo ?? false {
             actions.append(.init(title: "Undo", help: runWriteLockReason ?? ShortcutHint.tooltip("Undo this operation", "⌘Z"),
@@ -107,7 +123,8 @@ extension ContentView {
     func retireResultMessage() {
         guard let banner = syncManager.banner else { return }
         let anchors = CapsuleFlightAnchors.shared.frames()
-        switch ResultMessageExit.exit(home: resultMessageHome, reduceMotion: reduceMotion,
+        switch ResultMessageExit.exit(home: resultMessageHome, mirroredInCapsule: capsuleMirrorID == banner.id,
+                                      reduceMotion: reduceMotion,
                                       activityIsOpen: ActivityCenter.shared.popoverIsOpen,
                                       hasAnchors: anchors != nil) {
         case .clear:
@@ -302,10 +319,11 @@ extension ContentView {
         if paneToolResultDoors?.banner.id != banner?.id { paneToolResultDoors = nil }
         guard let banner else { return false }
         // Where its run was started decides whether it is the capsule's (CG, CP).
-        let toCapsule = ResultMessageRoute.endsInCapsule(startedIn: runOrigin(ending: banner),
-                                                         showing: selectedWorkspace)
+        let origin = runOrigin(ending: banner)
+        let toCapsule = ResultMessageRoute.endsInCapsule(startedIn: origin, showing: selectedWorkspace)
         pendingResultOrigin = nil
         capsuleMessageID = toCapsule ? banner.id : nil
+        capsuleMirrorID = ResultMessageRoute.mirrorsInCapsule(startedIn: origin, showing: selectedWorkspace) ? banner.id : nil
         OperationBannerView.announce(banner, offersUndo: banner.isUndoable && (undoManager?.canUndo ?? false)
                                      && runWriteLockReason == nil)
         // Copied into Activity's Recent as it is published (Run Room R9), not spoken again (R19). A

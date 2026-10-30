@@ -94,15 +94,19 @@ public struct ProgressCapsuleMessage {
     /// **On its way into Activity** (``ProgressCapsuleFlight``): the words and buttons are gone and
     /// the capsule has narrowed to its ring, which is about to lift out and fly to the button.
     public var isFolding: Bool
+    /// Whether it has its own ✕. A run's ending mirrored from a pane has none: its buttons, ✕
+    /// included, are the pane's.
+    public var showsClose: Bool
 
     public init(text: String, weight: Weight, actions: [Action] = [], onClose: @escaping () -> Void,
-                onHover: @escaping (Bool) -> Void = { _ in }, isFolding: Bool = false) {
+                onHover: @escaping (Bool) -> Void = { _ in }, isFolding: Bool = false, showsClose: Bool = true) {
         self.text = text
         self.weight = weight
         self.actions = actions
         self.onClose = onClose
         self.onHover = onHover
         self.isFolding = isFolding
+        self.showsClose = showsClose
     }
 }
 
@@ -247,7 +251,7 @@ public struct ProgressCapsule: View {
                 .keyboardShortcut(AppChord.cancelOperation.key, modifiers: AppChord.cancelOperation.modifiers)
                 .help(ShortcutHint.tooltip(trailingHelp, AppChord.cancelOperation.display))
                 .accessibilityLabel(trailingAccessibilityLabel)
-            } else if let message, style == .full {
+            } else if let message, style == .full, message.showsClose {
                 // No key: ⌘. stops runs, and there is none here.
                 Button(action: message.onClose) {
                     Image(systemName: "xmark.circle.fill")

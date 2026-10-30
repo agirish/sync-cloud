@@ -3,7 +3,9 @@ import Design
 
 /// **Every run the window shows progress for, in the toolbar's capsule** (TE205, TE207's run
 /// half): the long file operation on `FileSyncManager.activeProgress`, a PDF tool run from a pane's
-/// menu, and Save as PDF. Their *results* stay with the pane, not here (BY).
+/// menu, and Save as PDF. Their *results* go to the pane (BY), and the capsule mirrors the words
+/// for as long as the pane shows them before carrying them into Activity (2026-10-29), so a run that
+/// ends in a fifth of a second no longer flashes here and vanishes.
 ///
 /// **The capsule draws the newest run** (TE218, decision CI) — the one just asked for. With two or
 /// more, its ✕ gives way to a count (TE217, TE219). It used to draw the first of the three in a fixed

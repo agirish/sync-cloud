@@ -786,6 +786,8 @@ struct ContentView: View {
     @State var capsuleMessageID: UUID?
     /// The capsule message folding into its ring on its way into Activity (`retireResultMessage`).
     @State var capsuleFoldingID: UUID?
+    /// A run's ending a pane shows, which the capsule mirrors until it goes (`mirrorsInCapsule`).
+    @State var capsuleMirrorID: UUID?
     /// Where each long run was started, for its ending's route (CP).
     @State var fileOperationOrigin: Workspace?
     @State var paneToolOrigin: Workspace?
