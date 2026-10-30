@@ -119,6 +119,8 @@ Requires **macOS 26**, unchanged from v6.1.
 - **Clean Metadata names an encrypted PDF.** Skipping one, it says the file is encrypted rather than
   that its owner doesn't allow changes. It points to PDF Tools ▸ Remove Password…, which writes an
   unencrypted copy.
+- **Compare's sidebar starts at Favorites.** "Opens on Left" or "Opens on Right" now sits at the
+  foot of the column, so Favorites lines up with the sidebar in Browse, Organize and Edit.
 
 ### Known limitations
 

@@ -708,6 +708,20 @@ import Design
         #expect(!left.contains("arrow") && !right.contains("arrow"),
                 "the glyph is an arrow — both panes are to the right of this column, so it points the same way for either")
     }
+
+    /// **The line sits under the list, not over it.** Above the first row it pushed Favorites down
+    /// in Compare alone, so the column's top stopped lining up with every other workspace's.
+    @Test func theLineSitsUnderTheList() throws {
+        let code = try SidebarRowSideMenuTests.source()
+        let body = try #require(code.range(of: "public var body: some View {"),
+                                "cannot find the column's body — this scan is aimed at nothing")
+        let list = try #require(code.range(of: "ScrollView {", range: body.upperBound..<code.endIndex))
+        let line = try #require(code.range(of: "if let target { targetFooter(target) }",
+                                           range: body.upperBound..<code.endIndex),
+                                "the column no longer draws the side line")
+        #expect(list.upperBound < line.lowerBound,
+                "the side line is drawn before the list — Favorites no longer starts the column in Compare")
+    }
 }
 
 /// **"Open in Left Pane" / "Open in Right Pane" on a row**, the per-row companion to the target

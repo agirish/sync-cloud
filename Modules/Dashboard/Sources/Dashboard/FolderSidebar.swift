@@ -465,7 +465,7 @@ public struct SidebarTarget: Equatable, Sendable {
         self.targetsRight = targetsRight
     }
 
-    /// **What the header says: the SIDE.**
+    /// **What the line says: the SIDE.**
     ///
     /// It named the source for one build — "Opens in Google Drive (Preserve)" — on the reasoning
     /// that the border already carries the side, so repeating it would say nothing new. Reported
@@ -475,7 +475,7 @@ public struct SidebarTarget: Equatable, Sendable {
     /// not have — a reader would take "Opens in Google Drive" as saying these are Google Drive's
     /// folders.
     ///
-    /// The side is the one thing that is true of every row here, which is what a header describing
+    /// The side is the one thing that is true of every row here, which is what a line describing
     /// all of them has to be.
     public var openingDescription: String {
         "Opens on \(Self.label(targetsRight: targetsRight))"
@@ -923,7 +923,6 @@ public struct FolderSidebarView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let target { targetHeader(target) }
             ScrollView {
                 // 14pt between sections, against 2pt between rows within one. Finder separates its
                 // groups by roughly a row's height and its rows by nothing, which is what makes a
@@ -996,6 +995,7 @@ public struct FolderSidebarView: View {
             // lenses read once per change of current row.
             .selectionLensTracksVisibleRegion(visibleRows)
             if let notice { noticeView(notice) }
+            if let target { targetFooter(target) }
         }
         .frame(width: width)
         .frame(maxHeight: .infinity, alignment: .top)
@@ -1020,8 +1020,12 @@ public struct FolderSidebarView: View {
         }
     }
 
-    /// **Which pane a click lands in, said out loud** — pinned above the scroll area so it cannot
-    /// be scrolled away from, because it describes every row below it and not the rows in view.
+    /// **Which pane a click lands in, said out loud** — pinned below the scroll area so it cannot
+    /// be scrolled away from, because it describes every row above it and not the rows in view.
+    ///
+    /// **At the foot, not the head** (2026-10-29). Above the first row it pushed Favorites down in
+    /// Compare alone, so the column's top no longer lined up with Browse, Organize and Edit, whose
+    /// sidebars start at Favorites. Under the list it says the same thing without moving anything.
     ///
     /// **A statement, not a control, and that is a return rather than a revert.** It began as a
     /// caption over a target derived from the pane SELECTION, which was reported unusable: with
@@ -1035,7 +1039,7 @@ public struct FolderSidebarView: View {
     /// named the source for one build on the reasoning that the border already carries the side,
     /// and that wording implied the rows below were one source's, which they are not; the whole
     /// story is on `SidebarTarget`.
-    private func targetHeader(_ target: SidebarTarget) -> some View {
+    private func targetFooter(_ target: SidebarTarget) -> some View {
         HStack(spacing: 4) {
             Image(systemName: SidebarTarget.symbol(targetsRight: target.targetsRight))
                 .scaledFont(.system(size: 9))
@@ -1049,9 +1053,9 @@ public struct FolderSidebarView: View {
         }
         .foregroundStyle(.secondary)
         .padding(.horizontal, 10)
-        .padding(.top, 8)
-        .padding(.bottom, 6)
-        .overlay(alignment: .bottom) { Divider() }
+        .padding(.top, 6)
+        .padding(.bottom, 8)
+        .overlay(alignment: .top) { Divider() }
     }
 
     /// **Arms a confirmation.** One door, so the latched title cannot be set without the action it
@@ -1779,7 +1783,7 @@ public struct FolderSidebarView: View {
 
     /// **"Open in Left Pane" / "Open in Right Pane", and only where there are two.**
     ///
-    /// The per-row companion to the target control above. That control is a mode — it says where
+    /// The per-row companion to the target control below. That control is a mode — it says where
     /// every click lands — and a mode is the wrong shape for "this one folder, over there". Both
     /// exist because they answer different questions, and neither is a substitute: flipping the
     /// mode to open one folder and flipping it back is exactly the friction this removes.
