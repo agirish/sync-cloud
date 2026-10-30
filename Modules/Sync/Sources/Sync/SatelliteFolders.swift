@@ -42,8 +42,17 @@ public struct DocumentIdentityIndex: Sendable {
         var identity: [String: String] = [:]
         // Byte hashes first, fingerprints second, so a PDF that is in both ends up keyed by what it
         // SAYS. Prefixed rather than bare so the two namespaces can never collide.
+        //
+        // A negative marker is not an identity: every document that said too little carries the
+        // same one, and keyed by it they would all be "the same document" — satellites made of
+        // scans, and loose scans marked already filed beside each other. Where the newest record
+        // is a marker the document keeps its byte hash, as one with no fingerprint record does;
+        // an older digest describes a state of the file that is gone.
         for (path, r) in newestPerPath(hashes, under: prefix) { identity[path] = "b:" + r.hex }
-        for (path, r) in newestPerPath(fingerprints, under: prefix) { identity[path] = "f:" + r.hex }
+        for (path, r) in newestPerPath(fingerprints, under: prefix)
+        where !ContentFingerprint.isNoFingerprintMarker(r.hex) {
+            identity[path] = "f:" + r.hex
+        }
 
         var foldersByIdentity: [String: Set<String>] = [:]
         var pathsByIdentity: [String: [String]] = [:]

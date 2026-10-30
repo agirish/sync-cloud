@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Testing
 @testable import Sync
@@ -211,6 +212,66 @@ import Testing
         #expect(card.isAlreadyFiled,
                 "the scan did not run the already-filed phase — a second copy would be filed blind")
         #expect(card.alreadyFiledAt.contains { $0.contains("Work/Pay") })
+    }
+
+    /// **A textless scan is not "already filed" beside another one (item 21).** Both carry the
+    /// same negative marker, so a reader that took it for an identity would mark the loose one as
+    /// filed wherever the other sits. The scan keeps negatives in a store of their own; this puts
+    /// one in the fingerprint index anyway, the worst case. Driven twice: the second time the
+    /// loose scan's own negative is served from the cache rather than read.
+    @Test func aTextlessScanIsNotAlreadyFiledBesideAnother() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "AlreadyFiledTextless")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let indexDir = root.appendingPathComponent("index")
+        try FileManager.default.createDirectory(at: indexDir, withIntermediateDirectories: true)
+
+        func writeScan(_ url: URL) throws {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            var box = CGRect(x: 0, y: 0, width: 612, height: 792)
+            let consumer = try #require(CGDataConsumer(url: url as CFURL))
+            let context = try #require(CGContext(consumer: consumer, mediaBox: &box, nil))
+            context.beginPDFPage(nil)
+            context.setFillColor(CGColor(gray: 0.5, alpha: 1))
+            context.fill(CGRect(x: 50, y: 50, width: 200, height: 200))
+            context.endPDFPage()
+            context.closePDF()
+        }
+        let filed = root.appendingPathComponent("Work/Scans/receipt.pdf")
+        let loose = root.appendingPathComponent("Downloads/photo-id.pdf")
+        try writeScan(filed)
+        try writeScan(loose)
+        #expect(await PDFTextExtractor.reading(atPath: loose.path, isAvailable: { _ in true }) == .tooLittleText,
+                "the fixture stopped being a textless scan")
+
+        // The filed scan's negative, in the fingerprint index. And
+        // one real byte-hash record, so the phase gets past its "the index holds nothing" exit.
+        let other = root.appendingPathComponent("Work/Pay/payslip.jpg")
+        try Self.write(other, Data(repeating: 0x50, count: 4096))
+        let hex = await FileSyncManager.hashFiles([other.path], fileManager: FileManager.default,
+                                                  cache: nil)[other.path] ?? ""
+        try #require(!hex.isEmpty)
+        ContentHashIndexStore.saveInBackground(
+            [ContentHashRecord(path: other.path, mtime: 0, size: 4096, hex: hex, storedAt: Date())],
+            to: indexDir.appendingPathComponent("content-hash-index.json"))
+        ContentHashIndexStore.saveInBackground(
+            [ContentHashRecord(path: filed.path, mtime: 0, size: 1, hex: ContentFingerprint.tooLittleTextMarker,
+                               storedAt: Date())],
+            to: indexDir.appendingPathComponent("content-fingerprint-index.json"))
+        ContentHashIndexStore.waitForPendingWrites()
+
+        let m = FileSyncManager()
+        m.contentIndexDirectory = indexDir
+        let suggestion = FilingSuggestion(
+            filePath: loose.path, fileName: "photo-id.pdf", size: 1, modificationDate: nil,
+            candidates: [FilingDestination(path: root.appendingPathComponent("Work/Scans").path,
+                                           confidence: .high, reasons: ["r"], newSegments: [])],
+            providerRoot: root.path)
+        for _ in 0..<2 {
+            let marked = await m.markingAlreadyFiled([suggestion], providerRoot: root.path)
+            #expect(marked.first?.isAlreadyFiled == false)
+            #expect(marked.first?.isBatchEligible == true)
+        }
     }
 
     /// **With no index directory the phase is a no-op** — which is correct, and is also exactly why

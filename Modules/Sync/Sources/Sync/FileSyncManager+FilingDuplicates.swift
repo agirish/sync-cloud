@@ -41,8 +41,8 @@ extension FileSyncManager {
         var identities: [String: String] = [:]
         if !documentPaths.isEmpty {
             let digests = await Self.fingerprintDocuments(
-                documentPaths, fileManager: fm, cache: .sharedFingerprints,
-                extract: PDFTextExtractor.fingerprint)
+                documentPaths, fileManager: fm, cache: .sharedFingerprints, textless: .sharedTextless,
+                extract: PDFTextExtractor.fingerprintReading)
             for (path, hex) in digests { identities[path] = "f:" + hex }
         }
         if !bytePaths.isEmpty {

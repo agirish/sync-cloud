@@ -73,7 +73,7 @@ public actor ContentHashCache {
     /// its caption says ("clearing costs time on the next scan and nothing else") — the document
     /// fingerprints survived it and kept being served. Adding an index means adding it here, and
     /// `theRosterHoldsEveryPersistedDigestIndex` fails until it is.
-    public static var allPersisted: [ContentHashCache] { [.shared, .sharedFingerprints] }
+    public static var allPersisted: [ContentHashCache] { [.shared, .sharedFingerprints, .sharedTextless] }
 
     /// Bytes every persisted index occupies together, or nil when none of them is written.
     ///
@@ -110,6 +110,20 @@ public actor ContentHashCache {
     /// the fingerprint index can be thrown away (or its scheme bumped) without re-hashing
     /// gigabytes.
     public static let sharedFingerprints = ContentHashCache()
+
+    /// The documents the same-text pass read and found too little text in, each held as
+    /// ``ContentFingerprint/tooLittleTextMarker`` under the fingerprint key — so a warm rescan does
+    /// not re-parse every image-only scan.
+    ///
+    /// **A third instance and a third file, not markers inside ``sharedFingerprints``, because of
+    /// the builds that came before.** Every negative is the same string, and a build from before
+    /// it existed reads anything in the fingerprint index as a digest: it would serve the marker as
+    /// one, group every textless scan as "same text" — offering to trash all but one — and mark
+    /// each loose scan already filed beside all the others. Installing an older build is routine on
+    /// this machine, so the negatives live where no older build looks. It also keeps them out of
+    /// what `DocumentIdentityIndex` and satellite homes read, and their saves from moving the files
+    /// those rebuild on.
+    public static let sharedTextless = ContentHashCache()
 
     /// Upper bound on retained entries; oldest are evicted first once exceeded.
     ///

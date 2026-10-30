@@ -79,6 +79,32 @@ import Testing
         }
     }
 
+    @Test("Documents that said too little are not one document")
+    func negativeMarkersAreNoIdentity() {
+        // Every textless document is cached under the same marker. Read as an identity, ten scans
+        // in one folder and four in another would make the four a satellite of the ten, and any
+        // loose scan "already filed" in both.
+        let marker = ContentFingerprint.tooLittleTextMarker
+        var fps = (1...10).map { record("Home/scan\($0).pdf", marker) }
+        fps += (1...4).map { record("Stash/scan\($0).pdf", marker) }
+        let index = DocumentIdentityIndex.build(hashes: [], fingerprints: fps,
+                                                providerRoot: root, existsOnDisk: { _ in true })
+        #expect(index.isEmpty)
+        #expect(index.folders(holding: "f:" + marker).isEmpty)
+        #expect(homes(index).isEmpty)
+
+        // A document whose newest fingerprint record is a marker keeps its byte identity, like a
+        // document with none — not an older digest, which described bytes that are gone.
+        let older = ContentHashRecord(path: "/P/A/x.pdf", mtime: 100, size: 1, hex: "was-text",
+                                      storedAt: Date(timeIntervalSince1970: 1_000))
+        let newer = ContentHashRecord(path: "/P/A/x.pdf", mtime: 200, size: 2, hex: marker,
+                                      storedAt: Date(timeIntervalSince1970: 2_000))
+        let edited = DocumentIdentityIndex.build(hashes: [record("A/x.pdf", "bytes")],
+                                                 fingerprints: [older, newer],
+                                                 providerRoot: root, existsOnDisk: { _ in true })
+        #expect(edited.foldersByIdentity == ["b:bytes": ["A"]])
+    }
+
     @Test("A record whose file is gone does not vouch for anything")
     func staleRecordsAreDropped() {
         // The indexes are a cache and outlive what they describe. A stale record would both invent

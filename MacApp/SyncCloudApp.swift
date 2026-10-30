@@ -503,6 +503,16 @@ struct SyncCloudApp: App {
                 }
             }
         }
+        // And the documents that pass read and found too little text in, so a warm rescan does not
+        // re-parse every image-only scan. Its own file — see `ContentHashCache.sharedTextless`.
+        if let textlessURL = ContentHashIndexStore.defaultTextlessURL() {
+            Task.detached(priority: .utility) {
+                let adopted = await ContentHashCache.sharedTextless.enablePersistence(at: textlessURL)
+                if adopted > 0 {
+                    Logger.shared.info("Textless-document index: \(adopted) document(s) reloaded — they won't be re-read")
+                }
+            }
+        }
         // Verdicts are cached per (file identity × backend × prompt version), so a folder whose
         // files have not changed is not re-classified — and, on the paid cloud backend, not
         // re-paid for. The location is injected rather than defaulted inside `Sync`, so nothing

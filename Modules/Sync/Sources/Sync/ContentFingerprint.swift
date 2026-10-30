@@ -26,6 +26,23 @@ public struct ExtractedDocument: Sendable, Equatable {
     }
 }
 
+/// What reading one document for its fingerprint came to.
+///
+/// **Three ways, because only one of the two "no digest" answers may be remembered.** A document
+/// that was parsed and said too little will say too little again until its bytes change, so the
+/// cache can hold that answer under the file's key. A document that could not be read — not on
+/// this disk (a cloud placeholder, or local but stale), password-locked, or unparseable — says
+/// nothing about its content, and the next scan must try it again: cached as "too little text", a
+/// placeholder would stay unfingerprinted after it downloaded, since downloading leaves its key's
+/// path, mtime and size as they were.
+public enum FingerprintReading: Sendable, Equatable {
+    case digest(String)
+    /// Parsed fine; fewer than ``ContentFingerprint/minimumTokens`` tokens. Cached.
+    case tooLittleText
+    /// Not read at all. Never cached.
+    case unreadable
+}
+
 /// A digest over what a PDF *says* rather than what its bytes are — so two downloads of one
 /// document match even though a provider re-stamped a fresh `/ID` into the second.
 ///
@@ -176,6 +193,29 @@ public enum ContentFingerprint {
         }
         if !current.isEmpty { out.append(current) }
         return out
+    }
+
+    /// What ``ContentHashCache/sharedTextless`` holds for a document that was read and said too
+    /// little — fewer than ``minimumTokens`` tokens. Under the same key as a digest, so it is
+    /// invalidated exactly as one is, and it spares a warm rescan re-parsing every image-only scan.
+    ///
+    /// **Never an identity.** A digest is 64 hex characters; this has a colon in it, so it can
+    /// never equal one. But every negative is the SAME string, so anything that read it as "what
+    /// this document is" would call all of them one document — Duplicates would group them, and To
+    /// File would mark each "already filed" beside all the others. So it is kept in a store of its
+    /// own that no identity reader opens, ``FileSyncManager/fingerprintDocuments`` answers nil for
+    /// it, and ``DocumentIdentityIndex/build(hashes:fingerprints:providerRoot:existsOnDisk:)``
+    /// drops one should it ever reach the fingerprint index.
+    ///
+    /// It carries ``scheme`` because the token floor is one of the rules the scheme versions; a
+    /// marker from another scheme is read as a miss and the document is read again.
+    public static let tooLittleTextMarker = noFingerprintPrefix + scheme
+
+    static let noFingerprintPrefix = "none:"
+
+    /// Whether a cached value is a negative marker, from this scheme or any other.
+    public static func isNoFingerprintMarker(_ value: String) -> Bool {
+        value.hasPrefix(noFingerprintPrefix)
     }
 
     /// The file extensions a fingerprint can be taken of. PDFs only, for now: the roadmap item is

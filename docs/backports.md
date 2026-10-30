@@ -13104,3 +13104,28 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s persist=%s expiryFromHashing=
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` | Expiry from hashing, on the (path, mtime, size) key | DEFERRED — scope call: needs the FR59 key first, or keeping a used entry trusts a rewritten file's old digest for good |
 | `v2.x` | An in-memory cache only (`persist=0`) | CLOSED — does not apply |
+
+---
+
+## A document that said too little is remembered (speed audit 21) — main only
+
+Speed audit item 21 (was P49), 2026-10-30. On `main`: the duplicate scan's text pass caches a
+document that was read and held fewer than `ContentFingerprint.minimumTokens` tokens as a negative
+marker in a third index file (`content-textless-index.json`, which no older build reads), so a warm
+rescan re-parses none of them (858 on the real tree); a document that could not be read (not
+downloaded, locked, unparseable) is never cached. The marker is kept out of
+`DocumentIdentityIndex`, and the availability check runs before the PDF lane.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s textPass=%s negativeDropped=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Duplicates.swift 2>/dev/null | grep -cF 'static func fingerprintDocuments(')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Duplicates.swift 2>/dev/null | grep -cF 'guard let digest = await extract(path) else { return (path, nil) }')"; done
+# measured 2026-10-30, against origin, before this landed (the change reads negativeDropped=0):
+# main, v5.x, v4.x   textPass=1 negativeDropped=1
+# v3.x, v2.x         textPass=0 negativeDropped=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` | Every textless document re-parsed on every scan | RECORDED — not owed |
+| `v3.x` / `v2.x` | No same-text pass | CLOSED — does not apply |

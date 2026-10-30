@@ -85,6 +85,15 @@ public enum ContentHashIndexStore {
         return support.appendingPathComponent("SyncCloud/content-fingerprint-index.json")
     }
 
+    /// `~/Library/Application Support/SyncCloud/content-textless-index.json` — the documents read
+    /// and found too little text in, for ``ContentHashCache/sharedTextless``. Its own file so no
+    /// build that predates it ever reads a negative as a digest; see there.
+    public static func defaultTextlessURL(fileManager: FileManager = .default) -> URL? {
+        guard let support = fileManager.urls(for: .applicationSupportDirectory,
+                                             in: .userDomainMask).first else { return nil }
+        return support.appendingPathComponent("SyncCloud/content-textless-index.json")
+    }
+
     private struct Payload: Codable {
         let schema: Int
         let records: [ContentHashRecord]

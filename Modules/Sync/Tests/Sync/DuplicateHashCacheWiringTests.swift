@@ -172,7 +172,7 @@ import Foundation
         let before = try triple()
         let cache = ContentHashCache()
         let first = await FileSyncManager.fingerprintDocuments([doc.path], fileManager: fm, cache: cache,
-                                                               extract: { _ in "fingerprint-of-the-first" })
+                                                               extract: { _ in .digest("fingerprint-of-the-first") })
         #expect(first[doc.path] == "fingerprint-of-the-first")
 
         // A copy over it: a different document, the same size, the old date.
@@ -182,7 +182,7 @@ import Foundation
         #expect(try triple() == before, "the fixture must leave path, mtime and size exactly as they were")
 
         let second = await FileSyncManager.fingerprintDocuments([doc.path], fileManager: fm, cache: cache,
-                                                                extract: { _ in "fingerprint-of-the-second" })
+                                                                extract: { _ in .digest("fingerprint-of-the-second") })
         #expect(second[doc.path] == "fingerprint-of-the-second",
                 "the replaced document's fingerprint was served from the cache")
     }

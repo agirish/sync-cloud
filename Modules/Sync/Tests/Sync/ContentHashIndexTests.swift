@@ -531,6 +531,7 @@ import Testing
         let roster = ContentHashCache.allPersisted
         #expect(roster.contains { $0 === ContentHashCache.shared })
         #expect(roster.contains { $0 === ContentHashCache.sharedFingerprints })
+        #expect(roster.contains { $0 === ContentHashCache.sharedTextless })
     }
 
     @Test func sizingAndClearingCoverEveryCacheOnTheRoster() async throws {

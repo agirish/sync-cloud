@@ -36,7 +36,9 @@ struct DuplicatedTaxonomyMeasurementTests {
               let records = object["records"] as? [[String: Any]] else { return [:] }
         var out: [String: String] = [:]
         for record in records {
-            if let path = record["path"] as? String, let hex = record["hex"] as? String {
+            // A negative marker is not a digest: every textless document carries the same one.
+            if let path = record["path"] as? String, let hex = record["hex"] as? String,
+               !ContentFingerprint.isNoFingerprintMarker(hex) {
                 out[path] = hex
             }
         }

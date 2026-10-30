@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 import CoreText
+import os
 import Testing
 @testable import Sync
 
@@ -152,6 +153,62 @@ import Testing
         let document = try #require(PDFTextExtractor.readSync(url.path))
         #expect(document.pageCount == 1)
         #expect(ContentFingerprint.digest(of: document) == nil)
+    }
+
+    @Test func theReadingSaysWhyThereIsNoDigest() async throws {
+        // Only "read, and said too little" may be cached as a negative. Everything that was not
+        // read at all — not on this disk, locked, unparseable — must come back as unreadable, or a
+        // placeholder would stay unfingerprinted after it downloaded.
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let text = dir.appendingPathComponent("statement.pdf")
+        try writePDF(["Chase statement account 2809 balance due 1234.56 thank you"], to: text)
+        let scan = dir.appendingPathComponent("scan.pdf")
+        try writePDF([""], to: scan)
+        let fake = dir.appendingPathComponent("not-really.pdf")
+        try Data(repeating: 0x41, count: 4096).write(to: fake)
+        let locked = dir.appendingPathComponent("locked.pdf")
+        var box = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let consumer = try #require(CGDataConsumer(url: locked as CFURL))
+        let context = try #require(CGContext(consumer: consumer, mediaBox: &box,
+                                             [kCGPDFContextUserPassword: "secret",
+                                              kCGPDFContextOwnerPassword: "secret"] as CFDictionary))
+        context.beginPDFPage(nil)
+        let line = CTLineCreateWithAttributedString(NSAttributedString(
+            string: sentence, attributes: [.font: CTFontCreateWithName("Helvetica" as CFString, 12, nil)]))
+        context.textPosition = CGPoint(x: 40, y: 700)
+        CTLineDraw(line, context)
+        context.endPDFPage()
+        context.closePDF()
+
+        let available: @Sendable (String) -> Bool = { _ in true }
+        guard case .digest = await PDFTextExtractor.reading(atPath: text.path, isAvailable: available) else {
+            Issue.record("a readable statement gave no digest"); return
+        }
+        #expect(await PDFTextExtractor.reading(atPath: scan.path, isAvailable: available) == .tooLittleText)
+        #expect(await PDFTextExtractor.reading(atPath: text.path, isAvailable: { _ in false }) == .unreadable)
+        #expect(await PDFTextExtractor.reading(atPath: locked.path, isAvailable: available) == .unreadable)
+        #expect(await PDFTextExtractor.reading(atPath: fake.path, isAvailable: available) == .unreadable)
+        #expect(await PDFTextExtractor.reading(atPath: dir.appendingPathComponent("absent.pdf").path,
+                                               isAvailable: available) == .unreadable)
+    }
+
+    @Test func availabilityIsAskedBeforeTheLaneNotOnIt() async throws {
+        // A placeholder used to take the PDF lane's turn — holding up Edit's PDFs, Print and the
+        // column preview — only to be turned away by a stat.
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("statement.pdf")
+        try writePDF([sentence], to: url)
+        let asked = OSAllocatedUnfairLock<[String]>(initialState: [])
+        _ = await PDFTextExtractor.reading(atPath: url.path, isAvailable: { _ in
+            let label = String(cString: __dispatch_queue_get_label(nil))
+            asked.withLock { $0.append(label) }
+            return false
+        })
+        let labels = asked.withLock { $0 }
+        #expect(labels.count == 1)
+        #expect(!labels.contains("com.synccloud.pdfkit"))
     }
 
     @Test func parsesNeverRunConcurrently() async throws {

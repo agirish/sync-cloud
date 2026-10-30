@@ -38,8 +38,8 @@ import Testing
         let cache = ContentHashCache()
         let manager = FileSyncManager()
         await manager.findDuplicates(root: root, cache: cache,
-                                     textFingerprint: { path in read.add(path); return nil },
-                                     fingerprintCache: nil)
+                                     textFingerprint: { path in read.add(path); return .tooLittleText },
+                                     fingerprintCache: nil, textlessCache: nil)
 
         let ignored = ["/.git/", "/node_modules/", "/.build/"]
         let documents = read.all

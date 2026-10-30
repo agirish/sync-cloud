@@ -150,8 +150,10 @@ extension FileSyncManager {
     /// `cache` is the session hash cache, shared with Verify so a rescan of an unchanged tree costs
     /// no re-reads. A test that varies `maxBytesToHash` or `isCloudOnly` across scans of the SAME
     /// files must pass `nil` — see ``hashFilesCounting`` for why a hit bypasses both knobs.
-    /// `textFingerprint` is the same-text pass's reader: a path in, a ``ContentFingerprint`` digest
-    /// out, or nil for a document that said too little. Defaulted to the real PDFKit reader for the
+    /// `textFingerprint` is the same-text pass's reader: a path in, a ``FingerprintReading`` out —
+    /// a ``ContentFingerprint`` digest, too little text, or not readable. `textlessCache` holds
+    /// the too-little-text answers, apart from the digests for the reason
+    /// ``ContentHashCache/sharedTextless`` gives. Defaulted to the real PDFKit reader for the
     /// same reason `isCloudOnly` is defaulted to the real materialization check — production wants
     /// it and only tests want to vary it. `fingerprintCache` is its own store, separate from the
     /// content-hash one because the two hold different things under the same key shape.
@@ -162,8 +164,9 @@ extension FileSyncManager {
         maxBytesToHash: Int = FileContentVerifier.maxBytesToHash,
         isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) },
         cache: ContentHashCache? = .shared,
-        textFingerprint: @escaping @Sendable (String) async -> String? = PDFTextExtractor.fingerprint,
-        fingerprintCache: ContentHashCache? = .sharedFingerprints
+        textFingerprint: @escaping @Sendable (String) async -> FingerprintReading = PDFTextExtractor.fingerprintReading,
+        fingerprintCache: ContentHashCache? = .sharedFingerprints,
+        textlessCache: ContentHashCache? = .sharedTextless
     ) async {
         guard !isFindingDuplicates else { return }
         let fileManager = fm ?? self.fileManager
@@ -178,6 +181,14 @@ extension FileSyncManager {
             (fingerprintCache != nil && fingerprintCache === cache) ? nil : fingerprintCache
         if documentCache == nil, fingerprintCache != nil {
             Logger.shared.warning("Duplicates: the document-fingerprint cache and the content-hash cache are the same instance — reading documents without a cache rather than letting one serve the other's digests")
+        }
+        // The same refusal for the negatives: shared with either store, the marker would sit where
+        // a digest is looked for, and an older build reading that file would take it for one.
+        let negativeCache: ContentHashCache? =
+            (textlessCache != nil && (textlessCache === cache || textlessCache === fingerprintCache))
+                ? nil : textlessCache
+        if negativeCache == nil, textlessCache != nil {
+            Logger.shared.warning("Duplicates: the textless-document cache is the same instance as a digest cache — re-reading textless documents rather than mixing the two")
         }
         let epoch = beginScan(\.duplicateScanLifecycle, status: "Scanning \(root.lastPathComponent)…")
         duplicateScanProgress = nil   // walk phase — total unknown until candidates are counted
@@ -329,7 +340,7 @@ extension FileSyncManager {
                 duplicateScanProgress = (completed: 0, total: documentTotal)
                 textFingerprints = await Self.fingerprintDocuments(
                     documentPaths, fileManager: fileManager, cache: documentCache,
-                    extract: textFingerprint
+                    textless: negativeCache, extract: textFingerprint
                 ) { [weak self] done in
                     // Every 50, and deliberately NOT also on the last one. The hashing phase above
                     // publishes `done == total` from here as well as terminally, which is harmless
@@ -363,6 +374,7 @@ extension FileSyncManager {
                 // Same contract as the content hashes above: the reading has happened whatever the
                 // grouping below decides, so a cancellation must not throw the digests away.
                 await documentCache?.save()
+                await negativeCache?.save()
             }
         }
         if Task.isCancelled { return }
@@ -427,16 +439,22 @@ extension FileSyncManager {
     /// produced one. Cached by the key the content hashes use (``fingerprintCacheKey``), so a
     /// rescan of an unchanged tree re-parses nothing.
     ///
-    /// A cache MISS and a document that legitimately has no fingerprint look the same to the
-    /// cache — both are "no entry" — so an image-only scan is re-parsed on every scan. That is a
-    /// parse of a page that yields nothing, not a re-hash of gigabytes, and the alternative
-    /// (persisting a negative) would have to be invalidated by the same key anyway.
+    /// **Including the documents that have no fingerprint, when the reason is the document.** A
+    /// read that came to too little text is cached in `textless` as
+    /// ``ContentFingerprint/tooLittleTextMarker`` under the same key, so it is invalidated exactly
+    /// as a digest is. It used not to be stored,
+    /// and a cache miss and a textless document looked the same — every warm rescan re-parsed
+    /// every image-only scan on the PDF lane: 858 documents of the real tree, and most of a
+    /// 5–14 s rescan. A document that could not be read (``FingerprintReading/unreadable``) is
+    /// still never stored, so a placeholder that downloads, or a file that stops being locked, is
+    /// read on the next scan. The marker is answered as nil here and never leaves this function.
     nonisolated static func fingerprintDocuments(
         _ paths: [String],
         fileManager: FileManaging,
         maxConcurrent: Int = 6,
         cache: ContentHashCache?,
-        extract: @escaping @Sendable (String) async -> String?,
+        textless: ContentHashCache? = nil,
+        extract: @escaping @Sendable (String) async -> FingerprintReading,
         onProgress: (@Sendable (Int) -> Void)? = nil
     ) async -> [String: String] {
         guard !paths.isEmpty else { return [:] }
@@ -448,10 +466,25 @@ extension FileSyncManager {
             func schedule(_ path: String) {
                 group.addTask {
                     let key = fingerprintCacheKey(forPath: path, fileManager: fileManager)
-                    if let key, let cached = await cache?.hash(for: key) { return (path, cached) }
-                    guard let digest = await extract(path) else { return (path, nil) }
-                    if let key { await cache?.store(digest, for: key) }
-                    return (path, digest)
+                    if let key {
+                        if let cached = await cache?.hash(for: key),
+                           !ContentFingerprint.isNoFingerprintMarker(cached) { return (path, cached) }
+                        // Only this scheme's negative is believed; another's is a miss, and the
+                        // document is read again below.
+                        if await textless?.hash(for: key) == ContentFingerprint.tooLittleTextMarker {
+                            return (path, nil)
+                        }
+                    }
+                    switch await extract(path) {
+                    case .digest(let digest):
+                        if let key { await cache?.store(digest, for: key) }
+                        return (path, digest)
+                    case .tooLittleText:
+                        if let key { await textless?.store(ContentFingerprint.tooLittleTextMarker, for: key) }
+                        return (path, nil)
+                    case .unreadable:
+                        return (path, nil)
+                    }
                 }
             }
             let initial = min(maxConcurrent, paths.count)

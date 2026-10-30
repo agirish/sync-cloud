@@ -46,8 +46,25 @@ public enum PDFTextExtractor {
 
     /// The document at `path`, or nil when there is nothing to read: not a PDF, unparseable,
     /// password-locked, or an iCloud file that is not on this disk.
-    public static func read(atPath path: String) async -> ExtractedDocument? {
-        await PDFKitSerialAccess.perform { readSync(path) }
+    ///
+    /// **The availability check runs before the lane, not on it.** It is a `stat` and a resource
+    /// read, not PDFKit, and on a tree that lives in cloud storage most of the documents a scan is
+    /// handed fail it — each one used to take the lane's turn, and hold up Edit's PDFs, Print and
+    /// the column preview behind it, only to be turned away. The cost is a window: a file evicted
+    /// between this check and its turn is opened anyway, which downloads that one file.
+    public static func read(atPath path: String,
+                            isAvailable: @Sendable (String) -> Bool = FilingSurvey.isAvailable) async -> ExtractedDocument? {
+        guard ContentFingerprint.canFingerprint(path: path), isAvailable(path) else { return nil }
+        return await PDFKitSerialAccess.perform { readSync(path, isAvailable: { _ in true }) }
+    }
+
+    /// What reading `path` came to, three ways — see ``FingerprintReading``. Not read is
+    /// ``FingerprintReading/unreadable``; read but under the token floor is
+    /// ``FingerprintReading/tooLittleText``.
+    public static func reading(atPath path: String,
+                               isAvailable: @Sendable (String) -> Bool = FilingSurvey.isAvailable) async -> FingerprintReading {
+        guard let document = await read(atPath: path, isAvailable: isAvailable) else { return .unreadable }
+        return ContentFingerprint.digest(of: document).map(FingerprintReading.digest) ?? .tooLittleText
     }
 
     /// Synchronous half, so tests can drive it without an executor.
@@ -100,9 +117,14 @@ public enum PDFTextExtractor {
                                  pageCount: document.pageCount, pageBoxes: boxes)
     }
 
-    /// The default extraction seam the duplicate scan uses — path in, digest out.
+    /// The default extraction seam the duplicate scan and To File use — path in, reading out.
+    public static let fingerprintReading: @Sendable (String) async -> FingerprintReading = { path in
+        await reading(atPath: path)
+    }
+
+    /// Path in, digest out, nil for either kind of no-digest — for a caller that caches nothing.
     public static let fingerprint: @Sendable (String) async -> String? = { path in
-        guard let document = await read(atPath: path) else { return nil }
-        return ContentFingerprint.digest(of: document)
+        if case .digest(let digest) = await reading(atPath: path) { return digest }
+        return nil
     }
 }
