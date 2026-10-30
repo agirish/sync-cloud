@@ -13000,3 +13000,24 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s flight=%s heldDot=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No capsule flight or held dot | CLOSED — does not apply |
+
+## A message's hover pause is kept per surface — main only
+
+A pointer resting on one surface showing the result message (a pane, the lens or editor, the
+toolbar's capsule) no longer holds a replacement shown somewhere else. SwiftUI sends no hover exit
+for a removed view, and `BannerDismissScheduler` kept one hover flag across replacements, so a
+keyboard rename's message after a mirrored delete, with the pointer still on the capsule, never
+timed out until the pointer crossed it. Hover is now a set of `ResultMessageHome` surfaces, cut to
+those showing the new message on every change and on a workspace switch (`surfacesChanged`).
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s hoverSites=%s\n' $l \
+  "$(git grep -h 'hoverChanged(isHovering' origin/$l -- MacApp | grep -vc 'func ')"; done
+# measured 2026-10-30, against origin, before this landed:
+# main          hoverSites=3 (the message view panes and the lens share; the capsule's two)
+# v5.x … v2.x   hoverSites=1 (one window-top banner: one surface, nothing to strand)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | One banner surface | CLOSED — does not apply |

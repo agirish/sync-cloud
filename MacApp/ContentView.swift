@@ -4569,14 +4569,15 @@ struct ContentView: View {
         // banner or this scheduler is already tracking one, so a re-appearance can't restart the
         // countdown.
         .onAppear {
-            bannerDismissScheduler.adoptExistingBanner(syncManager.banner, inCapsule: resultMessageHome == .toolbar) {
+            bannerDismissScheduler.adoptExistingBanner(syncManager.banner, inCapsule: resultMessageHome == .toolbar,
+                                                       shownOn: resultMessageSurfaces) {
                 retireResultMessage()
             }
         }
         .onChange(of: syncManager.banner) { oldValue, newValue in
             // Routed first: the capsule's message gets a longer window than a pane's.
             let inCapsule = resultMessageChanged(from: oldValue, to: newValue)
-            bannerDismissScheduler.bannerChanged(to: newValue, inCapsule: inCapsule) {
+            bannerDismissScheduler.bannerChanged(to: newValue, inCapsule: inCapsule, shownOn: resultMessageSurfaces) {
                 retireResultMessage()
             }
             // Banners vanish with the window; when the app is in the background, mirror the
@@ -4586,6 +4587,8 @@ struct ContentView: View {
                 OperationNotifier.postIfEnabled(for: banner, runTitle: OperationNotifier.runTitle(lastFinished: ended))
             }
         }
+        // The same message moving — a workspace switch — leaves a resting pointer behind it.
+        .onChange(of: resultMessageSurfaces) { _, surfaces in bannerDismissScheduler.surfacesChanged(to: surfaces) }
         // Where a long file operation was started, for its ending's route (Run Room CP).
         .onChange(of: syncManager.activeProgress != nil) { _, running in
             if running { fileOperationOrigin = selectedWorkspace }

@@ -4,7 +4,7 @@ import Design
 import FileExplorer
 
 /// Which surface shows the result message (Banner Room, CA).
-enum ResultMessageHome: Equatable {
+enum ResultMessageHome: Hashable {
     /// A pane's file list, in one stack with its action bar.
     case pane(isLeft: Bool)
     /// The lens or the editor beside a source pane — the half of the window that has no file list.
@@ -66,6 +66,13 @@ extension ContentView {
                                        lastWorkedInPane: resultMessageInPane)
     }
 
+    /// Every surface showing the message — its home, and the capsule when it mirrors a pane's.
+    /// Empty when there is none.
+    var resultMessageSurfaces: Set<ResultMessageHome> {
+        guard syncManager.banner != nil else { return [] }
+        return capsuleShowsMessage ? [resultMessageHome, .toolbar] : [resultMessageHome]
+    }
+
     /// Where the run whose ending `banner` is was started — a pane PDF tool's or Save as PDF's
     /// own, or the long file operation that ended a moment ago. `nil` for a click's result.
     func runOrigin(ending banner: OperationBanner) -> Workspace? {
@@ -88,7 +95,7 @@ extension ContentView {
         if resultMessageHome != .toolbar {
             guard capsuleMirrorID == banner.id else { return nil }
             return ProgressCapsuleMessage(text: banner.message, weight: Self.capsuleWeight(banner.severity),
-                                          onClose: {}, onHover: { bannerDismissScheduler.hoverChanged(isHovering: $0) },
+                                          onClose: {}, onHover: { bannerDismissScheduler.hoverChanged(isHovering: $0, on: .toolbar) },
                                           isFolding: capsuleFoldingID == banner.id, showsClose: false)
         }
         var actions: [ProgressCapsuleMessage.Action] = []
@@ -105,7 +112,7 @@ extension ContentView {
         }
         return ProgressCapsuleMessage(text: banner.message, weight: Self.capsuleWeight(banner.severity), actions: actions,
                                       onClose: { retireResultMessage() },
-                                      onHover: { bannerDismissScheduler.hoverChanged(isHovering: $0) },
+                                      onHover: { bannerDismissScheduler.hoverChanged(isHovering: $0, on: .toolbar) },
                                       isFolding: capsuleFoldingID == banner.id)
     }
 
@@ -170,7 +177,7 @@ extension ContentView {
     /// Organize and Edit's other half's message host — the lens or the editor.
     var workspaceResultMessageHost: WorkspaceResultMessageHost {
         let banner = resultMessageHome == .workspace ? syncManager.banner : nil
-        return WorkspaceResultMessageHost(message: banner.map { AnyView(resultMessageView($0)) },
+        return WorkspaceResultMessageHost(message: banner.map { AnyView(resultMessageView($0, on: .workspace)) },
                                           messageID: banner?.id,
                                           onClick: { noteResultRegion(inPane: false) })
     }
@@ -222,7 +229,7 @@ extension ContentView {
     func paneMessagePiece(isLeft: Bool, message: OperationBanner, atTop: Bool, besideBar: Bool,
                           placement: PaneBarPlacement) -> some View {
         let flip = paneOverlayFlip(isLeft: isLeft)
-        return resultMessageView(message)
+        return resultMessageView(message, on: .pane(isLeft: isLeft))
             .frame(maxWidth: 560)
             .padding(.horizontal, 10)
             .padding(atTop ? .bottom : .top, 10)
@@ -250,7 +257,7 @@ extension ContentView {
 
     /// The message itself, wired to the window: Undo, close, hover, its follow-ups, and To File's
     /// "Save as rule…".
-    func resultMessageView(_ banner: OperationBanner) -> some View {
+    func resultMessageView(_ banner: OperationBanner, on surface: ResultMessageHome) -> some View {
         OperationBannerView(
             banner: banner,
             glassLevel: glassLevel,
@@ -265,7 +272,7 @@ extension ContentView {
                 syncManager.banner = nil
             },
             onClose: { syncManager.banner = nil },
-            onHover: { hovering in bannerDismissScheduler.hoverChanged(isHovering: hovering) },
+            onHover: { hovering in bannerDismissScheduler.hoverChanged(isHovering: hovering, on: surface) },
             onFollowUp: { performFollowUp($0) },
             accessory: ruleOfferAccessory(for: banner))
     }

@@ -278,6 +278,85 @@ private final class ManualSleeper: @unchecked Sendable {
         await waitUntil("the replacement dismisses") { dismissCount == 1 }
     }
 
+    /// **A pointer resting on the capsule holds only a message the capsule shows.** The capsule
+    /// mirrors a delete's ending from its pane; a keyboard rename's result replaces it in the pane
+    /// alone. The capsule's message view is gone, so its hover exit never comes — the rename's
+    /// message must time out all the same.
+    @MainActor
+    @Test func aReplacementTheHoveredSurfaceDoesNotShowStartsItsWindow() async {
+        let clock = ManualSleeper()
+        let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
+        var dismissCount = 0
+
+        scheduler.bannerChanged(to: .success("Moved 2 items to Trash"),
+                                shownOn: [.pane(isLeft: true), .toolbar]) { dismissCount += 1 }
+        await waitUntil("the first timer starts") { clock.pendingCount == 1 }
+        scheduler.hoverChanged(isHovering: true, on: .toolbar)
+        #expect(scheduler.currentTimerTask == nil, "hovering the capsule's mirror must pause it")
+
+        scheduler.bannerChanged(to: .success("Renamed “a.txt” to “b.txt”"),
+                                shownOn: [.pane(isLeft: true)]) { dismissCount += 1 }
+        // On the synchronously-assigned handle: a stranded hover starts no timer at all.
+        #expect(scheduler.currentTimerTask != nil, "a message the hovered capsule does not show must start its window")
+        await waitUntil("the replacement's timer starts") { clock.requestedDelays.count == 2 }
+        clock.releaseAll()
+        await waitUntil("the replacement dismisses") { dismissCount == 1 }
+
+        // The reverse: a pane's message hovered, replaced by one only the capsule shows.
+        scheduler.bannerChanged(to: .success("Copied 2 files"), shownOn: [.pane(isLeft: false)]) { dismissCount += 1 }
+        scheduler.hoverChanged(isHovering: true, on: .pane(isLeft: false))
+        #expect(scheduler.currentTimerTask == nil)
+        scheduler.bannerChanged(to: .success("Merged 3 copies"), inCapsule: true, shownOn: [.toolbar]) { dismissCount += 1 }
+        #expect(scheduler.currentTimerTask != nil, "a message only the capsule shows must not wait on a pane's hover")
+    }
+
+    /// Mirrored, the message is on two surfaces, and leaving one while still over the other keeps
+    /// it paused; a replacement both still show stays paused too.
+    @MainActor
+    @Test func aMessageOnTwoSurfacesStaysPausedUntilThePointerLeavesBoth() async {
+        let clock = ManualSleeper()
+        let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
+        var dismissCount = 0
+        let both: Set<ResultMessageHome> = [.pane(isLeft: true), .toolbar]
+
+        scheduler.bannerChanged(to: .success("Moved 2 items to Trash"), shownOn: both) { dismissCount += 1 }
+        scheduler.hoverChanged(isHovering: true, on: .pane(isLeft: true))
+        scheduler.hoverChanged(isHovering: true, on: .toolbar)
+        scheduler.hoverChanged(isHovering: false, on: .pane(isLeft: true))
+        #expect(scheduler.currentTimerTask == nil, "still over the capsule: no window yet")
+
+        scheduler.bannerChanged(to: .success("Moved 1 item to Trash"), shownOn: both) { dismissCount += 1 }
+        #expect(scheduler.currentTimerTask == nil, "a replacement under the pointer stays paused")
+
+        scheduler.hoverChanged(isHovering: false, on: .toolbar)
+        #expect(scheduler.currentTimerTask != nil)
+        await waitUntil("leaving both starts the window") { clock.pendingCount >= 1 }
+        clock.releaseAll()
+        await waitUntil("the message leaves") { dismissCount == 1 }
+    }
+
+    /// **The same message moving** — a workspace switch from Browse, where it sat in the pane, to
+    /// Organize's lens — leaves a resting pointer where the pane's message was.
+    @MainActor
+    @Test func aMessageMovingOffTheHoveredSurfaceStartsItsWindow() async {
+        let clock = ManualSleeper()
+        let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
+        var dismissCount = 0
+
+        scheduler.bannerChanged(to: .success("Copied 2 files"), shownOn: [.pane(isLeft: true)]) { dismissCount += 1 }
+        scheduler.hoverChanged(isHovering: true, on: .pane(isLeft: true))
+        // Gaining a surface keeps it paused.
+        scheduler.surfacesChanged(to: [.pane(isLeft: true), .toolbar])
+        #expect(scheduler.currentTimerTask == nil, "a surface gained must not release the hover")
+
+        scheduler.surfacesChanged(to: [.workspace])
+        #expect(scheduler.currentTimerTask != nil, "moving off the hovered surface must start the window")
+        await waitUntil("the window starts") { clock.pendingCount >= 1 }
+        #expect(clock.requestedDelays.last == Self.successDelay)
+        clock.releaseAll()
+        await waitUntil("the message leaves") { dismissCount == 1 }
+    }
+
     @MainActor
     @Test func testManualCloseWhileHoveredDoesNotStrandTheNextBannersTimer() async {
         let clock = ManualSleeper()

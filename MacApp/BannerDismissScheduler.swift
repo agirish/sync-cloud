@@ -13,6 +13,11 @@ import Sync
 /// Hovering the banner pauses the timer; on hover exit the FULL delay restarts (not the
 /// remainder) — a deliberate simplification: the user was just reading the banner, so it earns
 /// a fresh window.
+///
+/// Hover is kept per surface (`ResultMessageHome`): a message can show in a pane, the workspace,
+/// the toolbar's capsule, or a pane and the capsule at once. SwiftUI delivers no hover exit for a
+/// view that is removed, so a surface that stops showing the message stops counting as hovered —
+/// or a message that moved from under a resting pointer to somewhere else would never time out.
 @MainActor
 final class BannerDismissScheduler {
     /// Auto-dismiss delays per severity. Injectable so tests can run on short windows.
@@ -57,7 +62,8 @@ final class BannerDismissScheduler {
     /// The full delay window for the currently shown banner; `nil` when there is no banner or it is sticky.
     private var currentDelay: UInt64?
     private var dismiss: (@MainActor () -> Void)?
-    private var isHovering = false
+    /// The surfaces the pointer is over, among those showing the message.
+    private var hovered: Set<ResultMessageHome> = []
     /// Held open by something the message opened — "Save as rule…"'s offer, whose popover takes the
     /// pointer off the message, so hover alone would let the message (and the offer riding in it)
     /// time out under the reader mid-choice.
@@ -73,9 +79,11 @@ final class BannerDismissScheduler {
     /// - Parameters:
     ///   - newValue: The new banner (`nil` when the banner was cleared).
     ///   - inCapsule: Whether the toolbar's capsule shows it rather than a pane or the workspace.
+    ///   - surfaces: Every surface that shows it — two when the capsule mirrors a pane's.
     ///   - dismiss: Runs on the main actor after the severity's delay, unless superseded,
     ///     cancelled, or the banner is sticky.
     func bannerChanged(to newValue: OperationBanner?, inCapsule: Bool = false,
+                       shownOn surfaces: Set<ResultMessageHome> = [.pane(isLeft: true)],
                        dismiss: @escaping @MainActor () -> Void) {
         cancelTimer()
         currentDelay = nil
@@ -84,15 +92,26 @@ final class BannerDismissScheduler {
             // The banner view is gone, so hover is definitionally over — but SwiftUI doesn't
             // deliver onHover(false) for a removed view, and every ✕ click happens while
             // hovered. Without this reset the next banner would start paused and never dismiss.
-            isHovering = false
+            hovered = []
             isHeld = false
             return
         }
+        // A banner replaced while the pointer is over it stays paused until hover exit — on a
+        // surface that shows it. One that does not (a pane's message replaced by the capsule's
+        // own, the capsule's mirror by a click's result) delivers no exit.
+        hovered.formIntersection(surfaces)
         guard let delay = delays.delayNanoseconds(for: banner.severity, inCapsule: inCapsule) else { return }
         currentDelay = delay
         self.dismiss = dismiss
-        // A banner replaced while the pointer is over it stays paused until hover exit.
-        if !isHovering && !isHeld { startTimer(delay) }
+        if hovered.isEmpty && !isHeld { startTimer(delay) }
+    }
+
+    /// Call when the same message moves to other surfaces — a workspace switch, which can take it
+    /// from a pane to the lens or the other pane while the pointer rests where it was.
+    func surfacesChanged(to surfaces: Set<ResultMessageHome>) {
+        guard !hovered.isSubset(of: surfaces) else { return }
+        hovered.formIntersection(surfaces)
+        pausesChanged()
     }
 
     /// Arms this scheduler for a banner that was ALREADY on screen when it was created — call from
@@ -112,16 +131,19 @@ final class BannerDismissScheduler {
     /// instance cannot restart a countdown that is already running — or resurrect one for a banner
     /// the user has since dismissed.
     func adoptExistingBanner(_ banner: OperationBanner?, inCapsule: Bool = false,
+                             shownOn surfaces: Set<ResultMessageHome> = [.pane(isLeft: true)],
                              dismiss: @escaping @MainActor () -> Void) {
         guard let banner, dismissTask == nil, currentDelay == nil else { return }
-        bannerChanged(to: banner, inCapsule: inCapsule, dismiss: dismiss)
+        bannerChanged(to: banner, inCapsule: inCapsule, shownOn: surfaces, dismiss: dismiss)
     }
 
     /// Call from the banner view's `onHover`. Entering pauses the auto-dismiss timer;
-    /// exiting restarts it with the full delay window.
-    func hoverChanged(isHovering: Bool) {
-        guard isHovering != self.isHovering else { return }
-        self.isHovering = isHovering
+    /// exiting restarts it with the full delay window, unless the pointer is over another surface
+    /// showing the message.
+    func hoverChanged(isHovering: Bool, on surface: ResultMessageHome = .pane(isLeft: true)) {
+        let wasPaused = !hovered.isEmpty
+        if isHovering { hovered.insert(surface) } else { hovered.remove(surface) }
+        guard hovered.isEmpty == wasPaused else { return }
         pausesChanged()
     }
 
@@ -134,7 +156,7 @@ final class BannerDismissScheduler {
     }
 
     private func pausesChanged() {
-        if isHovering || isHeld {
+        if !hovered.isEmpty || isHeld {
             cancelTimer()
         } else if let delay = currentDelay {
             startTimer(delay)
