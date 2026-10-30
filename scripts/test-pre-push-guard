@@ -1,0 +1,86 @@
+#!/bin/bash
+# Tests for scripts/pre-push-guard. Pushes to a throwaway bare remote from a throwaway clone with
+# the guard installed as its pre-push hook; never touches this repository. Takes a few seconds;
+# prints one line per check and exits non-zero if any check fails.
+set -u
+GUARD="$(cd "$(dirname "$0")" && pwd)/pre-push-guard"
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/pre-push-guard-test.XXXXXX")
+trap 'rm -rf "$WORK"' EXIT
+failures=0
+
+check() {  # check <description> <command…>
+  local what=$1; shift
+  if "$@"; then echo "ok   - $what"; else echo "FAIL - $what"; failures=$((failures + 1)); fi
+}
+
+git init -q --bare "$WORK/remote.git"
+git init -q -b main "$WORK/clone"
+cd "$WORK/clone" || exit 1
+git config user.name test && git config user.email test@example.com
+git remote add origin "$WORK/remote.git"
+echo one > f && git add f && git commit -qm "First" && git push -q origin main
+PRE_PUSH_GUARD_SOURCE="$GUARD" "$GUARD" --install > /dev/null
+
+remote_main() { git --git-dir="$WORK/remote.git" rev-parse main; }
+pushes() { git push -q origin "$@" 2> /dev/null; }
+refused() { ! git push -q origin "$@" 2> /dev/null; }
+edit() { echo "$RANDOM" >> f && git add f && git commit -qm "$1"; }
+
+edit "Add a real change"
+check "a real commit reaches main" pushes main
+
+before=$(remote_main)
+git commit -q --allow-empty -m "WIP: task"
+check "an empty WIP commit is refused" refused main
+check "the refused push left main where it was" test "$(remote_main)" = "$before"
+edit "Land the work on top"
+check "a real commit on top of it does not carry it through" refused main
+git checkout -q -b clean "$before" && edit "Land the work, squashed"
+check "the squashed branch's fast-forward is accepted" pushes clean:main
+git checkout -q -B main clean
+
+git commit -q --allow-empty -m "Note something"
+check "an empty commit with an ordinary subject is refused" refused main
+git checkout -q -B main origin/main
+
+for subject in "wip fix" "checkpoint before mutation testing" "fixup! Add a real change" \
+               "squash! Add a real change" "amend! Add a real change"; do
+  edit "$subject"
+  check "a non-empty '$subject' is refused" refused main
+  git checkout -q -B main origin/main
+done
+
+for subject in "Wipe the test suites" "Explain why WIP commits reached main" "Checkpointing is fine"; do
+  edit "$subject"
+  check "'$subject' is accepted" pushes main
+done
+
+git checkout -q -b side && echo side > g && git add g && git commit -qm "Side"
+git checkout -q main && edit "Main side"
+git merge -q --no-edit side 2> /dev/null
+check "a merge commit is refused" refused main
+git checkout -q -B main origin/main
+
+git checkout -q -b scratch && git commit -q --allow-empty -m "WIP: scratch"
+check "a WIP commit on another branch is accepted" pushes scratch
+check "a new maintenance line carrying it is refused" refused scratch:v9.x
+git checkout -q main
+check "a tag on it is accepted" pushes "$(git tag t1 && echo refs/tags/t1)"
+check "deleting a branch is accepted" pushes :scratch
+git checkout -q main
+
+# main's own history holds old WIP commits (it does: 23 of them). A new line cut from main, pushed
+# in the same push as a new main commit, must be checked against main, not against everything.
+git commit -q --allow-empty -m "WIP: an old one" && git push -q --no-verify origin main
+edit "A new real commit"
+check "a new line cut from main, beside a main push, is accepted" pushes main main:v7.x
+
+check "--install again says it is already installed" \
+  bash -c "PRE_PUSH_GUARD_SOURCE='$GUARD' '$GUARD' --install | grep -q 'already installed'"
+rm .git/hooks/pre-push && echo '#!/bin/sh' > .git/hooks/pre-push
+check "--install leaves another hook alone" \
+  bash -c "! PRE_PUSH_GUARD_SOURCE='$GUARD' '$GUARD' --install 2> /dev/null && grep -q '^#!/bin/sh' .git/hooks/pre-push"
+
+echo
+[ "$failures" -eq 0 ] && echo "all checks passed" || echo "$failures check(s) failed"
+exit $((failures > 0))

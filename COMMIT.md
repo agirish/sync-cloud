@@ -25,7 +25,8 @@ Run `xcodegen` in the new worktree before `xcodebuild`. Run every `xcodebuild`, 
 
 Keep all changes in the worktree. Commit as often as useful; these commits do not ship. Small,
 single-purpose commits make a multi-theme squash possible. Commit a checkpoint before mutation
-testing (§7).
+testing (§7). An empty `WIP` commit at the start keeps a cleanup sweep from deleting a branch with
+no commits of its own; it is scaffolding, and §3 leaves it behind.
 
 ## 3. Rebase and squash
 
@@ -36,7 +37,8 @@ git fetch origin && git rebase origin/main
 git checkout -b <task>-themed origin/main
 ```
 
-**One commit** (the default):
+**One commit** (the default) — and always a squash, even when `<task>` holds one real commit:
+`<task>` also holds its WIP and checkpoints, and landing it lands them.
 
 ```sh
 git merge --squash <task>
@@ -88,9 +90,16 @@ All must hold before landing:
 As its own command, against the primary checkout:
 
 ```sh
-git -C /Users/abhishek/Projects/SyncCloud merge --ff-only <task>-themed && git push
+git -C /Users/abhishek/Projects/SyncCloud push origin <task>-themed:main &&
+  git -C /Users/abhishek/Projects/SyncCloud merge --ff-only <task>-themed
 ```
 
+- Land `<task>-themed`, never `<task>`. Push first: a refused push then leaves `main` untouched
+  both here and on `origin`.
+- The push runs `scripts/pre-push-guard` as git's pre-push hook. It refuses an empty commit, a merge
+  commit, or a subject starting `WIP`, `checkpoint`, `fixup!`, `squash!` or `amend!`, bound for
+  `main` or a maintenance line. If it refuses, build `<task>-themed` again (§3) and retry. Never
+  `--no-verify`. A new clone installs it once: `scripts/pre-push-guard --install`.
 - Confirm with `git rev-parse --short origin/main`, then report what landed, with SHAs.
 - If `--ff-only` refuses or the push is rejected, fetch, return to §3, re-squash, re-run the gates,
   and retry.

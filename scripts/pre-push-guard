@@ -1,0 +1,86 @@
+#!/bin/bash
+# Git pre-push hook: refuse to push a working commit to main or a maintenance line.
+#
+# Refused, on refs/heads/main and refs/heads/v<N>.x: an empty commit, a merge commit, and a commit
+# whose subject starts with WIP, checkpoint, fixup!, squash! or amend! (any case). Other branches
+# and tags pass, and so does a branch deletion.
+#
+# Why: on 10-28/29 four empty "WIP: …" commits reached main (76f2555ee, 9e4c3dfa6, 90c83467f,
+# 97365cdcd). Each session had opened its working branch with an empty WIP commit, so a sweep
+# could not delete the branch, put one real commit on top, and then fast-forwarded main to the
+# working branch instead of to `<task>-themed` (COMMIT.md §3, §5). COMMIT.md §4's gate 2 would
+# have caught every one; it was a step to remember, and nothing ran it. This runs it on every push.
+#
+# Install once per clone; every worktree shares the hook:
+#   scripts/pre-push-guard --install
+# It links .git/hooks/pre-push to the primary checkout's copy, which tracks main.
+# Tests: scripts/test-pre-push-guard.
+
+set -u
+
+if [ "${1:-}" = "--install" ]; then
+  source_path=${PRE_PUSH_GUARD_SOURCE:-$HOME/Projects/SyncCloud/scripts/pre-push-guard}
+  if [ -n "$(git config --get core.hooksPath)" ]; then
+    echo "pre-push-guard: core.hooksPath is set; link $source_path into that directory by hand." >&2
+    exit 1
+  fi
+  hooks="$(git rev-parse --path-format=absolute --git-common-dir)/hooks"
+  hook="$hooks/pre-push"
+  if [ -L "$hook" ] && [ "$(readlink "$hook")" = "$source_path" ]; then
+    echo "pre-push-guard: already installed at $hook"
+    exit 0
+  fi
+  if [ -e "$hook" ] || [ -L "$hook" ]; then
+    echo "pre-push-guard: $hook already exists and is not this guard; leaving it alone." >&2
+    exit 1
+  fi
+  mkdir -p "$hooks"
+  ln -s "$source_path" "$hook"
+  echo "pre-push-guard: installed $hook -> $source_path"
+  exit 0
+fi
+
+remote=${1:-origin}   # git passes the remote's name, then its URL; the loop reuses $1
+protected='^refs/heads/(main|v[0-9]+\.x)$'
+# A whole word: "Wipe test defaults…" (324776b72) is a real commit.
+working='^((wip|checkpoint)([^[:alnum:]]|$)|fixup!|squash!|amend!)'
+shopt -s nocasematch
+refused=()
+
+# git feeds one line per ref: <local ref> <local sha> <remote ref> <remote sha>
+while read -r _ local_sha remote_ref remote_sha; do
+  [[ $remote_ref =~ $protected ]] || continue
+  [[ $local_sha =~ ^0+$ ]] && continue
+  if [[ $remote_sha =~ ^0+$ ]] || ! git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+    # A new line, or a remote tip this clone hasn't fetched: check all but what main and the
+    # maintenance lines already hold. Not --remotes: a working branch pushed elsewhere is no pass.
+    lines=$(git for-each-ref --format='%(refname)' "refs/remotes/$remote/main" \
+              "refs/remotes/$remote/v*.x")
+    range=("$local_sha" --not $lines)
+  else
+    range=("$remote_sha..$local_sha")
+  fi
+  while IFS=$'\t' read -r sha parents subject; do
+    set -- $parents
+    why=""
+    if [ $# -gt 1 ]; then
+      why="a merge commit"
+    elif [ $# -eq 1 ] && git diff-tree --quiet "$1" "$sha"; then
+      why="empty"
+    elif [[ $subject =~ $working ]]; then
+      why="a working commit"
+    fi
+    [ -n "$why" ] && refused+=("  ${sha:0:9} $subject  ($why)")
+  done < <(git log --format='%H%x09%P%x09%s' "${range[@]}")
+done
+
+if [ ${#refused[@]} -gt 0 ]; then
+  {
+    echo "pre-push-guard: refused — these would land on main or a maintenance line:"
+    printf '%s\n' "${refused[@]}"
+    echo "Rebuild the work on <task>-themed with git merge --squash (COMMIT.md §3), even for a"
+    echo "single commit, and push that branch's fast-forward instead."
+  } >&2
+  exit 1
+fi
+exit 0
