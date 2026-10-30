@@ -1,5 +1,5 @@
-# Package test suites on every push to main, v5.x, v4.x, v3.x or v2.x and on every v* release
-# tag, on the self-hosted Mac runner.
+# Package test suites on the self-hosted Mac runner: every v* release tag, a nightly run of main,
+# and by hand. Every push to main is tested on GitHub's hosted runners instead (hosted-ci.yml).
 #
 # Scope: the seven SPM packages only. Suites that only produce a trustworthy
 # verdict on the machine that recorded them are marked at the declaration with
@@ -36,26 +36,13 @@ name: tests
 
 on:
   push:
-    branches: [main, v5.x, v4.x, v3.x, v2.x]
-    # Release tags get the full suite too: cutting v2.9 or v3.0 must not rely
-    # on the branch tip having been the last thing tested.
+    # Routine pushes to main are tested on GitHub's hosted runners (hosted-ci.yml). This Mac runs
+    # the release tags, so cutting v6.2 is verified on the recording machine with its pinned
+    # suites; a nightly run of main, so pixel sampling and the timing benchmark keep a verdict;
+    # and any run by hand. A maintenance line's push reads that line's own copy of this file.
     tags: ['v*']
-    # A branch push that changes only root-level Markdown or docs/ starts no
-    # run: no build reads those files, and every repo scan reads only .swift
-    # and .plist. Three are tested, so they are put back:
-    # PageStripCopyClaimTests reads RELEASE_NOTES.md and docs/releases.html,
-    # and HelpBookTests reads those and README.md. .github/ is named outright
-    # rather than trusting `**` to match a dot-directory. Path filters never
-    # apply to tag pushes, so a release always runs. Checked 2026-10-28: 10 of
-    # 429 commits since 10-14 would have skipped.
-    paths:
-      - '**'
-      - '.github/**'
-      - '!*.md'
-      - '!docs/**'
-      - 'RELEASE_NOTES.md'
-      - 'README.md'
-      - 'docs/releases.html'
+  schedule:
+    - cron: '0 10 * * *'   # 03:00 Pacific
   workflow_dispatch:
     inputs:
       clean:

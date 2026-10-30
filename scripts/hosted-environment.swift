@@ -1,6 +1,6 @@
 // Prints what a CI host's environment answers for the things machine-pinned tests depend on:
 // screens, print paper and what a printer reaches, Vision text recognition and iCloud Drive. Run
-// by .github/workflows/hosted-probe.yml on GitHub's hosted macOS runners, to tell a test's
+// by .github/workflows/hosted-ci.yml, when run by hand, on GitHub's hosted runners, to tell a test's
 // environment dependency from a defect before marking it. `swift scripts/hosted-environment.swift`.
 import AppKit
 import Vision

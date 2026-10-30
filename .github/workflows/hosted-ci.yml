@@ -1,17 +1,27 @@
-# A PROBE, run by hand: can GitHub's free hosted macOS runners carry this repo's CI?
+# Every push to main, on GitHub's free hosted macOS runners (the repo is public: standard runners
+# cost nothing and have no minute cap; the Free plan runs five macOS jobs at once). `xcode-27`
+# matches this Mac's toolchain. The self-hosted Mac keeps release tags and a nightly run, with the
+# machine-pinned suites (tests.yml). The dispatch inputs are diagnostics; a push runs everything
+# once, and each input says what it falls back to then.
 #
-# The repo is public, so standard hosted runners cost nothing and have no minute cap; the Free
-# plan runs up to five macOS jobs at once. `xcode-27` is the image matching this Mac's toolchain
-# (macOS 27.0.1, Xcode 27.1 27A9275), a public preview. This workflow changes nothing about
-# tests.yml and never runs on a push. What it answers, per job: does it build, does it pass, and
-# how long do the build and the tests take on a 3-vCPU M1 VM starting cold.
-#
-# Machine-pinned suites are skipped (`all`): their reference images, sampled pixels and timing
-# thresholds belong to the self-hosted Mac (docs/ci.md, "Machine-pinned tests").
+# Machine-pinned suites are skipped here (`all`): their reference images, sampled pixels, timing
+# thresholds, text recognition and iCloud Drive belong to a real Mac (docs/ci.md, "Machine-pinned
+# tests"). Every push gets its own run, none cancelled; GitHub queues jobs past the five.
 
-name: hosted-probe
+name: hosted-ci
 
 on:
+  push:
+    branches: [main]
+    # Docs-only pushes start no run, as in tests.yml (see its note on the three files put back).
+    paths:
+      - '**'
+      - '.github/**'
+      - '!*.md'
+      - '!docs/**'
+      - 'RELEASE_NOTES.md'
+      - 'README.md'
+      - 'docs/releases.html'
   workflow_dispatch:
     inputs:
       suites:
@@ -38,10 +48,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: hosted-ci-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
 jobs:
   # What the host answers for the things machine-pinned tests depend on. About a minute.
   environment:
     name: Environment
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
@@ -49,7 +64,7 @@ jobs:
 
   packages:
     name: ${{ matrix.name }}
-    if: ${{ inputs.suites && inputs.packages }}
+    if: ${{ github.event_name == 'push' || (inputs.suites && inputs.packages) }}
     runs-on: xcode-27
     timeout-minutes: 120
     strategy:
@@ -115,10 +130,10 @@ jobs:
           df -h "${GITHUB_WORKSPACE}" | tail -1
 
       # Every package runs even after a failure, and each one's build and test seconds are
-      # printed on one line, so the job summary is the probe's answer.
+      # printed on one line, in the job summary.
       - name: Build and test
         run: |
-          # GitHub runs this with `bash -e`; without `+e` the first red package ends the probe.
+          # GitHub runs this with `bash -e`; without `+e` the first red package ends the run.
           set +e -uo pipefail
           failed=()
           for pkg in ${{ matrix.packages }}; do
@@ -154,13 +169,13 @@ jobs:
 
   app:
     name: App target ${{ matrix.copy }}
-    if: ${{ inputs.suites }}
+    if: ${{ github.event_name == 'push' || inputs.suites }}
     runs-on: xcode-27
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
-        copy: ${{ fromJSON(inputs.app-copies) }}
+        copy: ${{ fromJSON(inputs.app-copies || '[1]') }}
     env:
       # xcodebuild hands a test process only the variables prefixed TEST_RUNNER_ (stripping the
       # prefix), so the plain name never reached the app's tests: SetupAccentTests, marked
@@ -190,7 +205,7 @@ jobs:
       - name: App-target tests (xcodegen + xcodebuild)
         env:
           ONLY_TESTING: ${{ inputs.app-only-testing }}
-          REPEAT: ${{ inputs.app-repeat }}
+          REPEAT: ${{ inputs.app-repeat || '1' }}
         run: |
           set +e -uo pipefail
           began=$(date +%s)

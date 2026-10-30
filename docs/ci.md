@@ -1,11 +1,21 @@
 # CI
 
-`.github/workflows/tests.yml` runs the seven SPM package test suites on every
-push to `main` or `v2.x` and on every `v*` release tag (so cutting a release
-validates the exact commit being tagged), on a self-hosted runner: this Mac. The repo is
-public, so GitHub's standard hosted runners would cost nothing, and their `xcode-27` image matches
-this Mac's toolchain; whether they can carry routine CI is what `hosted-probe.yml` is measuring
-(2026-10-29).
+**Two workflows, two machines (since 2026-10-29).**
+
+- **`.github/workflows/hosted-ci.yml`** tests every push to `main` on GitHub's hosted macOS
+  runners. The repo is public, so standard runners cost nothing and have no minute cap, and the
+  Free plan runs five macOS jobs at once. The `xcode-27` image matches this Mac's toolchain.
+  Five jobs: Sync (two processes); Events, Settings, CLI and Design; Dashboard; FileExplorer
+  (sharded); and the app target. Each push gets its own run, and none is cancelled. With a warm
+  build cache a run takes about 6 minutes.
+- **`.github/workflows/tests.yml`** runs on this Mac, the self-hosted runner, for every `v*`
+  release tag (so cutting a release validates the exact commit on the recording machine), nightly
+  at 03:00 Pacific, and by hand. It runs the machine-pinned suites the hosted runners skip.
+  Maintenance lines keep their own copy and still test every push here.
+
+The hosted VM is not this Mac: a 1024×768 screen at scale 1, three vCPUs, no printers, no working
+Vision text recognition, no iCloud Drive. Tests that depend on any of those carry a
+`.machinePinned` reason (below), and hosted runs exclude `all` of them.
 
 **A red run is not automatically a red commit.** The runner is this Mac, and several
 mechanisms here fail tests for reasons unrelated to the code — throttled CoreAnimation on
@@ -42,10 +52,10 @@ it carries the measurements and the fix for each.
   `arch -arm64`. Safe next to a live SyncCloud instance: the app's
   `XCTestConfigurationFilePath` guard stubs windows to `Color.clear` and
   skips prefs writes. DerivedData lives in the run's build directory (below).
-- **`main` keeps its builds between runs.** Every package's scratch path and
+- **`main` keeps its builds between runs on this Mac**, for the nightly and hand runs (hosted CI restores a GitHub cache of its own, with files dated by `scripts/restore-mtimes`). Every package's scratch path and
   the app's DerivedData live under
   `~/Library/Caches/SyncCloud-ci.noindex/main-<toolchain hash>/`, so a push
-  recompiles only what it changed. Before this, `actions/checkout`'s
+  run recompiles only what changed. Before this, `actions/checkout`'s
   `git clean -ffdx` took the in-workspace `.build` and `.dd` every run, and each
   run compiled all seven packages cold (~5 min). Tags, maintenance lines and a
   `workflow_dispatch` with `clean` still build cold in the job's temp directory,
@@ -114,8 +124,7 @@ reason:
 
 The app target's tests read the switch through `xcodebuild`, which hands a test process only
 variables prefixed `TEST_RUNNER_`: set `TEST_RUNNER_SYNCCLOUD_SKIP_MACHINE_PINNED` there, or the
-app's pinned suites run regardless. The hosted-runner probe (`.github/workflows/hosted-probe.yml`,
-run by hand) excludes `all`; on 2026-10-29 its VM had a 1024×768 screen at scale 1, no printers, no
+app's pinned suites run regardless. Hosted CI (`.github/workflows/hosted-ci.yml`) excludes `all`; on 2026-10-29 its VM had a 1024×768 screen at scale 1, no printers, no
 working Vision text recognition and no iCloud Drive, which is what the last three rows answer.
 
 **No count is kept here, and no list of suite names.** Both drift the moment a
@@ -179,9 +188,24 @@ that run's verdict covers the docs commit on top. Measured when this was added (
 429 commits since 10-14 would have skipped.
 
 **If you add a test that reads a doc**, add that file to the re-included paths in
-`.github/workflows/tests.yml` in the same commit, or a push touching only it will never be tested.
+`.github/workflows/hosted-ci.yml` in the same commit, or a push touching only it will never be tested.
 
-## Branch verdicts: the running run finishes, then the newest push
+## Verdicts on `main`: one run per push
+
+Since 2026-10-29 every push to `main` gets its own `hosted-ci.yml` run: a concurrency group per
+commit, nothing cancelled, so every commit has a verdict of its own and a break can be bisected
+from CI alone. GitHub queues jobs beyond the Free plan's five macOS at once, so a burst of
+landings waits rather than evicting. Check a push with:
+
+```sh
+gh run list --workflow hosted-ci.yml --commit <sha>
+```
+
+What follows describes `tests.yml`'s branch groups, which `main` used until then and which the
+maintenance lines' own copies still use in their 2026-08-09 form (each push cancels the run in
+progress).
+
+### Before 2026-10-29: the running run finishes, then the newest push
 
 Branch pushes to one ref share **one concurrency group** with
 `cancel-in-progress: false`. A run that has started always finishes; a push that

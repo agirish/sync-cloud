@@ -65,8 +65,9 @@ Five long-lived branches, and only five:
 
 Do not stop to report and wait. In order:
 
-1. **Watch CI for the SHA you pushed** — `gh run list --branch main --limit 3`. Fix a red your commit
-   caused, forward, through the same steps. Read [`docs/flaky-tests.md`](docs/flaky-tests.md) first.
+1. **Watch CI for the SHA you pushed** — `gh run list --workflow hosted-ci.yml --commit <sha>`: every
+   push to `main` runs on GitHub's hosted runners, one run per commit (`docs/ci.md`). Fix a red your
+   commit caused, forward, through the same steps. Read [`docs/flaky-tests.md`](docs/flaky-tests.md) first.
    A push that changes only root-level Markdown or `docs/` starts no run (`docs/ci.md`), so there is
    nothing to watch; `RELEASE_NOTES.md`, `README.md` and `docs/releases.html` still run.
 2. **Pick up the next pending item** — your own follow-ups first, then open items the roadmap and
@@ -105,8 +106,9 @@ For a mechanical choice with a clear default, pick it, say so in the report, and
   state the verification in the commit body.
 - **Read [`docs/flaky-tests.md`](docs/flaky-tests.md) before blaming a commit for a red suite.** Cite
   a mechanism by its title, never its number — numbering differs per line.
-- **The self-hosted CI runner is this Mac.** Heavy local test runs cause load-sensitive flakes;
-  check `uptime` before treating a red as real. §7 keeps the load down.
+- **The self-hosted CI runner is this Mac**, for release tags, the nightly run and hand runs; pushes
+  run on GitHub's hosted VMs (`hosted-ci.yml`), whose 3 vCPUs bring load flakes of their own. Check
+  `uptime` before treating a self-hosted red as real. §7 keeps the load down.
 
 ---
 
