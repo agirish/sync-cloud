@@ -13055,3 +13055,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s resurveyFlatten=%s groupOnMai
 | `v5.x` | All six: Refresh, grouping, both `suggest` calls, the plan sort, the identity index and the plan's decode on main | RECORDED — not owed |
 | `v4.x` | The same, except the document survey, which it does not have | RECORDED — not owed |
 | `v3.x` / `v2.x` | Grouping and both `suggest` calls on main; no Refresh, survey or already-filed phase | RECORDED — not owed |
+
+---
+
+## A scope's linked-folder lookup skips normalizing a plain root (speed audit 19) — main only
+
+Speed audit item 19 (was P29), 2026-10-30. On `main`: `PathBoundary.linkedFolders(atRoot:in:)` looks
+a root up as given when it neither starts with `~` nor ends in `/` — the cases `normalizedRoot`
+would leave alone — instead of expanding the tilde and trimming on every prefix miss. With a scope
+set, most paths a Duplicates or Restructure render checks miss.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s linkTable=%s fastPath=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/PathBoundary.swift 2>/dev/null | grep -c 'return links\[normalizedRoot(root)\]')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/PathBoundary.swift 2>/dev/null | grep -c 'root.utf8.last != UInt8(ascii: "/")')"; done
+# measured 2026-10-30, against origin, before this landed:
+# main, v5.x    linkTable=1 fastPath=0
+# v4.x … v2.x   linkTable=0 fastPath=0 (no linked-folder table, so nothing to skip)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The lookup that normalizes on every miss | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No linked-folder table | CLOSED — does not apply |

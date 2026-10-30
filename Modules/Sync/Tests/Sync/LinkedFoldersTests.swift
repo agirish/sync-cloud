@@ -18,6 +18,30 @@ import Testing
 
     // MARK: - PathBoundary
 
+    /// **A root that needs no normalizing is looked up as given, and gets the same answer.** The
+    /// lookup runs on every prefix miss — with a scope set, most paths a Duplicates or Restructure
+    /// render checks — and normalizing each time cost 7–14 ms a render. Every spelling here is
+    /// compared with what `normalizedRoot` makes of it: the tilde forms and trailing slashes still
+    /// take the long way, and a combining accent after a final slash is not a trailing slash.
+    @Test func theRootIsLookedUpAsGivenOnlyWhenNormalizingWouldNotChangeIt() {
+        let home = NSHomeDirectory()
+        let links: PathBoundary.LinkedFolders = [
+            "/r": ["Documents": "/home/Documents"], home: ["Desktop": "/home/Desktop"],
+            "/": ["v": "/Volumes"], "/a/\u{301}": ["x": "/x"], "/a": ["y": "/y"],
+            home + "/Documents/Health": ["z": "/z"],
+        ]
+        let roots = ["/r", "/r/", "/r//", "~", "~/", home, home + "/", "/", "//", "", "/a/\u{301}",
+                     "/a/\u{301}/", "/a", "/a/", "~/Documents/Health", home + "/Documents/Health",
+                     "~nobody", "/r/~", "r"]
+        for root in roots {
+            #expect(PathBoundary.linkedFolders(atRoot: root, in: links)
+                    == links[PathBoundary.normalizedRoot(root)] ?? [:], "\(root)")
+        }
+        // Non-vacuity: the spellings that need normalizing do find a row by it.
+        #expect(PathBoundary.linkedFolders(atRoot: "/r/", in: links) == ["Documents": "/home/Documents"])
+        #expect(PathBoundary.linkedFolders(atRoot: "~", in: links) == ["Desktop": "/home/Desktop"])
+    }
+
     @Test func aPathUnderTheLinkedFolderRelativizesThroughTheLinkName() {
         #expect(PathBoundary.relativize("/home/Documents/Family", under: Self.root, links: Self.links)
                 == "Documents/Family")

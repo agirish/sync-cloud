@@ -125,6 +125,14 @@ public enum PathBoundary {
     public static func linkedFolders(atRoot root: String,
                                      in links: LinkedFolders = discoveredLinkedFolders) -> [String: String] {
         guard !links.isEmpty else { return [:] }
+        // **Looked up as given when there is nothing to normalize**, which is nearly every call:
+        // `relativize` lands here on every prefix miss, and with a scope set — a scope is
+        // stored expanded — most paths a Duplicates or Restructure render checks miss. Expanding
+        // the tilde and counting the root each time cost 7–14 ms a render. A root that starts
+        // with `~` or ends in `/` still goes through `normalizedRoot`, the one spelling rule.
+        if root.utf8.first != UInt8(ascii: "~"), root.utf8.last != UInt8(ascii: "/") {
+            return links[root] ?? [:]
+        }
         return links[normalizedRoot(root)] ?? [:]
     }
 
