@@ -12,11 +12,12 @@ User-facing changes, newest first. For the full commit history see the
 
 **Everything running, in one place.** v6.2 gathers the app's runs and messages into one Activity
 window. Several runs can go at once, each with its own Stop, and every message stays readable
-after its five seconds, with its Undo. A run that ends while you are elsewhere tells you where you
+after it leaves, with its Undo. A run that ends while you are elsewhere tells you where you
 are. Download All fetches a whole cloud folder, and Keep Downloaded holds iCloud Drive files on
 this Mac. Undo This Reorganization leaves a file that isn't its own where it stands, and names
 what changed since. Setup no longer reads documents into a profile a later Save replaced. A
-right-click no longer waits on a cloud service that has stopped answering.
+right-click no longer waits on a cloud service that has stopped answering, Organize's filing
+work no longer holds the window, and workspace switches are instant.
 
 Requires **macOS 26**, unchanged from v6.1.
 
@@ -39,8 +40,11 @@ Requires **macOS 26**, unchanged from v6.1.
   tabs to the run's records and the minutes around it. A run you stopped is gray and says what it
   kept.
 - **A result finds you.** A long run that ends after you moved to another workspace shows its
-  message, with its Undo, in the toolbar capsule, not in a pane you aren't looking at. A red dot on
-  the Activity button marks a problem you may not have seen. A background notification names the
+  message, with its Undo, in the toolbar capsule, not in a pane you aren't looking at, for 10
+  seconds; an error stays until you close it. When it times out or you close it, it flies into the
+  toolbar's Activity button, which glows; with Reduce Motion the button only glows. A run the capsule showed that ends where it started, such as a
+  delete, also shows its ending in the capsule while its pane does. A red dot on the Activity button
+  marks a problem you may not have seen, lit as its message lands. A background notification names the
   run that ended, and a click opens Activity on that message. VoiceOver reads results that arrive
   together as one sentence.
 - **Long scans and PDF batches.** Reading documents, a duplicate scan and a reorganization being
@@ -107,10 +111,21 @@ Requires **macOS 26**, unchanged from v6.1.
 - **A freeze leaves a record.** When the main thread goes a second without answering, SyncCloud
   samples its stack into a file in `~/Library/Logs/SyncCloud/Stalls/`, and the log names the file. It
   takes at most one sample a minute and 20 a launch, and keeps the newest 30 files. They stay on this
-  Mac.
+  Mac. It ignores the pauses macOS gives an idle app in the background.
+- **Organize's filing work runs in the background.** Refresh, To File's scan, the duplicate scan and
+  survey planning did their heavy work on the main thread, which held the window for up to about two
+  seconds on a folder of about 10,000 documents (measured). Their results are unchanged.
+- **Switching and folding are instant.** A workspace switch and a rail or pane fold no longer ease
+  over 0.2 s, which kept the old layout drawn under the fade. A dragged tab stays under the pointer
+  instead of trailing it.
+- **⌘K does less per keystroke.** It ranks folders once per keystroke instead of twice, an arrow key
+  ranks nothing, and typing no longer redraws the whole window.
 
 ### Around the app
 
+- **Save as PDF keeps a one-page document on one page.** An RTF or Word file laid out to margins the
+  printer couldn't reach could come out with an extra, empty page. The page is now cut to what the
+  printer reaches.
 - **Title Case on buttons**, as Setup's buttons had in v6.1: Try Another Folder, Not Now, Keep
   Separate, Scan Again and the rest that were still in sentence case.
 - **Words you can read on PDF sheets.** In the PDF tool sheets, only the default button takes the
