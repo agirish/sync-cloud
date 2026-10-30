@@ -76,6 +76,9 @@ struct ContentView: View {
     /// The folder `editorRailSurvey` was read from — `editorFolder` moves at once, the survey only
     /// when its walk returns, and the folder menu must not pair the one with the other.
     @State var editorRailSurveyFolder: String?
+    /// Counts rail refreshes so only the latest may write. A box, not a value: bumping it must not
+    /// re-render the window.
+    @State var editorRailRefreshes = RefreshCounter()
 
     /// Which folders each pane has open in its Tree presentation.
     ///
@@ -4540,6 +4543,13 @@ struct ContentView: View {
         // The differences pane snaps open/closed instantly with the chevron too, which is what
         // reads as responsive here.
         .animation(nil, value: bottomPaneIsCollapsed)
+        // And the snap is structural, not just the absence of a modifier: a `withAnimation` put
+        // around a switch or a collapse later would animate the swap again (and, with the
+        // `.designAnimation` gone, ignore Reduce Motion). These strip it for the layout below. The
+        // workspace bar's pill is in the window toolbar, outside this subtree, and keeps its slide;
+        // the tab strip's own animations sit nearer their views and still win.
+        .animation(nil, value: selectedWorkspace)
+        .animation(nil, value: panesHiddenForCurrentTab)
         .designAnimation(.easeInOut(duration: 0.15), value: showInspector)
         // **No dimming overlay during a long run** (TE208, decision BZ). The progress dialog used
         // to sit here over a scrim that took every click until the run ended — minutes, for a

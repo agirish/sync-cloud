@@ -12957,13 +12957,15 @@ text view, Organize's lists) instead of building it again; and a dragged pane ta
 ```sh
 for l in main v5.x v4.x v3.x v2.x; do printf '%-5s switchFade=%s collapseRow=%s lensEase=%s scrollMemory=%s tabDrag=%s\n' $l \
   "$(git show origin/$l:MacApp/ContentView.swift 2>/dev/null | grep -c 'value: selectedWorkspace)')" \
-  "$(git show origin/$l:MacApp/ContentView+SplitLayout.swift 2>/dev/null | grep -c 'CollapsibleRailRow')" \
+  "$(( $(git show origin/$l:MacApp/ContentView+SplitLayout.swift 2>/dev/null | grep -c 'CollapsibleRailRow {') + $(git show origin/$l:MacApp/ContentView+Editor.swift 2>/dev/null | grep -c 'CollapsibleRailRow {') ))" \
   "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/LensWorkspaceView.swift 2>/dev/null | grep -c 'withAnimation(listSettle) { railLens')" \
   "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PaneScrollMemory.swift 2>/dev/null | grep -c 'final class PaneScrollMemory')" \
-  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PaneTabStrip.swift 2>/dev/null | grep -c 'value: dragOffset')"; done
-# measured 2026-10-29, against origin, before this landed (main reads 0 >0 0 1 2 after):
-# main/v5.x  switchFade=1 collapseRow=0 lensEase=5 scrollMemory=1 tabDrag=2
-# v4.x       switchFade=1 collapseRow=0 lensEase=3 scrollMemory=0 tabDrag=1
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PaneTabStrip.swift 2>/dev/null | grep -c 'dragEase(holding:')"; done
+# switchFade, lensEase and scrollMemory measured 2026-10-29 before this landed; collapseRow (both
+# files) and tabDrag (the new rule, not the old ease) re-measured 2026-10-30 after it, against origin:
+# main       switchFade=0 collapseRow=2 lensEase=0 scrollMemory=1 tabDrag=5
+# v5.x       switchFade=1 collapseRow=0 lensEase=5 scrollMemory=1 tabDrag=0
+# v4.x       switchFade=1 collapseRow=0 lensEase=3 scrollMemory=0 tabDrag=0
 # v3.x       switchFade=1 collapseRow=0 lensEase=0 scrollMemory=0 tabDrag=0
 # v2.x       switchFade=0 collapseRow=0 lensEase=0 scrollMemory=0 tabDrag=0
 ```

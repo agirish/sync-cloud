@@ -46,15 +46,32 @@ public final class PaneScrollMemory {
 
         /// The position of a scroll view resting at `offset` in `range`: clamped into it — an elastic
         /// overscroll is not a place — and at its end when within a point of it.
-        static func resting(at offset: CGFloat, in range: ClosedRange<CGFloat>) -> Position {
+        ///
+        /// For a list, a range with no room to scroll has no end to stick to: content that fits
+        /// rests at its start, and is kept there, not "at its end" — or a short column that later
+        /// grew would restore to its bottom, and every column ever shown would be held clear on
+        /// each rebuild.
+        ///
+        /// `noRoomIsEnd` is the stack's answer: a row of columns that fits shows its deepest column,
+        /// and if the window is narrower when it is rebuilt, its end is still where that column is —
+        /// kept at its start, the deepest column would be off the right edge.
+        static func resting(at offset: CGFloat, in range: ClosedRange<CGFloat>,
+                            noRoomIsEnd: Bool = false) -> Position {
             let clamped = min(max(offset, range.lowerBound), range.upperBound)
-            return Position(offset: clamped, atEnd: range.upperBound - clamped <= 1)
+            let scrolls = range.upperBound - range.lowerBound > 1
+            return Position(offset: clamped, atEnd: (scrolls || noRoomIsEnd) && range.upperBound - clamped <= 1)
         }
 
         /// Where this position lands in `range`: the end of it when it was kept at the end, the offset
         /// clamped into it otherwise.
         func resolved(in range: ClosedRange<CGFloat>) -> CGFloat {
             atEnd ? range.upperBound : min(max(offset, range.lowerBound), range.upperBound)
+        }
+
+        /// Kept at the start of its range, where the scroll view rests anyway — restoring it moves
+        /// nothing, however much content arrives later, so there is nothing to hide.
+        func isAtStart(of range: ClosedRange<CGFloat>) -> Bool {
+            !atEnd && offset <= range.lowerBound + 0.5
         }
     }
 
@@ -315,8 +332,11 @@ struct PaneStackScrollMemoryProbe: NSViewRepresentable {
                 } else if kept != nil {
                     Logger.shared.debug("[columns] scroll memory: \(slot.surface) stack left to a reveal")
                 }
+                if let pending, let scroller,
+                   !pending.isAtStart(of: scroller.contentView.restingRangeX) {
+                    veil.cover(scroller)   // as for a list: a stack kept at its left edge cannot move
+                }
                 if pending != nil {
-                    if let scroller { veil.cover(scroller) }
                     attemptsLeft = PaneScrollMemory.restoreAttempts
                     scheduleRestore()
                 }
@@ -343,7 +363,8 @@ struct PaneStackScrollMemoryProbe: NSViewRepresentable {
         private func record() {
             guard pending == nil, let slot, let clip = scroller?.contentView else { return }
             slot.memory.recordStack(surface: slot.surface, treeRoot: treeRoot, components: components,
-                                    position: .resting(at: clip.bounds.origin.x, in: clip.restingRangeX))
+                                    position: .resting(at: clip.bounds.origin.x, in: clip.restingRangeX,
+                                                       noRoomIsEnd: true))
         }
 
         /// Whether the columns have laid out: the stack's content is as wide as the pane made it, and

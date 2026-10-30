@@ -656,16 +656,6 @@ extension ContentView {
     }
 }
 
-/// The controls that belong to the seam itself: ⇄ swap on top, 🔗 link-both underneath, in one
-/// capsule straddling the boundary between the panes.
-///
-/// Link used to be a chain at the trailing end of *each* pane's breadcrumb — two buttons writing
-/// one `@AppStorage` key, which is one button more than a single setting needs. Folding it in
-/// beside swap also puts it where its meaning already lives: what it joins is the gap it sits in.
-///
-/// Both halves are square, so the capsule's ends are true semicircles — which is what lets the
-/// linked fill below be an exact bottom half, and lets each half wear the same circular hover
-/// wash the lone swap chip used to have.
 /// **A row whose leading slot changes and whose workspace keeps its identity** (speed audit 13).
 ///
 /// Organize's rail and Edit's pane each collapse, and each state used to be one arm of an
@@ -694,6 +684,16 @@ struct CollapsibleRailRow<Leading: View, Workspace: View>: View {
     }
 }
 
+/// The controls that belong to the seam itself: ⇄ swap on top, 🔗 link-both underneath, in one
+/// capsule straddling the boundary between the panes.
+///
+/// Link used to be a chain at the trailing end of *each* pane's breadcrumb — two buttons writing
+/// one `@AppStorage` key, which is one button more than a single setting needs. Folding it in
+/// beside swap also puts it where its meaning already lives: what it joins is the gap it sits in.
+///
+/// Both halves are square, so the capsule's ends are true semicircles — which is what lets the
+/// linked fill below be an exact bottom half, and lets each half wear the same circular hover
+/// wash the lone swap chip used to have.
 struct SeamPaneControls: View {
     let hue: LiquidGlassHue
     let onSwap: () -> Void

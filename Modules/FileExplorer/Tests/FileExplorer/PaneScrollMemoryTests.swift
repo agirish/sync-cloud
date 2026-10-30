@@ -52,6 +52,14 @@ import Sync
         #expect(Position.resting(at: 130, in: 0...100) == Position(offset: 100, atEnd: true),
                 "an overscroll past the end was kept as a place")
         #expect(Position.resting(at: -20, in: 0...100) == Position(offset: 0, atEnd: false))
+        // Content that fits has no end: kept at its start, which a restore cannot move.
+        #expect(Position.resting(at: -32, in: -32 ... -32) == Position(offset: -32, atEnd: false))
+        #expect(Position.resting(at: -32, in: -32 ... -32).isAtStart(of: -32 ... 400))
+        #expect(!Position(offset: 120, atEnd: false).isAtStart(of: -32 ... 400))
+        #expect(!Position(offset: -32, atEnd: true).isAtStart(of: -32 ... 400))
+        // A stack that fits keeps its end: rebuilt narrower, its deepest column must stay in view.
+        #expect(Position.resting(at: 0, in: 0...0, noRoomIsEnd: true) == Position(offset: 0, atEnd: true))
+        #expect(Position.resting(at: 0, in: 0...0, noRoomIsEnd: true).resolved(in: 0...240) == 240)
         let atEnd = Position(offset: 100, atEnd: true)
         #expect(atEnd.resolved(in: 0...40) == 40, "the end of a range that shrank")
         #expect(atEnd.resolved(in: 0...300) == 300, "the end of a range that grew")
@@ -524,6 +532,31 @@ import Sync
         try #require(!watch.shown.isEmpty, "no turn ever showed the list — the watch proves nothing")
         let early = watch.shown.filter { abs($0 - 80) >= 1 }
         #expect(early.isEmpty, "the middle list was shown at \(early) before it landed at 80")
+    }
+
+    /// **A column nobody scrolled is never held clear.** Every column is kept from its first layout,
+    /// at its top; a restore cannot move it, so a cover would only blank it for a frame on every
+    /// rebuild — on every switch back to a Columns pane, once the switch fade that hid it was gone.
+    @Test func aColumnNobodyScrolledIsNeverHeldClear() async throws {
+        let memory = PaneScrollMemory()
+        let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")
+        let first = await mount(["a2", "b3"], slot: slot)
+        await pump(0.3)                                   // laid out, so its columns are kept
+        first.contentView = nil
+        let watch = FrameWatch()
+        watch.start { window in
+            let lists = self.lists(window)
+            guard !lists.isEmpty else { return nil }
+            // The lists' OWN veils. The stack is kept at its end (it reveals the deepest column)
+            // and is rightly held clear until it lands there; that is the stack test's business.
+            return lists.allSatisfy { $0.alphaValue == 1 } ? 0 : 1
+        }
+        let second = await mount(["a2", "b3"], slot: slot, watch: watch)
+        defer { second.contentView = nil }
+        await pump(0.3)
+        watch.stop()
+        try #require(!watch.shown.isEmpty, "no turn ever saw the lists — the watch proves nothing")
+        #expect(!watch.shown.contains(1), "a column at its top was held clear for \(watch.shown.filter { $0 == 1 }.count) turn(s)")
     }
 
     /// The control: a pane with no memory mounts as it always did — at its first column. Without this

@@ -60,6 +60,8 @@ import Testing
         "appeared": .gatedByHand,                     // SetupArtwork ×3, `reduceMotion ? nil : …`
 
         "bottomPaneIsCollapsed": .suppression,        // .animation(nil, …)
+        "selectedWorkspace": .suppression,            // .animation(nil, …) — a switch snaps (speed audit 11)
+        "panesHiddenForCurrentTab": .suppression,     // .animation(nil, …) — a pane toggle snaps
     ]
 
     /// Source roots to scan: the modules that draw, plus the app target.

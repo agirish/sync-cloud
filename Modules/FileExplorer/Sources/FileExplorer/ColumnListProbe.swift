@@ -173,8 +173,13 @@ struct ColumnListProbe: NSViewRepresentable {
                 } else if kept != nil {
                     Logger.shared.debug("[columns] scroll memory: \(directory) left to a reveal")
                 }
+                if let pending, let scroller = found.enclosingScrollView {
+                    // Not for a list kept at its top: the restore cannot move it, so a cover would
+                    // only blank it for a frame — and every list ever shown is kept, at its top,
+                    // from its first layout. Only a list that will move is held clear.
+                    if !pending.isAtStart(of: scroller.contentView.restingRangeY) { veil.cover(scroller) }
+                }
                 if pending != nil {
-                    if let scroller = found.enclosingScrollView { veil.cover(scroller) }
                     attemptsLeft = PaneScrollMemory.restoreAttempts
                     scheduleRestore()
                 }
@@ -296,7 +301,10 @@ struct ColumnListProbe: NSViewRepresentable {
         /// both only schedule this. Called for a resize or layout pass that found the rows settled
         /// (`fromEvent`), and by the counted fallback.
         private func applyRestore(fromEvent: Bool) {
-            guard let position = pending, let table, let scroller = table.enclosingScrollView else { return }
+            guard let position = pending, let table, let scroller = table.enclosingScrollView else {
+                veil.lift()   // nothing left to restore into: never leave a list clear
+                return
+            }
             if !isSettled() {
                 guard !fromEvent else { return }
                 veil.lift()

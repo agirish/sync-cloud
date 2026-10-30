@@ -75,12 +75,16 @@ extension ContentView {
     func refreshEditorRail() async {
         let folder = editorFolder
         let showsHidden = syncManager.showHiddenFiles
+        // Two refreshes can overlap (the `.task(id:)` and the rail coming back into view); only
+        // the later one may write, so an older survey finishing last cannot undo a newer one.
+        editorRailRefreshes.count += 1
+        let ticket = editorRailRefreshes.count
         let survey = await Task.detached(priority: .userInitiated) {
             await EditorRail.surveySuspending(in: folder, showsHidden: showsHidden)
         }.value
         // The folder can change while the walk is out; a late answer for the wrong folder would
         // list somebody else's files under this one's heading.
-        guard folder == editorFolder else { return }
+        guard folder == editorFolder, ticket == editorRailRefreshes.count else { return }
         if editorRailSurveyFolder != folder { editorRailSurveyFolder = folder }
         // **Only when the listing actually changed.** This runs after every autosave — twice a
         // sentence, for a typist — and writing `@State` unconditionally is a change as far as
@@ -621,6 +625,12 @@ extension ContentView {
         // moves — `.task(id:)` restarts on either.
         .task(id: EditorRailKey(folder: editorFolder, showsHidden: syncManager.showHiddenFiles)) {
             await refreshEditorRail()
+        }
+        // …and whenever the rail comes back into view. A fold used to rebuild this whole view,
+        // which restarted the task above; since the fold keeps the view (speed audit item 13), a
+        // file renamed, deleted or dropped in while the rail was hidden needs this to show.
+        .onChange(of: editorRailIsDrawn) { _, drawn in
+            if drawn { Task { await refreshEditorRail() } }
         }
     }
 
@@ -2466,4 +2476,10 @@ extension ContentView {
     static func revealSurvives(_ reveal: PaneRowReveal, selection: Set<String>) -> Bool {
         selection == reveal.selection
     }
+}
+
+/// A count a view bumps without observing it — see `editorRailRefreshes`.
+@MainActor
+final class RefreshCounter {
+    var count = 0
 }

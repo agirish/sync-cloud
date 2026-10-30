@@ -130,6 +130,16 @@ import Testing
             in: OpenInEditorMenuTests.macApp("ContentView+Editor.swift")))
         #expect(editor.contains("CollapsibleRailRow {"), "Edit's row no longer keeps its workspace")
         #expect(editor.count(of: "editorWorkspace(showsRail:") == 1, "Edit writes its workspace more than once")
+
+        // Identity can also break outside those bodies: one `case` per state is two call sites, and
+        // an `.id` keyed on the fold is a new identity on every toggle.
+        let dispatch = sourceCodeOnly(try OpenInEditorMenuTests.macApp("ContentView+SplitLayout.swift"))
+        #expect(dispatch.contains("case .singleExpanded, .singleCollapsed:"),
+                "Organize's two states are separate cases — the row is built in two places again")
+        #expect(dispatch.contains("case .editorExpanded, .editorCollapsed:"),
+                "Edit's two states are separate cases — the row is built in two places again")
+        #expect(!split.contains(".id(") && !editor.contains(".id("),
+                "an `.id` inside a collapsible layout gives the workspace a new identity")
     }
 }
 
@@ -144,7 +154,11 @@ import Testing
     @Test func noAnimationIsKeyedOnTheWorkspaceOrTheCollapse() throws {
         for name in try QuickLookOriginTests.macAppSwiftFiles() {
             let source = sourceCodeOnly(try OpenInEditorMenuTests.macApp(name))
-            let code = CodeText(source)
+            // `.animation(nil, value: …)` is the suppression that makes the snap structural — the one
+            // animation keyed on these that must be there, not the one that must not.
+            let animating = source.components(separatedBy: "\n")
+                .filter { !$0.contains(".animation(nil, value:") }.joined(separator: "\n")
+            let code = CodeText(animating)
             for key in ["value: selectedWorkspace)", "value: panesHiddenForCurrentTab)", "value: contentLayout)"] {
                 let keyed = code.contains(key)
                 #expect(!keyed, "\(name): an animation is keyed on \(key) again — it holds the outgoing layout on screen")
@@ -154,6 +168,14 @@ import Testing
             }
             #expect(animatedToggles.isEmpty, "\(name): a rail toggle is animated again: \(animatedToggles)")
         }
+    }
+
+    /// And the switch and the pane toggle strip any animation a caller wraps them in, so a later
+    /// `withAnimation` cannot bring the fade back (or ignore Reduce Motion).
+    @Test func theSwitchAndThePaneToggleSuppressAnyAnimation() throws {
+        let content = sourceCodeOnly(try OpenInEditorMenuTests.macApp("ContentView.swift"))
+        #expect(content.contains(".animation(nil, value: selectedWorkspace)"))
+        #expect(content.contains(".animation(nil, value: panesHiddenForCurrentTab)"))
     }
 
     @Test func organizesLensSwitchesArePlainAssignments() throws {

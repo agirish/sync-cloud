@@ -131,6 +131,10 @@ public struct PaneTabStrip: View {
     /// lifted above its neighbours while every other chip stays where it is.
     @State private var draggingTab: UUID?
     @State private var dragOffset: CGFloat = 0
+    /// True while a drag gesture is live. SwiftUI resets it however the drag ends — including a
+    /// cancel (the window losing key, a modal, Escape), which never calls `onEnded` and used to
+    /// leave the chip parked at its last offset.
+    @GestureState private var dragIsLive = false
 
     public init(items: [Item],
                 leadingInset: CGFloat = 0,
@@ -333,15 +337,6 @@ public struct PaneTabStrip: View {
         return min(max(0, to), items.count - 1)
     }
 
-    /// How far a chip steps aside while another is dragged over it.
-    ///
-    /// One stride, in the direction that opens the gap — right for a chip the dragged tab has moved
-    /// in front of, left for one it has moved behind. Zero for everything outside the range the
-    /// drag currently spans, which is most of the strip.
-    ///
-    /// Static and priced from the same stride the drop index uses, so what the row shows during the
-    /// drag and where the tab actually lands cannot disagree — that mismatch is the whole failure
-    /// mode of a hand-drawn reorder.
     /// **The drag's ease, for a view that is or is not holding the dragged chip.** Nil while held:
     /// the held chip rides the pointer, and an ease on its offset made it trail by 0.16 s on every
     /// move (speed audit 14). Everything else — the neighbours stepping aside, and every chip's
@@ -351,6 +346,15 @@ public struct PaneTabStrip: View {
         holding ? nil : .easeOut(duration: 0.16)
     }
 
+    /// How far a chip steps aside while another is dragged over it.
+    ///
+    /// One stride, in the direction that opens the gap — right for a chip the dragged tab has moved
+    /// in front of, left for one it has moved behind. Zero for everything outside the range the
+    /// drag currently spans, which is most of the strip.
+    ///
+    /// Static and priced from the same stride the drop index uses, so what the row shows during the
+    /// drag and where the tab actually lands cannot disagree — that mismatch is the whole failure
+    /// mode of a hand-drawn reorder.
     static func displacement(of item: Item, items: [Item], visible: [Item], dragging: UUID?,
                              offset: CGFloat, stride: CGFloat) -> CGFloat {
         guard let dragging, dragging != item.id, stride > 0,
@@ -469,6 +473,7 @@ public struct PaneTabStrip: View {
         .zIndex(draggingTab == item.id ? 1 : 0)
         .simultaneousGesture(
             DragGesture(minimumDistance: 6)
+                .updating($dragIsLive) { _, live, _ in live = true }
                 .onChanged { value in
                     draggingTab = item.id
                     dragOffset = value.translation.width
@@ -497,6 +502,13 @@ public struct PaneTabStrip: View {
         // movement, but chips sliding out of the way under it is the app's, and that is the half
         // the setting asks for. Under it the reorder lands without the shuffle.
         .designAnimation(Self.dragEase(holding: draggingTab == item.id), value: dragOffset)
+        // A cancelled drag: the gesture state reset without `onEnded`. Put the chip back.
+        .onChange(of: dragIsLive) { _, live in
+            if !live, draggingTab == item.id {
+                draggingTab = nil
+                dragOffset = 0
+            }
+        }
         .onHover { hovering in
             // Only ever clear the id this chip set: the pointer can enter the next chip before this
             // one's exit arrives, and an unconditional `nil` on exit would then blank the ✕ that
