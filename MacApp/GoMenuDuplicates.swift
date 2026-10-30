@@ -77,6 +77,8 @@ enum GoMenuDuplicates {
     /// every ⌃ item an apply on Go has met, how many applies ran and when the last did, the Go menu
     /// install found, and how many notifications of each kind reached an apply.
     static private(set) var metItems: Set<ObjectIdentifier> = []
+    /// Holds every met item alive, so a freed item's address can't come back as a "met" new one.
+    private static var metAlive: [NSMenuItem] = []
     static private(set) var applies = 0
     static private(set) var lastApply: TimeInterval = 0
     static private(set) var installedGo: ObjectIdentifier?
@@ -85,7 +87,9 @@ enum GoMenuDuplicates {
     private static func keep(_ go: NSMenu) {
         applies += 1
         lastApply = ProcessInfo.processInfo.systemUptime
-        for item in go.items where shouldHide(item) != nil { metItems.insert(ObjectIdentifier(item)) }
+        for item in go.items where shouldHide(item) != nil && metItems.insert(ObjectIdentifier(item)).inserted {
+            metAlive.append(item)
+        }
     }
 
     static func describe(_ menu: NSMenu?) -> String {
