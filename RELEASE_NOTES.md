@@ -5,10 +5,7 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
-## v6.2 — DRAFT, not released
-
-> What is on `main` since v6.1. It may still change before v6.2 is cut, and nothing here is
-> installable from a release yet.
+## v6.2
 
 **Everything running, in one place.** v6.2 gathers the app's runs and messages into one Activity
 window. Several runs can go at once, each with its own Stop, and every message stays readable
