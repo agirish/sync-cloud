@@ -642,14 +642,16 @@ import FileExplorer
         }
     }
 
-    /// **A message never makes the toolbar jump** (Run Room TE230). At every width, a message alone
-    /// leaves the workspace bar, the ⌘K pill and the field exactly as they are with no capsule —
-    /// wearing the full capsule where it fits beside them, the ring where it does not — and a run's
-    /// row is untouched by a message over it. Across the sweep, both rungs occur.
-    @Test func testAMessageTakesOnlyTheRoomAlreadyFree() {
+    /// **A message wears the run's row** (2026-10-29, replacing TE230). At every width, a message
+    /// alone gets exactly the row a run would — the full capsule wherever a run's is full, so a
+    /// run's ending never drops to a bare ✓ as the run ends — and a run's row is untouched by a
+    /// message over it. Across the sweep, both rungs occur, and the full one where TE230 gave the
+    /// ring (a message that sheds a label for its capsule).
+    @Test func testAMessageWearsTheRunsRow() {
         let widths = labelWidths()
         let search = searchWidths()
         var rungs: Set<String> = []
+        var shedForTheMessage = false
         for contentWidth in stride(from: Self.windowFloor, through: 2000, by: 7) {
             let set = WorkspaceBarMetrics.styleSet(
                 contentWidth: contentWidth, labelWidths: widths,
@@ -660,14 +662,18 @@ import FileExplorer
             for open in [false, true] {
                 let bare = set.resolved(fieldOpen: open, runShowing: false)
                 let message = set.resolved(fieldOpen: open, runShowing: false, messageShowing: true)
-                #expect(message.workspace == bare.workspace && message.search == bare.search
-                        && message.field == bare.field, "a message re-seated the row at \(contentWidth)pt")
+                #expect(message == set.resolved(fieldOpen: open, runShowing: true),
+                        "a message at \(contentWidth)pt did not wear the run's row")
                 #expect(message.run != nil, "a message at \(contentWidth)pt had no capsule")
+                if message.run == .full, message.workspace != bare.workspace || message.search != bare.search {
+                    shedForTheMessage = true
+                }
                 rungs.insert("\(message.run.map { "\($0)" } ?? "none")")
                 #expect(set.resolved(fieldOpen: open, runShowing: true, messageShowing: true)
                         == set.resolved(fieldOpen: open, runShowing: true))
             }
         }
         #expect(rungs == ["full", "ring"], "the sweep never reached one of the rungs: \(rungs)")
+        #expect(shedForTheMessage, "no width had the message shed a label for its full capsule — TE230's rule is back")
     }
 }

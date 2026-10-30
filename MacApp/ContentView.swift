@@ -669,7 +669,7 @@ struct ContentView: View {
     var toolbarStyles: ToolbarBarStyles {
         if let held = activityPopoverStyles { return held }
         return toolbarStyleSet.resolved(fieldOpen: showCommandPalette, runShowing: runCapsuleShowing,
-                                        messageShowing: resultMessageHome == .toolbar && syncManager.banner != nil)
+                                        messageShowing: capsuleShowsMessage)
     }
     /// The row as it was when Activity's popover opened under the capsule, held until it closes
     /// (TE231): nothing moves under the popover — not when its last run ends, and not when the
@@ -678,6 +678,11 @@ struct ContentView: View {
     /// A pane-launched PDF tool run or Save as PDF showing in the toolbar capsule — reported by
     /// `RunCapsulePresence`, so this view need not observe the PDF models.
     @State var paneRunShowing = false
+    /// Whether the capsule holds a message — its own, or a run's ending it mirrors from a pane.
+    var capsuleShowsMessage: Bool {
+        guard let banner = syncManager.banner else { return false }
+        return resultMessageHome == .toolbar || capsuleMirrorID == banner.id
+    }
     /// Whether the toolbar seats the progress capsule.
     var runCapsuleShowing: Bool { syncManager.activeProgress != nil || paneRunShowing }
     /// **Why writes wait** while a long run is going — "Wait for the merge to finish" — or `nil`.

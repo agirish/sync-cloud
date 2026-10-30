@@ -12927,3 +12927,17 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s mirror=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No toolbar capsule to mirror into | CLOSED — does not apply |
+
+---
+
+## A capsule message wears the run's row, replacing TE230 — main only
+
+The owner's call of 2026-10-29, from a screenshot: a delete's ending, mirrored in the capsule,
+showed as a bare ✓ — the ring — because a message only took the room already free (TE230), and a
+mirrored message was not counted as one at all. Now any message the capsule shows, its own or a
+mirror, gets exactly the row a run would (`ToolbarBarStyleSet.resolved`), so a run's ending keeps
+the full capsule the run had. Only a window too narrow for a run's full capsule shows the ring.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No toolbar capsule | CLOSED — does not apply |

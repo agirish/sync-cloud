@@ -337,26 +337,16 @@ struct ToolbarBarStyleSet: Equatable {
 
     /// The row the toolbar wears for this state.
     ///
-    /// **A message alone takes only the room already free** (Run Room TE230). A run seats the
-    /// capsule by shedding ⌘K's word and then the workspace names, which is right for minutes of
-    /// progress; for a five-second message it would fold the labels and bring them back every time.
-    /// So a message wears the run's rung only when that rung leaves the rest of the row as it is,
-    /// and otherwise the ring, with its words in the tooltip and spoken.
+    /// **A message wears the run's row** (the owner's call, 2026-10-29, replacing TE230): the full
+    /// capsule wherever the run's would be full, shedding ⌘K's word and then the workspace names
+    /// for it, and the ring only where even a run gets the ring. TE230 gave a message only the room
+    /// already free, so it would not fold the labels for five seconds — and a run's ending, mirrored
+    /// in the capsule, then dropped from the run's full capsule to a bare ✓ the instant the run
+    /// ended, which read as a tick mark with nothing to say. Now a run's ending keeps the capsule
+    /// exactly as the run left it.
     func resolved(fieldOpen: Bool, runShowing: Bool, messageShowing: Bool = false) -> ToolbarBarStyles {
-        switch (fieldOpen, runShowing) {
-        case (false, false), (true, false):
-            let base = fieldOpen ? open : closed
-            guard messageShowing else { return base }
-            let seated = fieldOpen ? openWithRun : closedWithRun
-            if seated.workspace == base.workspace, seated.search == base.search, seated.field == base.field {
-                return seated
-            }
-            var ring = base
-            ring.run = .ring
-            return ring
-        case (false, true): return closedWithRun
-        case (true, true): return openWithRun
-        }
+        guard runShowing || messageShowing else { return fieldOpen ? open : closed }
+        return fieldOpen ? openWithRun : closedWithRun
     }
 }
 
