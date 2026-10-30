@@ -154,6 +154,37 @@ import Events
                 "verdicts hashed across a file operation must not become a bulk-copy offer")
     }
 
+    /// **Stop reaches a read already under way.** Verify All's Stop is a `Progress` cancel, and the
+    /// hash asks it before the open and before every chunk. One pair, parked at the pass's first
+    /// stat (the pair stamp, taken before either read), cancelled there, then released: neither
+    /// file is read, so neither digest reaches the cache. Without the wiring both are hashed and
+    /// cached after the Stop — the reads a 5 GB pair would have run to the end.
+    @MainActor
+    @Test(.parksAThread) func stopReachesTheHashAlreadyUnderWay() async throws {
+        let gate = FirstStatGate(inner: FileManager.default)
+        let fixture = try makeRaceFixture(fileManager: gate)
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+
+        let pass = Task { @MainActor in
+            await manager.verifyAllWithChecksum(subset: [fixture.identical])
+        }
+        await awaitSignal(gate.entered)
+        try #require(manager.activeProgress != nil, "the pass published no progress to stop")
+        manager.activeProgress?.cancel()
+        gate.release.signal()
+        await pass.value
+        try #require(!gate.releasedByTimeout, "the gate timed out: the pass was never actually held mid-hash")
+
+        for path in [fixture.identical.leftItemPath, fixture.identical.rightItemPath] {
+            let attributes = try FileManager.default.attributesOfItem(atPath: path)
+            let size = try #require((attributes[.size] as? NSNumber)?.intValue)
+            let key = try #require(FileContentVerifier.cacheKey(statPath: path, attributes: attributes, size: size))
+            #expect(await ContentHashCache.shared.hash(for: key) == nil, "read after Stop: \(path)")
+        }
+        #expect(manager.verifiedIdenticalForCopy == nil)
+    }
+
     /// The positive control for the test above, on the SAME gated fixture. A nil offer is also
     /// what you see if the gate broke hashing outright, so without this the discard assertion
     /// could pass vacuously: park the pass, run NO operation, release, and the identical pair

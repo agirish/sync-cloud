@@ -364,15 +364,18 @@ import Testing
     }
 
     /// Two different causes are both named. Collapsing them to the first would tell the user to
-    /// download a file whose twin is over the size cap, and leave them going in circles.
+    /// download a file whose twin is unreadable, and leave them going in circles.
     @Test func twoDifferentCausesAreBothNamed() {
-        let outcome = ComparePairVerify.outcome(left: .skippedCloudOnly, right: .skippedTooLarge)
-        guard case .couldNotVerify(let reason) = outcome else {
-            Issue.record("expected couldNotVerify, got \(outcome)")
-            return
-        }
-        #expect(reason.contains("not downloaded"))
-        #expect(reason.contains("100 MB"))
+        let outcome = ComparePairVerify.outcome(left: .skippedCloudOnly, right: .unverifiable)
+        #expect(outcome == .couldNotVerify(reason:
+            "the left copy is not downloaded; the right copy is unreadable, or changed while being read"))
+    }
+
+    /// A stopped check learned nothing, so it claims nothing: the surface goes back to idle —
+    /// Verify on offer again — rather than "Couldn’t verify", which would blame a copy.
+    @Test func aStoppedCheckLeavesTheSurfaceIdle() {
+        #expect(ComparePairVerify.outcome(left: .cancelled, right: .hashed("a")) == .idle)
+        #expect(ComparePairVerify.outcome(left: .skippedCloudOnly, right: .cancelled) == .idle)
     }
 
     /// A "differed" verdict is not a small correction — it means the scan is stale and neither

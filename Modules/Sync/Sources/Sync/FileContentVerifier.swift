@@ -2,29 +2,34 @@ import Foundation
 import CryptoKit
 
 /// On-demand content verification for files that differ by date but have the same size.
-/// Uses SHA-256; skips directories and files over the size limit.
+/// Uses SHA-256 over the whole file, of any size; skips directories and cloud-only placeholders.
+///
+/// **There is no size cap.** Files used to be skipped over 100 MB so a verify stayed quick; RD67's
+/// one-way sync compares by content and must cover every file. The read streams in fixed chunks,
+/// so memory stays at one chunk whatever the size, and it stops at the next chunk when its caller
+/// cancels. A caller for whom a large read is too slow — a pass the user did not ask for — filters
+/// by size itself: `FileSyncManager.unaskedPassMaxFileBytes` (scan-time verify, the filing scan's
+/// already-filed check), the duplicate scan's edge sample, and the merge planner's size match.
 public enum FileContentVerifier {
-
-    /// Maximum file size (bytes) to hash. Larger files are skipped so a verify stays quick.
-    public static let maxBytesToHash: Int = 100 * 1024 * 1024  // 100 MB
 
     /// Chunk size for streaming reads while hashing (keeps peak memory per hash to one chunk
     /// instead of the whole file).
     private static let hashChunkSize = 4 * 1024 * 1024  // 4 MB
 
     /// Why (or that) a file was hashed — lets callers that aggregate many hashes (the
-    /// duplicate scan) distinguish "skipped because of the size cap" from "unreadable", instead
-    /// of collapsing every non-hash into an indistinguishable `nil`.
+    /// duplicate scan) distinguish "not downloaded" from "unreadable", instead of collapsing
+    /// every non-hash into an indistinguishable `nil`.
     public enum HashOutcome: Sendable, Equatable {
         /// The file was hashed; associated value is the SHA-256 hex digest.
         case hashed(String)
-        /// Skipped without reading: the file exceeds the size cap (`maxBytesToHash`).
-        case skippedTooLarge
         /// Skipped without reading: the file is a cloud-only (dataless) placeholder — opening it
         /// would force the provider to download the whole file.
         case skippedCloudOnly
         /// Not hashable: directory, missing, unreadable, or the file changed mid-read.
         case unverifiable
+        /// Stopped part-way because the caller cancelled. Says nothing about the file, so it is
+        /// never cached and never counted as a skip.
+        case cancelled
 
         /// The digest for `.hashed`, else nil — the classic `sha256Hex` result.
         public var hash: String? {
@@ -34,7 +39,7 @@ public enum FileContentVerifier {
     }
 
     /// Computes SHA-256 of the file at the given path on a background thread.
-    /// The file is hashed in chunks, never loaded into memory whole.
+    /// The file is hashed in chunks, never loaded into memory whole, whatever its size.
     /// - Parameters:
     ///   - path: Absolute file path.
     ///   - fileManager: File manager (for testability).
@@ -42,7 +47,8 @@ public enum FileContentVerifier {
     ///     ctime)`. On a hit the stored digest is returned without touching the file; on a miss the
     ///     freshly computed digest is stored before returning. Passing `nil` reproduces the
     ///     pre-cache behavior exactly (always reads and hashes).
-    /// - Returns: Hex string of the hash, or `nil` if the path is a directory, missing, over size limit, or read fails.
+    /// - Returns: Hex string of the hash, or `nil` if the path is a directory, missing,
+    ///   cloud-only, or the read fails or is cancelled.
     public static func sha256Hex(
         filePath path: String,
         fileManager: FileManaging = FileManager.default,
@@ -51,19 +57,31 @@ public enum FileContentVerifier {
         await hashOutcome(filePath: path, fileManager: fileManager, cache: cache).hash
     }
 
-    /// `sha256Hex` with a classified result instead of a collapsed nil. `maxBytes` is injectable
-    /// for tests only (creating a real >100 MB fixture per run would be wasteful); production
-    /// callers use the default cap. `isCloudOnly` is the dataless check consulted before the file
-    /// is opened — a cloud-only placeholder is skipped, never force-downloaded; injectable because
-    /// a real dataless file can't be fabricated in tests (the flag is provider-set).
+    /// `sha256Hex` with a classified result instead of a collapsed nil. `isCloudOnly` is the
+    /// dataless check consulted before the file is opened — a cloud-only placeholder is skipped,
+    /// never force-downloaded; injectable because a real dataless file can't be fabricated in
+    /// tests (the flag is provider-set).
+    ///
+    /// **Cancellable mid-file, two ways.** Cancelling the calling task reaches the read through
+    /// the detached task below, and `isCancelled` is asked before every chunk for a caller whose
+    /// stop is a `Progress` rather than a task (Verify All). Either way the read stops within one
+    /// chunk and answers `.cancelled`. Without it, a 5 GB file would read to its end after Stop.
+    ///
+    /// **One chunk at a time on the cooperative pool.** The read is blocking I/O on a `.utility`
+    /// detached task — the lane every hash has always run on — and it yields after each chunk, so
+    /// a long file holds a pool thread for one 4 MB read at a time, not for the whole file.
+    /// Blocking file I/O held across a whole scan is what starved the pool in RD38.
     public static func hashOutcome(
         filePath path: String,
         fileManager: FileManaging = FileManager.default,
         cache: ContentHashCache? = nil,
-        maxBytes: Int = maxBytesToHash,
-        isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
+        isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) },
+        isCancelled: @escaping @Sendable () -> Bool = { false }
     ) async -> HashOutcome {
-        await Task.detached(priority: .utility) { () -> HashOutcome in
+        // Detached so the blocking read leaves the caller's actor (most callers are the main
+        // actor), and so its priority is the hash lane's, not the caller's. Detached tasks do not
+        // inherit cancellation, so it is forwarded by hand.
+        let work = Task.detached(priority: .utility) { () -> HashOutcome in
             // ONE `attributesOfItem` for a non-symlink, where there used to be three. `fileExists`
             // asked about existence and directory-ness, a discarded `attributesOfItem` asked
             // about the link type, and a second one asked for size and mtime — and
@@ -111,17 +129,13 @@ public enum FileContentVerifier {
             if let cache, let cacheKey, let hit = await cache.hash(for: cacheKey) {
                 return .hashed(hit)
             }
-            // The dataless check comes BEFORE the size cap: a cloud-only placeholder is skipped
-            // as cloud-only whatever its byte count, so the per-reason skip split callers surface
-            // (the Duplicates lens's note) stays honest — a dataless 4 GB video is "not downloaded", not "too
-            // large to hash", and the two remedies differ (download it vs raise the cap). The
-            // check is an lstat-cheap flag read, and it must precede any byte being read anyway:
-            // opening a dataless placeholder forces the provider to download the whole file — a
-            // metadata scan must never do that. Checked on the resolved path (the file a symlink
-            // would actually open), and only after the cache: a hit needs no read, and eviction
-            // doesn't change content.
+            // The dataless check is an lstat-cheap flag read, and it must precede any byte being
+            // read: opening a dataless placeholder forces the provider to download the whole file
+            // — a metadata scan must never do that. Checked on the resolved path (the file a
+            // symlink would actually open), and only after the cache: a hit needs no read, and
+            // eviction doesn't change content.
             if isCloudOnly(statPath) { return .skippedCloudOnly }
-            guard size <= maxBytes else { return .skippedTooLarge }
+            if Task.isCancelled || isCancelled() { return .cancelled }
             guard let handle = FileHandle(forReadingAtPath: path) else { return .unverifiable }
             defer { try? handle.close() }
 
@@ -146,6 +160,7 @@ public enum FileContentVerifier {
             var hasher = SHA256()
             var totalBytes = 0
             while true {
+                if Task.isCancelled || isCancelled() { return .cancelled }
                 // read(upToCount:) bridges each chunk through an autoreleased NSData; without a
                 // per-iteration pool they accumulate until the closure returns, letting peak
                 // memory approach the whole file again. nil = unverifiable, false = end-of-file.
@@ -164,6 +179,9 @@ public enum FileContentVerifier {
                 }
                 guard let advance else { return .unverifiable }
                 if !advance { break }
+                // Lets other work at higher priority have this pool thread between chunks — see
+                // the doc comment's note on the cooperative pool.
+                await Task.yield()
             }
             guard totalBytes == size else { return .unverifiable }
             // Re-`fstat` the same descriptor and compare against the first one — both raw
@@ -184,7 +202,57 @@ public enum FileContentVerifier {
                 await cache.store(hex, for: cacheKey)
             }
             return .hashed(hex)
-        }.value
+        }
+        return await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
+    }
+
+    /// Bytes read from each end of a file by ``edgeSample``.
+    static let edgeSampleBytes = 1024 * 1024  // 1 MB
+
+    /// A digest of a file's size and its first and last ``edgeSampleBytes`` — never a content
+    /// identity, only a cheap way to prove two same-size files DIFFER without reading either whole
+    /// (the duplicate scan's use; see `FileSyncManager.duplicateEdgeSampleAbove`). Different
+    /// samples mean different files; equal samples mean nothing until the full hash.
+    ///
+    /// nil when no sample could be taken: cloud-only (never opened, as in ``hashOutcome``),
+    /// unreadable, a descriptor whose size is not `size`, or cancelled. Every nil means unknown,
+    /// never different. On the hash's lane, with its cancellation forwarded the same way.
+    static func edgeSample(
+        filePath path: String,
+        size: Int,
+        isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
+    ) async -> String? {
+        let work = Task.detached(priority: .utility) { () -> String? in
+            // The path ``hashOutcome`` asks about: a symlink's target, else the path as given.
+            // Resolving every path would not do — it rewrites `/private/var/…` to `/var/…`.
+            let isLink = (try? FileManager.default.destinationOfSymbolicLink(atPath: path)) != nil
+            let checkPath = isLink ? (path as NSString).resolvingSymlinksInPath : path
+            if isCloudOnly(checkPath) || Task.isCancelled { return nil }
+            guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+            defer { try? handle.close() }
+            guard let opened = Self.descriptorStat(handle), Int(opened.st_size) == size else { return nil }
+            return autoreleasepool { () -> String? in
+                var hasher = SHA256()
+                withUnsafeBytes(of: Int64(size).littleEndian) { hasher.update(bufferPointer: $0) }
+                // A short read is a sample of fewer bytes than its twin's, which would read as a
+                // difference. Unknown instead — the full hash loops to EOF and needs no such check.
+                let headWanted = min(edgeSampleBytes, size)
+                guard let head = try? handle.read(upToCount: headWanted) ?? Data(),
+                      head.count == headWanted else { return nil }
+                hasher.update(data: head)
+                // The tail starts where the head ended for a file under two samples long, so no
+                // byte is read twice and every byte of a short file is covered.
+                let tailStart = max(head.count, size - edgeSampleBytes)
+                if tailStart < size {
+                    guard (try? handle.seek(toOffset: UInt64(tailStart))) != nil,
+                          let tail = try? handle.read(upToCount: size - tailStart),
+                          tail.count == size - tailStart else { return nil }
+                    hasher.update(data: tail)
+                }
+                return HexEncoding.string(hasher.finalize())
+            }
+        }
+        return await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
     }
 
     /// Whether two `fstat`s of the same descriptor, taken before and after the read, describe the
@@ -229,18 +297,34 @@ public enum FileContentVerifier {
     }
 
     /// Returns whether the two files have identical content (same SHA-256).
-    /// Returns `nil` if either file cannot be hashed (e.g. directory, too large, missing).
-    /// `cache`, when supplied, lets unchanged files skip the re-hash on a repeat verify.
+    /// Returns `nil` if either file cannot be hashed (e.g. directory, cloud-only, missing) or the
+    /// check was cancelled. `cache`, when supplied, lets unchanged files skip the re-hash on a
+    /// repeat verify. `isCancelled` stops both reads at their next chunk (see ``hashOutcome``).
+    ///
+    /// **The first side that cannot be hashed stops the other.** The answer is already nil, so
+    /// reading the rest of a 30 GB twin of a cloud-only file would buy nothing.
     public static func filesHaveSameContent(
         leftPath: String,
         rightPath: String,
         fileManager: FileManaging = FileManager.default,
-        cache: ContentHashCache? = nil
+        cache: ContentHashCache? = nil,
+        isCancelled: @escaping @Sendable () -> Bool = { false }
     ) async -> Bool? {
-        async let leftHash = sha256Hex(filePath: leftPath, fileManager: fileManager, cache: cache)
-        async let rightHash = sha256Hex(filePath: rightPath, fileManager: fileManager, cache: cache)
-        let (l, r) = await (leftHash, rightHash)
-        guard let l = l, let r = r else { return nil }
+        let hashes = await withTaskGroup(of: (Bool, HashOutcome).self) { group -> [Bool: String] in
+            for (isLeft, path) in [(true, leftPath), (false, rightPath)] {
+                group.addTask {
+                    (isLeft, await hashOutcome(filePath: path, fileManager: fileManager, cache: cache,
+                                               isCancelled: isCancelled))
+                }
+            }
+            var hashes: [Bool: String] = [:]
+            for await (isLeft, outcome) in group {
+                guard let hash = outcome.hash else { group.cancelAll(); continue }
+                hashes[isLeft] = hash
+            }
+            return hashes
+        }
+        guard let l = hashes[true], let r = hashes[false] else { return nil }
         return l == r
     }
 }

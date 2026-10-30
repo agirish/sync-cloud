@@ -187,11 +187,27 @@ import Testing
 
     // MARK: Skipped-count summary
 
+    /// The rule after the edge samples, pure: small candidates all stay; a large one goes only
+    /// when its sample is unique among a size whose members were ALL sampled. Order is kept.
+    @Test func candidatesNeedingFullHashDropsOnlyProvenlyDistinctLargeFiles() {
+        let candidates: [(path: String, size: Int)] = [
+            ("small-a", 10), ("small-b", 10),            // at or under the threshold: never sampled
+            ("twin-a", 500), ("twin-b", 500), ("odd", 500),   // one size: a shared sample and a unique one
+            ("local", 700), ("cloud", 700),                   // one size with an unsampled member
+            ("lone-a", 900), ("lone-b", 900),                 // one size, two different samples
+        ]
+        let samples = ["twin-a": "s1", "twin-b": "s1", "odd": "s2",
+                       "local": "s3",
+                       "lone-a": "s4", "lone-b": "s5"]
+        let kept = FileSyncManager.candidatesNeedingFullHash(candidates, samples: samples, sampleAbove: 100)
+        #expect(kept == ["small-a", "small-b", "twin-a", "twin-b", "local", "cloud"])
+    }
+
     /// Pins the per-reason skip accounting behind `duplicateScanSkips` (`hashFilesCounting`): a
-    /// mixed batch must report EXACTLY how many candidates were skipped over the size cap vs as
-    /// cloud-only placeholders, hash everything else, and never let a skip masquerade as a hash.
-    /// Guards the round-4 "count and surface what the duplicate scan skipped" surface: a change
-    /// that drops a reason, double-counts, or starts hashing cloud-only files flips this.
+    /// mixed batch must report EXACTLY how many candidates were skipped as cloud-only placeholders
+    /// vs unreadable, hash everything else, and never let a skip masquerade as a hash. Guards the
+    /// round-4 "count and surface what the duplicate scan skipped" surface: a change that drops a
+    /// reason, double-counts, or starts hashing cloud-only files flips this.
     @Test func hashBatchOutcomeCountsSkipsByReason() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("dup-skips-\(UUID().uuidString)")
@@ -200,35 +216,33 @@ import Testing
 
         let small1 = dir.appendingPathComponent("a.txt")
         let small2 = dir.appendingPathComponent("b.txt")
-        let big = dir.appendingPathComponent("big.bin")
+        let gone = dir.appendingPathComponent("gone.bin")
         let cloud = dir.appendingPathComponent("cloud.txt")
         try Data(repeating: 0x41, count: 100).write(to: small1)
         try Data(repeating: 0x41, count: 100).write(to: small2)      // same bytes → same hash
-        try Data(repeating: 0x42, count: 5000).write(to: big)        // over the injected 1000-byte cap
         try Data(repeating: 0x43, count: 100).write(to: cloud)       // flagged cloud-only via the seam
 
-        // No cache: this pins the SKIP classification, and both knobs it varies are ones a cache
-        // hit deliberately bypasses (the cache holds digests; the caps only decide whether
-        // computing one is worth it). Sharing the session cache here would let a digest recorded
-        // by another test's real-cap run answer for a file this test wants reported as too large.
+        // No cache: this pins the SKIP classification, and the knob it varies is one a cache hit
+        // deliberately bypasses (the cache holds digests; cloud-only only decides whether
+        // computing one is possible). Sharing the session cache here would let a digest recorded
+        // by another test answer for a file this test wants reported as cloud-only.
         let outcome = await FileSyncManager.hashFilesCounting(
-            [small1.path, small2.path, big.path, cloud.path],
+            [small1.path, small2.path, gone.path, cloud.path],
             fileManager: FileManager.default,
-            maxBytesToHash: 1000,
             isCloudOnly: { $0.hasSuffix("cloud.txt") },
             cache: nil
         )
 
-        #expect(outcome.skippedTooLarge == 1)
         #expect(outcome.skippedCloudOnly == 1)
+        #expect(outcome.unverifiable == 1)
         #expect(outcome.hashes.count == 2)
         // The two identical small files hashed to the same real content hash — skips returned no hash.
         #expect(outcome.hashes[small1.path] != nil)
         #expect(outcome.hashes[small1.path] == outcome.hashes[small2.path])
-        #expect(outcome.hashes[big.path] == nil && outcome.hashes[cloud.path] == nil)
+        #expect(outcome.hashes[gone.path] == nil && outcome.hashes[cloud.path] == nil)
         // And the public summary type the UI reads sums the same way.
-        let skips = FileSyncManager.DuplicateScanSkips(tooLarge: outcome.skippedTooLarge,
-                                                       cloudOnly: outcome.skippedCloudOnly)
+        let skips = FileSyncManager.DuplicateScanSkips(cloudOnly: outcome.skippedCloudOnly,
+                                                       unverifiable: outcome.unverifiable)
         #expect(skips.total == 2)
     }
 }

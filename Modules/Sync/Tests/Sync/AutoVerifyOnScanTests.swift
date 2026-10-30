@@ -63,6 +63,32 @@ import Foundation
         #expect(manager.banner == nil)
     }
 
+    /// The scan-time pass keeps the 100 MB limit the hasher dropped: it runs unasked after every
+    /// scan, so a pair over it is left listed for Verify All. Judged on the scan's recorded size —
+    /// the same identical files, recorded one byte over, stay listed; recorded at the limit, hidden.
+    @MainActor
+    @Test func pairsOverTheScanTimeLimitAreLeftForVerifyAll() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+        func recorded(_ size: Int) -> FileDifference {
+            FileDifference(relativePath: fixture.identical.relativePath,
+                           leftItemPath: fixture.identical.leftItemPath,
+                           rightItemPath: fixture.identical.rightItemPath,
+                           type: .differentDates, action: .copyToRight, description: "Different dates",
+                           leftFileSize: size, rightFileSize: size)
+        }
+        let atLimit = recorded(FileSyncManager.unaskedPassMaxFileBytes)
+        let overLimit = recorded(FileSyncManager.unaskedPassMaxFileBytes + 1)
+        manager.rawDifferences = [atLimit, overLimit]
+        manager.differences = [atLimit, overLimit]
+
+        await manager.autoVerifySameSizePairs(scanGeneration: manager.scanRequestGeneration)
+
+        #expect(manager.verifiedSameDifferenceIds == [atLimit.id])
+        #expect(manager.differences.map(\.id) == [overLimit.id])
+    }
+
     @MainActor
     @Test func testSupersededScanPublishesNothing() async throws {
         let fixture = try makeFixture()

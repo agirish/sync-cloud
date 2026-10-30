@@ -257,11 +257,12 @@ extension FileSyncManager {
         // One @Published write per whole percent instead of one per file — see
         // `ProgressPublishGate` for what the ungated version cost the window.
         let publishGate = ProgressPublishGateBox()
+        let progressRef = ProgressRef(progress)
 
         await Self.processInParallel(
             items: toVerify,
             concurrency: min(4, max(1, toVerify.count)),
-            progress: ProgressRef(progress),
+            progress: progressRef,
             reportCompleted: { completed in
                 guard publishGate.admits(completed: completed, total: totalCount) else { return }
                 weakRef.value?.verifyAllProgress = (completed, totalCount)
@@ -271,11 +272,14 @@ extension FileSyncManager {
             // itself, so a write landing mid-read is caught by the confirm-time re-stat rather
             // than being baked in as "how it looked when we hashed it".
             let stamp = FilePairStamp.read(diff, fileManager: activeFM)
+            // Stop is a `Progress` cancel, not a task cancel, so the hash asks it per chunk: a
+            // pair of 5 GB files would otherwise read to the end after the click.
             let same = await FileContentVerifier.filesHaveSameContent(
                 leftPath: diff.leftItemPath,
                 rightPath: diff.rightItemPath,
                 fileManager: activeFM,
-                cache: ContentHashCache.shared
+                cache: ContentHashCache.shared,
+                isCancelled: { progressRef.progress.isCancelled }
             )
             if same == true {
                 await collector.addIdentical(diff, stamp: stamp)
@@ -479,6 +483,15 @@ extension FileSyncManager {
         return Task { await self.bulkCopyDifferencesLeftToRight(offer.differences, asOf: offer.asOf, stamps: offer.stamps) }
     }
 
+    /// The largest file a pass the user did not ask for reads whole: 100 MB, the limit every hash
+    /// once had. The scan-time verify and the filing scan's already-filed check.
+    ///
+    /// **Kept for them when the hasher dropped it.** Both run unasked — after every scan, and on
+    /// every filing scan before its list appears — so a 5 GB file would add seconds of reading
+    /// nobody asked for. Larger pairs stay listed for Verify All, which the user starts and can
+    /// stop; a larger loose file is simply not checked against the tree.
+    nonisolated static let unaskedPassMaxFileBytes = 100 * 1024 * 1024
+
     /// The scan-time checksum pass behind `autoVerifySameSizeDuringScan`: hashes each pair that
     /// only differs by date (same size, both sides present) and silently hides the identical
     /// ones via `verifiedSameDifferenceIds` — the same mechanism as a dismissed Verify All, so
@@ -507,6 +520,7 @@ extension FileSyncManager {
 
         let candidates = rawDifferences.filter {
             $0.type == .differentDates && $0.sizesMatch && !syncingDifferenceIds.contains($0.id)
+                && ($0.leftFileSize ?? 0) <= Self.unaskedPassMaxFileBytes
         }
         guard !candidates.isEmpty else { return }
 

@@ -1,10 +1,11 @@
 import Testing
 import Foundation
+import CryptoKit
 @testable import Sync
 
 /// Coverage for FileContentVerifier, the SHA-256 checksum layer behind the "Verify with checksum"
 /// flows (GUI verify buttons and the CLI --verify option). It stream-reads real bytes via
-/// `FileHandle` and guards on directory / missing / oversize / partial-read, so these tests
+/// `FileHandle` and guards on directory / missing / cloud-only / partial-read, so these tests
 /// exercise it against real files in a temp directory rather than the virtual mock disk.
 @Suite struct FileContentVerifierTests {
 
@@ -82,21 +83,205 @@ import Foundation
 
     // MARK: Classified outcomes (hashOutcome)
 
-    @Test func hashOutcomeClassifiesTooLargeDistinctFromUnreadable() async throws {
+    /// A sparse file: `size` bytes of zeros, holding no disk blocks, with `bytes` written at their
+    /// offsets. Lets a test hash a file past the old 100 MB cap without writing 100 MB.
+    private func sparseFile(at url: URL, size: Int, bytes: [Int: UInt8]) throws {
+        #expect(FileManager.default.createFile(atPath: url.path, contents: nil))
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        try handle.truncate(atOffset: UInt64(size))
+        for (offset, byte) in bytes {
+            try handle.seek(toOffset: UInt64(offset))
+            try handle.write(contentsOf: Data([byte]))
+        }
+    }
+
+    /// One byte past the old 100 MB cap, which used to answer `skippedTooLarge` without a read. The
+    /// expected digest is from Python's `hashlib` over the same bytes — an implementation that is
+    /// not this one — and the marked bytes sit either side of the first 4 MB chunk boundary and on
+    /// the very last byte, the one the old cap excluded, so a lost or doubled chunk changes it.
+    @Test func aFileJustOverTheOldCapIsHashedWhole() async throws {
         let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
+        let chunk = 4 * 1024 * 1024
+        let size = 100 * 1024 * 1024 + 1
+        let f = dir.appendingPathComponent("over-the-old-cap.bin")
+        try sparseFile(at: f, size: size, bytes: [0: 1, chunk - 1: 2, chunk: 3, size - 1: 4])
 
-        let big = dir.appendingPathComponent("big.bin")
-        try Data(repeating: 0x42, count: 4096).write(to: big)
+        let outcome = await FileContentVerifier.hashOutcome(filePath: f.path, isCloudOnly: { _ in false })
+        #expect(outcome == .hashed("8a50adce3382a87a511b8d0d17a304eb9445d39c9b70910be5b6e7fafba0e773"))
+    }
 
-        // Over the (injected) cap → skippedTooLarge, and never read.
-        #expect(await FileContentVerifier.hashOutcome(filePath: big.path, maxBytes: 1000) == .skippedTooLarge)
-        // Under the cap → hashed, agreeing with sha256Hex.
-        let expected = await FileContentVerifier.sha256Hex(filePath: big.path)
-        #expect(await FileContentVerifier.hashOutcome(filePath: big.path) == .hashed(expected!))
-        // Directory / missing → unverifiable (not a size skip).
+    /// A directory and a missing path are `.unverifiable` — a skip the duplicate scan counts — and
+    /// not `.cancelled`, which it does not.
+    @Test func aDirectoryAndAMissingPathAreUnverifiableNotCancelled() async throws {
+        let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
+        defer { try? FileManager.default.removeItem(at: dir) }
         #expect(await FileContentVerifier.hashOutcome(filePath: dir.path) == .unverifiable)
-        #expect(await FileContentVerifier.hashOutcome(filePath: dir.appendingPathComponent("nope").path) == .unverifiable)
+        #expect(await FileContentVerifier.hashOutcome(filePath: dir.appendingPathComponent("nope").path)
+                == .unverifiable)
+    }
+
+    /// The first side that cannot be hashed stops the other: the answer is nil either way. The
+    /// left is missing and fails at once; the right's check waits — bounded — to be cancelled, and
+    /// records whether it was. Without the stop it waits out its bound and the file is read whole.
+    @Test func aPairWithAnUnhashableSideStopsReadingTheOther() async throws {
+        let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let right = dir.appendingPathComponent("long.bin")
+        try sparseFile(at: right, size: 5 * 4 * 1024 * 1024, bytes: [0: 1])
+        let cache = ContentHashCache()
+
+        let sawCancel = LockedBox(false)
+        let waited = LockedBox(false)
+        let same = await FileContentVerifier.filesHaveSameContent(
+            leftPath: dir.appendingPathComponent("missing").path, rightPath: right.path, cache: cache,
+            isCancelled: {
+                // Only the first check waits, so a failing run costs one bound, not one per chunk.
+                if !waited.withLock({ let first = !$0; $0 = true; return first }) { return false }
+                let deadline = Date().addingTimeInterval(10)
+                while !Task.isCancelled && Date() < deadline { usleep(1000) }
+                sawCancel.withLock { $0 = Task.isCancelled }
+                return false
+            })
+        #expect(same == nil)
+        #expect(sawCancel.withLock { $0 })
+        #expect(await cache.count == 0)
+    }
+
+    /// `filesHaveSameContent` hands its `isCancelled` to both reads: a stop answers nil, asks the
+    /// check, and caches nothing — what Verify All's Stop rests on.
+    @Test func filesHaveSameContentPassesItsStopToBothReads() async throws {
+        let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let a = dir.appendingPathComponent("a.bin")
+        let b = dir.appendingPathComponent("b.bin")
+        try Data(repeating: 1, count: 64).write(to: a)
+        try Data(repeating: 1, count: 64).write(to: b)
+        let cache = ContentHashCache()
+        let asked = LockedBox(0)
+        let same = await FileContentVerifier.filesHaveSameContent(
+            leftPath: a.path, rightPath: b.path, cache: cache,
+            isCancelled: { asked.withLock { $0 += 1 }; return true })
+        #expect(same == nil)
+        // At least one read asked. Not exactly two: the first `.cancelled` stops its sibling, which
+        // may then see its own task cancelled before it gets to ask.
+        #expect(asked.withLock { $0 } >= 1)
+        #expect(await cache.count == 0)
+        // The control: the same pair, not stopped, is identical.
+        #expect(await FileContentVerifier.filesHaveSameContent(leftPath: a.path, rightPath: b.path) == true)
+    }
+
+    private static let chunk = 4 * 1024 * 1024
+    static let chunkBoundarySizes: [Int] = [0, 1, chunk - 1, chunk, chunk + 1, 2 * chunk + 3]
+
+    /// The streamed digest equals a one-shot SHA-256 of the same bytes at every size that meets a
+    /// chunk boundary — the sizes where a streaming loop drops or repeats bytes. These are the
+    /// digests the hasher gave under the old cap too: what changed is which files reach the loop.
+    @Test(arguments: Self.chunkBoundarySizes)
+    func streamedDigestMatchesAOneShotDigest(size: Int) async throws {
+        let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let bytes = Data((0..<size).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ $0 >> 9) })
+        let f = dir.appendingPathComponent("f.bin")
+        try bytes.write(to: f)
+
+        let expected = HexEncoding.string(SHA256.hash(data: bytes))
+        #expect(await FileContentVerifier.hashOutcome(filePath: f.path, isCloudOnly: { _ in false })
+                == .hashed(expected))
+    }
+
+    /// `isCancelled` is asked before the open and before every chunk; once it says yes, the read
+    /// stops there and answers `.cancelled`, caching nothing. Three answers on a five-chunk file:
+    /// the open, chunk one, then stop — so the count proves it stopped mid-file, not at the end.
+    @Test func aCancelledCheckStopsMidFileAndCachesNothing() async throws {
+        let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let f = dir.appendingPathComponent("long.bin")
+        try sparseFile(at: f, size: 5 * 4 * 1024 * 1024, bytes: [0: 1])
+
+        let asked = LockedBox(0)
+        let cache = ContentHashCache()
+        let outcome = await FileContentVerifier.hashOutcome(
+            filePath: f.path, cache: cache, isCloudOnly: { _ in false },
+            isCancelled: { asked.withLock { $0 += 1; return $0 >= 3 } })
+        #expect(outcome == .cancelled)
+        #expect(asked.withLock { $0 } == 3)
+        #expect(await cache.count == 0)
+        // The same file, not cancelled, hashes — so `.cancelled` came from the stop, not the file.
+        #expect(await FileContentVerifier.hashOutcome(filePath: f.path, cache: cache,
+                                                      isCloudOnly: { _ in false }).hash != nil)
+    }
+
+    /// Cancelling the CALLING task reaches the read, though it runs on a detached task that does
+    /// not inherit cancellation. Deterministic: the task is cancelled from inside its own second
+    /// chunk check, and the next check must see it through the forwarded cancellation alone — the
+    /// closure keeps answering no. Without the forwarding the whole file is hashed.
+    @Test func cancellingTheCallerStopsTheReadAtTheNextChunk() async throws {
+        let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let f = dir.appendingPathComponent("long.bin")
+        try sparseFile(at: f, size: 5 * 4 * 1024 * 1024, bytes: [0: 1])
+
+        let caller = LockedBox<Task<FileContentVerifier.HashOutcome, Never>?>(nil)
+        let asked = LockedBox(0)
+        // Held until the box holds the task, so the second check always has a task to cancel.
+        let (ready, go) = AsyncStream<Void>.makeStream()
+        let task = Task {
+            for await _ in ready { break }
+            return await FileContentVerifier.hashOutcome(filePath: f.path, isCloudOnly: { _ in false },
+                                                         isCancelled: {
+                if asked.withLock({ $0 += 1; return $0 }) == 2 { caller.withLock { $0?.cancel() } }
+                return false
+            })
+        }
+        caller.withLock { $0 = task }
+        go.yield()
+        go.finish()
+        #expect(await task.value == .cancelled)
+        #expect(asked.withLock { $0 } == 2)
+    }
+
+    // MARK: Edge samples (the duplicate scan's pre-check)
+
+    /// Equal ends give equal samples whatever the middle holds; a different first or last byte
+    /// gives a different one. The sample proves difference only — which is why the middle case is
+    /// the one that must come out EQUAL.
+    @Test func anEdgeSampleSeesBothEndsAndNotTheMiddle() async throws {
+        let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let size = 2 * FileContentVerifier.edgeSampleBytes + 4096
+        func sample(_ name: String, _ bytes: [Int: UInt8]) async throws -> String? {
+            let f = dir.appendingPathComponent(name)
+            try sparseFile(at: f, size: size, bytes: bytes)
+            return await FileContentVerifier.edgeSample(filePath: f.path, size: size, isCloudOnly: { _ in false })
+        }
+        let plain = try #require(try await sample("plain", [:]))
+        #expect(try await sample("middle", [size / 2: 1]) == plain)
+        #expect(try await sample("first", [0: 1]) != plain)
+        #expect(try await sample("last", [size - 1: 1]) != plain)
+    }
+
+    /// Every case where no sample can be taken answers nil — unknown, never "different": a
+    /// cloud-only file, a size that is not the file's, a missing file.
+    @Test func anEdgeSampleIsNilWhenItCannotBeTaken() async throws {
+        let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let f = dir.appendingPathComponent("f.bin")
+        try Data(repeating: 5, count: 3000).write(to: f)
+
+        // The seam is asked about the path as given — as ``hashOutcome`` asks — and not a
+        // resolved one, which turns a temp directory's `/private/var/…` into `/var/…`.
+        let asked = LockedBox<[String]>([])
+        #expect(await FileContentVerifier.edgeSample(filePath: f.path, size: 3000, isCloudOnly: { path in
+            asked.withLock { $0.append(path) }
+            return false
+        }) != nil)
+        #expect(asked.withLock { $0 } == [f.path])
+        #expect(await FileContentVerifier.edgeSample(filePath: f.path, size: 3000, isCloudOnly: { _ in true }) == nil)
+        #expect(await FileContentVerifier.edgeSample(filePath: f.path, size: 2999, isCloudOnly: { _ in false }) == nil)
+        #expect(await FileContentVerifier.edgeSample(filePath: dir.appendingPathComponent("nope").path,
+                                                     size: 3000, isCloudOnly: { _ in false }) == nil)
     }
 
     @Test func hashOutcomeSkipsCloudOnlyFilesWithoutOpeningThem() async throws {
@@ -117,26 +302,6 @@ import Foundation
         #expect(local.hash != nil)
         let production = await FileContentVerifier.hashOutcome(filePath: f.path)
         #expect(production == local)
-    }
-
-    @Test func cloudOnlyOutranksTooLargeForADatalessOversizeFile() async throws {
-        // Round-5: the size guard ran before the dataless check, so a cloud-only file over the
-        // hash cap counted as skippedTooLarge — and Tidy's per-reason note told the user to
-        // raise the cap when the actual remedy is "download it". A dataless file must classify
-        // as cloud-only whatever its size (and still without a single byte read).
-        let dir = try makeCanonicalTempRoot(prefix: "SyncTest")
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let f = dir.appendingPathComponent("huge-placeholder.bin")
-        try Data(repeating: 7, count: 4096).write(to: f)   // over the injected 1000-byte cap
-
-        let outcome = await FileContentVerifier.hashOutcome(filePath: f.path, maxBytes: 1000,
-                                                            isCloudOnly: { _ in true })
-        #expect(outcome == .skippedCloudOnly)
-
-        // The same oversize file NOT flagged cloud-only still classifies as too large.
-        let local = await FileContentVerifier.hashOutcome(filePath: f.path, maxBytes: 1000,
-                                                          isCloudOnly: { _ in false })
-        #expect(local == .skippedTooLarge)
     }
 
     @Test func cachedHashStillWinsOverTheCloudOnlySkip() async throws {

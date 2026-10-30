@@ -334,6 +334,10 @@ struct FilePairCompareView<Verdict: View>: View {
     /// Guards a completion from a verify the user has already superseded — the same token shape
     /// `ReviewCardView.performVerify` uses.
     @State private var verifyToken = UUID()
+    /// The running Verify Now, so closing the surface or changing the pair stops its reads. The
+    /// token only stops a stale verdict landing; with no size cap on the hash, the read it guarded
+    /// could go on for gigabytes after nothing was waiting for it.
+    @State private var verifyTask: Task<Void, Never>?
     @StateObject private var downloads = PaneDownloadWatch()
     @FocusState private var focused: Bool
 
@@ -440,6 +444,7 @@ struct FilePairCompareView<Verdict: View>: View {
         .onDisappear {
             textDiffTask?.cancel()
             pageSearchTask?.cancel()
+            verifyTask?.cancel()
         }
         // **Both sides are classified at the ROOT, not inside a pane.** The probe used to live in
         // the per-side preview, which only the side-by-side fallback mounts — so opening the
@@ -565,6 +570,7 @@ struct FilePairCompareView<Verdict: View>: View {
             // previous pair's two files — under the new pair's name, on the surface whose whole
             // claim is that it is telling you about these two.
             verifyToken = UUID()
+            verifyTask?.cancel()
             clearRasters()
             renderOutcome = .rendering
             pageSearchToken = UUID()
@@ -1567,7 +1573,7 @@ struct FilePairCompareView<Verdict: View>: View {
         let leftPath = left.path
         let rightPath = right.path
         let hash = self.hash
-        Task { @MainActor in
+        verifyTask = Task { @MainActor in
             async let l = hash(leftPath)
             async let r = hash(rightPath)
             let outcome = ComparePairVerify.outcome(left: await l, right: await r)

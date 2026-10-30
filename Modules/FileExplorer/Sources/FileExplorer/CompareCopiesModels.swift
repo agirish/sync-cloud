@@ -322,8 +322,8 @@ enum DuplicateComparePrompt {
 /// What a content verification of the two compared copies ended in.
 ///
 /// **Three distinct outcomes, because `filesHaveSameContent` collapses them into two.** It returns
-/// `Bool?` and answers nil when *either* side cannot be hashed — over the 100 MB cap, cloud-only,
-/// unreadable — three different situations, none of which is "these files differ" and none of
+/// `Bool?` and answers nil when *either* side cannot be hashed — cloud-only, unreadable — or the
+/// check was stopped: different situations, none of which is "these files differ" and none of
 /// which the surface may flatten into a generic failure. So the surface asks for a
 /// ``FileContentVerifier/HashOutcome`` per side and maps the pair here, where the mapping is a
 /// value a test can call.
@@ -344,10 +344,10 @@ enum ComparePairVerify: Equatable {
     static func cause(_ outcome: FileContentVerifier.HashOutcome) -> String? {
         switch outcome {
         case .hashed: return nil
-        case .skippedTooLarge:
-            return "over the \(FileContentVerifier.maxBytesToHash / (1024 * 1024)) MB verify limit"
         case .skippedCloudOnly: return "not downloaded"
         case .unverifiable: return "unreadable, or changed while being read"
+        // Never shown: `outcome` answers `.idle` for a stopped check before asking for a cause.
+        case .cancelled: return "not checked"
         }
     }
 
@@ -355,6 +355,9 @@ enum ComparePairVerify: Equatable {
     /// file name, which in an identical group is the same word twice.
     static func outcome(left: FileContentVerifier.HashOutcome,
                         right: FileContentVerifier.HashOutcome) -> ComparePairVerify {
+        // A stopped check learned nothing about either copy, so it leaves the surface as it was
+        // before the question: Verify on offer again, no verdict claimed.
+        if left == .cancelled || right == .cancelled { return .idle }
         switch (cause(left), cause(right)) {
         case (nil, nil):
             return left.hash == right.hash ? .matched : .differed
@@ -402,7 +405,7 @@ enum ComparePairClaim {
         switch kind {
         case .identical:
             return contentUnverified
-                ? "Grouped as identical, but the scan couldn’t hash one of them (too large, or not downloaded) — the claim rests on less than a full check."
+                ? "Grouped as identical, but the scan couldn’t hash one of them (not downloaded, or unreadable) — the claim rests on less than a full check."
                 : "The scan hashed both: byte-for-byte identical."
         case .sameText:
             return "These read the same; their bytes differ. A signed, redacted or re-saved copy reads the same too."

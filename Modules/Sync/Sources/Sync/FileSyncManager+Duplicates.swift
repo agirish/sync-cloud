@@ -7,13 +7,11 @@ import Foundation
 extension FileSyncManager {
 
     /// Files the most recent duplicate scan had to skip during content hashing — and therefore
-    /// could not prove identical to anything. Without this figure, two identical >100 MB files
-    /// (or cloud-only placeholders) are simply invisible to the scan with zero indication. Labels the
+    /// could not prove identical to anything. Without this figure, two identical cloud-only
+    /// placeholders are simply invisible to the scan with zero indication. Labels the
     /// current `duplicateGroups` like `duplicateScanRoot` does: published with the results
     /// (`duplicateScanSkips` in FileSyncManager.swift), reset by `clearDuplicates`.
     public struct DuplicateScanSkips: Sendable, Equatable {
-        /// Candidates skipped because they exceed the hashing size cap (`maxBytesToHash`).
-        public var tooLarge: Int
         /// Candidates skipped because they are cloud-only (dataless) placeholders that hashing
         /// would force-download.
         public var cloudOnly: Int
@@ -46,11 +44,10 @@ extension FileSyncManager {
         /// deliberately NOT in it: those files were hashed and grouped normally, and only the
         /// weaker text claim was declined for them. `unverifiable` IS in it — nothing was learned
         /// about those files at all, which is this number's own definition.
-        public var total: Int { tooLarge + cloudOnly + multiLink + unverifiable }
+        public var total: Int { cloudOnly + multiLink + unverifiable }
 
-        public init(tooLarge: Int = 0, cloudOnly: Int = 0, multiLink: Int = 0,
+        public init(cloudOnly: Int = 0, multiLink: Int = 0,
                     textUnreadable: Int = 0, unverifiable: Int = 0) {
-            self.tooLarge = tooLarge
             self.cloudOnly = cloudOnly
             self.multiLink = multiLink
             self.textUnreadable = textUnreadable
@@ -143,13 +140,14 @@ extension FileSyncManager {
         return true
     }
 
-    /// `maxBytesToHash` and `isCloudOnly` are injectable for tests only (a real >100 MB fixture
-    /// per run would be wasteful, and a real dataless file can't be fabricated); production
-    /// callers use the verifier's defaults.
+    /// `sampleAbove` and `isCloudOnly` are injectable for tests only (a real >100 MB fixture per
+    /// run would be wasteful, and a real dataless file can't be fabricated); production callers
+    /// use the defaults. `sampleAbove` is the size past which a candidate's ends are sampled
+    /// before it is read whole — see ``duplicateEdgeSampleAbove``.
     ///
     /// `cache` is the session hash cache, shared with Verify so a rescan of an unchanged tree costs
-    /// no re-reads. A test that varies `maxBytesToHash` or `isCloudOnly` across scans of the SAME
-    /// files must pass `nil` — see ``hashFilesCounting`` for why a hit bypasses both knobs.
+    /// no re-reads. A test that varies `isCloudOnly` across scans of the SAME files must pass
+    /// `nil` — see ``hashFilesCounting`` for why a hit bypasses it.
     /// `textFingerprint` is the same-text pass's reader: a path in, a ``FingerprintReading`` out —
     /// a ``ContentFingerprint`` digest, too little text, or not readable. `textlessCache` holds
     /// the too-little-text answers, apart from the digests for the reason
@@ -161,7 +159,7 @@ extension FileSyncManager {
         root: URL,
         options: DuplicateFinderOptions = .init(),
         fileManager fm: FileManaging? = nil,
-        maxBytesToHash: Int = FileContentVerifier.maxBytesToHash,
+        sampleAbove: Int = duplicateEdgeSampleAbove,
         isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) },
         cache: ContentHashCache? = .shared,
         textFingerprint: @escaping @Sendable (String) async -> FingerprintReading = PDFTextExtractor.fingerprintReading,
@@ -239,9 +237,17 @@ extension FileSyncManager {
         for f in allFiles where (f.fileSize ?? -1) >= 0 {
             sizeCount[f.fileSize!, default: 0] += 1
         }
-        let candidatePaths = allFiles
+        let candidates = allFiles
             .filter { ($0.fileSize ?? -1) >= 0 && sizeCount[$0.fileSize!, default: 0] >= 2 }
-            .map { $0.id }
+            .map { (path: $0.id, size: $0.fileSize!) }
+        //    A large candidate is read whole only if its ends match another's of the same size —
+        //    see `duplicateEdgeSampleAbove` for why, and `candidatesNeedingFullHash` for the rule.
+        let large = candidates.filter { $0.size > sampleAbove }
+        let samples = large.isEmpty ? [:]
+            : await Self.edgeSamples(large, isCloudOnly: isCloudOnly)
+        if Task.isCancelled { return }
+        let candidatePaths = Self.candidatesNeedingFullHash(candidates, samples: samples,
+                                                            sampleAbove: sampleAbove)
 
         let total = candidatePaths.count
         // "Hashing 0 candidates…" read as what it was — a format string. Zero candidates is a
@@ -259,7 +265,7 @@ extension FileSyncManager {
         // is min(total / 50, ~101) and neither end regresses.
         let hashGate = ProgressPublishGateBox()
         let hashOutcome = await Self.hashFilesCounting(
-            candidatePaths, fileManager: fileManager, maxBytesToHash: maxBytesToHash,
+            candidatePaths, fileManager: fileManager,
             isCloudOnly: isCloudOnly, cache: cache
         ) { [weak self] done in
             if done % 50 == 0 || done == total {
@@ -391,8 +397,7 @@ extension FileSyncManager {
         let ignored = ignoredDuplicateKeys
         // Set BEFORE duplicateGroups so its @Published publish is observed with a matching value
         // (like duplicateScanRoot, it labels what's on screen, not the in-flight scan).
-        duplicateScanSkips = DuplicateScanSkips(tooLarge: hashOutcome.skippedTooLarge,
-                                                cloudOnly: hashOutcome.skippedCloudOnly,
+        duplicateScanSkips = DuplicateScanSkips(cloudOnly: hashOutcome.skippedCloudOnly,
                                                 multiLink: multiLinkPaths.count,
                                                 textUnreadable: textUnreadable,
                                                 unverifiable: hashOutcome.unverifiable)
@@ -410,7 +415,7 @@ extension FileSyncManager {
         Logger.shared.info("Duplicates: scanned \(root.lastPathComponent) — \(summary.groupCount) duplicate group(s), \(Self.formatBytes(summary.reclaimableBytes)) reclaimable")
         let skips = duplicateScanSkips
         if skips.total > 0 {
-            Logger.shared.info("Duplicates: \(skips.total) file(s) outside duplicate detection — \(skips.tooLarge) over the \(Self.formatBytes(maxBytesToHash)) hash limit, \(skips.cloudOnly) cloud-only (not downloaded), \(skips.multiLink) hard-linked (trashing a link frees nothing); duplicates among them are not detected")
+            Logger.shared.info("Duplicates: \(skips.total) file(s) outside duplicate detection — \(skips.cloudOnly) cloud-only (not downloaded), \(skips.multiLink) hard-linked (trashing a link frees nothing); duplicates among them are not detected")
         }
         if skips.textUnreadable > 0 {
             Logger.shared.info("Duplicates: \(skips.textUnreadable) document(s) said too little to fingerprint (image-only scan, locked, or under \(ContentFingerprint.minimumTokens) tokens) — a re-stamped copy of one of them is not detected")
@@ -2028,7 +2033,17 @@ extension FileSyncManager {
             // relative paths with the keeper volume's own case semantics (same reason the copy
             // loop below collapses reserved-key case on a case-insensitive keeper volume).
             let keeperCaseSensitive = FileSyncManager.volumeSupportsCaseSensitiveNames(for: keeperURL)
-            let plan = await Self.planMerge(from: rURL, into: keeperURL, caseSensitiveVolume: keeperCaseSensitive, fileManager: fm)
+            let planProgress = ProgressRef(progress)
+            let plan = await Self.planMerge(from: rURL, into: keeperURL, caseSensitiveVolume: keeperCaseSensitive,
+                                            fileManager: fm,
+                                            isCancelled: { planProgress.progress.isCancelled })
+            // A Stop during planning stops its reads at the next chunk, so the plan is built on
+            // missing digests. Nothing is copied or trashed from it.
+            if progress.isCancelled {
+                cancelled = true
+                allTrashed = false
+                break
+            }
             // Steps aimed under a keeper SYMLINK folder can't run safely — the copy would write
             // through the link (into an external folder, or into the source itself, where the
             // self-collision minted junk per retry) — and skipping them silently would let the
@@ -2422,7 +2437,8 @@ extension FileSyncManager {
     /// quirks — e.g. `/var` vs `/private/var` symlinks — can't mangle the destinations.
     nonisolated static func planMerge(
         from rURL: URL, into kURL: URL, caseSensitiveVolume: Bool = true, fileManager fm: FileManaging,
-        cache: ContentHashCache? = .shared
+        cache: ContentHashCache? = .shared,
+        isCancelled: @escaping @Sendable () -> Bool = { false }
     ) async -> (steps: [(src: URL, dst: URL)], sourceSnapshot: [String: MergeFileSnapshot],
                 blockedLinkedDirs: [String], vouchedKeeperPaths: [String], unreadDirs: [String]) {
         let kTree = await buildTree(url: kURL, sortOption: .name, fileManager: fm, maxDepth: nil)
@@ -2506,7 +2522,35 @@ extension FileSyncManager {
             return nil
         }
 
-        let kHashesByPath = await hashFiles(kItems.map { $0.id }, fileManager: fm, cache: cache)
+        // Walked before either side is hashed, so each side reads only files the other side has a
+        // file of the same size for. Every skip and vouch below compares a digest across the two
+        // trees, and equal digests need equal sizes, so a file with no same-size counterpart can
+        // match nothing: hashing it read gigabytes to change no step. A size the walk could not
+        // state (or a symlink, whose walked size is the link's own) counts as matching anything.
+        let rTree = await buildTree(url: rURL, sortOption: .name, fileManager: fm, maxDepth: nil)
+        let rItems = flattenFilesWithRelativePaths(rTree)
+        var walkedSizes: [String: Int] = [:]
+        func recordSizes(_ nodes: [FileNode]) {
+            for n in nodes {
+                if n.isDirectory { recordSizes(n.children ?? []) }
+                else if n.isSymbolicLink != true, let size = n.fileSize { walkedSizes[n.id] = size }
+            }
+        }
+        recordSizes(kTree)
+        recordSizes(rTree)
+        func worthHashing(_ ids: [String], against others: [String]) -> [String] {
+            var otherSizes = Set<Int>()
+            for id in others {
+                guard let size = walkedSizes[id] else { return ids }
+                otherSizes.insert(size)
+            }
+            return ids.filter { walkedSizes[$0].map(otherSizes.contains) ?? true }
+        }
+        let kIDs = kItems.map { $0.id }
+        let rIDs = rItems.map { $0.id }
+
+        let kHashesByPath = await hashFiles(worthHashing(kIDs, against: rIDs), fileManager: fm,
+                                            cache: cache, isCancelled: isCancelled)
         var keeperHashByRel: [String: String] = [:]
         var keeperHashesByParent: [String: Set<String>] = [:]
         // The ACTUAL keeper file behind each vouch, so a skip can name what it rested on. Keyed the
@@ -2528,9 +2572,8 @@ extension FileSyncManager {
             }
         }
 
-        let rTree = await buildTree(url: rURL, sortOption: .name, fileManager: fm, maxDepth: nil)
-        let rItems = flattenFilesWithRelativePaths(rTree)
-        let rHashes = await hashFiles(rItems.map { $0.id }, fileManager: fm, cache: cache)
+        let rHashes = await hashFiles(worthHashing(rIDs, against: kIDs), fileManager: fm,
+                                      cache: cache, isCancelled: isCancelled)
         // The third hashing site, and the one the "keep the digests" pass missed: both trees were
         // just read in full, and quitting after a merge threw that work away where the scan and
         // Verify already keep theirs. Same contract as those two — the reads have happened
@@ -2546,7 +2589,7 @@ extension FileSyncManager {
             // when its bytes happen to also live elsewhere in the keeper, so the merge never
             // silently drops a meaningfully-named file (a later duplicates scan can reconcile any
             // resulting byte-duplicate — losing a filename is the worse surprise).
-            // An UNHASHABLE source file (too large, unreadable, cloud-only) is deliberately
+            // An UNHASHABLE source file (unreadable, cloud-only) is deliberately
             // re-planned every run: its content can't be proven landed, and the trash step's
             // safety rests on this run's own copy. A cancelled run's prior landing then sits
             // as a junk sibling — the price of never skipping unverified content.
@@ -2709,26 +2752,26 @@ extension FileSyncManager {
     /// some candidates were never content-verified (identical copies among them go undetected).
     struct HashBatchOutcome: Sendable {
         var hashes: [String: String] = [:]
-        var skippedTooLarge = 0
         var skippedCloudOnly = 0
         var unverifiable = 0
     }
 
     /// Hashes files with bounded concurrency, returning path → SHA-256 hex (missing when a file
-    /// can't be hashed — too large, unreadable). Off-main via ``FileContentVerifier``.
+    /// can't be hashed — cloud-only, unreadable). Off-main via ``FileContentVerifier``.
     nonisolated static func hashFiles(
         _ paths: [String],
         fileManager: FileManaging,
         maxConcurrent: Int = 6,
         cache: ContentHashCache?,
-        onProgress: (@Sendable (Int) -> Void)? = nil
+        onProgress: (@Sendable (Int) -> Void)? = nil,
+        isCancelled: @escaping @Sendable () -> Bool = { false }
     ) async -> [String: String] {
         await hashFilesCounting(paths, fileManager: fileManager, maxConcurrent: maxConcurrent,
-                                cache: cache, onProgress: onProgress).hashes
+                                cache: cache, onProgress: onProgress, isCancelled: isCancelled).hashes
     }
 
-    /// ``hashFiles`` plus per-reason skip counts. `maxBytesToHash` and `isCloudOnly` are
-    /// injectable for tests (a real dataless file can't be fabricated — the flag is provider-set).
+    /// ``hashFiles`` plus per-reason skip counts. `isCloudOnly` is injectable for tests (a real
+    /// dataless file can't be fabricated — the flag is provider-set).
     ///
     /// `cache` is REQUIRED rather than defaulted, because the right answer differs per caller and a
     /// default would pick one silently. The entry points (``findDuplicates`` and ``planMerge``) pass
@@ -2736,20 +2779,21 @@ extension FileSyncManager {
     /// a duplicates scan after a Verify — or a second duplicates scan, or the keeper tree re-walked once per
     /// redundant copy during a merge — re-read and re-hashed gigabytes that had not changed.
     ///
-    /// Note what a hit deliberately bypasses: the cache holds DIGESTS, while `maxBytesToHash` and
-    /// `isCloudOnly` only decide whether computing one is worth it. A file whose digest is already
-    /// known is therefore hashed-and-grouped even if it now exceeds the cap — which is the better
-    /// answer (the duplicate really is detectable) but means a caller VARYING those knobs across
-    /// calls must not share a cache, or the second call inherits the first's willingness. Only
-    /// tests vary them; production holds them constant.
+    /// Note what a hit deliberately bypasses: the cache holds DIGESTS, while `isCloudOnly` only
+    /// decides whether computing one is possible without a download. A file whose digest is
+    /// already known is therefore hashed-and-grouped even if it is now cloud-only — which is the
+    /// better answer (the duplicate really is detectable) but means a caller VARYING that knob
+    /// across calls must not share a cache, or the second call inherits the first's answer. Only
+    /// tests vary it; production holds it constant.
     nonisolated static func hashFilesCounting(
         _ paths: [String],
         fileManager: FileManaging,
         maxConcurrent: Int = 6,
-        maxBytesToHash: Int = FileContentVerifier.maxBytesToHash,
         isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) },
         cache: ContentHashCache?,
-        onProgress: (@Sendable (Int) -> Void)? = nil
+        onProgress: (@Sendable (Int) -> Void)? = nil,
+        // After `onProgress`, so the scan's trailing progress closure still binds to that.
+        isCancelled: @escaping @Sendable () -> Bool = { false }
     ) async -> HashBatchOutcome {
         guard !paths.isEmpty else { return HashBatchOutcome() }
         var result = HashBatchOutcome()
@@ -2761,8 +2805,8 @@ extension FileSyncManager {
                 group.addTask {
                     (path, await FileContentVerifier.hashOutcome(filePath: path, fileManager: fileManager,
                                                                  cache: cache,
-                                                                 maxBytes: maxBytesToHash,
-                                                                 isCloudOnly: isCloudOnly))
+                                                                 isCloudOnly: isCloudOnly,
+                                                                 isCancelled: isCancelled))
                 }
             }
             let initial = min(maxConcurrent, paths.count)
@@ -2770,15 +2814,18 @@ extension FileSyncManager {
             for await (path, outcome) in group {
                 switch outcome {
                 case .hashed(let hash): result.hashes[path] = hash
-                case .skippedTooLarge: result.skippedTooLarge += 1
                 case .skippedCloudOnly: result.skippedCloudOnly += 1
                 // Counted, not dropped. See `DuplicateScanSkips.unverifiable`.
                 case .unverifiable: result.unverifiable += 1
+                // Not a skip: the scan was stopped, and a stopped scan publishes nothing.
+                case .cancelled: break
                 }
                 completed += 1
                 onProgress?(completed)
-                // Cancellation stops scheduling new work; already-detached hashes drain out.
-                if Task.isCancelled {
+                // Cancellation stops scheduling new work, and the hashes in flight stop at their
+                // next chunk (`cancelAll` reaches them through ``FileContentVerifier/hashOutcome``;
+                // `isCancelled` they ask themselves).
+                if Task.isCancelled || isCancelled() {
                     group.cancelAll()
                     continue
                 }
@@ -2786,6 +2833,70 @@ extension FileSyncManager {
             }
         }
         return result
+    }
+
+    /// The size past which a duplicate candidate's two ends are sampled before it is read whole:
+    /// 100 MB, where the hasher used to stop altogether.
+    ///
+    /// **Why the scan samples and the hasher does not.** The scan reads every candidate that shares
+    /// its size with another, unasked, across a whole tree. Below this size that costs what it
+    /// always has. Above it, a pair of same-size files that are NOT copies — two disk images, two
+    /// pre-allocated containers — would now be read in full, gigabytes each, to learn they differ.
+    /// Their first and last megabyte almost always differ already, and a difference anywhere is
+    /// proof, so only files whose ends match another's are read whole. Copies always match there,
+    /// so the sample never hides a duplicate; it only spares the reads that could not find one.
+    public nonisolated static let duplicateEdgeSampleAbove = 100 * 1024 * 1024
+
+    /// ``FileContentVerifier/edgeSample`` of each file, with bounded concurrency — path → sample,
+    /// missing where none could be taken. The same width and lane as ``hashFilesCounting``.
+    nonisolated static func edgeSamples(
+        _ files: [(path: String, size: Int)],
+        maxConcurrent: Int = 6,
+        isCloudOnly: @escaping @Sendable (String) -> Bool
+    ) async -> [String: String] {
+        var samples: [String: String] = [:]
+        var next = 0
+        await withTaskGroup(of: (String, String?).self) { group in
+            func schedule(_ file: (path: String, size: Int)) {
+                group.addTask {
+                    (file.path, await FileContentVerifier.edgeSample(filePath: file.path, size: file.size,
+                                                                     isCloudOnly: isCloudOnly))
+                }
+            }
+            while next < min(maxConcurrent, files.count) { schedule(files[next]); next += 1 }
+            for await (path, sample) in group {
+                if let sample { samples[path] = sample }
+                if Task.isCancelled { group.cancelAll(); continue }
+                if next < files.count { schedule(files[next]); next += 1 }
+            }
+        }
+        return samples
+    }
+
+    /// The candidates still worth a full hash once the large ones' edge samples are in, in their
+    /// original order. Every candidate at or under `sampleAbove` stays. A larger one is dropped only
+    /// when its sample is unlike every other same-size candidate's — proof it is a copy of none.
+    ///
+    /// **A size with any unsampled member keeps all of its members.** No sample means unknown, not
+    /// different: a cloud-only copy is never opened here, but its digest may already be cached, and
+    /// dropping its local twin would lose the pair. An unreadable one goes on to the full hash,
+    /// which counts it as a skip the way it always has.
+    nonisolated static func candidatesNeedingFullHash(
+        _ candidates: [(path: String, size: Int)],
+        samples: [String: String],
+        sampleAbove: Int
+    ) -> [String] {
+        var bySize: [Int: [String]] = [:]
+        for c in candidates where c.size > sampleAbove { bySize[c.size, default: []].append(c.path) }
+        var dropped = Set<String>()
+        for paths in bySize.values {
+            let taken = paths.compactMap { samples[$0] }
+            guard taken.count == paths.count else { continue }
+            var count: [String: Int] = [:]
+            for sample in taken { count[sample, default: 0] += 1 }
+            for path in paths where count[samples[path]!] == 1 { dropped.insert(path) }
+        }
+        return candidates.map(\.path).filter { !dropped.contains($0) }
     }
 
     /// **Built once, and reached under a lock.** This is called from `body` — the compare surface's

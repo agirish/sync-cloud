@@ -35,7 +35,12 @@ extension FileSyncManager {
         // the work of finding that out.
         let paths = suggestions.map(\.filePath)
         let documentPaths = paths.filter { ContentFingerprint.canFingerprint(path: $0) }
-        let bytePaths = paths.filter { !ContentFingerprint.canFingerprint(path: $0) }
+        // Byte-hashed only up to `unaskedPassMaxFileBytes`: this runs on every filing scan, before
+        // its list appears, and a 10 GB download in the inbox would be read whole to answer it.
+        let bytePaths = suggestions
+            .filter { !ContentFingerprint.canFingerprint(path: $0.filePath)
+                      && $0.size <= Self.unaskedPassMaxFileBytes }
+            .map(\.filePath)
         let fm = fileManager
 
         var identities: [String: String] = [:]

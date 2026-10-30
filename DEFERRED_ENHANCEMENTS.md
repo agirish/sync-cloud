@@ -134,30 +134,27 @@ which the transfer loop and the bulk-sync workers read as neither a transfer nor
 
 ---
 
-## 6. Content verification's three blind spots: cloud-only, >100 MB, hard-linked
+## 6. Content verification's two blind spots: cloud-only and hard-linked
 
 **Today:** Anything that needs a content hash — Organize ▸ Duplicates and Verify All — skips
-three classes of file, and the duplicate scan **counts and reports** each reason
-(`DuplicateScanSkips`: `tooLarge`, `cloudOnly`, `multiLink`, surfaced in the results view and in a
-log line that ends "duplicates among them are not detected"):
+two classes of file, and the duplicate scan **counts and reports** each reason
+(`DuplicateScanSkips`: `cloudOnly`, `multiLink`, surfaced in the results view and in a log line
+that ends "duplicates among them are not detected"). The third, files over 100 MB, is gone: the
+hasher streams any size (2026-10-30, for RD67), and only the scan-time verify keeps the limit.
 
 - **Cloud-only (dataless) placeholders** — hashing one would force a full download of a file the
   user chose not to keep local. `MaterializationStatus.isCloudOnly` detects them with a single
   `lstat` that does not fetch.
-- **Over the size cap** — `FileContentVerifier.maxBytesToHash` is 100 MB.
 - **Hard links** (link count > 1) — a directory entry is not the bytes, so no single-path
   duplicate offer about one is truthful. Deliberate, and unlikely to change.
 
-**Enhancement:** For the first two, an opt-in "check these too" pass: materialize-then-hash for
-cloud-only files (with a byte/count budget shown up front), and a sampled hash — head + tail +
-size — for files over the cap, reported as a weaker claim than a full hash.
+**Enhancement:** For cloud-only files, an opt-in "check these too" pass: materialize-then-hash,
+with a byte/count budget shown up front.
 
 **Why deferred:** Materializing costs the user bandwidth and disk. Fetching on demand is not the
 obstacle it was thought to be: `MaterializationStatus.download` (`startDownloadingUbiquitousItem`)
 fetched a real Google Drive placeholder on 2026-10-25, and only falls back to Reveal in Finder
-when it throws; Dropbox and OneDrive are not yet measured. A sampled hash is a *different* claim than byte-identical and would
-need its own UI vocabulary and its own never-auto-trash rule — the current copies already carry an
-`unverified` flag for exactly this kind of weaker evidence. **Effort:** medium. **Risk:** medium
+when it throws; Dropbox and OneDrive are not yet measured. **Effort:** medium. **Risk:** medium
 (it widens what "identical" means on a destructive path).
 
 ---

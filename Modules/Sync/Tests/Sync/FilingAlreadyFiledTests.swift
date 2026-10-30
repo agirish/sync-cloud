@@ -134,6 +134,42 @@ import Testing
                 "a document the tree already holds must not be filed by the blind batch")
     }
 
+    /// The same fixture as the test above, with the loose file recorded one byte over
+    /// `unaskedPassMaxFileBytes`: it is not read, so it is not marked. The filing scan runs unasked
+    /// on every pass, and a 10 GB download in the inbox would otherwise be read whole for this.
+    @Test func aLooseFileOverTheUnaskedLimitIsNotRead() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "AlreadyFiledScanLarge")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let indexDir = root.appendingPathComponent("index")
+        try FileManager.default.createDirectory(at: indexDir, withIntermediateDirectories: true)
+
+        let payload = Data(repeating: 0x50, count: 4096)
+        let filed = root.appendingPathComponent("Work/Pay/payslip-june.jpg")
+        let loose = root.appendingPathComponent("Downloads/Payslip.jpg")
+        try Self.write(filed, payload)
+        try Self.write(loose, payload)
+        let hex = await FileSyncManager.hashFiles([filed.path], fileManager: FileManager.default,
+                                                  cache: nil)[filed.path] ?? ""
+        try #require(!hex.isEmpty, "the fixture could not hash its own file")
+        ContentHashIndexStore.saveInBackground(
+            [ContentHashRecord(path: filed.path, mtime: 0, size: payload.count, hex: hex, storedAt: Date())],
+            to: indexDir.appendingPathComponent("content-hash-index.json"))
+        ContentHashIndexStore.waitForPendingWrites()
+
+        let m = FileSyncManager()
+        m.contentIndexDirectory = indexDir
+        let marked = await m.markingAlreadyFiled([
+            FilingSuggestion(filePath: loose.path, fileName: "Payslip.jpg",
+                             size: FileSyncManager.unaskedPassMaxFileBytes + 1, modificationDate: nil,
+                             candidates: [FilingDestination(path: root.appendingPathComponent("Work/Pay").path,
+                                                            confidence: .high, reasons: ["r"],
+                                                            newSegments: [])],
+                             providerRoot: root.path)
+        ], providerRoot: root.path)
+
+        #expect(try #require(marked.first).isAlreadyFiled == false)
+    }
+
     /// The other direction, so the test above cannot pass by marking everything: bytes the index
     /// has never seen come back unmarked and batch-eligible.
     @Test func aFileTheTreeDoesNotHoldIsLeftAlone() async throws {

@@ -343,8 +343,8 @@ same-size/different-date pairs, and the `autoVerifySameSizeDuringScan` setting. 
 size on disk, so unchanged files are not re-read across launches (the deferred item that asked for
 it is now closed). What remains here is the comparison mode itself.
 
-**What:** A "strict content match" mode that compares by hash where dates and sizes disagree. Files
-over 100 MB and cloud-only placeholders stay skipped (`DEFERRED_ENHANCEMENTS.md` #6).
+**What:** A "strict content match" mode that compares by hash where dates and sizes disagree.
+Cloud-only placeholders stay skipped (`DEFERRED_ENHANCEMENTS.md` #6); files of any size are hashed.
 
 **Impact:** Fewer false positives. The index item 4 depends on now exists.
 
@@ -1259,7 +1259,7 @@ costs one line in a diagnostic file. Those are correct to record and wrong to sc
 in would break both files at once: this one would stop being a plan you can work down, and eleven
 carefully-argued trades would read as neglected backlog.
 
-You reach for that file when the *code* surprises you — "why does this skip files over 100 MB?" —
+You reach for that file when the *code* surprises you — "why does this skip cloud-only files?" —
 and this one when you are deciding what to build next. Different question, different file.
 
 **The real problem was duplication, and it is fixed.** In-place folder Merge carried a full

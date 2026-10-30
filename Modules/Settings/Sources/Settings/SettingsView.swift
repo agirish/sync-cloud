@@ -2089,7 +2089,7 @@ struct SyncSettingsTab: View {
                 Toggle(isOn: $settings.autoVerifySameSizeDuringScan) {
                     Text("Verify same-size files during scans")
                 }
-                .help("During each scan, checksums same-size files that differ only by date and hides the ones that are identical. Slower on large folders.")
+                .help("During each scan, checksums same-size files that differ only by date and hides the ones that are identical. Files over 100 MB are left for Verify All. Slower on large folders.")
                 Toggle(isOn: $settings.ignoreGoogleDriveNewerDateOnly) {
                     Text("Ignore “newer on Google Drive” when same size")
                 }

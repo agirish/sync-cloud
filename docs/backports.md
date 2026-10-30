@@ -13129,3 +13129,33 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s textPass=%s negativeDropped=%
 |---|---|---|
 | `v5.x` / `v4.x` | Every textless document re-parsed on every scan | RECORDED — not owed |
 | `v3.x` / `v2.x` | No same-text pass | CLOSED — does not apply |
+
+---
+
+## Content hashing covers files of any size (RD67 prerequisite) — main only
+
+2026-10-30, for v6.3. On `main`: `FileContentVerifier` no longer skips files over 100 MB
+(`maxBytesToHash` and `HashOutcome.skippedTooLarge` are gone). The read still streams in 4 MB
+chunks, now yields between chunks, and stops at the next chunk on cancel (`HashOutcome.cancelled`),
+including Verify All's and a merge's Stop. Verify All, Compare Copies, Review and the CLI hash any
+size; a pair stops reading as soon as one side cannot be hashed. The two passes nobody asks for —
+the optional scan-time verify and the filing scan's already-filed check — keep a 100 MB per-file
+limit (`unaskedPassMaxFileBytes`). Merge planning hashes only files with a same-size counterpart
+on the other side. The duplicate scan hashes large files too, but first compares the first and
+last 1 MB of same-size files over 100 MB (`duplicateEdgeSampleAbove`) and reads whole only those
+that match. Its skip note loses "too large to hash".
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s cap=%s skipNote=%s edgeSample=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileContentVerifier.swift 2>/dev/null | grep -cF 'maxBytesToHash: Int = 100 * 1024 * 1024')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DuplicateGroupCard.swift 2>/dev/null | grep -cF 'too large to hash')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileContentVerifier.swift 2>/dev/null | grep -cF 'static func edgeSample(')"; done
+# measured 2026-10-30, against origin, before this landed (the change reads cap=0 skipNote=0 edgeSample=1):
+# main, v5.x   cap=1 skipNote=1 edgeSample=0
+# v4.x         cap=1 skipNote=2 edgeSample=0
+# v3.x, v2.x   cap=1 skipNote=0 edgeSample=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The 100 MB cap: larger files are skipped by every content check | RECORDED — not owed |

@@ -1053,19 +1053,19 @@ enum DuplicateGroupNote {
 // MARK: - Unverified-content note
 
 /// Pure wording for the card's caveat when some copies in a group could not be content-verified
-/// (hash skipped: too large, cloud-only, unreadable) — the group's content claim rests on less
+/// (hash skipped: cloud-only, unreadable) — the group's content claim rests on less
 /// than full verification, and the note must say so before the user trusts a one-click resolve.
 ///
 /// **It is one clause, because it is appended to a note that is already a caveat.** The long form
 /// spelled out both reasons and then repeated "review before removing anything", which the
 /// same-text note it most often follows had already said — and a warning read past is not a
-/// warning. The reasons stay, in parentheses, because a cloud-only copy and a too-large one are
+/// warning. The reasons stay, in parentheses, because a cloud-only copy and an unreadable one are
 /// fixed by different things.
 enum DuplicateUnverifiedNote {
     static func text(unverifiedCount count: Int) -> String? {
         guard count > 0 else { return nil }
         let plural = count != 1
-        return "\(count) not content-verified (too large, or not downloaded)."
+        return "\(count) not content-verified (not downloaded, or unreadable)."
     }
 }
 
@@ -1077,7 +1077,6 @@ enum DuplicateScanSkipNote {
     static func text(_ skips: FileSyncManager.DuplicateScanSkips) -> String? {
         guard skips.total > 0 else { return nil }
         var reasons: [String] = []
-        if skips.tooLarge > 0 { reasons.append("\(skips.tooLarge) too large to hash") }
         if skips.cloudOnly > 0 { reasons.append("\(skips.cloudOnly) cloud-only (not downloaded)") }
         if skips.multiLink > 0 { reasons.append("\(skips.multiLink) hard-linked (trashing a link frees nothing)") }
         // Deliberately vague about WHICH way it failed: gone, unreadable, replaced between the

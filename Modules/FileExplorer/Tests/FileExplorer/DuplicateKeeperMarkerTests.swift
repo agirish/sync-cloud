@@ -45,7 +45,7 @@ import Testing
 }
 
 /// Pins the wording gate for the card's unverified-content caveat: it appears only when a group
-/// really contains copies whose hash was skipped (too large / cloud-only / unreadable), pluralizes
+/// really contains copies whose hash was skipped (cloud-only / unreadable), pluralizes
 /// correctly, and never fires for a fully verified group.
 @Suite struct DuplicateUnverifiedNoteTests {
     @Test func noNoteWhenEveryCopyIsVerified() {
@@ -57,8 +57,10 @@ import Testing
         #expect(one?.hasPrefix("1 not content-verified") == true)
         let three = DuplicateUnverifiedNote.text(unverifiedCount: 3)
         #expect(three?.hasPrefix("3 not content-verified") == true)
-        // Both reasons stay: a cloud-only copy and a too-large one are fixed by different things.
-        #expect(one?.contains("too large") == true && one?.contains("not downloaded") == true)
+        // Both reasons stay: a cloud-only copy and an unreadable one are fixed by different
+        // things. And no size reason: nothing is skipped for size since the hasher's cap went.
+        #expect(one?.contains("unreadable") == true && one?.contains("not downloaded") == true)
+        #expect(one?.contains("too large") == false)
     }
 }
 
@@ -72,9 +74,7 @@ import Testing
     }
 
     @Test func listsOnlyTheReasonsThatOccurred() {
-        let largeOnly = DuplicateScanSkipNote.text(Skips(tooLarge: 2, cloudOnly: 0))
-        #expect(largeOnly == "2 files outside duplicate detection: 2 too large to hash. Duplicates among them are not detected.")
-        let cloudOnly = DuplicateScanSkipNote.text(Skips(tooLarge: 0, cloudOnly: 3))
+        let cloudOnly = DuplicateScanSkipNote.text(Skips(cloudOnly: 3))
         #expect(cloudOnly == "3 files outside duplicate detection: 3 cloud-only (not downloaded). Duplicates among them are not detected.")
         // Hard links joined the ledger in round 6: dropped files must never just quietly
         // shrink the results ("over-report beats hide" applies to the accounting too).
@@ -96,19 +96,19 @@ import Testing
     /// could be made about" — which is exactly what these are.
     @Test func unreadableFilesAreInTheTotalUnlikeTheTextOnlyDeclines() {
         #expect(Skips(unverifiable: 4).total == 4)
-        #expect(Skips(tooLarge: 1, cloudOnly: 2, multiLink: 3, unverifiable: 4).total == 10)
+        #expect(Skips(cloudOnly: 2, multiLink: 3, unverifiable: 4).total == 9)
         // The contrast that makes the rule legible: a text-only decline is NOT in the total,
         // because those files were hashed and grouped normally.
         #expect(Skips(textUnreadable: 853).total == 0)
     }
 
     @Test func combinesBothReasonsWithATotal() {
-        let both = DuplicateScanSkipNote.text(Skips(tooLarge: 1, cloudOnly: 2, multiLink: 3))
-        #expect(both == "6 files outside duplicate detection: 1 too large to hash, 2 cloud-only (not downloaded), 3 hard-linked (trashing a link frees nothing). Duplicates among them are not detected.")
+        let both = DuplicateScanSkipNote.text(Skips(cloudOnly: 2, multiLink: 3, unverifiable: 1))
+        #expect(both == "6 files outside duplicate detection: 2 cloud-only (not downloaded), 3 hard-linked (trashing a link frees nothing), 1 unreadable or changed while being read. Duplicates among them are not detected.")
     }
 
     @Test func singularTotalDropsThePluralS() {
-        let one = DuplicateScanSkipNote.text(Skips(tooLarge: 1, cloudOnly: 0))
+        let one = DuplicateScanSkipNote.text(Skips(cloudOnly: 1))
         #expect(one?.hasPrefix("1 file outside duplicate detection") == true)
     }
 
@@ -116,7 +116,7 @@ import Testing
         // These files WERE hashed and grouped; only the weaker same-text comparison was declined.
         // Folding them into the total would make the pill claim a much larger blindness than the
         // scan actually has — 853 of 10,569 on the tree this was measured against.
-        let note = DuplicateScanSkipNote.text(Skips(tooLarge: 1, textUnreadable: 853))
+        let note = DuplicateScanSkipNote.text(Skips(cloudOnly: 1, textUnreadable: 853))
         #expect(note?.hasPrefix("1 file outside duplicate detection") == true)
         #expect(note?.contains("A further 853 documents were hashed but said too little") == true)
     }

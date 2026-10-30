@@ -80,36 +80,35 @@ import Combine
     }
 
     @MainActor
-    @Test func findDuplicatesCountsCandidatesSkippedForSize() async throws {
+    @Test func aRescanAndClearDuplicatesResetTheSkipFigure() async throws {
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        // Two byte-identical files over the (injected) hash cap: they are size-collision
-        // candidates, but hashing skips both — so no group can form, and the scan must SAY so
-        // instead of silently reporting "no duplicates".
+        // Two byte-identical files flagged cloud-only: they are size-collision candidates, but
+        // hashing skips both — so no group can form, and the scan must SAY so instead of silently
+        // reporting "no duplicates".
         try write(root.appendingPathComponent("A/movie.mp4"), bytes: 5000, fill: 0x41)
         try write(root.appendingPathComponent("B/movie.mp4"), bytes: 5000, fill: 0x41)
 
         let manager = FileSyncManager()
-        // `cache: nil` throughout. This test scans the SAME files at two different caps, and a
-        // cache hit deliberately bypasses the cap — the cache holds digests, while the cap only
-        // decides whether computing one is worth it. Sharing one across these scans would let the
-        // real-cap run at line 3 answer for the capped run below it, which is correct behavior and
-        // the wrong thing to measure here: what is under test is the SKIP classification.
-        await manager.findDuplicates(root: root, maxBytesToHash: 1000, cache: nil)
+        // `cache: nil` throughout. This test scans the SAME files with two different cloud-only
+        // answers, and a cache hit deliberately bypasses that answer — the cache holds digests.
+        // Sharing one across these scans would let the local run answer for the cloud-only run
+        // after it, which is correct behavior and the wrong thing to measure here: what is under
+        // test is the SKIP classification.
+        await manager.findDuplicates(root: root, isCloudOnly: { _ in true }, cache: nil)
 
         #expect(manager.hasFoundDuplicates)
         #expect(manager.duplicateGroups.isEmpty)                      // identity unknown → no claim
-        #expect(manager.duplicateScanSkips.tooLarge == 2)
-        #expect(manager.duplicateScanSkips.cloudOnly == 0)
+        #expect(manager.duplicateScanSkips.cloudOnly == 2)
         #expect(manager.duplicateScanSkips.total == 2)
 
-        // A rescan with the real cap hashes them — and resets the skip figure with the results.
-        await manager.findDuplicates(root: root, cache: nil)
+        // A rescan with the files local hashes them — and resets the skip figure with the results.
+        await manager.findDuplicates(root: root, isCloudOnly: { _ in false }, cache: nil)
         #expect(manager.duplicateScanSkips == FileSyncManager.DuplicateScanSkips())
         #expect(manager.duplicateGroups.count == 1)
 
         // clearDuplicates resets it alongside the rest of the results state.
-        await manager.findDuplicates(root: root, maxBytesToHash: 1000, cache: nil)
+        await manager.findDuplicates(root: root, isCloudOnly: { _ in true }, cache: nil)
         #expect(manager.duplicateScanSkips.total == 2)
         manager.clearDuplicates()
         #expect(manager.duplicateScanSkips == FileSyncManager.DuplicateScanSkips())
@@ -130,7 +129,7 @@ import Combine
         await manager.findDuplicates(root: root, isCloudOnly: { $0.hasSuffix("cloud.mov") })
 
         #expect(manager.duplicateScanSkips.cloudOnly == 2)
-        #expect(manager.duplicateScanSkips.tooLarge == 0)
+        #expect(manager.duplicateScanSkips.unverifiable == 0)
         // The unhashed cloud pair asserts nothing; the local pair still groups normally.
         #expect(manager.duplicateGroups.count == 1)
         #expect(manager.duplicateGroups.first?.name == "local.pdf")

@@ -116,7 +116,7 @@ struct ReviewSession: Equatable {
     enum VerifyVerdict: Equatable {
         case identical
         case differed
-        /// A side couldn't be hashed (unreadable, too large, vanished).
+        /// A side couldn't be hashed (unreadable, not downloaded, vanished).
         case unverifiable
     }
 

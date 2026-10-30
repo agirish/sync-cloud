@@ -169,7 +169,7 @@ public struct DuplicateCopy: Identifiable, Sendable, Equatable, Hashable {
     /// Whether this is the recommended copy to keep.
     public let isRecommendedKeeper: Bool
     /// True when the scan could NOT content-verify this copy: its hash (or, for a folder, some
-    /// descendant's) was skipped — too large, cloud-only, unreadable. Lets the UI say the group's
+    /// descendant's) was skipped — cloud-only, unreadable. Lets the UI say the group's
     /// content claim rests on less than full verification. Defaulted so existing construction
     /// sites are unaffected.
     public let contentUnverified: Bool
@@ -517,7 +517,8 @@ public struct DuplicateFinderOptions: Sendable {
 public enum DuplicateFinder {
 
     /// Prefix of the per-path placeholder signature the scan assigns to files it could NOT hash
-    /// (over the size cap, unreadable, cloud-only). Placeholders keep folder signatures computable
+    /// (unreadable, cloud-only), or did not need to (no same-size twin, or ends unlike any
+    /// twin's). Placeholders keep folder signatures computable
     /// — a unique value can never falsely MATCH — but they are not content identity: they must
     /// never count as evidence that two files' contents DIFFER either.
     public static let unknownSignaturePrefix = "u:"
@@ -1191,7 +1192,7 @@ public enum DuplicateFinder {
                     for parent in markerParents.sorted() {
                         let inParent = byParent[parent] ?? []
                         // A cluster that cannot PROVE drift (fewer than two real hashes — its
-                        // companions are too large or cloud-only to hash) will die at the guard
+                        // companions are cloud-only or unreadable) will die at the guard
                         // below; its bearers then fall through to the cross-folder pool instead
                         // of silently vanishing — a marked name still carries its own evidence,
                         // and a lone bearer elsewhere may prove the drift the home folder
@@ -1212,8 +1213,8 @@ public enum DuplicateFinder {
                 guard members.count >= 2 else { continue }
                 // Only PROVEN drift: at least two distinct REAL contents (identical bytes were
                 // already grouped). Placeholder ("u:" unknown) and missing signatures are not
-                // evidence of difference — two byte-identical files that were merely too large
-                // (or cloud-only) to hash must not be claimed as drifted versions. Unknown-hash
+                // evidence of difference — two byte-identical files that were merely cloud-only
+                // (or unreadable) must not be claimed as drifted versions. Unknown-hash
                 // members may ride along in a group that real hashes justify, but can never
                 // stand one up by themselves.
                 // Files inside a kept folder can anchor a version group but are never offered for
