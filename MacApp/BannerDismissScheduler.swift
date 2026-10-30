@@ -8,7 +8,8 @@ import Sync
 ///
 /// Dismissal rules by severity: success and warning auto-dismiss after their configured delay
 /// (warnings get a longer window); errors are sticky and stay until manually closed. A message
-/// the toolbar's capsule shows gets a longer window of its own (`capsuleNanoseconds`).
+/// that is the toolbar capsule's own gets a longer window of its own (`capsuleNanoseconds`); a
+/// run's ending the capsule only mirrors from a pane keeps the pane's.
 /// Hovering the banner pauses the timer; on hover exit the FULL delay restarts (not the
 /// remainder) — a deliberate simplification: the user was just reading the banner, so it earns
 /// a fresh window.
@@ -18,10 +19,11 @@ final class BannerDismissScheduler {
     struct Delays {
         var successNanoseconds: UInt64 = 5_000_000_000
         var warningNanoseconds: UInt64 = 10_000_000_000
-        /// **A message in the toolbar's capsule, success or warning** (Run Room CG). The capsule
-        /// holds a run's ending only when the reader has moved on from where it was started, so it
-        /// is never where they are looking — and never under the pointer, which is what holds a
-        /// pane's message open while it is read. Five seconds there came and went unseen.
+        /// **The toolbar capsule's own message, success or warning** (Run Room CG): a run's ending
+        /// after the reader moved on from where it was started, so it is never where they are
+        /// looking — and never under the pointer, which is what holds a pane's message open while
+        /// it is read. Five seconds there came and went unseen. A run's ending the capsule mirrors
+        /// from a pane is the pane's message, on the pane's window.
         var capsuleNanoseconds: UInt64 = 10_000_000_000
 
         static let standard = Delays()

@@ -189,6 +189,12 @@ public final class ActivityCenter: ObservableObject {
         if dotHeldFor != nil { dotHeldFor = nil }
     }
 
+    /// Releases the hold only if it is `messageID`'s: one message's landing or leaving must not
+    /// show the dot of another still in the capsule.
+    public func releaseDot(heldFor messageID: UUID) {
+        if dotHeldFor == messageID { dotHeldFor = nil }
+    }
+
     /// Flashes `messageID`'s row once — a repeat folded into an earlier row is that row.
     public func flashRow(for messageID: UUID) {
         flashedRow = recent.first { $0.foldedIDs.contains(messageID) }?.id ?? messageID

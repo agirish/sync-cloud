@@ -142,7 +142,8 @@ extension ContentView {
             }
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(ProgressCapsuleFlight.foldDuration))
-                capsuleFoldingID = nil
+                // A newer message folding now is that message's to unfold.
+                if capsuleFoldingID == banner.id { capsuleFoldingID = nil }
                 // Replaced or closed while it folded: the newer message is not this one's to clear.
                 guard syncManager.banner?.id == banner.id else {
                     CapsuleFlightLanding.shared.callOff(banner.id)
@@ -311,10 +312,10 @@ extension ContentView {
     /// riding in the message it replaced leaves with that message (CB). Returns whether the message
     /// is the capsule's, for its timer.
     @discardableResult
-    func resultMessageChanged(to banner: OperationBanner?) -> Bool {
+    func resultMessageChanged(from old: OperationBanner?, to banner: OperationBanner?) -> Bool {
         // A capsule problem's dot waits only while its message is on screen or in flight: replaced,
         // or cleared without a flight (Undo, a follow-up), it shows now rather than never.
-        if banner != nil || CapsuleFlightLanding.shared.flying == nil { ActivityCenter.shared.releaseDot() }
+        if let old { CapsuleFlightLanding.shared.messageLeft(old.id) }
         lensSession.retireRuleOffer(unlessRiding: banner?.id)
         if paneToolResultDoors?.banner.id != banner?.id { paneToolResultDoors = nil }
         guard let banner else { return false }

@@ -228,6 +228,17 @@ import Sync
         #expect(center.showsDot)
     }
 
+    /// A release names the message it is for: another message's leaves the hold in place.
+    @Test func aReleaseForAnotherMessageKeepsTheHold() {
+        let center = ActivityCenter()
+        let warning = OperationBanner.warning("Moved 2 of 3 items to the Trash")
+        center.record(warning, run: nil, finishedRun: nil, seen: false, dotWaits: true)
+        center.releaseDot(heldFor: UUID())
+        #expect(center.dotHeldFor == warning.id && !center.showsDot)
+        center.releaseDot(heldFor: warning.id)
+        #expect(center.dotHeldFor == nil && center.showsDot)
+    }
+
     /// A hold never hides a dot that was already showing for an older problem.
     @Test func aHoldLeavesAnOlderProblemsDotShowing() {
         let center = ActivityCenter()

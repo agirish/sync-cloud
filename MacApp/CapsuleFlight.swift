@@ -45,12 +45,19 @@ final class CapsuleFlightAnchors {
     weak var activity: NSView?
 
     /// Both views' screen frames and the window they are in — or nil unless both are in the SAME
-    /// window. **`view.window === host` is the overflow guard `CommandPaletteHost` measured:** an
-    /// item folded behind the toolbar's chevron keeps its view out of the window, and converting
-    /// it answers with the window's bottom-left corner at a plausible size, which would fly the ring
-    /// to nowhere.
+    /// window, and it is on screen. **`view.window === host` is the overflow guard
+    /// `CommandPaletteHost` measured:** an item folded behind the toolbar's chevron keeps its view
+    /// out of the window, and converting it answers with the window's bottom-left corner at a
+    /// plausible size, which would fly the ring to nowhere.
+    ///
+    /// **On screen, because ordering a child panel front orders its parent in too** — measured: a
+    /// window ordered out, as a closed one is, reads visible again. A message timing out after its
+    /// window was closed or minimized would bring the window back to fly the ring; off screen, it
+    /// lands in Activity without the flight. (Not `isOnActiveSpace`: a test host reads it false for
+    /// a window plainly on screen.)
     func frames() -> (host: NSWindow, capsule: CGRect, activity: CGRect)? {
-        guard let capsule, let activity, let host = capsule.window, activity.window === host else { return nil }
+        guard let capsule, let activity, let host = capsule.window, activity.window === host,
+              host.isVisible else { return nil }
         return (host, host.convertToScreen(capsule.convert(capsule.bounds, to: nil)),
                 host.convertToScreen(activity.convert(activity.bounds, to: nil)))
     }
@@ -90,15 +97,26 @@ final class CapsuleFlightLanding: ObservableObject {
 
     func takeOff(_ id: UUID) { flying = id }
 
-    /// Called off without landing: the message was replaced while it folded.
-    func callOff(_ id: UUID) { if flying == id { flying = nil } }
+    /// The message left the window's message — replaced, undone, followed or closed. Its held dot
+    /// shows now, unless it is the one in the air, whose dot waits for the landing. A dot is held
+    /// only for the message on screen or the one flying, so this and the landing release every hold.
+    func messageLeft(_ id: UUID, in center: ActivityCenter = .shared) {
+        if flying != id { center.releaseDot(heldFor: id) }
+    }
 
-    /// The message is in Activity: the button bumps, a held dot appears, and an open Activity's
+    /// Called off without landing: the message was replaced or cleared while it folded, so its dot
+    /// shows now.
+    func callOff(_ id: UUID, in center: ActivityCenter = .shared) {
+        if flying == id { flying = nil }
+        center.releaseDot(heldFor: id)
+    }
+
+    /// The message is in Activity: the button bumps, its held dot appears, and an open Activity's
     /// row for it flashes.
     func arrived(_ id: UUID, in center: ActivityCenter = .shared) {
         if flying == id { flying = nil }
         arrivals &+= 1
-        center.releaseDot()
+        center.releaseDot(heldFor: id)
         center.flashRow(for: id)
     }
 }

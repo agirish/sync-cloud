@@ -62,7 +62,8 @@ public struct ProgressCapsuleRun: Equatable, Sendable {
 }
 
 /// **A message in the capsule** (Run Room CG, TE233): the ending of a run that finished after the
-/// reader moved on, which the window shows here rather than in a pane they are not looking at.
+/// reader moved on, which the window shows here rather than in a pane they are not looking at — or
+/// a run's ending a pane shows, mirrored here for as long as the pane shows it.
 public struct ProgressCapsuleMessage {
     public enum Weight: Equatable, Sendable {
         case success, warning, failure
@@ -152,7 +153,7 @@ public struct ProgressCapsule: View {
     let onShowRuns: (() -> Void)?
     /// A click anywhere else on the capsule: opens Activity (TE220).
     let onOpen: (() -> Void)?
-    /// A message taking the capsule for its ten seconds, over any run (decision CU): its words in
+    /// A message taking the capsule for its time, over any run (decision CU): its words in
     /// the run's place, ✓ or ✕ in the ring, and the count still saying how many runs go on.
     let message: ProgressCapsuleMessage?
 

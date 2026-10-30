@@ -673,7 +673,7 @@ struct ContentView: View {
     }
     /// The row as it was when Activity's popover opened under the capsule, held until it closes
     /// (TE231): nothing moves under the popover — not when its last run ends, and not when the
-    /// capsule it opened from held only a message, whose room was only what was free (TE230).
+    /// message it opened from leaves.
     @State var activityPopoverStyles: ToolbarBarStyles?
     /// A pane-launched PDF tool run or Save as PDF showing in the toolbar capsule — reported by
     /// `RunCapsulePresence`, so this view need not observe the PDF models.
@@ -4563,9 +4563,9 @@ struct ContentView: View {
                 retireResultMessage()
             }
         }
-        .onChange(of: syncManager.banner) { _, newValue in
+        .onChange(of: syncManager.banner) { oldValue, newValue in
             // Routed first: the capsule's message gets a longer window than a pane's.
-            let inCapsule = resultMessageChanged(to: newValue)
+            let inCapsule = resultMessageChanged(from: oldValue, to: newValue)
             bannerDismissScheduler.bannerChanged(to: newValue, inCapsule: inCapsule) {
                 retireResultMessage()
             }

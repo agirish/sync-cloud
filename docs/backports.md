@@ -12973,3 +12973,28 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s switchFade=%s collapseRow=%s 
 | `v5.x` | The switch fade, the two-arm collapse, the lens eases and the eased tab drag | RECORDED — not owed |
 | `v4.x` / `v3.x` | The switch fade and the two-arm collapse; v4.x also the lens eases and a tab drag ease | RECORDED — not owed |
 | `v2.x` | The two-arm collapse (`singleSourceLayout` writes `bottomPaneView` twice); no switch fade, lens ease, scroll memory or tab strip | RECORDED — not owed |
+
+---
+
+## A capsule flight needs its window on screen; each held dot waits for its own message — main only
+
+The review of 2026-10-29's capsule work. A message timing out after the main window was closed or
+minimized flew its ring from that window, and ordering the flight's panel front orders a hidden
+parent back in (measured: an ordered-out window reads visible again); `CapsuleFlightAnchors.frames()`
+now needs the window visible, and lands the message without the flight otherwise. A held problem
+dot is released by its own message only (`CapsuleFlightLanding.messageLeft`, `callOff`, `arrived`),
+so a problem cleared during another message's fold no longer keeps its dot hidden, and one
+message's landing no longer shows the dot of another still in the capsule.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s flight=%s heldDot=%s\n' $l \
+  "$(git show origin/$l:MacApp/CapsuleFlight.swift 2>/dev/null | grep -c 'enum ResultMessageExit')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/ActivityCenter.swift 2>/dev/null | grep -c 'dotHeldFor')"; done
+# measured 2026-10-29, against origin, before this landed:
+# main          flight=1 heldDot=5
+# v5.x … v2.x   flight=0 heldDot=0 (no capsule, no Activity button)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No capsule flight or held dot | CLOSED — does not apply |

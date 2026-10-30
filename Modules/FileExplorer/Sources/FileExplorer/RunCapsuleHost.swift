@@ -124,8 +124,7 @@ public struct ActivityRunsReader<Content: View>: View {
 /// the PDF models (it does not; a run's progress would otherwise re-render the whole window).
 ///
 /// The popover is reported apart from the runs: it holds the row as it was when it opened (TE231),
-/// and is no run of its own — counted as one, a click on a capsule holding only a message folded
-/// the workspace names that message had been careful to leave alone (TE230).
+/// and is no run of its own.
 public struct RunCapsulePresence: View {
     @ObservedObject var center: ActivityCenter
     @ObservedObject var pdfTools: PanePDFTools
