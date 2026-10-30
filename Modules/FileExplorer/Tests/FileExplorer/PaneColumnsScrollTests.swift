@@ -282,20 +282,17 @@ import Sync
         // the mount's pump — one run read "rest" at x=0 for a full second and then watched the
         // reveal land at x=110 inside the assertion window below, failing this test against the
         // drill's scroll, not the watchdog. The extent is recomputed per pass because layout can
-        // land late too.
-        let revealDeadline = Date().addingTimeInterval(15)
-        var revealed = false
-        while Date() < revealDeadline {
+        // land late too. Floored on layout passes (`LayoutPumpWait`), not just fifteen seconds: on
+        // a 3-vCPU hosted VM the reveal had not landed when the seconds ran out (2026-10-30).
+        let (revealed, pumps) = await LayoutPumpWait.pump(window, upTo: 15) {
             let extent = max(0, (stack.documentView?.frame.width ?? 0) - stack.contentSize.width)
-            if extent > 0, clip.bounds.origin.x >= extent - 1 { revealed = true; break }
-            window.layoutIfNeeded()
-            try? await Task.sleep(nanoseconds: 8_000_000)
+            return extent > 0 && clip.bounds.origin.x >= extent - 1
         }
         // Required, not merely waited for. Falling out of that loop leaves the stack at x=0, where
         // the origin is legal and the watchdog has nothing to do — so the assertion below would
         // hold no matter how the watchdog behaved at the far end this test means to probe.
         try #require(revealed,
-                     "the drill's reveal never reached the stack's far end (origin \(clip.bounds.origin.x)) — the rest below is not the rest this test is about")
+                     "the drill's reveal never reached the stack's far end (origin \(clip.bounds.origin.x), \(pumps) passes) — the rest below is not the rest this test is about")
 
         // Then for genuine rest: a baseline read while anything still moves fails this test
         // against that movement. Rest = the origin holding still for a full second.
