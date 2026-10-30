@@ -30,10 +30,6 @@ on:
         description: How many times each app-target job runs the tests, each in a fresh test host
         type: string
         default: '1'
-      go-probe:
-        description: GoMenuDuplicates' probe in the app target (0 runs the hook exactly as before it)
-        type: string
-        default: '1'
       app-only-testing:
         description: Run only this test identifier in the app target, e.g. SyncCloudTests/GoMenuDuplicatesTests
         type: string
@@ -170,7 +166,6 @@ jobs:
       # prefix), so the plain name never reached the app's tests: SetupAccentTests, marked
       # pixelSampling, ran on the VM anyway.
       TEST_RUNNER_SYNCCLOUD_SKIP_MACHINE_PINNED: all
-      TEST_RUNNER_GO_PROBE: ${{ inputs.go-probe }}
     steps:
       - uses: actions/checkout@v4
         with:

@@ -75,17 +75,25 @@ import AppKit
         #expect(m.previousControl.isHidden, "Previous Tab ⌃⇧⇥ is a twin in every workspace")
     }
 
+    /// The item in `menu` registering `chord`.
+    static func find(_ chord: AppChord, in menu: NSMenu) -> NSMenuItem? {
+        menu.items.first {
+            $0.keyEquivalent == chord.appKitKeyEquivalent
+                && $0.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask) == chord.appKitModifierMask
+        }
+    }
+
     /// **The app's own Go menu carries the pair, and the hook is installed**: Previous Tab ⌃⇧⇥ sits
     /// hidden under Previous Tab ⇧⌘[, both ⌃ items keep their keys live, and retitling the live ⌃⇥
     /// item to Next Tab hides it at once — which only the launch-time observer can do.
+    ///
+    /// Read after SwiftUI's own update of Go, when one is pending — the pass that clears the flag
+    /// without a notification. On the hosted VM something in the suite ran it first, about one run
+    /// in ten, and the drawn ⌃⇥ item was found without its live key.
     @Test func theAppsGoMenuCarriesThePairAndKeepsItCurrent() throws {
         let go = try #require(GoMenuDuplicates.goMenu, "the app has no Go menu — this check would be vacuous")
-        func find(_ chord: AppChord) -> NSMenuItem? {
-            go.items.first {
-                $0.keyEquivalent == chord.appKitKeyEquivalent
-                    && $0.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask) == chord.appKitModifierMask
-            }
-        }
+        go.delegate?.menuNeedsUpdate?(go)
+        func find(_ chord: AppChord) -> NSMenuItem? { Self.find(chord, in: go) }
         let next = try #require(find(.nextTab))
         let previous = try #require(find(.previousTab))
         let previousControl = try #require(find(.previousTabControl), "nothing in Go registers ⌃⇧⇥")
@@ -101,16 +109,6 @@ import AppKit
                 "⌃⇧⇥ \"\(previousControl.title)\" (hidden \(previousControl.isHidden)) has no live key while hidden")
         #expect(control.allowsKeyEquivalentWhenHidden,
                 "⌃⇥ \"\(control.title)\" (hidden \(control.isHidden)) has no live key while hidden")
-        do {
-            // The hosted-VM probe: what the hook saw, then Go as it stands — on a pass too, to compare.
-            print("GO-PROBE trail\n" + GoMenuDuplicates.trail.map { "GO-PROBE " + $0 }.joined(separator: "\n"))
-            print("GO-PROBE ⌃⇥ met by an apply: \(GoMenuDuplicates.metItems.contains(ObjectIdentifier(control))), "
-                  + "⌃⇧⇥: \(GoMenuDuplicates.metItems.contains(ObjectIdentifier(previousControl))); "
-                  + "\(GoMenuDuplicates.applies) applies, the last \(ProcessInfo.processInfo.systemUptime - GoMenuDuplicates.lastApply) s ago; "
-                  + "Go is install's: \(GoMenuDuplicates.installedGo == ObjectIdentifier(go)); reached \(GoMenuDuplicates.reached)")
-            print("GO-PROBE now " + GoMenuDuplicates.describe(go) + "\n"
-                  + go.items.map { "GO-PROBE   " + GoMenuDuplicates.describe($0) }.joined(separator: "\n"))
-        }
 
         let original = control.title
         defer { control.title = original }
@@ -118,6 +116,33 @@ import AppKit
         #expect(control.isHidden, "the ⌃⇥ item read Next Tab and stayed drawn — the observer is not installed")
         control.title = "Focus Dropbox"
         #expect(!control.isHidden)
+    }
+
+    /// **A flag SwiftUI clears is set again at once.** SwiftUI's update of Go
+    /// (`PlatformItemList.Item.update`) writes `allowsKeyEquivalentWhenHidden = false` on each item,
+    /// which posts no notification; on the drawn ⌃⇥ item nothing else changes, so no notification
+    /// the hook watches says so (measured 2026-10-30). Written here as SwiftUI writes it — and on
+    /// the hidden twin after un-hiding it as well as before, since the hook must not lean on the
+    /// order SwiftUI happens to use.
+    @Test func aLiveKeySwiftUIClearsIsSetAgain() throws {
+        let go = try #require(GoMenuDuplicates.goMenu, "the app has no Go menu — this check would be vacuous")
+        let control = try #require(Self.find(.switchPaneFocus, in: go), "nothing in Go registers ⌃⇥")
+        let previousControl = try #require(Self.find(.previousTabControl, in: go), "nothing in Go registers ⌃⇧⇥")
+        try #require(control.allowsKeyEquivalentWhenHidden && previousControl.allowsKeyEquivalentWhenHidden,
+                     "the premise: both ⌃ items start with live keys")
+
+        control.allowsKeyEquivalentWhenHidden = false
+        #expect(control.allowsKeyEquivalentWhenHidden,
+                "⌃⇥ \"\(control.title)\" (hidden \(control.isHidden)) stayed without its live key once cleared")
+
+        previousControl.allowsKeyEquivalentWhenHidden = false
+        previousControl.isHidden = false
+        #expect(previousControl.isHidden && previousControl.allowsKeyEquivalentWhenHidden,
+                "⌃⇧⇥ cleared, then un-hidden: hidden \(previousControl.isHidden), live \(previousControl.allowsKeyEquivalentWhenHidden)")
+        previousControl.isHidden = false
+        previousControl.allowsKeyEquivalentWhenHidden = false
+        #expect(previousControl.isHidden && previousControl.allowsKeyEquivalentWhenHidden,
+                "⌃⇧⇥ un-hidden, then cleared: hidden \(previousControl.isHidden), live \(previousControl.allowsKeyEquivalentWhenHidden)")
     }
 
     /// The live Go menu's ⌃⇥ item, taken out of the menu and retitled Next Tab while out — so no
