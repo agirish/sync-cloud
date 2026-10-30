@@ -350,27 +350,47 @@ extension FileSyncManager {
                 .union(filingSessionRejections[f.id] ?? [])
             if !paths.isEmpty { rejectedByFile[f.id] = paths }
         }
+        // What the taxonomy says, worked out once and off the main actor: the classifier's capped
+        // folder list, the uncapped set, and every folder's profile. Sorting and tokenizing a
+        // 12,000-folder tree held the window for most of a second, and the profiles were rebuilt
+        // for each of the scan's two `suggest` calls.
+        let providerRootPath = providerRoot.path
+        let walkedTaxonomy = taxonomy
+        let scanOptions = options
+        let (taxonomyFolders, existingFolders, learned) = await Task.detached(priority: .userInitiated) {
+            (FilingEngine.relativeFolderPaths(of: walkedTaxonomy),
+             FilingEngine.relativeFolderPathSet(of: walkedTaxonomy),
+             FilingEngine.learnTaxonomy(walkedTaxonomy, providerRoot: providerRootPath,
+                                        options: scanOptions))
+        }.value
+        if Task.isCancelled { return }
         // Cache the taxonomy for single-file re-asks (Try another).
-        let taxonomyFolders = FilingEngine.relativeFolderPaths(of: taxonomy)
         filingLastProviderRoot = providerRoot.path
         filingLastNameProvider = nameProvider
         filingLastTaxonomyFolders = taxonomyFolders
         // Uncapped set for new-vs-existing marking on a re-ask (matches the main path's limit: .max).
-        filingLastExistingFolders = Set(FilingEngine.relativeFolderPaths(of: taxonomy, limit: .max))
+        filingLastExistingFolders = existingFolders
         // The router reasons over the UNCAPPED folder set: the classifier's cap exists to bound
         // token cost, and this pass sends nothing anywhere, so capping it would hide real
         // destinations for no benefit.
         prepareFilingRouter(destinations: filingLastExistingFolders, providerRoot: providerRoot.path)
 
         // Phase 1 — filename + metadata + your taxonomy + your rules (not published yet).
-        var suggestions = FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy,
-                                               providerRoot: providerRoot.path, rules: rules,
-                                               automations: automations,
-                                               registry: filingPersonRegistry,
-                                               identity: filingPersonIdentity,
-                                               providerName: providerName,
-                                               automationSnippets: automationSnippets, now: scanClock,
-                                               rejectedByFile: rejectedByFile, options: options)
+        // Off the main actor, against the taxonomy learned above; every input is a value.
+        let registry = filingPersonRegistry
+        let personIdentity = filingPersonIdentity
+        let snippetsForRules = automationSnippets
+        let rejections = rejectedByFile
+        var suggestions = await Task.detached(priority: .userInitiated) {
+            FilingEngine.suggest(looseFiles: looseFiles, learned: learned,
+                                 providerRoot: providerRootPath, rules: rules,
+                                 automations: automations,
+                                 registry: registry,
+                                 identity: personIdentity,
+                                 providerName: providerName,
+                                 automationSnippets: snippetsForRules, now: scanClock,
+                                 rejectedByFile: rejections, options: scanOptions)
+        }.value
         if Task.isCancelled { return }
         // **What each card is about, recorded once phase 1 has built the cards (FR45)** — after
         // the walk and before any page is read. `performFiling` re-reads it before the move and
@@ -464,14 +484,18 @@ extension FileSyncManager {
                     // resolves unresolved — the candidate is dropped. A rule the user wrote by hand
                     // stopped steering the moment any file in the scan needed its contents read,
                     // which is the default setting and the common case.
-                    suggestions = FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy,
-                                                       providerRoot: providerRoot.path, contentTokens: content,
-                                                       rules: rules, automations: automations,
-                                                       registry: filingPersonRegistry,
-                                                       identity: filingPersonIdentity,
-                                                       providerName: providerName,
-                                                       automationSnippets: automationSnippets, now: scanClock,
-                                                       rejectedByFile: rejectedByFile, options: options)
+                    let registry = filingPersonRegistry
+                    let personIdentity = filingPersonIdentity
+                    suggestions = await Task.detached(priority: .userInitiated) {
+                        FilingEngine.suggest(looseFiles: looseFiles, learned: learned,
+                                             providerRoot: providerRootPath, contentTokens: content,
+                                             rules: rules, automations: automations,
+                                             registry: registry,
+                                             identity: personIdentity,
+                                             providerName: providerName,
+                                             automationSnippets: snippetsForRules, now: scanClock,
+                                             rejectedByFile: rejections, options: scanOptions)
+                    }.value
                         // The identity too: `suggest` builds cards without one, and a card
                         // without one is filed with no "changed since the scan" check at all.
                         .map { $0.recordingSource(scanIdentities[$0.id] ?? nil) }

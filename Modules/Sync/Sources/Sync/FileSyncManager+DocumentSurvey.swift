@@ -239,8 +239,12 @@ extension FileSyncManager {
                            + "built from" + (askedAboutIt ? "" : " — not \(requested.path), which it "
                                                            + "was asked about"))
 
+        // Decoded off the main actor: on a surveyed tree the corpus is megabytes, and this read is
+        // also what refuses there — so it was what every refused start paid on the main thread.
         let existing: FilingCorpus?
-        switch FilingSurveyStore.corpusRead(id: profileId, in: directory) {
+        switch await Task.detached(priority: .userInitiated, operation: {
+            FilingSurveyStore.corpusRead(id: profileId, in: directory)
+        }).value {
         case .unreadable: return .failure(.corpusUnreadable)
         case .absent: existing = nil
         case .loaded(let corpus):
@@ -272,7 +276,8 @@ extension FileSyncManager {
         // this one writes the same two files.
         if Self.isUnreadableRootMarker(walked, root: root) { return .failure(.rootUnreadable) }
 
-        let tree = FilingSurvey.flatten(walked)
+        let flattenInput = walked
+        let tree = await Task.detached(priority: .userInitiated) { FilingSurvey.flatten(flattenInput) }.value
         // **A resumable checkpoint's salt wins over everything, and forgetting that made resume
         // impossible.** With no corpus and no memory the last branch mints a RANDOM salt, so a
         // resume planned a different salt from the one the checkpoint was written under,
@@ -284,10 +289,13 @@ extension FileSyncManager {
         let salt = resumableSalt
             ?? (existing?.salt.isEmpty == false ? existing!.salt
                 : (filingMemory?.salt.isEmpty == false ? filingMemory!.salt : Self.newSurveySalt()))
-        let paths = FilingSurvey.documentsToRead(tree: tree, corpus: existing, memory: filingMemory)
-        let unreadableTypes = tree.documents.keys.filter {
-            !FilingSurvey.readableExtensions.contains(($0 as NSString).pathExtension.lowercased())
-        }.count
+        let memory = filingMemory
+        let (paths, unreadableTypes) = await Task.detached(priority: .userInitiated) {
+            (FilingSurvey.documentsToRead(tree: tree, corpus: existing, memory: memory),
+             tree.documents.keys.filter {
+                !FilingSurvey.readableExtensions.contains(($0 as NSString).pathExtension.lowercased())
+             }.count)
+        }.value
 
         return .success(DocumentSurveyPlan(root: root, paths: paths, tree: tree, salt: salt,
                                            profileId: profileId,

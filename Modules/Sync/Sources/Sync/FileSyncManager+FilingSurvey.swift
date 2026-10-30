@@ -198,8 +198,142 @@ extension FileSyncManager {
                                   + "the memory already on disk was left exactly as it was.")
             return .none
         }
-        let tree = FilingSurvey.flatten(walked)
         let previousMemory = filingMemory
+        let isAvailable = filingDocumentIsAvailable
+        let witness = filingResurveyOffMainWitness
+        // **The heavy steps run off this actor, in two hops** — the snippet read awaits between
+        // them. Flattening, decoding a corpus of megabytes and building the memory held the window
+        // for over a second on a real tree; the document survey and Restructure's re-derive
+        // already did the same steps detached. Everything that refuses is in the first hop,
+        // unchanged and in the same order, and nothing in either hop touches `self`.
+        guard let prepared = await Task.detached(priority: .userInitiated, operation: {
+            witness?()
+            return Self.prepareResurvey(walked: walked, root: root, previousMemory: previousMemory,
+                                        profileId: profileId, directory: directory,
+                                        isAvailable: isAvailable)
+        }).value else { return .none }
+        if Task.isCancelled { return .none }
+        let tree = prepared.tree
+        let salt = prepared.salt
+        let toRead = prepared.toRead
+        let stale = prepared.stale
+        let unavailable = prepared.unavailable
+        let relocated = prepared.relocated
+        let dropped = prepared.dropped
+
+        var read: [String: FilingCorpusDocument] = [:]
+        // Documents chosen for this batch that stopped being downloaded before their result was
+        // stamped. Declared out here because the REPORT is built from the pre-batch counts and has
+        // to be corrected by it — see below.
+        var evictedMidRead = 0
+        if !toRead.isEmpty {
+            updateScan(\.filingSurveyLifecycle, epoch: epoch,
+                       status: "Reading \(toRead.count) new or changed document\(toRead.count == 1 ? "" : "s")…")
+            let absolute = toRead.map { root.appendingPathComponent($0).path }
+            let text = await Self.extractSnippets(for: absolute, using: extractor)
+            if Task.isCancelled { return .none }
+            for path in toRead {
+                guard let stamp = tree.documents[path] else { continue }
+                // Absent text is a document that was opened and gave up nothing — recorded as blank
+                // so the next survey does not open it again. That is the whole reason a blank entry
+                // exists rather than the path simply being left out.
+                let page = text[root.appendingPathComponent(path).path] ?? ""
+                // **A blank stamp is permanent, so it is only earned by a file that was there.**
+                // Availability was asked before the batch and the batch takes minutes; a file the
+                // provider evicts in between extracts as `""`, and the stamp that records it is
+                // keyed on size and mtime, neither of which moves when the content comes back. So
+                // the write-off would never invalidate — the exact outcome `isAvailable` exists to
+                // prevent, arrived at through the door of a stale answer. Re-asked only for the
+                // blank ones (one lstat apiece, and a survey's blanks are a handful), because a
+                // document that produced text plainly had its content on disk.
+                if page.isEmpty,
+                   !isAvailable(root.appendingPathComponent(path).path) {
+                    evictedMidRead += 1
+                    continue
+                }
+                read[path] = FilingSurvey.document(fromPage1: page, stamp: stamp, salt: salt)
+            }
+            if evictedMidRead > 0 {
+                Logger.shared.info("\(evictedMidRead) document(s) stopped being downloaded while the "
+                                   + "survey was reading — not stamped, left for a later survey")
+            }
+        }
+
+        updateScan(\.filingSurveyLifecycle, epoch: epoch, status: "Saving what was learned…")
+        let corpus = prepared.corpus
+        let readDocuments = read
+        let rootPath = root.path
+        let memory: FilingMemory
+        let wrote: Bool
+        let fingerprint: String?
+        do {
+            (memory, wrote, fingerprint) = try await Task.detached(priority: .userInitiated) {
+                witness?()
+                let merged = FilingSurvey.merge(corpus: corpus, tree: tree, read: readDocuments)
+                let memory = FilingSurvey.buildMemory(corpus: merged, folderModified: tree.folders,
+                                                      profileId: profileId)
+                let wrote = try FilingSurveyStore.write(corpus: merged, memory: memory,
+                                                        previousMemory: previousMemory, id: profileId,
+                                                        in: directory, root: rootPath, now: now)
+                // Taken here, from the bytes just written, rather than back on the main actor.
+                return (memory, wrote,
+                        wrote ? FilingProfileStore.fingerprint(id: profileId, in: directory) : nil)
+            }.value
+        } catch {
+            Logger.shared.error("Couldn't save what the re-survey learned: \(error.localizedDescription)")
+            return .none
+        }
+        // The stamp moved even when nothing else did — that is §4.1's whole point: "last surveyed"
+        // answers when the survey LOOKED, and the guard above already returned on a failed write.
+        filingSurveyedAt = now
+        if wrote {
+            // Publishing the memory drops the router's prepared index, so the next scan builds it
+            // from the folders learned here. The fingerprint moves with the bytes, which is what
+            // keeps cached classifications from replaying answers composed against the old tree.
+            filingMemory = memory
+            filingArtifactFingerprint = fingerprint
+        }
+        // **Both counts are corrected by the mid-read evictions, in opposite directions.** They
+        // are derived from `toRead`/`candidates`, which were fixed BEFORE the batch ran, so a
+        // document withheld part-way through was counted as read — its page 1 never was — and was
+        // excluded from the unavailable column, which is precisely what it became. Wrong twice,
+        // and `summary` is the user-facing sentence built from them: a survey that left work
+        // undone read as one that had covered the tree. The `continue` that skips the stamp
+        // reached only a `Logger.info`, which nothing in the report can see.
+        let report = FilingSurveyReport(foldersChanged: stale.count,
+                                        documentsRead: toRead.count - evictedMidRead,
+                                        documentsRelocated: relocated,
+                                        documentsDropped: max(0, dropped),
+                                        documentsUnavailable: unavailable + evictedMidRead,
+                                        foldersLearned: memory.folders.count, changed: wrote)
+        Logger.shared.info("Refresh finished — \(report.summary) "
+                           + "\(report.foldersLearned) folder(s) now have learned content.")
+        filingSurveyReport = report
+        completeScan(\.filingSurveyLifecycle, root: root)
+        return report
+    }
+
+    /// What the first hop of ``resurveyFilingMemory(root:taxonomy:now:)`` hands back: the walk
+    /// flattened, the corpus to merge into, and what to read.
+    struct ResurveyPreparation: Sendable {
+        let tree: FilingSurvey.Tree
+        let stale: Set<String>
+        let corpus: FilingCorpus
+        let salt: String
+        let toRead: [String]
+        let unavailable: Int
+        let relocated: Int
+        let dropped: Int
+    }
+
+    /// The re-survey's first hop, off the main actor: flatten, decode the corpus, decide what to
+    /// read. **nil is a refusal**, already logged — an unreadable memory or corpus, or a folder
+    /// that holds no documents while the corpus remembers some — and nothing has been written.
+    nonisolated static func prepareResurvey(walked: [FileNode], root: URL,
+                                            previousMemory: FilingMemory?, profileId: String,
+                                            directory: URL,
+                                            isAvailable: (String) -> Bool) -> ResurveyPreparation? {
+        let tree = FilingSurvey.flatten(walked)
         let stale = FilingSurvey.staleFolders(tree: tree, memory: previousMemory)
 
         // The salt binds the corpus to the memory: every stored identifier is hashed under it, so a
@@ -235,7 +369,7 @@ extension FileSyncManager {
                                   + "file it never opened. Nothing was re-surveyed and both files "
                                   + "were left exactly as they are — move filing-memory.json aside "
                                   + "to rebuild it from scratch.")
-            return .none
+            return nil
         }
 
         let existing: FilingCorpus?
@@ -246,7 +380,7 @@ extension FileSyncManager {
                                   + "written the result over what has been learned. Nothing was "
                                   + "re-surveyed and both files were left exactly as they are — "
                                   + "move filing-corpus.json aside to survey from scratch.")
-            return .none
+            return nil
         case .absent:
             existing = nil
         case .loaded(let corpus):
@@ -263,10 +397,10 @@ extension FileSyncManager {
             Logger.shared.warning("Refresh: \(root.path) holds no documents, while what was learned "
                                   + "there remembers \(existing.documents.count). Nothing was "
                                   + "re-surveyed, and both files were left exactly as they are.")
-            return .none
+            return nil
         }
         let salt = existing?.salt.isEmpty == false ? existing!.salt
-            : (previousMemory?.salt.isEmpty == false ? previousMemory!.salt : Self.newSurveySalt())
+            : (previousMemory?.salt.isEmpty == false ? previousMemory!.salt : newSurveySalt())
         var corpus = existing ?? FilingCorpus(profileId: profileId, salt: salt)
         if corpus.salt != salt {
             // A corpus whose salt disagrees with the memory's would silently contribute identifiers
@@ -293,7 +427,7 @@ extension FileSyncManager {
         }
         let candidates = FilingSurvey.documentsToRead(tree: tree, corpus: corpus,
                                                       memory: previousMemory)
-        let toRead = candidates.filter { filingDocumentIsAvailable(root.appendingPathComponent($0).path) }
+        let toRead = candidates.filter { isAvailable(root.appendingPathComponent($0).path) }
         let unavailable = candidates.count - toRead.count
         if unavailable > 0 {
             // Named rather than folded into the "read" count: these are documents the survey chose
@@ -306,91 +440,14 @@ extension FileSyncManager {
         // the merge did not make: a document under a folder the walk never entered is not dropped
         // and is not news.
         let dropped = corpus.documents.keys.filter { tree.showsGone($0) }.count - relocated
-
-        var read: [String: FilingCorpusDocument] = [:]
-        // Documents chosen for this batch that stopped being downloaded before their result was
-        // stamped. Declared out here because the REPORT is built from the pre-batch counts and has
-        // to be corrected by it — see below.
-        var evictedMidRead = 0
-        if !toRead.isEmpty {
-            updateScan(\.filingSurveyLifecycle, epoch: epoch,
-                       status: "Reading \(toRead.count) new or changed document\(toRead.count == 1 ? "" : "s")…")
-            let absolute = toRead.map { root.appendingPathComponent($0).path }
-            let text = await Self.extractSnippets(for: absolute, using: extractor)
-            if Task.isCancelled { return .none }
-            for path in toRead {
-                guard let stamp = tree.documents[path] else { continue }
-                // Absent text is a document that was opened and gave up nothing — recorded as blank
-                // so the next survey does not open it again. That is the whole reason a blank entry
-                // exists rather than the path simply being left out.
-                let page = text[root.appendingPathComponent(path).path] ?? ""
-                // **A blank stamp is permanent, so it is only earned by a file that was there.**
-                // Availability was asked before the batch and the batch takes minutes; a file the
-                // provider evicts in between extracts as `""`, and the stamp that records it is
-                // keyed on size and mtime, neither of which moves when the content comes back. So
-                // the write-off would never invalidate — the exact outcome `isAvailable` exists to
-                // prevent, arrived at through the door of a stale answer. Re-asked only for the
-                // blank ones (one lstat apiece, and a survey's blanks are a handful), because a
-                // document that produced text plainly had its content on disk.
-                if page.isEmpty,
-                   !filingDocumentIsAvailable(root.appendingPathComponent(path).path) {
-                    evictedMidRead += 1
-                    continue
-                }
-                read[path] = FilingSurvey.document(fromPage1: page, stamp: stamp, salt: salt)
-            }
-            if evictedMidRead > 0 {
-                Logger.shared.info("\(evictedMidRead) document(s) stopped being downloaded while the "
-                                   + "survey was reading — not stamped, left for a later survey")
-            }
-        }
-
-        updateScan(\.filingSurveyLifecycle, epoch: epoch, status: "Saving what was learned…")
-        let merged = FilingSurvey.merge(corpus: corpus, tree: tree, read: read)
-        let memory = FilingSurvey.buildMemory(corpus: merged, folderModified: tree.folders,
-                                              profileId: profileId)
-        var wrote = false
-        do {
-            wrote = try FilingSurveyStore.write(corpus: merged, memory: memory,
-                                                previousMemory: previousMemory, id: profileId,
-                                                in: directory, root: root.path, now: now)
-        } catch {
-            Logger.shared.error("Couldn't save what the re-survey learned: \(error.localizedDescription)")
-            return .none
-        }
-        // The stamp moved even when nothing else did — that is §4.1's whole point: "last surveyed"
-        // answers when the survey LOOKED, and the guard above already returned on a failed write.
-        filingSurveyedAt = now
-        if wrote {
-            // Publishing the memory drops the router's prepared index, so the next scan builds it
-            // from the folders learned here. The fingerprint moves with the bytes, which is what
-            // keeps cached classifications from replaying answers composed against the old tree.
-            filingMemory = memory
-            filingArtifactFingerprint = FilingProfileStore.fingerprint(id: profileId, in: directory)
-        }
-        // **Both counts are corrected by the mid-read evictions, in opposite directions.** They
-        // are derived from `toRead`/`candidates`, which were fixed BEFORE the batch ran, so a
-        // document withheld part-way through was counted as read — its page 1 never was — and was
-        // excluded from the unavailable column, which is precisely what it became. Wrong twice,
-        // and `summary` is the user-facing sentence built from them: a survey that left work
-        // undone read as one that had covered the tree. The `continue` that skips the stamp
-        // reached only a `Logger.info`, which nothing in the report can see.
-        let report = FilingSurveyReport(foldersChanged: stale.count,
-                                        documentsRead: toRead.count - evictedMidRead,
-                                        documentsRelocated: relocated,
-                                        documentsDropped: max(0, dropped),
-                                        documentsUnavailable: unavailable + evictedMidRead,
-                                        foldersLearned: memory.folders.count, changed: wrote)
-        Logger.shared.info("Refresh finished — \(report.summary) "
-                           + "\(report.foldersLearned) folder(s) now have learned content.")
-        filingSurveyReport = report
-        completeScan(\.filingSurveyLifecycle, root: root)
-        return report
+        return ResurveyPreparation(tree: tree, stale: stale, corpus: corpus, salt: salt,
+                                   toRead: toRead, unavailable: unavailable, relocated: relocated,
+                                   dropped: dropped)
     }
 
     /// A fresh salt for a tree that has never been surveyed. 16 bytes of hex, the same shape the
     /// offline builder mints.
-    static func newSurveySalt() -> String {
+    nonisolated static func newSurveySalt() -> String {
         HexEncoding.string((0..<16).map { _ in UInt8.random(in: 0...255) })
     }
 }

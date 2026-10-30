@@ -367,10 +367,14 @@ extension FileSyncManager {
         }
         if Task.isCancelled { return }
 
-        // 3. Group (pure), then drop anything the user has kept separate.
-        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: fileHashes, options: options,
-                                                multiLinkPaths: multiLinkPaths,
-                                                textFingerprints: textFingerprints)
+        // 3. Group (pure), then drop anything the user has kept separate. Off the main actor: on a
+        // Documents-sized tree the grouping alone held the window for 0.5–0.9 s at the end of every
+        // scan, and it takes and returns plain values.
+        let groupInput = (tree, fileHashes, multiLinkPaths, textFingerprints)
+        let groups = await Task.detached(priority: .userInitiated) {
+            DuplicateFinder.findGroups(tree: groupInput.0, fileHashes: groupInput.1, options: options,
+                                       multiLinkPaths: groupInput.2, textFingerprints: groupInput.3)
+        }.value
         if Task.isCancelled { return }
         let ignored = ignoredDuplicateKeys
         // Set BEFORE duplicateGroups so its @Published publish is observed with a matching value

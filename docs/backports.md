@@ -13021,3 +13021,37 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s hoverSites=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | One banner surface | CLOSED — does not apply |
+
+---
+
+## Refresh, To File, duplicate grouping and survey planning off the main thread (speed audit 15–18) — main only
+
+Speed audit items 15–18 (were P20, P21, P22, P23), 2026-10-30. On `main`: Refresh flattens, decodes
+the corpus and decides what to read in one detached hop, and merges, builds and writes the memory in
+a second (`prepareResurvey`); a duplicate scan groups detached; a To File scan learns the taxonomy
+once (`FilingEngine.learnTaxonomy`) and suggests detached, builds the uncapped folder set without
+sorting it, and keeps the already-filed identity index on its files' dates, checking existence per
+lookup; survey planning decodes, flattens and sorts detached, and both depth sorts count each path's
+depth once (`FilingEngine.shallowestFirst`), in the same order.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s resurveyFlatten=%s groupOnMain=%s suggestOnMain=%s splitSort=%s alreadyFiledBuild=%s planDecode=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+FilingSurvey.swift 2>/dev/null | grep -c 'let tree = FilingSurvey.flatten(walked)')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Duplicates.swift 2>/dev/null | grep -c 'let groups = DuplicateFinder.findGroups(')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Filing.swift 2>/dev/null | grep -c 'FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FilingSurvey.swift 2>/dev/null | grep -c 'let da = a.split(separator: "/").count')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+FilingDuplicates.swift 2>/dev/null | grep -c 'let identityIndex = DocumentIdentityIndex.build(')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+DocumentSurvey.swift 2>/dev/null | grep -c 'switch FilingSurveyStore.corpusRead(id: profileId, in: directory) {')"; done
+# measured 2026-10-30, against origin, before this landed:
+# main  resurveyFlatten=1 groupOnMain=1 suggestOnMain=2 splitSort=1 alreadyFiledBuild=1 planDecode=1
+# v5.x  resurveyFlatten=1 groupOnMain=1 suggestOnMain=2 splitSort=1 alreadyFiledBuild=1 planDecode=1
+# v4.x  resurveyFlatten=1 groupOnMain=1 suggestOnMain=2 splitSort=1 alreadyFiledBuild=1 planDecode=0
+# v3.x  resurveyFlatten=0 groupOnMain=1 suggestOnMain=2 splitSort=0 alreadyFiledBuild=0 planDecode=0
+# v2.x  resurveyFlatten=0 groupOnMain=1 suggestOnMain=2 splitSort=0 alreadyFiledBuild=0 planDecode=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | All six: Refresh, grouping, both `suggest` calls, the plan sort, the identity index and the plan's decode on main | RECORDED — not owed |
+| `v4.x` | The same, except the document survey, which it does not have | RECORDED — not owed |
+| `v3.x` / `v2.x` | Grouping and both `suggest` calls on main; no Refresh, survey or already-filed phase | RECORDED — not owed |

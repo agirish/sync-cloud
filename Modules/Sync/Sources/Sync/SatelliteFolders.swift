@@ -94,6 +94,25 @@ public struct DocumentIdentityIndex: Sendable {
     public func folders(holding identity: String, excluding: String? = nil) -> [String] {
         (foldersByIdentity[identity] ?? []).filter { $0 != excluding }.sorted()
     }
+
+    /// The same answer for an index built with `existsOnDisk: { _ in true }`: the check is asked
+    /// here instead, of the paths behind `identity` alone. A caller that looks up a handful of
+    /// identities then stats a handful of paths, not every record in two index files — what the
+    /// filing scan paid on every run. `providerRoot` must be the one the index was built for.
+    public func folders(holding identity: String, excluding: String? = nil, providerRoot: String,
+                        existsOnDisk: (String) -> Bool) -> [String] {
+        let prefix = providerRoot.hasSuffix("/") ? providerRoot : providerRoot + "/"
+        let folders = Set((pathsByIdentity[identity] ?? []).filter(existsOnDisk).map {
+            String((($0 as NSString).deletingLastPathComponent + "/").dropFirst(prefix.count).dropLast())
+        })
+        return folders.filter { $0 != excluding }.sorted()
+    }
+
+    /// Whether any path in an index built without the existence check is still on disk — its
+    /// ``isEmpty`` as an index built with the check would answer it. Stops at the first one found.
+    public func holdsAnyPath(existsOnDisk: (String) -> Bool) -> Bool {
+        pathsByIdentity.values.contains { $0.contains(where: existsOnDisk) }
+    }
 }
 
 /// Folders that are somebody else's copies — an evidence packet, a submission bundle, a scratch

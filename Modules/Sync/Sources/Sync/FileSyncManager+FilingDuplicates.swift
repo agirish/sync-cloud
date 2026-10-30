@@ -25,11 +25,9 @@ extension FileSyncManager {
         // Injected, never defaulted — see `contentIndexDirectory`. nil is a no-op, not a fallback
         // to the real home directory.
         guard let directory = contentIndexDirectory else { return suggestions }
-        let identityIndex = DocumentIdentityIndex.build(
-            hashes: ContentHashIndexStore.load(from: directory.appendingPathComponent("content-hash-index.json")),
-            fingerprints: ContentHashIndexStore.load(from: directory.appendingPathComponent("content-fingerprint-index.json")),
-            providerRoot: providerRoot)
-        guard !identityIndex.isEmpty else { return suggestions }
+        let identityIndex = await alreadyFiledIndex(in: directory, providerRoot: providerRoot)
+        let existsOnDisk: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+        guard identityIndex.holdsAnyPath(existsOnDisk: existsOnDisk) else { return suggestions }
 
         // Fingerprintable files go through the extractor; everything else through the byte hash.
         // Split rather than fingerprinting everything, because `canFingerprint` is what says the
@@ -60,7 +58,8 @@ extension FileSyncManager {
             // and it is in the index the moment a duplicate scan has run over the inbox.
             let own = String(((s.filePath as NSString).deletingLastPathComponent + "/")
                 .dropFirst(providerRoot.count + 1).dropLast())
-            let elsewhere = identityIndex.folders(holding: id, excluding: own)
+            let elsewhere = identityIndex.folders(holding: id, excluding: own,
+                                                  providerRoot: providerRoot, existsOnDisk: existsOnDisk)
             guard !elsewhere.isEmpty else { return s }
             marked += 1
             return s.alreadyFiled(at: elsewhere)
@@ -70,5 +69,33 @@ extension FileSyncManager {
                                + "filed elsewhere in the tree")
         }
         return out
+    }
+
+    /// The identity index behind ``markingAlreadyFiled(_:providerRoot:)``, rebuilt only when
+    /// either index file has changed.
+    ///
+    /// **Decoded and built off the main actor, and without asking whether each path still
+    /// exists.** The two files hold every document a duplicate scan has hashed, and decoding them,
+    /// building the index and statting every indexed path happened on the main thread at every To
+    /// File scan, whether or not a single loose file matched. The existence check now runs per
+    /// lookup, in ``DocumentIdentityIndex/folders(holding:excluding:providerRoot:existsOnDisk:)``,
+    /// so a file deleted since the index was built still stops vouching for its folder.
+    func alreadyFiledIndex(in directory: URL, providerRoot: String) async -> DocumentIdentityIndex {
+        let hashURL = directory.appendingPathComponent("content-hash-index.json")
+        let fingerprintURL = directory.appendingPathComponent("content-fingerprint-index.json")
+        // Date and size, both: a rewrite inside one timestamp tick still moves the size.
+        let key = [providerRoot] + [hashURL, fingerprintURL].map { url in
+            let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+            let date = (attributes?[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate
+            return "\(date ?? -1) \((attributes?[.size] as? Int) ?? -1)"
+        }
+        if let cached = filingAlreadyFiledIndex, cached.key == key { return cached.index }
+        let index = await Task.detached(priority: .userInitiated) {
+            DocumentIdentityIndex.build(hashes: ContentHashIndexStore.load(from: hashURL),
+                                        fingerprints: ContentHashIndexStore.load(from: fingerprintURL),
+                                        providerRoot: providerRoot, existsOnDisk: { _ in true })
+        }.value
+        filingAlreadyFiledIndex = (key, index)
+        return index
     }
 }

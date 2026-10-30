@@ -1121,6 +1121,9 @@ public class FileSyncManager: ObservableObject {
     /// and the state every test runs in. Defaulting it would have had the filing tests decode ten
     /// megabytes of the developer's own index on every scan.
     public var contentIndexDirectory: URL?
+    /// The identity index the filing scan last built, and the index files' dates and sizes it was
+    /// built from — see ``alreadyFiledIndex(in:providerRoot:)``.
+    var filingAlreadyFiledIndex: (key: [String], index: DocumentIdentityIndex)?
     /// Whether a document is on this disk to be read, asked before a re-survey opens one.
     ///
     /// Defaults to the real check, so this is the production path rather than a hook something else
@@ -1128,6 +1131,10 @@ public class FileSyncManager: ObservableObject {
     /// placeholder must not be mistaken for an empty file. A test replaces it to make eviction reproducible,
     /// which is otherwise impossible to stage.
     public var filingDocumentIsAvailable: @Sendable (String) -> Bool = { FilingSurvey.isAvailable($0) }
+    /// Called at the start of each of Refresh's two off-main hops, on whatever thread runs it — the
+    /// seam a test reads to prove the corpus decode and the memory build stay off the main thread.
+    /// nil in the app.
+    var filingResurveyOffMainWitness: (@Sendable () -> Void)?
     /// Digest of the artifacts above, mixed into every ``FilingVerdictKey`` so a re-survey does not
     /// replay answers composed against the old tree. See ``FilingProfileStore/fingerprint(id:in:)``.
     ///

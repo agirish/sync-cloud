@@ -384,11 +384,57 @@ public enum FilingEngine {
         rejectedByFile: [String: Set<String>] = [:],
         options: FilingOptions = .init()
     ) -> [FilingSuggestion] {
+        suggest(looseFiles: looseFiles,
+                learned: learnTaxonomy(taxonomy, providerRoot: providerRoot, options: options),
+                providerRoot: providerRoot, contentTokens: contentTokens, rules: rules,
+                automations: automations, registry: registry, identity: identity,
+                providerName: providerName, automationSnippets: automationSnippets, now: now,
+                rejectedByFile: rejectedByFile, options: options)
+    }
+
+    /// What ``suggest(looseFiles:taxonomy:providerRoot:contentTokens:rules:automations:registry:identity:providerName:automationSnippets:now:rejectedByFile:options:)``
+    /// learns from the taxonomy before it looks at a single file: every folder's profile, and the
+    /// set of folders that exist.
+    ///
+    /// **Learned once per scan, not once per call.** It tokenizes every folder name and every file
+    /// name in the tree — 12,581 folders on a real one — and a scan suggests twice, once from
+    /// names and once more with the pages read. Nothing in it depends on the loose files.
+    public struct LearnedTaxonomy: Sendable {
+        let profiles: [FolderProfile]
+        let existingPaths: Set<String>
+    }
+
+    /// Learns `taxonomy`, for ``suggest(looseFiles:learned:providerRoot:contentTokens:rules:automations:registry:identity:providerName:automationSnippets:now:rejectedByFile:options:)``.
+    /// Only `options.ignoredNames` is read, so it must be the options the suggestions use.
+    public static func learnTaxonomy(_ taxonomy: [FileNode], providerRoot: String,
+                                     options: FilingOptions) -> LearnedTaxonomy {
         var profiles: [FolderProfile] = []
         var existingPaths: Set<String> = [providerRoot]
         for node in taxonomy {
             collectProfiles(node, ancestorTokens: [], into: &profiles, paths: &existingPaths, options: options)
         }
+        return LearnedTaxonomy(profiles: profiles, existingPaths: existingPaths)
+    }
+
+    /// ``suggest(looseFiles:taxonomy:providerRoot:contentTokens:rules:automations:registry:identity:providerName:automationSnippets:now:rejectedByFile:options:)``
+    /// against a taxonomy already learned — see ``LearnedTaxonomy``.
+    public static func suggest(
+        looseFiles: [FileNode],
+        learned: LearnedTaxonomy,
+        providerRoot: String,
+        contentTokens: [String: Set<String>] = [:],
+        rules: [FilingRule] = [],
+        automations: [AutomationRule] = [],
+        registry: PersonRegistry? = nil,
+        identity: PersonIdentityIndex? = nil,
+        providerName: String? = nil,
+        automationSnippets: [String: String] = [:],
+        now: Date = Date(),
+        rejectedByFile: [String: Set<String>] = [:],
+        options: FilingOptions = .init()
+    ) -> [FilingSuggestion] {
+        let profiles = learned.profiles
+        let existingPaths = learned.existingPaths
         // Which rules are allowed to act does not depend on the file, so it is decided once for
         // the scan rather than once per loose file — the shared eligibility bar, one array.
         let actingAutomations = AutomationRuleSet.eligible(automations)
@@ -948,6 +994,19 @@ public enum FilingEngine {
     /// prefix differences like /var vs /private/var. Shallowest first, capped so a huge tree can't
     /// blow the model's context (deep leaves drop first).
     public static func relativeFolderPaths(of taxonomy: [FileNode], limit: Int = 250) -> [String] {
+        shallowestFirst(unorderedRelativeFolderPaths(of: taxonomy)) {
+            $0.localizedStandardCompare($1) == .orderedAscending
+        }.prefix(limit).map { $0 }
+    }
+
+    /// Every folder ``relativeFolderPaths(of:limit:)`` lists with no limit, as a set — without the
+    /// sort, which a set throws away. That sort calls `localizedStandardCompare` on every
+    /// comparison, and on a 12,000-folder tree it was most of what building this set cost.
+    public static func relativeFolderPathSet(of taxonomy: [FileNode]) -> Set<String> {
+        Set(unorderedRelativeFolderPaths(of: taxonomy))
+    }
+
+    private static func unorderedRelativeFolderPaths(of taxonomy: [FileNode]) -> [String] {
         var out: [String] = []
         func walk(_ node: FileNode, prefix: String) {
             // Not a package, nor anything inside one: never offered to a classifier, and a model
@@ -958,11 +1017,23 @@ public enum FilingEngine {
             for child in node.children ?? [] { walk(child, prefix: rel) }
         }
         for node in taxonomy { walk(node, prefix: "") }
-        return out.sorted { a, b in
-            let da = a.split(separator: "/").count, db = b.split(separator: "/").count
-            if da != db { return da < db }
-            return a.localizedStandardCompare(b) == .orderedAscending
-        }.prefix(limit).map { $0 }
+        return out
+    }
+
+    /// `paths` shallowest first, ties broken by `inOrder` — the order the folder list above and a
+    /// survey's reading plan are kept in.
+    ///
+    /// **Each path's depth is counted once, not on every comparison.** The comparator this replaces
+    /// split both paths into components each time it was asked, so a sort of n paths split
+    /// 2·n·log n of them: 560 ms for an 11,024-document survey plan, on the main thread. Depth is
+    /// still `split(separator: "/").count` — empty components dropped, grapheme-aware — and the
+    /// comparisons are the same, so the order is the same to the byte. That matters beyond tidiness:
+    /// a resumed document survey compares the plan it saved with the one it plans now.
+    static func shallowestFirst(_ paths: [String],
+                                then inOrder: (String, String) -> Bool) -> [String] {
+        paths.map { ($0, $0.split(separator: "/").count) }
+            .sorted { a, b in a.1 != b.1 ? a.1 < b.1 : inOrder(a.0, b.0) }
+            .map(\.0)
     }
 
     /// The folder menu a classifier is allowed to answer with — the folders the router already
@@ -1021,7 +1092,7 @@ public enum FilingEngine {
         guard !verdicts.isEmpty else { return suggestions }
         // Relative folder set for new-vs-existing marking — symlink-proof (see relativeFolderPaths).
         return applyVerdicts(verdicts, to: suggestions,
-                             existingRelative: Set(relativeFolderPaths(of: taxonomy, limit: .max)),
+                             existingRelative: relativeFolderPathSet(of: taxonomy),
                              providerRoot: providerRoot, nameProvider: nameProvider,
                              rejectedByFile: rejectedByFile,
                              contentBlind: contentBlind, routerShortlists: routerShortlists,

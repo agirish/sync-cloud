@@ -218,11 +218,7 @@ public enum FilingSurvey {
             }
             out.append(path)
         }
-        return out.sorted { a, b in
-            let da = a.split(separator: "/").count, db = b.split(separator: "/").count
-            if da != db { return da < db }
-            return a < b
-        }
+        return FilingEngine.shallowestFirst(out, then: <)
     }
 
     /// New path → the corpus path whose tokens belong to it, for documents that only moved.

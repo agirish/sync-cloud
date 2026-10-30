@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Testing
 import Events
 import EventsTestSupport
@@ -253,6 +254,37 @@ import EventsTestSupport
         #expect(FileManager.default.fileExists(atPath: corpusURL.path),
                 "an absent corpus must be rebuilt, not refused")
         #expect(report.documentsRead > 0, "a survey with no corpus must read the tree")
+    }
+
+    // MARK: - The window stays live
+
+    /// **Refresh decodes the corpus and builds the memory off the main thread.** Both ran on the
+    /// main actor after the walk, and on a real corpus the build alone held the window for over a
+    /// second. Two hops, because the snippet read awaits between them: the first flattens, decodes
+    /// and decides what to read (the availability check is asked there too), the second merges,
+    /// builds and writes. The witness is called at the start of each, on the thread that runs it.
+    @Test func theCorpusDecodeAndTheMemoryBuildRunOffTheMainThread() async throws {
+        let (manager, docs, profiles, _, root) = try Self.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = await manager.resurveyFilingMemory(root: docs)
+        try Self.write(docs.appendingPathComponent("Health/Kaiser/eob-3.pdf"), Self.page("Kaiser Permanente cardiology"))
+
+        let hops = OSAllocatedUnfairLock<[Bool]>(initialState: [])
+        let availability = OSAllocatedUnfairLock<[Bool]>(initialState: [])
+        manager.filingResurveyOffMainWitness = { hops.withLock { $0.append(Thread.isMainThread) } }
+        manager.filingDocumentIsAvailable = { path in
+            availability.withLock { $0.append(Thread.isMainThread) }
+            return FilingSurvey.isAvailable(path)
+        }
+        let report = await manager.resurveyFilingMemory(root: docs)
+
+        #expect(report.changed && report.documentsRead == 1, "the fixture stopped exercising a write")
+        #expect(FileManager.default.fileExists(atPath: profiles.appendingPathComponent("t/filing-memory.json").path))
+        #expect(hops.withLock { $0 } == [false, false],
+                "both hops must run, and neither on the main thread")
+        let asked = availability.withLock { $0 }
+        try #require(!asked.isEmpty, "the availability check was never asked — the probe is vacuous")
+        #expect(!asked.contains(true), "the first hop's availability checks ran on the main thread")
     }
 
     // MARK: - The thing that was asked for
