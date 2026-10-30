@@ -169,53 +169,48 @@ extension ContentView {
     @ViewBuilder
     func singleSourceLayout(collapsed: Bool, geo: GeometryProxy) -> some View {
         let totalWidth = geo.size.width
-        if collapsed {
-            HStack(spacing: 0) {
+        // **The sidebar comes off the top, and the rest divides as it always did.**
+        //
+        // Taking its width out of `totalWidth` before the fractions are computed is what keeps
+        // the rail and the lens panel honest: they go on being measured against the room they
+        // actually have, so their minimums mean the same thing whether or not a sidebar is up,
+        // and `railFraction` keeps describing the split between those two rather than silently
+        // becoming a three-way share.
+        //
+        // The width itself is clamped, not the stored one — see `PaneLogic.lensSidebarWidth`.
+        // Browse can afford whatever the user stored; here three things divide one row, and at
+        // the 760 window floor the rail and panel claim 560 of it.
+        let sidebarWidth = folderSidebarIsShowing
+            ? PaneLogic.lensSidebarWidth(stored: browseSidebarWidth, totalWidth: totalWidth,
+                                         minSidebar: FolderSidebarView.minWidth,
+                                         gutter: LiquidGlass.gutter(surfaceStyle))
+            : 0
+        // **`splitWidth`, never a shadowed `totalWidth`.** The fractions and the two minimums
+        // are measured against the room the rail and the workspace actually divide, while the
+        // ROW is still the full width — and conflating those two is not a hypothetical: the
+        // first version of this shadowed `totalWidth`, the reduced value reached the row's own
+        // `.frame(width:)`, and the sidebar rendered outside the window. See `PaneLogic.LensRow`.
+        let splitWidth = totalWidth - (folderSidebarIsShowing
+            ? sidebarWidth + PaneLogic.sidebarOverhead(gutter: LiquidGlass.gutter(surfaceStyle)) : 0)
+        let minRail = PaneLogic.minRailWidth
+        let minWorkspace = PaneLogic.minLensWorkspaceWidth
+        let lower = minRail / max(splitWidth, 1)
+        let upper = 1 - minWorkspace / max(splitWidth, 1)
+        // In a very narrow window the two minimums can't both be honored; pin to the rail min.
+        let fraction = (lower <= upper)
+            ? PaneLogic.clampedFraction(railDragFraction ?? railFraction, lower: lower, upper: upper)
+            : lower
+        let row = PaneLogic.lensRow(totalWidth: totalWidth, sidebarWidth: sidebarWidth,
+                                    showsSidebar: folderSidebarIsShowing,
+                                    gutter: LiquidGlass.gutter(surfaceStyle), fraction: fraction)
+        // **One row whether the rail is open or a spine** (speed audit 13). The two states were the
+        // two arms of an `if`, so a collapse gave the lens a new identity and its lists reopened at
+        // the top. Now only the leading slot changes, and the workspace — with the same modifiers
+        // either way — is the same view on both sides of a collapse.
+        CollapsibleRailRow {
+            if collapsed {
                 railSpine
-                // Collapsed, the workspace has everything but the spine — and the spine is what
-                // the overflow would land on. Same reason as the split branch below.
-                bottomPaneView
-                    .frame(maxWidth: .infinity)
-                    .clipped()
-                    .modifier(workspaceResultMessageHost)
-            }
-            .frame(width: totalWidth, height: geo.size.height)
-        } else {
-            // **The sidebar comes off the top, and the rest divides as it always did.**
-            //
-            // Taking its width out of `totalWidth` before the fractions are computed is what keeps
-            // the rail and the lens panel honest: they go on being measured against the room they
-            // actually have, so their minimums mean the same thing whether or not a sidebar is up,
-            // and `railFraction` keeps describing the split between those two rather than silently
-            // becoming a three-way share.
-            //
-            // The width itself is clamped, not the stored one — see `PaneLogic.lensSidebarWidth`.
-            // Browse can afford whatever the user stored; here three things divide one row, and at
-            // the 760 window floor the rail and panel claim 560 of it.
-            let sidebarWidth = folderSidebarIsShowing
-                ? PaneLogic.lensSidebarWidth(stored: browseSidebarWidth, totalWidth: totalWidth,
-                                             minSidebar: FolderSidebarView.minWidth,
-                                             gutter: LiquidGlass.gutter(surfaceStyle))
-                : 0
-            // **`splitWidth`, never a shadowed `totalWidth`.** The fractions and the two minimums
-            // are measured against the room the rail and the workspace actually divide, while the
-            // ROW is still the full width — and conflating those two is not a hypothetical: the
-            // first version of this shadowed `totalWidth`, the reduced value reached the row's own
-            // `.frame(width:)`, and the sidebar rendered outside the window. See `PaneLogic.LensRow`.
-            let splitWidth = totalWidth - (folderSidebarIsShowing
-                ? sidebarWidth + PaneLogic.sidebarOverhead(gutter: LiquidGlass.gutter(surfaceStyle)) : 0)
-            let minRail = PaneLogic.minRailWidth
-            let minWorkspace = PaneLogic.minLensWorkspaceWidth
-            let lower = minRail / max(splitWidth, 1)
-            let upper = 1 - minWorkspace / max(splitWidth, 1)
-            // In a very narrow window the two minimums can't both be honored; pin to the rail min.
-            let fraction = (lower <= upper)
-                ? PaneLogic.clampedFraction(railDragFraction ?? railFraction, lower: lower, upper: upper)
-                : lower
-            let row = PaneLogic.lensRow(totalWidth: totalWidth, sidebarWidth: sidebarWidth,
-                                        showsSidebar: folderSidebarIsShowing,
-                                        gutter: LiquidGlass.gutter(surfaceStyle), fraction: fraction)
-            HStack(spacing: 0) {
+            } else {
                 // Leading, exactly as in `browseLayout` — the remembered folders belong to the
                 // pane's source, and here that pane is the rail. Organize's scope and Storage's
                 // root both already follow it (`lensScanRootExpanded` reads the targeted pane's
@@ -231,39 +226,47 @@ extension ContentView {
                     .panesRegionFrame(surfaceStyle, level: glassLevel)
                     .frame(width: row.railWidth)
                     .unifiedSeam(surfaceStyle, edge: .trailing)
-                // **The workspace may not paint on the pane beside it.** A `LensHeaderCard` whose
-                // row 2 holds `.fixedSize()` prose and a control does not shrink to the width it is
-                // offered — its own `.frame(maxWidth: .infinity)` reports the LARGER of the proposal
-                // and what its children insist on — and SwiftUI centres an oversized child, so the
-                // excess spills past BOTH edges. The workspace is drawn after the source pane, so
-                // the left half of that excess landed on the file list: at the 340pt floor with
-                // Duplicates selected the card measures ~600pt, and rail items, a "410 groups" pill
-                // and half of "1.7 MB reclaimable" were painted over a pane they have nothing to do
-                // with, while "Apply 410 recommended" ran off the other side.
-                //
-                // The clip belongs HERE and nowhere inside the card: this is the only place that
-                // knows a definite width. A `.clipped()` on the card clips to the card's own
-                // resolved 600pt and is a no-op — measured, 6,678 pixels of ink outside the column
-                // either way (`LensHeaderCardOverrunTests`).
-                bottomPaneView
-                    .frame(width: row.workspaceWidth)
-                    .clipped()
-                    // The lens's result message, when the reader is working here (CA).
-                    .modifier(workspaceResultMessageHost)
-                    // With the strip's own curve, so the lens header moves down beside the pane's
-                    // toolbar card as the strip slides in — as Edit's document column does.
-                    .designAnimation(.easeOut(duration: 0.18), value: sourcePaneShowsTabStrip)
             }
-            .frame(width: totalWidth, height: geo.size.height)
-            .overlay(alignment: .leading) {
-                // Offset from the ROW's leading edge, which is not the rail's once a sidebar sits
-                // in front of it — see `LensRow.railHandleOffset`.
+        } workspace: {
+            // **The workspace may not paint on the pane beside it.** A `LensHeaderCard` whose
+            // row 2 holds `.fixedSize()` prose and a control does not shrink to the width it is
+            // offered — its own `.frame(maxWidth: .infinity)` reports the LARGER of the proposal
+            // and what its children insist on — and SwiftUI centres an oversized child, so the
+            // excess spills past BOTH edges. The workspace is drawn after the source pane, so
+            // the left half of that excess landed on the file list: at the 340pt floor with
+            // Duplicates selected the card measures ~600pt, and rail items, a "410 groups" pill
+            // and half of "1.7 MB reclaimable" were painted over a pane they have nothing to do
+            // with, while "Apply 410 recommended" ran off the other side.
+            //
+            // The clip belongs HERE and nowhere inside the card: this is the only place that
+            // knows a definite width. A `.clipped()` on the card clips to the card's own
+            // resolved 600pt and is a no-op — measured, 6,678 pixels of ink outside the column
+            // either way (`LensHeaderCardOverrunTests`). Collapsed, the workspace has everything
+            // but the spine — and the spine is what the overflow would land on — so the width is
+            // the rest of the row: one flexible frame, exactly `row.workspaceWidth` open and
+            // `maxWidth: .infinity` collapsed, so the frame is one modifier in both states.
+            bottomPaneView
+                .frame(minWidth: collapsed ? nil : row.workspaceWidth,
+                       maxWidth: collapsed ? .infinity : row.workspaceWidth)
+                .clipped()
+                // The lens's result message, when the reader is working here (CA).
+                .modifier(workspaceResultMessageHost)
+                // With the strip's own curve, so the lens header moves down beside the pane's
+                // toolbar card as the strip slides in — as Edit's document column does. Keyed on
+                // the strip alone, for the reason `editorLayout` gives.
+                .designAnimation(.easeOut(duration: 0.18), value: sourcePaneStripIgnoringFold)
+        }
+        .frame(width: totalWidth, height: geo.size.height)
+        .overlay(alignment: .leading) {
+            // Offset from the ROW's leading edge, which is not the rail's once a sidebar sits
+            // in front of it — see `LensRow.railHandleOffset`.
+            if !collapsed {
                 railResizeHandle(splitWidth: row.splitWidth, sidebarSlot: row.sidebarSlot,
                                  lower: lower, upper: upper)
                     .offset(x: row.railHandleOffset)
             }
-            .coordinateSpace(.named(Self.railRowSpace))
         }
+        .coordinateSpace(.named(Self.railRowSpace))
     }
 
     /// Browse: the source pane with the whole window, and nothing else in it.
@@ -471,7 +474,7 @@ extension ContentView {
                 .padding(.top, 6)
             } else {
                 Button {
-                    withAnimation(.easeInOut(duration: 0.2)) { togglePanesForCurrentTab() }
+                    togglePanesForCurrentTab()
                 } label: {
                     VStack(spacing: 10) {
                         Image(systemName: "chevron.right")
@@ -663,6 +666,34 @@ extension ContentView {
 /// Both halves are square, so the capsule's ends are true semicircles — which is what lets the
 /// linked fill below be an exact bottom half, and lets each half wear the same circular hover
 /// wash the lone swap chip used to have.
+/// **A row whose leading slot changes and whose workspace keeps its identity** (speed audit 13).
+///
+/// Organize's rail and Edit's pane each collapse, and each state used to be one arm of an
+/// `if collapsed`, with the workspace written into both. Two arms are two identities, so every
+/// collapse tore the workspace down and built it again: Edit re-parsed the document into a new text
+/// view and opened it at the top, Organize's lists reopened at the top. Here the workspace is the
+/// row's second child whatever the first one is, so only the leading slot is rebuilt.
+///
+/// The workspace must carry the same modifiers in both states for this to hold — a modifier added
+/// under a condition wraps the view in a different type and is an identity change again.
+/// `CollapsibleRailRowTests` mounts it and checks the text view survives.
+struct CollapsibleRailRow<Leading: View, Workspace: View>: View {
+    let leading: Leading
+    let workspace: Workspace
+
+    init(@ViewBuilder leading: () -> Leading, @ViewBuilder workspace: () -> Workspace) {
+        self.leading = leading()
+        self.workspace = workspace()
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            leading
+            workspace
+        }
+    }
+}
+
 struct SeamPaneControls: View {
     let hue: LiquidGlassHue
     let onSwap: () -> Void

@@ -739,7 +739,7 @@ public struct LensWorkspaceView: View {
         guard let root = syncManager.filingFolderProfile?.root else { return }
         let expanded = (root as NSString).expandingTildeInPath
         setScope((expanded as NSString).appendingPathComponent(finding.subject))
-        withAnimation(listSettle) { railLens = .toFile }
+        railLens = .toFile
     }
 
     /// The rail selection.
@@ -1842,7 +1842,7 @@ public struct LensWorkspaceView: View {
     private func organizeOverviewRailItem(_ counts: RailCounts) -> some View {
         let isSelected = organizeLens == nil
         return Button {
-            withAnimation(listSettle) { railLens = nil }
+            railLens = nil
         } label: {
             RailItemLabel(title: OrganizeRailMetrics.overviewTitle,
                           systemImage: OrganizeRailMetrics.overviewSymbol,
@@ -1874,7 +1874,7 @@ public struct LensWorkspaceView: View {
             // Clicking the selected item widens back out to the overview. That still works and is
             // still the quickest way back — "All" gives the same state a place you can point at
             // rather than replacing the gesture.
-            withAnimation(listSettle) { railLens = isSelected ? nil : item }
+            railLens = isSelected ? nil : item
         } label: {
             RailItemLabel(title: item.title, systemImage: item.symbol, state: counts.state(item),
                           isSelected: isSelected, accent: glassHue.accentColor, style: railStyle)
@@ -3910,7 +3910,7 @@ public struct LensWorkspaceView: View {
                 // to carry out the scaffold — one route, so a nudge cannot reach a state the menu
                 // could not.
                 syncManager.hasReviewedStructure = true
-                withAnimation(listSettle) { railLens = .restructure }
+                railLens = .restructure
                 restructureVerbRequest = RestructureVerbRequest(
                     verb: .setUp, folder: Self.absolutePath(of: first.finding.subject,
                                                             under: syncManager
@@ -4189,7 +4189,7 @@ public struct LensWorkspaceView: View {
                 // the rightmost control, and a button whose width moved with the data could not be
                 // the thing every other card aligned to.)
                 if item == .restructure { syncManager.hasReviewedStructure = true }
-                withAnimation(listSettle) { railLens = item }
+                railLens = item
             },
             onRun: runPass,
             // Storage's own verb, not `onRun` — it is in no `OrganizePass`, so `rescanControl`

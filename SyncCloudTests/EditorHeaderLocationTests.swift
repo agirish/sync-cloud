@@ -324,7 +324,8 @@ import FileExplorer
     /// pane's own rule, and only while the pane is open — and moves with the strip's curve. The
     /// layout itself is measured in Dashboard's `EditHeaderMatchesPaneHeaderTests`; this pins that
     /// the app hands it the real answer. Mutations: `paneShowsTabStrip: false`, dropping the
-    /// collapse term, or dropping the animation each fail.
+    /// collapse term, or dropping the animation each fail. The animation is keyed on the strip
+    /// alone: `sourcePaneShowsTabStrip` also flips on a fold, which must snap (speed audit 13).
     @Test func theDocumentColumnIsToldAboutThePanesTabStrip() throws {
         let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
         #expect(try CallArguments(of: "EditorWorkspaceView(", in: sourceCodeOnly(editor))
@@ -333,7 +334,7 @@ import FileExplorer
         let tabs = CodeText(try OpenInEditorMenuTests.macApp("ContentView+PaneTabs.swift"))
         #expect(tabs.contains("!panesHiddenForCurrentTab && paneShowsTabStrip(isLeft: true)"),
                 "the strip's presence is not the LEFT pane's own rule, gated on the pane being open")
-        #expect(CodeText(editor).contains(".designAnimation(.easeOut(duration: 0.18), value: sourcePaneShowsTabStrip)"),
+        #expect(CodeText(editor).contains(".designAnimation(.easeOut(duration: 0.18), value: sourcePaneStripIgnoringFold)"),
                 "the document column does not move with the strip's own animation")
     }
 
@@ -348,7 +349,7 @@ import FileExplorer
                     .passes("paneShowsTabStrip", "sourcePaneShowsTabStrip"),
                 "the lens is not told whether the pane draws its tab strip")
         let split = CodeText(try OpenInEditorMenuTests.macApp("ContentView+SplitLayout.swift"))
-        #expect(split.contains(".designAnimation(.easeOut(duration: 0.18), value: sourcePaneShowsTabStrip)"),
+        #expect(split.contains(".designAnimation(.easeOut(duration: 0.18), value: sourcePaneStripIgnoringFold)"),
                 "the lens column does not move with the strip's own animation")
     }
 

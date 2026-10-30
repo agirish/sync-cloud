@@ -36,8 +36,9 @@ import Foundation
         #expect(strip.contains(".chromeGlassGround(.capsule, horizontalOutset: 0, verticalOutset: 3)"),
                 "the tab overflow lost its glass, or grows sideways into the last chip")
         // The drag's animations enclose the lens's host, and only where a lens draws: at Solid they
-        // would animate a drop's re-windowing, which was always instant there.
-        #expect(Self.count(".designAnimation(drawsLens ? .easeOut(duration: 0.16) : nil", in: strip) == 2)
+        // would animate a drop's re-windowing, which was always instant there. Their curve is
+        // `dragEase`'s — pinned with its four sites in `PaneTabStripDragEaseTests`.
+        #expect(Self.count(".designAnimation(drawsLens ? Self.dragEase(", in: strip) == 2)
     }
 
     @Test func comparesHeaderPillsAndGlyphsWearGlass() throws {

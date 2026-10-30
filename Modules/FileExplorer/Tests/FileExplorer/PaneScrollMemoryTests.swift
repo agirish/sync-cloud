@@ -196,13 +196,14 @@ import Sync
     /// before the pane appears, so no `browsePath` change fires. Returns once all three columns are
     /// laid out, so the stack genuinely overflows.
     private func mount(_ components: [String], slot: PaneScrollMemorySlot?,
-                       searchRevealTarget: String? = nil) async -> NSWindow {
+                       searchRevealTarget: String? = nil, watch: FrameWatch? = nil) async -> NSWindow {
         let host = NSHostingView(rootView: Harness(box: Box(components), slot: slot,
                                                    searchRevealTarget: searchRevealTarget))
         host.frame = NSRect(x: 0, y: 0, width: 520, height: 400)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled, .fullSizeContentView],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        watch?.window = window
         window.contentView = host
         await waitUntil { self.lists(window).count == 3 && ((try? self.room(window)) ?? 0) > 60 }
         return window
@@ -243,6 +244,48 @@ import Sync
         }
         walk(window.contentView!)
         return found
+    }
+
+    /// Reads the pane at the end of every main run-loop turn — where AppKit has laid out and Core
+    /// Animation commits what will be drawn — from before the pane is mounted. A position put back
+    /// on the NEXT turn shows up here as a turn that ended with the scroll view visible and in the
+    /// wrong place: the frame the user would see jump.
+    /// `@unchecked Sendable`: it is touched only on the main thread — the observer is on the main
+    /// run loop.
+    final class FrameWatch: @unchecked Sendable {
+        weak var window: NSWindow?
+        private var observer: CFRunLoopObserver?
+        /// Turns that ended with the watched scroll view on screen, and the offset each showed.
+        private(set) var shown: [CGFloat] = []
+
+        /// `read` answers the watched scroll view's offset, or nil while it is not visible.
+        func start(_ read: @escaping @MainActor @Sendable (NSWindow) -> CGFloat?) {
+            // Ordered after Core Animation's commit (2,000,000), so the turn's layout has happened.
+            observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue,
+                                                          true, 2_000_001) { [weak self] _, _ in
+                MainActor.assumeIsolated {
+                    guard let self, let window = self.window, let x = read(window) else { return }
+                    self.shown.append(x)
+                }
+            }
+            CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        }
+
+        func stop() {
+            if let observer { CFRunLoopObserverInvalidate(observer) }
+            observer = nil
+        }
+    }
+
+    /// Whether `view` would be drawn: in a window, and neither it nor an ancestor hidden or clear.
+    private static func isVisible(_ view: NSView) -> Bool {
+        guard view.window != nil else { return false }
+        var next: NSView? = view
+        while let v = next {
+            if v.isHidden || v.alphaValue == 0 { return false }
+            next = v.superview
+        }
+        return true
     }
 
     private func scroll(_ scroller: NSScrollView, to origin: NSPoint) async {
@@ -428,6 +471,59 @@ import Sync
         await waitUntil { abs(clip.bounds.origin.x - farEnd) < 1 }
         #expect(abs(clip.bounds.origin.x - farEnd) < 1,
                 "a changed stack came back at \(clip.bounds.origin.x) instead of revealing its deepest column (\(farEnd))")
+    }
+
+    /// **A rebuilt stack is never shown before its position lands.** The restore waits for the
+    /// columns to lay out and is put back on the turn after, so the turn that first lays them out
+    /// would show the stack at its first column — the jump a workspace switch's fade used to hide.
+    /// Every turn from the mount on is read: the stack is either not visible or already in place.
+    @Test func aRebuiltStackIsNeverShownBeforeItsPositionLands() async throws {
+        let memory = PaneScrollMemory()
+        let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")
+        memory.recordStack(surface: "Browse.left", treeRoot: Self.root, components: ["a2", "b3"],
+                           position: Position(offset: 50, atEnd: false))
+        let watch = FrameWatch()
+        watch.start { window in
+            guard let stack = try? self.stack(window), Self.isVisible(stack) else { return nil }
+            return stack.contentView.bounds.origin.x
+        }
+        let window = await mount(["a2", "b3"], slot: slot, watch: watch)
+        defer { window.contentView = nil }
+        let clip = try stack(window).contentView
+        let landed = await waitUntil { abs(clip.bounds.origin.x - 50) < 1 && Self.isVisible(clip) }
+        await pump(0.1)
+        watch.stop()
+        try #require(landed, "the stack never came back to 50, so there is nothing to time")
+        try #require(!watch.shown.isEmpty, "no turn ever showed the stack — the watch proves nothing")
+        let early = watch.shown.filter { abs($0 - 50) >= 1 }
+        #expect(early.isEmpty, "the stack was shown at \(early) before it landed at 50")
+    }
+
+    /// **A rebuilt list is never shown before its position lands** — `aRebuiltStackIsNeverShownBefore…`
+    /// for a column's vertical position, which waits for the column's rows.
+    @Test func aRebuiltListIsNeverShownBeforeItsPositionLands() async throws {
+        let memory = PaneScrollMemory()
+        let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")
+        // No stack position: a stack waiting on its own would be held clear too, and would hide the
+        // list along with it — the list's own wait would go untested. Unkept, the stack reveals.
+        memory.recordList(directory: "/root/a2", position: Position(offset: 80, atEnd: false))
+        let watch = FrameWatch()
+        watch.start { window in
+            guard let middle = self.lists(window).dropFirst().first,
+                  (middle.documentView as? NSTableView)?.numberOfRows ?? 0 > 0,
+                  Self.isVisible(middle) else { return nil }
+            return middle.contentView.bounds.origin.y
+        }
+        let window = await mount(["a2", "b3"], slot: slot, watch: watch)
+        defer { window.contentView = nil }
+        let middle = try #require(lists(window).dropFirst().first)
+        let landed = await waitUntil { abs(middle.contentView.bounds.origin.y - 80) < 1 && Self.isVisible(middle) }
+        await pump(0.1)
+        watch.stop()
+        try #require(landed, "the middle list never came back to 80, so there is nothing to time")
+        try #require(!watch.shown.isEmpty, "no turn ever showed the list — the watch proves nothing")
+        let early = watch.shown.filter { abs($0 - 80) >= 1 }
+        #expect(early.isEmpty, "the middle list was shown at \(early) before it landed at 80")
     }
 
     /// The control: a pane with no memory mounts as it always did — at its first column. Without this

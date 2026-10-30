@@ -2277,8 +2277,8 @@ struct ContentView: View {
         // The lens itself no longer changes where the rail opens — it is the guard that this is a
         // lensed workspace at all, which is what makes the early return correct for Compare.
         guard workspace.lens != nil else { return }
-        // Show the rail for this workspace (remembered per workspace, like the manual toggle). The
-        // layout animates via `.animation(value: panesHiddenForCurrentTab)`, so no withAnimation.
+        // Show the rail for this workspace (remembered per workspace, like the manual toggle). It
+        // arrives with the switch, unanimated, like the switch itself.
         let overrides = TopPaneVisibility.settingOverride(
             TopPaneVisibility.decodeOverrides(topPaneOverridesRaw),
             workspace: workspace,
@@ -4179,7 +4179,7 @@ struct ContentView: View {
                 // **Not in Edit** (asked 2026-10-17): Edit's strip stays beside the open pane and its
                 // lit cloud folds it, so a ⇤ in the pane's bar would be a second control for one act.
                 onCollapse: contentLayout.hasCollapsibleRail && selectedWorkspace != .editor
-                    ? { withAnimation(.easeInOut(duration: 0.2)) { togglePanesForCurrentTab() } }
+                    ? { togglePanesForCurrentTab() }
                     : nil,
                 onRefresh: { forceRefreshAction() },
                 isRefreshing: isScanShown,
@@ -4532,13 +4532,14 @@ struct ContentView: View {
         // card-to-edge gap and a card-to-card gap both come to `cardGutter`. Applied once,
         // here, and nowhere else — per-container padding is what made the gaps uneven before.
         .padding(LiquidGlass.cardInset)
-        // Animate the panes collapsing/expanding when the tab's pane state flips — both on
-        // the manual toggle and on the auto-collapse that fires when a tab switch changes it.
-        .designAnimation(.easeInOut(duration: 0.2), value: panesHiddenForCurrentTab)
-        // No animation on the collapse: the differences pane snaps open/closed instantly with the
-        // chevron, which is what reads as responsive here; the others keep the softer easeInOut.
+        // **No animation on a workspace switch or a pane collapse** (speed audit 11, 13). Both used
+        // to ease for 0.2 s here, and an animation around a layout swap keeps the outgoing layout
+        // mounted and drawn until the fade ends: leaving Compare kept two panes, the differences
+        // table and the sidebar alive under the next workspace, and a collapse showed both copies
+        // of Organize or Edit at once. The workspace bar slides its own pill; the layout snaps.
+        // The differences pane snaps open/closed instantly with the chevron too, which is what
+        // reads as responsive here.
         .animation(nil, value: bottomPaneIsCollapsed)
-        .designAnimation(.easeInOut(duration: 0.2), value: selectedWorkspace)
         .designAnimation(.easeInOut(duration: 0.15), value: showInspector)
         // **No dimming overlay during a long run** (TE208, decision BZ). The progress dialog used
         // to sit here over a scrim that took every click until the run ended — minutes, for a

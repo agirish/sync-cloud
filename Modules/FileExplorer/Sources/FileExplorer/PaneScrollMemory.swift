@@ -119,6 +119,35 @@ public final class PaneScrollMemory {
     }
 }
 
+/// **A scroll view held clear while its kept position waits to land.**
+///
+/// A restore lands on the turn AFTER the layout pass that finds the content settled — never from
+/// inside the pass (see the probes' `applyRestore`) — so the turn that first lays a rebuilt pane out
+/// would draw its stack at the first column and its lists at the top, and the next would jump them
+/// into place. A workspace switch's 0.2 s fade hid that frame while the fade stood; without it the
+/// jump showed on every switch back to a pane scrolled sideways. So the scroll view is drawn clear
+/// from the pass that reads the kept position until the position lands.
+///
+/// Lifted on every way out — landed, dropped, the pane leaving the window — and at the fallback's
+/// first check that still finds the content unsettled: past that a restore is the exception, and a
+/// late jump is better than a missing pane.
+@MainActor
+struct PaneScrollVeil {
+    private weak var covered: NSScrollView?
+
+    /// Holds `scroller` clear until `lift()`.
+    mutating func cover(_ scroller: NSScrollView) {
+        lift()
+        scroller.alphaValue = 0
+        covered = scroller
+    }
+
+    mutating func lift() {
+        covered?.alphaValue = 1
+        covered = nil
+    }
+}
+
 extension NSClipView {
     /// Where this clip's origin can rest horizontally — the band `BoundedResolveView.legalOrigin`
     /// clamps to.
@@ -223,6 +252,7 @@ struct PaneStackScrollMemoryProbe: NSViewRepresentable {
         private var pending: PaneScrollMemory.Position?
         private var hasReadPending = false
         private var attemptsLeft = 0
+        private var veil = PaneScrollVeil()
 
         init(restores: Bool) {
             self.restores = restores
@@ -256,6 +286,7 @@ struct PaneStackScrollMemoryProbe: NSViewRepresentable {
             observer = nil
             scroller = nil
             pending = nil
+            veil.lift()
             hasReadPending = false
         }
 
@@ -285,6 +316,7 @@ struct PaneStackScrollMemoryProbe: NSViewRepresentable {
                     Logger.shared.debug("[columns] scroll memory: \(slot.surface) stack left to a reveal")
                 }
                 if pending != nil {
+                    if let scroller { veil.cover(scroller) }
                     attemptsLeft = PaneScrollMemory.restoreAttempts
                     scheduleRestore()
                 }
@@ -304,6 +336,7 @@ struct PaneStackScrollMemoryProbe: NSViewRepresentable {
 
         private func drop(because reason: String) {
             pending = nil
+            veil.lift()
             if let slot { Logger.shared.debug("[columns] scroll memory: \(slot.surface) stack position dropped — \(reason)") }
         }
 
@@ -345,6 +378,7 @@ struct PaneStackScrollMemoryProbe: NSViewRepresentable {
             guard let position = pending, let scroller, let slot else { return }
             if !isSettled() || holdGate?.isStackHeld == true {
                 guard !fromLayout else { return }
+                veil.lift()
                 attemptsLeft -= 1
                 if attemptsLeft > 0 {
                     scheduleRestore()
@@ -359,6 +393,7 @@ struct PaneStackScrollMemoryProbe: NSViewRepresentable {
             let x = position.resolved(in: clip.restingRangeX)
             clip.setBoundsOrigin(NSPoint(x: x, y: clip.bounds.origin.y))
             scroller.reflectScrolledClipView(clip)
+            veil.lift()
             record()
             Logger.shared.debug("[columns] scroll memory: \(slot.surface) stack back at x=\(Int(x.rounded()))\(position.atEnd ? ", its end" : "")")
         }

@@ -109,6 +109,8 @@ struct ColumnListProbe: NSViewRepresentable {
         private var pending: PaneScrollMemory.Position?
         private var hasReadPending = false
         private var attemptsLeft = 0
+        /// Holds the list clear while its kept position waits — see `PaneScrollVeil`.
+        private var veil = PaneScrollVeil()
         /// Whether this mount has said it found no table — once, not on every pass.
         private var reportedMissingTable = false
 
@@ -146,6 +148,7 @@ struct ColumnListProbe: NSViewRepresentable {
             forgetResolvedTable()
             withdrawAll()
             pending = nil
+            veil.lift()
             hasReadPending = false
             reportedMissingTable = false
         }
@@ -171,6 +174,7 @@ struct ColumnListProbe: NSViewRepresentable {
                     Logger.shared.debug("[columns] scroll memory: \(directory) left to a reveal")
                 }
                 if pending != nil {
+                    if let scroller = found.enclosingScrollView { veil.cover(scroller) }
                     attemptsLeft = PaneScrollMemory.restoreAttempts
                     scheduleRestore()
                 }
@@ -212,6 +216,7 @@ struct ColumnListProbe: NSViewRepresentable {
         private func scrolled() {
             if pending != nil, PaneScrollMemory.isUserScroll(NSApp.currentEvent) {
                 pending = nil
+                veil.lift()
                 Logger.shared.debug("[columns] scroll memory: \(directory) position dropped — scrolled first")
             }
             report()
@@ -294,6 +299,7 @@ struct ColumnListProbe: NSViewRepresentable {
             guard let position = pending, let table, let scroller = table.enclosingScrollView else { return }
             if !isSettled() {
                 guard !fromEvent else { return }
+                veil.lift()
                 attemptsLeft -= 1
                 if attemptsLeft > 0 {
                     scheduleRestore()
@@ -308,6 +314,7 @@ struct ColumnListProbe: NSViewRepresentable {
             let y = position.resolved(in: clip.restingRangeY)
             clip.setBoundsOrigin(NSPoint(x: clip.bounds.origin.x, y: y))
             scroller.reflectScrolledClipView(clip)
+            veil.lift()
             record()
         }
     }

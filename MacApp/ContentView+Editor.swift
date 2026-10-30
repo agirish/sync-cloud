@@ -153,10 +153,10 @@ extension ContentView {
         switch EditorRailFold.paneRungAct(paneOpen: !editorPaneIsFolded) {
         case .openPane:
             if !editorRailFolded { editorRailFolded = true }
-            withDesignAnimation(.easeInOut(duration: 0.2), reduceMotion: reduceMotion) { togglePanesForCurrentTab() }
+            togglePanesForCurrentTab()
             Logger.shared.info("[edit] File pane shown from the strip")
         case .foldPane:
-            withDesignAnimation(.easeInOut(duration: 0.2), reduceMotion: reduceMotion) { togglePanesForCurrentTab() }
+            togglePanesForCurrentTab()
             Logger.shared.info("[edit] File pane folded from the strip")
         }
     }
@@ -172,7 +172,7 @@ extension ContentView {
         if !editorPaneIsFolded {
             var expand = editorExpand
             expand.paneFolded = true
-            withDesignAnimation(.easeInOut(duration: 0.2), reduceMotion: reduceMotion) { editorExpand = expand }
+            editorExpand = expand
             Logger.shared.info("[edit] File pane folded for the list from \(door.rawValue)")
         }
         if editorRailHidden {
@@ -368,18 +368,18 @@ extension ContentView {
     /// **Collapsed by default** (`TopPaneVisibility.defaultPanesHidden`): the common session opens a
     /// file and writes in it, and three columns before the text would be three things to look past.
     ///
-    /// **The two arms differ in one more thing than the collapse: whether the rail is drawn.** The
+    /// **The two states differ in one more thing than the collapse: whether the rail is drawn.** The
     /// pane and the rail list the same folder — the sidebar re-roots the pane and so does every
     /// hand-off into Edit — so with the pane open the rail is a second copy of the list beside it,
-    /// and the expanded arm withholds it. The collapsed arm draws it unless "Just the text" is on
+    /// and the open state withholds it. The folded state draws it unless "Just the text" is on
     /// (`editorRailIsDrawn`). Either way the document takes what the rail does not.
     ///
-    /// **The sidebar is drawn in both arms** (asked 2026-10-04): in Edit it outlives a collapsed
+    /// **The sidebar is drawn in both states** (asked 2026-10-04): in Edit it outlives a collapsed
     /// pane (`Workspace.folderSidebarOutlivesPaneCollapse`), and a click in it re-points the rail,
     /// which reads the folder the folded pane is on. Its width comes from `lensSidebarWidth`, which
     /// reserves more than the collapsed row needs — `theCollapsedEditRowFitsTheLensClamp`.
     ///
-    /// **The open-pane arm is no longer a dragged split** (asked 2026-10-17): the strip stays beside
+    /// **The open pane is no longer a dragged split** (asked 2026-10-17): the strip stays beside
     /// the pane and the pane is the rail's fixed width, so the document takes the rest. It shared
     /// `tidyRailFraction` with Organize until then; Organize keeps it.
     @ViewBuilder
@@ -393,67 +393,60 @@ extension ContentView {
         let sidebarSlot = folderSidebarIsShowing
             ? sidebarWidth + PaneLogic.sidebarOverhead(gutter: LiquidGlass.gutter(surfaceStyle)) : 0
         let column = editorColumnWidth(in: totalWidth - sidebarSlot)
-        if collapsed {
-            HStack(spacing: 0) {
-                if folderSidebarIsShowing {
-                    folderSidebar(width: sidebarWidth)
-                    folderSidebarResizeHandle(displayedWidth: sidebarWidth)
+        // **One row whether the pane is open or folded** (speed audit 13). The two states were the
+        // two arms of an `if`, so a fold gave the workspace a new identity: the text view was built
+        // again around the whole buffer, re-parsed, and opened at the top before jumping back to the
+        // caret. Now only the pane's slot comes and goes, and the workspace — with the same
+        // modifiers either way — is the same view on both sides of a fold.
+        //
+        // **The strip stays, and the pane is the list's width** (asked 2026-10-17). The strip is
+        // where every column opens and folds, so it does not leave when the pane opens; and the pane
+        // takes the rail's slot — the column plus the gutter its card adds in Cards (none in
+        // Unified), as the rail's own does — so the pane, Files, Pages and Outline are all one
+        // width, dragged at one edge. At the 232pt default the pane is under
+        // `PaneViewMode.pushNavigationBelowWidth`, so Columns shows one column with ‹ to walk back;
+        // dragged wider, it shows two.
+        HStack(spacing: 0) {
+            if folderSidebarIsShowing {
+                folderSidebar(width: sidebarWidth)
+                folderSidebarResizeHandle(displayedWidth: sidebarWidth)
+            }
+            railSpine
+            CollapsibleRailRow {
+                if !collapsed {
+                    paneColumn(isLeft: true)
+                        .panesRegionFrame(surfaceStyle, level: glassLevel)
+                        .frame(width: Self.editorColumnSlot(column, style: surfaceStyle))
+                        .unifiedSeam(surfaceStyle, edge: .trailing)
                 }
-                railSpine
+            } workspace: {
                 // **No region frame here.** The workspace draws its own two cards in Cards — the
                 // rail and the document — and wrapping them in a third would put a card inside a
                 // card, which `bottomSectionCard` stacks into a doubled inset and a squared-off
-                // corner. In Unified the window's one region already frames them.
+                // corner. In Unified the window's one region already frames them. With the pane
+                // open the pane is the file list, so `editorRailIsDrawn` withholds the rail.
                 editorWorkspace(showsRail: editorRailIsDrawn, railWidth: column)
                     .frame(maxWidth: .infinity)
                     .clipped()
                     // The editor's result message — its saves, its PDF tools' notes (CA).
                     .modifier(workspaceResultMessageHost)
-                    // The list's edge, where the open pane's edge is in the other arm: one handle,
-                    // one width, whichever column shows.
-                    .overlay(alignment: .leading) {
-                        if editorRailIsDrawn {
-                            editorColumnResizeHandle(displayedWidth: column,
-                                                     slot: Self.editorColumnSlot(column, style: surfaceStyle))
-                        }
-                    }
+                    // With the strip's own curve, so the header card moves down beside the pane's
+                    // toolbar card as the strip slides in, rather than a frame after it. Keyed on
+                    // the strip alone, not on `sourcePaneShowsTabStrip`: that one also flips when
+                    // the pane folds, and would ease the document's width — re-wrapping the whole
+                    // text every frame — on a fold that snaps.
+                    .designAnimation(.easeOut(duration: 0.18), value: sourcePaneStripIgnoringFold)
             }
-            .frame(width: totalWidth, height: geo.size.height)
-        } else {
-            // **The strip stays, and the pane is the list's width** (asked 2026-10-17). The strip
-            // is where every column opens and folds, so it does not leave when the pane opens; and
-            // the pane takes the rail's slot — the column plus the gutter its card adds in Cards
-            // (none in Unified), as the rail's own does — so the pane, Files, Pages and Outline are all one
-            // width, dragged at one edge. At the 232pt default the pane is under
-            // `PaneViewMode.pushNavigationBelowWidth`, so Columns shows one column with ‹ to walk
-            // back; dragged wider, it shows two.
-            HStack(spacing: 0) {
-                if folderSidebarIsShowing {
-                    folderSidebar(width: sidebarWidth)
-                    folderSidebarResizeHandle(displayedWidth: sidebarWidth)
-                }
-                railSpine
-                HStack(spacing: 0) {
-                    paneColumn(isLeft: true)
-                        .panesRegionFrame(surfaceStyle, level: glassLevel)
-                        .frame(width: Self.editorColumnSlot(column, style: surfaceStyle))
-                        .unifiedSeam(surfaceStyle, edge: .trailing)
-                    // The pane is the file list here, so the rail is withheld whatever the bit says.
-                    editorWorkspace(showsRail: false, railWidth: column)
-                        .frame(maxWidth: .infinity)
-                        .clipped()
-                        .modifier(workspaceResultMessageHost)
-                        // With the strip's own curve, so the header card moves down beside the pane's
-                        // toolbar card as the strip slides in, rather than a frame after it.
-                        .designAnimation(.easeOut(duration: 0.18), value: sourcePaneShowsTabStrip)
-                }
-                .overlay(alignment: .leading) {
+            // The handle sits at the pane's edge with the pane open and at the list's with it
+            // folded: one handle, one width, whichever column shows — and none when neither does.
+            .overlay(alignment: .leading) {
+                if !collapsed || editorRailIsDrawn {
                     editorColumnResizeHandle(displayedWidth: column,
                                              slot: Self.editorColumnSlot(column, style: surfaceStyle))
                 }
             }
-            .frame(width: totalWidth, height: geo.size.height)
         }
+        .frame(width: totalWidth, height: geo.size.height)
     }
 
     /// A side column's slot in Edit: its width plus the gutter its card's insets add in Cards, and

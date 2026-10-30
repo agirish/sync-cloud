@@ -34,14 +34,15 @@ import FileExplorer
     }
 
     /// **Every Edit layout mounts the same workspace builder**, so the ＋ is in the header whether
-    /// the pane is open, the rail is drawn, or "Just the text" is on. Both arms of `editorLayout`
-    /// call `editorWorkspace(showsRail:)`; a third route to `EditorWorkspaceView` would be one that
-    /// could forget the ＋.
+    /// the pane is open, the rail is drawn, or "Just the text" is on. `editorLayout` calls
+    /// `editorWorkspace(showsRail:)` once, in the one row both states share — once, too, because a
+    /// second call would give the workspace a second identity, which a fold would rebuild (speed
+    /// audit 13); a second route to `EditorWorkspaceView` would be one that could forget the ＋.
     @Test func everyEditLayoutMountsTheOneBuilder() throws {
         let source = try Self.editor()
         let layout = try Self.memberBody("func editorLayout(collapsed: Bool, geo: GeometryProxy)", in: source)
-        #expect(layout.count(of: "editorWorkspace(showsRail:") == 2,
-                "editorLayout no longer mounts the workspace through the one builder in both arms")
+        #expect(layout.count(of: "editorWorkspace(showsRail:") == 1,
+                "editorLayout mounts the workspace other than once, through the one builder")
         #expect(argumentLists(of: "EditorWorkspaceView(", in: source).count == 1,
                 "a second EditorWorkspaceView construction site appeared in ContentView+Editor")
     }

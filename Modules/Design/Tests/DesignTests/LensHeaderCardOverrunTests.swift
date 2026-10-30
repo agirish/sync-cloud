@@ -74,10 +74,14 @@ import Testing
     /// the split lays it out.
     /// - Parameter clipping: whether the COLUMN clips its content, which is what
     ///   `ContentView+SplitLayout` does around the workspace. False renders the app's old behaviour.
-    static func inkOutsideTheColumn<V: View>(_ view: V, clipping: Bool) -> Int {
-        let column = clipping
-            ? AnyView(view.frame(width: Self.column).clipped())
+    /// - Parameter flexible: frame the column the way the split does now — one flexible frame whose
+    ///   bounds are both the column's width open (`minWidth == maxWidth`), so the rail's collapse
+    ///   can keep the same modifier — rather than with a fixed `width:`.
+    static func inkOutsideTheColumn<V: View>(_ view: V, clipping: Bool, flexible: Bool = false) -> Int {
+        let framed = flexible
+            ? AnyView(view.frame(minWidth: Self.column, maxWidth: Self.column))
             : AnyView(view.frame(width: Self.column))
+        let column = clipping ? AnyView(framed.clipped()) : framed
         let subject = ZStack {
             Color.white
             column
@@ -133,5 +137,12 @@ import Testing
         // And the fix, applied where the width is definite: nothing outside the column.
         #expect(Self.inkOutsideTheColumn(Subject(), clipping: true) == 0,
                 "clipping at the column still let the card paint on its neighbour")
+
+        // The split's own frame, flexible with both bounds at the column: the card overruns it the
+        // same way, and the same clip holds it.
+        #expect(Self.inkOutsideTheColumn(Subject(), clipping: false, flexible: true) > 0,
+                "the flexible frame no longer reproduces the overrun, so its clip below proves nothing")
+        #expect(Self.inkOutsideTheColumn(Subject(), clipping: true, flexible: true) == 0,
+                "clipping the split's flexible frame still let the card paint on its neighbour")
     }
 }

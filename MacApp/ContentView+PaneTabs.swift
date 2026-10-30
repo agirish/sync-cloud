@@ -123,6 +123,14 @@ extension ContentView {
         !panesHiddenForCurrentTab && paneShowsTabStrip(isLeft: true)
     }
 
+    /// The source pane's strip rule alone, open or folded — what the workspace beside it keys its
+    /// strip animation on. `sourcePaneShowsTabStrip` also flips when the pane folds, and an
+    /// animation keyed on it would ease the workspace's width through a fold that snaps (speed
+    /// audit 13).
+    var sourcePaneStripIgnoringFold: Bool {
+        paneShowsTabStrip(isLeft: true)
+    }
+
     /// Whether this pane draws a strip at all — see `PaneTabStripVisibility` for the rule, which is
     /// not the plain "does this pane have two tabs" it started as.
     func paneShowsTabStrip(isLeft: Bool) -> Bool {

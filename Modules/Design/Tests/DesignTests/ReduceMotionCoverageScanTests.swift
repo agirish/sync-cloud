@@ -179,8 +179,9 @@ import Testing
 /// of them was being checked.** A change made inside `withAnimation` carries its own animation into
 /// the transaction. An `.animation(_:value:)` naming the same value does override it — measured
 /// with a probe that read `Transaction.animation` beneath both modifiers, so this is not an
-/// assumption — which is why the panes, the inspector and the workspace switch really are gated
-/// even though every one of them is toggled inside a `withAnimation`. But a mover whose ONLY
+/// assumption — which is why the inspector really is gated even though it is toggled inside a
+/// `withAnimation`. (The panes and the workspace switch were too, until they stopped animating at
+/// all — speed audit 11.) But a mover whose ONLY
 /// driver is `withAnimation` has nothing to override it: no modifier names its value, so the
 /// setting never reaches it, and the scan above stays green because there is no `.animation(` to
 /// read.
@@ -215,8 +216,6 @@ import Testing
 
     /// Keyed `File.swift/firstTouchedIdentifier`.
     static let exempt: [String: Exemption] = [
-        "ContentView+SplitLayout.swift/togglePanesForCurrentTab": .gatedByAModifier, // panesHiddenForCurrentTab
-        "ContentView.swift/togglePanesForCurrentTab": .gatedByAModifier,
         "ContentView+Toolbar.swift/showInspector": .gatedByAModifier,
         "ContentView.swift/showInspector": .gatedByAModifier,
         "ShortcutCommands.swift/showInspector": .gatedByAModifier,
@@ -225,7 +224,6 @@ import Testing
         "SetupArtwork.swift/breathe": .gatedByHand,
         "SetupArtwork.swift/caretOn": .gatedByHand,
         "SetupArtwork.swift/drift": .gatedByHand,
-        "LensWorkspaceView.swift/railLens": .gatedByHand,
         "LensWorkspaceView.swift/setScope": .gatedByHand,
 
         "DestinationPicker.swift/proxy": .scrollToDestination,

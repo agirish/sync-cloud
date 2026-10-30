@@ -243,8 +243,17 @@ public struct PaneTabStrip: View {
         // glided there. Inside the chips these are unchanged. Only where a lens draws: out here
         // they also catch what a drop changes with them — a compact rung re-windowed by the drop
         // faded its chips in and out — and at Solid that change was instant, and stays so.
-        .designAnimation(drawsLens ? .easeOut(duration: 0.16) : nil, value: draggingTab)
-        .designAnimation(drawsLens ? .easeOut(duration: 0.16) : nil, value: dragOffset)
+        //
+        // **Not while the lens's chip is held** (speed audit 14). Eased per pointer event, the held
+        // chip and the lens on it trailed the pointer by 0.16 s for the whole drag. The chip's own
+        // modifier below takes the ease off the chip, and that one is closer, so it wins; this one
+        // decides only the lens — unanimated while it sits on the held chip, so it moves with it,
+        // and eased while another chip is dragged past it, so it glides with its chip as that
+        // steps aside. The drop clears `draggingTab`, so the settle still eases here.
+        .designAnimation(drawsLens ? Self.dragEase(holding: draggingTab != nil && draggingTab == activeTabID) : nil,
+                         value: draggingTab)
+        .designAnimation(drawsLens ? Self.dragEase(holding: draggingTab != nil && draggingTab == activeTabID) : nil,
+                         value: dragOffset)
         .padding(.leading, PaneTabStripLadder.stripGutter + leadingInset)
         .padding(.trailing, PaneTabStripLadder.stripGutter + trailingInset)
     }
@@ -333,6 +342,15 @@ public struct PaneTabStrip: View {
     /// Static and priced from the same stride the drop index uses, so what the row shows during the
     /// drag and where the tab actually lands cannot disagree — that mismatch is the whole failure
     /// mode of a hand-drawn reorder.
+    /// **The drag's ease, for a view that is or is not holding the dragged chip.** Nil while held:
+    /// the held chip rides the pointer, and an ease on its offset made it trail by 0.16 s on every
+    /// move (speed audit 14). Everything else — the neighbours stepping aside, and every chip's
+    /// settle once the drop clears `draggingTab` — eases. One rule for the chips' modifiers and the
+    /// lens host's restatement of them, which would otherwise ease the held chip from outside.
+    static func dragEase(holding: Bool) -> Animation? {
+        holding ? nil : .easeOut(duration: 0.16)
+    }
+
     static func displacement(of item: Item, items: [Item], visible: [Item], dragging: UUID?,
                              offset: CGFloat, stride: CGFloat) -> CGFloat {
         guard let dragging, dragging != item.id, stride > 0,
@@ -467,13 +485,18 @@ public struct PaneTabStrip: View {
                     dragOffset = 0
                 }
         )
-        .designAnimation(.easeOut(duration: 0.16), value: draggingTab)
+        //
+        // **The held chip is not eased** (speed audit 14): it rides the pointer, and the ease meant
+        // for its neighbours made it trail behind by 0.16 s on every move. The drop clears
+        // `draggingTab` in the same change that zeroes the offset, so the held chip's settle into
+        // its new slot reads the ease again and still animates.
+        .designAnimation(Self.dragEase(holding: draggingTab == item.id), value: draggingTab)
         // The neighbours' step-aside, and the settle when the list re-orders under them.
         //
         // Both of these travel, so both honour Reduce Motion: the drag itself is the user's own
         // movement, but chips sliding out of the way under it is the app's, and that is the half
         // the setting asks for. Under it the reorder lands without the shuffle.
-        .designAnimation(.easeOut(duration: 0.16), value: dragOffset)
+        .designAnimation(Self.dragEase(holding: draggingTab == item.id), value: dragOffset)
         .onHover { hovering in
             // Only ever clear the id this chip set: the pointer can enter the next chip before this
             // one's exit arrives, and an unconditional `nil` on exit would then blank the ✕ that

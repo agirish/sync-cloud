@@ -12941,3 +12941,35 @@ the full capsule the run had. Only a window too narrow for a run's full capsule 
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No toolbar capsule | CLOSED — does not apply |
+
+---
+
+## Switches snap, the rail keeps its workspace, a dragged tab rides the pointer (speed audit 11–14) — main only
+
+Speed audit items 11–14 (were P40, P73, P39, P42), 2026-10-29. On `main`: a workspace switch and a
+rail or pane collapse are no longer eased for 0.2 s — the outgoing layout left mounted and drawn
+under the fade — and Organize's lens switches are plain assignments; a rebuilt Columns pane is held
+clear until its kept scroll position lands (`PaneScrollVeil`), which the fade had been hiding;
+Organize and Edit lay out through one `CollapsibleRailRow`, so a collapse keeps the workspace (Edit's
+text view, Organize's lists) instead of building it again; and a dragged pane tab is not eased
+(`PaneTabStrip.dragEase`), at the chip and at the lens host.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s switchFade=%s collapseRow=%s lensEase=%s scrollMemory=%s tabDrag=%s\n' $l \
+  "$(git show origin/$l:MacApp/ContentView.swift 2>/dev/null | grep -c 'value: selectedWorkspace)')" \
+  "$(git show origin/$l:MacApp/ContentView+SplitLayout.swift 2>/dev/null | grep -c 'CollapsibleRailRow')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/LensWorkspaceView.swift 2>/dev/null | grep -c 'withAnimation(listSettle) { railLens')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PaneScrollMemory.swift 2>/dev/null | grep -c 'final class PaneScrollMemory')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PaneTabStrip.swift 2>/dev/null | grep -c 'value: dragOffset')"; done
+# measured 2026-10-29, against origin, before this landed (main reads 0 >0 0 1 2 after):
+# main/v5.x  switchFade=1 collapseRow=0 lensEase=5 scrollMemory=1 tabDrag=2
+# v4.x       switchFade=1 collapseRow=0 lensEase=3 scrollMemory=0 tabDrag=1
+# v3.x       switchFade=1 collapseRow=0 lensEase=0 scrollMemory=0 tabDrag=0
+# v2.x       switchFade=0 collapseRow=0 lensEase=0 scrollMemory=0 tabDrag=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The switch fade, the two-arm collapse, the lens eases and the eased tab drag | RECORDED — not owed |
+| `v4.x` / `v3.x` | The switch fade and the two-arm collapse; v4.x also the lens eases and a tab drag ease | RECORDED — not owed |
+| `v2.x` | The two-arm collapse (`singleSourceLayout` writes `bottomPaneView` twice); no switch fade, lens ease, scroll memory or tab strip | RECORDED — not owed |
