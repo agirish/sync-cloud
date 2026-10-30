@@ -37,6 +37,8 @@ extension OperationBanner.FollowUp {
 public struct ActivityNowView: View {
     let runs: [ProgressCapsuleListedRun]
     @ObservedObject var center: ActivityCenter
+    /// The cloud app status (RD68), whose rows Now lists.
+    @ObservedObject var cloudApps: CloudAppMonitor
     /// Why writes wait while a long run goes — a row's Undo waits too (decision CF).
     let runWriteLock: String?
     /// The popover's foot, "Open as Window"; the window itself has none.
@@ -46,9 +48,10 @@ public struct ActivityNowView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(runs: [ProgressCapsuleListedRun], center: ActivityCenter, runWriteLock: String?,
-                now: Date = Date(), onOpenWindow: (() -> Void)? = nil) {
+                now: Date = Date(), cloudApps: CloudAppMonitor = .shared, onOpenWindow: (() -> Void)? = nil) {
         self.runs = runs
         self.center = center
+        self.cloudApps = cloudApps
         self.runWriteLock = runWriteLock
         self.onOpenWindow = onOpenWindow
         self.now = now
@@ -69,6 +72,10 @@ public struct ActivityNowView: View {
         VStack(alignment: .leading, spacing: 0) {
             running(fillsWidth: false)
             Divider()
+            if !cloudApps.notices.isEmpty {
+                CloudAppNoticeRows(monitor: cloudApps)
+                Divider()
+            }
             recentHeader
             if center.recent.isEmpty {
                 nothingYet
@@ -100,6 +107,12 @@ public struct ActivityNowView: View {
             running(fillsWidth: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .glassSurface(level, cornerRadius: Radius.card)
+            // A cloud app not syncing (RD68): information, between what runs and what was said.
+            if !cloudApps.notices.isEmpty {
+                CloudAppNoticeRows(monitor: cloudApps)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .glassSurface(level, cornerRadius: Radius.card)
+            }
             VStack(alignment: .leading, spacing: 0) {
                 recentHeader
                 if center.recent.isEmpty {

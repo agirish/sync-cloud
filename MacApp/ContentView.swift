@@ -13,6 +13,8 @@ import Design
 struct ContentView: View {
     @ObservedObject var syncManager: FileSyncManager
     @EnvironmentObject var settings: SettingsManager
+    /// Whose cloud app isn't syncing (RD68) — the amber bar under a pane's header.
+    @ObservedObject var cloudApps = CloudAppMonitor.shared
     /// Read here rather than in `ContentView+Toolbar`, which is an extension and cannot declare
     /// stored properties. Gates the sidebar toggle's reveal — see `withDesignAnimation`.
     @Environment(\.accessibilityReduceMotion) var reduceMotion
@@ -1867,6 +1869,14 @@ struct ContentView: View {
         // triggers here would turn a chip into a rescan for all five.
         .onChange(of: organizeScope?.path) { _, _ in
             restoreStorageLensIfShowing()
+        }
+        // The cloud app status (RD68) reports on every source not turned off in Settings.
+        .onChange(of: settings.availableProviders, initial: true) { _, providers in
+            cloudApps.setProviders(providers, disabled: settings.disabledProviderIds)
+            cloudApps.start()
+        }
+        .onChange(of: settings.disabledProviderIds) { _, disabled in
+            cloudApps.setProviders(settings.availableProviders, disabled: disabled)
         }
         // Watches the enabled subset (not the full discovered list) so toggling a provider
         // off in Settings re-resolves any pane that was showing it and rescans.
@@ -4252,6 +4262,16 @@ struct ContentView: View {
             // Differences toolbar all draw the same one on the same 83.5 line.
             .columnHeaderRule(surfaceStyle)
             .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: isLeft))
+            // Under the header, on every pane of a source whose cloud app isn't syncing (RD68).
+            if let problem = cloudApps.problem(for: pane.providerId) {
+                CloudAppWarningBar(
+                    problem: problem,
+                    sourceName: settings.availableProviders.first { $0.id == pane.providerId }?.displayName ?? "This source",
+                    canOpen: { cloudApps.canOpen($0) },
+                    onAction: { cloudApps.perform($0) })
+                    .contentSurface(hue: glassHue, tint: surfaceTint)
+                    .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: isLeft))
+            }
             treeView(pane)
                 .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: isLeft))
                 // Space → Quick Look, scoped to the FILE LIST — see `paneQuickLook()`.

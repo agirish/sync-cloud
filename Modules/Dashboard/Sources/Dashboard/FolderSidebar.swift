@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import Sync
 import Design
+import FileExplorer
 
 /// One row of the folder sidebar: a remembered folder, under the heading that remembered it.
 public struct FolderSidebarRow: Identifiable, Equatable, Sendable {
@@ -591,6 +592,8 @@ public struct FolderSidebarView: View {
     }
 
     private let folderRows: [FolderSidebarRow]
+    /// Whose cloud app isn't syncing (RD68): an amber dot beside the source.
+    @ObservedObject private var cloudApps = CloudAppMonitor.shared
     /// Locations' rows — clouds, devices, Trash.
     private let locationRows: [SidebarSourceRow]
     /// Favorites' place rows — home, Desktop, Documents, Downloads and the startup disk by
@@ -1575,6 +1578,9 @@ public struct FolderSidebarView: View {
                         .truncationMode(.tail)
                         .layoutPriority(-1)
                 }
+                if let problem = cloudApps.problems[source.id] {
+                    CloudAppStatusDot(problem)
+                }
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 10)
@@ -1657,6 +1663,9 @@ public struct FolderSidebarView: View {
     /// room to be dimmed or not.
     private func sourceTooltip(_ source: SidebarSourceRow) -> String {
         guard source.isAvailable else { return "\(source.name) — not available right now" }
+        if let problem = cloudApps.problems[source.id] {
+            return "\(source.absolutePath) — \(problem.shortLabel), so its files may be out of date, here and in Finder"
+        }
         switch source.state {
         case .configured: return source.absolutePath
         case .inside(_, let owner): return "\(source.absolutePath) — in \(owner)"
@@ -1675,6 +1684,7 @@ public struct FolderSidebarView: View {
         case .revealOnly: label += ", opens in Finder"
         }
         if !source.isAvailable { label += ", not available" }
+        if let problem = cloudApps.problems[source.id] { label += ", \(problem.shortLabel), may be out of date" }
         return label
     }
 

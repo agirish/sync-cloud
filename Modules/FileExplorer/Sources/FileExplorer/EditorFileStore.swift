@@ -600,6 +600,8 @@ public enum EditorFileStore {
         let backup = try fileManager.replaceItem(at: destination, withItemAt: staged,
                                                  backupItemName: backupName)
         installed = true
+        // A file SyncCloud changed in a cloud folder, whose upload it may watch (RD68).
+        ChangedFileLedger.shared.note(destination.path)
         // **The backup is looked at before it is deleted** (FR48). The caller checked the file
         // a stat ago, but the encode, the staged write and the flush all run before the swap — tens
         // of milliseconds, more on iCloud — and a newer version installed in that window (a sync

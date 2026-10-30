@@ -381,13 +381,16 @@ extension FileSyncManager {
     /// sweeps whatever the staging file held.
     @discardableResult
     public nonisolated static func safeCopyItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging = FileManager.default, observer: CopyObserver? = nil) throws -> URL? {
-        try safeCopyItem(
+        let restorable = try safeCopyItem(
             at: sourceURL,
             to: destinationURL,
             fileManager: fileManager,
             caseSensitiveVolume: volumeSupportsCaseSensitiveNames(for: sourceURL),
             observer: observer
         )
+        // A file SyncCloud put in a cloud folder is one whose upload it may watch (RD68).
+        ChangedFileLedger.shared.note(destinationURL.path)
+        return restorable
     }
 
     /// Testable core; production resolves `caseSensitiveVolume` from the source volume.
@@ -433,13 +436,15 @@ extension FileSyncManager {
     /// because the source cleanup that follows is not something to stop half-way.
     @discardableResult
     public nonisolated static func safeMoveItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging = FileManager.default, observer: CopyObserver? = nil) throws -> URL? {
-        try safeMoveItem(
+        let restorable = try safeMoveItem(
             at: sourceURL,
             to: destinationURL,
             fileManager: fileManager,
             caseSensitiveVolume: volumeSupportsCaseSensitiveNames(for: sourceURL),
             observer: observer
         )
+        ChangedFileLedger.shared.note(destinationURL.path)
+        return restorable
     }
 
     /// Testable core; production resolves `caseSensitiveVolume` from the source volume, and

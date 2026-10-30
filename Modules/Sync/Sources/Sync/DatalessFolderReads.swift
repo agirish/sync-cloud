@@ -161,6 +161,20 @@ extension FileSyncManager {
             return reads[path] != nil
         }
 
+        /// The folders whose read passed its deadline and has not answered since — what the cloud
+        /// app status (RD68) reads as "not responding". A folder leaves when its read answers.
+        public func unansweredPaths() -> [String] {
+            lock.lock(); defer { lock.unlock() }
+            return reads.filter { $0.value.state == .expired }.map(\.key).sorted()
+        }
+
+        /// Posted, on no particular thread, when a folder joins or leaves `unansweredPaths()`.
+        public static let unansweredDidChange = Notification.Name("DatalessFolderReads.unansweredDidChange")
+
+        private func announceUnansweredChange() {
+            NotificationCenter.default.post(name: Self.unansweredDidChange, object: self)
+        }
+
         /// **One folder, one read, however the walk spelled it.** The Home pane reaches each OneDrive
         /// `.Trash` through OneDrive's link in the home folder — `~/OneDrive/.Trash`, measured — and
         /// can reach the same folder again under `~/Library/CloudStorage/…`. Keyed by spelling, that
@@ -210,6 +224,7 @@ extension FileSyncManager {
             lock.unlock()
             if wasExpired {
                 Logger.shared.info("Scan: “\(path)” answered after \(read.since.text) — walks read it again from now on")
+                announceUnansweredChange()
             }
             for tell in waiters.values { tell(true) }
         }
@@ -226,6 +241,7 @@ extension FileSyncManager {
                 self.lock.unlock()
                 Logger.shared.warning("Scan: “\(path)” did not answer in \(Self.text(deadline)) — its contents are not on this Mac and the app that syncs it did not supply them. Shown as unexplored, not empty; walks skip it until it answers")
                 for tell in waiters.values { tell(false) }
+                self.announceUnansweredChange()
             }
         }
 

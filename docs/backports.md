@@ -13159,3 +13159,30 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s cap=%s skipNote=%s edgeSample
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The 100 MB cap: larger files are skipped by every content check | RECORDED — not owed |
+
+---
+
+## A cloud app that isn't syncing is said everywhere (RD68) — main only
+
+Decision DK, 2026-10-30. On `main`: one status per provider (`CloudAppMonitor`) says when the
+Dropbox, OneDrive or Google Drive app has not run for 5 minutes, a folder not downloaded to this Mac
+did not answer (`DatalessFolderReads`), iCloud is signed out or iCloud Drive is off, or a file
+SyncCloud changed is still not uploaded after 30 minutes — as an amber bar under every pane of that
+source, a dot in the source menu and the sidebar, and a row in Activity ▸ Now. A new feature, not a
+fix; the older lines show their sources with no such warning.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s status=%s dataless=%s activity=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/CloudAppStatus.swift 2>/dev/null | grep -cF 'final class CloudAppMonitor')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/DatalessFolderReads.swift 2>/dev/null | grep -cF 'final class DatalessFolderReads')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/ActivityCenter.swift 2>/dev/null | grep -cF 'final class ActivityCenter')"; done
+# measured 2026-10-30, against origin, before this landed (the change reads status=1 on main):
+# main   status=0 dataless=1 activity=1
+# v5.x   status=0 dataless=1 activity=0
+# v4.x / v3.x / v2.x   status=0 dataless=0 activity=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The unanswered-folder deadline, with no status built on it, and no Activity window | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | Neither the deadline nor Activity | RECORDED — not owed |

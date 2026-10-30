@@ -16,6 +16,7 @@ public struct ProviderMenu<LabelContent: View>: View {
     private let onChooseFolder: (() -> Void)?
     private let onGoToRoot: (() -> Void)?
     private let label: LabelContent
+    @ObservedObject private var cloudApps: CloudAppMonitor
 
     /// - Parameter onGoToRoot: moves the caller to the top of the source it is already on. nil omits
     ///   the item, which is right for every caller that is not a pane — the lens source bar has no
@@ -34,8 +35,10 @@ public struct ProviderMenu<LabelContent: View>: View {
         onManage: @escaping () -> Void,
         onChooseFolder: (() -> Void)? = nil,
         onGoToRoot: (() -> Void)? = nil,
+        cloudApps: CloudAppMonitor = .shared,
         @ViewBuilder label: () -> LabelContent
     ) {
+        self.cloudApps = cloudApps
         self.providers = providers
         self.currentId = currentId
         self.onSelect = onSelect
@@ -74,7 +77,18 @@ public struct ProviderMenu<LabelContent: View>: View {
             // grouping the divider would have drawn is there in the order.
             Picker("Source", selection: Binding(get: { currentId }, set: { onSelect($0) })) {
                 ForEach(providers, id: \.id) { provider in
-                    Text(provider.displayName).tag(provider.id)
+                    // A cloud app not syncing (RD68): an amber dot and what is wrong. Nothing
+                    // otherwise — no green.
+                    if let problem = cloudApps.problems[provider.id] {
+                        Label {
+                            Text("\(provider.displayName) — \(problem.shortLabel)")
+                        } icon: {
+                            Image(nsImage: CloudAppStatusDot.menuImage)
+                        }
+                        .tag(provider.id)
+                    } else {
+                        Text(provider.displayName).tag(provider.id)
+                    }
                 }
             }
             .pickerStyle(.inline)
