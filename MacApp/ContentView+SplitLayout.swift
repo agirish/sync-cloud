@@ -385,7 +385,8 @@ extension ContentView {
             tree: syncManager.leftPaneTree,
             selection: PaneStatusFacts.Selection.make(nodes: paneSelectionNodes(isLeft: true),
                                                       isCloudOnly: CloudOnlyBadgeCache.cached),
-            readAt: syncManager.leftTreeReadAt)
+            readAt: syncManager.leftTreeReadAt,
+            changedOnDisk: syncManager.leftChangedOnDisk)
             .contentSurface(hue: glassHue, tint: surfaceTint)
             .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: true))
     }

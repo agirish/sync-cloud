@@ -182,8 +182,8 @@ every guard while somebody is watching. The trigger then becomes a small additio
 already proven, rather than the first outing for a whole new write path that fires at 02:00. Run the
 manual form against real folders for a week before the trigger ships.
 
-**Triggers:** every hour · daily at HH:MM · weekly · **when files change** (needs the watcher, item
-5) · manually.
+**Triggers:** every hour · daily at HH:MM · weekly · **when files change** (`FolderWatcher`, in
+`Modules/Sync`) · manually.
 
 **And it brings the last of the ambient surfaces with it.** *"Back up this folder…"* belongs in the
 pane row's context menu beside *Fix name…* and *Find duplicates of this*, on FOLDER rows — the two
@@ -369,27 +369,6 @@ now provides.
 
 ---
 
-## 5. Folder watching → auto-rescan
-
-**Why:** The app only learns about filesystem changes when asked. There is no watcher anywhere in
-the codebase — no `FSEvents`, no `DispatchSource`, no `NSFilePresenter` — so a comparison left open
-goes quietly stale, and cloud providers change these folders constantly without the user doing
-anything.
-
-**What:** An `FSEventStream` on the focused roots, coalesced (a provider sync burst is many events),
-feeding `prepareForcedRescan()` — which already exists as the supported "this is stale, supersede
-whatever is in flight" entry point. Ship it as a passive freshness signal first (`ScanFreshness` is
-already there), with auto-rescan as the opt-in step, since a rescan mid-review would move rows under
-the user.
-
-**Impact:** The comparison stops lying. It is also **the "when files change" trigger for item 1c**,
-which is the strongest reason to build it.
-
-**Effort:** Medium. **Risk:** Medium — it interacts directly with the freshness machinery catalogued
-in `REFACTOR.md` item 8; do that first or accept a seventh counter.
-
----
-
 ## 6. CLI parity for the maintenance lenses
 
 **Why:** The `synccloud` CLI does `scan`, `sync` and `providers` — the two-pane story only. Every
@@ -470,7 +449,7 @@ suggestion is not.
 **Impact:** Turns Organize from a chore you remember into one you do not.
 
 **Effort:** Medium. **Risk:** Medium — it moves files unattended, so it inherits item 1c's
-invariants wholesale. Gate it behind item 5's watcher, a per-rule confirmation count, and a hard
+invariants wholesale. Gate it behind the folder watcher (`FolderWatcher`), a per-rule confirmation count, and a hard
 "never auto-run a rule whose destination does not exist yet".
 
 ---
@@ -1180,7 +1159,6 @@ the question hundreds of keeper picks actually raise.
 | 2 | Sync presets | Low | High |
 | 3 | Strict content match (its persisted index shipped in v3.1) | Medium | Medium–High |
 | 4 | `bothModified` detection | Medium | High |
-| 5 | Folder watching → auto-rescan | Medium | High |
 | 6 | CLI parity for the lenses | Low–Medium | High |
 | 7 | Cross-provider duplicates | High | High |
 | 8 | Export / import configuration | Low | Medium |

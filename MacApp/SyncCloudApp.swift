@@ -477,6 +477,10 @@ struct SyncCloudApp: App {
         if !isRunningTests {
             manager.persistedUIStateDefaults = .standard
             manager.loadLastScanSummary()
+            // The folder watcher (ROADMAP item 5), not under tests for the same reason, and one
+            // more: the test host's panes sit on the user's real folders, and a live stream there
+            // would mark them changed under any app suite that reads the freshness readouts.
+            manager.enableFolderWatching(history: .userDefaults(.standard))
         }
         // The content-hash index survives launches, so Verify and Duplicates stop re-reading
         // gigabytes they already hashed. Enabled here for the same reason as the verdict cache

@@ -1639,6 +1639,8 @@ public class FileSyncManager: ObservableObject {
             guard showHiddenFiles != oldValue else { return }
             dropPrefetchedTrees()
             Task { await self.applyFilters() }
+            // Hidden items the watcher saw change since the walk are news now, or no longer.
+            publishDiskChanges()
         }
     }
     
@@ -2103,6 +2105,36 @@ public class FileSyncManager: ObservableObject {
     /// Right-pane counterpart of `leftTreeReadAt`.
     @Published public internal(set) var rightTreeReadAt: Date?
 
+    /// Whether the folder watcher has seen the left pane's folder change since the walk behind its
+    /// listing started — "changed since you looked" (ROADMAP item 5). Always false while nothing is
+    /// watching (``enableFolderWatching(history:latency:quiet:maxDelay:)``). It only ever ADDS a
+    /// warning: false says no event arrived, never that the folder is current.
+    @Published public internal(set) var leftChangedOnDisk = false
+    /// Right-pane counterpart of `leftChangedOnDisk`.
+    @Published public internal(set) var rightChangedOnDisk = false
+    /// The ids behind `leftChangedOnDisk` — see ``PaneWatchState``.
+    var leftWatch = PaneWatchState()
+    /// Right-pane counterpart of `leftWatch`.
+    var rightWatch = PaneWatchState()
+    /// The watcher behind the two flags above; nil until the app enables it, and in every test and
+    /// the CLI, which then behave exactly as they did before it existed.
+    var folderWatcher: FolderWatcher?
+    /// Told, on the main actor, which panes a batch of changes left showing a stale listing — the
+    /// app's hook for its opt-in rescan. Never told about this process's own writes.
+    public var onPanesChangedOnDisk: (@MainActor (PaneReloadScope) -> Void)?
+    /// Panes whose news `tellPanesChanged` is holding back.
+    var owedPaneChanges: (left: Bool, right: Bool) = (false, false)
+    /// When `onPanesChangedOnDisk` was last told — the start of `paneNewsInterval`.
+    var lastPaneNewsAt: Date?
+    /// The fewest seconds between two tellings of `onPanesChangedOnDisk`: at most one opt-in
+    /// rescan per interval, however busy the folder. A test sets it shorter.
+    var paneNewsInterval: TimeInterval = 30
+    /// The one pending wake that asks again for held news (`tellOwedPaneChanges`).
+    var owedPaneNewsWake: Task<Void, Never>?
+    /// Called as each pane load starts (`noteFolderWatchLoad`) — the seam a test uses to land a
+    /// change inside a refresh without racing it. nil in the app.
+    var folderWatchLoadWitness: (@MainActor (_ isLeft: Bool) -> Void)?
+
     // MARK: - Selection resolution index
 
     /// Path→node maps for resolving a selection to nodes in O(selection) instead of walking the
@@ -2186,6 +2218,12 @@ public class FileSyncManager: ObservableObject {
     /// is part of that walk, not a walk of its own.
     public var prefetchedTreeReadAt: [String: Date] = [:]
 
+    /// The FSEvents id read when the walk behind each cache entry started
+    /// (``FolderWatcher/currentEventId()``) — the stamp `prefetchedTreeReadAt` is, in the one unit
+    /// that orders a walk against a change the folder watcher reports. Travels with the entry
+    /// exactly as the read time does, and a slice inherits its root's.
+    public var prefetchedTreeReadMark: [String: UInt64] = [:]
+
     /// Where the walk behind each cache entry read through a folder link — the resolved targets
     /// of the folder symlinks it listed outside its root (`FollowedLinks`). Absent for the walks
     /// that followed none, which is nearly all of them.
@@ -2233,6 +2271,7 @@ public class FileSyncManager: ObservableObject {
         prefetchedTreeWalkStopped.removeAll()
         prefetchedTreeReadAt.removeAll()
         prefetchedTreeLinkTargets.removeAll()
+        prefetchedTreeReadMark.removeAll()
     }
 
     /// Drops every cached walk but the one at `kept`, which stays with its provenance — or every
@@ -2271,11 +2310,13 @@ public class FileSyncManager: ObservableObject {
         let walkStopped = prefetchedTreeWalkStopped.contains(kept)
         let readAt = prefetchedTreeReadAt[kept]
         let linkTargets = prefetchedTreeLinkTargets[kept]
+        let readMark = prefetchedTreeReadMark[kept]
         dropPrefetchedTrees()
         prefetchedTrees[kept] = tree
         if walkStopped { prefetchedTreeWalkStopped.insert(kept) }
         prefetchedTreeReadAt[kept] = readAt
         prefetchedTreeLinkTargets[kept] = linkTargets
+        prefetchedTreeReadMark[kept] = readMark
         Logger.shared.debug("[cache] kept the walk at “\(kept)” for the pane that stayed; "
                             + "dropped the other \(before - 1) cached walk(s)")
     }
@@ -2303,13 +2344,59 @@ public class FileSyncManager: ObservableObject {
         let stale = prefetchedTrees.keys.filter {
             Self.folder($0, holds: folder, links: links, linkTargets: prefetchedTreeLinkTargets[$0] ?? [])
         }
-        for key in stale {
-            prefetchedTrees[key] = nil
-            prefetchedTreeWalkStopped.remove(key)
-            prefetchedTreeReadAt[key] = nil
-            prefetchedTreeLinkTargets[key] = nil
-        }
+        for key in stale { dropPrefetchedTree(at: key) }
         return stale.count
+    }
+
+    /// Drops the cached walks the folder watcher's changes have made stale: each walk that lists
+    /// one of a change's `paths` (string math only — ``listedRoots(of:links:linkTargets:)``), and
+    /// for a change marked `below`, each walk of a folder under one of them: a folder that was
+    /// removed or renamed takes the walks below it along, which no event of their own will name.
+    ///
+    /// **Only a walk older than the change.** A walk whose read mark is at or past the change's id
+    /// started after it and listed it; an entry with no mark predates the bookkeeping and goes.
+    /// Returns how many entries went.
+    @discardableResult
+    func dropPrefetchedTrees(changedBy changes: [(paths: [String], below: Bool, id: UInt64)]) -> Int {
+        guard !changes.isEmpty, !prefetchedTrees.isEmpty else { return 0 }
+        // **Folded by folder first.** A walk lists a path strictly below one of its roots exactly
+        // when it lists that path's parent, so a burst of thousands of files in a handful of folders
+        // asks each cached walk about a handful of folders — not about every file, which at a first
+        // sync's 20,000 events and a few dozen cached walks was over a million comparisons on the
+        // main actor. A path that IS a walk's root is the other way in, looked up by name.
+        var parents: [String: UInt64] = [:]
+        var exact: [String: UInt64] = [:]
+        var below: [String: UInt64] = [:]
+        for change in changes {
+            for path in change.paths where !path.isEmpty {
+                let parent = (path as NSString).deletingLastPathComponent
+                parents[parent] = max(parents[parent] ?? 0, change.id)
+                exact[path] = max(exact[path] ?? 0, change.id)
+                if change.below { below[path] = max(below[path] ?? 0, change.id) }
+            }
+        }
+        let links = linkedFolders
+        let stale = prefetchedTrees.keys.filter { key in
+            let mark = prefetchedTreeReadMark[key] ?? 0
+            let listed = Self.listedRoots(of: key, links: links, linkTargets: prefetchedTreeLinkTargets[key] ?? [])
+            for root in listed where (exact[root] ?? 0) > mark { return true }
+            for (parent, id) in parents where id > mark && Self.tail(of: parent, in: listed) != nil { return true }
+            for (path, id) in below where id > mark && PathBoundary.lexicalRelativize(key, under: path) != nil {
+                return true
+            }
+            return false
+        }
+        for key in stale { dropPrefetchedTree(at: key) }
+        return stale.count
+    }
+
+    /// One entry and its provenance, together.
+    private func dropPrefetchedTree(at key: String) {
+        prefetchedTrees[key] = nil
+        prefetchedTreeWalkStopped.remove(key)
+        prefetchedTreeReadAt[key] = nil
+        prefetchedTreeLinkTargets[key] = nil
+        prefetchedTreeReadMark[key] = nil
     }
 
     /// Whether a deep walk of `folder` lists `path` — a pane's folder or a cached walk's root,
@@ -2349,24 +2436,48 @@ public class FileSyncManager: ObservableObject {
     public nonisolated static func folder(_ folder: String, holds path: String,
                                           links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders,
                                           linkTargets: Set<String> = []) -> Bool {
+        guard !PathBoundary.normalizedRoot(folder).isEmpty, !path.isEmpty else { return false }
+        let raw = PathBoundary.normalizedRoot(path)
+        if listedTail(of: raw, in: folder, links: links, linkTargets: linkTargets) != nil { return true }
+        let resolved = URL(fileURLWithPath: raw).resolvingSymlinksInPath().path
+        return resolved != raw && listedTail(of: resolved, in: folder, links: links, linkTargets: linkTargets) != nil
+    }
+
+    /// ``folder(_:holds:links:linkTargets:)`` without its symlink-resolving second try — string
+    /// math only, so it is cheap enough for every path in a burst of FSEvents, which arrive
+    /// resolved already. Answers where `path` sits below the folder the walk lists it under
+    /// (`""` for that folder itself), or nil when the walk does not list it.
+    nonisolated static func listedTail(of path: String, in folder: String,
+                                       links: PathBoundary.LinkedFolders,
+                                       linkTargets: Set<String>) -> String? {
+        guard !path.isEmpty else { return nil }
+        return tail(of: PathBoundary.normalizedRoot(path),
+                    in: listedRoots(of: folder, links: links, linkTargets: linkTargets))
+    }
+
+    /// Where a deep walk of `folder` lists from: the folder and the targets of the links it
+    /// followed, and every target of a container at or below any of those. One container on a real
+    /// Mac, and almost every walk follows no link, so this is one folder and at most two targets.
+    /// Empty for an empty folder, which lists nothing.
+    nonisolated static func listedRoots(of folder: String, links: PathBoundary.LinkedFolders,
+                                        linkTargets: Set<String>) -> [String] {
         let expanded = PathBoundary.normalizedRoot(folder)
-        guard !expanded.isEmpty, !path.isEmpty else { return false }
-        // Where the walk lists from: the folder and the targets of the links it followed, and every
-        // target of a container at or below any of those. One container on a real Mac, and almost
-        // every walk follows no link, so this is one comparison and at most two targets.
+        guard !expanded.isEmpty else { return [] }
         let roots = [expanded] + linkTargets
         var listed = roots
         for (container, targets) in links
         where roots.contains(where: { PathBoundary.lexicalRelativize(container, under: $0) != nil }) {
             listed.append(contentsOf: targets.values)
         }
-        func lists(_ candidate: String) -> Bool {
-            listed.contains { PathBoundary.lexicalRelativize(candidate, under: $0) != nil }
+        return listed
+    }
+
+    /// Where `path` sits below the first of `listed` that holds it (`""` for one of them itself).
+    nonisolated static func tail(of path: String, in listed: [String]) -> String? {
+        for root in listed {
+            if let tail = PathBoundary.lexicalRelativize(path, under: root) { return tail }
         }
-        let raw = PathBoundary.normalizedRoot(path)
-        if lists(raw) { return true }
-        let resolved = URL(fileURLWithPath: raw).resolvingSymlinksInPath().path
-        return resolved != raw && lists(resolved)
+        return nil
     }
     /// Focused-folder path each pane's published tree was last loaded for; distinguishes a
     /// same-focus refresh (keep showing the current tree while rebuilding) from a focus

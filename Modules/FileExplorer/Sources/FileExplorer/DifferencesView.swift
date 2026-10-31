@@ -591,7 +591,11 @@ public struct DifferencesView: View {
                                      spokenDetail: "scanning for changes",
                                      help: "Scanning for changes…")
         }
-        let freshness = ScanFreshness.describe(scanDate: scanDate, now: now)
+        // A change the folder watcher saw under either pane since its walk began dates this
+        // comparison too: it compares those walks. Additive, as the note above asks.
+        let freshness = ScanFreshness.describe(scanDate: scanDate, now: now,
+                                               changedOnDisk: syncManager.leftChangedOnDisk
+                                                   || syncManager.rightChangedOnDisk)
         // `freshness.spoken` on BOTH branches, and it is the only thing that says "stale" in
         // words: the run's terracotta capsule is colour, the age itself reads the same either
         // way, `.help` is not announced, and the button's own value/hint describe the toggle.
@@ -605,7 +609,9 @@ public struct DifferencesView: View {
                                  detailStyle: .of(.attention, colorScheme),
                                  detail: freshness.age,
                                  spokenDetail: freshness.spoken,
-                                 help: "This comparison may be out of date — last scanned \(stamp)")
+                                 help: freshness.changedOnDisk
+                                     ? "Files have changed since this comparison — last scanned \(stamp)"
+                                     : "This comparison may be out of date — last scanned \(stamp)")
     }
 
     /// Runs `content` again only when the dressing can change, so the age stays honest without the

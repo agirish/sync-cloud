@@ -388,6 +388,7 @@ extension FileSyncManager {
             leftTreeReadAt = nil
             // Its links went with it: a pane holding no walk reaches nothing.
             leftTreeLinkTargets = []
+            leftWatch.readMark = nil
         } else {
             rawRightTree = []
             if !rightTree.isEmpty { rightTree = [] }
@@ -395,7 +396,9 @@ extension FileSyncManager {
             lastLoadedRightFocusPath = nil
             rightTreeReadAt = nil
             rightTreeLinkTargets = []
+            rightWatch.readMark = nil
         }
+        publishDiskChanges()
     }
 
     /// Re-resolves a pane's column stack against a freshly published tree, dropping any trailing
@@ -802,6 +805,10 @@ extension FileSyncManager {
         // pane the tree is on now.
         swap(&leftTreeLinkTargets, &rightTreeLinkTargets)
         swap(&isLoadingLeftTree, &isLoadingRightTree)
+        // And what the folder watcher has said about it.
+        swap(&leftWatch, &rightWatch)
+        owedPaneChanges = (owedPaneChanges.right, owedPaneChanges.left)
+        publishDiskChanges()
 
         // Remap rather than clear: the scan results stay valid after a swap (same folders,
         // same files), only their side labels flip — and remapping keeps the list actionable

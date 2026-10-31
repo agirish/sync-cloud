@@ -93,6 +93,20 @@ import Sync
                 "the full rung drew a freshness segment for a pane that has loaded nothing")
     }
 
+    /// **The pane says its folder changed since it was read** (ROADMAP item 5), in the segment the
+    /// full rung draws and in the spoken label — and a pane with nothing loaded still says nothing.
+    @Test func aChangeOnDiskIsSaidInTheFreshnessSegment() {
+        var changed = facts(ageSeconds: 240)
+        changed.changedOnDisk = true
+        #expect(changed.freshness?.text == "Scanned 4m ago, changed since")
+        #expect(changed.freshness?.isStale == true)
+        #expect(changed.segments(.full).last == "Scanned 4m ago, changed since")
+        #expect(changed.accessibilityLabel.hasSuffix("scanned 4 minutes ago, changed on disk since"))
+        var unloaded = facts(ageSeconds: nil)
+        unloaded.changedOnDisk = true
+        #expect(unloaded.freshness == nil)
+    }
+
     // MARK: The ladder
 
     /// **The order they shed in, stated as segments.** Each rung is the one above it with its

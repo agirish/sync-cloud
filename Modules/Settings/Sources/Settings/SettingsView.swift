@@ -571,6 +571,9 @@ enum SettingsSearchIndex {
               keywords: ["date tolerance", "date", "timestamp", "tolerance", "modified date", "rounding"]),
         .init(tab: .sync, title: "Verify same-size files during scans",
               keywords: ["verify", "checksum", "same size", "scan verification", "hash"]),
+        .init(tab: .sync, title: "Rescan when files change",
+              keywords: ["rescan", "auto rescan", "watch", "folder watching", "file changes", "changed on disk",
+                         "refresh automatically", "live", "fsevents"]),
         .init(tab: .sync, title: "Ignore “newer on Google Drive” when same size",
               keywords: ["google drive", "newer", "ignore date", "gdrive"]),
         .init(tab: .sync, title: "Confirm before copying or moving",
@@ -2103,6 +2106,10 @@ struct SyncSettingsTab: View {
                     Text("Verify same-size files during scans")
                 }
                 .help("During each scan, checksums same-size files that differ only by date and hides the ones that are identical. Files over 100 MB are left for Verify All. Slower on large folders.")
+                Toggle(isOn: $settings.rescanWhenFilesChange) {
+                    Text("Rescan when files change")
+                }
+                .help("Rescans a pane by itself when something in its folder changes, so rows can move while you look at them. Off, the scan age says “changed since” and the list waits for Refresh.")
                 Toggle(isOn: $settings.ignoreGoogleDriveNewerDateOnly) {
                     Text("Ignore “newer on Google Drive” when same size")
                 }

@@ -198,6 +198,9 @@ extension FileSyncManager {
             // already covers is redundant in the record, never wrong.
             let followed = followedLinks.targets
             if isLeft { self.leftTreeLinkTargets.formUnion(followed) } else { self.rightTreeLinkTargets.formUnion(followed) }
+            // The graft followed links out of the pane's folder: watch where they lead now, not
+            // at the next load.
+            if !followed.isEmpty { self.updateFolderWatch() }
             // **The cache gets it too, or the graft is undone by the next navigation.**
             // `loadTree`'s fast path serves `prefetchedTrees[focusPath]` without touching disk, so
             // leaving the ungrafted tree there means walking away and back restores the blank

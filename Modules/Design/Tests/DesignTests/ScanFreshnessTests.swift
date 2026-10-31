@@ -215,4 +215,33 @@ import Foundation
             #expect(result.age == ScanFreshness.relative(offset), "offset \(offset)")
         }
     }
+
+    /// **A change on disk makes a fresh scan stale, in words as well as colour** (ROADMAP item 5).
+    /// Pinned as a pair at one instant, so a version that appended the clause unconditionally fails.
+    @Test func aChangeOnDiskMakesAFreshScanStaleAndSaysWhy() {
+        let quiet = ScanFreshness.describe(scanDate: base, now: at(120))
+        let changed = ScanFreshness.describe(scanDate: base, now: at(120), changedOnDisk: true)
+
+        #expect(!quiet.isStale && !quiet.changedOnDisk)
+        #expect(quiet.text == "Scanned 2m ago")
+        #expect(quiet.spoken == "scanned 2 minutes ago")
+
+        #expect(changed.isStale && changed.changedOnDisk)
+        #expect(changed.age == "2m ago", "the age is still the scan's age")
+        #expect(changed.text == "Scanned 2m ago, changed since")
+        #expect(changed.spoken == "scanned 2 minutes ago, changed on disk since")
+    }
+
+    /// **Additive only**: no change seen never makes an old scan fresh. A watcher that missed a
+    /// change — an idle Mac's iCloud, a Dropbox that is not running — must leave the hour's warning.
+    @Test func noChangeSeenNeverMakesAnOldScanFresh() {
+        let old = ScanFreshness.describe(scanDate: base, now: at(ScanFreshness.staleAfter), changedOnDisk: false)
+        #expect(old.isStale)
+        #expect(old.spoken == "scanned 1 hour ago, may be out of date")
+        // Old AND changed: the change is the more specific reason, and the one said.
+        let both = ScanFreshness.describe(scanDate: base, now: at(ScanFreshness.staleAfter), changedOnDisk: true)
+        #expect(both.isStale)
+        #expect(both.spoken == "scanned 1 hour ago, changed on disk since")
+        #expect(both.text == "Scanned 1h ago, changed since")
+    }
 }

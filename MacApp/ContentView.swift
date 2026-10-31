@@ -1603,6 +1603,10 @@ struct ContentView: View {
                         let state = isLeft ? leftPaneSearch : rightPaneSearch
                         return (query: state.query, isExpanded: state.isExpanded)
                     }
+                    // What the folder watcher's news turns into, when the user has asked for it.
+                    syncManager.onPanesChangedOnDisk = { [self] scope in
+                        rescanAfterDiskChange(scope)
+                    }
                 case .rewireUndoManager:
                     syncManager.undoManager = undoManager
                     // A Recent row's Undo is live only while its step is the newest here (TE223).
@@ -3106,6 +3110,20 @@ struct ContentView: View {
         // rescan gets deduped away, silently doing nothing.
         syncManager.prepareForcedRescan()
         refreshAction()
+    }
+
+    /// ROADMAP item 5's opt-in step: the folder watcher saw the panes in `scope` change on disk
+    /// since their walks began, and Settings ▸ Sync ▸ "Rescan when files change" is on — so re-read
+    /// them, as Refresh would. Off (the default), this does nothing and the scan age says "changed
+    /// since" instead, so rows never move under someone part-way through a review.
+    ///
+    /// No cache drop here, unlike `forceRefreshAction`: the manager has already dropped exactly the
+    /// walks the change made stale and bumped the epoch, so this refresh is not swallowed as a
+    /// duplicate — and it never arrives while another refresh runs (`tellPanesChanged`).
+    func rescanAfterDiskChange(_ scope: FileSyncManager.PaneReloadScope) {
+        guard settings.rescanWhenFilesChange else { return }
+        Logger.shared.info("Rescanning \(scope.describedPanes): files changed there on disk")
+        refreshAction(reloading: scope)
     }
 
     // MARK: Lens scans — Find Duplicates

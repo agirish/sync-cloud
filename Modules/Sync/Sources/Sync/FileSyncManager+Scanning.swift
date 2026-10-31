@@ -129,6 +129,9 @@ extension FileSyncManager {
             let links = self.linkedFolders
             let focusURL = Self.focusURL(root: path, relative: relPath, fallback: rootURL, links: links)
             let focusPath = focusURL.path
+            // Before anything is read: the watcher moves to this folder first, so the id taken
+            // next orders every change after it against this load (`PaneWatchState`).
+            let walkMark = self.noteFolderWatchLoad(isLeft: isLeft, focusPath: focusPath)
 
             // Fast path: serve the focus from the cache without touching the disk — a direct
             // hit, or a slice of the cached root tree (deep by construction, so drill-down and
@@ -154,6 +157,9 @@ extension FileSyncManager {
                 if prefetchedTreeReadAt[focusPath] == nil {
                     prefetchedTreeReadAt[focusPath] = prefetchedTreeReadAt[rootURL.path]
                 }
+                if prefetchedTreeReadMark[focusPath] == nil {
+                    prefetchedTreeReadMark[focusPath] = prefetchedTreeReadMark[rootURL.path]
+                }
                 // And the folder links the root's walk followed — a slice's own walk was the root's.
                 // Liberally, like the stopped bit: the record does not say where in the tree each
                 // link sits, so a slice holding none of them inherits them all, which costs a drop
@@ -164,8 +170,11 @@ extension FileSyncManager {
                 // A cache entry with no stamp predates this bookkeeping (or was written by a test);
                 // `Date()` is then the only answer available, and it is the one the pane had before
                 // any of this existed.
+                // The mark the same way, except that an entry without one stands for the oldest
+                // walk there is: any change the watcher reports for this folder postdates it.
                 self.adoptRawTree(cached, isLeft: isLeft, focusPath: focusPath,
                                   readAt: prefetchedTreeReadAt[focusPath] ?? Date(),
+                                  readMark: prefetchedTreeReadMark[focusPath] ?? 0,
                                   linkTargets: prefetchedTreeLinkTargets[focusPath] ?? [])
                 await self.applyFilters()
                 outcome = "served \(Self.countItems(in: cached)) nodes from cache"
@@ -209,7 +218,7 @@ extension FileSyncManager {
                 }
                 let shallowPublishStart = CFAbsoluteTimeGetCurrent()
                 self.adoptRawTree(shallowTree, isLeft: isLeft, focusPath: focusPath,
-                                  linkTargets: shallowLinks.targets)
+                                  readMark: walkMark, linkTargets: shallowLinks.targets)
                 await self.applyFilters()
                 // The shallow pass is a SEPARATE cost from the deep one, not a prefix of it —
                 // it is its own `buildTree` over the same directory — so it gets its own line
@@ -244,6 +253,7 @@ extension FileSyncManager {
             let published = await self.adoptFreshDeepTree(tree, builtWith: sortOp, isLeft: isLeft, focusPath: focusPath,
                                                           loadToken: loadToken, configToken: configToken,
                                                           walkStopped: paneBudget.didStopADescent,
+                                                          readMark: walkMark,
                                                           linkTargets: followedLinks.targets)
             // `adoptFreshDeepTree` can bail without publishing (cancelled during its off-actor
             // re-sort), which the old "Tree Loaded. Count:" line reported as a completion
@@ -286,9 +296,10 @@ extension FileSyncManager {
     /// - Parameter linkTargets: where that walk read through a folder link (`FollowedLinks`) —
     ///   provenance too, published with the pane and recorded beside the entry. Empty by default,
     ///   for the same tests.
+    /// - Parameter readMark: the FSEvents id read before that walk started — see `adoptRawTree`.
     func adoptFreshDeepTree(_ tree: [FileNode], builtWith sortOp: SortOption, isLeft: Bool, focusPath: String,
                             loadToken: Int, configToken: Int, walkStopped: Bool = false,
-                            linkTargets: Set<String> = []) async -> Bool {
+                            readMark: UInt64? = nil, linkTargets: Set<String> = []) async -> Bool {
         var tree = tree
         let liveSort = sortOption
         if liveSort != sortOp {
@@ -298,7 +309,7 @@ extension FileSyncManager {
             }.value
             guard !Task.isCancelled else { return false }
         }
-        adoptRawTree(tree, isLeft: isLeft, focusPath: focusPath, linkTargets: linkTargets)
+        adoptRawTree(tree, isLeft: isLeft, focusPath: focusPath, readMark: readMark, linkTargets: linkTargets)
         // The option can move AGAIN while the re-sort/publish above runs, and this adopt's
         // generation bump discards any resort that change scheduled — re-sort once more in
         // memory (generation-guarded, so it in turn yields to anything fresher).
@@ -340,6 +351,7 @@ extension FileSyncManager {
             // pane's own stamp back keeps the entry and the pane exactly equal, which is what makes
             // a later cache hit able to reproduce this moment rather than approximate it.
             prefetchedTreeReadAt[focusPath] = (isLeft ? leftTreeReadAt : rightTreeReadAt) ?? Date()
+            prefetchedTreeReadMark[focusPath] = (isLeft ? leftWatch : rightWatch).readMark
             // The provenance travels with the entry, in both directions — a fresh complete walk
             // must also RETIRE a stale stopped mark, or the banner would outlive the truncation.
             if walkStopped {
@@ -402,8 +414,11 @@ extension FileSyncManager {
     /// - Parameter linkTargets: where the walk behind `tree` read through a folder link — see
     ///   `leftTreeLinkTargets`. Empty by default, which is right for a hand-built tree; every load
     ///   passes its walk's own, a cache hit the entry's.
+    /// - Parameter readMark: the FSEvents id read before the walk behind `tree` started — what the
+    ///   folder watcher's changes are ordered against (`PaneWatchState`). nil reads the id now,
+    ///   `readAt`'s default in the other unit.
     func adoptRawTree(_ tree: [FileNode], isLeft: Bool, focusPath: String,
-                      readAt: Date = Date(), linkTargets: Set<String> = []) {
+                      readAt: Date = Date(), readMark: UInt64? = nil, linkTargets: Set<String> = []) {
         // An unreadable-root walk comes back as the root itself marked unexplored (see
         // `buildTree`), so the cache and the diff know the contents are UNKNOWN rather than
         // empty. The pane must not render the focused folder nested inside itself, though —
@@ -426,6 +441,7 @@ extension FileSyncManager {
             rightTreeReadAt = readAt
             rightTreeLinkTargets = linkTargets
         }
+        noteFolderWatchRead(isLeft: isLeft, readMark: readMark ?? FolderWatcher.currentEventId())
     }
 
     /// The children of the directory at `path` inside a deep tree walked at `root`, or nil when
@@ -606,6 +622,8 @@ extension FileSyncManager {
         // cancel-restart C, reopening the strand race documented above.
         if activeRefreshKey == key, activeRefreshTask == task {
             activeRefreshKey = nil
+            // A change the folder watcher reported while this ran was held for now.
+            tellOwedPaneChanges()
         }
     }
 

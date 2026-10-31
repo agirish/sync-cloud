@@ -39,6 +39,10 @@ public struct PaneStatusFacts: Equatable {
     /// loaded a tree.
     public var readAt: Date?
 
+    /// The folder watcher saw the pane's folder change since that walk began
+    /// (`FileSyncManager.leftChangedOnDisk`) — the freshness segment then says so.
+    public var changedOnDisk: Bool = false
+
     /// The pane's selection, reduced to the three numbers the bar states.
     public struct Selection: Equatable {
         public var itemCount: Int
@@ -155,17 +159,18 @@ public struct PaneStatusFacts: Equatable {
     /// does; the type has no clock of its own.
     var freshness: ScanFreshness.Result? {
         guard let readAt else { return nil }
-        return ScanFreshness.describe(scanDate: readAt, now: now)
+        return ScanFreshness.describe(scanDate: readAt, now: now, changedOnDisk: changedOnDisk)
     }
 
     /// Memberwise, spelled out because the compiler's is internal and the app composes this from
     /// another module. `now` defaults to *now*, so only a test placing the clock passes it.
     public init(itemCount: Int, selection: Selection? = nil, cloudOnlyCount: Int? = nil,
-                readAt: Date? = nil, now: Date = Date()) {
+                readAt: Date? = nil, changedOnDisk: Bool = false, now: Date = Date()) {
         self.itemCount = itemCount
         self.selection = selection
         self.cloudOnlyCount = cloudOnlyCount
         self.readAt = readAt
+        self.changedOnDisk = changedOnDisk
         self.now = now
     }
 

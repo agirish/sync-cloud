@@ -117,18 +117,20 @@ public struct BrowseStatusBar: View {
     var tree: PaneTree
     var selection: PaneStatusFacts.Selection?
     var readAt: Date?
+    var changedOnDisk: Bool
     /// Substituted by the tests, for the reason ``CloudOnlyCensus/count(in:stat:)`` gives.
     var stat: MaterializationStatus.StatFlags = MaterializationStatus.realStatFlags
 
     @State private var cloudOnlyCount: Int?
 
     public init(itemCount: Int, tree: PaneTree, selection: PaneStatusFacts.Selection?,
-                readAt: Date?,
+                readAt: Date?, changedOnDisk: Bool = false,
                 stat: @escaping MaterializationStatus.StatFlags = MaterializationStatus.realStatFlags) {
         self.itemCount = itemCount
         self.tree = tree
         self.selection = selection
         self.readAt = readAt
+        self.changedOnDisk = changedOnDisk
         self.stat = stat
     }
 
@@ -136,7 +138,8 @@ public struct BrowseStatusBar: View {
         TickingPaneStatusBar(facts: PaneStatusFacts(itemCount: itemCount,
                                                     selection: selection,
                                                     cloudOnlyCount: cloudOnlyCount,
-                                                    readAt: readAt))
+                                                    readAt: readAt,
+                                                    changedOnDisk: changedOnDisk))
             .task(id: tree.version) {
                 // Back to `—` FIRST. Without this the previous tree's count sits under the new
                 // tree's rows for as long as the walk takes, which is the one thing the roadmap's

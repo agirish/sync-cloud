@@ -33,7 +33,13 @@ public enum ScanFreshness {
         /// The age in words — "29 minutes ago" — for VoiceOver, which can read the compact "29m"
         /// as metres. Same buckets as `age`, so the eye and the ear never disagree.
         public let spokenAge: String
+        /// Past `staleAfter`, OR changed on disk since the scan — either way the listing may no
+        /// longer match the disk, and the readout says so in the same terracotta.
         public let isStale: Bool
+        /// The folder watcher saw a change after this scan began (ROADMAP item 5). The age alone
+        /// cannot carry it — a two-minute-old scan of a folder that changed a minute ago reads
+        /// "2m ago" — so it has its own words in `text` and `spoken`.
+        public var changedOnDisk: Bool = false
 
         /// What VoiceOver is told in the age run's place — and the ONE place staleness is put
         /// into words.
@@ -47,15 +53,22 @@ public enum ScanFreshness {
         /// Derived here rather than composed at the call site so the fresh and stale phrasings
         /// cannot drift — they differ by one clause, which is the easiest kind of pair to let rot.
         public var spoken: String {
-            isStale ? "scanned \(spokenAge), may be out of date" : "scanned \(spokenAge)"
+            if changedOnDisk { return "scanned \(spokenAge), changed on disk since" }
+            return isStale ? "scanned \(spokenAge), may be out of date" : "scanned \(spokenAge)"
         }
     }
 
-    public static func describe(scanDate: Date, now: Date, staleAfter: TimeInterval = staleAfter) -> Result {
+    /// - Parameter changedOnDisk: the folder watcher saw a change since the scan began. **Only
+    ///   ever adds**: it can make a fresh scan stale, never an old one fresh — a watcher that misses
+    ///   a change (an idle Mac's iCloud, a Dropbox app that is not running) must leave the clock's
+    ///   warning standing.
+    public static func describe(scanDate: Date, now: Date, staleAfter: TimeInterval = staleAfter,
+                                changedOnDisk: Bool = false) -> Result {
         let elapsed = max(0, now.timeIntervalSince(scanDate))
         let age = relative(elapsed)
-        return Result(text: "Scanned \(age)", age: age, spokenAge: spokenRelative(elapsed),
-                      isStale: elapsed >= staleAfter)
+        return Result(text: changedOnDisk ? "Scanned \(age), changed since" : "Scanned \(age)",
+                      age: age, spokenAge: spokenRelative(elapsed),
+                      isStale: elapsed >= staleAfter || changedOnDisk, changedOnDisk: changedOnDisk)
     }
 
     /// The tooltip's timestamp: the time alone while the scan is from today, with the date once

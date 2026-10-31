@@ -13237,3 +13237,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s offersSonnet5=%s sonnet5Rate=
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | Sonnet 5 offered and priced at $3/$15 | RECORDED — not owed |
+
+---
+
+## Folder watching: "changed since" on the panes, opt-in rescan (ROADMAP item 5) — main only
+
+An FSEvents watcher (`FolderWatcher`, file-level events with document ids, coalesced, per-volume
+history replayed across launches) on the panes' folders. A change after a pane's walk began says
+"changed since" in Browse's status bar and turns Compare's scan age terracotta; Settings ▸ Sync ▸
+"Rescan when files change" (off by default) re-reads the pane instead. A new feature, so `main`
+only.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s watcher=%s freshness=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/FolderWatcher.swift | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:Modules/Design/Sources/Design/ScanFreshness.swift 2>/dev/null | grep -cF 'public static func describe(')"; done
+# measured 2026-10-30, against origin, before this landed:
+# main, v5.x, v4.x, v3.x, v2.x   watcher=0 freshness=1
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | Freshness by the clock alone; no watcher | RECORDED — not owed (new feature) |

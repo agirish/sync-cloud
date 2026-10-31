@@ -234,6 +234,7 @@ public class SettingsManager: ObservableObject {
     private static let dateToleranceSecondsKey = "dateToleranceSeconds"
     private static let defaultSortOptionKey = "defaultSortOption"
     private static let autoVerifySameSizeDuringScanKey = "autoVerifySameSizeDuringScan"
+    private static let rescanWhenFilesChangeKey = "rescanWhenFilesChange"
     private static let rememberIgnoredItemsKey = "rememberIgnoredItems"
     private static let ignorePatternsKey = "ignorePatterns"
     private static let folderSourcesKey = "folderSources"
@@ -305,6 +306,15 @@ public class SettingsManager: ObservableObject {
     @Published public var autoVerifySameSizeDuringScan: Bool {
         didSet {
             userDefaults.set(autoVerifySameSizeDuringScan, forKey: Self.autoVerifySameSizeDuringScanKey)
+        }
+    }
+
+    /// When true, a change on disk under either pane rescans it by itself (ROADMAP item 5). Off by
+    /// default: the panes then only SAY their folder changed, and nothing moves under a person
+    /// halfway through reviewing a list. Read by the app each time the watcher reports.
+    @Published public var rescanWhenFilesChange: Bool {
+        didSet {
+            userDefaults.set(rescanWhenFilesChange, forKey: Self.rescanWhenFilesChangeKey)
         }
     }
 
@@ -679,6 +689,7 @@ public class SettingsManager: ObservableObject {
         ignoreGoogleDriveNewerDateOnly = false
         dateToleranceSeconds = 1
         autoVerifySameSizeDuringScan = false
+        rescanWhenFilesChange = false
         rememberIgnoredItems = true
         ignorePatterns = []
         conflictPolicy = .ask
@@ -723,6 +734,7 @@ public class SettingsManager: ObservableObject {
         self.ignoreGoogleDriveNewerDateOnly = userDefaults.bool(forKey: Self.ignoreGoogleDriveNewerDateOnlyKey)
         self.dateToleranceSeconds = (userDefaults.object(forKey: Self.dateToleranceSecondsKey) as? Double) ?? 1
         self.autoVerifySameSizeDuringScan = userDefaults.bool(forKey: Self.autoVerifySameSizeDuringScanKey)
+        self.rescanWhenFilesChange = userDefaults.bool(forKey: Self.rescanWhenFilesChangeKey)
         self.rememberIgnoredItems = (userDefaults.object(forKey: Self.rememberIgnoredItemsKey) as? Bool) ?? true
         self.ignorePatterns = Self.readSetting(Self.ignorePatternsKey, from: userDefaults,
                                                describing: "ignore-pattern list") {
