@@ -728,6 +728,19 @@ test's own `request`, so its count is queued before the first yield. The fixed s
 last two cited by symbol rather than SHA on purpose, since this file's SHA refs are per-line and a
 cherry-pick between `v2.x` and `main` has to swap every one of them by hand.
 
+#### Seen: `DifferenceResolutionTests.testSyncAllDropsReentrantRunWhileFirstIsInFlight`, 2026-10-30 — FIXED
+
+Red twice on hosted CI, `5f693fd6d` and a re-dispatch of `ea9112808` (whose push run was green), at
+`manager.activeProgress != nil`, with every count after it passing. The test waited for the first
+`syncAll` by spinning `for _ in 0..<1_000 where manager.activeProgress == nil { await Task.yield() }`:
+a fixed pump counted in yields, which a starved cooperative pool can outlast before the first run's
+task is even scheduled. Not reproduced locally (6 of 6 under 16 spinners). Fixed the way
+`BulkCopyExclusionTests` already does it: a `ParkGate` holds the first run at its first
+`fileExists`, so it has started and not finished when the second run arrives. Rewriting it also
+showed the test was blind to WHICH guard dropped the second run: with the re-entrancy guard deleted,
+`syncingDifferenceIds` refused it and every assertion still passed. It now asserts the drop is
+silent (`banner == nil`), and that mutation turns it red.
+
 ### 3. Process-wide state, and suites running in parallel
 
 **Symptom.** A suite fails only when a specific other suite runs; two suites pass alone and fail
@@ -956,9 +969,8 @@ half, so the half now runs at `.userInitiated`, and the bounded wait is 60 s, be
 that the fast half runs at all while the slow one hangs, not how quickly. Under 14 `yes` spinners on
 this Mac (`build-slot --exclusive`) it then passed three of three in about 1 s.
 
-The same run's Sync red, `DifferenceResolutionTests.testSyncAllDropsReentrantRunWhileFirstIsInFlight`
-(`manager.activeProgress != nil`), was not this: the next run carried the same `Modules/Sync` change
-and its Sync job passed.
+The same run's Sync red, `DifferenceResolutionTests.testSyncAllDropsReentrantRunWhileFirstIsInFlight`,
+was a different mechanism: see its entry under "Fixed pumps and fixed sleeps".
 
 #### Seen: `ScanSupersedenceTests.testCancellingScanAbortsTheDiskWalkPromptly`, 2026-08-11
 
@@ -2556,6 +2568,16 @@ its operation in `Task.detached` — and neither the fixture nor its test had ev
 "Every gate parks at once, on the pool their releases need".
 
 [silent-half]: flaky-triage.md#the-silent-half--read-before-writing-any-absence-assertion
+
+#### Seen: `PaneScrollMemoryTests.aRebuiltStackIsNeverShownBeforeItsPositionLands`, 2026-10-30 — FIXED
+
+Red on hosted CI at `ea9112808` on its control, `!watch.shown.isEmpty` ("no turn ever showed the
+stack — the watch proves nothing"), in 0.67 s, with the substantive `landed` check before it
+passing. **A `workflow_dispatch` of the same SHA passed FileExplorer**; locally 10 of 10 alone and
+6 of 6 under 16 `yes` spinners passed. The commit touched no scroll-memory code. The control was a
+fixed `pump(0.1)` after landing: "some run-loop turn in the next 100 ms showed the stack", which is
+the scheduler's to grant. It now waits (bounded, 15 s) for the watch to have recorded a shown turn,
+so the evidence is the run loop's own; blinding the watch still turns it red, after the bound.
 
 ### 18. A named NSPasteboard is machine-global, so two test PROCESSES share it
 

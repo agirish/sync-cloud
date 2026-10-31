@@ -504,7 +504,13 @@ import Sync
         defer { window.contentView = nil }
         let clip = try stack(window).contentView
         let landed = await waitUntil { abs(clip.bounds.origin.x - 50) < 1 && Self.isVisible(clip) }
-        await pump(0.1)
+        // **Until a turn has shown the stack, not for a fixed 0.1 s.** The control below is what
+        // stops "no turn showed it early" passing on a run that saw no turns at all, and on hosted
+        // CI (2026-10-30, `ea9112808`) a 0.1 s pump after landing ended with none recorded — the
+        // same SHA passed on a re-dispatch. Waiting for the watch's own evidence keeps the control
+        // whole ("The control that stops an absence being vacuous is itself load-dependent",
+        // docs/flaky-tests.md) instead of betting on how many turns fit in 100 ms.
+        await waitUntil { !watch.shown.isEmpty }
         watch.stop()
         try #require(landed, "the stack never came back to 50, so there is nothing to time")
         try #require(!watch.shown.isEmpty, "no turn ever showed the stack — the watch proves nothing")

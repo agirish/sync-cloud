@@ -495,7 +495,7 @@ import Foundation
     /// the prepare phase suspends (detached stat pass) before any prompt, and a concurrent run
     /// would reset the first run's "Apply to all" cache and tear down its progress on exit.
     @MainActor
-    @Test func testSyncAllDropsReentrantRunWhileFirstIsInFlight() async throws {
+    @Test(.parksAThread) func testSyncAllDropsReentrantRunWhileFirstIsInFlight() async throws {
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -521,15 +521,32 @@ import Foundation
             return (.replace, false)
         }
 
+        // **Hold the first run in its stat pass**, its first `fileExists`, so it has certainly
+        // started and certainly not finished when the second arrives. This was 1,000
+        // `Task.yield()`s waiting for `activeProgress`: a bet that the first run's task would be
+        // scheduled within them, which hosted CI's 3 vCPUs lost twice on 2026-10-30 (`5f693fd6d`;
+        // `ea9112808` on a re-dispatch, green on its push) with every other assertion passing.
+        let gate = ParkGate()
+        let parked = LockedBox(false)
+        mockFM.beforeFileExists = { _ in
+            let isFirst = parked.withLock { seen in defer { seen = true }; return !seen }
+            guard isFirst else { return }
+            gate.park()
+        }
         let first = Task { await manager.syncAll(direction: .copyToRight) }
-        // Let the first run reach its stat-pass suspension; it publishes activeProgress
-        // synchronously before that first await.
-        for _ in 0..<1_000 where manager.activeProgress == nil { await Task.yield() }
+        await awaitSignal(gate.entered, "the first run never reached its stat pass")
         #expect(manager.activeProgress != nil)
 
-        // Second run while the first is in flight: must return without doing anything.
+        // Second run while the first is parked: must return without doing anything — and
+        // SILENTLY, which is what names the guard that dropped it. The first run also holds
+        // `syncingDifferenceIds`, so with the re-entrancy drop removed the next guard refuses the
+        // run instead and every count below still holds; that guard posts a banner, the drop
+        // does not (as in `testVerifiedCopyExcludesConcurrentBulkRuns`).
         await manager.syncAll(direction: .copyToRight)
+        #expect(manager.banner == nil, "a re-entrant run is dropped silently — a banner means another guard refused it")
+        gate.release.signal()
         await first.value
+        try #require(!gate.releasedByTimeout, "the first run was released by the park's timeout, not by this test")
 
         // Exactly one run's worth of work: one prompt, one replace.
         #expect(promptCount == 1)
