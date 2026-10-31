@@ -3,9 +3,13 @@ import SwiftUI
 import Design
 import Sync
 
-/// **The amber bar under a pane's header while its cloud app isn't syncing** (RD68). The files
-/// below it still show, here and in Finder, and may be out of date; the bar says so, and offers the
-/// one thing that fixes it where there is one.
+/// **The amber line under a pane's header while its cloud app isn't syncing** (RD68). The files
+/// below it still show, here and in Finder, and may be out of date; the line says so, and offers
+/// the one thing that fixes it where there is one.
+///
+/// **One line, not a card** (his call TE236, 2026-10-30, over a chip, a floating pill and a toolbar
+/// capsule): the card took two to six lines and pushed the list down. The line is about a third of
+/// that and never wraps; the full sentence is its tooltip and what VoiceOver reads.
 public struct CloudAppWarningBar: View {
     let problem: CloudAppProblem
     /// The source's name, for the states that have no app to name — iCloud's.
@@ -23,8 +27,8 @@ public struct CloudAppWarningBar: View {
         self.onAction = onAction
     }
 
-    /// The sentence: the part in bold, then the rest. A value, so a test reads the words without a
-    /// rendered bar.
+    /// The full sentence — the tooltip and VoiceOver's reading: the part in bold, then the rest. A
+    /// value, so a test reads the words without a rendered bar.
     static func sentence(for problem: CloudAppProblem, sourceName: String, now: Date) -> (lead: String, rest: String) {
         switch problem {
         case .notRunning(let app):
@@ -46,7 +50,24 @@ public struct CloudAppWarningBar: View {
         }
     }
 
-    /// The bar's one button, or none.
+    /// The line itself: what is wrong, then what it means. Short enough for one line in most panes;
+    /// the tail truncates in a narrow one, and the link at the end never does.
+    static func line(for problem: CloudAppProblem, sourceName: String, now: Date) -> (lead: String, rest: String) {
+        switch problem {
+        case .notRunning(let app):
+            return ("\(app.name) isn’t running", " · files may be out of date")
+        case .notResponding:
+            return ("\(sourceName) isn’t responding", " · files may be out of date")
+        case .iCloudOff:
+            return ("iCloud is signed out or iCloud Drive is off", " · files may be out of date")
+        case .notUploading(let paths, let since):
+            let files = paths.count == 1 ? "a file" : "\(paths.count) files"
+            return ("\(sourceName) hasn’t uploaded \(files) for \(CloudAppNotice.duration(now.timeIntervalSince(since)))",
+                    " · your other devices don’t have \(paths.count == 1 ? "it" : "them") yet")
+        }
+    }
+
+    /// The line's one link, or none.
     static func action(for problem: CloudAppProblem, canOpen: (CloudApp) -> Bool) -> CloudAppNotice.Action? {
         switch problem {
         case .notRunning(let app): return canOpen(app) ? .open(app) : nil
@@ -57,51 +78,33 @@ public struct CloudAppWarningBar: View {
     }
 
     public var body: some View {
-        let words = Self.sentence(for: problem, sourceName: sourceName, now: now)
-        let action = Self.action(for: problem, canOpen: canOpen)
-        // Wraps rather than truncates: the button goes under the sentence in a narrow pane, and the
-        // sentence is the part that must be read whole.
-        ViewThatFits(in: .horizontal) {
-            // The sentence's ideal width is what lets this side-by-side form fit a pane of ~500pt
-            // or more: `ViewThatFits` measures ideal widths, and a sentence measured on one line
-            // never fits beside a button.
-            HStack(alignment: .center, spacing: 10) {
-                sentence(words)
-                    .frame(idealWidth: 340, maxWidth: .infinity, alignment: .leading)
-                button(action)
-            }
-            VStack(alignment: .leading, spacing: 6) {
-                sentence(words)
-                button(action)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(SemanticColor.warning.opacity(0.12))
-        .accessibilityElement(children: .contain)
-    }
-
-    private func sentence(_ words: (lead: String, rest: String)) -> some View {
+        let full = Self.sentence(for: problem, sourceName: sourceName, now: now)
+        let short = Self.line(for: problem, sourceName: sourceName, now: now)
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .scaledFont(.system(size: 11))
                 .foregroundStyle(SemanticColor.warning)
                 .accessibilityHidden(true)
-            (Text(words.lead).fontWeight(.semibold) + Text(words.rest))
+            (Text(short.lead).fontWeight(.semibold) + Text(short.rest))
                 .scaledFont(.system(size: 11))
-                .fixedSize(horizontal: false, vertical: true)
-                // The triangle is hidden from VoiceOver, so the sentence carries what it meant.
-                .accessibilityLabel("Warning: " + words.lead + words.rest)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                // The line is the short form; the tooltip and VoiceOver get the whole sentence.
+                .help(full.lead + full.rest)
+                .accessibilityLabel("Warning: " + full.lead + full.rest)
+            Spacer(minLength: 8)
+            if let action = Self.action(for: problem, canOpen: canOpen) {
+                Button(action.title) { onAction(action) }
+                    .buttonStyle(.link)
+                    .scaledFont(.system(size: 11, weight: .semibold))
+                    .fixedSize()
+            }
         }
-    }
-
-    @ViewBuilder private func button(_ action: CloudAppNotice.Action?) -> some View {
-        if let action {
-            Button(action.title) { onAction(action) }
-                .controlSize(.small)
-                .fixedSize()
-        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(SemanticColor.warning.opacity(0.12))
+        .accessibilityElement(children: .contain)
     }
 }
 

@@ -30,4 +30,15 @@ import Sync
                 == "Dropbox hasn’t uploaded 3 files SyncCloud changed here for 40 min, so your other devices don’t have them yet.")
         #expect(CloudAppWarningBar.action(for: problem, canOpen: { _ in true }) == .show(["/a", "/b", "/c"]))
     }
+
+    /// **One line, not a card** (TE236): the short form says what is wrong and what it means; the
+    /// approved sentence above is its tooltip.
+    @Test func theLineIsTheShortForm() {
+        let line = CloudAppWarningBar.line(for: .notRunning(.dropbox), sourceName: "Dropbox", now: Date())
+        #expect(line.lead + line.rest == "Dropbox isn’t running · files may be out of date")
+        let since = Date(timeIntervalSinceReferenceDate: 0)
+        let waiting = CloudAppWarningBar.line(for: .notUploading(paths: ["/a", "/b"], since: since),
+                                              sourceName: "Dropbox", now: since + 40 * 60)
+        #expect(waiting.lead + waiting.rest == "Dropbox hasn’t uploaded 2 files for 40 min · your other devices don’t have them yet")
+    }
 }

@@ -4267,16 +4267,6 @@ struct ContentView: View {
             // Differences toolbar all draw the same one on the same 83.5 line.
             .columnHeaderRule(surfaceStyle)
             .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: isLeft))
-            // Under the header, on every pane of a source whose cloud app isn't syncing (RD68).
-            if let problem = cloudApps.problem(for: pane.providerId) {
-                CloudAppWarningBar(
-                    problem: problem,
-                    sourceName: settings.availableProviders.first { $0.id == pane.providerId }?.displayName ?? "This source",
-                    canOpen: { cloudApps.canOpen($0) },
-                    onAction: { cloudApps.perform($0) })
-                    .contentSurface(hue: glassHue, tint: surfaceTint)
-                    .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: isLeft))
-            }
             treeView(pane)
                 .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: isLeft))
                 // Space → Quick Look, scoped to the FILE LIST — see `paneQuickLook()`.
@@ -5012,7 +5002,24 @@ struct ContentView: View {
     }
 
     @ViewBuilder
+    /// The pane's file list, with the line that says its cloud app isn't syncing along its top
+    /// (RD68) — inside the list's own card, so in Cards it is part of the pane, not a card of its
+    /// own (TE236).
     private func treeView(_ pane: PaneContext) -> some View {
+        VStack(spacing: 0) {
+            if let problem = cloudApps.problem(for: pane.providerId) {
+                CloudAppWarningBar(
+                    problem: problem,
+                    sourceName: settings.availableProviders.first { $0.id == pane.providerId }?.displayName ?? "This source",
+                    canOpen: { cloudApps.canOpen($0) },
+                    onAction: { cloudApps.perform($0) })
+                Divider()
+            }
+            fileList(pane)
+        }
+    }
+
+    private func fileList(_ pane: PaneContext) -> some View {
         // The single-source rail is the only pane on screen: it has no sibling to be subordinate to,
         // so its selection wears the full-strength wash. It shows no action bar, but it does show
         // the result message, so it takes placement scratch space like a Compare pane.

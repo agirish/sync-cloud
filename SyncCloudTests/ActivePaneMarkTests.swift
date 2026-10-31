@@ -188,10 +188,9 @@ import AppKit
         #expect(column.contains("ActivePaneMark(isFocused: paneIsFocusedPane(isLeft: isLeft)"),
                 "the pane column does not carry the mark")
         // Every card in the column, not some of them: a stack with one bordered card reads as that
-        // card being active rather than the pane. Four: the tab strip, the header, the cloud app
-        // warning bar under it (RD68) and the list.
-        #expect(column.components(separatedBy: "accentBorder: paneCardAccent(isLeft: isLeft)").count - 1 == 4,
-                "the column's four cards do not all take the accent border")
+        // card being active rather than the pane.
+        #expect(column.components(separatedBy: "accentBorder: paneCardAccent(isLeft: isLeft)").count - 1 == 3,
+                "the column's three cards do not all take the accent border")
     }
 
     /// **Every click in a pane reports it, and the reporter never takes the click.**
