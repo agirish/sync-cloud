@@ -17,8 +17,11 @@ import Foundation
 /// folder's name ("Finance/2026/W-2.pdf"). Dates are whole seconds since 1970, because the design
 /// compares dates to the second.
 public struct OneWaySyncRecord: Codable, Equatable, Sendable {
-    /// The layout this build writes. A record of any other version is never read as this one.
-    public static let currentVersion = 1
+    /// The layout this build writes. Version 1 (before change times and refused files) is read
+    /// and carried forward; a record of any other version is never read as this one, so a build
+    /// that doesn't know a field can't drop it by writing the record back.
+    public static let currentVersion = 2
+    static let readableVersions: Set<Int> = [1, currentVersion]
 
     public var version: Int
     public var binding: OneWaySyncBinding
@@ -33,6 +36,9 @@ public struct OneWaySyncRecord: Codable, Equatable, Sendable {
     /// Files SyncCloud moved to Dropbox ▸ SyncCloud Removed because iCloud deleted them. If the
     /// iCloud ID turns up again, the file is moved back rather than uploaded again.
     public var removed: [OneWaySyncRemovedFile]
+    /// iCloud files whose copy Dropbox refused (ES): never counted as synced, listed as skipped,
+    /// and tried again only once the file changes in iCloud.
+    public var refused: [OneWaySyncRefusedFile]
     /// The next unused `key`, shared by folder and file records.
     public var nextKey: UInt64
 
@@ -45,6 +51,7 @@ public struct OneWaySyncRecord: Codable, Equatable, Sendable {
         subfolders: [OneWaySyncFolderRecord] = [],
         files: [OneWaySyncFileRecord] = [],
         removed: [OneWaySyncRemovedFile] = [],
+        refused: [OneWaySyncRefusedFile] = [],
         nextKey: UInt64 = 1
     ) {
         self.version = version
@@ -55,7 +62,23 @@ public struct OneWaySyncRecord: Codable, Equatable, Sendable {
         self.subfolders = subfolders
         self.files = files
         self.removed = removed
+        self.refused = refused
         self.nextKey = nextKey
+    }
+
+    /// Reads every field; `refused`, which version 1 didn't have, reads as none.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decode(Int.self, forKey: .version)
+        binding = try container.decode(OneWaySyncBinding.self, forKey: .binding)
+        iCloudParent = try container.decode(OneWaySyncParentRecord.self, forKey: .iCloudParent)
+        dropboxParent = try container.decode(OneWaySyncParentRecord.self, forKey: .dropboxParent)
+        syncedFolders = try container.decode([OneWaySyncFolderRecord].self, forKey: .syncedFolders)
+        subfolders = try container.decode([OneWaySyncFolderRecord].self, forKey: .subfolders)
+        files = try container.decode([OneWaySyncFileRecord].self, forKey: .files)
+        removed = try container.decode([OneWaySyncRemovedFile].self, forKey: .removed)
+        refused = try container.decodeIfPresent([OneWaySyncRefusedFile].self, forKey: .refused) ?? []
+        nextKey = try container.decode(UInt64.self, forKey: .nextKey)
     }
 }
 
@@ -166,6 +189,10 @@ public struct OneWaySyncFileRecord: Codable, Equatable, Sendable {
     public var size: Int64
     /// Modification date in whole seconds since 1970.
     public var modified: Int64
+    /// iCloud's change time (`st_ctimespec`) in nanoseconds since 1970, when the file was on this
+    /// Mac as recorded; nil while it was offloaded, or unknown (a version 1 record). An edit that
+    /// keeps the size and date moves it (ET), and so do tags, attributes and offloading.
+    public var changed: Int64?
     public var tags: [String]
     public var contentHash: String?
     /// When SyncCloud first saw the file gone from iCloud, in seconds. It is removed from Dropbox
@@ -178,7 +205,7 @@ public struct OneWaySyncFileRecord: Codable, Equatable, Sendable {
     public init(
         key: UInt64, iCloudPath: String, dropboxPath: String,
         iCloudID: UInt64?, dropboxID: UInt64?,
-        size: Int64, modified: Int64, tags: [String] = [], contentHash: String? = nil,
+        size: Int64, modified: Int64, changed: Int64? = nil, tags: [String] = [], contentHash: String? = nil,
         iCloudGoneSince: Int64? = nil, matchedICloudAt: Int64? = nil
     ) {
         self.key = key
@@ -188,6 +215,7 @@ public struct OneWaySyncFileRecord: Codable, Equatable, Sendable {
         self.dropboxID = dropboxID
         self.size = size
         self.modified = modified
+        self.changed = changed
         self.tags = tags
         self.contentHash = contentHash
         self.iCloudGoneSince = iCloudGoneSince
@@ -207,6 +235,48 @@ public struct OneWaySyncRemovedFile: Codable, Equatable, Sendable {
     public init(file: OneWaySyncFileRecord, removedPath: String) {
         self.file = file
         self.removedPath = removedPath
+    }
+}
+
+/// An iCloud file whose copy Dropbox refused: an upload error naming the file (its name, or a
+/// kind Dropbox never syncs) or Dropbox's ignore mark. Never adopted as synced, however alike the
+/// two copies look; it stays listed as skipped until iCloud's file changes (its name, size, date,
+/// or a change time that moved with different contents), and is then written again.
+public struct OneWaySyncRefusedFile: Codable, Equatable, Sendable {
+    /// iCloud's file as it was when its copy was refused.
+    public var iCloudPath: String
+    public var iCloudID: UInt64?
+    public var size: Int64
+    /// Whole seconds since 1970.
+    public var modified: Int64
+    /// Change time in nanoseconds, when the file was on this Mac.
+    public var changed: Int64?
+    /// Where SyncCloud put the copy Dropbox refused, relative to the Dropbox parent, and its size
+    /// and date (whole seconds) as written: a retry writes over that copy, a later pass never reads
+    /// it as Dropbox's own file, and once iCloud's file is gone it goes to SyncCloud Removed.
+    public var dropboxPath: String
+    public var copySize: Int64
+    public var copyModified: Int64
+    /// The file's record, for an edit whose replace was refused; nil for a file never synced.
+    public var record: UInt64?
+    /// Dropbox's words, for the log.
+    public var why: String
+    public var refusedAt: Int64
+
+    public init(iCloudPath: String, iCloudID: UInt64?, size: Int64, modified: Int64, changed: Int64?,
+                dropboxPath: String, copySize: Int64? = nil, copyModified: Int64? = nil,
+                record: UInt64?, why: String, refusedAt: Int64) {
+        self.iCloudPath = iCloudPath
+        self.iCloudID = iCloudID
+        self.size = size
+        self.modified = modified
+        self.changed = changed
+        self.dropboxPath = dropboxPath
+        self.copySize = copySize ?? size
+        self.copyModified = copyModified ?? modified
+        self.record = record
+        self.why = why
+        self.refusedAt = refusedAt
     }
 }
 
@@ -235,19 +305,21 @@ public extension OneWaySyncRecord {
 
     /// Reads a stored record for the Mac and accounts described by `binding`. The version is read
     /// on its own first, so a record from a newer build is reported as such rather than as
-    /// unreadable, and never half-decoded.
+    /// unreadable, and never half-decoded. A version 1 record reads as this version with no change
+    /// times and nothing refused: the first pass records each file's change time without hashing.
     static func load(_ data: Data?, on binding: OneWaySyncBinding) -> OneWaySyncRecordLoad {
         guard let data else { return .needsNewFirstRun(.noRecord) }
         struct Header: Decodable { var version: Int }
         guard let header = try? JSONDecoder().decode(Header.self, from: data) else {
             return .needsNewFirstRun(.unreadable)
         }
-        guard header.version == currentVersion else {
+        guard readableVersions.contains(header.version) else {
             return .needsNewFirstRun(.unsupportedVersion(header.version))
         }
-        guard let record = try? JSONDecoder().decode(OneWaySyncRecord.self, from: data) else {
+        guard var record = try? JSONDecoder().decode(OneWaySyncRecord.self, from: data) else {
             return .needsNewFirstRun(.unreadable)
         }
+        record.version = currentVersion
         if let reason = record.binding.mismatch(with: binding) { return .needsNewFirstRun(reason) }
         return .ready(record)
     }

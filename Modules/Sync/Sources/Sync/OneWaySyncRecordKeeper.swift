@@ -15,12 +15,16 @@ public enum OneWaySyncStepOutcome: Equatable, Sendable {
     /// Written, but Dropbox didn't report the upload: it doesn't count as synced, so the record
     /// keeps what it had and the next pass compares the file again.
     case unconfirmed
+    /// Written, and Dropbox won't take it (ES): never synced, and listed as skipped until iCloud's
+    /// file changes (`OneWaySyncRecord.refused`). `why` is Dropbox's words; `copy` is the refused
+    /// copy's size and date as read after the write, nil when it couldn't be read.
+    case refused(why: String, copy: OneWaySyncExpectedState? = nil)
     /// Skipped or failed: nothing changed in Dropbox.
     case notDone
 
     public var happened: Bool {
         switch self {
-        case .landed, .removed, .unconfirmed: return true
+        case .landed, .removed, .unconfirmed, .refused: return true
         case .notDone: return false
         }
     }
@@ -28,7 +32,7 @@ public enum OneWaySyncStepOutcome: Equatable, Sendable {
     var counts: Bool {
         switch self {
         case .landed, .removed: return true
-        case .unconfirmed, .notDone: return false
+        case .unconfirmed, .refused, .notDone: return false
         }
     }
 }
@@ -45,7 +49,9 @@ public enum OneWaySyncStepOutcome: Equatable, Sendable {
 /// - every file found on a side by ID or by name takes the ID it has there now (a save that gave
 ///   it a new one), and every file gone from iCloud keeps when it was first seen gone;
 /// - the folders below the synced ones are recorded again from what both sides now hold, so a
-///   later rename of one is one move in Dropbox.
+///   later rename of one is one move in Dropbox;
+/// - a file whose copy Dropbox refused is listed in `refused`, never recorded as synced, and stays
+///   there until a retry lands (ES); each agreed file keeps iCloud's change time (ET).
 public enum OneWaySyncRecordKeeper {
 
     /// `outcomes` is one per `plan.steps`. `dropboxFolderID` reads a Dropbox folder's identity at a
@@ -60,6 +66,7 @@ public enum OneWaySyncRecordKeeper {
         keeper.settleFiles()
         keeper.addNewFiles()
         keeper.settleFolders(dropboxFolderID: dropboxFolderID)
+        keeper.settleRefusals()
         return keeper.record
     }
 }
@@ -94,6 +101,10 @@ private struct Keeper {
         var hash: String?
         /// A move back from SyncCloud Removed that landed: the removed file it was.
         var movedBack: OneWaySyncRemovedFile?
+        /// Its copy or replace written and refused by Dropbox, with Dropbox's words and the copy.
+        var refused: (why: String, copy: OneWaySyncExpectedState?)?
+        /// A copy or replace of it was written, whatever Dropbox then said.
+        var wroteAny = false
     }
 
     var fates: [UInt64: Fate] = [:]
@@ -101,6 +112,10 @@ private struct Keeper {
     var newFates: [String: Fate] = [:]
     /// Where each Dropbox item now is: its listing path's name key → its location now.
     var locations: [String: String] = [:]
+    /// Files whose copy Dropbox refused this pass.
+    var newRefusals: [OneWaySyncRefusedFile] = []
+    /// Refused copies moved to SyncCloud Removed this pass, by Dropbox path (name key).
+    var removedRefusedCopies = Set<String>()
 
     init(record: OneWaySyncRecord, pass: OneWaySyncPass, plan: OneWaySyncPlan, now: Date) {
         self.record = record
@@ -137,7 +152,8 @@ private struct Keeper {
                 else if fate.location == nil { fate.location = to }
                 fate.recordedPath = to
             }
-        case .moveToRemoved(_, _):
+        case .moveToRemoved(let dropboxPath, let cause):
+            if cause == .refusedCopy, case .removed = outcome { removedRefusedCopies.insert(dKey(dropboxPath)) }
             change(step, iCloudPath: nil, outcome) { fate in
                 if case .removed(let path) = outcome { fate.removedTo = path }
             }
@@ -148,6 +164,8 @@ private struct Keeper {
                     fate.wrote = true
                     fate.dropboxID = id ?? fate.dropboxID
                 }
+                if case .refused(let why, let copy) = outcome { fate.refused = (why, copy) }
+                if outcome.happened { fate.wroteAny = true }
             }
         case .copy(let iCloudPath, let dropboxPath, _):
             change(step, iCloudPath: iCloudPath, outcome) { fate in
@@ -156,6 +174,8 @@ private struct Keeper {
                     fate.wrote = true
                     fate.dropboxID = id
                 }
+                if case .refused(let why, let copy) = outcome { fate.refused = (why, copy) }
+                if outcome.happened { fate.wroteAny = true }
             }
         case .moveBackFromRemoved(let removedPath, let to):
             change(step, iCloudPath: to, outcome) { fate in
@@ -259,6 +279,7 @@ private struct Keeper {
                 file.dropboxPath = location
                 file.size = i.size
                 file.modified = i.second
+                file.changed = Self.changeTime(i)
                 file.tags = i.tags
                 let twin = pass.dropbox.items.first { dKey($0.path) == dKey(location) }
                 file.contentHash = i.contentHash ?? twin?.contentHash
@@ -273,6 +294,9 @@ private struct Keeper {
             }
             let iMatch = plan.matches.iCloud.files[file.key] ?? .gone
             let dMatch = plan.matches.dropbox.files[file.key] ?? .gone
+            if let refused = fate.refused, case .found(let i, _) = iMatch {
+                newRefusals.append(refusal(of: i, at: fate.location ?? file.dropboxPath, record: file.key, refused))
+            }
             // The IDs the files have now, wherever the match found them.
             if case .found(let item, _) = iMatch, let id = plan.matches.iCloud.recordableID(of: item) { file.iCloudID = id }
             if case .found(let item, _) = dMatch, let id = plan.matches.dropbox.recordableID(of: item) { file.dropboxID = id }
@@ -287,10 +311,22 @@ private struct Keeper {
                 if fate.wrote || fate.adopted {
                     file.size = i.size
                     file.modified = i.second
+                    file.changed = Self.changeTime(i)
                     file.tags = i.tags
                     file.contentHash = i.contentHash ?? (fate.adopted ? dMatch.item?.contentHash : nil)
-                } else if fate.tagged {
-                    file.tags = i.tags
+                } else {
+                    if fate.tagged { file.tags = i.tags }
+                    // ET: a change time moved with nothing else is taken once the contents read as
+                    // unchanged; until then the old one stays, so the next pass reads them again.
+                    // One recorded while offloaded, or before change times were kept, is taken as is.
+                    if !i.isDownloaded {
+                        file.changed = nil
+                    } else if file.changed == nil {
+                        file.changed = i.changed
+                    } else if plan.settledChangeTimes.contains(file.key) {
+                        file.changed = i.changed
+                        file.contentHash = i.contentHash ?? file.contentHash
+                    }
                 }
                 if let id = fate.dropboxID { file.dropboxID = id }
                 if fate.undid { file.matchedICloudAt = now }
@@ -325,10 +361,15 @@ private struct Keeper {
                 if fate.allCounted && (fate.wrote || !contentsDiffer(i, file)) {
                     file.size = i.size
                     file.modified = i.second
+                    file.changed = Self.changeTime(i)
                     file.tags = i.tags
                     file.contentHash = i.contentHash ?? file.contentHash
                 }
                 record.files.append(file)
+                continue
+            }
+            if let refused = fate.refused {
+                newRefusals.append(refusal(of: i, at: location, record: nil, refused))
                 continue
             }
             guard fate.allCounted, fate.wrote || fate.adopted else { continue }
@@ -336,7 +377,7 @@ private struct Keeper {
                 key: record.nextKey, iCloudPath: i.path, dropboxPath: location,
                 iCloudID: plan.matches.iCloud.recordableID(of: i),
                 dropboxID: fate.dropboxID ?? d.flatMap { plan.matches.dropbox.recordableID(of: $0) },
-                size: i.size, modified: i.second, tags: i.tags,
+                size: i.size, modified: i.second, changed: Self.changeTime(i), tags: i.tags,
                 contentHash: i.contentHash ?? (fate.adopted ? d?.contentHash : nil))
             record.nextKey += 1
             record.files.append(file)
@@ -347,6 +388,44 @@ private struct Keeper {
         if item.size != file.size || item.second != file.modified { return true }
         if let hash = item.contentHash, let recorded = file.contentHash { return hash != recorded }
         return false
+    }
+
+    /// The change time a record keeps for iCloud's file: none while it is offloaded.
+    static func changeTime(_ item: OneWaySyncItem) -> Int64? { item.isDownloaded ? item.changed : nil }
+
+    func refusal(of i: OneWaySyncItem, at dropboxPath: String, record key: UInt64?,
+                 _ refused: (why: String, copy: OneWaySyncExpectedState?)) -> OneWaySyncRefusedFile {
+        OneWaySyncRefusedFile(
+            iCloudPath: i.path, iCloudID: plan.matches.iCloud.recordableID(of: i), size: i.size, modified: i.second,
+            changed: Self.changeTime(i), dropboxPath: dropboxPath, copySize: refused.copy?.size, copyModified: refused.copy?.modified,
+            record: key, why: refused.why, refusedAt: now)
+    }
+
+    // MARK: Refused files
+
+    /// What still stands, what was tried again and didn't land, and what Dropbox refused this pass;
+    /// a refusal this pass replaces the one before it for the same file.
+    mutating func settleRefusals() {
+        var refused = plan.refused
+        for retry in plan.retrying where !landed(retry) { refused.append(retry.refused) }
+        for (path, refusal) in plan.removingRefusals where !removedRefusedCopies.contains(path) { refused.append(refusal) }
+        let freshPaths = Set(newRefusals.map { iKey($0.iCloudPath) })
+        let freshRecords = Set(newRefusals.compactMap(\.record))
+        refused.removeAll { freshPaths.contains(iKey($0.iCloudPath)) || $0.record.map(freshRecords.contains) == true }
+        record.refused = (refused + newRefusals).sorted { ($0.iCloudPath, $0.refusedAt) < ($1.iCloudPath, $1.refusedAt) }
+    }
+
+    /// Whether a retry is settled: something was written over the refused copy (Dropbox then took
+    /// it, refused it again, or hasn't said: the copy is no longer the one refused, and an
+    /// unreported upload is compared again like any other), an edit's file was removed, or a new
+    /// file was recorded. A retry that wrote nothing keeps the refusal.
+    func landed(_ retry: OneWaySyncRetry) -> Bool {
+        if let key = retry.refused.record {
+            guard let fate = fates[key] else { return true }
+            return fate.wroteAny || (fate.anyStep && fate.allCounted)
+        }
+        guard let fate = newFates[iKey(retry.iCloudPath)] else { return false }
+        return fate.wroteAny || (fate.allCounted && (fate.wrote || fate.adopted))
     }
 
     // MARK: Folders

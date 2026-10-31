@@ -346,10 +346,10 @@ public struct OneWaySyncHistoryRows: View {
             if expanded.contains(entry.id) {
                 ForEach(Array(entry.steps.enumerated()), id: \.offset) { _, step in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(OneWaySyncWords.kind(step.step.action))
+                        Text(OneWaySyncWords.kind(step.step))
                             .foregroundStyle(.secondary)
                             .frame(width: 72, alignment: .leading)
-                        Text(OneWaySyncWords.paths(step.step.action))
+                        Text(OneWaySyncWords.paths(step.step))
                             .font(.system(size: 11, design: .monospaced))
                             .lineLimit(2)
                         Spacer(minLength: 4)
@@ -375,6 +375,17 @@ public struct OneWaySyncHistoryRows: View {
 
 /// How History and the sheets put a step into words.
 enum OneWaySyncWords {
+    /// A step: a copy of a file moved in from a folder that isn't synced reads as the move (EU).
+    static func kind(_ step: OneWaySyncStep) -> String {
+        if step.movedInFrom != nil, case .copy = step.action { return "Moved in" }
+        return kind(step.action)
+    }
+
+    static func paths(_ step: OneWaySyncStep) -> String {
+        if let origin = step.movedInFrom, case .copy(_, let to, _) = step.action { return "\(origin) → \(to)" }
+        return paths(step.action)
+    }
+
     static func kind(_ action: OneWaySyncAction) -> String {
         switch action {
         case .moveFolderInDropbox: return "Moved"
@@ -382,6 +393,7 @@ enum OneWaySyncWords {
             return OneWaySyncPath.parent(from) == OneWaySyncPath.parent(to) ? "Renamed" : "Moved"
         case .moveToRemoved(_, let cause):
             if case .movedOutInICloud = cause { return "Moved out" }
+            if case .refusedCopy = cause { return "Removed" }
             return "Deleted"
         case .replace: return "Edited"
         case .moveBackFromRemoved: return "Back"

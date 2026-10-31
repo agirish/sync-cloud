@@ -44,16 +44,28 @@ public struct OneWaySyncReversal: Equatable, Sendable, Identifiable {
         case restore(removedPath: String, to: String)
         /// Edited in iCloud: the version this sync replaced goes back into iCloud.
         case previousVersion(keptAt: String, at: String)
+        /// Moved in from a folder that isn't synced (EU): iCloud's file goes back to `to`, in that
+        /// folder, which must still be there; nothing is made for it. The next sync then moves
+        /// Dropbox's copy to SyncCloud Removed, as for any move out.
+        case moveBackOut(from: String, to: String)
     }
 
     public var step: Int
     public var kind: Kind
+    /// Why it can't be reversed now, shown in place of the tick; nil when it can.
+    public var unavailable: String?
     public var id: Int { step }
+
+    public init(step: Int, kind: Kind, unavailable: String? = nil) {
+        self.step = step
+        self.kind = kind
+        self.unavailable = unavailable
+    }
 
     /// The row's two halves: the item, and what reversing does.
     public var item: String {
         switch kind {
-        case .moveBack(let from, _, _): return from
+        case .moveBack(let from, _, _), .moveBackOut(let from, _): return from
         case .restore(_, let to): return to
         case .previousVersion(_, let at): return at
         }
@@ -66,6 +78,11 @@ public struct OneWaySyncReversal: Equatable, Sendable, Identifiable {
                 ? "rename back to \(OneWaySyncPath.name(to))" : "move back to \(OneWaySyncPath.parent(to).isEmpty ? "the top" : OneWaySyncPath.parent(to) + "/")"
         case .restore: return "bring back from SyncCloud Removed"
         case .previousVersion: return "return to the version this sync replaced"
+        case .moveBackOut(let from, let to):
+            let folder = OneWaySyncPath.parent(to).isEmpty ? "the top" : OneWaySyncPath.parent(to) + "/"
+            // Renamed since it came in: it goes back under its old name too.
+            return OneWaySyncPath.name(from) == OneWaySyncPath.name(to) ? "move back to \(folder)"
+                : "move back to \(folder) as \(OneWaySyncPath.name(to))"
         }
     }
 }
@@ -326,14 +343,13 @@ public enum OneWaySyncAnswers {
     /// What of `entry` can be reversed now: each change whose items are unchanged on both sides
     /// since, and whose iCloud copy is downloaded and current. An edit needs SyncCloud Removed to
     /// still hold the version it replaced; a removal, the removed copy. Swaps through a temporary
-    /// name, and files copied in, aren't offered.
+    /// name aren't offered. A file moved in from a folder that isn't synced is listed once its copy
+    /// was confirmed, and marked unavailable with the reason when it can't go back.
     public static func reversals(of entry: OneWaySyncHistoryEntry, look: OneWaySyncLook, removed: [OneWaySyncRemovedItem]) -> [OneWaySyncReversal] {
         let held = Set(removed.map(\.path))
         func unchanged(_ recorded: OneWaySyncFileRecord?) -> Bool {
-            guard let recorded, let i = look.iCloudItem(recorded.iCloudPath), let d = look.dropboxItem(recorded.dropboxPath) else { return false }
-            return i.isDownloaded && i.size == recorded.size && i.second == recorded.modified
-                && (recorded.iCloudID == nil || i.documentID == recorded.iCloudID)
-                && d.size == recorded.size && d.second == recorded.modified
+            guard let recorded else { return false }
+            return whyChanged(recorded, look: look) == nil
         }
         var reversals: [OneWaySyncReversal] = []
         // Only what iCloud did: a move that undid a Dropbox rename, or a first run's rename of a
@@ -355,11 +371,45 @@ public enum OneWaySyncAnswers {
                 guard !previousIsDropboxEdit, let keptAt = step.keptAt, held.contains(keptAt),
                       let recorded = step.recorded, unchanged(recorded) else { continue }
                 reversals.append(OneWaySyncReversal(step: index, kind: .previousVersion(keptAt: keptAt, at: recorded.iCloudPath)))
+            case .copy(let from, _, _):
+                guard let origin = step.step.movedInFrom else { continue }
+                let current = step.recorded?.iCloudPath ?? from
+                reversals.append(OneWaySyncReversal(
+                    step: index, kind: .moveBackOut(from: current, to: origin),
+                    unavailable: whyNotMovedBack(step.recorded, to: origin, look: look)))
             default:
                 continue
             }
         }
         return reversals
+    }
+
+    /// Why a file moved in can't go back to `origin` now, or nil when it can: it must be unchanged
+    /// on both sides since the sync, and the folder it came from still there with the name free.
+    static func whyNotMovedBack(_ recorded: OneWaySyncFileRecord?, to origin: String, look: OneWaySyncLook) -> String? {
+        guard let recorded else { return "it didn’t finish syncing" }
+        if let why = whyChanged(recorded, look: look) { return why }
+        let folder = OneWaySyncPath.parent(origin)
+        if !folder.isEmpty, look.iCloudItem(folder)?.kind != .folder { return "\(folder) isn’t in iCloud any more" }
+        // Taken in any letter case: the disk on this Mac doesn't tell case apart.
+        let taken = OneWaySyncSide.dropbox.nameKey(origin)
+        if look.pass.iCloud.items.contains(where: { OneWaySyncSide.dropbox.nameKey($0.path) == taken }) {
+            return "\(OneWaySyncPath.name(origin)) is taken in \(folder.isEmpty ? "iCloud" : folder)"
+        }
+        return nil
+    }
+
+    /// What changed about a file since it was recorded, in words, or nil when nothing did on either
+    /// side and iCloud's copy is downloaded here.
+    static func whyChanged(_ recorded: OneWaySyncFileRecord, look: OneWaySyncLook) -> String? {
+        guard let i = look.iCloudItem(recorded.iCloudPath) else { return "it was moved or deleted in iCloud since" }
+        guard let d = look.dropboxItem(recorded.dropboxPath) else { return "Dropbox’s copy was moved or deleted since" }
+        guard i.size == recorded.size, i.second == recorded.modified, recorded.iCloudID == nil || i.documentID == recorded.iCloudID else {
+            return "it changed in iCloud since"
+        }
+        guard d.size == recorded.size, d.second == recorded.modified else { return "Dropbox’s copy changed since" }
+        guard i.isDownloaded else { return "it isn’t downloaded in iCloud" }
+        return nil
     }
 
     /// Reverses the chosen changes in iCloud, each coordinated; the sync then carries them to
@@ -387,6 +437,17 @@ public enum OneWaySyncAnswers {
                     let source = try OneWaySyncDisk.url(keptAt, in: writer.places.dropboxAccountFolder)
                     let target = try OneWaySyncDisk.url(at, in: iCloudParent)
                     try writer.writeIntoICloud(from: source, at: target, iCloudPath: at, expected: nil)
+                case .moveBackOut(let from, let to):
+                    guard reversal.unavailable == nil else { throw OneWaySyncWriteError.badPath(to) }
+                    let source = try OneWaySyncDisk.url(from, in: iCloudParent)
+                    let target = try OneWaySyncDisk.url(to, in: iCloudParent)
+                    // Into the folder as it is: one gone since isn't made again.
+                    guard OneWaySyncDisk.kind(at: target.deletingLastPathComponent().path) == .folder else {
+                        throw OneWaySyncWriteError.missing(target.deletingLastPathComponent().path)
+                    }
+                    try OneWaySyncDisk.coordinatedWrite(source, deadline: writer.coordinationDeadline) { _ in
+                        try OneWaySyncDisk.moveExclusively(source, to: target)
+                    }
                 }
             } catch {
                 failed.append((reversal, OneWaySyncRun.describe(error)))

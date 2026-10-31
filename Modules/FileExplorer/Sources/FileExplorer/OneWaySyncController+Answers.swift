@@ -278,7 +278,7 @@ extension OneWaySyncController {
         case OneWaySyncRows.stopPrefix + "online-only":
             paths = (lastLook?.dropboxNotHere ?? []).map { places.dropboxParent.appendingPathComponent($0).path }
         case "ows:info:skipped":
-            paths = (lastLook?.iCloud.skipped ?? []).map { places.iCloudParent.appendingPathComponent($0.path).path }
+            paths = (lastLook?.skipped ?? []).map { places.iCloudParent.appendingPathComponent($0.path).path }
         default:
             paths = []
         }
@@ -289,7 +289,7 @@ extension OneWaySyncController {
                 let paths: [String]
                 switch row.id {
                 case "ows:info:dropbox-only": paths = look.plan.dropboxOnly.map { places.dropboxParent.appendingPathComponent($0).path }
-                case "ows:info:skipped": paths = look.iCloud.skipped.map { places.iCloudParent.appendingPathComponent($0.path).path }
+                case "ows:info:skipped": paths = look.skipped.map { places.iCloudParent.appendingPathComponent($0.path).path }
                 default: paths = look.dropboxNotHere.map { places.dropboxParent.appendingPathComponent($0).path }
                 }
                 if !paths.isEmpty { NSWorkspace.shared.activateFileViewerSelecting(paths.prefix(200).map { URL(fileURLWithPath: $0) }) }

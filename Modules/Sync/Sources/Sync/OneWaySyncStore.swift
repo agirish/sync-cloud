@@ -14,6 +14,7 @@ import IOKit
 /// | `record.json` | the record (`OneWaySyncRecord`) and the first run it belongs to |
 /// | `state.json` | the DA settings, the removal window, Pause, the last sync |
 /// | `exclusions.json` | files you stopped syncing, apart from the record so a new first run keeps them |
+/// | `outside.json` | iCloud's files in unsynced and shared folders at the last pass, by ID: where a file moved in came from |
 /// | `notices.json` | Activity ▸ Now's saved rows (`OneWaySyncNoticeStore`) |
 /// | `History/` | one entry per sync that changed or held something (`OneWaySyncHistoryStore`) |
 /// | `sync.lock` | held by the one process that syncs (`OneWaySyncProcessLock`) |
@@ -38,6 +39,7 @@ public struct OneWaySyncStore: Sendable {
     public var stateURL: URL { directory.appendingPathComponent("state.json") }
     public var exclusionsURL: URL { directory.appendingPathComponent("exclusions.json") }
     public var noticesURL: URL { directory.appendingPathComponent("notices.json") }
+    public var outsideURL: URL { directory.appendingPathComponent("outside.json") }
     public var historyDirectory: URL { directory.appendingPathComponent("History") }
     public var lockURL: URL { directory.appendingPathComponent("sync.lock") }
 
@@ -90,11 +92,12 @@ public struct OneWaySyncStore: Sendable {
         return firstRun
     }
 
-    /// Turn Off One-Way Sync: the record and the state go. Exclusions, saved rows and History
-    /// are the caller's to keep or remove.
+    /// Turn Off One-Way Sync: the record, the state and the files outside go. Exclusions, saved
+    /// rows and History are the caller's to keep or remove.
     public func removeRecord() throws {
         try OneWaySyncFiles.remove(recordURL)
         try OneWaySyncFiles.remove(stateURL)
+        try OneWaySyncFiles.remove(outsideURL)
     }
 
     // MARK: State
@@ -117,6 +120,20 @@ public struct OneWaySyncStore: Sendable {
 
     public func saveExclusions(_ exclusions: OneWaySyncExclusions) throws {
         try OneWaySyncFiles.writeDurably(Self.encode(exclusions), to: exclusionsURL)
+    }
+
+    // MARK: Files outside the synced folders
+
+    /// Where iCloud's files outside the synced folders were at the last pass. A hint, never a
+    /// reason to stop: missing or unreadable reads as none, which only leaves a file moved in
+    /// without a way back in *Reverse in iCloud*.
+    public func loadOutside() -> OneWaySyncOutsideFiles {
+        OneWaySyncLoad<OneWaySyncOutsideFiles>.read(outsideURL, currentVersion: OneWaySyncOutsideFiles.currentVersion).value
+            ?? OneWaySyncOutsideFiles()
+    }
+
+    public func saveOutside(_ outside: OneWaySyncOutsideFiles) throws {
+        try OneWaySyncFiles.writeDurably(Self.encode(outside), to: outsideURL)
     }
 
     static func encode<T: Encodable>(_ value: T) throws -> Data {
@@ -277,6 +294,51 @@ public struct OneWaySyncExclusions: Codable, Equatable, Sendable, OneWaySyncEmpt
     }
 
     public static var empty: OneWaySyncExclusions { OneWaySyncExclusions() }
+}
+
+/// iCloud's files in folders outside the synced ones at a pass — in folders that aren't synced, or
+/// shared ones; not files loose in the parent, which isn't listed — by document ID (EU). At the next pass, a new file in a synced folder with one of these
+/// IDs was moved in from there: its copy's History step says where from, and *Reverse in iCloud*
+/// can move it back. iCloud keeps a file's ID across a move (measured).
+public struct OneWaySyncOutsideFiles: Codable, Equatable, Sendable, OneWaySyncEmpty {
+    public static let currentVersion = 1
+
+    public struct File: Codable, Equatable, Sendable {
+        public var id: UInt64
+        public var path: String
+    }
+
+    public var version: Int
+    /// By path, so an unchanged index writes the same bytes.
+    public var files: [File]
+
+    public init() {
+        version = Self.currentVersion
+        files = []
+    }
+
+    /// The excluded files of an iCloud listing that carry an ID of their own (hard links share one).
+    public init(listing: OneWaySyncListing) {
+        var paths: [UInt64: [String]] = [:]
+        for item in listing.items where item.kind == .file && item.isExcluded {
+            if let id = item.documentID, id != 0 { paths[id, default: []].append(item.path) }
+        }
+        version = Self.currentVersion
+        files = paths.compactMap { $0.value.count == 1 ? File(id: $0.key, path: $0.value[0]) : nil }.sorted { $0.path < $1.path }
+    }
+
+    /// Keeps `id` at `path`, unless the listing found it outside the synced folders anyway.
+    mutating func carry(id: UInt64, path: String) {
+        guard !files.contains(where: { $0.id == id }) else { return }
+        files.append(File(id: id, path: path))
+        files.sort { $0.path < $1.path }
+    }
+
+    public var byID: [UInt64: String] {
+        Dictionary(files.map { ($0.id, $0.path) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    public static var empty: OneWaySyncOutsideFiles { OneWaySyncOutsideFiles() }
 }
 
 // MARK: - This Mac

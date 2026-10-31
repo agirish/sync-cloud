@@ -260,6 +260,7 @@ public final class OneWaySyncWriter {
         case .deletedInICloud: kind = .deletedInICloud
         case .movedOutInICloud: kind = .movedOutInICloud
         case .duplicateOfAdoptedFile: kind = .duplicateOfAdoptedFile
+        case .refusedCopy: kind = .refusedCopy
         }
         let origin = OneWaySyncRemovedItem.Origin(
             dropboxPath: try accountPath(of: target), iCloudParent: places.iCloudParent.path, iCloudPath: iCloudPath,

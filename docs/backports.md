@@ -13330,3 +13330,24 @@ for l in main v5.x v4.x v3.x v2.x; do f=Modules/Sync/Sources/Sync/FileOperations
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | The decomposing landing: the two staged landings the command counts, the same-volume `moveItem`, and the folders `createDirectory` makes | RECORDED — not owed |
+
+## One-way sync's three gaps after Sync Now (RD67, ES/ET/EU) — main only
+
+2026-10-31, for v6.3. On `main`: a file Dropbox refuses is never recorded as synced and is retried
+only once it changes in iCloud (ES); the record keeps each file's change time, so an edit that
+keeps the size and date is read and synced (ET; the record moves to version 2 and still reads
+version 1); and Reverse in iCloud moves a file moved in from an unsynced folder back there (EU).
+All of it in one-way sync, which only `main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s run=%s refused=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/OneWaySyncRun.swift | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/OneWaySyncRecord.swift 2>/dev/null | grep -c 'OneWaySyncRefusedFile')"; done
+# measured 2026-10-31, against origin, before this landed (the change reads refused>0 on main):
+# main                         run=1 refused=0
+# v5.x / v4.x / v3.x / v2.x    run=0 refused=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No one-way sync at all | RECORDED — not owed (new feature) |

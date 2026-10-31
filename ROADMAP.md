@@ -998,9 +998,10 @@ of hand use, so it may land after the cut.
 2. Saved state: the record on disk, History entries written before applying, saved Needs-you rows,
    one writing process and one writing Mac (landed).
 3. A manual **Sync Now**: setup, first-run preview, Review and Choose a Version, Reverse in iCloud
-   (built; in its week of hand use). Not done in it: hashing a file whose change time moved with
-   its size and date unchanged (the record keeps no change time), and Reverse of a file copied in
-   (the plan's copy doesn't carry where it came from).
+   (built; in its week of hand use). His calls of 2026-10-31 on its gaps are built: a file Dropbox
+   refuses stays skipped until it changes in iCloud (ES); an edit that keeps the size and date is
+   caught by the change time the record now keeps (ET); Reverse moves a file moved in from an
+   unsynced folder back (EU). An online-only Dropbox file still stops the sync (EV, left as is).
 4. The watcher as the trigger, then unattended removals.
 
 **Not measured:** whether macOS reports a shared Dropbox folder as shared (decision DL asks at setup

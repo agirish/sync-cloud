@@ -887,36 +887,33 @@ struct OneWaySyncReverseSheet: View {
             VStack(alignment: .leading, spacing: 10) {
                 if !loaded {
                     ProgressView().controlSize(.small)
-                } else if reversals.isEmpty {
-                    Text("Nothing in this sync can be reversed now: each item has to be unchanged on both sides since, and downloaded in iCloud.")
-                        .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 } else {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 0) {
-                            ForEach(reversals) { reversal in
-                                HStack {
-                                    Toggle(isOn: Binding(get: { ticked.contains(reversal.step) },
-                                                         set: { if $0 { ticked.insert(reversal.step) } else { ticked.remove(reversal.step) } })) {
-                                        Text(reversal.item).font(.system(size: 11, design: .monospaced)).lineLimit(1)
-                                    }
-                                    Spacer()
-                                    Text(reversal.summary).foregroundStyle(.secondary).scaledFont(.system(size: 11))
+                    if !reversals.contains(where: { $0.unavailable == nil }) {
+                        Text(reversals.isEmpty ? "Nothing in this sync can be reversed now: each item has to be unchanged on both sides since, and downloaded in iCloud."
+                                               : "Nothing in this sync can be reversed now; each item says why.")
+                            .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                    if !reversals.isEmpty {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 0) {
+                                ForEach(reversals) { reversal in
+                                    row(reversal)
+                                        .padding(.vertical, 3)
+                                    Divider()
                                 }
-                                .padding(.vertical, 3)
-                                Divider()
                             }
                         }
+                        .frame(maxHeight: 260)
                     }
-                    .frame(maxHeight: 260)
                 }
-                Text("Changes are reversed in iCloud using Dropbox’s copies: deleted files come back, renames and moves are undone, an edit returns to the version this sync replaced while SyncCloud Removed still holds it. iCloud’s current version is kept there first for items whose contents change. A name now taken keeps both. The sync then carries on as usual.")
+                Text("Changes are reversed in iCloud using Dropbox’s copies: deleted files come back, renames and moves are undone, a file moved in goes back to the folder it came from (the sync then moves Dropbox’s copy to SyncCloud Removed), an edit returns to the version this sync replaced while SyncCloud Removed still holds it. iCloud’s current version is kept there first for items whose contents change. A name now taken keeps both. The sync then carries on as usual.")
                     .scaledFont(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 ForEach(failures, id: \.self) { Text($0).foregroundStyle(OneWaySyncPalette.hold).scaledFont(.system(size: 11)) }
             }
         } actions: {
             Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
             Button("Reverse \(ticked.count) in iCloud") {
-                let chosen = reversals.filter { ticked.contains($0.step) }
+                let chosen = reversals.filter { ticked.contains($0.step) && $0.unavailable == nil }
                 Task {
                     failures = await controller.reverse(chosen)
                     if failures.isEmpty { dismiss() }
@@ -933,6 +930,26 @@ struct OneWaySyncReverseSheet: View {
                 reversals = OneWaySyncAnswers.reversals(of: entry, look: look, removed: removed)
             }
             loaded = true
+        }
+    }
+
+    /// One change: its tick and what reversing does, or, when it can't be now (a file moved in
+    /// whose folder is gone, say), no tick and why (EU).
+    @ViewBuilder func row(_ reversal: OneWaySyncReversal) -> some View {
+        HStack {
+            if let why = reversal.unavailable {
+                Text(reversal.item).font(.system(size: 11, design: .monospaced)).lineLimit(1).foregroundStyle(.secondary)
+                Spacer()
+                Text("\(reversal.summary): can’t, \(why)").foregroundStyle(.secondary).scaledFont(.system(size: 11))
+                    .lineLimit(2).multilineTextAlignment(.trailing)
+            } else {
+                Toggle(isOn: Binding(get: { ticked.contains(reversal.step) },
+                                     set: { if $0 { ticked.insert(reversal.step) } else { ticked.remove(reversal.step) } })) {
+                    Text(reversal.item).font(.system(size: 11, design: .monospaced)).lineLimit(1)
+                }
+                Spacer()
+                Text(reversal.summary).foregroundStyle(.secondary).scaledFont(.system(size: 11))
+            }
         }
     }
 }

@@ -39,7 +39,7 @@ import Testing
 
         func look() -> OneWaySyncLook {
             OneWaySyncRun.look(record: record, state: state, exclusions: OneWaySyncExclusions(), places: world.places,
-                               download: false, now: now, isShared: { _ in false })
+                               download: false, now: now, outside: store.loadOutside(), isShared: { _ in false })
         }
 
         @discardableResult
@@ -53,6 +53,8 @@ import Testing
                 confirmUploads: { paths in
                     var outcomes: [String: OneWaySyncUploadOutcome] = [:]
                     for path in paths {
+                        // As the real reading does: a file moved since it was written isn't there.
+                        if OneWaySyncDisk.kind(at: path) == nil { outcomes[path] = .gone; continue }
                         let name = (path as NSString).lastPathComponent
                         if refuse.contains(name) { outcomes[path] = .refused("Dropbox won’t take it"); continue }
                         if neverReport.contains(name) { outcomes[path] = .notConfirmed; continue }

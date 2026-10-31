@@ -110,4 +110,28 @@ import Sync
         // A copy that may not sync says why, and offers nothing to run.
         #expect(controller.syncNowRefusal == "Only SyncCloud in Applications syncs")
     }
+
+    /// ES: a file Dropbox refused is counted as skipped from the record, before any pass looks.
+    @Test func theRungCountsWhatDropboxRefusedAsSkipped() throws {
+        let scratch = try Scratch()
+        var record = scratch.record
+        record.refused = [OneWaySyncRefusedFile(
+            iCloudPath: "Legal/CON.pdf", iCloudID: 11, size: 3, modified: 0, changed: nil, dropboxPath: "Legal/CON.pdf",
+            record: nil, why: "excluded from sync", refusedAt: 0)]
+        let (controller, center) = controller(scratch, state: OneWaySyncSavedState(lastSyncAt: 1_789_990_000))
+        controller.adopt(record, state: OneWaySyncSavedState(lastSyncAt: 1_789_990_000))
+        #expect(controller.ladder == .upToDate(asOf: Date(timeIntervalSince1970: 1_789_990_000), skipped: 1))
+        #expect(OneWaySyncStatusPill(controller: controller, center: center, onSetUp: {}).title.hasSuffix(" · 1 skipped · Sync Now"))
+    }
+
+    /// EU: History says a copy of a file moved in was a move in, from where.
+    @Test func historyNamesAMoveInAndWhereFrom() {
+        let movedIn = OneWaySyncStep(action: .copy(from: "Finance/Invoice.pdf", to: "Finance/Invoice.pdf", needsDownload: false),
+                                     movedInFrom: "Work/Invoice.pdf")
+        #expect(OneWaySyncWords.kind(movedIn) == "Moved in")
+        #expect(OneWaySyncWords.paths(movedIn) == "Work/Invoice.pdf → Finance/Invoice.pdf")
+        let added = OneWaySyncStep(action: .copy(from: "Finance/New.pdf", to: "Finance/New.pdf", needsDownload: false))
+        #expect(OneWaySyncWords.kind(added) == "Added")
+        #expect(OneWaySyncWords.paths(added) == "Finance/New.pdf")
+    }
 }

@@ -41,6 +41,9 @@ public struct OneWaySyncItem: Equatable, Sendable {
     public var folderID: OneWaySyncFolderID?
     public var size: Int64
     public var modified: Date
+    /// The change time (`st_ctimespec`) in nanoseconds since 1970: for a package, the latest of
+    /// anything inside it. Nil when not read.
+    public var changed: Int64?
     public var tags: [String]
     /// The contents hash, when the lister had a reason to compute it (the change time moved, or a
     /// first run compares contents). Nil means not read, never "empty".
@@ -55,7 +58,7 @@ public struct OneWaySyncItem: Equatable, Sendable {
     public init(
         path: String, kind: Kind = .file,
         documentID: UInt64? = nil, folderID: OneWaySyncFolderID? = nil,
-        size: Int64 = 0, modified: Date = Date(timeIntervalSince1970: 0), tags: [String] = [],
+        size: Int64 = 0, modified: Date = Date(timeIntervalSince1970: 0), changed: Int64? = nil, tags: [String] = [],
         contentHash: String? = nil, isDownloaded: Bool = true, isExcluded: Bool = false
     ) {
         self.path = path
@@ -64,6 +67,7 @@ public struct OneWaySyncItem: Equatable, Sendable {
         self.folderID = folderID
         self.size = size
         self.modified = modified
+        self.changed = changed
         self.tags = tags
         self.contentHash = contentHash
         self.isDownloaded = isDownloaded

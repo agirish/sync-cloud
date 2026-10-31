@@ -27,7 +27,35 @@ import Testing
         let json = try JSONSerialization.jsonObject(with: Self.record.encoded()) as! [String: Any]
         let file = (json["files"] as! [[String: Any]])[0]
         #expect(file["modified"] as? Int == Int(OneWayWorld.t0.timeIntervalSince1970))
-        #expect(json["version"] as? Int == 1)
+        #expect(json["version"] as? Int == 2)
+    }
+
+    /// Version 1, before change times and refused files: read as this version, with neither, so
+    /// the first pass takes each file's change time as it finds it (ET).
+    @Test func aVersion1RecordReadsWithNoChangeTimesAndNothingRefused() throws {
+        var record = Self.record
+        record.files[0].changed = 1_790_000_000_123_456_789
+        record.refused = [OneWaySyncRefusedFile(
+            iCloudPath: "Finance/desktop.ini", iCloudID: 9, size: 10, modified: 1_790_000_000, changed: nil,
+            dropboxPath: "Finance/desktop.ini", record: nil, why: "excluded", refusedAt: 1_790_000_000)]
+        var json = try JSONSerialization.jsonObject(with: record.encoded()) as! [String: Any]
+        json["version"] = 1
+        json.removeValue(forKey: "refused")
+        var files = json["files"] as! [[String: Any]]
+        for index in files.indices { files[index].removeValue(forKey: "changed") }
+        json["files"] = files
+        let v1 = try JSONSerialization.data(withJSONObject: json)
+
+        guard case .ready(let read) = OneWaySyncRecord.load(v1, on: OneWayWorld.binding) else {
+            Issue.record("a version 1 record didn't read")
+            return
+        }
+        #expect(read.version == OneWaySyncRecord.currentVersion)
+        #expect(read.refused.isEmpty)
+        #expect(read.files.map(\.changed) == [nil, nil])
+        #expect(read.files.map(\.iCloudPath) == Self.record.files.map(\.iCloudPath))
+        // Written back as this version, change times and refusals round-trip.
+        #expect(OneWaySyncRecord.load(try record.encoded(), on: OneWayWorld.binding) == .ready(record))
     }
 
     @Test(arguments: [
@@ -55,11 +83,11 @@ import Testing
         #expect(OneWaySyncRecord.load(Data("not json".utf8), on: OneWayWorld.binding) == .needsNewFirstRun(.unreadable))
 
         var json = try JSONSerialization.jsonObject(with: Self.record.encoded()) as! [String: Any]
-        json["version"] = 2
+        json["version"] = 3
         let newer = try JSONSerialization.data(withJSONObject: json)
-        #expect(OneWaySyncRecord.load(newer, on: OneWayWorld.binding) == .needsNewFirstRun(.unsupportedVersion(2)))
+        #expect(OneWaySyncRecord.load(newer, on: OneWayWorld.binding) == .needsNewFirstRun(.unsupportedVersion(3)))
 
-        json["version"] = 1
+        json["version"] = 2
         json.removeValue(forKey: "files")
         let damaged = try JSONSerialization.data(withJSONObject: json)
         #expect(OneWaySyncRecord.load(damaged, on: OneWayWorld.binding) == .needsNewFirstRun(.unreadable))

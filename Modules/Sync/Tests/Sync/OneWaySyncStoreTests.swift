@@ -120,11 +120,11 @@ final class OneWayScratch {
         let store = OneWayScratch().store
         try store.startFirstRun(OneWaySyncRecordTests.record, state: Self.state)
         var json = try JSONSerialization.jsonObject(with: Data(contentsOf: store.recordURL)) as! [String: Any]
-        json["version"] = 2
+        json["version"] = 3
         try JSONSerialization.data(withJSONObject: json).write(to: store.recordURL)
-        #expect(store.loadRecord(on: OneWayWorld.binding) == .needsNewFirstRun(.unsupportedVersion(2)))
+        #expect(store.loadRecord(on: OneWayWorld.binding) == .needsNewFirstRun(.unsupportedVersion(3)))
 
-        json["version"] = 1
+        json["version"] = 2
         json["firstRun"] = nil
         try JSONSerialization.data(withJSONObject: json).write(to: store.recordURL)
         #expect(store.loadRecord(on: OneWayWorld.binding) == .needsNewFirstRun(.unreadable))

@@ -136,7 +136,9 @@ public final class OneWaySyncController: ObservableObject {
     @Published public private(set) var activity: String?
     /// The last pass's look: what Now's sheets read until a fresher one.
     @Published public private(set) var lastLook: OneWaySyncLook?
-    @Published public private(set) var lastSkipped = 0
+    /// What Now lists as skipped: the last look's, or until a pass looks, what the record knows
+    /// Dropbox refused (ES).
+    public var skippedCount: Int { lastLook?.skipped.count ?? record?.refused.count ?? 0 }
     @Published public var sheet: OneWaySyncSheet?
     /// Where `sheet` opens.
     @Published public internal(set) var sheetHost: OneWaySyncSheetHost = .main
@@ -181,7 +183,7 @@ public final class OneWaySyncController: ObservableObject {
         if waiting > 0 { return .needsYou(waiting) }
         if let since = state?.pausedSince { return .paused(since: Date(timeIntervalSince1970: TimeInterval(since))) }
         if let activity { return .syncing(activity) }
-        if let last = state?.lastSyncAt { return .upToDate(asOf: Date(timeIntervalSince1970: TimeInterval(last)), skipped: lastSkipped) }
+        if let last = state?.lastSyncAt { return .upToDate(asOf: Date(timeIntervalSince1970: TimeInterval(last)), skipped: skippedCount) }
         return .notYetSynced
     }
 
@@ -386,7 +388,8 @@ public final class OneWaySyncController: ObservableObject {
         let places = places(for: record)
         let now = Date()
         let look = await Task.detached(priority: .userInitiated) {
-            OneWaySyncRun.look(record: record, state: state, exclusions: exclusions, places: places, download: true, now: now)
+            OneWaySyncRun.look(record: record, state: state, exclusions: exclusions, places: places, download: true, now: now,
+                               outside: store.loadOutside())
         }.value
         mark("look")
         if Task.isCancelled { return }
@@ -530,7 +533,6 @@ public final class OneWaySyncController: ObservableObject {
         var look = result.look
         look.iCloud.skipped += result.refused
         lastLook = look
-        lastSkipped = look.iCloud.skipped.count
         if let record {
             let dropboxParent = places(for: record).dropboxParent
             let written = result.look.plan.steps.indices.filter { result.outcomes[$0].happened }
@@ -590,8 +592,10 @@ public final class OneWaySyncController: ObservableObject {
         let places = places(for: record)
         let exclusions = self.exclusions
         let now = Date()
+        let store = self.store
         let look = await Task.detached(priority: .userInitiated) {
-            OneWaySyncRun.look(record: record, state: state, exclusions: exclusions, places: places, download: download, now: now)
+            OneWaySyncRun.look(record: record, state: state, exclusions: exclusions, places: places, download: download, now: now,
+                               outside: store?.loadOutside() ?? OneWaySyncOutsideFiles())
         }.value
         lastLook = look
         return look

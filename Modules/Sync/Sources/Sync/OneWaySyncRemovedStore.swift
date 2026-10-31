@@ -19,6 +19,8 @@ public struct OneWaySyncRemovedItem: Equatable, Sendable {
         case movedOutInICloud
         /// Made redundant when a Dropbox-only file with the same contents was adopted.
         case duplicateOfAdoptedFile
+        /// SyncCloud's copy that Dropbox refused, its iCloud file since gone (ES).
+        case refusedCopy
         /// iCloud's version, kept before SyncCloud wrote over it in iCloud (*Copy Dropbox’s into
         /// iCloud*, *Reverse in iCloud*). Outside DG's and DJ's limits.
         case replacedICloudVersion

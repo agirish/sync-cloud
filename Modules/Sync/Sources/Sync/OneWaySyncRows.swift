@@ -163,7 +163,7 @@ public enum OneWaySyncRows {
                 detail: inDropbox ? "Not synced. Dropbox has a \(folder) folder too." : "Not synced. Dropbox has no \(folder) folder.",
                 buttons: [.createInDropboxAndSync], raisedAt: now))
         }
-        let skipped = look.iCloud.skipped
+        let skipped = look.skipped
         if !skipped.isEmpty {
             rows.append(OneWaySyncNotice(
                 id: "ows:info:skipped", kind: .information, scope: .wholeSync,
@@ -176,7 +176,7 @@ public enum OneWaySyncRows {
     /// "Icon file and desktop.ini (Dropbox won’t take them), 1 symlink · nothing else waits".
     static func skippedDetail(_ skipped: [OneWaySyncSkippedItem]) -> String {
         var parts: [String] = []
-        let refused = skipped.filter { $0.reason == "Dropbox won’t take it" }
+        let refused = skipped.filter { $0.reason == OneWaySyncSkippedItem.dropboxWontTakeIt }
         if !refused.isEmpty {
             let names = Array(Set(refused.map { OneWaySyncPath.name($0.path) == "Icon\r" ? "Icon file" : OneWaySyncPath.name($0.path) })).sorted()
             parts.append(names.joined(separator: " and ") + (refused.count == 1 ? " (Dropbox won’t take it)" : " (Dropbox won’t take them)"))

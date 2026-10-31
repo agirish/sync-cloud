@@ -10,6 +10,9 @@ import Foundation
 /// Something the lister left out on purpose, which Now lists as skipped: a symlink, a live
 /// library, or a name Dropbox won't take.
 public struct OneWaySyncSkippedItem: Equatable, Sendable {
+    /// The reason for a name Dropbox never syncs, and for a copy Dropbox refused (ES).
+    public static let dropboxWontTakeIt = "Dropbox won’t take it"
+
     public var path: String
     public var reason: String
 
@@ -138,7 +141,7 @@ public struct OneWaySyncLister: Sendable {
                     continue
                 }
                 if Self.refusedByDropbox.contains(name) {
-                    if !folderExcluded { skipped.append(OneWaySyncSkippedItem(path: path, reason: "Dropbox won’t take it")) }
+                    if !folderExcluded { skipped.append(OneWaySyncSkippedItem(path: path, reason: OneWaySyncSkippedItem.dropboxWontTakeIt)) }
                     continue
                 }
                 switch info.st_mode & S_IFMT {
@@ -157,7 +160,7 @@ public struct OneWaySyncLister: Sendable {
                         continue
                     }
                     items.append(fileItem(path, url: url, size: state.size, modifiedNanoseconds: state.modified,
-                                          flags: info.st_flags, excluded: folderExcluded))
+                                          changedNanoseconds: state.changed, flags: info.st_flags, excluded: folderExcluded))
                 case S_IFDIR:
                     // A folder iCloud hasn't listed here yet: reading it would download its listing,
                     // and until then what it holds is unknown.
@@ -173,6 +176,7 @@ public struct OneWaySyncLister: Sendable {
                 case S_IFREG:
                     items.append(fileItem(path, url: url, size: Int64(info.st_size),
                                           modifiedNanoseconds: OneWaySyncDisk.nanoseconds(info.st_mtimespec),
+                                          changedNanoseconds: OneWaySyncDisk.nanoseconds(info.st_ctimespec),
                                           flags: info.st_flags, excluded: folderExcluded))
                 default:
                     continue
@@ -196,15 +200,15 @@ public struct OneWaySyncLister: Sendable {
             modified: Date(timeIntervalSince1970: TimeInterval(info.st_mtimespec.tv_sec)), isExcluded: excluded)
     }
 
-    private func fileItem(_ path: String, url: URL, size: Int64, modifiedNanoseconds: Int64, flags: UInt32,
-                          excluded: Bool) -> OneWaySyncItem {
+    private func fileItem(_ path: String, url: URL, size: Int64, modifiedNanoseconds: Int64, changedNanoseconds: Int64,
+                          flags: UInt32, excluded: Bool) -> OneWaySyncItem {
         // A fresh URL each time: a URL caches its resource values.
         let values = try? URL(fileURLWithPath: url.path).resourceValues(forKeys: [.documentIdentifierKey, .tagNamesKey])
         let id = values?.documentIdentifier.flatMap { $0 > 0 ? UInt64($0) : nil }
         let seconds = modifiedNanoseconds >= 0 ? modifiedNanoseconds / 1_000_000_000 : (modifiedNanoseconds - 999_999_999) / 1_000_000_000
         return OneWaySyncItem(
             path: path, kind: .file, documentID: id, size: size,
-            modified: Date(timeIntervalSince1970: TimeInterval(seconds)), tags: values?.tagNames ?? [],
+            modified: Date(timeIntervalSince1970: TimeInterval(seconds)), changed: changedNanoseconds, tags: values?.tagNames ?? [],
             isDownloaded: !MaterializationStatus.isDataless(flags: flags), isExcluded: excluded)
     }
 

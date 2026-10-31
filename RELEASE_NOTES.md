@@ -29,13 +29,18 @@ Requires **macOS 26**, unchanged from v6.2.
   with iCloud's newer version and leave for you to choose. Start Syncing needs the Dropbox app to
   have run for five minutes and be quiet.
 - **Sync Now copies what changed in iCloud:** new files, edits, renames and moves, and deletions. A
-  renamed folder moves once in Dropbox, with nothing uploaded again. A deletion is copied once the
-  file has been gone 30 minutes and a later Sync Now still finds it gone.
+  renamed folder moves once in Dropbox, with nothing uploaded again. An edit that keeps a downloaded
+  file's size and date is copied too. A deletion is copied once the file has been gone 30 minutes and a
+  later Sync Now still finds it gone.
+- **A file Dropbox won't take isn't counted as synced.** It's listed as skipped in Activity ▸ Now,
+  and the pill reads "Synced at 14:02 · 1 skipped · Sync Now"; Sync Now tries it again once it changes in
+  iCloud.
 - **Nothing in Dropbox is deleted outright.** Whatever the sync removes or replaces goes to Dropbox
   ▸ SyncCloud Removed.
 - **What needs you waits in Activity ▸ Now.** A file changed directly in Dropbox, and more removals
   in a day than the limit, wait there with Choose a Version…, Review… and Match iCloud, with a
-  notification if you turned them on. A sync in Activity ▸ History offers Reverse in iCloud….
+  notification if you turned them on. A sync in Activity ▸ History offers Reverse in iCloud…, which
+  also moves a file moved in from a folder that isn't synced back to it.
 - **Each side says what it is.** The pill and the sidebar say how the sync stands; the iCloud pane
   says "Changes made here" and the Dropbox pane "Kept as a copy". In SyncCloud's Dropbox pane,
   renaming, moving or deleting a synced file is refused, and Show in iCloud finds the file it comes
@@ -94,9 +99,9 @@ Requires **macOS 26**, unchanged from v6.2.
 ### Known limitations
 
 - One-way sync runs only when you click Sync Now; it doesn't yet sync on its own as files change.
-- Reverse in iCloud… doesn't offer a file copied into a synced folder, or two names swapped.
-- One-way sync notices an edit by a file's size or date: an edit that keeps both, which is rare,
-  isn't copied until the file changes again.
+- Reverse in iCloud… doesn't offer two names swapped.
+- One-way sync works from Dropbox's files on this Mac: a file in a synced Dropbox folder that is
+  online-only stops the sync until it's made available offline.
 - In SyncCloud's Dropbox pane, a copy that replaces a synced file, and Compare's copies and syncs
   into Dropbox, aren't refused. The next Sync Now finds it edited in Dropbox, and the “If a
   Dropbox file is edited” setting decides.
