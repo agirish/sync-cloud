@@ -147,7 +147,7 @@ public final class CloudAppMonitor: ObservableObject {
         let apps = Set(providers.filter { ids.contains($0.id) && !disabled.contains($0.id) }.compactMap { CloudApp($0.type) })
         guard !apps.isEmpty else { return }
         let system = self.system
-        let running = await Self.offPool { Set(apps.filter(system.isRunning)) }
+        let running = await Self.offPool(qos: .userInitiated) { Set(apps.filter(system.isRunning)) }
         let now = clock()
         for app in apps.sorted() {
             let isRunning = running.contains(app)
@@ -203,7 +203,9 @@ public final class CloudAppMonitor: ObservableObject {
     private func refreshRunning() async {
         let now = clock()
         let system = self.system
-        let (running, iCloudAvailable) = await Self.offPool {
+        // `.userInitiated`: a launch clears its warning through this half, and on a busy Mac a
+        // `.utility` thread waited minutes (hosted CI, 2026-10-30).
+        let (running, iCloudAvailable) = await Self.offPool(qos: .userInitiated) {
             (Set(CloudApp.allCases.filter(system.isRunning)), system.iCloudAvailable())
         }
         for app in CloudApp.allCases { model.app(app, isRunning: running.contains(app), at: now) }
@@ -351,9 +353,10 @@ public final class CloudAppMonitor: ObservableObject {
 
     /// Runs `body` on a dispatch thread, which may block, and hands back its answer — never on the
     /// cooperative pool, whose threads a blocked call to another process would take from every task.
-    nonisolated static func offPool<T: Sendable>(_ body: @escaping @Sendable () -> T) async -> T {
+    nonisolated static func offPool<T: Sendable>(qos: DispatchQoS.QoSClass = .utility,
+                                                 _ body: @escaping @Sendable () -> T) async -> T {
         await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async { continuation.resume(returning: body()) }
+            DispatchQueue.global(qos: qos).async { continuation.resume(returning: body()) }
         }
     }
 }

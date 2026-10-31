@@ -946,6 +946,20 @@ proof rather than inference, and it costs none of the reruns the paragraph above
 real evidence otherwise. A rerun of the same SHA then went green, with the machine quiet (loadavg
 3.04, runner idle) — the fourth time this test has answered a rerun that way.
 
+#### Seen: `CloudAppStatusTests.aStuckUploadReadDoesNotHoldBackALaunch`, 2026-10-30 — FIXED
+
+Red on hosted CI twice in a row (`5f693fd6d`, `bd6fcecee`), green on this Mac. The test hangs every
+upload read, then asks for a refresh and waits for "not running" to clear. It waited **5 s**, and the
+fast half of the refresh ran on a `.utility` dispatch thread, which three busy vCPUs starved: the test
+took 155 s and missed its window. Not only the test's fault: a launch clears its warning through that
+half, so the half now runs at `.userInitiated`, and the bounded wait is 60 s, because the claim is
+that the fast half runs at all while the slow one hangs, not how quickly. Under 14 `yes` spinners on
+this Mac (`build-slot --exclusive`) it then passed three of three in about 1 s.
+
+The same run's Sync red, `DifferenceResolutionTests.testSyncAllDropsReentrantRunWhileFirstIsInFlight`
+(`manager.activeProgress != nil`), was not this: the next run carried the same `Modules/Sync` change
+and its Sync job passed.
+
 #### Seen: `ScanSupersedenceTests.testCancellingScanAbortsTheDiskWalkPromptly`, 2026-08-11
 
 **FIXED 2026-10-25** (mechanism 40): the test now parks the walk inside entry 2 and counts the

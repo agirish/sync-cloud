@@ -487,7 +487,10 @@ import Sync
         try await Task.sleep(for: .milliseconds(200))
         fake.set(running: .oneDrive, true)
         monitor.requestRefresh()
-        let deadline = ContinuousClock.now + .seconds(5)
+        // Bounded, and generous: the claim is that the fast half runs at all while the slow one
+        // hangs, not how fast — 5 s failed twice on hosted CI's 3 vCPUs ("Tests racing a
+        // real-time window", docs/flaky-tests.md).
+        let deadline = ContinuousClock.now + .seconds(60)
         while !monitor.problems.isEmpty, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
