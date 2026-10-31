@@ -123,8 +123,8 @@ import CryptoKit
     }
 
     /// The first side that cannot be hashed stops the other: the answer is nil either way. The
-    /// left is missing and fails at once; the right's check waits — bounded — to be cancelled, and
-    /// records whether it was. Without the stop it waits out its bound and the file is read whole.
+    /// left is missing and fails at once; the right's first check waits — bounded — to be
+    /// cancelled. Without the stop it waits out its bound and the file is read whole and cached.
     @Test func aPairWithAnUnhashableSideStopsReadingTheOther() async throws {
         let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -132,7 +132,6 @@ import CryptoKit
         try sparseFile(at: right, size: 5 * 4 * 1024 * 1024, bytes: [0: 1])
         let cache = ContentHashCache()
 
-        let sawCancel = LockedBox(false)
         let waited = LockedBox(false)
         let same = await FileContentVerifier.filesHaveSameContent(
             leftPath: dir.appendingPathComponent("missing").path, rightPath: right.path, cache: cache,
@@ -141,11 +140,12 @@ import CryptoKit
                 if !waited.withLock({ let first = !$0; $0 = true; return first }) { return false }
                 let deadline = Date().addingTimeInterval(10)
                 while !Task.isCancelled && Date() < deadline { usleep(1000) }
-                sawCancel.withLock { $0 = Task.isCancelled }
                 return false
             })
         #expect(same == nil)
-        #expect(sawCancel.withLock { $0 })
+        // The cache is the witness: unstopped, the right side is read to the end and stored. Not
+        // whether its check saw the cancel — the cancel can land before the right side's first
+        // check, which then never asks; either way it must not have been read whole.
         #expect(await cache.count == 0)
     }
 
@@ -168,8 +168,14 @@ import CryptoKit
         // may then see its own task cancelled before it gets to ask.
         #expect(asked.withLock { $0 } >= 1)
         #expect(await cache.count == 0)
-        // The control: the same pair, not stopped, is identical.
-        #expect(await FileContentVerifier.filesHaveSameContent(leftPath: a.path, rightPath: b.path) == true)
+        // The control: the same pair, not stopped, is identical — and BOTH reads ask. A 64-byte
+        // file asks three times (before the open, before its one chunk, before the end), so one
+        // side alone would answer three.
+        let askedUnstopped = LockedBox(0)
+        #expect(await FileContentVerifier.filesHaveSameContent(
+            leftPath: a.path, rightPath: b.path,
+            isCancelled: { askedUnstopped.withLock { $0 += 1 }; return false }) == true)
+        #expect(askedUnstopped.withLock { $0 } == 6)
     }
 
     private static let chunk = 4 * 1024 * 1024

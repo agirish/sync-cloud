@@ -2526,7 +2526,8 @@ extension FileSyncManager {
         // file of the same size for. Every skip and vouch below compares a digest across the two
         // trees, and equal digests need equal sizes, so a file with no same-size counterpart can
         // match nothing: hashing it read gigabytes to change no step. A size the walk could not
-        // state (or a symlink, whose walked size is the link's own) counts as matching anything.
+        // state, or any symlink entry, counts as matching anything — and then the whole other
+        // side is hashed, the cautious answer for a case this exists only to make cheaper.
         let rTree = await buildTree(url: rURL, sortOption: .name, fileManager: fm, maxDepth: nil)
         let rItems = flattenFilesWithRelativePaths(rTree)
         var walkedSizes: [String: Int] = [:]

@@ -54,6 +54,11 @@ struct ReviewCardView: View {
     /// NOT comparable to a captured copy of itself: that is a tautology (the inert guard
     /// ColumnPreviewColumn.watchDownload shipped with) — one side must be the live property.
     @State private var verifyToken = UUID()
+    /// Every Verify this card started, so leaving Review stops their reads. Advancing to another
+    /// item deliberately does not: a late verdict is still wanted (see `applyVerifyCompletion`).
+    /// With no size cap on the hash, a read nobody can see any more could otherwise run on for
+    /// gigabytes.
+    @State private var verifyTasks: [Task<Void, Never>] = []
     @FocusState private var focused: Bool
     /// A long run elsewhere in the window (decision BZ) — the primary copy/move waits for it.
     @Environment(\.runWriteLock) private var runWriteLock
@@ -191,6 +196,10 @@ struct ReviewCardView: View {
         .onKeyPress(.escape) {
             onExit()
             return .handled
+        }
+        .onDisappear {
+            verifyTasks.forEach { $0.cancel() }
+            verifyTasks.removeAll()
         }
         .task(id: item.id) {
             isVerifying = false
@@ -414,7 +423,7 @@ struct ReviewCardView: View {
         // after it, `sessionToken` so the host can drop a verdict from a replaced session.
         let token = verifyToken
         let sessionToken = session.sessionToken
-        Task { @MainActor in
+        verifyTasks.append(Task { @MainActor in
             let same = await FileContentVerifier.filesHaveSameContent(
                 leftPath: item.leftItemPath,
                 rightPath: item.rightItemPath,
@@ -431,12 +440,13 @@ struct ReviewCardView: View {
             // decides ONLY the spinner write; the verdict is reported either way.
             Self.applyVerifyCompletion(
                 sameContent: same,
+                stopped: Task.isCancelled,
                 liveToken: verifyToken,
                 startedToken: token,
                 report: { onVerdict(item.id, $0, sessionToken) },
                 clearSpinner: { isVerifying = false }
             )
-        }
+        })
     }
 
     /// Routes a finished Verify: what the completion is allowed to write back to the card.
@@ -457,10 +467,13 @@ struct ReviewCardView: View {
     /// the two decisions cannot drift apart without changing this function.
     /// - Parameters:
     ///   - sameContent: `FileContentVerifier`'s answer — nil when a side couldn't be hashed.
+    ///   - stopped: the verify was cancelled (the card left Review). Its nil says nothing about
+    ///     the files, so no verdict is reported — "couldn't verify" would blame a readable pair.
     ///   - liveToken: the card's CURRENT `verifyToken`.
     ///   - startedToken: the token captured when this verify started.
     static func applyVerifyCompletion(
         sameContent: Bool?,
+        stopped: Bool = false,
         liveToken: UUID,
         startedToken: UUID,
         report: (ReviewSession.VerifyVerdict) -> Void,
@@ -468,7 +481,7 @@ struct ReviewCardView: View {
     ) {
         let verdict: ReviewSession.VerifyVerdict =
             sameContent == true ? .identical : (sameContent == false ? .differed : .unverifiable)
-        report(verdict)
+        if !stopped { report(verdict) }
         guard liveToken == startedToken else { return }
         clearSpinner()
     }

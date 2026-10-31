@@ -13138,7 +13138,8 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s textPass=%s negativeDropped=%
 (`maxBytesToHash` and `HashOutcome.skippedTooLarge` are gone). The read still streams in 4 MB
 chunks, now yields between chunks, and stops at the next chunk on cancel (`HashOutcome.cancelled`),
 including Verify All's and a merge's Stop. Verify All, Compare Copies, Review and the CLI hash any
-size; a pair stops reading as soon as one side cannot be hashed. The two passes nobody asks for —
+size; Verify All, Review and the CLI stop a pair's reads once one side cannot be hashed, and Review
+and Compare Copies stop their checks when they close. The two passes nobody asks for —
 the optional scan-time verify and the filing scan's already-filed check — keep a 100 MB per-file
 limit (`unaskedPassMaxFileBytes`). Merge planning hashes only files with a same-size counterpart
 on the other side. The duplicate scan hashes large files too, but first compares the first and

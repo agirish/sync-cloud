@@ -11,18 +11,28 @@ import Sync
 @Suite struct ReviewVerifyCompletionTests {
 
     /// Runs a completion and reports what it wrote.
-    private func run(sameContent: Bool?, liveToken: UUID, startedToken: UUID)
+    private func run(sameContent: Bool?, stopped: Bool = false, liveToken: UUID, startedToken: UUID)
         -> (verdicts: [ReviewSession.VerifyVerdict], clearedSpinner: Bool) {
         var verdicts: [ReviewSession.VerifyVerdict] = []
         var cleared = false
         ReviewCardView.applyVerifyCompletion(
             sameContent: sameContent,
+            stopped: stopped,
             liveToken: liveToken,
             startedToken: startedToken,
             report: { verdicts.append($0) },
             clearSpinner: { cleared = true }
         )
         return (verdicts, cleared)
+    }
+
+    /// A verify stopped because the card left Review answers nil, and that nil is about the stop,
+    /// not the files: no verdict goes out — `.unverifiable` would tell the user a readable pair
+    /// couldn't be checked. The unstopped nil beside it is the control.
+    @Test func aStoppedVerifyReportsNoVerdict() {
+        let token = UUID()
+        #expect(run(sameContent: nil, stopped: true, liveToken: token, startedToken: token).verdicts.isEmpty)
+        #expect(run(sameContent: nil, liveToken: token, startedToken: token).verdicts == [.unverifiable])
     }
 
     @Test func hashAnswerMapsToTheVerdict() {

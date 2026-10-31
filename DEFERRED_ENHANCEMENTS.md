@@ -140,7 +140,8 @@ which the transfer loop and the bulk-sync workers read as neither a transfer nor
 two classes of file, and the duplicate scan **counts and reports** each reason
 (`DuplicateScanSkips`: `cloudOnly`, `multiLink`, surfaced in the results view and in a log line
 that ends "duplicates among them are not detected"). The third, files over 100 MB, is gone: the
-hasher streams any size (2026-10-30, for RD67), and only the scan-time verify keeps the limit.
+hasher streams any size (2026-10-30, for RD67), and only the passes nobody asks for keep the
+limit: the scan-time verify and the filing scan's already-filed check.
 
 - **Cloud-only (dataless) placeholders** — hashing one would force a full download of a file the
   user chose not to keep local. `MaterializationStatus.isCloudOnly` detects them with a single

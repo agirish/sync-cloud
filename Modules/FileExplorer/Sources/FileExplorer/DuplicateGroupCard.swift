@@ -1053,7 +1053,8 @@ enum DuplicateGroupNote {
 // MARK: - Unverified-content note
 
 /// Pure wording for the card's caveat when some copies in a group could not be content-verified
-/// (hash skipped: cloud-only, unreadable) — the group's content claim rests on less
+/// (hash skipped: cloud-only, unreadable, or never needed — a file with no same-size twin, or a
+/// large one whose ends matched no twin's) — the group's content claim rests on less
 /// than full verification, and the note must say so before the user trusts a one-click resolve.
 ///
 /// **It is one clause, because it is appended to a note that is already a caveat.** The long form
@@ -1065,7 +1066,7 @@ enum DuplicateUnverifiedNote {
     static func text(unverifiedCount count: Int) -> String? {
         guard count > 0 else { return nil }
         let plural = count != 1
-        return "\(count) not content-verified (not downloaded, or unreadable)."
+        return "\(count) not content-verified (not downloaded, unreadable, or not hashed)."
     }
 }
 
