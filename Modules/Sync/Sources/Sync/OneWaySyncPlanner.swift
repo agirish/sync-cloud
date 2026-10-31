@@ -26,7 +26,7 @@ public struct OneWaySyncSettings: Codable, Equatable, Sendable {
     }
 }
 
-public enum OneWaySyncRemovalCause: Equatable, Sendable {
+public enum OneWaySyncRemovalCause: Codable, Equatable, Sendable {
     case deletedInICloud
     /// Moved in iCloud to a folder that isn't synced, or into a shared one.
     case movedOutInICloud(to: String)
@@ -37,7 +37,11 @@ public enum OneWaySyncRemovalCause: Equatable, Sendable {
 
 /// One step of a plan, in the order it is applied. Paths are relative to the parents; each is the
 /// item's path at the moment the step runs, after the steps before it.
-public enum OneWaySyncAction: Equatable, Sendable {
+///
+/// Steps, waits and their reasons are saved in History entries (`OneWaySyncHistoryStore`) in
+/// their synthesized Codable form, so renaming a case or an argument label changes what an older
+/// entry reads as: bump `OneWaySyncHistoryEntry.currentVersion` with it.
+public enum OneWaySyncAction: Codable, Equatable, Sendable {
     /// A folder below a synced folder renamed or moved in iCloud: one move, nothing uploaded.
     case moveFolderInDropbox(from: String, to: String)
     case moveToRemoved(dropboxPath: String, cause: OneWaySyncRemovalCause)
@@ -55,7 +59,7 @@ public enum OneWaySyncAction: Equatable, Sendable {
     case forget(dropboxPath: String)
 }
 
-public enum OneWaySyncWaitReason: Equatable, Sendable {
+public enum OneWaySyncWaitReason: Codable, Equatable, Sendable {
     case editedInDropbox
     case editedOnBothSides
     case deletedInICloudEditedInDropbox
@@ -91,8 +95,8 @@ public enum OneWaySyncWaitReason: Equatable, Sendable {
     }
 }
 
-public struct OneWaySyncWait: Equatable, Sendable {
-    public enum Subject: Equatable, Sendable {
+public struct OneWaySyncWait: Codable, Equatable, Sendable {
+    public enum Subject: Codable, Equatable, Sendable {
         case file(iCloudPath: String?, dropboxPath: String?)
         /// A synced folder, by its recorded name.
         case folder(String)
@@ -108,7 +112,7 @@ public struct OneWaySyncWait: Equatable, Sendable {
 }
 
 /// An action with what the caller needs to update the record once it is applied.
-public struct OneWaySyncStep: Equatable, Sendable {
+public struct OneWaySyncStep: Codable, Equatable, Sendable {
     public var action: OneWaySyncAction
     /// The file record the step changes; nil for a file no record holds yet, and for folder moves.
     public var record: UInt64?

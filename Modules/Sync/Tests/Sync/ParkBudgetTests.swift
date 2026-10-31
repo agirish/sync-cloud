@@ -287,6 +287,11 @@ import Testing
             "RestructureRootHistoryTests.swift": [
                 "probe: { _, _ in _ = stuck.wait(timeout: .now() + 10); return true })",
             ],
+            // The killed lock holder's "held" line (RD67), the same shape: on `DispatchQueue.global`,
+            // never the pool; bounded at 30 s.
+            "OneWaySyncWritersTests.swift": [
+                "DispatchQueue.global().async { done.resume(returning: read.wait(timeout: .now() + 30) == .success) }",
+            ],
             "UnansweredListingTests.swift": [
                 "DispatchQueue.global().async { done.resume(returning: ran.wait(timeout: .now() + 5) == .success) }",
             ],

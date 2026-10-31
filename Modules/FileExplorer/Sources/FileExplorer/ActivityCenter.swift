@@ -283,6 +283,85 @@ public final class ActivityCenter: ObservableObject {
         return tab
     }
 
+    // MARK: One-way sync (RD67, DC)
+
+    /// Now's one-way sync rows, saved so they survive a quit: *Needs you* until answered or until
+    /// the cause clears, information until dismissed. Empty until ``attachOneWaySync(_:now:)``.
+    @Published public private(set) var oneWaySync = OneWaySyncNoticeBoard()
+    /// The row a one-way sync notification's click picked out.
+    @Published public var highlightedNotice: String?
+    /// Posts a notification that is due — set by the app, which checks the opt-in.
+    public var postOneWaySyncNotice: (OneWaySyncNoticeDelivery) -> Void = { _ in }
+    private(set) var oneWaySyncStore: OneWaySyncNoticeStore?
+
+    /// Reads the saved rows and sends whatever came due while SyncCloud was closed. Rows raised
+    /// before this are kept, on top of the saved ones.
+    public func attachOneWaySync(_ store: OneWaySyncNoticeStore, now: Date = Date()) {
+        oneWaySyncStore = store
+        // Unreadable (a newer build's, or damaged): moved aside by the store, and each pass raises
+        // again what still waits.
+        var board = store.load(now: now).value ?? OneWaySyncNoticeBoard()
+        for row in oneWaySync.rows { board.raise(row) }
+        oneWaySync = board
+        settleOneWaySync(now: now)
+    }
+
+    /// Raises rows, or updates the rows their causes already have: no second notification.
+    public func raiseOneWaySync(_ notices: [OneWaySyncNotice], now: Date = Date()) {
+        var board = oneWaySync
+        for notice in notices { board.raise(notice) }
+        oneWaySync = board
+        settleOneWaySync(now: now)
+    }
+
+    /// A row was answered, or its cause cleared.
+    public func clearOneWaySync(_ ids: [String], now: Date = Date()) {
+        var board = oneWaySync
+        for id in ids { board.clear(id) }
+        oneWaySync = board
+        settleOneWaySync(now: now)
+    }
+
+    /// Dismisses an information row; a *Needs you* row stays.
+    public func dismissOneWaySync(_ id: String) {
+        var board = oneWaySync
+        guard board.dismiss(id) else { return }
+        oneWaySync = board
+        oneWaySyncStore?.save(board)
+    }
+
+    /// Waits for the rows' saves to reach the disk: at quit.
+    public func flushOneWaySync() {
+        oneWaySyncStore?.flush()
+    }
+
+    /// Sends the reminders due now: the app asks hourly and on wake.
+    public func remindOneWaySync(now: Date = Date()) {
+        settleOneWaySync(now: now)
+    }
+
+    /// The Activity window on Now, with a one-way sync row picked out.
+    public func openWindow(highlightingNotice id: String) {
+        highlightedNotice = oneWaySync.shownRow(for: id) ?? id
+        tab = .now
+        markSeen()
+        windowRequests += 1
+    }
+
+    /// Marks what is due as sent, saves, then posts. With something to post, the save is waited
+    /// for, so a crash between the two costs a notification rather than repeating one.
+    private func settleOneWaySync(now: Date) {
+        var board = oneWaySync
+        let due = board.deliveries(now: now)
+        if board != oneWaySync { oneWaySync = board }
+        if due.isEmpty {
+            oneWaySyncStore?.save(board)
+        } else {
+            oneWaySyncStore?.saveNow(board)
+        }
+        due.forEach(postOneWaySyncNotice)
+    }
+
     // MARK: Undo (TE223, R12)
 
     /// Watches the main window's undo stack. Called by the window whenever its manager changes.

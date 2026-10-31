@@ -81,6 +81,44 @@ enum OperationNotifier {
     }
 }
 
+/// **One-way sync's notifications** (RD67, DC): a *Needs you* row's first, then its reminder,
+/// and the one information row that sends one. Its own opt-in, made at setup
+/// (`OneWaySyncNoticeBoard.notifyKey`), apart from General's background-completion switch, and
+/// shown with SyncCloud in front too (`OperationNotificationClicks.willPresent`): a sync that
+/// stopped matters whichever app is in front.
+@MainActor
+enum OneWaySyncNotifier {
+
+    /// The notification's user-info key for the row it reports.
+    nonisolated static let noticeKey = "oneWaySyncNotice"
+
+    /// `defaults` and `post` are injectable for the tests alone, as in ``OperationNotifier``.
+    static func post(_ delivery: OneWaySyncNoticeDelivery, defaults: UserDefaults = .standard,
+                     post: (UNNotificationRequest) -> Void = OneWaySyncNotifier.postToNotificationCenter) {
+        guard defaults.bool(forKey: OneWaySyncNoticeBoard.notifyKey) else { return }
+        post(request(for: delivery))
+    }
+
+    nonisolated static func request(for delivery: OneWaySyncNoticeDelivery) -> UNNotificationRequest {
+        let content = UNMutableNotificationContent()
+        content.title = delivery.title
+        content.body = delivery.body ?? ""
+        content.sound = .default
+        content.userInfo = [noticeKey: delivery.rowID]
+        // One identifier per row: a reminder replaces the row's earlier notification in
+        // Notification Center rather than stacking beside it.
+        return UNNotificationRequest(identifier: "one-way-sync:" + delivery.rowID, content: content, trigger: nil)
+    }
+
+    private static func postToNotificationCenter(_ request: UNNotificationRequest) {
+        let logger = Logger.shared
+        UNUserNotificationCenter.current().add(request) { error in
+            guard let error else { return }
+            logger.error("Could not post a one-way sync notification: \(error.localizedDescription)")
+        }
+    }
+}
+
 /// **A notification's click opens that message in Activity** (Run Room TE227, R15): the window on
 /// Now with the row picked out — not the popover, which hangs from a main window that may be behind
 /// other apps.
@@ -89,12 +127,28 @@ final class OperationNotificationClicks: NSObject, UNUserNotificationCenterDeleg
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
-        let id = (response.notification.request.content.userInfo[OperationNotifier.activityMessageKey] as? String)
-            .flatMap(UUID.init(uuidString:))
+        let userInfo = response.notification.request.content.userInfo
+        let notice = userInfo[OneWaySyncNotifier.noticeKey] as? String
+        let id = (userInfo[OperationNotifier.activityMessageKey] as? String).flatMap(UUID.init(uuidString:))
         Task { @MainActor in
             NSApp.activate()
-            ActivityCenter.shared.openWindow(highlighting: id)
+            if let notice {
+                ActivityCenter.shared.openWindow(highlightingNotice: notice)
+            } else {
+                ActivityCenter.shared.openWindow(highlighting: id)
+            }
             completionHandler()
         }
+    }
+
+    /// With SyncCloud in front, only one-way sync's notifications show; the others are posted
+    /// only from the background, where this isn't asked.
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler(Self.presentation(for: notification.request.content.userInfo))
+    }
+
+    nonisolated static func presentation(for userInfo: [AnyHashable: Any]) -> UNNotificationPresentationOptions {
+        userInfo[OneWaySyncNotifier.noticeKey] is String ? [.banner, .list, .sound] : []
     }
 }

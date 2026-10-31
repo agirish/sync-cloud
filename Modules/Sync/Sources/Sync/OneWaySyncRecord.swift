@@ -220,6 +220,10 @@ public enum OneWaySyncNewFirstRunReason: Equatable, Sendable {
     case otherICloudAccount
     case otherDropboxAccount
     case otherDisk
+    /// The record is fine but Dropbox holds no marker naming a Mac (`OneWaySyncMacMarker`):
+    /// turned off on another Mac, or the marker was lost, so this Mac can't tell it still owns
+    /// the sync.
+    case noMarker
 }
 
 public enum OneWaySyncRecordLoad: Equatable, Sendable {

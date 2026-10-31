@@ -1155,6 +1155,33 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         Self.sharedSyncManager = manager
     }
 
+    /// One-way sync's saved rows in Activity ▸ Now (RD67, DC), read at launch, with the reminders
+    /// that came due while SyncCloud was closed; then hourly and on wake. **Only in the installed
+    /// app** (`OneWaySyncLaunchGate`), the one copy that may sync: a test host, or a build run
+    /// from DerivedData or a worktree beside it, would read and write the user's saved rows and
+    /// post the same reminders twice.
+    private func startOneWaySyncNotices() {
+        guard OneWaySyncLaunchGate.refusalForThisProcess() == nil,
+              let directory = OneWaySyncStore.defaultDirectory() else { return }
+        let center = ActivityCenter.shared
+        center.postOneWaySyncNotice = { OneWaySyncNotifier.post($0) }
+        center.attachOneWaySync(OneWaySyncNoticeStore(url: OneWaySyncStore(directory: directory).noticesURL))
+        oneWaySyncReminders = Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { _ in
+            MainActor.assumeIsolated { ActivityCenter.shared.remindOneWaySync() }
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil,
+                                                          queue: .main) { _ in
+            MainActor.assumeIsolated { ActivityCenter.shared.remindOneWaySync() }
+        }
+    }
+
+    private var oneWaySyncReminders: Timer?
+
+    /// The rows' last save reaches the disk before the process ends.
+    func applicationWillTerminate(_ notification: Notification) {
+        ActivityCenter.shared.flushOneWaySync()
+    }
+
     /// Launch breadcrumb — fires exactly once per process (unlike App.init, which SwiftUI may
     /// re-run), so the log's first line unambiguously names the build that produced the session.
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -1175,6 +1202,7 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         ActivityMenuKey.install()
         // A background-completion notification's click opens its message in Activity (TE227).
         UNUserNotificationCenter.current().delegate = OperationNotificationClicks.shared
+        startOneWaySyncNotices()
 
         // How this build is signed, on the very next line — ad-hoc means its first launch waits
         // behind the Documents-access dialog, which is the whole of speed audit P16 and was

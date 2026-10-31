@@ -13260,3 +13260,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s watcher=%s freshness=%s\n' $l
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | Freshness by the clock alone; no watcher | RECORDED — not owed (new feature) |
+
+---
+
+## One-way sync's saved state (RD67) — main only
+
+2026-10-31, for v6.3. On `main`: what RD67's one-way sync keeps on this Mac and in Dropbox — the
+record and its state in Application Support (versioned, written whole and flushed, tied to this
+Mac, the accounts and the disk), the files you stopped syncing, History entries written before a
+sync applies anything, Activity ▸ Now's saved rows with their own notifications, a lock so one
+process syncs, and a marker in Dropbox so one Mac does. A new feature, built on the engine core
+that only `main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s store=%s engine=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/OneWaySyncStore.swift | wc -l | tr -d ' ')" \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/OneWaySyncPlanner.swift | wc -l | tr -d ' ')"; done
+# measured 2026-10-31, against origin, before this landed (the change reads store=1 on main):
+# main                         store=0 engine=1
+# v5.x / v4.x / v3.x / v2.x    store=0 engine=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No one-way sync at all | RECORDED — not owed (new feature) |
