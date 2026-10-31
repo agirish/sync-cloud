@@ -86,6 +86,20 @@ public enum PDFKitSerialAccess {
         }
     }
 
+    /// Counts the `performUnlessCancelled` blocks a task has put on the lane's queue. Test
+    /// instrumentation, like `peakConcurrentParses`: a test bound to one waits for ITS blocks to be
+    /// queued before it cancels, rather than sleeping and hoping — or reading a process-wide count
+    /// that every other suite's renders bump too, which can say "queued" before its own are.
+    public final class QueueProbe: Sendable {
+        private let count = OSAllocatedUnfairLock(initialState: 0)
+        public init() {}
+        public var queued: Int { count.withLock { $0 } }
+        fileprivate func note() { count.withLock { $0 += 1 } }
+    }
+
+    /// The probe the calling task's `performUnlessCancelled` blocks are counted on; nil in the app.
+    @TaskLocal public static var queueProbe: QueueProbe?
+
     /// ``perform``, for work nobody will want once its task is cancelled: `nil` without running
     /// `body` when the task is cancelled before its turn comes.
     ///
@@ -93,19 +107,14 @@ public enum PDFKitSerialAccess {
     /// starts, and a cancelled task's block still runs when its turn comes — Compare Copies paged
     /// past ten pages queued ten opens and draws at 1,600 px, each holding up the lane that Edit's
     /// PDFs, Print and the column preview wait on. Once `body` has started it runs to the end.
-    /// How many `performUnlessCancelled` blocks have been put on the lane's queue. Test
-    /// instrumentation, like `peakConcurrentParses`: a test waits on it to know a block is queued
-    /// before it cancels, rather than sleeping and hoping.
-    public static var queuedUnlessCancelledCount: Int { queuedUnlessCancelled.withLock { $0 } }
-    private static let queuedUnlessCancelled = OSAllocatedUnfairLock(initialState: 0)
-
     public static func performUnlessCancelled<T: Sendable>(
         _ body: @escaping @Sendable () -> T
     ) async -> T? {
         let cancelled = OSAllocatedUnfairLock(initialState: false)
+        let probe = queueProbe
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                queuedUnlessCancelled.withLock { $0 += 1 }
+                probe?.note()
                 queue.async {
                     if cancelled.withLock({ $0 }) {
                         continuation.resume(returning: nil)

@@ -463,6 +463,37 @@ import Testing
                 "one ⌘Z must take back the whole landing, byte for byte — now: \(Self.treeList(world.root))")
     }
 
+    /// **Undo never shows the landing's survey date under the restored folder.** The restored
+    /// folder's date is read off the main actor, from its whole corpus; until it arrives the
+    /// footnote must say nothing, not the date of the folder being left.
+    @Test @MainActor func undoNeverShowsTheLeavingFoldersSurveyDate() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let applied = await world.manager.applyPlan(world.manifest, now: Date(timeIntervalSince1970: 1_756_500_000))
+        let newId = try #require(applied.producedProfileId)
+        let landingDate = try #require(world.manager.filingSurveyedAt, "the landing published no date to leave behind")
+        // What the footnote shows under the restored folder while its date is read off the main
+        // actor: sampled at every turn the Undo yields, from the folder switch on.
+        final class Seen { var dates: [Date?] = []; var done = false }
+        let seen = Seen()
+        let poll = Task { @MainActor [manager = world.manager] in
+            while !seen.done {
+                if manager.filingProfileDirectoryId != newId { seen.dates.append(manager.filingSurveyedAt) }
+                await Task.yield()
+            }
+        }
+        let undone = await world.manager.undoReorganisation(manifestId: world.manifest.manifestId)
+        seen.done = true
+        await poll.value
+        #expect(undone.refusal == nil)
+        let shownOnSwitch = seen.dates
+        try #require(!shownOnSwitch.isEmpty, "the undo never moved to another folder — nothing to test")
+        #expect(!shownOnSwitch.contains(landingDate), "the restored folder showed the landing's survey date")
+        let restoredId = try #require(world.manager.filingProfileDirectoryId)
+        #expect(world.manager.filingSurveyedAt == FilingSurveyStore.surveyedAt(id: restoredId, in: world.profiles),
+                "the restored folder's own date never arrived")
+    }
+
     /// The on-disk inverse restores the tree after the manager is thrown away and rebuilt — the
     /// undo that survives a quit — and `profiles.json` is re-pointed back to the kept profile.
     @Test func theLedgerInverseSurvivesAQuitAndRePointsTheProfile() async throws {

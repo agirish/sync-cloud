@@ -13186,3 +13186,30 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s status=%s dataless=%s activit
 |---|---|---|
 | `v5.x` | The unanswered-folder deadline, with no status built on it, and no Activity window | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | Neither the deadline nor Activity | RECORDED — not owed |
+
+---
+
+## The review of speed batches A–F (speed audit 1–21) — main only
+
+2026-10-30. Fixes to code the speed batches added on `main`: the stall watch dates a stall from its
+own stacks (a late heartbeat no longer stretches it, a stall outlasting the sampler is ended by
+the watch and not booked as a hold, skipped stalls are counted); Undo clears the leaving folder's
+survey date before it reads the restored one; a stack of columns that fits is not veiled; an
+overtaken Edit rail survey still lands; the identity index weighs the textless markers' own file
+against older digests. Every piece is absent from every maintenance line.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s stallWatch=%s veil=%s railTickets=%s undoDateOffMain=%s textlessIndex=%s\n' $l \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/MainThreadStallWatch.swift 2>/dev/null | grep -cF 'func answered(')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PaneScrollMemory.swift 2>/dev/null | grep -cF 'veil.cover(scroller)')" \
+  "$(git show origin/$l:MacApp/ContentView+Editor.swift 2>/dev/null | grep -cF 'editorRailRefreshes')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+RestructureApply.swift 2>/dev/null | grep -cF 'let restoredDate = await Task.detached')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/ContentHashIndexStore.swift 2>/dev/null | grep -cF 'content-textless-index.json')"; done
+# measured 2026-10-30, against origin, before this landed:
+# main                         stallWatch=1 veil=1 railTickets=4 undoDateOffMain=1 textlessIndex=2
+# v5.x / v4.x / v3.x / v2.x    all 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | None of the code these fix | CLOSED — does not apply |

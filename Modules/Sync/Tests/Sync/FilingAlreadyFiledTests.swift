@@ -170,6 +170,57 @@ import Testing
         #expect(try #require(marked.first).isAlreadyFiled == false)
     }
 
+    /// **A digest the textless store has since outdated names nothing.** The filed copy's newest
+    /// fingerprint record is a digest of text it no longer has; the "too little text" marker that
+    /// says so lives in its own file. Until the scan reads that file, the filed copy is keyed by the
+    /// stale digest and its bytes match nothing — and once the file appears, the cached index is
+    /// rebuilt, not served.
+    @Test func aDigestTheTextlessStoreOutdatesIsNotTheFilesIdentity() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "AlreadyFiledTextless")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let indexDir = root.appendingPathComponent("index")
+        try FileManager.default.createDirectory(at: indexDir, withIntermediateDirectories: true)
+        let payload = Data(repeating: 0x51, count: 4096)
+        let filed = root.appendingPathComponent("Work/Pay/scan.jpg")
+        let loose = root.appendingPathComponent("Downloads/Scan.jpg")
+        try Self.write(filed, payload)
+        try Self.write(loose, payload)
+        let hex = await FileSyncManager.hashFiles([filed.path], fileManager: FileManager.default,
+                                                  cache: nil)[filed.path] ?? ""
+        try #require(!hex.isEmpty, "the fixture could not hash its own file")
+        ContentHashIndexStore.saveInBackground(
+            [ContentHashRecord(path: filed.path, mtime: 0, size: 4096, hex: hex, storedAt: Date())],
+            to: indexDir.appendingPathComponent("content-hash-index.json"))
+        ContentHashIndexStore.saveInBackground(
+            [ContentHashRecord(path: filed.path, mtime: 100, size: 9, hex: "a-digest-of-text-now-gone",
+                               storedAt: Date(timeIntervalSince1970: 1_000))],
+            to: indexDir.appendingPathComponent("content-fingerprint-index.json"))
+        ContentHashIndexStore.waitForPendingWrites()
+
+        let m = FileSyncManager()
+        m.contentIndexDirectory = indexDir
+        func scan() async -> FilingSuggestion? {
+            await m.markingAlreadyFiled([
+                FilingSuggestion(filePath: loose.path, fileName: "Scan.jpg", size: 4096,
+                                 modificationDate: nil,
+                                 candidates: [FilingDestination(path: root.appendingPathComponent("Work/Pay").path,
+                                                                confidence: .high, reasons: ["r"],
+                                                                newSegments: [])],
+                                 providerRoot: root.path)
+            ], providerRoot: root.path).first
+        }
+        // The control: the stale digest alone keys the filed copy, so its bytes vouch for nothing.
+        try #require(await scan()?.isAlreadyFiled == false, "the fixture marks without the stale digest in play")
+
+        ContentHashIndexStore.saveInBackground(
+            [ContentHashRecord(path: filed.path, mtime: 200, size: 4096, hex: ContentFingerprint.tooLittleTextMarker,
+                               storedAt: Date(timeIntervalSince1970: 2_000))],
+            to: indexDir.appendingPathComponent("content-textless-index.json"))
+        ContentHashIndexStore.waitForPendingWrites()
+        #expect(await scan()?.isAlreadyFiled == true,
+                "the textless store's newer marker was not read: the filed copy kept a digest of text it no longer has")
+    }
+
     /// The other direction, so the test above cannot pass by marking everything: bytes the index
     /// has never seen come back unmarked and batch-eligible.
     @Test func aFileTheTreeDoesNotHoldIsLeftAlone() async throws {

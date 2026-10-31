@@ -918,6 +918,9 @@ extension FileSyncManager {
             && carryCuratedEditsBack(from: leavingId, to: previousId, in: profilesDirectory)
 
         if let loaded = FilingProfileStore.active(in: profilesDirectory) {
+            // The leaving folder's survey date is not the restored one's: cleared before the id
+            // moves, as `FilingArtifacts.attach` does, not left under it while the read below runs.
+            if filingProfileDirectoryId != loaded.id { filingSurveyedAt = nil }
             filingFolderProfile = loaded.profile
             filingMemory = loaded.memory
             filingProfileDirectoryId = loaded.id

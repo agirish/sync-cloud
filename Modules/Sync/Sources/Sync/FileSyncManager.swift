@@ -1547,7 +1547,8 @@ public class FileSyncManager: ObservableObject {
         }
         let hashURL = directory.appendingPathComponent("content-hash-index.json")
         let fpURL = directory.appendingPathComponent("content-fingerprint-index.json")
-        let stamps = [hashURL, fpURL].map {
+        let textlessURL = directory.appendingPathComponent("content-textless-index.json")
+        let stamps = [hashURL, fpURL, textlessURL].map {
             (try? fm.attributesOfItem(atPath: $0.path)[.modificationDate] as? Date) ?? nil
                 ?? Date.distantPast
         }
@@ -1555,6 +1556,7 @@ public class FileSyncManager: ObservableObject {
         let index = DocumentIdentityIndex.build(
             hashes: ContentHashIndexStore.load(from: hashURL),
             fingerprints: ContentHashIndexStore.load(from: fpURL),
+            textless: ContentHashIndexStore.load(from: textlessURL),
             providerRoot: providerRoot,
             existsOnDisk: { fm.fileExists(atPath: $0) })
         // Asked through the profile's own rule, not re-implemented — an inbox posing as the bigger

@@ -16,10 +16,11 @@ import Sync
 @MainActor
 @Suite(.serialized) struct CompareRenderCancellationTests {
 
-    /// Bounded: true once `count` blocks have been queued through `performUnlessCancelled`.
-    private static func waitForQueued(_ count: Int) async -> Bool {
+    /// Bounded: true once `count` of this test's own blocks — the ones run under `probe` — have
+    /// been queued through `performUnlessCancelled`. Other suites render on the lane meanwhile.
+    private static func waitForQueued(_ count: Int, on probe: PDFKitSerialAccess.QueueProbe) async -> Bool {
         for _ in 0..<500 {
-            if PDFKitSerialAccess.queuedUnlessCancelledCount >= count { return true }
+            if probe.queued >= count { return true }
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
         return false
@@ -31,15 +32,17 @@ import Sync
         defer { hold.release() }
         #expect(await hold.waitUntilHeld(), "the lane was never held — the renders below could run before the cancel")
         let ran = OSAllocatedUnfairLock(initialState: [Int]())
-        let queuedBefore = PDFKitSerialAccess.queuedUnlessCancelledCount
+        let probe = PDFKitSerialAccess.QueueProbe()
         let tasks = (0..<3).map { n in
             Task.detached { () -> Int? in
-                await PDFKitSerialAccess.performUnlessCancelled { ran.withLock { $0.append(n) }; return n }
+                await PDFKitSerialAccess.$queueProbe.withValue(probe) {
+                    await PDFKitSerialAccess.performUnlessCancelled { ran.withLock { $0.append(n) }; return n }
+                }
             }
         }
         // All three on the lane's queue first: the case being proved is a block already queued
         // when its task is cancelled, not one refused before it was queued.
-        #expect(await Self.waitForQueued(queuedBefore + 3), "the renders never reached the lane's queue")
+        #expect(await Self.waitForQueued(3, on: probe), "the renders never reached the lane's queue")
         tasks[0].cancel()
         tasks[1].cancel()
         hold.release()
@@ -67,10 +70,14 @@ import Sync
         let hold = LaneHold()
         defer { hold.release() }
         #expect(await hold.waitUntilHeld())
-        let queuedBefore = PDFKitSerialAccess.queuedUnlessCancelledCount
-        let passed = Task.detached { await PagePairRaster.render(path: path, page: 0, longEdge: 160) }
-        let stoppedOn = Task.detached { await PagePairRaster.render(path: path, page: 0, longEdge: 160) }
-        #expect(await Self.waitForQueued(queuedBefore + 2), "the renders never reached the lane's queue")
+        let probe = PDFKitSerialAccess.QueueProbe()
+        let passed = Task.detached {
+            await PDFKitSerialAccess.$queueProbe.withValue(probe) { await PagePairRaster.render(path: path, page: 0, longEdge: 160) }
+        }
+        let stoppedOn = Task.detached {
+            await PDFKitSerialAccess.$queueProbe.withValue(probe) { await PagePairRaster.render(path: path, page: 0, longEdge: 160) }
+        }
+        #expect(await Self.waitForQueued(2, on: probe), "the renders never reached the lane's queue")
         passed.cancel()
         hold.release()
         #expect(await passed.value == nil, "a page the reader paged past was still rendered")

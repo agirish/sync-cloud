@@ -93,10 +93,11 @@ extension FileSyncManager {
     func alreadyFiledIndex(in directory: URL, providerRoot: String) async -> DocumentIdentityIndex {
         let hashURL = directory.appendingPathComponent("content-hash-index.json")
         let fingerprintURL = directory.appendingPathComponent("content-fingerprint-index.json")
+        let textlessURL = directory.appendingPathComponent("content-textless-index.json")
         // Date and size, both: a rewrite inside one timestamp tick still moves the size.
         // And the directory, so an index read from one place is never served for another; the
         // files' links are followed, or a linked index would never look changed.
-        let key = [providerRoot, directory.path] + [hashURL, fingerprintURL].map { url in
+        let key = [providerRoot, directory.path] + [hashURL, fingerprintURL, textlessURL].map { url in
             let attributes = try? FileManager.default.attributesOfItem(atPath: url.resolvingSymlinksInPath().path)
             let date = (attributes?[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate
             return "\(date ?? -1) \((attributes?[.size] as? Int) ?? -1)"
@@ -105,6 +106,7 @@ extension FileSyncManager {
         let index = await Task.detached(priority: .userInitiated) {
             DocumentIdentityIndex.build(hashes: ContentHashIndexStore.load(from: hashURL),
                                         fingerprints: ContentHashIndexStore.load(from: fingerprintURL),
+                                        textless: ContentHashIndexStore.load(from: textlessURL),
                                         providerRoot: providerRoot, existsOnDisk: { _ in true })
         }.value
         filingAlreadyFiledIndex = (key, index)

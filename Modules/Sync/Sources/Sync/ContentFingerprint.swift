@@ -206,7 +206,7 @@ public enum ContentFingerprint {
     /// this document is" would call all of them one document — Duplicates would group them, and To
     /// File would mark each "already filed" beside all the others. So it is kept in a store of its
     /// own that no identity reader opens, ``FileSyncManager/fingerprintDocuments`` answers nil for
-    /// it, and ``DocumentIdentityIndex/build(hashes:fingerprints:providerRoot:existsOnDisk:)``
+    /// it, and ``DocumentIdentityIndex/build(hashes:fingerprints:textless:providerRoot:existsOnDisk:)``
     /// drops one should it ever reach the fingerprint index.
     ///
     /// It carries ``scheme`` and the floor itself. The floor moving does not change any digest, so

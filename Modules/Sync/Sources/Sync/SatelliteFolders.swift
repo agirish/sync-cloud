@@ -28,13 +28,16 @@ public struct DocumentIdentityIndex: Sendable {
     public static let empty = DocumentIdentityIndex(foldersByIdentity: [:], pathsByIdentity: [:],
                                                     documentCounts: [:])
 
-    /// Builds the index from the two persisted stores.
+    /// Builds the index from the persisted stores. `textless` is the "too little text" markers'
+    /// own store: it holds no identity, but a marker newer than a path's digest says that digest
+    /// describes the file as it was — a PDF with text, since overwritten by a scan of nothing.
     ///
     /// `existsOnDisk` is injected so this stays pure and testable, and because it matters: the
     /// indexes are a cache and outlive the files they describe. A stale record would let a folder
     /// that no longer exists vouch for a document, or inflate the count that decides which of two
     /// folders is the established one.
     public static func build(hashes: [ContentHashRecord], fingerprints: [ContentHashRecord],
+                             textless: [ContentHashRecord] = [],
                              providerRoot: String,
                              existsOnDisk: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) })
     -> DocumentIdentityIndex {
@@ -47,9 +50,10 @@ public struct DocumentIdentityIndex: Sendable {
         // same one, and keyed by it they would all be "the same document" — satellites made of
         // scans, and loose scans marked already filed beside each other. Where the newest record
         // is a marker the document keeps its byte hash, as one with no fingerprint record does;
-        // an older digest describes a state of the file that is gone.
+        // an older digest describes a state of the file that is gone. The markers live in their
+        // own store (`textless`), so they are read in beside the digests to be weighed with them.
         for (path, r) in newestPerPath(hashes, under: prefix) { identity[path] = "b:" + r.hex }
-        for (path, r) in newestPerPath(fingerprints, under: prefix)
+        for (path, r) in newestPerPath(fingerprints + textless, under: prefix)
         where !ContentFingerprint.isNoFingerprintMarker(r.hex) {
             identity[path] = "f:" + r.hex
         }

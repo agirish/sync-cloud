@@ -105,6 +105,31 @@ import Testing
         #expect(edited.foldersByIdentity == ["b:bytes": ["A"]])
     }
 
+    /// Where the markers really are: their own store, `content-textless-index.json`, which the
+    /// fingerprint index never holds. A text PDF overwritten by a scan of nothing leaves its old
+    /// digest as the newest FINGERPRINT record; only the textless store says it is gone.
+    @Test("A marker in the textless store outdates an older digest, and not a newer one")
+    func aTextlessMarkerOutdatesAnOlderDigest() {
+        let marker = ContentFingerprint.tooLittleTextMarker
+        let digest = ContentHashRecord(path: "/P/A/x.pdf", mtime: 100, size: 1, hex: "was-text",
+                                       storedAt: Date(timeIntervalSince1970: 1_000))
+        let scan = ContentHashRecord(path: "/P/A/x.pdf", mtime: 200, size: 2, hex: marker,
+                                     storedAt: Date(timeIntervalSince1970: 2_000))
+        let overwritten = DocumentIdentityIndex.build(hashes: [record("A/x.pdf", "bytes")],
+                                                      fingerprints: [digest], textless: [scan],
+                                                      providerRoot: root, existsOnDisk: { _ in true })
+        #expect(overwritten.foldersByIdentity == ["b:bytes": ["A"]],
+                "a digest of text the file no longer has still named it: \(overwritten.foldersByIdentity)")
+
+        // The other way round — a scan since read again with text in it — the digest stands.
+        let ocred = ContentHashRecord(path: "/P/A/x.pdf", mtime: 300, size: 3, hex: "has-text",
+                                      storedAt: Date(timeIntervalSince1970: 3_000))
+        let readAgain = DocumentIdentityIndex.build(hashes: [record("A/x.pdf", "bytes")],
+                                                    fingerprints: [digest, ocred], textless: [scan],
+                                                    providerRoot: root, existsOnDisk: { _ in true })
+        #expect(readAgain.foldersByIdentity == ["f:has-text": ["A"]])
+    }
+
     @Test("A record whose file is gone does not vouch for anything")
     func staleRecordsAreDropped() {
         // The indexes are a cache and outlive what they describe. A stale record would both invent
