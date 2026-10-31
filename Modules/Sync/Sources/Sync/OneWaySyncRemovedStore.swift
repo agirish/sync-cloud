@@ -214,7 +214,7 @@ public struct OneWaySyncRemovedStore: Sendable {
         guard let folder = try? OneWaySyncDisk.url(folderPath, in: accountFolder) else { return folderPath + "/" + name }
         for attempt in 1...10_000 {
             let candidate = Self.numbered(name, attempt)
-            if OneWaySyncDisk.kind(at: folder.appendingPathComponent(candidate).path) == nil { return folderPath + "/" + candidate }
+            if OneWaySyncDisk.kind(at: OneWaySyncDisk.child(candidate, of: folder).path) == nil { return folderPath + "/" + candidate }
         }
         return folderPath + "/" + name
     }
@@ -229,7 +229,7 @@ public struct OneWaySyncRemovedStore: Sendable {
         for attempt in 1...10_000 {
             let candidate = Self.numbered(name, attempt)
             do {
-                try OneWaySyncDisk.moveExclusively(url, to: folder.appendingPathComponent(candidate))
+                try OneWaySyncDisk.moveExclusively(url, to: OneWaySyncDisk.child(candidate, of: folder))
                 return folderPath + "/" + candidate
             } catch OneWaySyncWriteError.nameTaken {
                 continue
@@ -239,13 +239,14 @@ public struct OneWaySyncRemovedStore: Sendable {
     }
 
     /// The longest name APFS takes, in UTF-16 code units (measured: 255 `é` or `書` go, a 256th
-    /// doesn't; an emoji counts two), in the form it is sent: a `URL` sends names decomposed, so
-    /// a precomposed `é` counts two. Not POSIX's `NAME_MAX`, which counts bytes.
+    /// doesn't; an emoji counts two), in the form it is sent. Not POSIX's `NAME_MAX`, which counts
+    /// bytes.
     static let longestName = 255
 
-    /// A name's length as the file system counts it, sent through a `URL`.
+    /// A name's length as the file system counts it. A name goes as its own bytes
+    /// (``OneWaySyncDisk/child(_:of:)``), so a precomposed `é` counts one and a decomposed one two.
     static func sentLength(_ name: String) -> Int {
-        URL(fileURLWithPath: "/").appendingPathComponent(name).lastPathComponent.utf16.count
+        name.utf16.count
     }
 
     /// "W-2.pdf", "W-2 2.pdf", "W-2 3.pdf"…, as Finder numbers a copy. A name already near the
@@ -368,7 +369,7 @@ public struct OneWaySyncRemovedStore: Sendable {
         }
         let name = OneWaySyncPath.name(iCloudPath)
         for attempt in 1...10_000 {
-            let destination = folder.appendingPathComponent(Self.numbered(name, attempt))
+            let destination = OneWaySyncDisk.child(Self.numbered(name, attempt), of: folder)
             do {
                 try OneWaySyncDisk.coordinatedWrite(destination, deadline: deadline) { write in
                     try OneWaySyncDisk.moveExclusively(staged, to: write)

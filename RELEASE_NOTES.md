@@ -85,6 +85,11 @@ Requires **macOS 26**, unchanged from v6.2.
   folder it left.
 - **To File no longer matches a PDF by what it used to say.** A text PDF later overwritten by a scan
   with no text kept its old identity, so a loose file could be called already filed as it.
+- **A copy keeps its original's name exactly.** A letter such as é can be stored in two forms that
+  look alike: one character, or a letter followed by an accent. A copy or move between panes, a
+  sync in Compare, or a filing move wrote the second form whatever the original used, so Dropbox
+  and iCloud received the name spelled differently from the original, and a long name with many
+  such letters failed with "the file name … is invalid", though Finder copies it.
 
 ### Known limitations
 

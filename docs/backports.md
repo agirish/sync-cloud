@@ -13307,3 +13307,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s run=%s planner=%s monitor=%s\
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No one-way sync at all | RECORDED — not owed (new feature) |
+
+## A copy or move keeps its original's name byte for byte — main only
+
+2026-10-31, for v6.3. On `main`: `safeCopyItem` and `safeMoveItem` land an item under the name
+its original has on disk (`land(_:at:keepingNameOf:fileManager:)`, through `rename(2)`), and a
+sync's missing folders take their source folders' names. `FileManager`'s create, move and copy
+write a top-level name decomposed (NFD), so an NFC original ("é" as one character) was copied, moved,
+synced and filed under other bytes, and a long name that fits as NFC failed to land at all
+("the file name … is invalid"). One-way sync's writer keeps the names it is handed too, but that
+is `main`-only code. A name typed in the panes still lands as Foundation writes it, as Finder's does.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do f=Modules/Sync/Sources/Sync/FileOperations+Primitives.swift
+  printf '%-5s file=%s moveIntoPlace=%s land=%s\n' $l "$(git ls-tree -r --name-only origin/$l -- $f | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:$f | grep -c 'try fileManager.moveItem(at: tempURL, to: destinationURL)')" \
+  "$(git show origin/$l:$f | grep -c 'keepingNameOf')"; done
+# measured 2026-10-31, against origin, before this landed (the change reads moveIntoPlace=0 land>0 on main):
+# main / v5.x / v4.x / v3.x / v2.x    file=1 moveIntoPlace=2 land=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The decomposing landing: the two staged landings the command counts, the same-volume `moveItem`, and the folders `createDirectory` makes | RECORDED — not owed |

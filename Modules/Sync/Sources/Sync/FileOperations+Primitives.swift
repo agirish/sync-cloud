@@ -372,6 +372,68 @@ extension FileSyncManager {
         return recovered
     }
 
+    /// The name `url`'s item has on disk, byte for byte — nil when nothing is there to ask.
+    ///
+    /// **Why the bytes, and not `lastPathComponent`.** APFS keeps a name in the Unicode form it was
+    /// created in — a precomposed `é` (NFC: what iPhone apps and the keyboard make) or `e` plus a
+    /// combining accent (NFD) — and finds it by either. A `URL` built from a string decomposes it,
+    /// and every Foundation create, move and copy writes the name decomposed, even given a `String`
+    /// path or a URL that still holds the NFC bytes (measured 2026-10-31, scratch folders). Only
+    /// the system calls write a name as given. `getattrlist` reports the name as stored, however
+    /// the path asking was spelled.
+    nonisolated static func nameOnDisk(of url: URL) -> String? {
+        var request = attrlist(bitmapcount: u_short(ATTR_BIT_MAP_COUNT), reserved: 0,
+                               commonattr: attrgroup_t(ATTR_CMN_NAME), volattr: 0, dirattr: 0,
+                               fileattr: 0, forkattr: 0)
+        // Length word, the reference, and the longest name: 255 UTF-16 units, 3 UTF-8 bytes each.
+        var buffer = [UInt8](repeating: 0, count: 4 + MemoryLayout<attrreference_t>.size + 768)
+        let status = buffer.withUnsafeMutableBytes { raw in
+            url.withUnsafeFileSystemRepresentation { path in
+                path.map { getattrlist($0, &request, raw.baseAddress, raw.count, UInt32(FSOPT_NOFOLLOW)) } ?? -1
+            }
+        }
+        guard status == 0 else { return nil }
+        return buffer.withUnsafeBytes { raw -> String? in
+            let reference = raw.loadUnaligned(fromByteOffset: 4, as: attrreference_t.self)
+            let start = 4 + Int(reference.attr_dataoffset)
+            let end = start + Int(reference.attr_length) - 1  // the length counts the NUL
+            guard end > start, end <= raw.count else { return nil }
+            return String(decoding: raw[start..<end], as: UTF8.self)
+        }
+    }
+
+    /// Puts `itemURL` at `destinationURL` with the name `originalURL`'s item has on disk, when the
+    /// destination's name is that same name in another Unicode form — the case of every copy and
+    /// move, which carry a name over unchanged. Any other name lands as `moveItem` writes it.
+    ///
+    /// **A copy keeps its original's name**, as Finder's does (measured: Finder's Duplicate keeps
+    /// either form). Through `moveItem` it did not: an NFC "Café.pdf" copied, synced, filed or
+    /// moved landed as NFD bytes, and Dropbox and iCloud upload a name as the bytes they find.
+    /// And APFS's 255-unit name limit counts the form written: a name that fits precomposed can
+    /// overflow decomposed (a Korean syllable is one unit NFC, up to three NFD), so a long name
+    /// Finder copies failed here outright. A name the user types still lands as Foundation writes
+    /// it, which is what Finder does with a typed name too.
+    ///
+    /// Through `rename(2)` with `RENAME_EXCL`, which writes the name as given and refuses an
+    /// occupied destination as `moveItem` does. A rename that fails for any reason falls through
+    /// to `moveItem` unchanged, so another volume, a raced destination and every error message are
+    /// what they always were. Only for a `FileManager`: another `FileManaging` keeps its own
+    /// `moveItem`, but a `FileManager` subclass that overrides it is passed by for such a name.
+    nonisolated static func land(_ itemURL: URL, at destinationURL: URL, keepingNameOf originalURL: URL,
+                                 fileManager: FileManaging) throws {
+        if fileManager is FileManager,
+           let name = nameOnDisk(of: originalURL),
+           name == destinationURL.lastPathComponent,
+           !name.utf8.elementsEqual(destinationURL.lastPathComponent.utf8) {
+            let landing = (destinationURL.deletingLastPathComponent().path as NSString).appendingPathComponent(name)
+            let renamed = itemURL.withUnsafeFileSystemRepresentation { from in
+                from.map { renamex_np($0, landing, UInt32(RENAME_EXCL)) } ?? -1
+            }
+            if renamed == 0 { return }
+        }
+        try fileManager.moveItem(at: itemURL, to: destinationURL)
+    }
+
     /// Safely copies a file, atomically replacing the destination if it exists to prevent corruption.
     /// Returns a restorable URL for the overwritten item, if any (Trash, or a hidden in-place
     /// backup on volumes without Trash).
@@ -429,7 +491,7 @@ extension FileSyncManager {
 
         // Brand-new destination (or a case-only rename whose "destination" is the source itself on
         // a case-insensitive volume): a single rename into place, no backup, no replacement window.
-        try fileManager.moveItem(at: tempURL, to: destinationURL)
+        try land(tempURL, at: destinationURL, keepingNameOf: sourceURL, fileManager: fileManager)
         restoreLock(lock, on: destinationURL, fileManager: fileManager)
         return nil
     }
@@ -501,7 +563,7 @@ extension FileSyncManager {
         // a plain single rename. Nothing is backed up, so there is no replacement window.
         do {
             if crossVolume { throw POSIXError(.EXDEV) }
-            try fileManager.moveItem(at: sourceURL, to: destinationURL)
+            try land(sourceURL, at: destinationURL, keepingNameOf: sourceURL, fileManager: fileManager)
         } catch {
             // Fallback for cross-volume moves (EXDEV) or other similar access issues. Stage into a
             // temp mathematically guaranteed to be on the destination's volume, then rename into
@@ -514,7 +576,7 @@ extension FileSyncManager {
             // No lock to restore (P7): a locked original is refused above, so a move's staged copy
             // never carries one on its top item. Entries inside keep their own locks, as copied.
             try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer)
-            try fileManager.moveItem(at: tempURL, to: destinationURL)
+            try land(tempURL, at: destinationURL, keepingNameOf: sourceURL, fileManager: fileManager)
 
             // Cleanup source: try trash first, fall back to direct remove if the volume has no Trash.
             do {
@@ -881,9 +943,15 @@ extension FileSyncManager {
 
     /// Ensures the parent of `destinationURL` can be used as a directory (creates it or throws if it exists as a file).
     /// Call before copying into a path like `.../Package.pages-tef/Previews` so we don't fail with "file already exists".
+    ///
+    /// With `sourceURL`, each folder it makes takes the name its counterpart above `sourceURL` has
+    /// on disk, when the two are the same name — a sync or cross-pane copy rebuilds the source's
+    /// folders, and a copied folder keeps its original's name as a copied file does
+    /// (``land(_:at:keepingNameOf:fileManager:)``).
     public nonisolated static func ensureParentDirectoryExists(
         for destinationURL: URL,
-        fileManager: FileManaging
+        fileManager: FileManaging,
+        mirroring sourceURL: URL? = nil
     ) throws {
         let parentURL = destinationURL.deletingLastPathComponent()
         var isDir: ObjCBool = false
@@ -893,7 +961,38 @@ extension FileSyncManager {
             }
             return
         }
+        if let sourceURL, fileManager is FileManager,
+           createFolders(parentURL, keepingNamesAbove: sourceURL, fileManager: fileManager) {
+            return
+        }
         try fileManager.createDirectory(at: parentURL, withIntermediateDirectories: true)
+    }
+
+    /// Makes `folderURL`'s missing folders top-down with `mkdir(2)`, each named as the folder at
+    /// the same depth above `sourceURL` is on disk when the names match. False — leaving the rest
+    /// to `createDirectory`, whose errors are the familiar ones — when no folder's name would
+    /// differ from `createDirectory`'s, or any `mkdir` fails.
+    private nonisolated static func createFolders(_ folderURL: URL, keepingNamesAbove sourceURL: URL,
+                                                  fileManager: FileManaging) -> Bool {
+        var missing: [(name: String, keptName: String?)] = []
+        var folder = folderURL
+        var counterpart = sourceURL.deletingLastPathComponent()
+        while !fileManager.fileExists(atPath: folder.path) {
+            let name = folder.lastPathComponent
+            let onDisk = nameOnDisk(of: counterpart)
+            missing.append((name, onDisk.flatMap { $0 == name && !$0.utf8.elementsEqual(name.utf8) ? $0 : nil }))
+            let up = folder.deletingLastPathComponent()
+            if up.path == folder.path { return false }
+            folder = up
+            counterpart = counterpart.deletingLastPathComponent()
+        }
+        guard missing.contains(where: { $0.keptName != nil }) else { return false }
+        var path = folder.path
+        for step in missing.reversed() {
+            path = (path as NSString).appendingPathComponent(step.keptName ?? step.name)
+            guard mkdir(path, 0o777) == 0 else { return false }
+        }
+        return true
     }
 
     /// Performs only the file I/O for a single sync (create directory + copy or move).
@@ -906,7 +1005,7 @@ extension FileSyncManager {
         fileManager: FileManaging = FileManager.default,
         observer: CopyObserver? = nil
     ) throws -> (trashed: URL?, from: URL, to: URL) {
-        try ensureParentDirectoryExists(for: destinationURL, fileManager: fileManager)
+        try ensureParentDirectoryExists(for: destinationURL, fileManager: fileManager, mirroring: sourceURL)
         let trashed: URL?
         if isMove {
             trashed = try safeMoveItem(at: sourceURL, to: destinationURL, fileManager: fileManager, observer: observer)

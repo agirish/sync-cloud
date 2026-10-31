@@ -49,8 +49,8 @@ public final class KeptNamesStore: ObservableObject {
     ///
     /// Compares with Swift's canonical `==` (through `Set<String>`), the same equality
     /// ``NameNormalizer/evaluate(name:relativePath:absolutePath:isDirectory:provider:)`` gates on —
-    /// so a name stored NFC and met NFD is the same kept name, which is what APFS re-normalizing on
-    /// write makes it anyway.
+    /// so a name stored NFC and met NFD is the same kept name, as APFS, which finds a name by
+    /// either form, treats it.
     public func isKept(_ name: String) -> Bool { names.contains(name) }
 
     public func keep(_ name: String) {

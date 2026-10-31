@@ -3863,7 +3863,7 @@ public class FileSyncManager: ObservableObject {
         let resolvedToURL = toURL
         let result = await enqueueFileOperation { () -> (error: Error?, trashed: URL?, from: URL?, to: URL?) in
             do {
-                try Self.ensureParentDirectoryExists(for: resolvedToURL, fileManager: activeFM)
+                try Self.ensureParentDirectoryExists(for: resolvedToURL, fileManager: activeFM, mirroring: fromURL)
                 
                 let trashed: URL?
                 if isMove {

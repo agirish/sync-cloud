@@ -83,8 +83,9 @@ import Foundation
     }
 
     /// A *pure* NFC/NFD difference is NOT flagged, by design. macOS treats the two forms as the same
-    /// name (Swift `==` is canonical) and APFS re-normalizes filenames on write, so such a "fix"
-    /// can't be stored AND would fire on nearly every accented filename on disk. Only a hazard that
+    /// name (Swift `==` is canonical, and APFS finds a name by either form), and a rename through
+    /// Foundation writes it decomposed, so such a "fix" can't land as written AND would fire on
+    /// nearly every accented filename on disk. Only a hazard that
     /// is canonically *distinct* from its fix is worth surfacing.
     @Test func pureNFDDifferenceIsNotFlagged() {
         let nfd = "cafe\u{0301}"   // "café" decomposed (e + combining acute)
@@ -150,7 +151,7 @@ import Foundation
         #expect(NameNormalizer.hasInvisibleHazard("plain.txt") == false)
         #expect(NameNormalizer.hasInvisibleHazard("zero\u{200D}width") == true)
         #expect(NameNormalizer.hasInvisibleHazard("no\u{00A0}break") == true)
-        // A pure NFC/NFD difference is NOT a fixable hazard on macOS (APFS re-normalizes on write).
+        // A pure NFC/NFD difference is NOT a fixable hazard on macOS (the same name to APFS).
         #expect(NameNormalizer.hasInvisibleHazard("cafe\u{0301}") == false)
     }
 

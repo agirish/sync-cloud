@@ -92,6 +92,9 @@ public enum OneWaySyncDisk {
     ///
     /// The check is a moment's; every move and clone also passes `NOFOLLOW_ANY`, so a folder that
     /// becomes a symlink after it fails rather than being followed.
+    ///
+    /// The path keeps `relative`'s bytes (``child(_:of:)``), so every name the sync writes lands in
+    /// the Unicode form it was listed or typed in.
     public static func url(_ relative: String, in base: URL) throws -> URL {
         let parts = relative.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         guard !relative.isEmpty, !parts.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else {
@@ -99,10 +102,23 @@ public enum OneWaySyncDisk {
         }
         var url = base
         for (index, part) in parts.enumerated() {
-            url.appendPathComponent(part)
+            url = child(part, of: url)
             if index < parts.count - 1, kind(at: url.path) == .symlink { throw OneWaySyncWriteError.symlink(url.path) }
         }
         return url
+    }
+
+    /// `name` in `folder`, through a path that keeps `name`'s bytes.
+    ///
+    /// `appendingPathComponent` decomposes a name (an NFC `é` becomes `e` plus an accent), and APFS
+    /// stores a name in the form it is sent, so an iCloud name copied through it reached Dropbox
+    /// as other bytes than iCloud's — the same name to the Mac, another spelling to Dropbox's
+    /// servers and every device it syncs to. And APFS's 255-unit limit counts the form sent, so a
+    /// long name could fit iCloud and not Dropbox. `NSString` joins without normalizing, and a
+    /// URL made from the joined bytes keeps them in its `path` (measured 2026-10-31).
+    public static func child(_ name: String, of folder: URL) -> URL {
+        let path = (folder.path as NSString).appendingPathComponent(name)
+        return URL(fileURLWithFileSystemRepresentation: path, isDirectory: kind(at: path) == .folder, relativeTo: nil)
     }
 
     /// Creates the folders of `relative` below `base` that are missing and returns the deepest.
@@ -113,7 +129,7 @@ public enum OneWaySyncDisk {
         _ = try url(relative, in: base)
         var folder = base
         for part in relative.split(separator: "/") {
-            folder.appendPathComponent(String(part))
+            folder = child(String(part), of: folder)
             switch kind(at: folder.path) {
             case .folder: continue
             case .symlink: throw OneWaySyncWriteError.symlink(folder.path)

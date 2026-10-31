@@ -202,12 +202,18 @@ import Testing
         #expect(kept.last == String(repeating: "書", count: 253) + " 2")
     }
 
-    /// A `URL` sends a name decomposed, so a precomposed `é` counts two toward the limit.
+    /// A name goes as its own bytes, so a precomposed `é` counts one toward the limit and a
+    /// decomposed one two.
     @Test func numberingCountsANameAsItIsSent() {
-        let name = String(repeating: "\u{e9}", count: 127) + ".pdf"
-        #expect(OneWaySyncRemovedStore.sentLength(name) == 258)
-        let second = OneWaySyncRemovedStore.numbered(String(repeating: "\u{e9}", count: 127), 2)
-        #expect(second == String(repeating: "\u{e9}", count: 126) + " 2")
+        let composed = String(repeating: "\u{e9}", count: 127)
+        let decomposed = composed.decomposedStringWithCanonicalMapping
+        #expect(OneWaySyncRemovedStore.sentLength(composed + ".pdf") == 131)
+        #expect(OneWaySyncRemovedStore.sentLength(decomposed + ".pdf") == 258)
+        #expect(Array(OneWaySyncRemovedStore.numbered(composed, 2).utf8) == Array((composed + " 2").utf8))
+        #expect(Array(OneWaySyncRemovedStore.numbered(decomposed, 2).utf8)
+                == Array((String(repeating: "\u{e9}", count: 126).decomposedStringWithCanonicalMapping + " 2").utf8))
+        let long = String(repeating: "\u{e9}", count: 254)
+        #expect(Array(OneWaySyncRemovedStore.numbered(long, 2).utf8) == Array((String(repeating: "\u{e9}", count: 253) + " 2").utf8))
         #expect(OneWaySyncRemovedStore.numbered("W-2.pdf", 3) == "W-2 3.pdf")
         #expect(OneWaySyncRemovedStore.numbered(".hidden", 2) == ".hidden 2")
     }

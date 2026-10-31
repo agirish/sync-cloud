@@ -101,9 +101,10 @@ public enum NameNormalizer {
         // safe name is *canonically equal* to the current name there is nothing worth fixing.
         //
         // This is exactly what makes the detector safe on macOS. Swift's `String` equality — and the
-        // local filesystem — treat NFC and NFD as the same name. APFS goes further: it re-normalizes
-        // every filename on write, so a purely-normalization "fix" (café decomposed → café composed)
-        // both can't be stored AND would fire on virtually every accented filename on disk. Keying on
+        // local filesystem — treat NFC and NFD as the same name. APFS stores a name in the form it is
+        // sent and finds it by either, and a rename through Foundation sends it decomposed, so a
+        // purely-normalization "fix" (café decomposed → café composed) could not land as written AND
+        // would fire on virtually every accented filename on disk. Keying on
         // canonical equality means such names pass through untouched, while genuinely distinct
         // hazards — a zero-width joiner, a no-break space, a forbidden character, a trailing space —
         // are canonically DIFFERENT from their fix and so are still flagged.
@@ -190,7 +191,7 @@ public enum NameNormalizer {
     /// True when `name` carries a *fixable* invisible hazard the provider rules don't name — a hidden
     /// zero-width character or a non-standard space. Uses canonical `!=` for the same reason
     /// ``evaluate(name:relativePath:absolutePath:isDirectory:provider:)`` does: a pure NFC/NFD
-    /// difference is not a fixable hazard on macOS (APFS re-normalizes on write), so it returns false
+    /// difference is not a fixable hazard on macOS (the same name to APFS), so it returns false
     /// for a merely-decomposed name — only genuinely distinct invisibles count.
     public static func hasInvisibleHazard(_ name: String) -> Bool {
         cleanInvisible(name) != name

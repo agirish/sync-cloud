@@ -544,7 +544,7 @@ extension FileSyncManager {
             func land(_ sourceURL: URL, at targetURL: URL, itemName: String) async -> Bool {
                 do {
                     try Self.validateFileOperation(source: sourceURL, destination: targetURL)
-                    try Self.ensureParentDirectoryExists(for: targetURL, fileManager: fm)
+                    try Self.ensureParentDirectoryExists(for: targetURL, fileManager: fm, mirroring: sourceURL)
                     // RD24: the item's own copy watches the Cancel button too, so one very large
                     // file or folder no longer runs to the end once it starts. An abandoned copy
                     // throws `userCancelled` from inside its `.tmp_` staging, exactly as a cancel
