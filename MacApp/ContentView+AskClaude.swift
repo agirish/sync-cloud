@@ -38,6 +38,7 @@ extension ContentView {
                                askClaudeAsk(offer.question, shown: offer.shown)
                            },
                            onDownloadCard: { askClaudeDownloadCard($0, $1) },
+                           onFilingCard: { askClaudeFilingCard($0) },
                            onPlace: onPlace)
     }
 
@@ -154,6 +155,36 @@ extension ContentView {
                 askClaudeDownloaded(download)
             })
         }
+    }
+
+    /// Filing help's card buttons (TE255).
+    func askClaudeFilingCard(_ action: AskClaudeFilingAction) {
+        switch action {
+        case .goTo(let folder):
+            Task { @MainActor in
+                let outcome = await askClaudeTools().goToFolder(folder)
+                Logger.shared.info("Ask Claude filing card: Go to Folder — \(outcome.step)" + (outcome.isError ? " (refused)" : ""))
+                if outcome.isError { askClaudeChat.addNote("Couldn’t go there: \(outcome.step).") }
+            }
+        case .refine(let file):
+            askClaudeRefineFiling(file)
+        case .openSetup:
+            guard askClaudeStateBusy == nil else { return }
+            showSetup = true
+        }
+    }
+
+    /// Refine with Claude from filing help's card (decision EY): Organize scans the file's folder,
+    /// then refines this one file there, with its own price check first. The answer is Organize's.
+    private func askClaudeRefineFiling(_ file: String) {
+        guard askClaudeStateBusy == nil,
+              let source = AskClaudeBrowseTools.closestSource(containing: file, in: askClaudeSources) else { return }
+        let folder = (file as NSString).deletingLastPathComponent
+        Logger.shared.info("Ask Claude filing card: Refine with Claude for \((file as NSString).lastPathComponent), in Organize")
+        organizeFolderAction(FileNode(id: folder, name: (folder as NSString).lastPathComponent, isDirectory: true),
+                             providerRoot: providerRootExpanded(forProviderId: source.id),
+                             providerAnchor: providerAnchorExpanded(forProviderId: source.id))
+        Task { @MainActor in _ = await syncManager.refineAfterScan(filePath: file) }
     }
 
     private func askClaudeDownloaded(_ download: AskClaudeDownload) {
@@ -463,6 +494,17 @@ extension ContentView {
                 differencesSession.show(filter, selecting: ids)
                 return true
             },
+            whereToFile: { path in
+                // Page 1 read on this Mac (decision EW), never a cloud-only file the read would
+                // download past the card's limit (TE258): that one is placed by its name.
+                let size = AskClaudeDisk.node(atPath: path)?.fileSize
+                let fetches = MaterializationStatus.isCloudOnlyIfKnown(atPath: MaterializationStatus.linkTarget(of: path)) == true
+                    && (size ?? .max) > AskClaudeBrowseTools.autoDownloadBytes
+                let page = fetches ? nil : await syncManager.filingHelpPage(path)
+                let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
+                return await syncManager.whereToFile(path, snippet: page, isHidden: { hidden.isHidden($0) })
+            },
+            canRefineFiling: syncManager.filingHelpCanRefine,
             history: { forward in
                 let columns = paneDrawsColumns(isLeft: true)
                 guard forward ? syncManager.canGoForward(isLeft: true, drawsColumns: columns)

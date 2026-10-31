@@ -42,6 +42,8 @@ final class AskClaudeChat: ObservableObject {
             case offer(AskClaudePassage, sent: Bool)
             /// A cloud-only file Claude wanted, offered for download (TE258).
             case download(AskClaudeDownload, state: DownloadState)
+            /// Filing help's answer (TE255): folders with Go to Folder.
+            case filing(AskClaudeFilingCard)
         }
         var id = UUID()
         var kind: Kind
@@ -495,6 +497,9 @@ final class AskClaudeChat: ObservableObject {
         case .offerDownload(let download):
             streamingItem = nil
             items.append(Item(kind: .download(download, state: .offered)))
+        case .filing(let card):
+            streamingItem = nil
+            items.append(Item(kind: .filing(card)))
         case .movedView(let note):
             // The move says what the step said ("Opened Help" twice, 2026-10-30): it takes the
             // step's place rather than repeating it.

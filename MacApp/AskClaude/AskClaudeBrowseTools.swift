@@ -70,6 +70,10 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var showDifferences: (_ kind: AskClaudeDifferences.Kind, _ ids: Set<UUID>) -> Bool = { _, _ in false }
         /// Clock, for how old a comparison is.
         var now: () -> Date = Date.init
+        /// Where a file belongs by the Filing profile (TE255); nil when filing help can't run.
+        var whereToFile: (_ path: String) async -> FilingHelpAnswer? = { _ in nil }
+        /// Organize's Refine with Claude is set up, so the card may offer it (decision EY).
+        var canRefineFiling = false
         /// The pane's Back (false) and Forward (true); false when there was nowhere to go.
         var history: (_ forward: Bool) -> Bool = { _ in false }
         /// Quick Look on a file (TE243).
@@ -176,7 +180,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         let outcome = await dispatch(call, ctx, &handles)
         guard let movedToBrowse, outcome.movedView == nil else { return outcome }
         return AskClaudeToolOutcome(result: outcome.result, isError: outcome.isError, step: outcome.step,
-                                    movedView: movedToBrowse, passage: outcome.passage, download: outcome.download)
+                                    movedView: movedToBrowse, passage: outcome.passage, download: outcome.download,
+                                    filing: outcome.filing)
     }
 
     /// What a Browse-pane call would refuse anyway (an unknown or hidden handle, a folder that isn't
@@ -305,6 +310,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         case .select: return select(call, ctx, handles)
         case .closeTabs: return closeTabs(call, ctx)
         case .differences: return await differences(call, ctx, &handles)
+        case .whereToFile: return await whereToFile(call, ctx, handles)
         case nil:
             return AskClaudeToolOutcome(result: "There is no tool called \(call.name).", isError: true,
                                         step: "Asked for an unknown tool")
@@ -1049,6 +1055,74 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
         if nodes.count > Self.maxFound { lines.append("\(nodes.count - Self.maxFound) more not listed.") }
         return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: "Found \(nodes.count) with “\(label)” inside")
+    }
+
+    // MARK: Filing help (TE255)
+
+    private func whereToFile(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: AskClaudeHandles) async -> AskClaudeToolOutcome {
+        guard let handle = call.string("handle"), let path = handles.path(for: handle) else {
+            return unknownHandle(call.string("handle"))
+        }
+        guard let node = ctx.node(path) ?? statDisk(path), !node.isDirectory else {
+            return AskClaudeToolOutcome(result: "\(handle) isn’t a file that’s still there; filing help is for files.", isError: true,
+                                        step: "Filing help needs a file")
+        }
+        guard let answer = await ctx.whereToFile(path) else {
+            return AskClaudeToolOutcome(result: "Filing help can’t run right now.", isError: true, step: "Filing help couldn’t run")
+        }
+        let card = Self.filingCard(answer, node: node, ctx: ctx)
+        let step: String
+        switch card.kind {
+        case .suggestions: step = "Found where \(node.name) fits: \(card.folders.first?.label ?? "")"
+        case .noProfile: step = "No folder survey to go by"
+        case .outside: step = "\(node.name) is outside the surveyed folder"
+        case .noMatch: step = "No folder fits \(node.name)"
+        }
+        return AskClaudeToolOutcome(result: AskClaudeFiling.result(card, readsFiles: ctx.readsFiles), step: step, filing: card)
+    }
+
+    /// The card for an answer: each folder by source and path, as To File shows it.
+    static func filingCard(_ answer: FilingHelpAnswer, node: FileNode, ctx: Context) -> AskClaudeFilingCard {
+        switch answer.outcome {
+        case .noProfile:
+            return AskClaudeFilingCard(fileName: node.name, filePath: node.id, kind: .noProfile)
+        case .outsideProfile(let surveyed):
+            return AskClaudeFilingCard(fileName: node.name, filePath: node.id, kind: .outside(surveyed: surveyed))
+        case .noMatch:
+            return AskClaudeFilingCard(fileName: node.name, filePath: node.id, kind: .noMatch)
+        case .suggested(let list):
+            let folders = list.map { s in
+                AskClaudeFilingCard.Folder(label: breadcrumb(s.folder, sources: ctx.sources, fallback: s.relativePath),
+                                           path: s.folder, confidence: AskClaudeFiling.label(s.confidence),
+                                           reason: s.reason, fromFile: s.evidenceToken != nil)
+            }
+            let days = answer.surveyedAt.map { Int(ctx.now().timeIntervalSince($0) / 86_400) }
+            return AskClaudeFilingCard(fileName: node.name, filePath: node.id, kind: .suggestions, folders: folders,
+                                       staleDays: answer.isStale(now: ctx.now()) ? days : nil,
+                                       canRefine: ctx.canRefineFiling && list.first?.confidence != .high)
+        }
+    }
+
+    /// "iCloud › Documents › Taxes", from the source holding `absolute`.
+    static func breadcrumb(_ absolute: String, sources: [Source], fallback: String) -> String {
+        guard let source = closestSource(containing: absolute, in: sources),
+              let relative = relativeIfInside(absolute, root: source.root) else {
+            return fallback.split(separator: "/").joined(separator: " › ")
+        }
+        return ([source.name] + relative.split(separator: "/").map(String.init)).joined(separator: " › ")
+    }
+
+    /// Go to Folder on filing help's card: go_to, run with every check it makes.
+    func goToFolder(_ absolute: String) async -> AskClaudeToolOutcome {
+        let ctx = context()
+        guard let source = Self.closestSource(containing: absolute, in: ctx.sources),
+              let relative = Self.relativeIfInside(absolute, root: source.root) else {
+            return AskClaudeToolOutcome(result: "", isError: true, step: "That folder isn’t in a source SyncCloud shows")
+        }
+        var handles = AskClaudeHandles()
+        return await run(AskClaudeToolCall(id: "filing", name: "go_to",
+                                           input: .object(["source": .string(source.name), "folder": .string(relative)])),
+                         handles: &handles)
     }
 
     // MARK: Differences (TE261)

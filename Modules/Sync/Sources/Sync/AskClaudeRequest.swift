@@ -122,6 +122,8 @@ public enum AskClaudeRequest {
     back to you once the file is here.
     - Folders and files they put on their Never show Claude list appear only as a count. Never guess what is in them.
     - An attached section lists what they right-clicked to ask about; their question is about those, wherever they are.
+    - For “where should this go?”, use where_to_file and answer from what it says, including when it has no answer. \
+    Never name a folder it didn’t.
     - Your look-up tools and open work from any workspace. Tools that move or select in the Browse \
     pane take them to Browse first; in Edit, prefer answering without moving them.
 
@@ -171,6 +173,7 @@ public enum AskClaudeToolCatalog {
         case readText = "read_text"
         case findInContents = "find_in_contents"
         case differences = "differences"
+        case whereToFile = "where_to_file"
         case view = "view"
         case reveal = "reveal"
         case showInApp = "show_in_app"
@@ -244,6 +247,10 @@ public enum AskClaudeToolCatalog {
                 "show": .object(["type": .string("boolean"),
                                  "description": .string("Also show these rows in Compare’s differences list, filtered and selected. Opens Compare.")]),
              ], required: []),
+        tool(.whereToFile,
+             "Where a file belongs by how they file: their folder survey, from Setup. Gives the best folder and why, and a runner-up when it isn’t sure. Read on their Mac and free; it moves nothing. They get a card with Go to Folder.",
+             properties: ["handle": string("A file’s handle, such as r9.")],
+             required: ["handle"]),
         tool(.view,
              "Change how the Browse pane shows things: sort order, hidden files, list or columns.",
              properties: ["sort": string("name, kind, date, size or tags."),

@@ -1474,3 +1474,63 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(!a.isEquivalent(to: delegate(["/c/Private"], asks: false)))
     }
 }
+
+/// Filing help's tool (TE255): the card it shows and what Claude is told.
+@MainActor
+@Suite struct AskClaudeFilingToolTests {
+
+    private static let root = "/never-on-disk-icloud"
+    private let file = FileNode(id: root + "/Downloads/scan.pdf", name: "scan.pdf", isDirectory: false, fileSize: 2_000)
+
+    private func runner(_ answer: FilingHelpAnswer?, canRefine: Bool = true, readsFiles: Bool = false) -> AskClaudeBrowseTools {
+        let file = self.file
+        return AskClaudeBrowseTools(context: {
+            var ctx = AskClaudeBrowseTools.Context(
+                inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Downloads", sort: .name,
+                items: { _ in nil }, node: { $0 == file.id ? file : nil }, selection: [], busyReason: nil,
+                goTo: { _ in }, select: { _ in })
+            ctx.sources = [.init(id: "icloud", name: "iCloud", root: Self.root)]
+            ctx.whereToFile = { _ in answer }
+            ctx.canRefineFiling = canRefine
+            ctx.readsFiles = readsFiles
+            ctx.now = { Date(timeIntervalSince1970: 1_792_000_000) }
+            return ctx
+        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+    }
+
+    private func ask(_ runner: AskClaudeBrowseTools) async -> AskClaudeToolOutcome {
+        var handles = AskClaudeHandles()
+        let handle = handles.handle(for: file.id)
+        return await runner.run(AskClaudeToolCall(id: "t", name: "where_to_file", input: .object(["handle": .string(handle)])),
+                                handles: &handles)
+    }
+
+    private func suggestion(_ rel: String, _ confidence: FilingConfidence, token: String? = nil) -> FilingHelpAnswer.Suggestion {
+        FilingHelpAnswer.Suggestion(folder: Self.root + "/Documents/" + rel, relativePath: rel, confidence: confidence,
+                                    reason: token.map { "Matched “\($0)” read from the file — a word this folder’s documents use" } ?? "Fits how this folder is used",
+                                    evidenceToken: token)
+    }
+
+    @Test func anUnsureAnswerShowsBothFoldersByPlaceAndOffersRefine() async throws {
+        let surveyed = Date(timeIntervalSince1970: 1_792_000_000 - 30 * 86_400)
+        let answer = FilingHelpAnswer(outcome: .suggested([suggestion("Taxes/2025", .medium, token: "W-2"), suggestion("Work", .medium)]),
+                                      surveyedAt: surveyed)
+        let out = await ask(runner(answer))
+        let card = try #require(out.filing)
+        #expect(card.folders.map(\.label) == ["iCloud › Documents › Taxes › 2025", "iCloud › Documents › Work"])
+        #expect(card.canRefine && card.staleDays == 30)
+        #expect(!out.isError && out.step == "Found where scan.pdf fits: iCloud › Documents › Taxes › 2025")
+        #expect(!out.result.contains("W-2"), "the word read from the file went out with Let Claude read files off")
+    }
+
+    @Test func aHighAnswerOffersNoRefineAndAMissingProfileSaysSo() async throws {
+        let high = FilingHelpAnswer(outcome: .suggested([suggestion("Taxes/2025", .high)]), surveyedAt: nil)
+        let card = try #require(await ask(runner(high)).filing)
+        #expect(!card.canRefine && card.folders.count == 1 && card.staleDays == nil)
+        let none = await ask(runner(FilingHelpAnswer(outcome: .noProfile, surveyedAt: nil)))
+        #expect(none.filing?.kind == .noProfile && none.step == "No folder survey to go by")
+        // Off in Organize: no Refine, whatever the confidence.
+        let medium = FilingHelpAnswer(outcome: .suggested([suggestion("Work", .medium)]), surveyedAt: nil)
+        #expect(await ask(runner(medium, canRefine: false)).filing?.canRefine == false)
+    }
+}

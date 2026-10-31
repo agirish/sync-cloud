@@ -28,6 +28,8 @@ struct AskClaudePanel: View {
     var onSendOffer: (UUID) -> Void = { _ in }
     /// A download card's buttons (TE258).
     var onDownloadCard: (UUID, AskClaudeDownloadAction) -> Void = { _, _ in }
+    /// Filing help's card buttons (TE255).
+    var onFilingCard: (AskClaudeFilingAction) -> Void = { _ in }
     /// Where the panel wants its window, top-left within `container` (AskClaudeWindow.swift).
     var onPlace: (CGRect) -> Void = { _ in }
 
@@ -296,6 +298,7 @@ struct AskClaudePanel: View {
                         AskClaudeThreadRow(item: item, accent: accent, accentFill: accentFill, onAccent: onAccent, onOpenSettings: onOpenSettings,
                                            linkTargets: chat.linkTargets, onReveal: onReveal, onSendOffer: onSendOffer,
                                            onDownloadCard: onDownloadCard,
+                                           onFilingCard: onFilingCard,
                                            isLatestReceipt: item.id == latestReceipt, isRunning: chat.isRunning)
                             // Rows that didn't change aren't redrawn as each word streams in.
                             .equatable()
@@ -409,6 +412,7 @@ private struct AskClaudeThreadRow: View, Equatable {
     let onReveal: (String) -> Void
     let onSendOffer: (UUID) -> Void
     let onDownloadCard: (UUID, AskClaudeDownloadAction) -> Void
+    let onFilingCard: (AskClaudeFilingAction) -> Void
     /// The newest receipt shows its summary; older ones fold to an icon, so the thread doesn't
     /// repeat “Sent screen …” under every answer.
     var isLatestReceipt = false
@@ -505,6 +509,8 @@ private struct AskClaudeThreadRow: View, Equatable {
             .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.well))
         case .download(let download, let state):
             downloadCard(download, state)
+        case .filing(let card):
+            filingCard(card)
         case .problem(let problem):
             VStack(alignment: .leading, spacing: 6) {
                 Label(problem.message, systemImage: "exclamationmark.triangle")
@@ -585,6 +591,54 @@ private struct AskClaudeThreadRow: View, Equatable {
             case .timedOut:
                 Label("\(download.fileName) didn’t arrive within ten minutes.", systemImage: "exclamationmark.circle").font(.caption)
                 retry()
+            }
+        }
+        .padding(10)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.well))
+        .accessibilityElement(children: .contain)
+    }
+
+    /// TE255: where the file fits by their own conventions, each folder with Go to Folder; Refine
+    /// with Claude when the answer isn't High (decision EY); Setup when there's no profile.
+    @ViewBuilder
+    private func filingCard(_ card: AskClaudeFilingCard) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            switch card.kind {
+            case .suggestions:
+                ForEach(Array(card.folders.enumerated()), id: \.offset) { index, folder in
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "folder").foregroundStyle(.secondary)
+                            Text(folder.label).font(.caption.weight(.medium)).lineLimit(2).truncationMode(.head)
+                        }
+                        Text("\(index == 0 ? "" : "Runner-up · ")\(folder.confidence) · \(folder.reason)")
+                            .font(.caption2).foregroundStyle(.secondary)
+                        Button("Go to Folder") { onFilingCard(.goTo(folder.path)) }
+                            .controlSize(.small)
+                            .help("Shows this folder in Browse. Nothing is moved.")
+                    }
+                }
+                if let days = card.staleDays {
+                    Text("From a survey \(days) days old: folders made since aren’t known. Update the Survey is in Organize ▸ Restructure.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                if card.canRefine {
+                    Button("Refine with Claude…") { onFilingCard(.refine(card.filePath)) }
+                        .controlSize(.small)
+                        .help("Opens this file’s folder in Organize and refines its suggestion there. The price is shown before anything is sent.")
+                }
+            case .noProfile:
+                Label("No folder survey yet, so there’s nothing of how you file to go by.", systemImage: "folder.badge.questionmark")
+                    .font(.caption)
+                Button("Open Setup") { onFilingCard(.openSetup) }
+                    .controlSize(.small)
+                    .help("Setup’s folder survey learns how you file; this answer comes from it.")
+            case .outside(let surveyed):
+                Label("Your folder survey covers \(surveyed); \(card.fileName) is elsewhere.", systemImage: "folder.badge.questionmark")
+                    .font(.caption)
+            case .noMatch:
+                Label("No folder in your folder survey fits \(card.fileName).", systemImage: "folder.badge.questionmark")
+                    .font(.caption)
             }
         }
         .padding(10)
@@ -748,4 +802,12 @@ struct AskClaudeResizeHandle: NSViewRepresentable {
 /// What a download card's button asks for (TE258).
 enum AskClaudeDownloadAction: Equatable {
     case download, stopWaiting, notNow, revealInFinder
+}
+
+/// What filing help's card asks for (TE255).
+enum AskClaudeFilingAction: Equatable {
+    case goTo(String)
+    /// Refine with Claude for this file, in Organize.
+    case refine(String)
+    case openSetup
 }

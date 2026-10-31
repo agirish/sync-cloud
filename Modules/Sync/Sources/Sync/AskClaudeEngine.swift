@@ -58,15 +58,19 @@ public struct AskClaudeToolOutcome: Equatable, Sendable {
     public let passage: AskClaudePassage?
     /// A cloud-only file the person may choose to download (TE258), shown as a card.
     public let download: AskClaudeDownload?
+    /// Filing help's answer (TE255), shown as a card with Go to Folder.
+    public let filing: AskClaudeFilingCard?
 
     public init(result: String, isError: Bool = false, step: String, movedView: String? = nil,
-                passage: AskClaudePassage? = nil, download: AskClaudeDownload? = nil) {
+                passage: AskClaudePassage? = nil, download: AskClaudeDownload? = nil,
+                filing: AskClaudeFilingCard? = nil) {
         self.result = result
         self.isError = isError
         self.step = step
         self.movedView = movedView
         self.passage = passage
         self.download = download
+        self.filing = filing
     }
 }
 
@@ -151,6 +155,8 @@ public enum AskClaudeEvent: Equatable, Sendable {
     case offer(AskClaudePassage)
     /// A cloud-only file offered for download (TE258).
     case offerDownload(AskClaudeDownload)
+    /// Filing help's card (TE255).
+    case filing(AskClaudeFilingCard)
     /// One round trip finished: its usage and estimated cost.
     case round(AskClaudeUsage, costUSD: Double, model: String)
     case finished(stopReason: String?)
@@ -405,6 +411,7 @@ public final class AskClaudeEngine {
                 if let moved = outcome.movedView { emit(.movedView(moved)) }
                 if let passage = outcome.passage { emit(.offer(passage)) }
                 if let download = outcome.download { emit(.offerDownload(download)) }
+                if let filing = outcome.filing { emit(.filing(filing)) }
                 results.append(Self.result(for: call, text: outcome.result, isError: outcome.isError))
             }
             if Task.isCancelled {
