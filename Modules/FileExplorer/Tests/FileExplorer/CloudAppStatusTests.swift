@@ -20,6 +20,8 @@ import Sync
         private var _readings: [String: CloudAppStatusModel.UploadReading] = [:]
         private var _unanswered: [String] = []
         private var _changes: [(path: String, at: Date)] = []
+        /// When set, every upload read waits on it — a provider that has stopped answering.
+        var gate: DispatchSemaphore?
         var now = Date(timeIntervalSinceReferenceDate: 800_000_000)
 
         func set(running app: CloudApp, _ running: Bool) {
@@ -32,6 +34,7 @@ import Sync
         func set(iCloud: Bool) { lock.lock(); _iCloud = iCloud; lock.unlock() }
         func set(deadAccount folder: String) { lock.lock(); _dead.insert(folder); lock.unlock() }
         func set(unanswered: [String]) { lock.lock(); _unanswered = unanswered; lock.unlock() }
+        func set(liveAccount folder: String) { lock.lock(); _dead.remove(folder); lock.unlock() }
         func isDead(_ folder: String) -> Bool { lock.lock(); defer { lock.unlock() }; return _dead.contains(folder) }
         func change(_ path: String) { lock.lock(); _changes.append((path, now)); lock.unlock() }
 
@@ -40,7 +43,11 @@ import Sync
                 isRunning: { app in self.lock.lock(); defer { self.lock.unlock() }; return self._running.contains(app) },
                 iCloudAvailable: { self.lock.lock(); defer { self.lock.unlock() }; return self._iCloud },
                 isLiveAccount: { folder in !self.isDead(folder) },
-                reading: { path in self.lock.lock(); defer { self.lock.unlock() }; return self._readings[path] ?? .pending },
+                reading: { path in
+                    self.gate?.wait()
+                    self.lock.lock(); defer { self.lock.unlock() }
+                    return self._readings[path] ?? .pending
+                },
                 unanswered: { self.lock.lock(); defer { self.lock.unlock() }; return self._unanswered },
                 changes: {
                     self.lock.lock(); defer { self.lock.unlock() }
@@ -239,7 +246,6 @@ import Sync
         fake.now += CloudAppStatusModel.uploadDeadline
         await monitor.refresh()
         #expect(monitor.problems.keys.sorted() == [Self.work.id])
-        #expect(CloudAppStatusModel.reading(at: "/no/such/.DS_Store") == .unknown)
     }
 
     /// The refusal rule: the provider refusing this file, never the account or the network.
@@ -247,7 +253,8 @@ import Sync
         func error(_ code: NSFileProviderError.Code) -> NSError { NSError(domain: NSFileProviderErrorDomain, code: code.rawValue) }
         #expect(CloudAppStatusModel.isRefusal(error(.excludedFromSync)))
         #expect(CloudAppStatusModel.isRefusal(error(.filenameCollision)))
-        #expect(CloudAppStatusModel.isRefusal(error(.cannotSynchronize)))
+        // A general failure, maybe the account's: "not uploading", never hidden as "skipped".
+        #expect(!CloudAppStatusModel.isRefusal(error(.cannotSynchronize)))
         #expect(!CloudAppStatusModel.isRefusal(error(.serverUnreachable)))
         #expect(!CloudAppStatusModel.isRefusal(error(.notAuthenticated)))
         #expect(!CloudAppStatusModel.isRefusal(error(.insufficientQuota)))
@@ -308,11 +315,196 @@ import Sync
         #expect(RunningBundles.bundlePath(ofExecutable: "/usr/libexec/fileproviderd") == nil)
     }
 
-    /// The kernel route finds an app that is certainly running — this test's own host, by its
-    /// identifier — so an empty answer can never pass as "nothing is running".
+    /// The kernel route finds an app that is certainly running in a logged-in session — the Dock
+    /// or Finder — so an empty answer can never pass as "nothing is running".
     @Test func theKernelRouteFindsARunningApp() throws {
         let ids = RunningBundles.shared.identifiers()
         #expect(!ids.isEmpty)
         #expect(ids.contains("com.apple.dock") || ids.contains("com.apple.finder"), "found \(ids.count) bundles, but neither the Dock nor Finder")
+    }
+
+    // MARK: Review fixes, 2026-10-30
+
+    /// **The same problem coming back is a change.** Dismiss "OneDrive isn't running", OneDrive
+    /// runs again, then quits again: the row is back. And iCloud's row, whose words never change.
+    @Test func aDismissedRowComesBackWhenTheSameProblemReturns() async throws {
+        let fake = Fake()
+        fake.set(running: .oneDrive, false)
+        fake.set(iCloud: false)
+        let monitor = monitor(fake)
+        await monitor.refresh()
+        fake.now += CloudAppStatusModel.notRunningGrace
+        await monitor.refresh()
+        for notice in monitor.notices { monitor.dismiss(notice) }
+        #expect(monitor.notices.isEmpty)
+
+        fake.set(running: .oneDrive, true)
+        fake.set(iCloud: true)
+        await monitor.refresh()
+        fake.set(running: .oneDrive, false)
+        fake.set(iCloud: false)
+        await monitor.refresh()
+        fake.now += CloudAppStatusModel.notRunningGrace
+        await monitor.refresh()
+        #expect(monitor.notices.map(\.id).sorted() == ["icloud-off", "not-running"])
+    }
+
+    /// **The worst that applies, and no "not responding" while an app is merely missing.** A
+    /// missing app's folders do not answer; within the grace nothing is said, after it "not
+    /// running" is. A running app's unanswered folder outranks a late upload.
+    @Test func notRunningOutranksAndSilencesNotResponding() async {
+        let fake = Fake()
+        let trash = "\(Self.storage)/OneDrive-Work/.Trash"
+        let plan = "\(Self.storage)/OneDrive-Work/Plan.docx"
+        fake.change(plan)
+        let monitor = monitor(fake)
+        await monitor.refresh()
+        fake.now += CloudAppStatusModel.uploadDeadline
+        fake.set(unanswered: [trash])
+        await monitor.refresh()
+        #expect(monitor.problems == [Self.work.id: .notResponding], "a late upload outranked an unanswered folder")
+
+        fake.set(running: .oneDrive, false)
+        await monitor.refresh()
+        #expect(monitor.problems.isEmpty, "said \(monitor.problems) within the grace")
+        fake.now += CloudAppStatusModel.notRunningGrace
+        await monitor.refresh()
+        #expect(monitor.problems == [Self.personal.id: .notRunning(.oneDrive), Self.work.id: .notRunning(.oneDrive)])
+    }
+
+    /// `since` is the OLDEST waiting change — the newest is first in the fixture, so a `.max()`
+    /// or a `.first` would both answer wrong — and a file changed again starts its wait over.
+    @Test func sinceIsTheOldestWaitAndAChangeRestartsIt() async {
+        let fake = Fake()
+        let old = "\(Self.storage)/Dropbox/Old.pdf"
+        let new = "\(Self.storage)/Dropbox/A-new.pdf"
+        let started = fake.now
+        fake.change(old)
+        let monitor = monitor(fake)
+        await monitor.refresh()
+        fake.now += 600
+        fake.change(new)
+        await monitor.refresh()
+        fake.now += CloudAppStatusModel.uploadDeadline
+        await monitor.refresh()
+        #expect(monitor.problems == [Self.dropbox.id: .notUploading(paths: [new, old], since: started)])
+
+        fake.change(old)   // changed again: its 30 minutes start now
+        await monitor.refresh()
+        #expect(monitor.problems == [Self.dropbox.id: .notUploading(paths: [new], since: started + 600)])
+    }
+
+    /// A file whose upload state is not known yet stays watched — and is counted once its provider
+    /// says "not uploaded" — instead of being dropped at the first look.
+    @Test func aFileNotYetKnownStaysWatched() async {
+        let fake = Fake()
+        let file = "\(Self.storage)/Dropbox/Fresh.pdf"
+        fake.set(reading: .unknown, for: file)
+        fake.change(file)
+        let monitor = monitor(fake)
+        await monitor.refresh()
+        fake.set(reading: .pending, for: file)
+        fake.now += CloudAppStatusModel.uploadDeadline
+        await monitor.refresh()
+        #expect(monitor.problems == [Self.dropbox.id: .notUploading(paths: [file], since: fake.now - CloudAppStatusModel.uploadDeadline)])
+    }
+
+    /// The watch list keeps the newest `watchLimit` changes, trimmed once per batch.
+    @Test func theWatchListKeepsTheNewest() {
+        var model = CloudAppStatusModel()
+        let start = Date(timeIntervalSinceReferenceDate: 0)
+        for i in 0..<(CloudAppStatusModel.watchLimit + 5) {
+            model.noteChanged("/f\(String(format: "%05d", i))", at: start + Double(i))
+        }
+        model.trimToLimit()
+        #expect(model.watchedPaths.count == CloudAppStatusModel.watchLimit)
+        #expect(model.watchedPaths.first == "/f00005", "kept an old change and dropped a new one")
+    }
+
+    /// Names the providers skip without an error are never watched.
+    @Test func namesProvidersNeverUploadAreNotWatched() {
+        var model = CloudAppStatusModel()
+        for name in [".DS_Store", "Thumbs.db", "desktop.ini", "~$Report.docx", "Icon\r", "Report.docx"] {
+            model.noteChanged("/x/\(name)", at: Date())
+        }
+        #expect(model.watchedPaths == ["/x/Report.docx"])
+    }
+
+    /// **A failed File Provider check is asked again**, so a moment it was unavailable does not hide
+    /// a source until the next wake; a "known" answer is kept.
+    @Test func aFailedAccountCheckIsAskedAgain() async {
+        let fake = Fake()
+        fake.set(running: .oneDrive, false)
+        fake.set(deadAccount: Self.work.rootPath)
+        let monitor = monitor(fake)
+        await monitor.refresh()
+        fake.now += CloudAppStatusModel.notRunningGrace
+        await monitor.refresh()
+        #expect(monitor.problems[Self.work.id] == nil)
+        fake.set(liveAccount: Self.work.rootPath)
+        await monitor.refresh()
+        #expect(monitor.problems[Self.work.id] == .notRunning(.oneDrive))
+    }
+
+    /// **A change made through a link into an account counts** — `~/Dropbox/x.pdf` is the Dropbox
+    /// account's file, though spelled outside CloudStorage.
+    @Test func aChangeSpelledThroughALinkIsWatched() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("rd68-link-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let account = base.appendingPathComponent("Library/CloudStorage/Dropbox")
+        try FileManager.default.createDirectory(at: account, withIntermediateDirectories: true)
+        let link = base.appendingPathComponent("Dropbox")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: account)
+        let realAccount = account.resolvingSymlinksInPath().path
+        let dropbox = CloudProvider(id: "Dropbox", displayName: "Dropbox", imageName: "dropbox",
+                                    rootPath: realAccount, type: .dropBox)
+        let fake = Fake()
+        fake.change(link.appendingPathComponent("x.pdf").path)
+        let monitor = monitor(fake, providers: [dropbox])
+        await monitor.refresh()
+        fake.now += CloudAppStatusModel.uploadDeadline
+        await monitor.refresh()
+        #expect(monitor.problems == [dropbox.id: .notUploading(paths: [realAccount + "/x.pdf"], since: fake.now - CloudAppStatusModel.uploadDeadline)])
+    }
+
+    /// **A stuck upload read does not freeze the status.** With every upload read hanging, a
+    /// launch still clears "not running" — through the same request a change to the running apps
+    /// makes, not a test-only path.
+    @Test func aStuckUploadReadDoesNotHoldBackALaunch() async throws {
+        let fake = Fake()
+        fake.set(running: .oneDrive, false)
+        let monitor = monitor(fake)
+        await monitor.refresh()
+        fake.now += CloudAppStatusModel.notRunningGrace
+        await monitor.refresh()
+        #expect(monitor.problems[Self.personal.id] == .notRunning(.oneDrive))
+
+        let gate = DispatchSemaphore(value: 0)
+        fake.gate = gate
+        defer { for _ in 0..<8 { gate.signal() } }
+        fake.change("\(Self.storage)/Dropbox/Stuck.pdf")
+        monitor.requestRefresh()            // its slow half now hangs on the read
+        try await Task.sleep(for: .milliseconds(200))
+        fake.set(running: .oneDrive, true)
+        monitor.requestRefresh()
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !monitor.problems.isEmpty, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(monitor.problems.isEmpty, "a hung upload read kept the warning after the app launched")
+    }
+
+    @Test func durationsRollIntoHours() {
+        #expect(CloudAppNotice.duration(30) == "1 min")
+        #expect(CloudAppNotice.duration(40 * 60) == "40 min")
+        #expect(CloudAppNotice.duration(120 * 60) == "2 h")
+        #expect(CloudAppNotice.duration(125 * 60) == "2 h 5 min")
+    }
+
+    /// OneDrive ships under two IDs; either running is OneDrive running.
+    @Test func oneDriveIsKnownByBothItsIDs() {
+        #expect(CloudApp.oneDrive.bundleIdentifiers == ["com.microsoft.OneDrive-mac", "com.microsoft.OneDrive"])
+        #expect(CloudAppNotice.Action.show(["/a"]).title == "Show It")
+        #expect(CloudAppNotice.Action.show(["/a", "/b"]).title == "Show Them")
     }
 }

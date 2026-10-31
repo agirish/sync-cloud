@@ -482,6 +482,8 @@ public enum EditorFileStore {
             }
         }
         installed = true
+        // A new file SyncCloud put in place — a PDF tool's output, an imported image (RD68).
+        ChangedFileLedger.shared.note(destination.path)
         guard let stamp = stamp(ofPath: destination.path) else {
             throw Failure.unchecked
         }

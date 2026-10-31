@@ -1579,7 +1579,10 @@ public struct FolderSidebarView: View {
                         .layoutPriority(-1)
                 }
                 if let problem = cloudApps.problems[source.id] {
+                    // Below the detail's -1: in a narrow column the status words go before the
+                    // account qualifier, and both before the name.
                     CloudAppStatusDot(problem)
+                        .layoutPriority(-2)
                 }
                 Spacer(minLength: 0)
             }
@@ -1664,7 +1667,7 @@ public struct FolderSidebarView: View {
     private func sourceTooltip(_ source: SidebarSourceRow) -> String {
         guard source.isAvailable else { return "\(source.name) — not available right now" }
         if let problem = cloudApps.problems[source.id] {
-            return "\(source.absolutePath) — \(problem.shortLabel), so its files may be out of date, here and in Finder"
+            return "\(source.name) — \(problem.shortLabel): \(problem.consequence)"
         }
         switch source.state {
         case .configured: return source.absolutePath
@@ -1684,7 +1687,7 @@ public struct FolderSidebarView: View {
         case .revealOnly: label += ", opens in Finder"
         }
         if !source.isAvailable { label += ", not available" }
-        if let problem = cloudApps.problems[source.id] { label += ", \(problem.shortLabel), may be out of date" }
+        if let problem = cloudApps.problems[source.id] { label += ", \(problem.shortLabel): \(problem.consequence)" }
         return label
     }
 

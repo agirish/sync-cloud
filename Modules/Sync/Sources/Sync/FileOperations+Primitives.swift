@@ -381,21 +381,27 @@ extension FileSyncManager {
     /// sweeps whatever the staging file held.
     @discardableResult
     public nonisolated static func safeCopyItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging = FileManager.default, observer: CopyObserver? = nil) throws -> URL? {
-        let restorable = try safeCopyItem(
+        try safeCopyItem(
             at: sourceURL,
             to: destinationURL,
             fileManager: fileManager,
             caseSensitiveVolume: volumeSupportsCaseSensitiveNames(for: sourceURL),
             observer: observer
         )
-        // A file SyncCloud put in a cloud folder is one whose upload it may watch (RD68).
+    }
+
+    /// Testable core; production resolves `caseSensitiveVolume` from the source volume. Every copy
+    /// comes through here — renames and the filing pass call it directly — so this is where the
+    /// file is noted for the cloud app status to watch its upload (RD68).
+    @discardableResult
+    nonisolated static func safeCopyItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging, caseSensitiveVolume: Bool, observer: CopyObserver? = nil) throws -> URL? {
+        let restorable = try copyItemCore(at: sourceURL, to: destinationURL, fileManager: fileManager,
+                                          caseSensitiveVolume: caseSensitiveVolume, observer: observer)
         ChangedFileLedger.shared.note(destinationURL.path)
         return restorable
     }
 
-    /// Testable core; production resolves `caseSensitiveVolume` from the source volume.
-    @discardableResult
-    nonisolated static func safeCopyItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging, caseSensitiveVolume: Bool, observer: CopyObserver? = nil) throws -> URL? {
+    private nonisolated static func copyItemCore(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging, caseSensitiveVolume: Bool, observer: CopyObserver?) throws -> URL? {
         try validateFileOperation(source: sourceURL, destination: destinationURL, caseSensitiveVolume: caseSensitiveVolume)
 
         let targetDirectory = destinationURL.deletingLastPathComponent()
@@ -436,21 +442,28 @@ extension FileSyncManager {
     /// because the source cleanup that follows is not something to stop half-way.
     @discardableResult
     public nonisolated static func safeMoveItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging = FileManager.default, observer: CopyObserver? = nil) throws -> URL? {
-        let restorable = try safeMoveItem(
+        try safeMoveItem(
             at: sourceURL,
             to: destinationURL,
             fileManager: fileManager,
             caseSensitiveVolume: volumeSupportsCaseSensitiveNames(for: sourceURL),
             observer: observer
         )
+    }
+
+    /// Testable core; production resolves `caseSensitiveVolume` from the source volume, and
+    /// `crossVolume` — when it is not given — from the two volumes on disk (FR33). Every move and
+    /// rename comes through here, and is noted as the copy core notes (RD68).
+    @discardableResult
+    nonisolated static func safeMoveItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging, caseSensitiveVolume: Bool, observer: CopyObserver? = nil, crossVolume: Bool? = nil) throws -> URL? {
+        let restorable = try moveItemCore(at: sourceURL, to: destinationURL, fileManager: fileManager,
+                                          caseSensitiveVolume: caseSensitiveVolume, observer: observer,
+                                          crossVolume: crossVolume)
         ChangedFileLedger.shared.note(destinationURL.path)
         return restorable
     }
 
-    /// Testable core; production resolves `caseSensitiveVolume` from the source volume, and
-    /// `crossVolume` — when it is not given — from the two volumes on disk (FR33).
-    @discardableResult
-    nonisolated static func safeMoveItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging, caseSensitiveVolume: Bool, observer: CopyObserver? = nil, crossVolume: Bool? = nil) throws -> URL? {
+    private nonisolated static func moveItemCore(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging, caseSensitiveVolume: Bool, observer: CopyObserver?, crossVolume: Bool?) throws -> URL? {
         try validateFileOperation(source: sourceURL, destination: destinationURL, caseSensitiveVolume: caseSensitiveVolume)
 
         // **Another volume is decided here, before `moveItem` is asked** (FR33). The staged path

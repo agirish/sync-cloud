@@ -39,11 +39,13 @@ public enum CloudApp: String, CaseIterable, Sendable, Comparable {
         }
     }
 
-    public var bundleIdentifier: String {
+    /// Every bundle ID the app ships under, the preferred first. OneDrive has two: the App Store
+    /// build (`-mac`, what this Mac has) and the one downloaded from Microsoft.
+    public var bundleIdentifiers: [String] {
         switch self {
-        case .dropbox: return "com.getdropbox.dropbox"
-        case .oneDrive: return "com.microsoft.OneDrive-mac"
-        case .googleDrive: return "com.google.drivefs"
+        case .dropbox: return ["com.getdropbox.dropbox"]
+        case .oneDrive: return ["com.microsoft.OneDrive-mac", "com.microsoft.OneDrive"]
+        case .googleDrive: return ["com.google.drivefs"]
         }
     }
 
@@ -67,6 +69,15 @@ public enum CloudAppProblem: Equatable, Sendable {
     case iCloudOff
     /// Files SyncCloud changed in this source, still not uploaded; `since` is the oldest change.
     case notUploading(paths: [String], since: Date)
+
+    /// What it means for the files, for a tooltip or VoiceOver. Not uploading is the other way
+    /// round from the rest: the files here are current; other devices are behind.
+    public var consequence: String {
+        switch self {
+        case .notUploading: return "SyncCloud’s changes here haven’t reached your other devices yet"
+        case .notRunning, .notResponding, .iCloudOff: return "files may be out of date, here and in Finder"
+        }
+    }
 
     /// The words beside an amber dot in the source menu and the sidebar.
     public var shortLabel: String {
@@ -105,7 +116,8 @@ public struct CloudAppStatusModel: Sendable {
         case uploaded
         case pending
         case refused(String)
-        /// Gone, not in a cloud folder, or not saying — never a problem.
+        /// Gone, not in a cloud folder, or not saying yet — never a problem. Still watched until
+        /// the deadline: a file just put in place may not have its upload state yet.
         case unknown
     }
 
@@ -124,7 +136,7 @@ public struct CloudAppStatusModel: Sendable {
     private(set) var changed: [String: ChangedFile] = [:]
 
     /// The most changed files watched at once; the oldest go first.
-    static let watchLimit = 1000
+    public static let watchLimit = 1000
 
     public init() {}
 
@@ -141,25 +153,44 @@ public struct CloudAppStatusModel: Sendable {
     }
 
     /// SyncCloud changed the file at `path` at `now`. A later change restarts its wait — the
-    /// provider may hold an upload while a file keeps changing.
+    /// provider may hold an upload while a file keeps changing. Names a provider never uploads are
+    /// not watched: they would read "not uploaded" for good.
     public mutating func noteChanged(_ path: String, at now: Date) {
+        guard !Self.isNeverUploaded(name: (path as NSString).lastPathComponent) else { return }
         changed[path] = ChangedFile(changedAt: now)
-        if changed.count > Self.watchLimit {
-            let oldest = changed.sorted { $0.value.changedAt < $1.value.changedAt }
-                .prefix(changed.count - Self.watchLimit)
-            for (path, _) in oldest { changed[path] = nil }
-        }
+    }
+
+    /// Keeps the newest `watchLimit` changes — once per batch, not per change: a large copy drains
+    /// a thousand changes at a time.
+    public mutating func trimToLimit() {
+        guard changed.count > Self.watchLimit else { return }
+        let oldest = changed.sorted { $0.value.changedAt < $1.value.changedAt }
+            .prefix(changed.count - Self.watchLimit)
+        for (path, _) in oldest { changed[path] = nil }
+    }
+
+    /// **Names the providers skip without an error.** Measured 2026-10-30: Dropbox reports its
+    /// ignored `.DS_Store` as not uploaded, with no error, for good — so hidden files are never
+    /// watched, nor the other system clutter Dropbox and OneDrive document as never synced.
+    public static func isNeverUploaded(name: String) -> Bool {
+        name.hasPrefix(".") || name.hasPrefix("~$") || name == "Icon\r"
+            || ["desktop.ini", "thumbs.db"].contains(name.lowercased())
     }
 
     /// Paths whose upload is still worth reading.
     public var watchedPaths: [String] { changed.keys.sorted() }
 
-    /// What a file's upload looks like now. Uploaded or unknown stops watching it.
-    public mutating func record(_ reading: UploadReading, for path: String) {
-        guard changed[path] != nil else { return }
+    /// What a file's upload looks like at `now`. Uploaded stops watching it; unknown keeps it
+    /// watched, never counted, until the deadline has passed with nothing better known.
+    public mutating func record(_ reading: UploadReading, for path: String, at now: Date) {
+        guard let file = changed[path] else { return }
         switch reading {
-        case .uploaded, .unknown: changed[path] = nil
-        case .pending, .refused: changed[path]?.reading = reading
+        case .uploaded:
+            changed[path] = nil
+        case .unknown where now.timeIntervalSince(file.changedAt) >= Self.uploadDeadline:
+            changed[path] = nil
+        case .unknown, .pending, .refused:
+            changed[path]?.reading = reading
         }
     }
 
@@ -186,6 +217,11 @@ public struct CloudAppStatusModel: Sendable {
             } else if let app = CloudApp(source.type), let since = missingSince[app],
                       now.timeIntervalSince(since) >= Self.notRunningGrace {
                 answer[source.id] = .notRunning(app)
+            } else if let app = CloudApp(source.type), missingSince[app] != nil {
+                // Missing, and still within its grace: a folder of an app that is not running does
+                // not answer, and saying "not responding" now is the flash the grace exists to
+                // prevent — with the wrong cause. Nothing until the grace says "not running".
+                continue
             } else if silent.contains(source.id) {
                 answer[source.id] = .notResponding
             } else if let files = waiting[source.id] {
@@ -216,18 +252,17 @@ public struct CloudAppStatusModel: Sendable {
     public static func isRefusal(_ error: Error) -> Bool {
         let error = error as NSError
         guard error.domain == NSFileProviderErrorDomain else { return false }
+        // Not `cannotSynchronize`: a general failure, which may be the account's or the extension's
+        // rather than this file's — and a wrong "skipped" hides a real "not uploading".
         return [NSFileProviderError.Code.filenameCollision.rawValue,
-                NSFileProviderError.Code.cannotSynchronize.rawValue,
                 NSFileProviderError.Code.excludedFromSync.rawValue].contains(error.code)
     }
 
     /// Reads a file's upload state. **Only an explicit "not uploaded" counts**: a file that is gone,
-    /// outside every cloud folder, or not answering the key is `.unknown`.
-    ///
-    /// Hidden files are never watched — measured 2026-10-30: Dropbox reports its ignored
-    /// `.DS_Store` as not uploaded, with no error, for good.
+    /// outside every cloud folder, or not answering the key is `.unknown`. A file carrying
+    /// Dropbox's ignore mark (`com.dropbox.ignored`, which a copy keeps) is one it never uploads.
     public static func reading(at path: String) -> UploadReading {
-        guard !(path as NSString).lastPathComponent.hasPrefix(".") else { return .unknown }
+        if getxattr(path, "com.dropbox.ignored", nil, 0, 0, 0) >= 0 { return .unknown }
         // A fresh URL each time: a URL caches its resource values.
         let url = URL(fileURLWithPath: path)
         guard let values = try? url.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemIsUploadedKey,
@@ -241,9 +276,10 @@ public struct CloudAppStatusModel: Sendable {
     }
 }
 
-/// **Every file SyncCloud put in place**, kept for the cloud app status to watch its upload
-/// (RD68). Written from any thread by the copy and move primitives and Edit's saves; drained by
-/// the monitor, which keeps only the ones inside a cloud source.
+/// **The files SyncCloud put in place**, kept for the cloud app status to watch their upload
+/// (RD68): every copy, move and rename through the file-operation cores, and every save and new
+/// file of Edit's. Not Restructure's own folder writes. Written from any thread; drained by the
+/// monitor, which keeps only the ones inside a cloud source.
 public final class ChangedFileLedger: @unchecked Sendable {
     public static let shared = ChangedFileLedger()
 
@@ -279,7 +315,7 @@ public struct CloudAppNotice: Identifiable, Equatable, Sendable {
             switch self {
             case .open(let app): return "Open \(app.name)"
             case .openICloudSettings: return "Open iCloud Settings"
-            case .show: return "Show Them"
+            case .show(let paths): return paths.count == 1 ? "Show It" : "Show Them"
             }
         }
     }
@@ -338,11 +374,10 @@ public struct CloudAppNotice: Identifiable, Equatable, Sendable {
         for (id, problem) in problems.sorted(by: { $0.key < $1.key }) {
             guard case .notUploading(let paths, let since) = problem else { continue }
             let name = byId[id]?.displayName ?? id
-            let minutes = max(1, Int(now.timeIntervalSince(since) / 60))
             rows.append(CloudAppNotice(
                 id: "not-uploading-\(id)",
                 signature: paths.joined(separator: "\n"),
-                title: "\(name) hasn’t uploaded \(paths.count == 1 ? "a file" : "\(paths.count) files") for \(minutes) min",
+                title: "\(name) hasn’t uploaded \(paths.count == 1 ? "a file" : "\(paths.count) files") for \(duration(now.timeIntervalSince(since)))",
                 detail: "\(paths.count == 1 ? "A file" : "Files") SyncCloud changed here \(paths.count == 1 ? "isn’t" : "aren’t") "
                     + "on your other devices yet",
                 actions: [.show(paths)]))
@@ -361,6 +396,13 @@ public struct CloudAppNotice: Identifiable, Equatable, Sendable {
                 actions: [.show(files.map(\.path))]))
         }
         return rows
+    }
+
+    /// "40 min", "2 h", "2 h 5 min" — never less than a minute.
+    public static func duration(_ seconds: TimeInterval) -> String {
+        let minutes = max(1, Int(seconds / 60))
+        guard minutes >= 60 else { return "\(minutes) min" }
+        return minutes % 60 == 0 ? "\(minutes / 60) h" : "\(minutes / 60) h \(minutes % 60) min"
     }
 
     /// "A", "A and B", "A, B and C".

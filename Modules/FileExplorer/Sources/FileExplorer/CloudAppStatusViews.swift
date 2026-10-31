@@ -39,10 +39,10 @@ public struct CloudAppWarningBar: View {
             return ("iCloud is signed out, or iCloud Drive is off, so these files may be out of date",
                     ", here and in Finder. Changes from other devices won’t arrive until it’s back on.")
         case .notUploading(let paths, let since):
-            let minutes = max(1, Int(now.timeIntervalSince(since) / 60))
             let files = paths.count == 1 ? "a file" : "\(paths.count) files"
             return ("\(sourceName) hasn’t uploaded \(files) SyncCloud changed here",
-                    " for \(minutes) min, so your other devices don’t have \(paths.count == 1 ? "it" : "them") yet.")
+                    " for \(CloudAppNotice.duration(now.timeIntervalSince(since))), so your other devices don’t have "
+                    + "\(paths.count == 1 ? "it" : "them") yet.")
         }
     }
 
@@ -91,6 +91,8 @@ public struct CloudAppWarningBar: View {
             (Text(words.lead).fontWeight(.semibold) + Text(words.rest))
                 .scaledFont(.system(size: 11))
                 .fixedSize(horizontal: false, vertical: true)
+                // The triangle is hidden from VoiceOver, so the sentence carries what it meant.
+                .accessibilityLabel("Warning: " + words.lead + words.rest)
         }
     }
 
@@ -113,17 +115,25 @@ public struct CloudAppStatusDot: View {
     }
 
     public var body: some View {
+        // The dot never shrinks; the words truncate first. A caller in a narrow row gives this a low
+        // layout priority, so the source's own name — which says which source is in trouble —
+        // keeps its room.
         HStack(spacing: 4) {
-            Circle()
-                .fill(SemanticColor.warning)
-                .frame(width: 6, height: 6)
+            dot
             Text(problem.shortLabel)
                 .scaledFont(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .truncationMode(.tail)
         }
-        .fixedSize()
-        .help("\(problem.shortLabel.prefix(1).uppercased() + problem.shortLabel.dropFirst()) — files may be out of date, here and in Finder")
+        .help("\(problem.shortLabel.prefix(1).uppercased() + problem.shortLabel.dropFirst()) — \(problem.consequence)")
+    }
+
+    private var dot: some View {
+        Circle()
+            .fill(SemanticColor.warning)
+            .frame(width: 6, height: 6)
+            .fixedSize()
     }
 
     /// The dot for a menu item. A menu draws its images as templates unless told otherwise, which
@@ -177,12 +187,11 @@ struct CloudAppNoticeRows: View {
                     .scaledFont(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 6) {
-                    ForEach(notice.actions.filter(isOffered), id: \.title) { action in
-                        Button(action.title) { monitor.perform(action) }
-                    }
-                    Button("Dismiss") { monitor.dismiss(notice) }
-                        .help("Hide this until it changes")
+                // In a row while they fit; three Open buttons and Dismiss do not fit the popover's
+                // width, so they stack there rather than truncate.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) { buttons(notice) }
+                    VStack(alignment: .leading, spacing: 4) { buttons(notice) }
                 }
                 .controlSize(.small)
                 .padding(.top, 4)
@@ -192,6 +201,16 @@ struct CloudAppNoticeRows: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder private func buttons(_ notice: CloudAppNotice) -> some View {
+        ForEach(notice.actions.filter(isOffered), id: \.title) { action in
+            Button(action.title) { monitor.perform(action) }
+                .fixedSize()
+        }
+        Button("Dismiss") { monitor.dismiss(notice) }
+            .fixedSize()
+            .help("Hide this until it changes")
     }
 
     private func isOffered(_ action: CloudAppNotice.Action) -> Bool {

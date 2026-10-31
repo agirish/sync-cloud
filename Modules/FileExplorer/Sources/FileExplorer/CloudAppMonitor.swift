@@ -16,7 +16,8 @@ public final class CloudAppMonitor: ObservableObject {
     public struct System: Sendable {
         public var isRunning: @Sendable (CloudApp) -> Bool
         public var iCloudAvailable: @Sendable () -> Bool
-        /// Whether File Provider still knows this account folder. Blocks; asked off the pool.
+        /// Whether File Provider still knows this account folder. Blocks; asked off the pool, and a
+    /// "known" answer is kept until the sources change or the Mac wakes.
         public var isLiveAccount: @Sendable (String) -> Bool
         public var reading: @Sendable (String) -> CloudAppStatusModel.UploadReading
         public var unanswered: @Sendable () -> [String]
@@ -41,13 +42,15 @@ public final class CloudAppMonitor: ObservableObject {
         }
 
         public static let live = System(
-            isRunning: { RunningBundles.shared.identifiers().contains($0.bundleIdentifier) },
+            isRunning: { !RunningBundles.shared.identifiers().isDisjoint(with: $0.bundleIdentifiers) },
             iCloudAvailable: { FileManager.default.ubiquityIdentityToken != nil },
             isLiveAccount: { CloudAppMonitor.fileProviderKnows($0) },
             reading: { CloudAppStatusModel.reading(at: $0) },
             unanswered: { FileSyncManager.DatalessFolderReads.shared.unansweredPaths() },
             changes: { ChangedFileLedger.shared.drain() },
-            appURL: { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0.bundleIdentifier) })
+            appURL: { app in
+                app.bundleIdentifiers.lazy.compactMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }.first
+            })
     }
 
     @Published public private(set) var problems: [String: CloudAppProblem] = [:]
@@ -76,6 +79,7 @@ public final class CloudAppMonitor: ObservableObject {
     private var ticker: Task<Void, Never>?
     private var refreshing: Task<Void, Never>?
     private var refreshAgain = false
+    private var slowHalf: Task<Void, Never>?
 
     /// How often the status is re-read while nothing announces a change: the grace and the upload
     /// deadline pass on their own.
@@ -136,12 +140,18 @@ public final class CloudAppMonitor: ObservableObject {
         publish()
     }
 
-    /// Re-reads everything, coalescing: a request while one runs runs once more after it.
+    /// Re-reads the status, coalescing: a request while one runs runs once more after it.
+    ///
+    /// **In two halves, so one stuck call cannot freeze it.** Who runs, the iCloud account and the
+    /// unanswered folders are read every time. Upload states, File Provider and LaunchServices —
+    /// calls into other processes that have hung before — go in a second half with its own
+    /// in-flight guard: while one is stuck, the first half still clears a warning on a launch.
     func requestRefresh() {
         guard refreshing == nil else { refreshAgain = true; return }
         refreshing = Task { [weak self] in
-            await self?.refresh()
+            await self?.refreshRunning()
             guard let self else { return }
+            self.startSlowHalf()
             self.refreshing = nil
             if self.refreshAgain {
                 self.refreshAgain = false
@@ -150,17 +160,27 @@ public final class CloudAppMonitor: ObservableObject {
         }
     }
 
-    /// One full reading. Internal so a test can await it.
+    /// Both halves, in turn — what a test awaits.
     func refresh() async {
+        await refreshRunning()
+        await refreshUploadsAndAccounts()
+    }
+
+    private func startSlowHalf() {
+        guard slowHalf == nil else { return }
+        slowHalf = Task { [weak self] in
+            await self?.refreshUploadsAndAccounts()
+            self?.slowHalf = nil
+        }
+    }
+
+    /// Who runs, the iCloud account, the unanswered folders.
+    private func refreshRunning() async {
         let now = clock()
         let system = self.system
-        // Everything that asks another process — the iCloud account, LaunchServices, File Provider
-        // — is asked off the main thread.
-        let (running, iCloudAvailable, urls) = await Self.offPool {
-            (Set(CloudApp.allCases.filter(system.isRunning)), system.iCloudAvailable(),
-             Dictionary(uniqueKeysWithValues: CloudApp.allCases.compactMap { app in system.appURL(app).map { (app, $0) } }))
+        let (running, iCloudAvailable) = await Self.offPool {
+            (Set(CloudApp.allCases.filter(system.isRunning)), system.iCloudAvailable())
         }
-        appURLs = urls
         for app in CloudApp.allCases { model.app(app, isRunning: running.contains(app), at: now) }
         if let lastRunning, lastRunning != running {
             for app in running.subtracting(lastRunning).sorted() { Logger.shared.info("Cloud app status: \(app.name) is running") }
@@ -171,26 +191,46 @@ public final class CloudAppMonitor: ObservableObject {
         lastRunning = running
         model.iCloudAvailable = iCloudAvailable
         model.unanswered = system.unanswered()
+        publish()
+    }
 
+    /// What SyncCloud changed and whether it uploaded, which accounts File Provider still knows,
+    /// and where each app is installed.
+    private func refreshUploadsAndAccounts() async {
+        let system = self.system
         let sources = providers.filter { !$0.isLocalFolder && !disabled.contains($0.id) }
         let coverage = FileLocation.coverage(of: sources, disabledProviderIds: [])
-        for change in system.changes() where FileLocation.covering(path: change.path, in: coverage) != nil
-            && !(change.path as NSString).lastPathComponent.hasPrefix(".") {
-            model.noteChanged(change.path, at: change.at)
-        }
-
+        let changes = system.changes()
         let watched = model.watchedPaths
         let accounts = sources.compactMap { source in Self.accountFolder(of: source).map { (source.id, $0) } }
         let known = liveAccounts
-        let (readings, asked) = await Self.offPool {
-            let readings = watched.map { ($0, system.reading($0)) }
+        let (kept, readings, asked, urls) = await Self.offPool {
+            // A change made through a link into an account — `~/Dropbox/…`, `~/OneDrive/…` — is
+            // spelled through the link; coverage knows the account by its real folder.
+            // The folder is resolved, not the file: a path whose last part is gone resolves nothing.
+            let kept: [(String, Date)] = changes.compactMap { change in
+                if FileLocation.covering(path: change.path, in: coverage) != nil { return (change.path, change.at) }
+                let url = URL(fileURLWithPath: change.path)
+                let real = url.deletingLastPathComponent().resolvingSymlinksInPath()
+                    .appendingPathComponent(url.lastPathComponent).path
+                return FileLocation.covering(path: real, in: coverage) != nil ? (real, change.at) : nil
+            }
+            // Read the new ones in this same pass, not the next.
+            let readings = Set(watched + kept.map(\.0)).map { ($0, system.reading($0)) }
+            // Only a "known" answer is kept; a failure is asked again, so one bad moment of
+            // File Provider never hides a source until the next wake.
             var asked: [String: Bool] = [:]
-            for (_, folder) in accounts where known[folder] == nil { asked[folder] = system.isLiveAccount(folder) }
-            return (readings, asked)
+            for (_, folder) in accounts where known[folder] != true { asked[folder] = system.isLiveAccount(folder) }
+            let urls = Dictionary(uniqueKeysWithValues: CloudApp.allCases.compactMap { app in system.appURL(app).map { (app, $0) } })
+            return (kept, readings, asked, urls)
         }
-        liveAccounts.merge(asked) { _, new in new }
-        let leftovers = Set(accounts.filter { liveAccounts[$0.1] == false }.map(\.0))
-        for (path, reading) in readings { model.record(reading, for: path) }
+        let now = clock()
+        for (path, at) in kept { model.noteChanged(path, at: at) }
+        model.trimToLimit()
+        for (path, reading) in readings { model.record(reading, for: path, at: now) }
+        appURLs = urls
+        for (folder, live) in asked where live { liveAccounts[folder] = true }
+        let leftovers = Set(accounts.filter { asked[$0.1] == false }.map(\.0))
         if leftovers != model.leftoverIds {
             Logger.shared.debug("Cloud app status: leftover account folders, shown nothing: \(leftovers.sorted())")
         }
@@ -212,8 +252,10 @@ public final class CloudAppMonitor: ObservableObject {
             self.problems = problems
         }
         if skipped != self.skipped { self.skipped = skipped }
-        let notices = CloudAppNotice.notices(problems: problems, skipped: skipped, providers: providers, now: now)
-            .filter { dismissed[$0.id] != $0.signature }
+        let current = CloudAppNotice.notices(problems: problems, skipped: skipped, providers: providers, now: now)
+        // A row that went away forgets its dismissal: the same problem coming back is a change.
+        dismissed = dismissed.filter { id, _ in current.contains { $0.id == id } }
+        let notices = current.filter { dismissed[$0.id] != $0.signature }
         if notices != self.notices { self.notices = notices }
     }
 
@@ -301,8 +343,8 @@ final class RunningBundles: @unchecked Sendable {
     static let shared = RunningBundles()
 
     private let lock = NSLock()
-    /// Bundle path → its identifier, or nil for a bundle that has none.
-    private var identifierByBundle: [String: String?] = [:]
+    /// Bundle path → its identifier.
+    private var identifierByBundle: [String: String] = [:]
 
     /// The identifiers of every app bundle with a process running now.
     func identifiers() -> Set<String> {
@@ -319,9 +361,11 @@ final class RunningBundles: @unchecked Sendable {
         if let known = identifierByBundle[bundle] { lock.unlock(); return known }
         lock.unlock()
         let plist = NSDictionary(contentsOfFile: bundle + "/Contents/Info.plist")
-        let id = plist?["CFBundleIdentifier"] as? String
+        // Not kept when unreadable: an app updating itself has no Info.plist for a moment, and a
+        // kept nil would make it "not running" for the rest of the session.
+        guard let id = plist?["CFBundleIdentifier"] as? String else { return nil }
         lock.lock()
-        identifierByBundle[bundle] = .some(id)
+        identifierByBundle[bundle] = id
         lock.unlock()
         return id
     }
@@ -333,7 +377,8 @@ final class RunningBundles: @unchecked Sendable {
         return String(path[..<range.lowerBound])
     }
 
-    /// Every running process's executable path.
+    /// Every running process's executable path — this user's only: another user logged in on the
+    /// same Mac running Dropbox does not sync this user's Dropbox.
     static func executablePaths() -> [String] {
         let capacity = proc_listallpids(nil, 0)
         guard capacity > 0 else { return [] }
@@ -343,8 +388,13 @@ final class RunningBundles: @unchecked Sendable {
         }
         guard count > 0 else { return [] }
         var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        let user = getuid()
+        let infoSize = Int32(MemoryLayout<proc_bsdshortinfo>.size)
         return pids.prefix(Int(count)).compactMap { pid in
-            guard pid > 0, proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+            var info = proc_bsdshortinfo()
+            guard pid > 0, proc_pidinfo(pid, PROC_PIDT_SHORTBSDINFO, 0, &info, infoSize) == infoSize,
+                  info.pbsi_uid == user,
+                  proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
             return String(cString: buffer)
         }
     }

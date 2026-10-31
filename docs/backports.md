@@ -13174,11 +13174,12 @@ fix; the older lines show their sources with no such warning.
 
 ```sh
 for l in main v5.x v4.x v3.x v2.x; do printf '%-5s status=%s dataless=%s activity=%s\n' $l \
-  "$(git show origin/$l:Modules/Sync/Sources/Sync/CloudAppStatus.swift 2>/dev/null | grep -cF 'final class CloudAppMonitor')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/CloudAppMonitor.swift 2>/dev/null | grep -cF 'final class CloudAppMonitor')" \
   "$(git show origin/$l:Modules/Sync/Sources/Sync/DatalessFolderReads.swift 2>/dev/null | grep -cF 'final class DatalessFolderReads')" \
   "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/ActivityCenter.swift 2>/dev/null | grep -cF 'final class ActivityCenter')"; done
-# measured 2026-10-30, against origin, before this landed (the change reads status=1 on main):
-# main   status=0 dataless=1 activity=1
+# measured 2026-10-30, against origin, after it landed (c7a3a7839; the script first grepped the
+# Sync file, where the monitor never was, and could not print status=1):
+# main   status=1 dataless=1 activity=1
 # v5.x   status=0 dataless=1 activity=0
 # v4.x / v3.x / v2.x   status=0 dataless=0 activity=0
 ```
