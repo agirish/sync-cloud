@@ -988,6 +988,9 @@ tracks what is left.
 folder watcher (`ce6490cc2`, item 5's work), hashing of any size (`624799987`, `7508cfebf`) and
 the cloud-app status RD67 stops on (RD68, `c7a3a7839` and follow-ups).
 
+**v6.3 waits for step 3** (his call EC, 2026-10-30): the cut is held until a manual Sync Now is
+on `main`. Steps 1–2 come first; step 4 follows its week of hand use, so it may land after the cut.
+
 **Left, in order:**
 1. The sync's own replace and SyncCloud Removed: stage outside Dropbox, clone the old version, keep
    the Dropbox item (in progress).
