@@ -49,8 +49,12 @@ import Testing
             await m.scanDirectories(left: left, leftPath: "/left", right: right, rightPath: "/right")
         }
         // Nothing suspends between `isScanning` going up and the walk detaching, so this is the
-        // walk having been handed off before the scan handed back.
-        #expect(m.isScanning, "premise: the scan ran into executeScan before handing back")
+        // walk having been handed off before the scan handed back. **Or the scan has already
+        // finished:** an await on a task that is already done does not suspend, so when the main
+        // thread is descheduled right after detaching the walk — and again after detaching the
+        // filter pass — the scan runs to its end inside `Task.immediate` (hosted CI, 2026-10-31).
+        // That still never released the main actor, so it passes; an enqueued scan is neither.
+        #expect(m.isScanning || m.hasScanned, "premise: the scan ran into executeScan before handing back")
         let reached = Self.block(theCallingThreadUntil: reachedTheDisk, timeout: 10)
         await scan.value
 

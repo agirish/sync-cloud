@@ -4778,3 +4778,32 @@ Check `uptime` and `scripts/build-slot --status`, stop the run (killing the wrap
 and run it again once the load is down before suspecting the commit.
 
 **Not fixed.**
+
+### 49. An await on a task that has already finished does not suspend, so a premise read after `Task.immediate` finds the work done — FIXED
+
+**Symptom.** `ColdScanStartsOffTheMainActorTests.theColdWalkReachesTheDiskWhileTheMainActorIsHeld`
+red once on hosted CI (run 41239404924, 2026-10-31, push of `06752eccb`) with one issue, its own
+premise `m.isScanning`, in 1.9 s. Every later expectation passed, `hasScanned` and the scan's one
+row included. A rerun of the job was green.
+
+**Mechanism.** The test starts the scan with `Task.immediate` so that it runs synchronously up to
+its first suspension, and reads `isScanning` to confirm that it did. The scan's suspensions are
+awaits on detached tasks it has just created: the cold walk, then the filter pass. Swift does not
+suspend on an await whose task is already complete; it continues on the same thread. On a loaded
+3-vCPU runner the main thread can be descheduled right after it detaches a task, and the pool then
+finishes a two-entry mock walk before the main thread reaches its await. When both awaits lose that
+race, the whole scan, `isScanning = false` included, runs inside `Task.immediate`. The green
+expectations rule out the other reading, an enqueued scan: it would have needed the held main
+actor, and the hold would have run out at 10 s.
+
+**Reproduced** with `usleep(300_000)` before each of the two awaits: the same single issue at the
+same line, every run. Delaying only the walk's await stays green, because the filter pass then
+suspends.
+
+**Fix, 2026-10-31.** The premise is `m.isScanning || m.hasScanned`. A scan that finished inside
+`Task.immediate` never released the main actor, so it satisfies the property the test guards. An
+enqueued scan is neither, and still fails the premise.
+
+**Tell.** A premise check right after `Task.immediate` red alone, fast, with the later expectations
+green, where the work it starts awaits a task it has just detached. Ask what the premise reads if
+the work has already finished.
