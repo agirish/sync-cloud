@@ -4689,3 +4689,29 @@ the cure for the machine. The test change only removes this suite as the thing t
 **See.** `KeepDownloaded.state(ofPath:home:domainOf:)` in
 `Modules/Sync/Sources/Sync/KeepDownloaded.swift`; `FileContextMenu.cloudHome` in
 `Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift`.
+
+### 47. A cached object still calls the signature an upstream package replaced — once, healed by the next run
+
+**Symptom.** Hosted CI only. One package's `swift build --build-tests` fails at the link with
+`Undefined symbols` naming a function **in another package** by an old signature, and its tests then
+die at `dlopen` of a bundle that was never written. Run 41144466115 (`624799987`, 2026-10-30): the
+CLI job could not find `Sync.FileContentVerifier.filesHaveSameContent(leftPath:rightPath:fileManager:cache:)`,
+referenced from "closure #1 in default argument 7 of `CommandRunner.Environment.init`". That commit
+had added an `isCancelled:` parameter, so the symbol's mangled name changed. Locally every package,
+the CLI included, built and passed on the same tree, and the very next push's run (41145416484,
+`c7a3a7839`) passed the CLI job with no change to it.
+
+**Mechanism, as far as it is established.** Hosted CI restores the previous run's `.build` and
+dates each source by its last commit (`scripts/restore-mtimes`), so only files a newer commit touched
+look newer than the cache. `CommandRunner.swift` was untouched, so an object compiled against the old
+signature was linked while `Sync` itself was rebuilt with the new one. Not established: why the
+incremental build did not treat the upstream module's changed interface as a reason to recompile the
+caller, or why the next run (restoring the state this failed run saved, `if: always()`) did. Nothing
+on this Mac reproduced it.
+
+**Tell.** An undefined symbol whose module is another package, a caller whose source the pushed
+commit did not touch, and a green local build of the same tree. Not the commit's code: re-run, or
+wait for the next push, before changing anything.
+
+**Not fixed.** One red run, healed by the next. If it recurs, a retry of the failed package build
+from a clean `.build` in `hosted-ci.yml` would turn it green at the cost of one cold build.
