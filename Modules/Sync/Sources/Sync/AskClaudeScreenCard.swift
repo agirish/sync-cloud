@@ -51,6 +51,8 @@ public struct AskClaudeScreen: Equatable, Sendable {
     public var tabs: [String] = []
     /// Compare's two sides, "left: Dropbox › Documents/Work", when Compare is on screen.
     public var panes: [String] = []
+    /// Compare's differences in one line (TE261), when Compare is on screen.
+    public var differences: String?
     /// "Columns · hidden files off" (TE244).
     public var view: String = ""
     /// The parent columns on screen in Columns view, outermost first (TE241).
@@ -150,6 +152,7 @@ public enum AskClaudeScreenCard {
         if !screen.panes.isEmpty {
             lines.append("panes: " + screen.panes.map(escape).joined(separator: " · "))
         }
+        if let differences = screen.differences { lines.append(escape(differences)) }
         if screen.folderHidden {
             lines.append("This folder is on their Never show Claude list: nothing in it is described.")
             lines.append("</screen>")

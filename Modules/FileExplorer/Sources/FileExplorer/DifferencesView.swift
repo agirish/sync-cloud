@@ -430,6 +430,13 @@ public struct DifferencesView: View {
             collapsedSections.removeAll()
             session.collapsedSectionsScanDate = date
         }
+        // Rows Ask Claude asked to select (TE261), taken once: on arrival when the table mounts
+        // after the request, or as it comes while the table is on screen.
+        .onChange(of: session.requestedSelection, initial: true) { _, requested in
+            guard let requested else { return }
+            selection = requested
+            session.requestedSelection = nil
+        }
         // The same argument for the filter. `.failed` is set when a partial run publishes failures
         // and cleared when they go; both are `.onChange`, so failures that clear while Compare is
         // off screen used to be covered by the rebuild putting the filter back to `.all`. Left

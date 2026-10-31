@@ -8,7 +8,7 @@ import Design
 /// pushes nothing narrower.
 struct AskClaudePanel: View {
     @ObservedObject var chat: AskClaudeChat
-    /// The folder Claude sees, for the header and the shield's popover (TE249).
+    /// The folder Claude sees, for the header and the shield's popover (TE260).
     let place: AskClaudePlace
     let accent: Color
     let accentFill: Color
@@ -20,7 +20,7 @@ struct AskClaudePanel: View {
     var container: CGSize = .zero
     /// Puts the folder on screen on the Never show Claude list (true) or takes it off (TE246).
     var onSetHidden: (Bool) -> Void = { _ in }
-    /// Shows the folder's pane where the workspace has folded it away (TE249).
+    /// Shows the folder's pane where the workspace has folded it away (TE260).
     var onGoToFolder: () -> Void = {}
     /// Reveals a file named in an answer (TE245).
     var onReveal: (String) -> Void = { _ in }
@@ -232,7 +232,7 @@ struct AskClaudePanel: View {
                 Image(systemName: "bubble.left.and.text.bubble.right")
                     .symbolRenderingMode(.hierarchical)
                     .font(.headline)
-                // The title, and under it what the next question will describe (TE249).
+                // The title, and under it what the next question will describe (TE260).
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Claude").font(.headline)
                     Text(place.subtitle)

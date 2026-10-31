@@ -125,7 +125,7 @@ struct ContentView: View {
     /// same terms as `lensSession` above, and for the same reason: owned here so it survives the
     /// switch, `@State` rather than `@StateObject` so the window is not subscribed to Compare's
     /// search field.
-    @State private var differencesSession = DifferencesSession()
+    @State var differencesSession = DifferencesSession()
     /// The PDF tools run from a pane's row menu — see `PanePDFTools`. Owned app-wide by
     /// `ActivityCenter` (Run Room R11), so the Activity window lists its runs too; observed only by
     /// the layer that draws its sheet, so a run's page-by-page progress re-renders that layer and

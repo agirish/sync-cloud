@@ -60,6 +60,16 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         /// source, a folder, or both — Compare's two sides.
         var pane: (_ isLeft: Bool) -> Pane = { _ in Pane(sourceID: "", root: "", folder: "") }
         var movePane: (_ isLeft: Bool, _ sourceID: String?, _ absoluteFolder: String?) -> Void = { _, _, _ in }
+        /// Compare's differences as the list shows them, and the comparison they come from; nil
+        /// when Compare has no two sides (TE261).
+        var differences: () -> [FileDifference] = { [] }
+        var comparison: () -> AskClaudeDifferences.Comparison? = { nil }
+        /// Scan Again; false when it can't start.
+        var rescan: () -> Bool = { false }
+        /// Narrows Compare's differences list to a kind and selects rows there; false when it can't.
+        var showDifferences: (_ kind: AskClaudeDifferences.Kind, _ ids: Set<UUID>) -> Bool = { _, _ in false }
+        /// Clock, for how old a comparison is.
+        var now: () -> Date = Date.init
         /// The pane's Back (false) and Forward (true); false when there was nowhere to go.
         var history: (_ forward: Bool) -> Bool = { _ in false }
         /// Quick Look on a file (TE243).
@@ -286,6 +296,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         case .reveal: return await reveal(call, ctx, handles)
         case .select: return select(call, ctx, handles)
         case .closeTabs: return closeTabs(call, ctx)
+        case .differences: return await differences(call, ctx, &handles)
         case nil:
             return AskClaudeToolOutcome(result: "There is no tool called \(call.name).", isError: true,
                                         step: "Asked for an unknown tool")
@@ -959,6 +970,78 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
         if nodes.count > Self.maxFound { lines.append("\(nodes.count - Self.maxFound) more not listed.") }
         return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: "Found \(nodes.count) with “\(label)” inside")
+    }
+
+    // MARK: Differences (TE261)
+
+    /// Seconds a scan may take before the tool answers without waiting for it.
+    static let scanWait: Duration = .seconds(90)
+
+    private func differences(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
+        guard var comparison = ctx.comparison() else {
+            return AskClaudeToolOutcome(result: "Compare has no two sides to compare yet. Set them with go_to pane left and right.",
+                                        isError: true, step: "Nothing compared yet")
+        }
+        let kindArg = (call.string("kind") ?? "all").lowercased()
+        guard let kind = AskClaudeDifferences.Kind(rawValue: kindArg) else {
+            return AskClaudeToolOutcome(result: "kind is all, only_left, only_right, changed, name_conflicts or held_back.",
+                                        isError: true, step: "No kind called \(kindArg)")
+        }
+        var steps: [String] = []
+        // A comparison that's missing or over an hour old is scanned again first (decision EG):
+        // nothing on disk changes, and an answer from an old list would be wrong in ways that
+        // don't show. A scan already running is waited for.
+        if comparison.isScanning || !comparison.hasScanned || comparison.isStale(now: ctx.now()) {
+            if !comparison.isScanning {
+                if let busy = ctx.busyReason {
+                    steps.append("Didn’t rescan: \(busy)")
+                } else if ctx.rescan() {
+                    steps.append(comparison.hasScanned ? "Scanned again: the comparison was over an hour old" : "Scanned the two sides")
+                    Logger.shared.info("Ask Claude asked for Scan Again: the comparison was \(comparison.hasScanned ? "over an hour old" : "never scanned")")
+                    // The scan starts on a later turn; give it one to begin.
+                    try? await Task.sleep(for: .milliseconds(300))
+                }
+            }
+            let deadline = ContinuousClock.now + Self.scanWait
+            while let now = context().comparison(), now.isScanning, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+            comparison = context().comparison() ?? comparison
+            if comparison.isScanning {
+                return AskClaudeToolOutcome(result: "The scan is still running after 90 seconds; the list isn’t ready. Tell them it’s still scanning.",
+                                            isError: true, step: "Still scanning")
+            }
+            guard comparison.hasScanned else {
+                return AskClaudeToolOutcome(result: "The two sides haven’t been compared, and a scan couldn’t start" + (ctx.busyReason.map { ": \($0)." } ?? "."),
+                                            isError: true, step: "Nothing compared yet")
+            }
+        }
+        // Rows with either side in a hidden folder are left out, and counted.
+        let everything = context().differences()
+        let visible = everything.filter { !ctx.isHidden($0.leftItemPath) && !ctx.isHidden($0.rightItemPath) }
+        let words = (call.string("words") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+        let folder = call.string("folder")
+        let rows = AskClaudeDifferences.filter(visible, kind: kind, folder: folder, words: words)
+        var result = AskClaudeDifferences.render(rows, allRows: visible, hiddenCount: everything.count - visible.count,
+                                                 comparison: comparison, from: max(0, call.int("from") ?? 0),
+                                                 handles: &handles, now: ctx.now())
+        let summary = "\(rows.count) difference\(rows.count == 1 ? "" : "s")" + (kind == .all ? "" : " (\(kind.rawValue.replacingOccurrences(of: "_", with: " ")))")
+        steps.append("Read \(summary)")
+        var moved: String?
+        // Shown in the list too (decision EI): Compare opens, its list narrows to the kind, and
+        // these rows are selected.
+        if call.input["show"]?.boolValue == true, !rows.isEmpty {
+            if let busy = ctx.busyReason {
+                result += "\nNot shown in the list: \(busy)."
+            } else if ctx.switchWorkspace("Compare"), ctx.showDifferences(kind, Set(rows.map(\.id))) {
+                result += "\nShowing these \(rows.count) in Compare’s differences list, selected."
+                moved = "Showing \(summary) in Compare’s list"
+                steps.append("Showed them in Compare’s list")
+            } else {
+                result += "\nCouldn’t show them in Compare’s list."
+            }
+        }
+        return AskClaudeToolOutcome(result: result, step: steps.joined(separator: " · "), movedView: moved)
     }
 
     // MARK: View (TE244)

@@ -468,6 +468,81 @@ import Sync
         #expect(AskClaudeDisk.respell("/elsewhere/w2.pdf", folder: "/root", resolved: "/root", linked: linked) == nil)
     }
 
+    // MARK: Differences (TE261)
+
+    private final class CompareFake {
+        var comparison = AskClaudeDifferences.Comparison(leftName: "iCloud", rightName: "Dropbox", leftFolder: "Documents",
+                                                         rightFolder: "Documents", readAt: Date(timeIntervalSince1970: 1_792_000_000 - 7200),
+                                                         isScanning: false, hasScanned: true)
+        var rows: [FileDifference] = [
+            FileDifference(relativePath: "Taxes/w2.pdf", leftItemPath: "/i/Documents/Taxes/w2.pdf", rightItemPath: "/d/Documents/Taxes/w2.pdf",
+                           type: .missingOnLeft, action: .copyToLeft, description: "Missing on left (iCloud)", rightFileSize: 10),
+            FileDifference(relativePath: "Private/bank.pdf", leftItemPath: "/i/Documents/Private/bank.pdf", rightItemPath: "/d/Documents/Private/bank.pdf",
+                           type: .missingOnLeft, action: .copyToLeft, description: "Missing on left (iCloud)", rightFileSize: 10),
+            FileDifference(relativePath: "Notes.txt", leftItemPath: "/i/Documents/Notes.txt", rightItemPath: "/d/Documents/Notes.txt",
+                           type: .missingOnRight, action: .copyToRight, description: "Missing on right (Dropbox)", leftFileSize: 3),
+        ]
+        var rescans = 0
+        var shown: [(AskClaudeDifferences.Kind, Set<UUID>)] = []
+        var workspaces: [String] = []
+    }
+
+    private func differencesTools(_ fake: CompareFake, busy: String? = nil) -> AskClaudeBrowseTools {
+        AskClaudeBrowseTools(context: {
+            var ctx = AskClaudeBrowseTools.Context(
+                inBrowse: true, sourceName: "iCloud", root: "/i", folder: "Documents", sort: .name,
+                items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: busy, goTo: { _ in }, select: { _ in })
+            ctx.hidden = ["/d/Documents/Private"]
+            ctx.differences = { fake.rows }
+            ctx.comparison = { fake.comparison }
+            ctx.now = { Date(timeIntervalSince1970: 1_792_000_000) }
+            ctx.rescan = {
+                fake.rescans += 1
+                // The scan lands at once in this fake: fresh, and with the same rows.
+                fake.comparison.readAt = Date(timeIntervalSince1970: 1_792_000_000)
+                return true
+            }
+            ctx.switchWorkspace = { fake.workspaces.append($0); return true }
+            ctx.showDifferences = { fake.shown.append(($0, $1)); return true }
+            return ctx
+        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+    }
+
+    @Test func aStaleComparisonIsScannedAgainBeforeItsRowsAreRead() async {
+        let fake = CompareFake()
+        var handles = AskClaudeHandles()
+        let out = await differencesTools(fake).run(call("differences", [:]), handles: &handles)
+        #expect(fake.rescans == 1)
+        #expect(out.step.hasPrefix("Scanned again: the comparison was over an hour old"))
+        #expect(out.result.contains("scanned just now"))
+        // Under a sheet it isn't rescanned, and the answer says how old the list is.
+        let underSettings = CompareFake()
+        _ = await differencesTools(underSettings, busy: "Settings is open").run(call("differences", [:]), handles: &handles)
+        #expect(underSettings.rescans == 0)
+    }
+
+    @Test func aHiddenSideLeavesItsRowOutAndCountsIt() async {
+        let fake = CompareFake()
+        fake.comparison.readAt = Date(timeIntervalSince1970: 1_792_000_000 - 60)
+        var handles = AskClaudeHandles()
+        let out = await differencesTools(fake).run(call("differences", ["kind": .string("only_right")]), handles: &handles)
+        #expect(out.result.contains("w2.pdf") && !out.result.contains("bank.pdf") && !out.result.contains("Private"))
+        #expect(out.result.contains("1 more hidden from Claude by them."))
+        #expect(fake.rescans == 0)   // fresh: no rescan
+    }
+
+    @Test func showPutsTheRowsInComparesListSelected() async {
+        let fake = CompareFake()
+        fake.comparison.readAt = Date(timeIntervalSince1970: 1_792_000_000 - 60)
+        var handles = AskClaudeHandles()
+        let out = await differencesTools(fake).run(call("differences", ["kind": .string("only_right"), "show": .bool(true)]), handles: &handles)
+        #expect(fake.workspaces == ["Compare"])
+        #expect(fake.shown.count == 1 && fake.shown[0].0 == .onlyRight && fake.shown[0].1 == [fake.rows[0].id])
+        #expect(out.movedView == "Showing 1 difference (only right) in Compare’s list")
+        let bad = await differencesTools(fake).run(call("differences", ["kind": .string("newest")]), handles: &handles)
+        #expect(bad.isError)
+    }
+
     @Test func openNeverStartsAProgram() {
         for name in ["Setup.app", "run.command", "install.pkg", "Get.webloc", "build.sh", "flow.workflow", "Tool.terminal"] {
             #expect(AskClaudeBrowseTools.launches("/tmp/x/" + name), "\(name) would run something")
@@ -975,7 +1050,7 @@ private final class Counter: @unchecked Sendable {
     static let place = AskClaudePlace(source: "iCloud", folder: "Documents/Immigration/Authorization/H-1B/2019-2022", itemCount: 2,
                                       isHidden: false, isOnScreen: true, workspace: "Browse", openFile: nil)
 
-    /// TE249: the header's subtitle and the shield popover's heading.
+    /// TE260: the header's subtitle and the shield popover's heading.
     @Test func theFolderIsNamedShortUnderTheTitleAndInFullInTheMenu() {
         let place = Self.place
         #expect(place.subtitle == "iCloud › …/H-1B/2019-2022 · 2 items")

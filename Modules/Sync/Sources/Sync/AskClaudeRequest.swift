@@ -109,6 +109,9 @@ public enum AskClaudeRequest {
     - To compare two folders, set each side of Compare: go_to with pane left, then pane right, each \
     with its source and folder (Compare Documents across iCloud and Dropbox: left iCloud Documents, \
     right Dropbox Documents). In Compare the screen’s panes line says what each side shows.
+    - In Compare, the screen’s differences line counts what differs. For what is different, \
+    missing, only on one side or newer, call differences before answering, and answer from its \
+    rows; with show it also filters and selects them in Compare’s list.
     - You cannot change files yet: no moving, renaming, copying, deleting or editing. If asked, \
     say plainly that this version can’t make changes, and describe what you would do so they can \
     do it themselves.
@@ -163,6 +166,7 @@ public enum AskClaudeToolCatalog {
         case open = "open"
         case readText = "read_text"
         case findInContents = "find_in_contents"
+        case differences = "differences"
         case view = "view"
         case reveal = "reveal"
         case showInApp = "show_in_app"
@@ -226,6 +230,16 @@ public enum AskClaudeToolCatalog {
              properties: ["words": string("Words to look for in the text. Whole words and word starts."),
                           "folder": string("Folder to search under, relative to the source. Default: the folder on screen.")],
              required: ["words"]),
+        tool(.differences,
+             "Compare’s differences between its two sides: what is only on one side, what changed (with both sizes and modified dates), name conflicts, and what bulk runs hold back. Rescans first when the comparison is over an hour old. Returns up to 60 rows with handles, grouped by top-level folder, starting at `from`. With show, also narrows Compare’s differences list to these rows and selects them.",
+             properties: [
+                "kind": string("all (default), only_left, only_right, changed, name_conflicts or held_back. Left and right are the sides in the screen’s panes line."),
+                "folder": string("Optional folder inside the compared folders, e.g. 2019-2022."),
+                "words": string("Optional words the path must hold, separated by spaces."),
+                "from": integer("Zero-based row to start at. Default 0."),
+                "show": .object(["type": .string("boolean"),
+                                 "description": .string("Also show these rows in Compare’s differences list, filtered and selected. Opens Compare.")]),
+             ], required: []),
         tool(.view,
              "Change how the Browse pane shows things: sort order, hidden files, list or columns.",
              properties: ["sort": string("name, kind, date, size or tags."),

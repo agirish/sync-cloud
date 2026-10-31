@@ -878,8 +878,8 @@ public struct FileDiffEngine {
                             type: .nameConflict,
                             action: action,
                             description: noted(conflictNote, source: source),
-                            leftFileSize: leftFile.fileSize,
-                            rightFileSize: rightFile.fileSize,
+                            leftFileSize: leftFile.fileSize, leftModified: leftFile.modificationDate,
+                            rightFileSize: rightFile.fileSize, rightModified: rightFile.modificationDate,
                             leftIsDirectory: leftFile.isDirectory,
                             rightIsDirectory: rightFile.isDirectory,
                             // A folder against a file is judged by the folder's own date here too,
@@ -911,8 +911,8 @@ public struct FileDiffEngine {
                         type: .differentDates,
                         action: resolution.action,
                         description: noted(resolution.description + caseNote, source: source),
-                        leftFileSize: leftFile.fileSize,
-                        rightFileSize: rightFile.fileSize,
+                        leftFileSize: leftFile.fileSize, leftModified: leftFile.modificationDate,
+                        rightFileSize: rightFile.fileSize, rightModified: rightFile.modificationDate,
                         leftIsDirectory: leftFile.isDirectory,
                         rightIsDirectory: rightFile.isDirectory,
                         heldBack: held(.folderVersusFile, source: source)
@@ -961,8 +961,8 @@ public struct FileDiffEngine {
                                 leftDate: leftDate, rightDate: rightDate, left: left, right: right,
                                 dateToleranceSeconds: dateToleranceSeconds) + caseNote,
                                 source: leftFile),
-                            leftFileSize: leftFile.fileSize,
-                            rightFileSize: rightFile.fileSize,
+                            leftFileSize: leftFile.fileSize, leftModified: leftFile.modificationDate,
+                            rightFileSize: rightFile.fileSize, rightModified: rightFile.modificationDate,
                             heldBack: held(.sizesDifferWithoutANewerSide, source: leftFile)
                         ))
                     } else if leftIsNewer {
@@ -973,8 +973,8 @@ public struct FileDiffEngine {
                             type: .differentDates,
                             action: .copyToRight,
                             description: noted("\(left.displayName) file is newer" + caseNote, source: leftFile),
-                            leftFileSize: leftFile.fileSize,
-                            rightFileSize: rightFile.fileSize,
+                            leftFileSize: leftFile.fileSize, leftModified: leftFile.modificationDate,
+                            rightFileSize: rightFile.fileSize, rightModified: rightFile.modificationDate,
                             heldBack: held(nil, source: leftFile)
                         ))
                     } else {
@@ -985,8 +985,8 @@ public struct FileDiffEngine {
                             type: .differentDates,
                             action: .copyToLeft,
                             description: noted("\(right.displayName) file is newer" + caseNote, source: rightFile),
-                            leftFileSize: leftFile.fileSize,
-                            rightFileSize: rightFile.fileSize,
+                            leftFileSize: leftFile.fileSize, leftModified: leftFile.modificationDate,
+                            rightFileSize: rightFile.fileSize, rightModified: rightFile.modificationDate,
                             heldBack: held(nil, source: rightFile)
                         ))
                     }
@@ -1001,8 +1001,8 @@ public struct FileDiffEngine {
                         type: .differentDates,
                         action: .copyToRight,
                         description: noted("Names differ only by case", source: leftFile),
-                        leftFileSize: leftFile.fileSize,
-                        rightFileSize: rightFile.fileSize,
+                        leftFileSize: leftFile.fileSize, leftModified: leftFile.modificationDate,
+                        rightFileSize: rightFile.fileSize, rightModified: rightFile.modificationDate,
                         heldBack: held(nil, source: leftFile)
                     ))
                 }
@@ -1105,7 +1105,7 @@ public struct FileDiffEngine {
                                    source: leftFile),
                 // The item exists on the left; carry its size so the Differences list can show it.
                 // Directories report a nil fileSize, so folders stay sizeless (shown as "—").
-                leftFileSize: leftFile.fileSize,
+                leftFileSize: leftFile.fileSize, leftModified: leftFile.modificationDate,
                 leftIsDirectory: leftFile.isDirectory,
                 // A link's contents are counted into this row like a real folder's, which is what
                 // the row is about; it is the copy that cannot reproduce them (FR8).
@@ -1125,7 +1125,7 @@ public struct FileDiffEngine {
                 description: noted(rightFile.isDirectory ? "Folder missing on left (\(left.displayName))" : "Missing on left (\(left.displayName))",
                                    source: rightFile),
                 // The item exists on the right; carry its size so the Differences list can show it.
-                rightFileSize: rightFile.fileSize,
+                rightFileSize: rightFile.fileSize, rightModified: rightFile.modificationDate,
                 rightIsDirectory: rightFile.isDirectory,
                 heldBack: held(nil, source: rightFile)
             ))
@@ -1164,7 +1164,9 @@ public struct FileDiffEngine {
                     description: description,
                     isSyncing: diff.isSyncing,
                     leftFileSize: diff.leftFileSize,
+                    leftModified: diff.leftModified,
                     rightFileSize: diff.rightFileSize,
+                    rightModified: diff.rightModified,
                     enclosedItemCount: count,
                     leftIsDirectory: diff.leftIsDirectory,
                     rightIsDirectory: diff.rightIsDirectory,

@@ -23,6 +23,10 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
     public let leftFileSize: Int?
     /// File size on the right side (bytes).
     public let rightFileSize: Int?
+    /// Each side's modification date as the scan read it, nil where that side has no item (or
+    /// the provider reported none). Kept so an answer can say how much newer a side is.
+    public let leftModified: Date?
+    public let rightModified: Date?
     /// For a folder missing on one side: how many items it contains, all of which sync with the
     /// folder itself (folder copies are recursive, so they are not listed as separate differences).
     public let enclosedItemCount: Int?
@@ -92,7 +96,7 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
         return l == r
     }
     
-    public init(id: UUID = UUID(), relativePath: String, leftItemPath: String, rightItemPath: String, type: DifferenceType, action: SyncAction, description: String, isSyncing: Bool = false, leftFileSize: Int? = nil, rightFileSize: Int? = nil, enclosedItemCount: Int? = nil, leftIsDirectory: Bool = false, rightIsDirectory: Bool = false, heldBack: HeldBack? = nil) {
+    public init(id: UUID = UUID(), relativePath: String, leftItemPath: String, rightItemPath: String, type: DifferenceType, action: SyncAction, description: String, isSyncing: Bool = false, leftFileSize: Int? = nil, leftModified: Date? = nil, rightFileSize: Int? = nil, rightModified: Date? = nil, enclosedItemCount: Int? = nil, leftIsDirectory: Bool = false, rightIsDirectory: Bool = false, heldBack: HeldBack? = nil) {
         self.id = id
         self.relativePath = relativePath
         self.leftItemPath = leftItemPath
@@ -103,6 +107,8 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
         self.isSyncing = isSyncing
         self.leftFileSize = leftFileSize
         self.rightFileSize = rightFileSize
+        self.leftModified = leftModified
+        self.rightModified = rightModified
         self.enclosedItemCount = enclosedItemCount
         self.leftIsDirectory = leftIsDirectory
         self.rightIsDirectory = rightIsDirectory
@@ -173,7 +179,9 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
             description: type == .nameConflict ? description : Self.mirroredDescription(description),
             isSyncing: isSyncing,
             leftFileSize: rightFileSize,
+            leftModified: rightModified,
             rightFileSize: leftFileSize,
+            rightModified: leftModified,
             enclosedItemCount: enclosedItemCount,
             leftIsDirectory: rightIsDirectory,
             rightIsDirectory: leftIsDirectory,
@@ -191,7 +199,8 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
         FileDifference(
             id: id, relativePath: relativePath, leftItemPath: leftItemPath, rightItemPath: rightItemPath,
             type: type, action: direction, description: description, isSyncing: isSyncing,
-            leftFileSize: leftFileSize, rightFileSize: rightFileSize, enclosedItemCount: enclosedItemCount,
+            leftFileSize: leftFileSize, leftModified: leftModified, rightFileSize: rightFileSize, rightModified: rightModified,
+            enclosedItemCount: enclosedItemCount,
             leftIsDirectory: leftIsDirectory, rightIsDirectory: rightIsDirectory, heldBack: heldBack)
     }
 

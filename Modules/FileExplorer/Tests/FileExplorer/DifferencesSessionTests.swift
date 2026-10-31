@@ -22,6 +22,20 @@ import Testing
 
     // MARK: What the reader set survives
 
+    /// Ask Claude's “show me the ones only on Dropbox” (TE261): the filter, the selection asked
+    /// for, and nothing left that would hide a selected row.
+    @Test func showingRowsNarrowsTheTableAndAsksForTheirSelection() {
+        let session = DifferencesSession()
+        session.searchText = "invoice"
+        session.isSearchExpanded = true
+        session.collapsedSections = ["2019-2022"]
+        let ids: Set<UUID> = [UUID(), UUID()]
+        session.show(.missingOnLeft, selecting: ids)
+        #expect(session.selectedFilter == .missingOnLeft)
+        #expect(session.requestedSelection == ids)
+        #expect(session.searchText.isEmpty && !session.isSearchExpanded && session.collapsedSections.isEmpty)
+    }
+
     @Test func aSessionKeepsTheTablesNarrowing() {
         let session = DifferencesSession()
         session.selectedFilter = .missingOnRight

@@ -131,7 +131,8 @@ public enum DifferenceRowMenu {
             id: row.id, relativePath: row.relativePath, leftItemPath: row.leftItemPath,
             rightItemPath: row.rightItemPath, type: row.type, action: row.action,
             description: row.description, isSyncing: row.isSyncing,
-            leftFileSize: row.leftFileSize, rightFileSize: row.rightFileSize,
+            leftFileSize: row.leftFileSize, leftModified: row.leftModified,
+            rightFileSize: row.rightFileSize, rightModified: row.rightModified,
             enclosedItemCount: row.enclosedItemCount, leftIsDirectory: row.leftIsDirectory,
             rightIsDirectory: row.rightIsDirectory, heldBack: .sourceIsSymbolicLink)
     }

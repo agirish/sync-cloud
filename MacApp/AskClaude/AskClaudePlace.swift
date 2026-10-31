@@ -1,7 +1,7 @@
 import SwiftUI
 import Design
 
-/// The folder Claude sees: the one the next question describes (TE249). The header names it under
+/// The folder Claude sees: the one the next question describes (TE260). The header names it under
 /// the title; the shield's popover gives its whole path and every privacy control.
 struct AskClaudePlace: Equatable {
     var source: String

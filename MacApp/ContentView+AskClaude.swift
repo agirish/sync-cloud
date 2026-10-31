@@ -96,7 +96,7 @@ extension ContentView {
         }
     }
 
-    /// Go to This Folder (TE249): the folder Claude sees is always the one the source pane is at,
+    /// Go to This Folder (TE260): the folder Claude sees is always the one the source pane is at,
     /// so this only has work where the workspace has folded that pane away (Edit, Organize).
     func askClaudeShowFolderPane() {
         guard panesHiddenForCurrentTab else { return }
@@ -120,7 +120,7 @@ extension ContentView {
         syncManager.paneLocation(isLeft: true, drawsColumns: paneDrawsColumns(isLeft: true))
     }
 
-    /// The folder Claude sees, for the panel's header and shield (TE249).
+    /// The folder Claude sees, for the panel's header and shield (TE260).
     var askClaudePlace: AskClaudePlace {
         let absolute = AskClaudeBrowseTools.absolute(askClaudeFolder, root: askClaudeRoot)
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
@@ -148,6 +148,11 @@ extension ContentView {
         screen.folderHidden = hidden.isHidden(absolute)
         screen.tabs = askClaudeTabs.map(\.title)
         screen.panes = askClaudePanes
+        if selectedWorkspace == .compare, let comparison = askClaudeComparison {
+            let visible = syncManager.differences.filter { !hidden.isHidden($0.leftItemPath) && !hidden.isHidden($0.rightItemPath) }
+            screen.differences = AskClaudeDifferences.summaryLine(visible, hiddenCount: syncManager.differences.count - visible.count,
+                                                                  comparison: comparison, now: Date())
+        }
         if selectedWorkspace == .editor, let open = editorOpenPath, !hidden.isHidden(open) {
             screen.openFile = AskClaudeDisk.node(atPath: open).map(AskClaudeBrowseTools.row)
         }
@@ -212,6 +217,19 @@ extension ContentView {
                 : folder.isEmpty ? "(top level)" : folder
             return "\(isLeft ? "left" : "right"): \(name) › \(shown)"
         }
+    }
+
+    /// Compare's two sides and how fresh their comparison is (TE261); nil without two sources.
+    var askClaudeComparison: AskClaudeDifferences.Comparison? {
+        func name(_ id: String) -> String { settings.availableProviders.first { $0.id == id }?.displayName ?? id }
+        guard !leftProviderId.isEmpty, !rightProviderId.isEmpty else { return nil }
+        let left = name(leftProviderId), right = name(rightProviderId)
+        return AskClaudeDifferences.Comparison(
+            leftName: left, rightName: right,
+            leftFolder: syncManager.leftRelativePath, rightFolder: syncManager.rightRelativePath,
+            readAt: syncManager.lastScanReadAt ?? syncManager.lastScanDate,
+            isScanning: syncManager.isScanning, hasScanned: syncManager.hasScanned,
+            partial: syncManager.lastScanCoverage.message(leftName: left, rightName: right))
     }
 
     /// One side's live source and folder, for go_to's pane moves.
@@ -313,6 +331,29 @@ extension ContentView {
             },
             pane: { askClaudePane(isLeft: $0) },
             movePane: { isLeft, sourceID, absolute in movePane(isLeft: isLeft, providerId: sourceID, absolutePath: absolute) },
+            differences: { syncManager.differences },
+            comparison: { askClaudeComparison },
+            rescan: {
+                guard askClaudeBusyReason == nil else { return false }
+                forceRefreshAction()
+                return true
+            },
+            showDifferences: { kind, ids in
+                // The list's own filters; "changed" picks a direction when every row shares one.
+                let rows = syncManager.differences.filter { ids.contains($0.id) }
+                let filter: DifferenceFilter
+                switch kind {
+                case .onlyLeft: filter = .missingOnRight
+                case .onlyRight: filter = .missingOnLeft
+                case .nameConflicts: filter = .nameConflicts
+                case .changed where rows.allSatisfy({ $0.action == .copyToRight }): filter = .changedCopyToRight
+                case .changed where rows.allSatisfy({ $0.action == .copyToLeft }): filter = .changedCopyToLeft
+                default: filter = .all
+                }
+                Logger.shared.info("Ask Claude showed \(ids.count) difference\(ids.count == 1 ? "" : "s") in Compare’s list")
+                differencesSession.show(filter, selecting: ids)
+                return true
+            },
             history: { forward in
                 let columns = paneDrawsColumns(isLeft: true)
                 guard forward ? syncManager.canGoForward(isLeft: true, drawsColumns: columns)

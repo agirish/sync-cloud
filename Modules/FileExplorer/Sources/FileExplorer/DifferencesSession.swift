@@ -58,4 +58,18 @@ public final class DifferencesSession: ObservableObject {
 
     /// Whether the per-side item totals beside the count pill are revealed.
     @Published var showItemCounts = false
+
+    /// Rows another part of the app asked the table to select (Ask Claude, TE261), applied by the
+    /// table when it next draws and then cleared. The table's own selection stays its `@State`.
+    @Published var requestedSelection: Set<FileDifference.ID>?
+
+    /// Narrows the table to `filter` and selects `ids` — Ask Claude's “show me the ones only on
+    /// Dropbox”. The search and the folds are cleared, so nothing selected is hidden from view.
+    public func show(_ filter: DifferenceFilter, selecting ids: Set<FileDifference.ID>) {
+        selectedFilter = filter
+        searchText = ""
+        isSearchExpanded = false
+        collapsedSections = []
+        requestedSelection = ids
+    }
 }
