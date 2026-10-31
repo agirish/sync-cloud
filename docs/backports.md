@@ -1275,6 +1275,16 @@ sends the next person back to `git log`.
 
 Move an item out of "owed" only when `git branch -r --contains <sha>` names the line.
 
+## 2026-10-31 — the `v6.x` line opens; `main` moves to 7.0-dev
+
+`v6.x` was cut from the `v6.2` tag when `main` opened the v7 line, skipping v6.3. Unlike the earlier
+cuts, `main` carries unreleased work past the tag: one-way sync (RD67), the folder watcher, hashing of
+any size, the cloud-app status bar (RD68), name bytes kept on copy and move, and the fixes in the
+v7.0 notes' Around the app section. `v6.x` has none of it. Recorded, not owed: it is the v7.0 release
+under the no-backport standing direction. Ask Claude (RD69) lands on `main` with this cut and is
+v7-only too. `v6.x`'s opening commit re-bumps it to `6.3-dev`/`603` and carries the six-line
+documents (CLAUDE.md, RELEASE.md, the install skill, this record).
+
 ## 2026-10-17 — the `v5.x` line opens; `main` moves to 6.0-dev
 
 `v5.x` was cut from the `v5.5` tag when `main` opened the v6 line. Nothing lies between the tag and
@@ -13129,3 +13139,225 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s textPass=%s negativeDropped=%
 |---|---|---|
 | `v5.x` / `v4.x` | Every textless document re-parsed on every scan | RECORDED — not owed |
 | `v3.x` / `v2.x` | No same-text pass | CLOSED — does not apply |
+
+---
+
+## Content hashing covers files of any size (RD67 prerequisite) — main only
+
+2026-10-30, for v6.3. On `main`: `FileContentVerifier` no longer skips files over 100 MB
+(`maxBytesToHash` and `HashOutcome.skippedTooLarge` are gone). The read still streams in 4 MB
+chunks, now yields between chunks, and stops at the next chunk on cancel (`HashOutcome.cancelled`),
+including Verify All's and a merge's Stop. Verify All, Compare Copies, Review and the CLI hash any
+size; Verify All, Review and the CLI stop a pair's reads once one side cannot be hashed, and Review
+and Compare Copies stop their checks when they close. The two passes nobody asks for —
+the optional scan-time verify and the filing scan's already-filed check — keep a 100 MB per-file
+limit (`unaskedPassMaxFileBytes`, 100,000,000 bytes), checked against each file's size when it is
+read. Merge planning hashes only files with a same-size counterpart
+on the other side. The duplicate scan hashes large files too, but first compares the first and
+last 1 MB of same-size files over 100 MB (`duplicateEdgeSampleAbove`) and reads whole only those
+that match; a size whose digests are all cached is not sampled. Its skip note loses "too large to hash".
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s cap=%s skipNote=%s edgeSample=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileContentVerifier.swift 2>/dev/null | grep -cF 'maxBytesToHash: Int = 100 * 1024 * 1024')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DuplicateGroupCard.swift 2>/dev/null | grep -cF 'too large to hash')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileContentVerifier.swift 2>/dev/null | grep -cF 'static func edgeSample(')"; done
+# measured 2026-10-30, against origin, before this landed (the change reads cap=0 skipNote=0 edgeSample=1):
+# main, v5.x   cap=1 skipNote=1 edgeSample=0
+# v4.x         cap=1 skipNote=2 edgeSample=0
+# v3.x, v2.x   cap=1 skipNote=0 edgeSample=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The 100 MB cap: larger files are skipped by every content check | RECORDED — not owed |
+
+---
+
+## A cloud app that isn't syncing is said everywhere (RD68) — main only
+
+Decision DK, 2026-10-30. On `main`: one status per provider (`CloudAppMonitor`) says when the
+Dropbox, OneDrive or Google Drive app has not run for 5 minutes, a folder not downloaded to this Mac
+did not answer (`DatalessFolderReads`), iCloud is signed out or iCloud Drive is off, or a file
+SyncCloud changed is still not uploaded after 30 minutes — as an amber bar under every pane of that
+source, a dot in the source menu and the sidebar, and a row in Activity ▸ Now. A new feature, not a
+fix; the older lines show their sources with no such warning.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s status=%s dataless=%s activity=%s\n' $l \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/CloudAppMonitor.swift 2>/dev/null | grep -cF 'final class CloudAppMonitor')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/DatalessFolderReads.swift 2>/dev/null | grep -cF 'final class DatalessFolderReads')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/ActivityCenter.swift 2>/dev/null | grep -cF 'final class ActivityCenter')"; done
+# measured 2026-10-30, against origin, after it landed (c7a3a7839; the script first grepped the
+# Sync file, where the monitor never was, and could not print status=1):
+# main   status=1 dataless=1 activity=1
+# v5.x   status=0 dataless=1 activity=0
+# v4.x / v3.x / v2.x   status=0 dataless=0 activity=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` | The unanswered-folder deadline, with no status built on it, and no Activity window | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | Neither the deadline nor Activity | RECORDED — not owed |
+
+---
+
+## The review of speed batches A–F (speed audit 1–21) — main only
+
+2026-10-30. Fixes to code the speed batches added on `main`: the stall watch dates a stall from its
+own stacks (a late heartbeat no longer stretches it, a stall outlasting the sampler is ended by
+the watch and not booked as a hold, skipped stalls are counted); Undo clears the leaving folder's
+survey date before it reads the restored one; a stack of columns that fits is not veiled; an
+overtaken Edit rail survey still lands; the identity index weighs the textless markers' own file
+against older digests. Every piece is absent from every maintenance line.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s stallWatch=%s veil=%s railTickets=%s undoDateOffMain=%s textlessIndex=%s\n' $l \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/MainThreadStallWatch.swift 2>/dev/null | grep -cF 'func answered(')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PaneScrollMemory.swift 2>/dev/null | grep -cF 'veil.cover(scroller)')" \
+  "$(git show origin/$l:MacApp/ContentView+Editor.swift 2>/dev/null | grep -cF 'editorRailRefreshes')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+RestructureApply.swift 2>/dev/null | grep -cF 'let restoredDate = await Task.detached')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/ContentHashIndexStore.swift 2>/dev/null | grep -cF 'content-textless-index.json')"; done
+# measured 2026-10-30, against origin, before this landed:
+# main                         stallWatch=1 veil=1 railTickets=4 undoDateOffMain=1 textlessIndex=2
+# v5.x / v4.x / v3.x / v2.x    all 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | None of the code these fix | CLOSED — does not apply |
+
+---
+
+## Sonnet 5 is priced at $2/$10, not Sonnet 4.6's $3/$15 — main only
+
+2026-10-30, for v6.3. On `main`: `CloudFilingProtocol.pricing(for:)` prices Sonnet by generation —
+`claude-sonnet-5` (the Sonnet Settings offers) at $2/$10 per million tokens, an older Sonnet such as
+`claude-sonnet-4-6` still at $3/$15. The rate feeds the Filing and Refine pre-flight quote, the
+recorded spend and both spend caps, so every Sonnet 5 scan was quoted and counted at 1.5× its cost
+and reached a cap early. Every maintenance line offers Sonnet 5 at the old rate.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s offersSonnet5=%s sonnet5Rate=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/CloudFilingProtocol.swift 2>/dev/null | grep -cF '("claude-sonnet-5", ')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/CloudFilingProtocol.swift 2>/dev/null | grep -cF 'hasPrefix("claude-sonnet-5-")')"; done
+# measured 2026-10-30, against origin, before this landed (the change reads sonnet5Rate=1):
+# main / v5.x / v4.x / v3.x / v2.x   offersSonnet5=1 sonnet5Rate=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | Sonnet 5 offered and priced at $3/$15 | RECORDED — not owed |
+
+---
+
+## Folder watching: "changed since" on the panes, opt-in rescan (ROADMAP item 5) — main only
+
+An FSEvents watcher (`FolderWatcher`, file-level events with document ids, coalesced, per-volume
+history replayed across launches) on the panes' folders. A change after a pane's walk began says
+"changed since" in Browse's status bar and turns Compare's scan age terracotta; Settings ▸ Sync ▸
+"Rescan when files change" (off by default) re-reads the pane instead. A new feature, so `main`
+only.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s watcher=%s freshness=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/FolderWatcher.swift | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:Modules/Design/Sources/Design/ScanFreshness.swift 2>/dev/null | grep -cF 'public static func describe(')"; done
+# measured 2026-10-30, against origin, before this landed:
+# main, v5.x, v4.x, v3.x, v2.x   watcher=0 freshness=1
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | Freshness by the clock alone; no watcher | RECORDED — not owed (new feature) |
+
+---
+
+## One-way sync's saved state (RD67) — main only
+
+2026-10-31, for v6.3. On `main`: what RD67's one-way sync keeps on this Mac and in Dropbox — the
+record and its state in Application Support (versioned, written whole and flushed, tied to this
+Mac, the accounts and the disk), the files you stopped syncing, History entries written before a
+sync applies anything, Activity ▸ Now's saved rows with their own notifications, a lock so one
+process syncs, and a marker in Dropbox so one Mac does. A new feature, built on the engine core
+that only `main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s store=%s engine=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/OneWaySyncStore.swift | wc -l | tr -d ' ')" \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/OneWaySyncPlanner.swift | wc -l | tr -d ' ')"; done
+# measured 2026-10-31, against origin, before this landed (the change reads store=1 on main):
+# main                         store=0 engine=1
+# v5.x / v4.x / v3.x / v2.x    store=0 engine=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No one-way sync at all | RECORDED — not owed (new feature) |
+
+## One-way sync's Sync Now (RD67 step 3) — main only
+
+2026-10-31, for v6.3. On `main`: the first part of one-way sync a user runs — setup and its first
+run, Sync Now, Activity ▸ Now's rows and their sheets, Reverse in iCloud, Settings ▸ Sync ▸
+One-Way Sync — with the lister, the pass runner and the record keeper under them; the cloud-app
+monitor reading when Dropbox's process started and when the Mac woke; and the panes refusing to
+rename, move or delete a synced Dropbox file. A new feature, built on the engine, the writer and
+the saved state that only `main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s run=%s planner=%s monitor=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/OneWaySyncRun.swift | wc -l | tr -d ' ')" \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/OneWaySyncPlanner.swift | wc -l | tr -d ' ')" \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/CloudAppMonitor.swift | wc -l | tr -d ' ')"; done
+# measured 2026-10-31, against origin, before this landed (the change reads run=1 on main):
+# main                         run=0 planner=1 monitor=1
+# v5.x / v4.x / v3.x / v2.x    run=0 planner=0 monitor=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No one-way sync at all | RECORDED — not owed (new feature) |
+
+## A copy or move keeps its original's name byte for byte — main only
+
+2026-10-31, for v6.3. On `main`: `safeCopyItem` and `safeMoveItem` land an item under the name
+its original has on disk (`land(_:at:keepingNameOf:fileManager:)`, through `rename(2)`), and a
+sync's missing folders take their source folders' names. `FileManager`'s create, move and copy
+write a top-level name decomposed (NFD), so an NFC original ("é" as one character) was copied, moved,
+synced and filed under other bytes, and a long name that fits as NFC failed to land at all
+("the file name … is invalid"). One-way sync's writer keeps the names it is handed too, but that
+is `main`-only code. A name typed in the panes still lands as Foundation writes it, as Finder's does.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do f=Modules/Sync/Sources/Sync/FileOperations+Primitives.swift
+  printf '%-5s file=%s moveIntoPlace=%s land=%s\n' $l "$(git ls-tree -r --name-only origin/$l -- $f | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:$f | grep -c 'try fileManager.moveItem(at: tempURL, to: destinationURL)')" \
+  "$(git show origin/$l:$f | grep -c 'keepingNameOf')"; done
+# measured 2026-10-31, against origin, before this landed (the change reads moveIntoPlace=0 land>0 on main):
+# main / v5.x / v4.x / v3.x / v2.x    file=1 moveIntoPlace=2 land=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | The decomposing landing: the two staged landings the command counts, the same-volume `moveItem`, and the folders `createDirectory` makes | RECORDED — not owed |
+
+## One-way sync's three gaps after Sync Now (RD67, ES/ET/EU) — main only
+
+2026-10-31, for v6.3. On `main`: a file Dropbox refuses is never recorded as synced and is retried
+only once it changes in iCloud (ES); the record keeps each file's change time, so an edit that
+keeps the size and date is read and synced (ET; the record moves to version 2 and still reads
+version 1); and Reverse in iCloud moves a file moved in from an unsynced folder back there (EU).
+All of it in one-way sync, which only `main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s run=%s refused=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/OneWaySyncRun.swift | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/OneWaySyncRecord.swift 2>/dev/null | grep -c 'OneWaySyncRefusedFile')"; done
+# measured 2026-10-31, against origin, before this landed (the change reads refused>0 on main):
+# main                         run=1 refused=0
+# v5.x / v4.x / v3.x / v2.x    run=0 refused=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No one-way sync at all | RECORDED — not owed (new feature) |
