@@ -272,6 +272,8 @@ import Testing
         if gap == 0 { try await waitForStalls(2) } else { try await Task.sleep(for: .seconds(5)) }
         #expect(watch.samplesTaken == (gap == 0 ? 2 : 1))
         #expect(lines.stalls.count == (gap == 0 ? 2 : 1), "\(lines.stalls)")
+        // The one the gap held off is counted once, however many looks it got, for the next line.
+        #expect(watch.stallsNotSampled == (gap == 0 ? 0 : 1))
     }
 
     /// A stall that follows a hold, whose heartbeat the system goes on holding after it: the line
@@ -312,5 +314,103 @@ import Testing
         // One line for the heartbeat: the stall's, not a "waited … held by the system" beside it.
         #expect(!lines.all.contains { $0.contains("a heartbeat waited") }, "\(lines.all)")
         #expect(line.contains("1 earlier heartbeat(s) this launch were held by the system"), "\(line)")
+    }
+
+    /// The sampler found the stall's end; the system held the heartbeat on after it. The late
+    /// heartbeat must not move the end it found — on 10-29 a 2.0 s stall was logged as 2.89 s.
+    @Test("A heartbeat held past a stall's end does not stretch it")
+    func aHeldHeartbeatDoesNotStretchTheStall() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stall-watch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var configuration = MainThreadStallWatch.Configuration()
+        configuration.directory = directory
+        configuration.beat = 0.2
+        configuration.minimumGap = 0
+        configuration.runLoopEntry = "Foundation"
+        // `sample` records past the late heartbeat, so the line cannot go out before it runs.
+        configuration.sampleSeconds = 6
+        let thread = RunLoopThread()
+        let port = thread.startAndWait()
+        defer { thread.finish() }
+        let lines = Lines()
+        let held = DispatchQueue(label: "stall-watch-held-past-the-end")
+        held.suspend()
+        var resumed = false
+        defer { if !resumed { held.resume() } }
+        let watch = MainThreadStallWatch(configuration: configuration, queue: held,
+                                         thread: { port }, report: { lines.append($0) })
+        watch.start()
+        defer { watch.stop() }
+        try await Task.sleep(for: .seconds(2.5))          // held over an idle loop
+        try #require(watch.heldWhileIdle == 1)
+        let over = Lines()
+        thread.perform { Thread.sleep(forTimeInterval: 3); over.append("over") }
+        let deadline = Date().addingTimeInterval(20)
+        while over.all.isEmpty, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        try #require(!over.all.isEmpty, "the stall never ended")
+        // Held 2 s past the end, then let run — while `sample` is still recording or symbolicating.
+        try await Task.sleep(for: .seconds(2))
+        try #require(lines.stalls.isEmpty, "the stall's line went out before the late heartbeat ran — nothing to test")
+        held.resume()
+        resumed = true
+        let lineDeadline = Date().addingTimeInterval(45)
+        while lines.stalls.isEmpty, Date() < lineDeadline { try await Task.sleep(for: .milliseconds(100)) }
+        let line = try #require(lines.stalls.first, "the stall was never reported")
+        let lasted = try #require(line.range(of: "it lasted ").map { line[$0.upperBound...].prefix { "0123456789.".contains($0) } })
+        let seconds = try #require(Double(lasted), "\(line)")
+        // Dated from the busy look, up to `stallAfter` into the 3 s sleep: at most 3 s. Ended
+        // when the heartbeat ran, 2 s after the sleep, it would be 4 s or more.
+        #expect(seconds > 0.5 && seconds <= 3.2, "\(line)")
+    }
+
+    /// A stall that outlasts the in-process sampler, with its heartbeat held: its end is found by
+    /// the watch's own looks, not by the heartbeat when the system lets it run — and that late
+    /// heartbeat is the stall's, not a hold of its own to report and count.
+    @Test("A stall outlasting the sampler is ended by the watch, not booked as a hold")
+    func aStallOutlastingTheSamplerIsNotBookedAsAHold() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stall-watch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var configuration = MainThreadStallWatch.Configuration()
+        configuration.directory = directory
+        configuration.beat = 0.2
+        configuration.minimumGap = 0
+        // The app's shape: the in-process stacks stop a second in, while `sample` records on.
+        configuration.sampleSeconds = 6
+        configuration.stacksSeconds = 1
+        configuration.reportHeldAfter = 1
+        configuration.runLoopEntry = "Foundation"
+        let thread = RunLoopThread()
+        let port = thread.startAndWait()
+        defer { thread.finish() }
+        let lines = Lines()
+        let held = DispatchQueue(label: "stall-watch-outlasting")
+        held.suspend()
+        var resumed = false
+        defer { if !resumed { held.resume() } }
+        let watch = MainThreadStallWatch(configuration: configuration, queue: held,
+                                         thread: { port }, report: { lines.append($0) })
+        watch.start()
+        defer { watch.stop() }
+        try await Task.sleep(for: .seconds(2.5))          // held over an idle loop
+        try #require(watch.heldWhileIdle == 1)
+        // Noticed up to `stallAfter` in; the in-process sampler stops one second after that.
+        thread.perform { Thread.sleep(forTimeInterval: 4) }
+        let deadline = Date().addingTimeInterval(45)
+        while lines.stalls.isEmpty, Date() < deadline { try await Task.sleep(for: .milliseconds(100)) }
+        // `sample` records 6 s, past the 4 s sleep: the watch's own looks found the end by then.
+        let line = try #require(lines.stalls.first, "the stall was never reported: \(lines.all)")
+        let figure = try #require(line.range(of: "it lasted ").map { line[$0.upperBound...].prefix { "0123456789.".contains($0) } },
+                                  "the end was not found while `sample` ran: \(line)")
+        let seconds = try #require(Double(figure), "\(line)")
+        // From the busy look, up to `stallAfter` into the 4 s sleep, to the first idle look a beat
+        // after it: at most 4 s and a few beats.
+        #expect(seconds <= 4.6, "\(line)")
+        held.resume()
+        resumed = true
+        try await Task.sleep(for: .seconds(1))
+        #expect(!lines.all.contains { $0.contains("a heartbeat waited") }, "\(lines.all)")
+        #expect(watch.heldWhileIdle == 1, "the sampled stall's own heartbeat was counted as a hold")
     }
 }
