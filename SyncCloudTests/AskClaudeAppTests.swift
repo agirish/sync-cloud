@@ -1128,11 +1128,27 @@ private final class Counter: @unchecked Sendable {
         try Data("x".utf8).write(to: dir.appendingPathComponent("b.txt"))
         try Data("y".utf8).write(to: dir.appendingPathComponent(".hidden"))
         defer { try? FileManager.default.removeItem(at: dir) }
-        let items = try #require(await AskClaudeDisk.list(dir.path))
+        // A bound of its own: the 5 s one races the suite for a thread on CI (mechanism 5).
+        let items = try #require(await AskClaudeDisk.list(dir.path, timeout: .seconds(120)))
         #expect(items.map(\.name) == ["b.txt", "Sub"])
         #expect(items.first?.fileSize == 1)
         #expect(items.last?.isDirectory == true)
-        #expect(await AskClaudeDisk.list(dir.appendingPathComponent("nope").path) == nil)
+        #expect(await AskClaudeDisk.list(dir.appendingPathComponent("nope").path, timeout: .seconds(120)) == nil)
+    }
+
+    /// The bound itself, with the window injected rather than raced: work that answers keeps its
+    /// answer, and work that stalls past the bound is given up on at the bound.
+    @Test func aReadThatStallsIsGivenUpOnAtTheBound() async {
+        #expect(await AskClaudeDisk.bounded(timeout: .seconds(120)) { 7 } == 7)
+        // Held until the bound has answered, so no load can let it finish first; bounded too, so
+        // a bound that never gives up fails here after 30 s rather than hanging the run.
+        let release = DispatchSemaphore(value: 0)
+        let stalled: Int? = await AskClaudeDisk.bounded(timeout: .milliseconds(100)) {
+            _ = release.wait(timeout: .now() + 30)
+            return 7
+        }
+        release.signal()
+        #expect(stalled == nil)
     }
 
     @Test func theSpotlightQueryEscapesSyntaxAndSkipsHiddenFolders() {

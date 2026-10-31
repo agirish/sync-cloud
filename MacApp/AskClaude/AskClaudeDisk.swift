@@ -43,8 +43,10 @@ enum AskClaudeDisk {
     }
 
     /// A folder’s direct items, in name order, or nil when it can’t be read within `timeout`.
-    nonisolated static func list(_ folder: String) async -> [FileNode]? {
-        await bounded {
+    /// A test passes its own bound: under a full suite on CI's three cores, a two-item listing
+    /// has waited longer than 5 s for a thread (2026-10-31, flaky-tests mechanism 5).
+    nonisolated static func list(_ folder: String, timeout: Duration = timeout) async -> [FileNode]? {
+        await bounded(timeout: timeout) {
             let url = URL(fileURLWithPath: folder, isDirectory: true)
             guard let urls = try? FileManager.default.contentsOfDirectory(
                 at: url, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]) else { return nil }
@@ -107,7 +109,7 @@ enum AskClaudeDisk {
     /// and its answer is dropped. **On a Dispatch thread, not a task**: a blocked read parked on
     /// Swift's shared task threads holds one of only a few, and a handful of stalled iCloud folders
     /// would starve every async task in the app.
-    nonisolated private static func bounded<T: Sendable>(_ work: @escaping @Sendable () -> T?) async -> T? {
+    nonisolated static func bounded<T: Sendable>(timeout: Duration = timeout, _ work: @escaping @Sendable () -> T?) async -> T? {
         // Stop answers at once too: the read is left to finish, as at the timeout.
         let once = OnceFlag()
         let resume = ContinuationBox<T?>()
