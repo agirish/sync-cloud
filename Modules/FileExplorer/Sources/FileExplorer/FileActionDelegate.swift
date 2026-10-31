@@ -1,3 +1,4 @@
+import SwiftUI
 import Sync
 
 @MainActor
@@ -240,6 +241,28 @@ public protocol FileActionDelegate: Sendable {
     /// (``SaveAsPDFKind``). The original is only read; the PDF is a new file, under the original's
     /// name or the next free one.
     func handleSaveAsPDF(paths: [String])
+
+    // MARK: - Ask Claude (TE263)
+
+    /// Whether this host has Ask Claude behind it. Gated like the doors above: a conformer with no
+    /// window behind it draws no Ask Claude items rather than ones that do nothing.
+    var canAskClaude: Bool { get }
+
+    /// Why Ask Claude can't take these rows now — one is hidden from Claude, or the window is
+    /// busy — in the words the item's tooltip shows, or nil when it can. Asked when the menu is
+    /// built and again on the click.
+    func askClaudeRefusal(_ nodes: [FileNode]) -> String?
+
+    /// Opens Ask Claude with these rows attached above its text box.
+    func handleAskClaude(_ nodes: [FileNode])
+
+    /// Whether this row is on the Never show Claude list, itself or through a folder above it.
+    /// Read when the menu is built, so the label can be a render old; the item acts on what its
+    /// label said (`FileContextMenu.favoriteLabelStillHolds`), as Favorites does.
+    func isHiddenFromClaude(_ node: FileNode) -> Bool
+
+    /// Puts this row on the Never show Claude list, or takes it off.
+    func handleSetHiddenFromClaude(_ node: FileNode, hidden: Bool)
 }
 
 extension FileActionDelegate {
@@ -322,4 +345,50 @@ extension FileActionDelegate {
     public func handlePDFTool(_ request: PDFToolRequest, paths: [String]) {}
     public var canSaveAsPDF: Bool { false }
     public func handleSaveAsPDF(paths: [String]) {}
+
+    /// Same default, same reason, and declared as requirements above for the same one.
+    public var canAskClaude: Bool { false }
+    public func askClaudeRefusal(_ nodes: [FileNode]) -> String? { nil }
+    public func handleAskClaude(_ nodes: [FileNode]) {}
+    public func isHiddenFromClaude(_ node: FileNode) -> Bool { false }
+    public func handleSetHiddenFromClaude(_ node: FileNode, hidden: Bool) {}
+}
+
+// MARK: - Ask Claude About This (TE263)
+
+/// The row menu's Ask Claude items: Ask Claude About This (or About These N Items), and for one
+/// row Hide from Claude or Show to Claude. Its own view so the pane rows and a test can draw it.
+struct AskClaudeMenuItems: View {
+    let nodes: [FileNode]
+    let delegate: FileActionDelegate
+
+    static func askTitle(_ count: Int) -> String {
+        count == 1 ? "Ask Claude About This" : "Ask Claude About These \(count) Items"
+    }
+
+    var body: some View {
+        let refusal = delegate.askClaudeRefusal(nodes)
+        Button {
+            // Checked again: the menu can be a render old, and the folder hidden since.
+            guard delegate.askClaudeRefusal(nodes) == nil else { return }
+            delegate.handleAskClaude(nodes)
+        } label: {
+            Label(Self.askTitle(nodes.count), systemImage: "bubble.left.and.text.bubble.right")
+        }
+        .disabled(refusal != nil)
+        .help(refusal ?? "Opens Ask Claude with \(nodes.count == 1 ? "this" : "these") attached, for your question.")
+        if nodes.count == 1, let node = nodes.first {
+            let hidden = delegate.isHiddenFromClaude(node)
+            Button {
+                guard FileContextMenu.favoriteLabelStillHolds(labelSaidFavorite: hidden,
+                                                              isFavoriteNow: delegate.isHiddenFromClaude(node))
+                else { return }
+                delegate.handleSetHiddenFromClaude(node, hidden: !hidden)
+            } label: {
+                Label(hidden ? "Show to Claude" : "Hide from Claude", systemImage: hidden ? "eye" : "eye.slash")
+            }
+            .help(hidden ? "Takes it off the Never show Claude list."
+                         : "Puts it on the Never show Claude list: Claude is never told it’s there, or what’s in it.")
+        }
+    }
 }

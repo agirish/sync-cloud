@@ -63,6 +63,20 @@ public struct AskClaudeScreen: Equatable, Sendable {
     public var folderHidden = false
     /// The file open in Edit, when Edit is on screen.
     public var openFile: Row?
+    /// What they attached from a row's menu (TE263), wherever it lives: their question is about
+    /// these. Never anything on the Never show Claude list.
+    public var attached: [Attached] = []
+
+    public struct Attached: Equatable, Sendable {
+        public let row: Row
+        /// Where it lives, "iCloud › Documents/Taxes"; never an absolute path.
+        public let place: String
+
+        public init(row: Row, place: String) {
+            self.row = row
+            self.place = place
+        }
+    }
 
     public struct Column: Equatable, Sendable {
         public let folder: String
@@ -153,6 +167,11 @@ public enum AskClaudeScreenCard {
             lines.append("panes: " + screen.panes.map(escape).joined(separator: " · "))
         }
         if let differences = screen.differences { lines.append(escape(differences)) }
+        // Before the hidden-folder stop: what they attached is shown wherever they are.
+        if !screen.attached.isEmpty {
+            lines.append("attached by them, what their question is about: handle|name|kind|size|modified|tags|where")
+            lines += screen.attached.map { row(for: $0.row, handles: &handles) + "|" + escape($0.place) }
+        }
         if screen.folderHidden {
             lines.append("This folder is on their Never show Claude list: nothing in it is described.")
             lines.append("</screen>")

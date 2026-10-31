@@ -1763,6 +1763,10 @@ struct FileContextMenu: View {
                 // On tabs, the Info sidebar and the Differences rows already; the row was the one
                 // place a path could not be copied from (BR15).
                 SharedFileMenuItems.copyPath(singleNode.id)
+                // After Copy Path, so every place the pinned order tests read stays put (TE263).
+                if delegate.canAskClaude {
+                    AskClaudeMenuItems(nodes: [singleNode], delegate: delegate)
+                }
                 // Materialize a cloud-only placeholder — Download for one file, Download All for
                 // a folder in a cloud location, every cloud-only file in it at any depth. Works for
                 // iCloud and was measured working on Google Drive; Dropbox and OneDrive are not
@@ -1914,6 +1918,11 @@ struct FileContextMenu: View {
                         }
                     }
                 }
+            }
+
+            if count > 1, delegate.canAskClaude {
+                AskClaudeMenuItems(nodes: selectedNodes, delegate: delegate)
+                Divider()
             }
 
             // Comparison-only: Ignore and Copy/Move to the other provider are meaningless on the

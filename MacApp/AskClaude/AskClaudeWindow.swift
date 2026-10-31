@@ -151,6 +151,12 @@ final class AskClaudeWindowController {
         if activate { window.makeKeyAndOrderFront(nil) } else { window.orderFront(nil) }
     }
 
+    /// Makes an open panel the key window, so its text box takes the keyboard (TE263).
+    func focus() {
+        guard let window, window.isVisible, !isSuspended else { return }
+        window.makeKeyAndOrderFront(nil)
+    }
+
     func hide() {
         guard let window else { return }
         let wasKey = window.isKeyWindow

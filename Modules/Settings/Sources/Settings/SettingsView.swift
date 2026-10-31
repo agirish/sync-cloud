@@ -2602,7 +2602,7 @@ struct IntelligenceSettingsTab: View {
                                     Text("Not found — renamed or moved?")
                                         .font(.caption)
                                         .foregroundStyle(.orange)
-                                        .help("This folder is hidden by its path. If it was renamed or moved, add it again under its new name.")
+                                        .help("This is hidden by its path. If it was renamed or moved, add it again under its new name.")
                                 }
                                 Button("Remove") {
                                     AskClaudePrivacy.unhide(folder, in: .standard)
@@ -2612,10 +2612,11 @@ struct IntelligenceSettingsTab: View {
                                 .accessibilityLabel("Remove \((folder as NSString).lastPathComponent) from the hidden list")
                             }
                         }
-                        Button("Add Folder…") {
+                        // Files too (TE263, decision EL), as a row's Hide from Claude allows.
+                        Button("Add…") {
                             let panel = NSOpenPanel()
                             panel.canChooseDirectories = true
-                            panel.canChooseFiles = false
+                            panel.canChooseFiles = true
                             panel.allowsMultipleSelection = true
                             panel.prompt = "Hide from Claude"
                             if panel.runModal() == .OK {
@@ -2625,7 +2626,7 @@ struct IntelligenceSettingsTab: View {
                         }
                         .controlSize(.small)
                     }
-                    .help("Claude is never shown what’s in these folders: not their names, not their files. They appear to it only as a count.")
+                    .help("Claude is never shown these folders and files, or what’s in them: not their names, not their contents. They appear to it only as a count. Right-click a row ▸ Hide from Claude adds one too.")
                 }
             }
             .onAppear { askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard) }

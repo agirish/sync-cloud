@@ -121,6 +121,18 @@ struct PaneActionDelegate: FileActionDelegate {
     /// Forwarded from the host's `ComparePick`; nil when no pick is live.
     var armedComparePath: String?
 
+    /// Ask Claude About This and Hide from Claude (TE263). Off unless the window turns it on, so
+    /// the delegate's own tests draw the menus they always did.
+    var canAskClaude = false
+    var onAskClaude: ([String]) -> Void = { _ in }
+    var askClaudeRefusalFor: ([String]) -> String? = { _ in nil }
+    var hiddenFromClaude: (String) -> Bool = { _ in false }
+    var onSetHiddenFromClaude: (FileNode, Bool) -> Void = { _, _ in }
+    /// The Never show Claude list, carried for the reason `ignoreStateToken` is: the row menu's
+    /// Hide or Show label is built with the row, and a change to the list moves nothing else the
+    /// pane compares.
+    var hiddenFromClaudeToken: [String] = []
+
     /// Opts this delegate into `FileTreeView`'s equality (see `FileActionDelegate.isEquivalent`),
     /// which is what lets a pane skip re-rendering — and with it every visible row — when the only
     /// thing that moved was some unrelated corner of the manager.
@@ -154,6 +166,8 @@ struct PaneActionDelegate: FileActionDelegate {
             && servesEditor == other.servesEditor
             && ignoreStateToken == other.ignoreStateToken
             && keptNamesToken == other.keptNamesToken
+            && canAskClaude == other.canAskClaude
+            && hiddenFromClaudeToken == other.hiddenFromClaudeToken
     }
 
     func handleRefresh() {
@@ -374,6 +388,20 @@ struct PaneActionDelegate: FileActionDelegate {
 
     /// A real window is behind this delegate, with a foot to show the run's banner at.
     var canSaveAsPDF: Bool { true }
+
+    func askClaudeRefusal(_ nodes: [FileNode]) -> String? { askClaudeRefusalFor(nodes.map(\.id)) }
+
+    func handleAskClaude(_ nodes: [FileNode]) {
+        guard canAskClaude, !nodes.isEmpty else { return }
+        onAskClaude(nodes.map(\.id))
+    }
+
+    func isHiddenFromClaude(_ node: FileNode) -> Bool { hiddenFromClaude(node.id) }
+
+    func handleSetHiddenFromClaude(_ node: FileNode, hidden: Bool) {
+        guard canAskClaude else { return }
+        onSetHiddenFromClaude(node, hidden)
+    }
 
     func handleSaveAsPDF(paths: [String]) {
         // Only what an engine converts — asserted here as well as in the menu, the shape every

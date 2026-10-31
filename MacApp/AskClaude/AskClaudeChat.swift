@@ -22,6 +22,8 @@ final class AskClaudeChatHolder: ObservableObject {
 @MainActor
 final class AskClaudeVisibility: ObservableObject {
     @Published var isOpen = false
+    /// Bumped to bring an open panel's text box the keyboard (TE263: a row's Ask Claude About This).
+    @Published var focusRequests = 0
 }
 
 @MainActor
@@ -91,6 +93,34 @@ final class AskClaudeChat: ObservableObject {
     private var warnedNearLimit = false
     /// What was typed and not sent when the panel closed; Esc or ✕ doesn't throw it away.
     var draft = ""
+
+    /// A row attached from its menu (TE263), shown as a chip above the text box until sent.
+    struct Attachment: Equatable, Identifiable {
+        let path: String
+        let name: String
+        let isDirectory: Bool
+        var id: String { path }
+    }
+
+    /// What the next question is about, in the order attached. Kept through New Chat: it belongs
+    /// to the question not yet asked, not to the chat.
+    @Published private(set) var attachments: [Attachment] = []
+
+    /// Adds rows to the chips; one already there isn't added twice.
+    func attach(_ items: [Attachment]) {
+        let have = Set(attachments.map(\.path))
+        attachments += items.filter { !have.contains($0.path) }
+    }
+
+    func detach(_ path: String) {
+        attachments.removeAll { $0.path == path }
+    }
+
+    /// The chips, emptied: what the question being sent is about.
+    func takeAttachments() -> [Attachment] {
+        defer { attachments = [] }
+        return attachments
+    }
     /// Counts key changes, so a read that overlapped one isn't cached.
     private var keyChanges = 0
     /// A folder was hidden since this chat began. What Claude already saw of it is in the chat it

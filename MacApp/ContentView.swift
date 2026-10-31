@@ -126,6 +126,9 @@ struct ContentView: View {
     /// switch, `@State` rather than `@StateObject` so the window is not subscribed to Compare's
     /// search field.
     @State var differencesSession = DifferencesSession()
+    /// Bumped when the Never show Claude list changes, so the row menus' Hide or Show label is
+    /// rebuilt with it (TE263): nothing else the window draws from moves.
+    @State var askClaudePrivacyChanges = 0
     /// The PDF tools run from a pane's row menu — see `PanePDFTools`. Owned app-wide by
     /// `ActivityCenter` (Run Room R11), so the Activity window lists its runs too; observed only by
     /// the layer that draws its sheet, so a run's page-by-page progress re-renders that layer and
@@ -5062,7 +5065,13 @@ struct ContentView: View {
             onArmComparePick: { node in armComparePick(node, isLeft: pane.isLeft) },
             onPDFTool: { request, paths in startPanePDFTool(request, paths: paths) },
             onSaveAsPDF: { paths in startSaveAsPDF(paths) },
-            armedComparePath: comparePick?.armed.id)
+            armedComparePath: comparePick?.armed.id,
+            canAskClaude: true,
+            onAskClaude: { askClaudeAttach($0) },
+            askClaudeRefusalFor: { askClaudeRowRefusal($0) },
+            hiddenFromClaude: { askClaudeIsHidden($0) },
+            onSetHiddenFromClaude: { node, hidden in askClaudeSetHidden(node.id, name: node.name, hidden) },
+            hiddenFromClaudeToken: { _ = askClaudePrivacyChanges; return AskClaudePrivacy.hiddenFolders(in: .standard) }())
     }
 
     @ViewBuilder
@@ -5503,7 +5512,8 @@ struct ContentView: View {
             DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, paneRules: paneRules, onQuickLook: { toggleQuickLook($0) }, onGetInfo: { showInfo(for: $0) }, onOpenInEditor: { handOffToEditor($0, pane: .staysPut) }, isCollapsed: $bottomPaneCollapsed, shortcutsSuspended: pendingDestination != nil, onCompareFilePair: { compareDifferencePair = $0 }, session: differencesSession,
                             // One-way sync's pill beside the count (RD67 ED).
                             accessory: AnyView(OneWaySyncStatusPill(onSetUp: { openOneWaySyncSetup() })),
-                            accessoryWidth: OneWaySyncStatusPill.maxWidth)
+                            accessoryWidth: OneWaySyncStatusPill.maxWidth,
+                            askClaude: DifferencesAskClaude(refusal: { askClaudeRowRefusal($0) }, ask: { askClaudeAttach($0) }))
         } else {
             // Compare with nothing to list yet: scanning / all-in-sync / not-scanned placeholder.
                 Group {

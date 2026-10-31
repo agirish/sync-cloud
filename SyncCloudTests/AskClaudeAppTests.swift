@@ -3,6 +3,8 @@ import Foundation
 import SwiftUI
 import Testing
 import Sync
+import Settings
+import FileExplorer
 @testable import SyncCloud
 
 /// Ask Claude's app half (RD69, v7.0): the Browse tools and the thread the panel draws.
@@ -1407,5 +1409,52 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(decoded == items)
         #expect(decoded.map(AskClaudeChat.notWaiting).map(\.kind) == [.download(OffersADownload.download, state: .offered),
                                                                     .download(OffersADownload.download, state: .failed("no room"))])
+    }
+}
+
+@MainActor
+@Suite struct AskClaudeAttachmentTests {
+
+    @Test func chipsAddOnceComeOffAndAreTakenBySend() {
+        let name = "AskClaudeAttachmentTests.chips"
+        let d = UserDefaults(suiteName: name)!
+        d.removePersistentDomain(forName: name)
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
+                                 readKey: { "k" })
+        typealias A = AskClaudeChat.Attachment
+        chat.attach([A(path: "/c/a.pdf", name: "a.pdf", isDirectory: false), A(path: "/c/T", name: "T", isDirectory: true)])
+        chat.attach([A(path: "/c/a.pdf", name: "a.pdf", isDirectory: false), A(path: "/c/b.pdf", name: "b.pdf", isDirectory: false)])
+        #expect(chat.attachments.map(\.name) == ["a.pdf", "T", "b.pdf"])
+        chat.detach("/c/T")
+        #expect(chat.attachments.map(\.name) == ["a.pdf", "b.pdf"])
+        // New Chat keeps them: they belong to the question not yet asked.
+        chat.startOver()
+        #expect(chat.attachments.count == 2)
+        #expect(chat.takeAttachments().map(\.name) == ["a.pdf", "b.pdf"])
+        #expect(chat.attachments.isEmpty)
+    }
+
+    @Test func theRowMenusHideOrShowLabelFollowsTheList() {
+        let manager = FileSyncManager()
+        let settings = SettingsManager()
+        func delegate(_ token: [String], asks: Bool = true) -> PaneActionDelegate {
+            var d = PaneActionDelegate(
+                handler: nil, syncManager: manager, settings: settings, isLeft: true,
+                leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false, servesEditor: false,
+                forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
+                ignoreStateToken: [], keptNamesToken: [],
+                onFindDuplicatesOf: { _ in },
+                onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in },
+                onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
+            d.canAskClaude = asks
+            d.hiddenFromClaudeToken = token
+            return d
+        }
+        let a = delegate(["/c/Private"])
+        // The control: nothing changed, so the pane may skip its redraw.
+        #expect(a.isEquivalent(to: delegate(["/c/Private"])))
+        // A changed list makes the pane redraw, so the menus built with its rows read it again.
+        #expect(!a.isEquivalent(to: delegate(["/c/Private", "/c/Lease.pdf"])))
+        #expect(!a.isEquivalent(to: delegate(["/c/Private"], asks: false)))
     }
 }

@@ -129,6 +129,8 @@ struct AskClaudePanel: View {
         }
         // Kept as it's typed: a window torn down needn't say goodbye to its views.
         .onChange(of: draft) { _, typed in chat.draft = typed }
+        // Something attached from a row's menu: the caret goes to the box for the question (TE263).
+        .onChange(of: chat.attachments) { _, now in if !now.isEmpty { composerFocused = true } }
         .onReceive(NotificationCenter.default.publisher(for: AskClaudeSpend.didChange)) { _ in refreshSpent() }
         // The limit is set in Settings, which writes it straight to the defaults.
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification).receive(on: RunLoop.main)) { _ in refreshSpent() }
@@ -320,6 +322,7 @@ struct AskClaudePanel: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if !chat.attachments.isEmpty { attachmentChips }
             HStack(spacing: 6) {
                 TextField("Ask a question, or say what to open", text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
@@ -348,6 +351,34 @@ struct AskClaudePanel: View {
             .overlay(RoundedRectangle(cornerRadius: Radius.well).strokeBorder(.separator.opacity(0.6)))
         }
         .padding(12)
+    }
+
+    /// What the next question is about (TE263): a chip per row attached from its menu, each with ✕.
+    private var attachmentChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(chat.attachments) { item in
+                    HStack(spacing: 4) {
+                        Image(systemName: item.isDirectory ? "folder" : "doc")
+                            .foregroundStyle(.secondary)
+                        Text(item.name).lineLimit(1).truncationMode(.middle)
+                        Button { chat.detach(item.path) } label: {
+                            Image(systemName: "xmark").font(.caption2.weight(.semibold))
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Remove")
+                        .accessibilityLabel("Remove \(item.name)")
+                    }
+                    .font(.caption)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(.quaternary.opacity(0.7), in: Capsule())
+                    .help(item.path)
+                    .frame(maxWidth: 200)
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Attached")
     }
 
     private func send() {

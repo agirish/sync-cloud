@@ -151,6 +151,8 @@ public struct DifferencesView: View {
     /// learned the same thing — see `CompareOverlayMetrics` — so both hosts hand the pair up and
     /// `ContentView` presents it against the live window.
     private let onCompareFilePair: (DifferencePair) -> Void
+    /// Ask Claude About This on rows (TE263); nil withholds the items.
+    private let askClaude: DifferencesAskClaude?
 
     /// - Parameters:
     ///   - reviewStore: The host-owned guided-review state (`@StateObject` at the host, NOT
@@ -163,7 +165,8 @@ public struct DifferencesView: View {
     ///     action, one per side that holds a text file). The app routes this to the same
     ///     `handOffToEditor` every other door uses, told to leave the left pane where it is —
     ///     here it is half of the comparison; `nil` hides the items.
-    public init(syncManager: FileSyncManager, reviewStore: ReviewSessionStore, paneNames: PaneProviderNames = .leftRight, paneRules: PaneProviderRules = .strictest, onQuickLook: ((URL) -> Void)? = nil, onGetInfo: @escaping (String) -> Void = { _ in }, onOpenInEditor: ((String) -> Void)? = nil, isCollapsed: Binding<Bool>? = nil, shortcutsSuspended: Bool = false, onCompareFilePair: @escaping (DifferencePair) -> Void = { _ in }, session: DifferencesSession? = nil, accessory: AnyView? = nil, accessoryWidth: CGFloat = 0) {
+    public init(syncManager: FileSyncManager, reviewStore: ReviewSessionStore, paneNames: PaneProviderNames = .leftRight, paneRules: PaneProviderRules = .strictest, onQuickLook: ((URL) -> Void)? = nil, onGetInfo: @escaping (String) -> Void = { _ in }, onOpenInEditor: ((String) -> Void)? = nil, isCollapsed: Binding<Bool>? = nil, shortcutsSuspended: Bool = false, onCompareFilePair: @escaping (DifferencePair) -> Void = { _ in }, session: DifferencesSession? = nil, accessory: AnyView? = nil, accessoryWidth: CGFloat = 0, askClaude: DifferencesAskClaude? = nil) {
+        self.askClaude = askClaude
         self.accessory = accessory
         self.accessoryWidth = accessory == nil ? 0 : accessoryWidth
         self.syncManager = syncManager
@@ -2200,6 +2203,9 @@ public struct DifferencesView: View {
     @ViewBuilder
     private func singleRowMenu(for difference: FileDifference, id: FileDifference.ID) -> some View {
         inspectionMenuItems(for: difference)
+        if let askClaude {
+            askClaudeItem(askClaude, rows: [difference])
+        }
         Divider()
         let copyDirections = DifferenceRowMenu.copyDirections(for: difference)
         if copyDirections.contains(.copyToRight) { rowCopyButton(id: id, direction: .copyToRight) }
@@ -2297,6 +2303,10 @@ public struct DifferencesView: View {
         }
     }
 
+    private func askClaudeItem(_ askClaude: DifferencesAskClaude, rows: [FileDifference]) -> some View {
+        DifferencesAskClaudeItem(askClaude: askClaude, rows: rows, paneNames: paneNames)
+    }
+
     /// Read-only row actions — Compare…, Open in Edit, and per-side Get Info/Reveal/Quick Look/
     /// Copy Path for the sides that exist. Shared by the normal single-row menu and the review
     /// table's menu (which offers only these). The items themselves are `DifferenceInspectionMenu`,
@@ -2338,6 +2348,10 @@ public struct DifferencesView: View {
             .disabled(isSyncActionBlocked)
         }
         Divider()
+        if let askClaude {
+            askClaudeItem(askClaude, rows: selected)
+            Divider()
+        }
         Button {
             // Ids again rather than the snapshot: `ignoringAll` reads each row's paths, and a row
             // whose paths moved would otherwise be ignored under the path it used to have.
@@ -2774,5 +2788,42 @@ private extension View {
     /// stays, drawn on the glass — and is its only edge: Clear's rim under it doubled it.
     func compareBarGlass(when enabled: Bool = true) -> some View {
         chromeGlassGround(.capsule, rim: false, when: enabled)
+    }
+}
+
+/// Ask Claude About This on Compare's differences rows (TE263): why it can't take these paths now
+/// (hidden, busy), or nil; and the hand-off that opens the panel with them attached.
+public struct DifferencesAskClaude {
+    public let refusal: ([String]) -> String?
+    public let ask: ([String]) -> Void
+
+    public init(refusal: @escaping ([String]) -> String?, ask: @escaping ([String]) -> Void) {
+        self.refusal = refusal
+        self.ask = ask
+    }
+}
+
+/// Ask Claude About This on differences rows (TE263): the sides that exist of each row, attached
+/// for the question. A view of its own so a test can host and draw it.
+struct DifferencesAskClaudeItem: View {
+    let askClaude: DifferencesAskClaude
+    let rows: [FileDifference]
+    let paneNames: PaneProviderNames
+
+    var paths: [String] {
+        rows.flatMap { DifferenceRowMenu.existingSides(for: $0, paneNames: paneNames).map(\.path) }
+    }
+
+    var body: some View {
+        let paths = paths
+        let refusal = askClaude.refusal(paths)
+        Button {
+            guard askClaude.refusal(paths) == nil else { return }
+            askClaude.ask(paths)
+        } label: {
+            Label(AskClaudeMenuItems.askTitle(rows.count), systemImage: "bubble.left.and.text.bubble.right")
+        }
+        .disabled(refusal != nil || paths.isEmpty)
+        .help(refusal ?? "Opens Ask Claude with \(rows.count == 1 ? "this difference" : "these differences") attached, for your question.")
     }
 }

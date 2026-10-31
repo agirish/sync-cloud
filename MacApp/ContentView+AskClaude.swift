@@ -26,7 +26,7 @@ extension ContentView {
                            accent: glassHue.accentColor,
                            accentFill: glassHue.accentFillColor,
                            onAccent: glassHue.onAccentLabelColor,
-                           onAsk: { askClaudeAsk($0) },
+                           onAsk: { askClaudeSend($0) },
                            onClose: { toggleAskClaude() },
                            onOpenSettings: { openSettings(on: .intelligence) },
                            container: container,
@@ -45,7 +45,8 @@ extension ContentView {
     /// edge of what the type checker solves in time, and a generic closure there tipped it over.
     var askClaudeHost: AskClaudeHost {
         AskClaudeHost(visibility: askClaudeHolder.visibility, isBusy: askClaudeStateBusy != nil,
-                      panel: { AnyView(askClaudeOverlay(in: $0, onPlace: $1)) }, toggle: askClaudeChordBinding)
+                      panel: { AnyView(askClaudeOverlay(in: $0, onPlace: $1)) }, toggle: askClaudeChordBinding,
+                      onPrivacyChange: { askClaudePrivacyChanges += 1 })
     }
 
     /// ⌘J’s binding: nil while a destination pick is up, as the toolbar button is disabled then.
@@ -60,19 +61,79 @@ extension ContentView {
         AskClaudeBrowseTools(context: { askClaudeToolsContext() })
     }
 
-    func askClaudeAsk(_ question: String, shown: String? = nil) {
+    func askClaudeAsk(_ question: String, shown: String? = nil, attached: [AskClaudeChat.Attachment] = []) {
         let tools = askClaudeTools()
+        let attachedRows = askClaudeAttachedRows(attached)
         // TE241: a folder the pane hasn't loaded is read from disk first, so the screen is never
         // sent empty while the person is looking at files.
         let folder = AskClaudeBrowseTools.absolute(askClaudeFolder, root: askClaudeRoot)
         guard askClaudeItems(folder) == nil else {
-            askClaudeChat.ask(question, shown: shown, screen: askClaudeScreen(), tools: tools)
+            var screen = askClaudeScreen()
+            screen.attached = attachedRows
+            askClaudeChat.ask(question, shown: shown, screen: screen, tools: tools)
             return
         }
         askClaudeChat.ask(question, shown: shown, preparing: {
             let fromDisk = await AskClaudeDisk.list(folder) ?? []
-            return askClaudeScreen(fallbackRows: fromDisk)
+            var screen = askClaudeScreen(fallbackRows: fromDisk)
+            screen.attached = attachedRows
+            return screen
         }, tools: tools)
+    }
+
+    /// The text box's Send: the question, about the chips above it (TE263). A chip hidden from
+    /// Claude since it was attached is dropped, never sent.
+    func askClaudeSend(_ question: String) {
+        guard !askClaudeChat.isRunning else { return }
+        let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
+        let attached = askClaudeChat.takeAttachments().filter { !hidden.isHidden($0.path) }
+        let shown = attached.isEmpty ? nil : question + "\nAbout " + attached.map(\.name).joined(separator: ", ")
+        askClaudeAsk(question, shown: shown, attached: attached)
+    }
+
+    /// Each attached item as the card lists it: its row, and where it lives by source and folder.
+    private func askClaudeAttachedRows(_ attached: [AskClaudeChat.Attachment]) -> [AskClaudeScreen.Attached] {
+        attached.map { item in
+            let node = AskClaudeDisk.node(atPath: item.path)
+                ?? FileNode(id: item.path, name: item.name, isDirectory: item.isDirectory)
+            let parent = (item.path as NSString).deletingLastPathComponent
+            var place = (parent as NSString).lastPathComponent
+            if let source = AskClaudeBrowseTools.closestSource(containing: item.path, in: askClaudeSources) {
+                let folder = AskClaudeBrowseTools.relativeIfInside(parent, root: source.root) ?? ""
+                place = folder.isEmpty ? source.name : "\(source.name) › \(folder)"
+            }
+            return AskClaudeScreen.Attached(row: AskClaudeBrowseTools.row(node), place: place)
+        }
+    }
+
+    /// A row's Ask Claude About This (TE263): the panel opens, or comes forward, with these attached
+    /// above its text box and the caret in it.
+    func askClaudeAttach(_ paths: [String]) {
+        let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
+        let items = paths.filter { !hidden.isHidden($0) }.map { path in
+            var isFolder: ObjCBool = false
+            let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isFolder)
+            return AskClaudeChat.Attachment(path: path, name: (path as NSString).lastPathComponent, isDirectory: exists && isFolder.boolValue)
+        }
+        guard !items.isEmpty else { return }
+        askClaudeChat.attach(items)
+        Logger.shared.info("Ask Claude: attached \(items.count) item\(items.count == 1 ? "" : "s") from a row’s menu")
+        askClaudeHolder.visibility.isOpen = true
+        askClaudeHolder.visibility.focusRequests += 1
+    }
+
+    /// Why a row's Ask Claude About This can't take these, for its tooltip, or nil (TE263).
+    func askClaudeRowRefusal(_ paths: [String]) -> String? {
+        let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
+        let hiddenCount = paths.filter { hidden.isHidden($0) }.count
+        guard hiddenCount > 0 else { return nil }
+        return paths.count == 1 ? "It’s hidden from Claude. Show it to Claude first."
+            : "\(hiddenCount) of these \(hiddenCount == 1 ? "is" : "are") hidden from Claude."
+    }
+
+    /// Whether a row is on the Never show Claude list, itself or through a folder above it.
+    func askClaudeIsHidden(_ path: String) -> Bool {
+        AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard)).isHidden(path)
     }
 
     /// A download card's buttons (TE258). Download checks again at the click, waits, and then
@@ -120,6 +181,13 @@ extension ContentView {
     func askClaudeSetCurrentFolderHidden(_ hidden: Bool) {
         let folder = AskClaudeBrowseTools.absolute(askClaudeFolder, root: askClaudeRoot)
         let name = askClaudeFolder.isEmpty ? askClaudeSourceName : (askClaudeFolder as NSString).lastPathComponent
+        askClaudeSetHidden(folder, name: name, hidden)
+    }
+
+    /// Puts a folder or file on the Never show Claude list, or takes it off, and says so in the
+    /// thread (TE246; files too, TE263). Taken off by whichever entry covers it: itself, or a
+    /// folder above it.
+    func askClaudeSetHidden(_ folder: String, name: String, _ hidden: Bool) {
         if hidden {
             AskClaudePrivacy.hide(folder, in: .standard)
             askClaudeChat.addNote("Hid \(name) from Claude. Your next question starts a new chat, so nothing Claude saw of it stays.")
@@ -458,10 +526,13 @@ struct AskClaudeHost: ViewModifier {
     let isBusy: Bool
     let panel: (CGSize, @escaping (CGRect) -> Void) -> AnyView
     let toggle: Binding<Bool>?
+    /// The Never show Claude list changed (TE263: the row menus' labels follow it).
+    var onPrivacyChange: () -> Void = {}
 
     func body(content: Content) -> some View {
         content
             .overlay(alignment: .topTrailing) { AskClaudeOverlay(visibility: visibility, isBusy: isBusy, panel: panel) }
+            .onReceive(NotificationCenter.default.publisher(for: AskClaudePrivacy.didChange)) { _ in onPrivacyChange() }
             .focusedSceneValue(\.askClaude, toggle)
             // The View menu's tick reads this, so it follows the panel without the window redrawing.
             .focusedSceneObject(visibility)
@@ -492,6 +563,8 @@ private struct AskClaudeOverlay: View {
                 .frame(width: geo.size.width, height: geo.size.height)
         }
         .onReceive(NotificationCenter.default.publisher(for: AskClaudePrivacy.didChange)) { _ in privacyChanges += 1 }
+        // A row's Ask Claude About This brings an open panel's text box the keyboard (TE263).
+        .onChange(of: visibility.focusRequests) { controller.focus() }
     }
 }
 
