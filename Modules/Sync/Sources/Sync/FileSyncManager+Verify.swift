@@ -490,7 +490,22 @@ extension FileSyncManager {
     /// every filing scan before its list appears — so a 5 GB file would add seconds of reading
     /// nobody asked for. Larger pairs stay listed for Verify All, which the user starts and can
     /// stop; a larger loose file is simply not checked against the tree.
-    nonisolated static let unaskedPassMaxFileBytes = 100 * 1024 * 1024
+    ///
+    /// **100,000,000 bytes, not 100 MiB**: sizes are shown in decimal units (`formatBytes`, as
+    /// Finder does), so this is the number the Settings help can call "100 MB" and mean it.
+    ///
+    /// Checked against the file's size at the moment it would be read (``isWithinUnaskedLimit``),
+    /// not only the size a scan recorded: a download still landing grows past it in between.
+    nonisolated static let unaskedPassMaxFileBytes = 100_000_000
+
+    /// Whether `path` is small enough, right now, for a pass nobody asked for to read it whole.
+    /// Its size as the hash would read it (``FileContentVerifier/sizeForHash``); unknown counts as
+    /// too large, the safe answer for a pass that can simply leave the file for later. Synchronous
+    /// file metadata: call it off the main actor.
+    nonisolated static func isWithinUnaskedLimit(_ path: String, fileManager: FileManaging) -> Bool {
+        (FileContentVerifier.sizeForHash(filePath: path, fileManager: fileManager) ?? .max)
+            <= unaskedPassMaxFileBytes
+    }
 
     /// The scan-time checksum pass behind `autoVerifySameSizeDuringScan`: hashes each pair that
     /// only differs by date (same size, both sides present) and silently hides the identical
@@ -536,6 +551,9 @@ extension FileSyncManager {
             progress: ProgressRef(progress),
             reportCompleted: { _ in }
         ) { diff in
+            // The scan's recorded size let this pair in; what the hash would read now decides.
+            guard Self.isWithinUnaskedLimit(diff.leftItemPath, fileManager: activeFM),
+                  Self.isWithinUnaskedLimit(diff.rightItemPath, fileManager: activeFM) else { return }
             let same = await FileContentVerifier.filesHaveSameContent(
                 leftPath: diff.leftItemPath,
                 rightPath: diff.rightItemPath,

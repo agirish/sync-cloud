@@ -134,10 +134,12 @@ import Testing
                 "a document the tree already holds must not be filed by the blind batch")
     }
 
-    /// The same fixture as the test above, with the loose file recorded one byte over
-    /// `unaskedPassMaxFileBytes`: it is not read, so it is not marked. The filing scan runs unasked
-    /// on every pass, and a 10 GB download in the inbox would otherwise be read whole for this.
-    @Test func aLooseFileOverTheUnaskedLimitIsNotRead() async throws {
+    /// A loose file one byte over `unaskedPassMaxFileBytes` is not read, even when its suggestion
+    /// records its size as 0 — what a walk that could not size it leaves. The filing scan runs
+    /// unasked on every pass, and a 10 GB download in the inbox would otherwise be read whole.
+    /// The session cache is the witness (a byte hash stores its digest there), and a small loose
+    /// file in the same pass, also recorded as 0, is the control: it is read, and cached.
+    @Test func aLooseFileOverTheUnaskedLimitIsNotReadWhateverItsRecordedSize() async throws {
         let root = try makeCanonicalTempRoot(prefix: "AlreadyFiledScanLarge")
         defer { try? FileManager.default.removeItem(at: root) }
         let indexDir = root.appendingPathComponent("index")
@@ -145,9 +147,7 @@ import Testing
 
         let payload = Data(repeating: 0x50, count: 4096)
         let filed = root.appendingPathComponent("Work/Pay/payslip-june.jpg")
-        let loose = root.appendingPathComponent("Downloads/Payslip.jpg")
         try Self.write(filed, payload)
-        try Self.write(loose, payload)
         let hex = await FileSyncManager.hashFiles([filed.path], fileManager: FileManager.default,
                                                   cache: nil)[filed.path] ?? ""
         try #require(!hex.isEmpty, "the fixture could not hash its own file")
@@ -156,18 +156,35 @@ import Testing
             to: indexDir.appendingPathComponent("content-hash-index.json"))
         ContentHashIndexStore.waitForPendingWrites()
 
+        // A sparse file: over the limit on disk, holding no blocks.
+        let large = root.appendingPathComponent("Downloads/Installer.dmg")
+        try Self.write(large, Data())
+        let handle = try FileHandle(forWritingTo: large)
+        try handle.truncate(atOffset: UInt64(FileSyncManager.unaskedPassMaxFileBytes + 1))
+        try handle.close()
+        let small = root.appendingPathComponent("Downloads/Note.jpg")
+        try Self.write(small, Data(repeating: 0x51, count: 2048))
+
+        func suggestion(_ url: URL) -> FilingSuggestion {
+            FilingSuggestion(filePath: url.path, fileName: url.lastPathComponent, size: 0, modificationDate: nil,
+                             candidates: [FilingDestination(path: root.appendingPathComponent("Work/Pay").path,
+                                                            confidence: .high, reasons: ["r"], newSegments: [])],
+                             providerRoot: root.path)
+        }
+        func cachedDigest(_ url: URL) async throws -> String? {
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            let size = try #require((attributes[.size] as? NSNumber)?.intValue)
+            let key = try #require(FileContentVerifier.cacheKey(statPath: url.path, attributes: attributes, size: size))
+            return await ContentHashCache.shared.hash(for: key)
+        }
+
         let m = FileSyncManager()
         m.contentIndexDirectory = indexDir
-        let marked = await m.markingAlreadyFiled([
-            FilingSuggestion(filePath: loose.path, fileName: "Payslip.jpg",
-                             size: FileSyncManager.unaskedPassMaxFileBytes + 1, modificationDate: nil,
-                             candidates: [FilingDestination(path: root.appendingPathComponent("Work/Pay").path,
-                                                            confidence: .high, reasons: ["r"],
-                                                            newSegments: [])],
-                             providerRoot: root.path)
-        ], providerRoot: root.path)
+        let marked = await m.markingAlreadyFiled([suggestion(large), suggestion(small)], providerRoot: root.path)
 
-        #expect(try #require(marked.first).isAlreadyFiled == false)
+        #expect(marked.allSatisfy { !$0.isAlreadyFiled })
+        #expect(try await cachedDigest(large) == nil, "the file over the limit was read")
+        #expect(try await cachedDigest(small) != nil, "the control was not read, so the witness proves nothing")
     }
 
     /// **A digest the textless store has since outdated names nothing.** The filed copy's newest

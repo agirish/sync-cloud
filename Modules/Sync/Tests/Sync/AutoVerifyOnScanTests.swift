@@ -89,6 +89,37 @@ import Foundation
         #expect(manager.differences.map(\.id) == [overLimit.id])
     }
 
+    /// The limit is checked against the files as they are when the pass reaches them, not only
+    /// the size the scan recorded: a pair recorded at 9 bytes that has since grown one byte past
+    /// the limit — a download still landing — is left listed, not read whole. The identical
+    /// 9-byte pair in the test above, hidden, is the control.
+    @MainActor
+    @Test func aPairThatGrewPastTheLimitSinceTheScanIsNotRead() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+        for path in [fixture.identical.leftItemPath, fixture.identical.rightItemPath] {
+            let handle = try FileHandle(forWritingTo: URL(fileURLWithPath: path))
+            try handle.truncate(atOffset: UInt64(FileSyncManager.unaskedPassMaxFileBytes + 1))
+            try handle.close()
+        }
+        manager.rawDifferences = [fixture.identical]
+        manager.differences = [fixture.identical]
+
+        await manager.autoVerifySameSizePairs(scanGeneration: manager.scanRequestGeneration)
+
+        #expect(manager.verifiedSameDifferenceIds.isEmpty)
+        #expect(manager.differences.map(\.id) == [fixture.identical.id])
+    }
+
+    /// The limit is 100,000,000 bytes because the app shows sizes in decimal units, so the Settings
+    /// help's "100 MB" is the limit as the user reads any file's size. A binary 100 MiB would format
+    /// as "104.9 MB".
+    @Test func theUnaskedLimitReadsAsTheHundredMegabytesTheHelpSays() {
+        #expect(FileSyncManager.formatBytes(FileSyncManager.unaskedPassMaxFileBytes) == "100 MB")
+        #expect(FileSyncManager.formatBytes(FileSyncManager.unaskedPassMaxFileBytes + 1_000_000) != "100 MB")
+    }
+
     @MainActor
     @Test func testSupersededScanPublishesNothing() async throws {
         let fixture = try makeFixture()

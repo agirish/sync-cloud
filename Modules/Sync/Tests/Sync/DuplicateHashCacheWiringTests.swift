@@ -166,6 +166,41 @@ import Foundation
         #expect(after.duplicateGroups.isEmpty)
     }
 
+    /// A size whose every large candidate already has its digest cached is not edge-sampled: the
+    /// full hash answers each from the cache, so the 2 MB read per file bought nothing. The
+    /// cloud-only seam is the witness — a sample asks it before opening a file, and a cache hit in
+    /// the full hash returns before asking. With only one digest cached, both files are sampled:
+    /// that is the control, and the reason a partly cached size is sampled whole.
+    @MainActor
+    @Test func aFullyCachedSizeIsNotEdgeSampled() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "DuplicateCacheNoSample")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let a = root.appendingPathComponent("A/movie.mp4")
+        let b = root.appendingPathComponent("B/movie.mp4")
+        try write(a, bytes: 5000, fill: 0x42)
+        try write(b, bytes: 5000, fill: 0x42)
+        let real = try #require(await FileContentVerifier.sha256Hex(filePath: a.path))
+
+        func scan(planting: [URL]) async throws -> (asked: [String], groups: Int) {
+            let cache = ContentHashCache()
+            for url in planting { await cache.store(real, for: try key(for: url)) }
+            let asked = LockedBox<[String]>([])
+            let manager = FileSyncManager()
+            await manager.findDuplicates(root: root, sampleAbove: 1000,
+                                         isCloudOnly: { path in asked.withLock { $0.append(path) }; return false },
+                                         cache: cache)
+            return (asked.withLock { $0 }, manager.duplicateGroups.count)
+        }
+
+        let warm = try await scan(planting: [a, b])
+        #expect(warm.asked.isEmpty, "a fully cached size was sampled: \(warm.asked)")
+        #expect(warm.groups == 1)
+
+        let partial = try await scan(planting: [a])
+        #expect(Set(partial.asked).isSuperset(of: [a.path, b.path]))
+        #expect(partial.groups == 1)
+    }
+
     /// `planMerge` decides "the keeper already has this content at this path" from a hash compare,
     /// and it re-hashes the WHOLE keeper tree once per redundant copy — the merge path's real cost.
     /// Plant matching digests for a keeper/copy pair and the step disappears from the plan.

@@ -13141,10 +13141,11 @@ including Verify All's and a merge's Stop. Verify All, Compare Copies, Review an
 size; Verify All, Review and the CLI stop a pair's reads once one side cannot be hashed, and Review
 and Compare Copies stop their checks when they close. The two passes nobody asks for —
 the optional scan-time verify and the filing scan's already-filed check — keep a 100 MB per-file
-limit (`unaskedPassMaxFileBytes`). Merge planning hashes only files with a same-size counterpart
+limit (`unaskedPassMaxFileBytes`, 100,000,000 bytes), checked against each file's size when it is
+read. Merge planning hashes only files with a same-size counterpart
 on the other side. The duplicate scan hashes large files too, but first compares the first and
 last 1 MB of same-size files over 100 MB (`duplicateEdgeSampleAbove`) and reads whole only those
-that match. Its skip note loses "too large to hash".
+that match; a size whose digests are all cached is not sampled. Its skip note loses "too large to hash".
 
 ```sh
 for l in main v5.x v4.x v3.x v2.x; do printf '%-5s cap=%s skipNote=%s edgeSample=%s\n' $l \

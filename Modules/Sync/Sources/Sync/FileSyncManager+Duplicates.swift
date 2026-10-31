@@ -244,7 +244,8 @@ extension FileSyncManager {
         //    see `duplicateEdgeSampleAbove` for why, and `candidatesNeedingFullHash` for the rule.
         let large = candidates.filter { $0.size > sampleAbove }
         let samples = large.isEmpty ? [:]
-            : await Self.edgeSamples(large, isCloudOnly: isCloudOnly)
+            : await Self.edgeSamples(large, fileManager: fileManager, cache: cache,
+                                     isCloudOnly: isCloudOnly)
         if Task.isCancelled { return }
         let candidatePaths = Self.candidatesNeedingFullHash(candidates, samples: samples,
                                                             sampleAbove: sampleAbove)
@@ -2846,15 +2847,45 @@ extension FileSyncManager {
     /// Their first and last megabyte almost always differ already, and a difference anywhere is
     /// proof, so only files whose ends match another's are read whole. Copies always match there,
     /// so the sample never hides a duplicate; it only spares the reads that could not find one.
-    public nonisolated static let duplicateEdgeSampleAbove = 100 * 1024 * 1024
+    public nonisolated static let duplicateEdgeSampleAbove = 100_000_000
 
     /// ``FileContentVerifier/edgeSample`` of each file, with bounded concurrency — path → sample,
     /// missing where none could be taken. The same width and lane as ``hashFilesCounting``.
+    ///
+    /// **A size whose every file already has its digest in `cache` is not sampled.** The full hash
+    /// will answer each one from the cache without a read, so its 2 MB per file bought nothing —
+    /// on a warm rescan, every large candidate. It is left unsampled, which keeps it whole for the
+    /// full hash (``candidatesNeedingFullHash``). A size with any uncached file is sampled whole:
+    /// samples can only be compared with samples.
     nonisolated static func edgeSamples(
         _ files: [(path: String, size: Int)],
         maxConcurrent: Int = 6,
+        fileManager: FileManaging,
+        cache: ContentHashCache?,
         isCloudOnly: @escaping @Sendable (String) -> Bool
     ) async -> [String: String] {
+        var files = files
+        if let cache {
+            var cached = Set<String>()
+            await withTaskGroup(of: (String, Bool).self) { group in
+                var next = 0
+                func schedule(_ path: String) {
+                    group.addTask {
+                        (path, await FileContentVerifier.cachedDigest(filePath: path, fileManager: fileManager,
+                                                                      cache: cache) != nil)
+                    }
+                }
+                while next < min(maxConcurrent, files.count) { schedule(files[next].path); next += 1 }
+                for await (path, isCached) in group {
+                    if isCached { cached.insert(path) }
+                    if Task.isCancelled { group.cancelAll(); continue }
+                    if next < files.count { schedule(files[next].path); next += 1 }
+                }
+            }
+            let sizes = Dictionary(grouping: files, by: \.size)
+            let fullyCached = Set(sizes.filter { $0.value.allSatisfy { cached.contains($0.path) } }.keys)
+            files = files.filter { !fullyCached.contains($0.size) }
+        }
         var samples: [String: String] = [:]
         var next = 0
         await withTaskGroup(of: (String, String?).self) { group in

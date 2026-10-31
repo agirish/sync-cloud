@@ -95,32 +95,10 @@ public enum FileContentVerifier {
             // to key. Folding all four into that one raw stat would leave the `FileManaging` seam
             // and re-derive the mtime from a `timespec`, where a persisted key needs Foundation's
             // exact `Date` value (see the descriptor note below).
-            guard let linkAttributes = try? fileManager.attributesOfItem(atPath: path) else {
-                // Missing or unreadable — the verdict `fileExists` used to return here.
+            guard let stat = Self.statForHash(filePath: path, fileManager: fileManager) else {
                 return .unverifiable
             }
-            // `attributesOfItem` does not resolve a trailing symlink (lstat semantics) while
-            // the FileHandle read below follows it, so a symlinked file would stat as the
-            // link's own byte count and never verify. Stat the resolved path for links; a
-            // broken link fails that second read, which is where it now returns instead of at
-            // the `fileExists` above (which resolved, and failed).
-            var statPath = path
-            var attributes = linkAttributes
-            if (linkAttributes[.type] as? FileAttributeType) == .typeSymbolicLink {
-                statPath = (path as NSString).resolvingSymlinksInPath
-                guard let resolved = try? fileManager.attributesOfItem(atPath: statPath) else {
-                    return .unverifiable
-                }
-                attributes = resolved
-            }
-            // **On the RESOLVED attributes, deliberately.** `fileExists(atPath:isDirectory:)`
-            // followed the link before answering, so a symlink pointing at a directory was
-            // unverifiable; asking the link's own attributes instead would call it a file and
-            // go on to hash it.
-            guard (attributes[.type] as? FileAttributeType) != .typeDirectory,
-                  let size = (attributes[.size] as? NSNumber)?.intValue else {
-                return .unverifiable
-            }
+            let (statPath, attributes, size) = stat
             // Build the cache key from the same resolved path. When mtime is unavailable the file
             // is hashed normally but never cached (no stable key); with no cache there is nothing
             // to key, so the identity stat is skipped.
@@ -204,6 +182,59 @@ public enum FileContentVerifier {
             return .hashed(hex)
         }
         return await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
+    }
+
+    /// The stat a hash of `path` rests on: the path it reads (a symlink's target), that path's
+    /// attributes, and its size. nil wherever ``hashOutcome`` answers `.unverifiable` before reading
+    /// — missing, unreadable, a directory, a broken link, no size. One spelling, so the callers that
+    /// decide whether a hash is worth running ask about exactly the bytes the hash would read.
+    static func statForHash(filePath path: String, fileManager: FileManaging)
+        -> (statPath: String, attributes: [FileAttributeKey: Any], size: Int)? {
+        guard let linkAttributes = try? fileManager.attributesOfItem(atPath: path) else {
+            // Missing or unreadable — the verdict `fileExists` used to return here.
+            return nil
+        }
+        // `attributesOfItem` does not resolve a trailing symlink (lstat semantics) while
+        // the FileHandle read below follows it, so a symlinked file would stat as the
+        // link's own byte count and never verify. Stat the resolved path for links; a
+        // broken link fails that second read, which is where it now returns instead of at
+        // the `fileExists` above (which resolved, and failed).
+        var statPath = path
+        var attributes = linkAttributes
+        if (linkAttributes[.type] as? FileAttributeType) == .typeSymbolicLink {
+            statPath = (path as NSString).resolvingSymlinksInPath
+            guard let resolved = try? fileManager.attributesOfItem(atPath: statPath) else {
+                return nil
+            }
+            attributes = resolved
+        }
+        // **On the RESOLVED attributes, deliberately.** `fileExists(atPath:isDirectory:)`
+        // followed the link before answering, so a symlink pointing at a directory was
+        // unverifiable; asking the link's own attributes instead would call it a file and
+        // go on to hash it.
+        guard (attributes[.type] as? FileAttributeType) != .typeDirectory,
+              let size = (attributes[.size] as? NSNumber)?.intValue else {
+            return nil
+        }
+        return (statPath, attributes, size)
+    }
+
+    /// The size a hash of `path` would read now (``statForHash``), or nil when it could not be
+    /// hashed at all. Synchronous file metadata: call it off the main actor.
+    public static func sizeForHash(filePath path: String, fileManager: FileManaging = FileManager.default) -> Int? {
+        statForHash(filePath: path, fileManager: fileManager)?.size
+    }
+
+    /// The digest ``hashOutcome`` would serve from `cache` without reading a byte, or nil when it
+    /// would have to read. On the hash's lane: it stats the file.
+    static func cachedDigest(filePath path: String, fileManager: FileManaging,
+                             cache: ContentHashCache) async -> String? {
+        await Task.detached(priority: .utility) { () -> String? in
+            guard let stat = Self.statForHash(filePath: path, fileManager: fileManager),
+                  let key = Self.cacheKey(statPath: stat.statPath, attributes: stat.attributes,
+                                          size: stat.size) else { return nil }
+            return await cache.hash(for: key)
+        }.value
     }
 
     /// Bytes read from each end of a file by ``edgeSample``.
