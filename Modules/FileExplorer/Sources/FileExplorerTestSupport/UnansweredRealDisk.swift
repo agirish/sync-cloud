@@ -8,6 +8,8 @@ import Sync
 public final class UnansweredRealDisk: FileManaging, @unchecked Sendable {
     private let base = FileManager.default
     private let unanswered: String
+    /// `unanswered` as the reads key it: symlinks resolved (`/var` is `/private/var`).
+    private let unansweredKey: String
     public let datalessFolderReads: FileSyncManager.DatalessFolderReads
     /// Signalled when the provider is first asked.
     public let entered = DispatchSemaphore(value: 0)
@@ -19,6 +21,7 @@ public final class UnansweredRealDisk: FileManaging, @unchecked Sendable {
 
     public init(unanswered: String, reads: FileSyncManager.DatalessFolderReads) {
         self.unanswered = unanswered
+        self.unansweredKey = URL(fileURLWithPath: unanswered).resolvingSymlinksInPath().path
         self.datalessFolderReads = reads
     }
 
@@ -46,8 +49,17 @@ public final class UnansweredRealDisk: FileManaging, @unchecked Sendable {
         parked = true
         lock.unlock()
         entered.signal()
-        // Two minutes, so "came back while still parked" stays true on a loaded machine.
-        _ = release.wait(timeout: .now() + 120)
+        // A provider that has stopped never answers, so only `answerAtOnce()` or `finish` lets this
+        // go. The bound is for a listing that waits on the provider without the reads' deadline,
+        // which would otherwise hang its test: two minutes while the reads still hold the folder.
+        // Once they have given it up, the caller has stopped waiting, and only a starved pool keeps
+        // its test from the release — two minutes of that let this answer first and turned "came
+        // back while still parked" red (hosted CI, 2026-10-31) — so then it is half an hour.
+        let since = ContinuousClock.now
+        while release.wait(timeout: .now() + .milliseconds(50)) == .timedOut {
+            let givenUp = datalessFolderReads.unansweredPaths().contains(unansweredKey)
+            if ContinuousClock.now - since > (givenUp ? .seconds(1800) : .seconds(120)) { break }
+        }
         release.signal()            // every later ask is answered too
         lock.lock(); parked = false; answered = true; lock.unlock()
     }
@@ -98,10 +110,17 @@ public final class OneThreadExecutor: TaskExecutor, @unchecked Sendable {
 
     /// Runs `body` on a fresh one-thread executor and, once `disk` says the provider is being
     /// asked, queues a second job on the same thread. The provider answers only AFTER that job has
-    /// had five seconds to run — so a blocked `body` keeps it out for the whole five, and a load
-    /// spike cannot let `body` finish first and pass for one that suspended. Give the disk's reads
-    /// a deadline far longer than the test, so none is raced. `asked` is false when the provider was
-    /// never asked — a test reading `ranWhileWaiting` without checking it measured nothing.
+    /// run, or has had thirty seconds to — so a blocked `body` keeps it out for the whole thirty,
+    /// and `ranWhileWaiting` is that job finding the provider still parked and `body` unfinished.
+    /// Give the disk's reads a deadline far longer than the test, so none is raced. `asked` is
+    /// false when the provider was never asked — a test reading `ranWhileWaiting` without checking
+    /// it measured nothing.
+    ///
+    /// **Everything from the ask to the answer runs on a thread of its own, never the cooperative
+    /// pool.** The disk answers by itself after two minutes; when this waited for the ask, queued
+    /// the job and answered from the test's task, a pool starved for two minutes (hosted CI,
+    /// 2026-10-31) let it answer first, and a `body` that suspended was reported as one that held
+    /// its thread. Now a starved pool delays only the result.
     public static func letsAnotherJobRun<T: Sendable>(
         whileAsking disk: UnansweredRealDisk,
         _ body: @escaping @Sendable () async -> T
@@ -113,26 +132,25 @@ public final class OneThreadExecutor: TaskExecutor, @unchecked Sendable {
             finished.set()
             return value
         }
-        let asked = await Self.wait(for: disk.entered, seconds: 60)
-        let ran = DispatchSemaphore(value: 0)
-        let sawItUnfinished = Finished()
-        let probe = Task(executorPreference: executor) {
-            if !finished.isSet { sawItUnfinished.set() }
-            ran.signal()
+        let (asked, ranWhileWaiting) = await withCheckedContinuation { (done: CheckedContinuation<(Bool, Bool), Never>) in
+            Thread {
+                guard disk.entered.wait(timeout: .now() + 60) == .success else {
+                    disk.answerAtOnce()
+                    return done.resume(returning: (false, false))
+                }
+                let ran = DispatchSemaphore(value: 0)
+                let sawItWaiting = Finished()
+                Task(executorPreference: executor) {
+                    if disk.isParked && !finished.isSet { sawItWaiting.set() }
+                    ran.signal()
+                }
+                let ranInTime = ran.wait(timeout: .now() + 30) == .success
+                disk.answerAtOnce()             // the provider answers, whichever way that went
+                done.resume(returning: (true, ranInTime && sawItWaiting.isSet))
+            }.start()
         }
-        let ranInTime = await Self.wait(for: ran, seconds: 5)
-        disk.answerAtOnce()                 // the provider answers, whichever way that went
-        await probe.value
         let value = await waiting.value
-        return (asked, ranInTime && sawItUnfinished.isSet, value)
-    }
-
-    private static func wait(for semaphore: DispatchSemaphore, seconds: Int) async -> Bool {
-        await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-            DispatchQueue.global().async {
-                done.resume(returning: semaphore.wait(timeout: .now() + .seconds(seconds)) == .success)
-            }
-        }
+        return (asked, ranWhileWaiting, value)
     }
 
     private final class Finished: @unchecked Sendable {

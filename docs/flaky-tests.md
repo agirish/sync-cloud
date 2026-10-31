@@ -4807,3 +4807,67 @@ enqueued scan is neither, and still fails the premise.
 **Tell.** A premise check right after `Task.immediate` red alone, fast, with the later expectations
 green, where the work it starts awaits a task it has just detached. Ask what the premise reads if
 the work has already finished.
+
+### 50. A harness that answered the provider from the pool raced a fake provider that answers on a clock — FIXED
+
+**Symptom.** Two FileExplorer tests red together on hosted CI (run 41247042268, 2026-10-31, push
+of `79a4ff26f`), each after **122.8 s**, on a tree byte-identical to the previous green run:
+
+- `UnansweredFolderListingTests.theRailsRefreshHoldsNoThreadWhileItAsks`, `refresh.ranWhileWaiting`
+- `UnansweredFolderListingTests.thePeekHoldsNoThreadWhileItAsks`, `peek.ranWhileWaiting`
+
+`asked` and the listed value were green. Their chunk took 302 s against 130–210 s for the others,
+and its neighbours ran for up to 247 s.
+
+**Mechanism.** `UnansweredRealDisk` parks the folder's listing on a semaphore. It used to answer
+by itself after 120 s, so that a test that never let it go could not hang. `OneThreadExecutor.
+letsAnotherJobRun` waited for the ask, queued its probe job and answered the provider, all from
+the test's own task. That is three hops back onto the cooperative pool. With the pool starved
+for two minutes, the provider answered first, `body` finished, and the probe then found it done.
+A `body` that had suspended was reported as one that held its thread. 122.8 s is the 120 s
+self-answer plus the hops; the probe's 5 s window never came into it.
+
+The siblings that assert "came back while the provider was still parked" (`disk.isParked`) have
+the same race. The listing gives up at the reads' 250 ms deadline. The test reads `isParked`
+only after a pool turn, and the 120 s self-answer can come first.
+
+**Reproduced** with a scratch suite of 16 cases that each block a pool thread for 130 s. A
+temporary hook in the disk held the ask's `entered` until 10 of them were blocking, all 10 of
+this Mac's pool threads. Never committed.
+
+| Run | Before | After |
+|---|---|---|
+| hogs start 300 ms in, whole suite | **2 red**: `theRailCannotRead…` and `thePeekPublishesNothing…`, `disk.isParked`, 130.8 s; the two harness tests had already finished, in 9 ms | — |
+| hogs gated on the ask, the two harness tests | **2 red**: the CI signature, `ranWhileWaiting` at lines 61 and 100, 130.7 s | — |
+| hogs gated on the ask, whole suite | — | 6 of 6 green, 130.7 s |
+
+**Fix, 2026-10-31.** Two parts, both in `FileExplorerTestSupport/UnansweredRealDisk.swift`:
+
+- **The harness answers off the pool.** One dedicated `Thread` handles everything from the ask
+  to the answer. It waits for `entered`, queues the probe on the one-thread executor, waits up
+  to 30 s for it and then answers. The probe passes only if it finds the provider still parked
+  and `body` unfinished. The test's task only collects the result, so a starved pool delays the
+  verdict but cannot change it. A blocked `body` keeps the probe out until the answer, whatever
+  the load.
+- **The disk does not answer a folder the reads have given up.** The 120 s self-answer now applies
+  only while the reads still hold the folder. That covers a listing that waits on the provider
+  without the deadline, which would otherwise hang. Once the folder is in `unansweredPaths()`,
+  the caller has stopped waiting, so the bound is 30 minutes. Only the test's own release ends
+  it, in normal running.
+
+**Mutation-checked**, idle unless noted:
+
+| Mutation (production) | Verdict |
+|---|---|
+| the rail's refresh lists with `waitForContentsBlocking` | `refresh.ranWhileWaiting` red, 30.0 s |
+| the peek's count lists with `waitForContentsBlocking`, **pool hogged as above** | `peek.ranWhileWaiting` red: decided at 30 s on the harness thread, reported at 130.5 s once the hogs let the test task go |
+| the peek enumerates the folder directly, bypassing the reads | `disk.isParked` and `count == nil` red, 120.0 s: the hang-breaker still answers |
+
+**Tell.** A `ranWhileWaiting` or `isParked` red in an `Unanswered…` suite at a little over 120 s,
+with `asked` and the value green, in a slow chunk. Since the fix, 30 s of harness time and a
+red `ranWhileWaiting` means the probe really could not run, so `body` held the thread. A red
+near 1,800 s means a release that never came.
+
+**Not changed:** Sync's own copy of the harness (`UnansweredListingTests`). It answers a
+`ParkGate`, whose bound counts scheduler turns ("A park's bound counted seconds while its release waited for scheduler turns"), so pool starvation already
+stretches it.
