@@ -75,16 +75,15 @@ extension ContentView {
     func refreshEditorRail() async {
         let folder = editorFolder
         let showsHidden = syncManager.showHiddenFiles
-        // Two refreshes can overlap (the `.task(id:)` and the rail coming back into view); only
-        // the later one may write, so an older survey finishing last cannot undo a newer one.
-        editorRailRefreshes.count += 1
-        let ticket = editorRailRefreshes.count
+        // Two refreshes can overlap (the `.task(id:)`, the rail coming back into view, an autosave);
+        // an older survey finishing last must not undo a newer one.
+        let ticket = editorRailRefreshes.take()
         let survey = await Task.detached(priority: .userInitiated) {
             await EditorRail.surveySuspending(in: folder, showsHidden: showsHidden)
         }.value
         // The folder can change while the walk is out; a late answer for the wrong folder would
         // list somebody else's files under this one's heading.
-        guard folder == editorFolder, ticket == editorRailRefreshes.count else { return }
+        guard folder == editorFolder, editorRailRefreshes.admit(ticket) else { return }
         if editorRailSurveyFolder != folder { editorRailSurveyFolder = folder }
         // **Only when the listing actually changed.** This runs after every autosave — twice a
         // sentence, for a typist — and writing `@State` unconditionally is a change as far as
@@ -2478,8 +2477,29 @@ extension ContentView {
     }
 }
 
-/// A count a view bumps without observing it — see `editorRailRefreshes`.
+/// Tickets for overlapping refreshes, held by a view without observing them — see
+/// `editorRailRefreshes`.
+///
+/// **Newer than the last applied, not the latest taken.** Requiring the latest let every survey
+/// that a newer one had overtaken be thrown away — and an autosave takes a ticket every couple of
+/// seconds, so on a folder whose survey is slower than that (iCloud) the rail stopped updating
+/// for as long as the typing went on.
 @MainActor
 final class RefreshCounter {
-    var count = 0
+    private(set) var count = 0
+    private var applied = 0
+
+    /// A ticket for a refresh about to start.
+    func take() -> Int {
+        count += 1
+        return count
+    }
+
+    /// Whether the refresh holding `ticket` may write: no refresh started after it has written
+    /// already. Admitting it marks it written.
+    func admit(_ ticket: Int) -> Bool {
+        guard ticket > applied else { return false }
+        applied = ticket
+        return true
+    }
 }

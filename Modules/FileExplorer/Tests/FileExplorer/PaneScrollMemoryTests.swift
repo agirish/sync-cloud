@@ -202,18 +202,23 @@ import Sync
 
     /// Mounts a pane ALREADY standing on `components` — a rebuild, not a drill: the stack exists
     /// before the pane appears, so no `browsePath` change fires. Returns once all three columns are
-    /// laid out, so the stack genuinely overflows.
+    /// laid out, so the stack genuinely overflows — or, in a window `wide` enough, genuinely fits.
     private func mount(_ components: [String], slot: PaneScrollMemorySlot?,
-                       searchRevealTarget: String? = nil, watch: FrameWatch? = nil) async -> NSWindow {
+                       searchRevealTarget: String? = nil, watch: FrameWatch? = nil,
+                       wide: Bool = false) async -> NSWindow {
         let host = NSHostingView(rootView: Harness(box: Box(components), slot: slot,
                                                    searchRevealTarget: searchRevealTarget))
-        host.frame = NSRect(x: 0, y: 0, width: 520, height: 400)
+        host.frame = NSRect(x: 0, y: 0, width: wide ? 1_600 : 520, height: 400)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled, .fullSizeContentView],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         watch?.window = window
         window.contentView = host
-        await waitUntil { self.lists(window).count == 3 && ((try? self.room(window)) ?? 0) > 60 }
+        await waitUntil {
+            guard self.lists(window).count == 3, let stack = try? self.stack(window),
+                  let width = stack.contentView.documentView?.frame.width, width > 0 else { return false }
+            return wide || ((try? self.room(window)) ?? 0) > 60
+        }
         return window
     }
 
@@ -557,6 +562,32 @@ import Sync
         watch.stop()
         try #require(!watch.shown.isEmpty, "no turn ever saw the lists — the watch proves nothing")
         #expect(!watch.shown.contains(1), "a column at its top was held clear for \(watch.shown.filter { $0 == 1 }.count) turn(s)")
+    }
+
+    /// **A row of columns that fits is never held clear.** A stack that scrolled and then came to fit
+    /// — drilled deeper and back, or a window made wider — is kept "at its end" (`noRoomIsEnd`), and
+    /// the end of a range with no room is its start: the restore cannot move it, so a cover would only
+    /// blank the whole pane, every list in it, for a frame on each switch back.
+    /// `aRebuiltStackIsNeverShownBeforeItsPositionLands` is the other half: a stack that can move is.
+    @Test func aStackThatFitsIsNeverHeldClear() async throws {
+        let memory = PaneScrollMemory()
+        let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")
+        // What `record` keeps for a row with no room: at its start, and at its end.
+        let kept = PaneScrollMemory.Position.resting(at: 0, in: 0...0, noRoomIsEnd: true)
+        try #require(kept.atEnd)
+        memory.recordStack(surface: "Browse.left", treeRoot: Self.root, components: ["a2", "b3"], position: kept)
+        let watch = FrameWatch()
+        watch.start { window in
+            guard self.lists(window).count == 3, let stack = try? self.stack(window) else { return nil }
+            return Self.isVisible(stack) ? 0 : 1
+        }
+        let second = await mount(["a2", "b3"], slot: slot, watch: watch, wide: true)
+        defer { second.contentView = nil }
+        await pump(0.3)
+        watch.stop()
+        try #require(try room(second) <= 1, "the columns do not fit a wide window — nothing to test")
+        try #require(!watch.shown.isEmpty, "no turn ever saw the columns — the watch proves nothing")
+        #expect(!watch.shown.contains(1), "a stack that fits was held clear for \(watch.shown.filter { $0 == 1 }.count) turn(s)")
     }
 
     /// The control: a pane with no memory mounts as it always did — at its first column. Without this

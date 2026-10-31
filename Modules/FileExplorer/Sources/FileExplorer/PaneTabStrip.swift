@@ -132,7 +132,7 @@ public struct PaneTabStrip: View {
     @State private var draggingTab: UUID?
     @State private var dragOffset: CGFloat = 0
     /// True while a drag gesture is live. SwiftUI resets it however the drag ends — including a
-    /// cancel (the window losing key, a modal, Escape), which never calls `onEnded` and used to
+    /// cancel (the window losing key, a modal), which never calls `onEnded` and used to
     /// leave the chip parked at its last offset.
     @GestureState private var dragIsLive = false
 

@@ -332,9 +332,8 @@ struct PaneStackScrollMemoryProbe: NSViewRepresentable {
                 } else if kept != nil {
                     Logger.shared.debug("[columns] scroll memory: \(slot.surface) stack left to a reveal")
                 }
-                if let pending, let scroller,
-                   !pending.isAtStart(of: scroller.contentView.restingRangeX) {
-                    veil.cover(scroller)   // as for a list: a stack kept at its left edge cannot move
+                if let pending, let scroller, restoreCanMove(pending, clip: scroller.contentView) {
+                    veil.cover(scroller)
                 }
                 if pending != nil {
                     attemptsLeft = PaneScrollMemory.restoreAttempts
@@ -345,6 +344,18 @@ struct PaneStackScrollMemoryProbe: NSViewRepresentable {
             // — which is exactly when they may have settled. Never applied from here (this is a layout
             // pass); only handed to the next turn.
             if pending != nil, isSettled() { scheduleRestore(immediately: true) }
+        }
+
+        /// Whether putting `position` back can move the stack, and so whether hiding it until then
+        /// hides anything. Not when it is kept at its left edge, as for a list; nor when it is kept at
+        /// the end of a row of columns that fits the viewport — the stack records a fitting row as
+        /// "at its end" (`noRoomIsEnd`), and the end of a range with no room is its start. Covering
+        /// those blanked the whole Columns pane, every list in it, for a frame on each switch back.
+        private func restoreCanMove(_ position: PaneScrollMemory.Position, clip: NSClipView) -> Bool {
+            if position.isAtStart(of: clip.restingRangeX) { return false }
+            if position.atEnd, clip.bounds.width > 0, contentWidth <= clip.bounds.width + 1,
+               clip.bounds.origin.x <= clip.restingRangeX.lowerBound + 0.5 { return false }
+            return true
         }
 
         private func scrolled() {
