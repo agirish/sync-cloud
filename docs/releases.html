@@ -135,6 +135,30 @@
 
 <div class="timeline">
 
+  <article class="rel draft">
+    <div class="rel-head"><span class="v">v6.3</span><span class="tag draft">In development</span></div>
+    <p class="lede"><b>Know when a cloud folder is out of date.</b> v6.3 says when Dropbox, OneDrive or Google Drive isn't syncing, notices when a pane's folders change on disk, and compares files of any size by content. Requires <b>macOS 26</b>, unchanged from v6.2.</p>
+    <div class="grp">
+      <h3>Cloud apps</h3>
+      <ul class="flist">
+        <li><span class="ic">&#9729;</span><span><b>SyncCloud says when a cloud app isn't syncing.</b> With Dropbox, OneDrive or Google Drive quit, its folder still lists, here and in Finder, but nothing from other devices arrives. SyncCloud now says so: one amber line along the top of the file list, "Dropbox isn't running · files may be out of date", with Open Dropbox at its end; an amber dot in the source menu, the sidebar and Settings ▸ Sources; and a row in Activity ▸ Now, with Dismiss. It also covers a cloud folder that doesn't answer, iCloud signed out or iCloud Drive off, and a file SyncCloud changed that still hasn't uploaded after 30 minutes. Picking a source checks at once; a warning that appears on its own waits until the app has been missing five minutes. Sources turned off in Settings get none.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Folders</h3>
+      <ul class="flist">
+        <li><span class="ic">⚡</span><span><b>Panes notice when their folders change.</b> A change on disk after a pane was read shows as "changed since" in Browse's status bar and in Compare's scan age. Settings ▸ Sync ▸ "Rescan when files change" (off by default) re-reads the pane instead, at most once in 30 seconds. SyncCloud's own changes don't count.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Large files</h3>
+      <ul class="flist">
+        <li><span class="ic">↺</span><span><b>Files of any size are compared by content.</b> Verify All, Compare Copies, Review and the command-line tool now hash files over 100 MB, which v6.2 skipped. Stop reaches a check mid-file, and closing Review or Compare Copies stops its checks. The duplicate scan compares the first and last 1 MB of large files of the same size and reads whole only those that match, so large copies are found.</span></li>
+      </ul>
+    </div>
+    <p class="chlog">Changes so far: <a href="https://github.com/agirish/sync-cloud/compare/v6.2...main">v6.2...main</a></p>
+  </article>
+
   <article class="rel">
     <div class="rel-head"><span class="v">v6.2</span><span class="tag latest">Latest</span></div>
     <p class="lede"><b>Everything running, in one place.</b> v6.2 gathers the app's runs and messages into one Activity window. Several runs can go at once, each with its own Stop, and every message stays readable after it leaves, with its Undo. A run that ends while you are elsewhere tells you where you are. Download All fetches a whole cloud folder, and Keep Downloaded holds iCloud Drive files on this Mac. Undo This Reorganization leaves a file that isn't its own where it stands, and names what changed since. Setup no longer reads documents into a profile a later Save replaced. A right-click no longer waits on a cloud service that has stopped answering, Organize's filing work no longer holds the window, and workspace switches are instant. Requires <b>macOS 26</b>, unchanged from v6.1.</p>

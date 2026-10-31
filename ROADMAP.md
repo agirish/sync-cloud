@@ -157,6 +157,9 @@ line and Cancel button all transfer from the Storage lens.
 
 ### 1c. Backup jobs — the remedy
 
+*Item 23 (RD67) builds the first such job, iCloud → Dropbox one-way sync; read it before designing
+another.*
+
 **What:** A stored `BackupJob` — source folder, destination (provider + relative path), trigger,
 deletion mode, exclusions. `AutomationRule` is the house pattern to copy: `Codable`, persisted as
 JSON, edited in a sheet (`AutomationRuleEditor`), evaluated by a pure function.
@@ -963,6 +966,40 @@ folders holding identical kinds of document.
 
 **Effort:** Medium, staged. **Risk:** Low — every part is additive and gated on a registry being
 loaded; with none, the engine behaves exactly as it did.
+
+---
+
+## 23. One-way sync, iCloud → Dropbox (RD67) — in progress for v6.3
+
+**What:** automatic one-way sync of chosen folders from a parent in iCloud Drive (on this Mac,
+iCloud Drive ▸ Documents) to a parent in Dropbox. Folders with the same name directly inside both
+parents are the synced folders. Adds, edits, renames, moves and deletions follow; renames and moves
+are followed by the provider-kept document ID and become moves inside Dropbox; nothing in Dropbox
+is deleted outright (it goes to `Dropbox ▸ SyncCloud Removed`). Changes made while the app was
+closed apply at the next launch. This is item 1c's backup job with Mirror deletions, a file-change
+trigger and folder pairs, and it departs from 1c's "never delete unattended" for this job only.
+
+**Design and decisions:** the reviewed design page, with mockups, the decisions CV–DN, the
+build notes and what was measured on this Mac, is
+<https://claude.ai/code/artifact/7abb7c02-721e-45ad-894c-dfaf04788370>. It is the spec; this entry
+tracks what is left.
+
+**On `main`:** the engine core (`53e3e480d`: record, matching order, diff, removal limit), the
+folder watcher (`ce6490cc2`, item 5's work), hashing of any size (`624799987`, `7508cfebf`) and
+the cloud-app status RD67 stops on (RD68, `c7a3a7839` and follow-ups).
+
+**Left, in order:**
+1. The sync's own replace and SyncCloud Removed: stage outside Dropbox, clone the old version, keep
+   the Dropbox item (in progress).
+2. Saved state: the record on disk, History entries written before applying, saved Needs-you rows,
+   one writing process and one writing Mac (in progress).
+3. A manual **Sync Now**: setup, first-run preview, Review and Choose a Version, Reverse in iCloud.
+   Used by hand for a week before the trigger ships.
+4. The watcher as the trigger, then unattended removals.
+
+**Not measured:** whether macOS reports a shared Dropbox folder as shared (decision DL asks at setup
+instead), and what Dropbox does when a file is replaced while its newer server version has not
+reached this Mac (expected: a conflicted copy, which then waits for you).
 
 ---
 

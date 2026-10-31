@@ -5,6 +5,44 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v6.3 — DRAFT, not released
+
+> What is on `main` since v6.2. It may still change before v6.3 is cut, and nothing here is
+> installable from a release yet.
+
+**Know when a cloud folder is out of date.** v6.3 says when Dropbox, OneDrive or Google Drive isn't
+syncing, notices when a pane's folders change on disk, and compares files of any size by content.
+
+Requires **macOS 26**, unchanged from v6.2.
+
+### Cloud apps
+
+- **SyncCloud says when a cloud app isn't syncing.** With Dropbox, OneDrive or Google Drive quit,
+  its folder still lists, here and in Finder, but nothing from other devices arrives. SyncCloud now
+  says so: one amber line along the top of the file list, "Dropbox isn't running · files may be out
+  of date", with Open Dropbox at its end; an amber dot in the source menu, the sidebar and
+  Settings ▸ Sources; and a row in Activity ▸ Now, with Dismiss. It also covers a cloud folder that
+  doesn't answer, iCloud signed out or iCloud Drive off, and a file SyncCloud changed that still
+  hasn't uploaded after 30 minutes. Picking a source checks at once; a warning that appears on its
+  own waits until the app has been missing five minutes. Sources turned off in Settings get none.
+
+### Folders
+
+- **Panes notice when their folders change.** A change on disk after a pane was read shows as
+  "changed since" in Browse's status bar and in Compare's scan age. Settings ▸ Sync ▸ "Rescan when
+  files change" (off by default) re-reads the pane instead, at most once in 30 seconds. SyncCloud's
+  own changes don't count.
+
+### Large files
+
+- **Files of any size are compared by content.** Verify All, Compare Copies, Review and the
+  command-line tool now hash files over 100 MB, which v6.2 skipped. Stop reaches a check mid-file,
+  and closing Review or Compare Copies stops its checks. The duplicate scan compares the first and
+  last 1 MB of large files of the same size and reads whole only those that match, so large copies
+  are found.
+
+---
+
 ## v6.2
 
 **Everything running, in one place.** v6.2 gathers the app's runs and messages into one Activity
