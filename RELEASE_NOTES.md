@@ -10,12 +10,43 @@ User-facing changes, newest first. For the full commit history see the
 > What is on `main` since v6.2. It may still change before v7.0 is cut, and nothing here is
 > installable from a release yet.
 
-**Copy iCloud to Dropbox, one way, and know when a cloud folder is out of date.** v7.0 syncs chosen
-folders from iCloud Drive to Dropbox when you click Sync Now, says when Dropbox, OneDrive or Google
-Drive isn't syncing, notices when a pane's folders change on disk, and compares files of any size by
-content.
+**Ask Claude about your files, copy iCloud to Dropbox one way, and know when a cloud folder is out of
+date.** v7.0 adds Ask Claude, a chat panel that answers questions about what is on screen and moves
+you around the app. It syncs chosen folders from iCloud Drive to Dropbox when you click Sync Now,
+says when Dropbox, OneDrive or Google Drive isn't syncing, notices when a pane's folders change on
+disk, and compares files of any size by content.
 
 Requires **macOS 26**, unchanged from v6.2.
+
+### Ask Claude
+
+- **Ask Claude, with ⌘J or the toolbar button.** A chat panel over the window, docked left or right
+  or floating, and resizable, that answers questions about what you're looking at and takes you
+  places in SyncCloud. It uses your own Anthropic API key from Settings ▸ Intelligence, and nothing
+  is sent until you ask. The chat stays for an hour, across a relaunch.
+- **Claude sees a description of the screen, not your files.** The names, kinds, sizes, dates and
+  tags of what is shown, with paths relative to their source. The panel's header names the folder it
+  sees, and the shield beside it shows the folder in full, with Hide from Claude and this month's
+  spend.
+- **It looks things up and moves your view.** It lists and finds files and folders in any source,
+  goes to folders, tabs, sources and either side of Compare, and reveals, selects, opens or Quick
+  Looks a file. It changes views and opens Settings, Help and Activity. It can't change a file, and
+  it never opens an app, script or installer.
+- **What's inside a file is read on this Mac.** An on-device model reads it and Claude gets a short
+  answer. A passage of the file goes to Claude only when you click Send under the answer, or every
+  time with Let Claude read files on.
+- **Ask about Compare's differences.** "Which files are only on Dropbox?" is answered from the list
+  Compare shows, with both sides' sizes and dates. A comparison over an hour old is scanned again
+  first, and Claude can narrow the list and select the rows it means.
+- **A file only in the cloud over 25 MB is downloaded only when you click.** Claude shows a card
+  with the file's size and where it lives; Download and Read, or Download and Open, fetches it and
+  carries on. Smaller files download as part of the read, as opening them does.
+- **Right-click ▸ Ask Claude About This.** On files and folders in a pane, and on rows in Compare's
+  differences. The panel opens with them attached above the text box, and your question is about
+  those. Hide from Claude on the same menu keeps a file or folder off Claude's screen; the list is
+  in Settings ▸ Intelligence.
+- **Every answer says what it sent and what it cost.** Spending counts against a monthly limit in
+  Settings, $25 to start, with a note at 80%.
 
 ### One-way sync
 
@@ -98,6 +129,8 @@ Requires **macOS 26**, unchanged from v6.2.
 
 ### Known limitations
 
+- **Ask Claude can't change files** in this version: no copy, move, rename or delete. It reads
+  and steers only.
 - One-way sync runs only when you click Sync Now; it doesn't yet sync on its own as files change.
 - Reverse in iCloud… doesn't offer two names swapped.
 - One-way sync works from Dropbox's files on this Mac: a file in a synced Dropbox folder that is
