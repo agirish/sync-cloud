@@ -28,7 +28,9 @@ public struct OneWaySyncHistoryEntry: Codable, Equatable, Sendable, Identifiable
     /// What waited for the user in this sync: "32 wait for you".
     public var held: [OneWaySyncWait]
     /// Set when the sync ended. Steps it couldn't confirm by then keep their status, and
-    /// `unconfirmedSteps` lists them. An entry still open at launch is a sync a crash cut short.
+    /// `unconfirmedSteps` lists them. An entry still open at launch is a sync a crash cut short:
+    /// the next pass finishes it (it compares every file again anyway) and puts back a swap of
+    /// names it parked.
     public var finishedAt: Int64?
 
     public init(
@@ -44,7 +46,8 @@ public struct OneWaySyncHistoryEntry: Codable, Equatable, Sendable, Identifiable
         self.finishedAt = finishedAt
     }
 
-    /// Steps the sync hadn't confirmed when it stopped: after a crash, each is compared again.
+    /// Steps the sync hadn't confirmed when it stopped, as History shows them. Nothing replays
+    /// them: the next pass compares every file again, which covers these.
     public var unconfirmedSteps: [Int] {
         steps.indices.filter { !steps[$0].status.isOutcome }
     }
@@ -61,6 +64,9 @@ public struct OneWaySyncHistoryStep: Codable, Equatable, Sendable {
     /// The file as recorded once the step landed: Reverse is offered only for an item still
     /// like this on both sides.
     public var recorded: OneWaySyncFileRecord?
+    /// Older versions of the file DJ sent from SyncCloud Removed to Dropbox's own deleted files to
+    /// make room for the one this step kept, by their place in SyncCloud Removed.
+    public var emptied: [String]?
 
     public enum Status: Codable, Equatable, Sendable {
         /// Written before the sync began; not started.
@@ -148,9 +154,9 @@ public struct OneWaySyncHistoryStore: Sendable {
     /// Ticks step `index` off. The tick is flushed before this returns.
     public func tick(
         _ entry: UUID, step index: Int, status: OneWaySyncHistoryStep.Status, now: Date,
-        keptAt: String? = nil, recorded: OneWaySyncFileRecord? = nil
+        keptAt: String? = nil, recorded: OneWaySyncFileRecord? = nil, emptied: [String]? = nil
     ) throws {
-        let tick = Tick(step: index, status: status, at: Self.seconds(now), keptAt: keptAt, recorded: recorded)
+        let tick = Tick(step: index, status: status, at: Self.seconds(now), keptAt: keptAt, recorded: recorded, emptied: emptied)
         try OneWaySyncFiles.appendLine(OneWaySyncStore.encode(tick), to: ticksURL(entry))
     }
 
@@ -178,6 +184,7 @@ public struct OneWaySyncHistoryStore: Sendable {
                 entry.steps[tick.step].at = tick.at
                 if let keptAt = tick.keptAt { entry.steps[tick.step].keptAt = keptAt }
                 if let recorded = tick.recorded { entry.steps[tick.step].recorded = recorded }
+                if let emptied = tick.emptied { entry.steps[tick.step].emptied = emptied }
             }
         }
         return entry
@@ -255,6 +262,7 @@ public struct OneWaySyncHistoryStore: Sendable {
         var at: Int64
         var keptAt: String?
         var recorded: OneWaySyncFileRecord?
+        var emptied: [String]?
     }
 
     public static func seconds(_ date: Date) -> Int64 { Int64(date.timeIntervalSince1970.rounded(.down)) }

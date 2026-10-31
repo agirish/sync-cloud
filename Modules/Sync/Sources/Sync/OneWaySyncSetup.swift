@@ -20,6 +20,11 @@ public struct OneWaySyncFolderChoice: Equatable, Sendable, Identifiable {
 
     public var id: String { name }
     public var canTick: Bool { place == .inBoth && notOffered == nil }
+    /// Offered *Add to Dropbox*: only in iCloud, and not shared. A shared one is never offered,
+    /// so making its Dropbox folder would only leave an empty one there.
+    public var canAddToDropbox: Bool { place == .onlyInICloud && notOffered == nil }
+    /// Listed in setup at all: one it can tick, or add to Dropbox and then tick.
+    public var isListed: Bool { canTick || canAddToDropbox }
 }
 
 /// **Setting one-way sync up**: where the parents are, which folders it can offer, and the record

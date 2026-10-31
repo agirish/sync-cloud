@@ -4,12 +4,24 @@ import SwiftUI
 import Sync
 
 /// The colours the design page gives the two sides: iCloud, the source, teal; Dropbox, the copy,
-/// slate. A held row is amber.
+/// slate, each in its light and dark form from the page, so ink and glyphs read in both
+/// appearances (`OneWaySyncPaletteTests` measures them). A held row is amber.
 enum OneWaySyncPalette {
-    static let source = Color(red: 0.05, green: 0.48, blue: 0.45)
-    static let copy = Color(red: 0.32, green: 0.38, blue: 0.48)
+    static let sourceNS = dynamic(light: (0.05, 0.48, 0.45), dark: (0.31, 0.77, 0.73))
+    static let copyNS = dynamic(light: (0.32, 0.38, 0.48), dark: (0.62, 0.69, 0.81))
+    static let source = Color(nsColor: sourceNS)
+    static let copy = Color(nsColor: copyNS)
+    /// Text in the source's colour: the same teal, which clears the body-text floor in both.
+    static let sourceInk = source
     static let hold = SemanticColor.warning
     static let ok = SemanticColor.success
+
+    static func dynamic(light: (CGFloat, CGFloat, CGFloat), dark: (CGFloat, CGFloat, CGFloat)) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let c = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+            return NSColor(srgbRed: c.0, green: c.1, blue: c.2, alpha: 1)
+        }
+    }
 }
 
 // MARK: - The status pill (ED, TE250)
@@ -22,8 +34,12 @@ public struct OneWaySyncStatusPill: View {
     @ObservedObject var center: ActivityCenter
     let onSetUp: () -> Void
 
-    /// The widest the pill draws: what the differences bar reserves for it.
-    public static let maxWidth: CGFloat = 230
+    /// The widest the pill draws at the app's own text size; longer words truncate, whole in the
+    /// tooltip. What it says decides what the bar reserves (`width`), never this cap alone.
+    public static let maxWidth: CGFloat = 300
+    static let font = ScaledFont.system(size: 11, weight: .medium)
+    /// The dot, its gap and the capsule's padding around the words.
+    static let chrome: CGFloat = 7 + 6 + 2 * 9
 
     public init(controller: OneWaySyncController = .shared, center: ActivityCenter = .shared, onSetUp: @escaping () -> Void) {
         self.controller = controller
@@ -31,9 +47,30 @@ public struct OneWaySyncStatusPill: View {
         self.onSetUp = onSetUp
     }
 
-    var title: String {
-        guard let ladder = controller.ladder else { return "One-Way Sync: Off · Set Up…" }
-        if let activity = controller.activity { return activity }
+    var title: String { Self.title(controller.ladder) }
+
+    /// What the differences bar reserves for the pill at `scale`: its words as they are now, the
+    /// dot and the capsule, up to `maxWidth`; nothing when it draws nothing (a copy that may not
+    /// sync, never set up). Priced from the words so a short "3 need you" doesn't take a stop
+    /// reason's room from Verify and Review (v6.2's bar had no pill at all).
+    @MainActor public static func width(controller: OneWaySyncController = .shared, scale: CGFloat) -> CGFloat {
+        guard controller.refusal == nil || controller.isSetUp else { return 0 }
+        let words = LabelMetrics.width(of: title(controller.ladder), font: font, scale: scale)
+        return min(words + chrome * scale, maxWidth * scale).rounded(.up)
+    }
+
+    /// Whether Compare's bar carries the pill: always once the sync is set up (or another Mac
+    /// syncs, or it stopped), and before that only for a comparison of an iCloud Drive pane with
+    /// a Dropbox one, where setting it up is the next thing (decided 31 Oct). Never for a copy
+    /// that may not sync and was never set up.
+    @MainActor public static func isShown(controller: OneWaySyncController = .shared, paneTypes: [CloudProvider.ProviderType?]) -> Bool {
+        guard controller.refusal == nil || controller.isSetUp else { return false }
+        if controller.isSetUp || controller.otherMac != nil || controller.stop != nil { return true }
+        return paneTypes.contains(.iCloud) && paneTypes.contains(.dropBox)
+    }
+
+    static func title(_ ladder: OneWaySyncLadder?) -> String {
+        guard let ladder else { return "One-Way Sync: Off · Set Up…" }
         // Short: the bar is narrow, and the overview has the rest.
         switch ladder {
         case .upToDate(let asOf, let skipped):
@@ -41,6 +78,7 @@ public struct OneWaySyncStatusPill: View {
                                                            : asOf.formatted(.dateTime.day().month(.abbreviated))
             return "Synced \(when)" + (skipped > 0 ? " · \(skipped) skipped" : "") + " · Sync Now"
         case .notYetSynced: return "Not synced yet · Sync Now"
+        case .needsYou: return ladder.title() + " · Review…"
         default: return ladder.title()
         }
     }
@@ -60,22 +98,24 @@ public struct OneWaySyncStatusPill: View {
                 if controller.ladder == nil { onSetUp() } else { controller.open(.overview, from: .main) }
             } label: {
                 HStack(spacing: 6) {
-                    if controller.activity != nil {
+                    if case .syncing? = controller.ladder {
                         ProgressView().controlSize(.mini)
                     } else {
                         Circle().fill(color).frame(width: 7, height: 7)
                     }
-                    Text(title).lineLimit(1).truncationMode(.tail)
+                    // "Synced at 14:02" becomes "Synced 31 Oct" after midnight, "2 h ago" moves on.
+                    TimelineView(.everyMinute) { _ in Text(title).lineLimit(1).truncationMode(.tail) }
                 }
-                .scaledFont(.system(size: 11, weight: .medium))
+                .scaledFont(Self.font)
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 3)
                 .background(Capsule().fill(color.opacity(0.14)))
             }
             .buttonStyle(.plain)
-            .help(controller.ladder == nil ? "Keep a Dropbox folder a copy of an iCloud folder"
-                                           : "One-way sync, iCloud to Dropbox: what it’s doing, Sync Now and Pause")
+            // The whole of what it says, which the bar may cut short.
+            .help(controller.ladder == nil ? "\(title): keep a Dropbox folder a copy of an iCloud folder"
+                                           : "\(title) — one-way sync, iCloud to Dropbox: what it’s doing, Sync Now and Pause")
             .accessibilityLabel("One-way sync: \(title)")
         }
     }
@@ -102,7 +142,7 @@ public struct OneWaySyncSidebarSection: View {
                 Text("Syncs")
                     .scaledFont(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, 10)
                     .padding(.bottom, 2)
                     .accessibilityAddTraits(.isHeader)
                 if let record = controller.record {
@@ -118,20 +158,27 @@ public struct OneWaySyncSidebarSection: View {
                                     .truncationMode(.head)
                             }
                             Spacer(minLength: 4)
-                            if let ladder = controller.ladder {
+                            // The mockup's count of what needs you; a dot for any other state.
+                            if case .needsYou(let count)? = controller.ladder {
+                                Text(count.formatted())
+                                    .scaledFont(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(OneWaySyncPalette.hold)
+                                    .monospacedDigit()
+                            } else if let ladder = controller.ladder {
                                 Circle().fill(ladder.isProblem ? OneWaySyncPalette.hold : OneWaySyncPalette.ok).frame(width: 6, height: 6)
                             }
                         }
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, 10)
                     .padding(.vertical, 3)
                     .help(controller.ladder?.title() ?? "One-way sync")
+                    .accessibilityLabel("iCloud to Dropbox: \(controller.ladder?.title() ?? "one-way sync")")
                 } else {
                     Button("Add a Sync…", action: onSetUp)
                         .buttonStyle(.link)
-                        .padding(.horizontal, 12)
+                        .padding(.horizontal, 10)
                         .help("Keep a Dropbox folder a copy of an iCloud folder")
                 }
             }
@@ -200,7 +247,7 @@ public struct OneWaySyncNowRows: View {
                         if index > 0 { Divider().padding(.leading, 12) }
                         rowView(title: row.title, detail: row.detail, raisedAt: row.raisedAt, held: true, id: row.id) {
                             ForEach(row.buttons, id: \.self) { button in
-                                Button(button.title) { controller.perform(button, row: row, from: host) }
+                                Button(button.title(on: row)) { controller.perform(button, row: row, from: host) }
                                     .disabled(disabled(button))
                             }
                         }
@@ -267,7 +314,8 @@ public struct OneWaySyncNowRows: View {
                 .padding(.top, 4)
             }
             Spacer(minLength: 4)
-            Text(Date(timeIntervalSince1970: TimeInterval(raisedAt)), format: .dateTime.hour().minute())
+            // A row stays until answered, days if need be: past today it says the day too.
+            Text(OneWaySyncWords.when(Date(timeIntervalSince1970: TimeInterval(raisedAt)), now: Date()))
                 .scaledFont(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
@@ -287,6 +335,9 @@ public struct OneWaySyncHistoryRows: View {
     @ObservedObject var controller: OneWaySyncController
     @State private var entries: [OneWaySyncHistoryEntry] = []
     @State private var expanded: Set<UUID> = []
+    @State private var showsAll = false
+    /// The newest shown before *Show older*: History keeps 90 days, and Reverse reaches all of it.
+    static let firstShown = 30
 
     public init(controller: OneWaySyncController = .shared) {
         self.controller = controller
@@ -302,9 +353,16 @@ public struct OneWaySyncHistoryRows: View {
                     .padding(.top, 10)
                     .padding(.bottom, 4)
                     .accessibilityAddTraits(.isHeader)
-                ForEach(entries.prefix(30)) { entry in
+                ForEach(showsAll ? entries : Array(entries.prefix(Self.firstShown))) { entry in
                     Divider().padding(.leading, 12)
                     entryRow(entry)
+                }
+                if !showsAll, entries.count > Self.firstShown {
+                    Button("Show \(entries.count - Self.firstShown) Older") { showsAll = true }
+                        .buttonStyle(.link)
+                        .scaledFont(.system(size: 11))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
                 }
             }
         }
@@ -315,12 +373,14 @@ public struct OneWaySyncHistoryRows: View {
         entries = controller.store?.history.entries() ?? []
     }
 
-    func headline(_ entry: OneWaySyncHistoryEntry) -> String {
-        let done = entry.steps.filter { $0.status == .confirmed }.count
+    /// "Synced 4 · 32 wait for you · 31 Oct 2026, 10:14": the changes a sync made, never the
+    /// files it found already the same.
+    static func headline(_ entry: OneWaySyncHistoryEntry) -> String {
+        let done = entry.steps.filter { $0.status == .confirmed && OneWaySyncWords.isChange($0.step.action) }.count
         let held = entry.held.count
         var parts: [String] = []
-        if done > 0 || held == 0 { parts.append("Synced \(done)") }
-        if held > 0 { parts.append("\(held) wait\(held == 1 ? "s" : "") for you") }
+        if done > 0 || held == 0 { parts.append("Synced \(done.formatted())") }
+        if held > 0 { parts.append("\(held.formatted()) wait\(held == 1 ? "s" : "") for you") }
         if entry.finishedAt == nil { parts.append("cut short") }
         let when = Date(timeIntervalSince1970: TimeInterval(entry.startedAt)).formatted(date: .abbreviated, time: .shortened)
         return parts.joined(separator: " · ") + " · " + when
@@ -332,7 +392,7 @@ public struct OneWaySyncHistoryRows: View {
                 Button {
                     if expanded.contains(entry.id) { expanded.remove(entry.id) } else { expanded.insert(entry.id) }
                 } label: {
-                    Label(headline(entry), systemImage: expanded.contains(entry.id) ? "chevron.down" : "chevron.right")
+                    Label(Self.headline(entry), systemImage: expanded.contains(entry.id) ? "chevron.down" : "chevron.right")
                         .scaledFont(.system(size: 12, weight: .semibold))
                 }
                 .buttonStyle(.plain)
@@ -344,32 +404,41 @@ public struct OneWaySyncHistoryRows: View {
                 }
             }
             if expanded.contains(entry.id) {
-                ForEach(Array(entry.steps.enumerated()), id: \.offset) { _, step in
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(OneWaySyncWords.kind(step.step))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 72, alignment: .leading)
-                        Text(OneWaySyncWords.paths(step.step))
-                            .font(.system(size: 11, design: .monospaced))
-                            .lineLimit(2)
-                        Spacer(minLength: 4)
-                        Text(OneWaySyncWords.status(step.status))
-                            .foregroundStyle(step.status == .confirmed ? OneWaySyncPalette.source : OneWaySyncPalette.hold)
+                LazyVStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(entry.steps.enumerated()).filter { OneWaySyncWords.isChange($0.element.step.action) }, id: \.offset) { _, step in
+                        line(OneWaySyncWords.kind(step.step), OneWaySyncWords.paths(step.step), OneWaySyncWords.outcome(step),
+                             held: step.status != .confirmed)
                     }
-                    .scaledFont(.system(size: 11))
-                }
-                ForEach(Array(entry.held.enumerated()), id: \.offset) { _, wait in
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text("Waits").foregroundStyle(OneWaySyncPalette.hold).frame(width: 72, alignment: .leading)
-                        Text(OneWaySyncWords.subject(wait.subject)).font(.system(size: 11, design: .monospaced)).lineLimit(2)
-                        Spacer(minLength: 4)
+                    let same = entry.steps.filter { if case .adopt = $0.step.action { return true } else { return false } }.count
+                    if same > 0 {
+                        line("Same", same == 1 ? "1 file already the same" : "\(same.formatted()) files already the same", "Recorded", held: false)
                     }
-                    .scaledFont(.system(size: 11))
+                    ForEach(Array(entry.held.enumerated()), id: \.offset) { _, wait in
+                        line("Waits", OneWaySyncWords.subject(wait.subject), OneWaySyncWords.why(wait.reason), held: true)
+                    }
                 }
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
+    }
+
+    private func line(_ kind: String, _ paths: String, _ outcome: String, held: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(kind)
+                .foregroundStyle(held ? OneWaySyncPalette.hold : .secondary)
+                .frame(width: 72, alignment: .leading)
+            Text(paths)
+                .scaledFont(.system(size: 11, design: .monospaced))
+                .lineLimit(2)
+                .truncationMode(.middle)
+            Spacer(minLength: 4)
+            Text(outcome)
+                .foregroundStyle(held ? OneWaySyncPalette.hold : OneWaySyncPalette.sourceInk)
+                .multilineTextAlignment(.trailing)
+                .frame(maxWidth: 220, alignment: .trailing)
+        }
+        .scaledFont(.system(size: 11))
     }
 }
 
@@ -386,9 +455,51 @@ enum OneWaySyncWords {
         return paths(step.action)
     }
 
+    /// Whether a step changed anything in Dropbox: adopting a file already the same and
+    /// forgetting one gone from both sides only change the record.
+    static func isChange(_ action: OneWaySyncAction) -> Bool {
+        switch action {
+        case .adopt, .forget: return false
+        default: return true
+        }
+    }
+
+    /// What a step did, as History's right-hand column says it (the mockup's "Renamed in
+    /// Dropbox", "Folder moved · nothing uploaded"), or how far it got when it didn't finish.
+    static func outcome(_ step: OneWaySyncHistoryStep) -> String {
+        guard step.status == .confirmed else { return status(step.status) }
+        switch step.step.action {
+        case .moveFolderInDropbox: return "Folder moved in Dropbox · nothing uploaded"
+        case .moveInDropbox(let from, let to):
+            return OneWaySyncPath.parent(from) == OneWaySyncPath.parent(to) ? "Renamed in Dropbox" : "Moved in Dropbox"
+        case .moveToRemoved: return "Moved to SyncCloud Removed"
+        case .replace:
+            let emptied = step.emptied?.count ?? 0
+            return "Replaced, the old one kept" + (emptied > 0 ? " · the oldest kept version went to Dropbox’s deleted files" : "")
+        case .moveBackFromRemoved: return "Moved back from SyncCloud Removed"
+        case .copy: return step.step.movedInFrom == nil ? "Copied" : "Copied, from a folder that isn’t synced"
+        case .setTags: return "Tags set"
+        case .adopt: return "Recorded"
+        case .forget: return "Forgotten"
+        }
+    }
+
+    /// Why a sync held something, in the words of Now's rows.
+    static func why(_ reason: OneWaySyncWaitReason) -> String {
+        switch reason {
+        case .overRemovalLimit, .overRemovalLimitAcrossFolders: return "Over the removal limit"
+        case .syncedFolderRenamedInICloud: return "Rename Dropbox’s too?"
+        case .syncedFolderMovedOrDeletedInICloud: return "Moved or deleted in iCloud"
+        default:
+            let words = OneWaySyncRun.words(reason)
+            return words.prefix(1).uppercased() + words.dropFirst()
+        }
+    }
+
     static func kind(_ action: OneWaySyncAction) -> String {
         switch action {
-        case .moveFolderInDropbox: return "Moved"
+        case .moveFolderInDropbox(let from, let to):
+            return OneWaySyncPath.parent(from) == OneWaySyncPath.parent(to) ? "Renamed" : "Moved"
         case .moveInDropbox(let from, let to):
             return OneWaySyncPath.parent(from) == OneWaySyncPath.parent(to) ? "Renamed" : "Moved"
         case .moveToRemoved(_, let cause):
@@ -406,7 +517,8 @@ enum OneWaySyncWords {
 
     static func paths(_ action: OneWaySyncAction) -> String {
         switch action {
-        case .moveFolderInDropbox(let from, let to), .moveInDropbox(let from, let to): return "\(from) → \(to)"
+        case .moveFolderInDropbox(let from, let to): return "\(from)/ → \(to)/"
+        case .moveInDropbox(let from, let to): return "\(from) → \(to)"
         case .moveToRemoved(let path, _), .setTags(let path, _), .forget(let path): return path
         case .replace(let path, _, _, _): return path
         case .moveBackFromRemoved(_, let to), .copy(_, let to, _): return to
@@ -434,6 +546,19 @@ enum OneWaySyncWords {
 
     static func bytes(_ count: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: count, countStyle: .file)
+    }
+
+    /// A time as rows and sheets say it: "10:14" today ("today, 10:14" where it reads on its own),
+    /// "yesterday, 10:14", "28 Oct, 10:14", and with the year once it isn't this one.
+    static func when(_ date: Date, now: Date, saysToday: Bool = false, calendar: Calendar = .current) -> String {
+        let time = date.formatted(date: .omitted, time: .shortened)
+        if calendar.isDate(date, inSameDayAs: now) { return saysToday ? "today, " + time : time }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
+            return "yesterday, " + time
+        }
+        let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
+        let day = sameYear ? date.formatted(.dateTime.day().month(.abbreviated)) : date.formatted(.dateTime.day().month(.abbreviated).year())
+        return day + ", " + time
     }
 }
 

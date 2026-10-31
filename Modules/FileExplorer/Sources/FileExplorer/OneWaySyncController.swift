@@ -5,7 +5,7 @@ import Foundation
 import Sync
 import UserNotifications
 
-/// What the toolbar's one-way sync chip says: the first rung that applies (the page's ladder).
+/// What one-way sync's pill in Compare's differences bar says (ED): the first rung that applies (the page's ladder).
 public enum OneWaySyncLadder: Equatable, Sendable {
     case stopped(String)
     case needsYou(Int)
@@ -71,6 +71,8 @@ public enum OneWaySyncSheet: Identifiable, Equatable {
     case stoppedFiles
     /// The many file rows of one folder, folded into one.
     case group(String)
+    /// After a takeover: the Dropbox-only files, each to move to SyncCloud Removed or keep.
+    case reviewDropboxOnly
 
     public var id: String {
         switch self {
@@ -84,6 +86,7 @@ public enum OneWaySyncSheet: Identifiable, Equatable {
         case .chooseItemsToEmpty: return "empty"
         case .stoppedFiles: return "stopped"
         case .group(let folder): return "group:\(folder)"
+        case .reviewDropboxOnly: return "takeover"
         }
     }
 }
@@ -133,7 +136,7 @@ public final class OneWaySyncController: ObservableObject {
     /// The Mac Dropbox's marker names, when it isn't this one.
     @Published public private(set) var otherMac: OneWaySyncMacMarker?
     /// What a pass is doing now; nil while none runs.
-    @Published public private(set) var activity: String?
+    @Published public internal(set) var activity: String?
     /// The last pass's look: what Now's sheets read until a fresher one.
     @Published public private(set) var lastLook: OneWaySyncLook?
     /// What Now lists as skipped: the last look's, or until a pass looks, what the record knows
@@ -166,7 +169,12 @@ public final class OneWaySyncController: ObservableObject {
         self.center = center
         self.cloudApps = cloudApps
         self.refusal = refusal
+        // The ladder reads Now's rows: whoever shows it (the pill, and what the bar reserves for
+        // it) hears a change of rows as a change of the controller.
+        rowsWatch = center.$oneWaySync.dropFirst().sink { [weak self] _ in self?.objectWillChange.send() }
     }
+
+    private var rowsWatch: AnyCancellable?
 
     // MARK: State
 
@@ -174,11 +182,14 @@ public final class OneWaySyncController: ObservableObject {
     public var isPaused: Bool { state?.pausedSince != nil }
     public var isRunning: Bool { running != nil }
 
-    /// The toolbar's rung (the page's ladder), or nil before setup.
+    /// The pill's rung (the page's ladder), or nil before setup.
     public var ladder: OneWaySyncLadder? {
         if let otherMac { return .syncedByAnotherMac(lastSync: otherMac.lastSyncAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }) }
         guard isSetUp || stop != nil else { return nil }
         if let stop { return .stopped(OneWaySyncRows.stop(stop, at: Date()).title) }
+        // A stop saved from before a relaunch, or one only a pass's rows raise (over the limit
+        // across folders), is still the whole sync stopped.
+        if let row = center.oneWaySync.needsYou.first(where: { $0.id.hasPrefix(OneWaySyncRows.stopPrefix) }) { return .stopped(row.title) }
         let waiting = center.oneWaySync.needsYou.count
         if waiting > 0 { return .needsYou(waiting) }
         if let since = state?.pausedSince { return .paused(since: Date(timeIntervalSince1970: TimeInterval(since))) }
@@ -221,6 +232,8 @@ public final class OneWaySyncController: ObservableObject {
     public var setupPrefill: (iCloud: URL, dropbox: URL)?
     /// Opens Activity on Now, and Settings on Sync: set by the app.
     public var onOpenActivity: () -> Void = {}
+    /// Opens Activity on History: the overview's way to the sync's History (the page's "its page").
+    public var onOpenHistory: () -> Void = {}
     /// Hears the paths SyncCloud's own sync wrote, so the panes read them again: the folder
     /// watcher marks this process's writes as its own, and a pane never re-reads them by itself.
     public var onWrote: @MainActor ([String]) -> Void = { _ in }
@@ -265,6 +278,25 @@ public final class OneWaySyncController: ObservableObject {
     public func start() {
         reload()
         watchDropbox()
+        statusWatch = statusWatch ?? cloudApps.$problems.sink { [weak self] _ in
+            Task { @MainActor in self?.clearStopsThatCleared() }
+        }
+    }
+
+    private var statusWatch: AnyCancellable?
+
+    /// A whole-sync stop whose cause has gone (Dropbox opened again, its uploads caught up,
+    /// iCloud back) clears at once, and the pill with it.
+    func clearStopsThatCleared() {
+        let stops = center.oneWaySync.rows.map(\.id).filter { $0.hasPrefix(OneWaySyncRows.stopPrefix) }
+        guard !stops.isEmpty else { return }
+        let cleared = OneWaySyncRows.stopsCleared(stops, status: cloudApps.statusModel,
+                                                  dropboxParent: record.map { places(for: $0).dropboxParent.path }, now: Date())
+        guard !cleared.isEmpty else { return }
+        center.clearOneWaySync(cleared)
+        if let stop, cleared.contains(OneWaySyncRows.stop(stop, at: Date()).id) { self.stop = nil }
+        Logger.shared.info("One-way sync: \(cleared.count == 1 ? "a stop" : "\(cleared.count) stops") cleared on its own: "
+                           + cleared.map { String($0.dropFirst(OneWaySyncRows.stopPrefix.count)) }.joined(separator: ", "))
     }
 
     /// Reads the record, the state and the exclusions again.
@@ -281,7 +313,6 @@ public final class OneWaySyncController: ObservableObject {
             record = nil
             state = nil
             firstRun = nil
-            // A record that was there and no longer fits says so; never having set up says nothing.
             // A record that was there and no longer fits says so, with its row; never having set
             // up says nothing.
             if reason != .noRecord { stopped(.needsNewFirstRun(reason)) }
@@ -297,7 +328,8 @@ public final class OneWaySyncController: ObservableObject {
                 if case .otherMac(let other) = check, self?.record == nil { self?.otherMac = other }
             }
         }
-        if let record, let marker = marker(for: record) {
+        if let record {
+            let marker = marker(for: record)
             switch marker.check(hardwareID: OneWaySyncBinding.platformUUID() ?? "") {
             case .otherMac(let other): otherMac = other
             default: otherMac = nil
@@ -330,7 +362,7 @@ public final class OneWaySyncController: ObservableObject {
             staging: OneWaySyncPlaces.defaultStaging())
     }
 
-    func marker(for record: OneWaySyncRecord) -> OneWaySyncMarkerFile? {
+    func marker(for record: OneWaySyncRecord) -> OneWaySyncMarkerFile {
         OneWaySyncMarkerFile(folder: URL(fileURLWithPath: OneWaySyncDisk.canonicalPath(URL(fileURLWithPath: record.dropboxParent.path))))
     }
 
@@ -340,7 +372,10 @@ public final class OneWaySyncController: ObservableObject {
 
     /// Runs one pass: checks, waits for Dropbox to catch up, looks, applies, and says what waits.
     public func syncNow() {
-        guard syncNowRefusal == nil else { return }
+        if let syncNowRefusal {
+            Logger.shared.debug("One-way sync: Sync Now not run: \(syncNowRefusal)")
+            return
+        }
         stopFlag.set(false)
         running = Task { [weak self] in
             await self?.pass()
@@ -352,6 +387,7 @@ public final class OneWaySyncController: ObservableObject {
     /// Stops a pass: one waiting stops at once, one writing after the step it is on. What is
     /// left waits for the next Sync Now.
     public func cancel() {
+        if isRunning { Logger.shared.info("One-way sync: the sync running was stopped") }
         stopFlag.set(true)
         running?.cancel()
     }
@@ -371,28 +407,79 @@ public final class OneWaySyncController: ObservableObject {
         guard let store else { return }
         timings = []
         lap = .now
+        Logger.shared.info("One-way sync: sync starting")
         activity = "Checking"
-        guard let (record, firstRun, state) = await startCheck() else { return }
+        guard let (startRecord, firstRun, state) = await startCheck() else { return }
+        var checked = startRecord
         // A lost list of files you stopped syncing would sync them over the copies you kept.
         guard case .ready(let exclusions) = store.loadExclusions() else {
-            return stopped(.failed("the list of files you stopped syncing couldn’t be read"))
+            return stopped(.failed("the list of files you stopped syncing couldn’t be read (\(store.exclusionsURL.path)); "
+                                   + "it is kept as it is, and syncing waits until it can be read or is removed"))
         }
         self.exclusions = exclusions
-        if let problem = OneWaySyncSetup.parentProblem(record.iCloudParent) ?? OneWaySyncSetup.parentProblem(record.dropboxParent) {
+        if let problem = OneWaySyncSetup.parentProblem(checked.iCloudParent) ?? OneWaySyncSetup.parentProblem(checked.dropboxParent) {
             return stopped(.parentMoved(problem))
         }
-        mark("checks")
-        guard await dropboxCaughtUp() else { return }
-        mark("Dropbox gate")
-        activity = "Comparing"
-        let places = places(for: record)
-        let now = Date()
-        let look = await Task.detached(priority: .userInitiated) {
-            OneWaySyncRun.look(record: record, state: state, exclusions: exclusions, places: places, download: true, now: now,
-                               outside: store.loadOutside())
+        // A parent macOS won't let SyncCloud read lists as empty: every synced folder would read
+        // as moved or deleted.
+        let parents = places(for: checked)
+        let unreadable = await Task.detached(priority: .userInitiated) {
+            [("iCloud", parents.iCloudParent), ("Dropbox", parents.dropboxParent)].first {
+                (try? FileManager.default.contentsOfDirectory(atPath: $0.1.path)) == nil
+            }
         }.value
+        if let (side, parent) = unreadable { return stopped(.noAccess(folder: "\(side) ▸ \(parent.lastPathComponent)")) }
+        mark("checks")
+        guard await dropboxCaughtUp(dropboxParent: places(for: checked).dropboxParent.path) else { return }
+        mark("Dropbox gate")
+        // What the last pass didn't hear from Dropbox, read first: a copy refused since is
+        // skipped from now on, and Dropbox still full stops this pass before it writes more.
+        if !checked.pendingUploads.isEmpty {
+            let parent = places(for: checked).dropboxParent
+            let check = await OneWaySyncRun.recheckPending(checked, dropboxParent: parent, now: Date())
+            if check.record != checked {
+                do {
+                    try store.saveRecord(check.record, firstRun: firstRun)
+                    checked = check.record
+                    self.record = checked
+                } catch {
+                    return stopped(.failed("its saved state couldn’t be written: \(error.localizedDescription)"))
+                }
+            }
+            Logger.shared.info("One-way sync: read \(startRecord.pendingUploads.count) unreported uploads again: \(check.settled) settled"
+                               + (check.refused.isEmpty ? "" : ", Dropbox won’t take \(check.refused.joined(separator: "; "))")
+                               + (check.stillFull ? ", Dropbox still reports it’s full" : ""))
+            if check.stillFull {
+                let removed = await removedSummary().bytes
+                return stopped(.dropboxFull(removedBytes: removed > 0 ? removed : nil))
+            }
+        }
+        activity = "Comparing"
+        let record = checked
+        let places = places(for: record)
+        let stopFlag = self.stopFlag
+        func lookNow() async -> OneWaySyncLook {
+            let now = Date()
+            return await Task.detached(priority: .userInitiated) {
+                OneWaySyncRun.look(record: record, state: state, exclusions: exclusions, places: places, download: true, now: now,
+                                   outside: store.loadOutside(), isCancelled: { stopFlag.isSet })
+            }.value
+        }
+        var look = await lookNow()
+        if Task.isCancelled || stopFlag.isSet { return }
+        // A swap of names the app quit in the middle of: its parked file goes back first.
+        if !look.dropbox.parked.isEmpty {
+            let parked = look.dropbox.parked
+            let unfinished = store.history.unfinished(firstRun: firstRun).flatMap { $0.steps.map(\.step) }
+            let back = await OneWaySyncRun.onWriteQueue {
+                (try? OneWaySyncWriter(places: places)).map { OneWaySyncRun.putBackParked(parked, steps: unfinished, writer: $0) }
+            }
+            Logger.shared.info("One-way sync: put back \(back?.putBack.count ?? 0) files a stopped swap of names had parked"
+                               + ((back?.left.isEmpty ?? false) ? "" : "; still parked: \((back?.left ?? parked).joined(separator: ", "))"))
+            if back?.putBack.isEmpty == false { look = await lookNow() }
+        }
         mark("look")
-        if Task.isCancelled { return }
+        if Task.isCancelled || stopFlag.isSet { return }
         let notHere = look.dropboxNotHere
         if !notHere.isEmpty {
             lastLook = look
@@ -415,8 +502,8 @@ public final class OneWaySyncController: ObservableObject {
         let account = record?.binding.dropboxAccountFolder ?? ""
         let saved = store.loadRecord(on: .current(dropboxAccountFolder: account))
         let markerCheck: OneWaySyncMarkerCheck
-        if case .ready(let r, _, _) = saved, let marker = marker(for: r) {
-            markerCheck = marker.check(hardwareID: OneWaySyncBinding.platformUUID() ?? "")
+        if case .ready(let r, _, _) = saved {
+            markerCheck = marker(for: r).check(hardwareID: OneWaySyncBinding.platformUUID() ?? "")
         } else {
             markerCheck = .missing
         }
@@ -446,25 +533,37 @@ public final class OneWaySyncController: ObservableObject {
 
     /// Waits for the Dropbox gate (DI): running five minutes since it started or the Mac woke, and
     /// nothing still arriving. False, with its row raised, when it stops the sync or is cancelled.
-    private func dropboxCaughtUp() async -> Bool {
+    private func dropboxCaughtUp(dropboxParent: String) async -> Bool {
+        var said: String?
+        defer { if said != nil, Task.isCancelled { Logger.shared.info("One-way sync: stopped while waiting for Dropbox") } }
+        func waiting(_ words: String) {
+            activity = words
+            // Once per kind of wait, not every five seconds.
+            let kind = String(words.prefix { $0 != "·" })
+            if said != kind { Logger.shared.info("One-way sync: \(words.lowercased())"); said = kind }
+        }
         while !Task.isCancelled {
             let now = Date()
-            switch OneWaySyncDropboxGate.check(status: cloudApps.statusModel, arrivals: arrivals, lastWake: cloudApps.lastWake, now: now) {
+            switch OneWaySyncDropboxGate.check(status: cloudApps.statusModel, arrivals: arrivals, lastWake: cloudApps.lastWake, now: now,
+                                               dropboxParent: dropboxParent) {
             case .caughtUp:
                 return true
             case .stop(.dropboxNotRunning):
                 stopped(.dropboxNotRunning)
                 return false
+            case .stop(.dropboxNotUploading):
+                stopped(.dropboxNotUploading)
+                return false
             case .stop(.dropboxNeverQuiet):
                 stopped(.dropboxNeverQuiet)
                 return false
             case .waiting(.dropboxNotSeenRunning):
-                activity = "Waiting for the Dropbox app"
+                waiting("Waiting for the Dropbox app")
                 cloudApps.checkNow(["dropbox"])
             case .waiting(.dropboxJustStarted(let until)):
-                activity = "Letting Dropbox catch up · until \(until.formatted(date: .omitted, time: .shortened))"
+                waiting("Letting Dropbox catch up · until \(until.formatted(date: .omitted, time: .shortened))")
             case .waiting(.changesArriving):
-                activity = "Letting Dropbox catch up"
+                waiting("Letting Dropbox catch up · changes still arriving")
             }
             try? await Task.sleep(for: .seconds(5))
         }
@@ -505,7 +604,7 @@ public final class OneWaySyncController: ObservableObject {
         let progressBeat = OneWaySyncProgressBeat()
         let result: OneWaySyncRunResult
         do {
-            result = try await Task.detached(priority: .userInitiated) {
+            let applying = Task.detached(priority: .userInitiated) {
                 try await OneWaySyncRun.apply(look, state: state, firstRun: firstRun, store: store, writer: unsafeWriter,
                                               marker: marker, hardwareID: hardwareID, macName: macName, holdingBack: held,
                                               isCancelled: { stopFlag.isSet },
@@ -517,12 +616,30 @@ public final class OneWaySyncController: ObservableObject {
                                                       self.activity = "Syncing \(of - done)"
                                                   }
                                               })
-            }.value
+            }
+            // Pause or Stop reaches the wait for uploads too: what isn't reported by then is
+            // compared again at the next pass.
+            result = try await withTaskCancellationHandler { try await applying.value } onCancel: { applying.cancel() }
         } catch {
             return stopped(.failed("its saved state couldn’t be written: \(error.localizedDescription)"))
         }
         mark("apply")
         finish(result)
+        let removed = await removedSummary().bytes
+        if result.dropboxFull { stopped(.dropboxFull(removedBytes: removed > 0 ? removed : nil)) }
+        noteRemovedSpace(holding: removed)
+    }
+
+    /// DF: SyncCloud Removed past a tenth of this Mac's free space says so once; back under, the
+    /// row goes.
+    func noteRemovedSpace(holding removed: Int64) {
+        let free = (try? URL(fileURLWithPath: NSHomeDirectory()).resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
+            .volumeAvailableCapacityForImportantUsage ?? 0
+        if let row = OneWaySyncRows.removedSpace(holding: removed, free: free, at: Date()) {
+            center.raiseOneWaySync([row])
+        } else {
+            center.clearOneWaySync([OneWaySyncRows.removedSpaceID])
+        }
     }
 
     /// After a pass: the record and state as saved, Now's rows as this pass found things, and a
@@ -542,7 +659,10 @@ public final class OneWaySyncController: ObservableObject {
             if !written.isEmpty { onWrote(Array(Set(written.flatMap { [$0.path, $0.deletingLastPathComponent().path] })).sorted()) }
         }
         let known = Set(state?.knownUnsyncedFolders ?? [])
-        let rows = OneWaySyncRows.rows(for: look, knownUnsynced: known, at: Date())
+        let takenOver = state?.takenOverAt != nil
+        let rows = OneWaySyncRows.rows(for: look, knownUnsynced: known, takenOver: takenOver, at: Date())
+        // A takeover with nothing only in Dropbox has nothing to ask, once every folder was read.
+        if takenOver, look.plan.dropboxOnly.isEmpty, look.plan.notFullyListed.isEmpty { saveState { $0.takenOverAt = nil } }
         let raised = Set(rows.map(\.id))
         // A new folder announced once stays announced; it is not new at the next pass.
         let announced = rows.compactMap { row -> String? in
@@ -558,10 +678,8 @@ public final class OneWaySyncController: ObservableObject {
         }
         center.clearOneWaySync(stale)
         center.raiseOneWaySync(rows)
-        if !announced.isEmpty, var state, let store {
-            state.knownUnsyncedFolders = Array(Set(state.knownUnsyncedFolders).union(announced)).sorted()
-            try? store.saveState(state)
-            self.state = state
+        if !announced.isEmpty {
+            saveState { $0.knownUnsyncedFolders = Array(Set($0.knownUnsyncedFolders).union(announced)).sorted() }
         }
         let synced = result.synced
         let waiting = result.look.plan.waits.filter(\.reason.needsYou).count
@@ -569,9 +687,12 @@ public final class OneWaySyncController: ObservableObject {
             .joined(separator: ", ")
         Logger.shared.info("One-way sync: \(synced) of \(result.look.plan.steps.count) changes synced, \(waiting) wait for you"
                            + (took.isEmpty ? "" : " (\(took))")
-                           + (result.notDone.isEmpty ? "" : ", \(result.notDone.count) didn’t go through: "
-                              + result.notDone.prefix(5).map { "\($0.path) (\($0.why))" }.joined(separator: "; "))
-                           + (result.unconfirmed.isEmpty ? "" : ", \(result.unconfirmed.count) not yet reported uploaded"))
+                           + (result.notDone.isEmpty ? "" : ", \(result.notDone.count) didn’t go through")
+                           + (result.unconfirmed.isEmpty ? "" : ", \(result.unconfirmed.count) not yet reported uploaded")
+                           + (look.skipped.isEmpty ? "" : ", \(look.skipped.count) skipped"))
+        for line in result.logDetails {
+            if line.hasPrefix("didn’t go through") { Logger.shared.warning("One-way sync: " + line) } else { Logger.shared.info("One-way sync: " + line) }
+        }
     }
 
     /// Stops the sync with its row under *Needs you*; the other stop rows go.
@@ -581,7 +702,7 @@ public final class OneWaySyncController: ObservableObject {
         let others = center.oneWaySync.rows.map(\.id).filter { $0.hasPrefix(OneWaySyncRows.stopPrefix) && $0 != row.id }
         center.clearOneWaySync(others)
         center.raiseOneWaySync([row])
-        Logger.shared.info("One-way sync: \(row.title)")
+        Logger.shared.warning("One-way sync: \(row.title)" + (row.detail.map { " — \($0)" } ?? ""))
     }
 
     // MARK: A fresh look, for the sheets
@@ -620,7 +741,7 @@ public final class OneWaySyncController: ObservableObject {
             }
         }
         if let failure {
-            Logger.shared.info("One-way sync: \(what) didn’t go through: \(failure)")
+            Logger.shared.warning("One-way sync: \(what) didn’t go through: \(failure)")
             return failure
         }
         Logger.shared.info("One-way sync: \(what)")
@@ -641,12 +762,31 @@ public final class OneWaySyncController: ObservableObject {
 
     func save(_ exclusions: OneWaySyncExclusions) throws {
         guard !isRunning else { throw CocoaError(.userCancelled) }
+        // A list that couldn't be read is never written over from an empty one: the files it
+        // names would sync over the copies kept in Dropbox.
+        if store?.loadExclusions() == .unreadable {
+            throw CocoaError(.fileReadCorruptFile, userInfo: [NSLocalizedDescriptionKey: "the list of files you stopped syncing couldn’t be read"])
+        }
         try store?.saveExclusions(exclusions)
         self.exclusions = exclusions
     }
 
+    /// Runs a save an answer needs; false, with a line in the log, when it couldn't be made.
+    func saving(_ what: String, _ body: () throws -> Void) -> Bool {
+        do {
+            try body()
+            return true
+        } catch {
+            Logger.shared.error("One-way sync: couldn’t \(what): \(error.localizedDescription)")
+            return false
+        }
+    }
+
     func saveState(_ change: (inout OneWaySyncSavedState) -> Void) {
-        guard var state, let store else { return }
+        guard let store, let held = self.state else { return }
+        // From what is saved, not the copy taken when a pass started: the pass saves its removal
+        // window meanwhile, and Pause mid-pass must not write the old window back.
+        var state = store.loadState().value ?? held
         change(&state)
         do {
             try store.saveState(state)
@@ -660,19 +800,23 @@ public final class OneWaySyncController: ObservableObject {
 
     public func pause() {
         saveState { $0.pausedSince = OneWaySyncHistoryStore.seconds(Date()) }
+        Logger.shared.info("One-way sync: paused")
         cancel()
     }
 
     public func resume() {
         saveState { $0.pausedSince = nil }
+        Logger.shared.info("One-way sync: resumed")
     }
 
     public func setWhenDeletedRenamedOrMoved(_ value: OneWaySyncSettings.WhenDeletedRenamedOrMoved) {
         saveState { $0.settings.whenDeletedRenamedOrMoved = value }
+        Logger.shared.info("One-way sync: a Dropbox file deleted, renamed or moved now \(value == .matchICloud ? "is put back as in iCloud" : "asks you")")
     }
 
     public func setWhenEdited(_ value: OneWaySyncSettings.WhenEdited) {
         saveState { $0.settings.whenEdited = value }
+        Logger.shared.info("One-way sync: a Dropbox file edited now \(value == .useICloud ? "takes iCloud’s version" : "asks you")")
     }
 
     /// *Turn Off One-Way Sync*: the record, the state, the marker and SyncCloud's temporary files
@@ -681,11 +825,22 @@ public final class OneWaySyncController: ObservableObject {
         guard let store, refusal == nil, !isRunning, !isAnswering else { return }
         cancel()
         if let record {
-            try? marker(for: record)?.remove()
+            // Only this Mac's own marker: on a Mac another one took the sync over from, it is
+            // the other Mac's, and removing it would stop that one.
+            let marker = marker(for: record)
+            if case .thisMac = marker.check(hardwareID: OneWaySyncBinding.platformUUID() ?? "") {
+                do { try marker.remove() } catch { Logger.shared.error("One-way sync: couldn’t remove its marker in Dropbox: \(error.localizedDescription)") }
+            }
             if let writer = try? OneWaySyncWriter(places: places(for: record)) { writer.removeTemporaryFiles() }
         }
-        try? store.removeRecord()
-        try? store.saveExclusions(OneWaySyncExclusions())
+        do {
+            try store.removeRecord()
+            try store.saveExclusions(OneWaySyncExclusions())
+        } catch {
+            // Left in place, the record would turn the sync back on at the next launch.
+            Logger.shared.error("One-way sync: couldn’t turn off: \(error.localizedDescription)")
+            return
+        }
         center.clearOneWaySync(center.oneWaySync.rows.map(\.id).filter { $0.hasPrefix(OneWaySyncRows.prefix) })
         record = nil
         state = nil
@@ -701,6 +856,8 @@ public final class OneWaySyncController: ObservableObject {
 
     /// *Sync From This Mac Instead…*: this Mac takes the marker, and a new first run follows.
     public func syncFromThisMacInstead(from host: OneWaySyncSheetHost = .main) {
+        Logger.shared.info("One-way sync: taking the sync over on this Mac; its first run comes next")
+        takingOver = true
         sheetHost = host
         otherMac = nil
         if case .twoMacsClaim = stop { stop = nil }
@@ -708,6 +865,18 @@ public final class OneWaySyncController: ObservableObject {
     }
 
     // MARK: Setup
+
+    /// Set by *Sync From This Mac Instead…* for the first run it leads to: that run's state says
+    /// so (`takenOverAt`), and its Dropbox-only files are offered as one group.
+    var takingOver = false
+
+    /// The state a first run starts with: the settings chosen, the folders left unticked, and
+    /// whether it follows a takeover.
+    nonisolated static func firstRunState(settings: OneWaySyncSettings, unticked: [String], takingOver: Bool, now: Date) -> OneWaySyncSavedState {
+        var state = OneWaySyncSavedState(settings: settings, knownUnsyncedFolders: unticked)
+        if takingOver { state.takenOverAt = OneWaySyncHistoryStore.seconds(now) }
+        return state
+    }
 
     /// The setup sheet opened on `dropboxParent`: from now, Dropbox has to stay quiet there for
     /// Start First Run, so what arrives there is watched.
@@ -747,6 +916,8 @@ public final class OneWaySyncController: ObservableObject {
     /// The setup sheet closed: the watcher goes back to the synced folders.
     public func setupClosed() {
         setupOpenedAt = nil
+        // A takeover's setup closed without starting: the next first run isn't one.
+        takingOver = false
         watchDropbox()
     }
 
@@ -778,6 +949,7 @@ public final class OneWaySyncController: ObservableObject {
         case .caughtUp: break
         case .stop(.dropboxNotRunning), .waiting(.dropboxNotSeenRunning): return "Open Dropbox first: SyncCloud syncs only while it runs"
         case .stop(.dropboxNeverQuiet), .waiting(.changesArriving): return "Dropbox is still bringing changes in"
+        case .stop(.dropboxNotUploading): return "Dropbox hasn’t uploaded a changed file for 30 minutes"
         case .waiting(.dropboxJustStarted(let until)): return "Dropbox just started: ready at \(until.formatted(date: .omitted, time: .shortened))"
         }
         if let opened = setupOpenedAt, let last = arrivals.lastArrival, last > opened { return "Dropbox changed something since this opened" }
@@ -802,11 +974,12 @@ public final class OneWaySyncController: ObservableObject {
         let unticked = draft.choices.filter { !folders.contains($0.name) && $0.place != .onlyInDropbox }.map(\.name)
         let old = self.record
         record.nextKey = max(record.nextKey, old?.nextKey ?? 1)
-        let state = OneWaySyncSavedState(settings: settings, knownUnsyncedFolders: unticked)
+        let state = Self.firstRunState(settings: settings, unticked: unticked, takingOver: takingOver, now: Date())
+        takingOver = false
         do {
             try store.startFirstRun(record, state: state)
             let hardwareID = OneWaySyncBinding.platformUUID() ?? ""
-            try marker(for: record)?.claim(OneWaySyncMacMarker(
+            try marker(for: record).claim(OneWaySyncMacMarker(
                 hardwareID: hardwareID, macName: Self.macName, claimedAt: OneWaySyncHistoryStore.seconds(Date())))
         } catch {
             return "SyncCloud couldn’t save the sync: \(error.localizedDescription)"
@@ -838,7 +1011,11 @@ public final class OneWaySyncController: ObservableObject {
         for name in names where !record.syncedFolders.contains(where: { key($0.iCloudPath) == key(name) }) {
             if let added = OneWaySyncSetup.adding(name, to: record, iCloud: draft.iCloud, dropbox: draft.dropbox) { record = added }
         }
-        do { try save(record) } catch { return error.localizedDescription }
+        do { try save(record) } catch {
+            Logger.shared.error("One-way sync: couldn’t change the synced folders: \(error.localizedDescription)")
+            return error.localizedDescription
+        }
+        Logger.shared.info("One-way sync: synced folders now \(record.syncedFolders.map(\.iCloudPath).joined(separator: ", "))")
         let unticked = draft.choices.filter { !wanted.contains(key($0.name)) && $0.place != .onlyInDropbox }.map(\.name)
         saveState { $0.knownUnsyncedFolders = Array(Set($0.knownUnsyncedFolders).union(unticked)).sorted() }
         watchDropbox()
@@ -874,12 +1051,47 @@ public final class OneWaySyncController: ObservableObject {
     }
 
     /// *Choose Items to Empty…*: the chosen go to Dropbox's own deleted files.
-    public func empty(_ chosen: [OneWaySyncRemovedItem]) async {
-        guard let record else { return }
+    /// Returns how many were left because they had changed since the list was read.
+    @discardableResult
+    public func empty(_ chosen: [OneWaySyncRemovedItem]) async -> Int {
+        guard let record else { return 0 }
         let account = places(for: record).dropboxAccountFolder
         let result = await Task.detached(priority: .userInitiated) { OneWaySyncRemovedStore(accountFolder: account).empty(chosen) }.value
         Logger.shared.info("One-way sync: emptied \(result.emptied.count) items (\(OneWaySyncWords.bytes(result.bytes))) from SyncCloud Removed"
                            + (result.failed.isEmpty ? "" : "; \(result.failed.count) had changed and were left"))
+        removedRevision += 1
+        noteRemovedSpace(holding: await removedSummary().bytes)
+        return result.failed.count
+    }
+
+    /// Moves on whenever SyncCloud Removed changes outside a pass (emptied, restored from), so
+    /// what shows its size reads it again.
+    @Published public private(set) var removedRevision = 0
+
+    /// *Restore to iCloud* for an item in SyncCloud Removed: copied into iCloud where it came from,
+    /// keeping both if the name is taken; it stays in SyncCloud Removed. The sync then carries it
+    /// to Dropbox as usual. Nil when done, or why not.
+    public func restoreToICloud(_ item: OneWaySyncRemovedItem) async -> String? {
+        guard let record else { return "One-way sync isn’t set up" }
+        let places = places(for: record)
+        let failure: String? = await OneWaySyncRun.onWriteQueue {
+            do {
+                let writer = try OneWaySyncWriter(places: places)
+                _ = try writer.removed.restoreToICloud(item, iCloudParent: places.iCloudParent, staging: places.staging,
+                                                       deadline: writer.coordinationDeadline)
+                return nil
+            } catch {
+                return OneWaySyncRun.describe(error)
+            }
+        }
+        if let failure {
+            Logger.shared.warning("One-way sync: \(item.path) couldn’t be restored to iCloud: \(failure)")
+            return failure
+        }
+        Logger.shared.info("One-way sync: restored \(item.path) to iCloud")
+        onWrote([places.iCloudParent.appendingPathComponent(".").path])
+        removedRevision += 1
+        return nil
     }
 
     /// Shows Dropbox ▸ SyncCloud Removed in Finder.

@@ -56,8 +56,9 @@ Requires **macOS 26**, unchanged from v6.2.
 ### One-way sync
 
 - **Sync chosen folders from iCloud Drive to Dropbox, when you click Sync Now.** Set it up from
-  Compare: the One-Way Sync pill beside the differences count, or Add a Sync… in the Syncs section
-  of Compare's sidebar. Setup opens on the two folders Compare shows when one is in iCloud Drive and
+  Compare: the One-Way Sync pill beside the differences count, shown before setup when Compare
+  shows an iCloud Drive folder beside a Dropbox one, or Add a Sync… in the Syncs section of
+  Compare's sidebar. Setup opens on the two folders Compare shows when one is in iCloud Drive and
   the other in Dropbox, and takes three steps: the folders with the same name in both, what to do
   when someone changes a copy in Dropbox, and what the first sync will do. Folders macOS reports as
   shared, and the ones Dropbox manages, aren't offered; SyncCloud can't see Dropbox's own sharing,
@@ -68,22 +69,30 @@ Requires **macOS 26**, unchanged from v6.2.
   renamed folder moves once in Dropbox, with nothing uploaded again. An edit that keeps a downloaded
   file's size and date is copied too. A deletion is copied once the file has been gone 30 minutes and a
   later Sync Now still finds it gone.
-- **A file Dropbox won't take isn't counted as synced.** It's listed as skipped in Activity ▸ Now,
-  and the pill reads "Synced at 14:02 · 1 skipped · Sync Now"; Sync Now tries it again once it changes in
-  iCloud.
+- **A file Dropbox won't take isn't counted as synced.** When Dropbox says so only after a sync,
+  the next Sync Now hears it. It's listed as skipped in Activity ▸ Now, and the pill reads "Synced
+  at 14:02 · 1 skipped · Sync Now"; Sync Now tries it again once it changes in iCloud.
 - **Nothing in Dropbox is deleted outright.** Whatever the sync removes or replaces goes to Dropbox
   ▸ SyncCloud Removed.
 - **What needs you waits in Activity ▸ Now.** A file changed directly in Dropbox, and more removals
   in a day than the limit, wait there with Choose a Version…, Review… and Match iCloud, with a
-  notification if you turned them on. A sync in Activity ▸ History offers Reverse in iCloud…, which
+  notification if you turned them on. The whole sync stops there, and says why, when Dropbox isn't
+  running, hasn't uploaded a changed file for 30 minutes, or reports it's full, or when SyncCloud
+  can't read a folder; a synced folder that becomes shared stops on its own. A stop because Dropbox
+  or iCloud wasn't there clears as soon as it's back. A sync in Activity ▸ History, kept 90 days, offers Reverse in iCloud…, which
   also moves a file moved in from a folder that isn't synced back to it.
+- **Taking the sync over from another Mac asks about Dropbox's extra files.** The first sync after
+  Sync From This Mac Instead… lists the files only in Dropbox as one group to review: they may be
+  deletions that waited on the other Mac. Nothing moves until you choose.
 - **Each side says what it is.** The pill and the sidebar say how the sync stands; the iCloud pane
   says "Changes made here" and the Dropbox pane "Kept as a copy". In SyncCloud's Dropbox pane,
-  renaming, moving or deleting a synced file is refused, and Show in iCloud finds the file it comes
-  from.
+  renaming or deleting a synced file isn't offered and moving one is refused, and Show in iCloud
+  finds the file it comes from.
 - **Settings ▸ Sync ▸ One-Way Sync** has Pause, Choose Folders…, the two settings for changes made
-  in Dropbox, files you stopped syncing, SyncCloud Removed with Choose Items to Empty…, and Turn Off
-  One-Way Sync…. Only SyncCloud in the Applications folder syncs.
+  in Dropbox, files you stopped syncing, SyncCloud Removed with Choose Items to Empty… and Restore to
+  iCloud, and Turn Off One-Way Sync…. Resume says what the next sync would do first. SyncCloud
+  Removed says so once it holds more than a tenth of this Mac's free space. Only SyncCloud in the
+  Applications folder syncs.
 
 ### Cloud apps
 
@@ -101,7 +110,8 @@ Requires **macOS 26**, unchanged from v6.2.
 - **Panes notice when their folders change.** A change on disk after a pane was read shows as
   "changed since" in Browse's status bar and in Compare's scan age. Settings ▸ Sync ▸ "Rescan when
   files change" (off by default) re-reads the pane instead, at most once in 30 seconds. SyncCloud's
-  own changes don't count.
+  own changes don't count, nor does opening a file unless you sort by tags, and a pane on a
+  network volume isn't watched.
 
 ### Large files
 

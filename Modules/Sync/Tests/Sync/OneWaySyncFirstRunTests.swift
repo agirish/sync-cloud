@@ -131,6 +131,17 @@ import Testing
         #expect(plan.dropboxOnly.isEmpty)
     }
 
+    /// Only within one folder (31 Oct): a Dropbox file of the same contents filed in another
+    /// folder stays where it was, and iCloud's file is copied.
+    @Test func identicalContentsInAnotherFolderIsNotPaired() {
+        let plan = world(
+            iCloud: [Self.file("Finance/receipt.pdf", id: 1, hash: "x")],
+            dropbox: [Self.file("Finance/Old/evidence.pdf", id: 101, hash: "x")]).plan(now: Self.now)
+        #expect(plan.matches.pairs.isEmpty)
+        #expect(plan.actions == [.copy(from: "Finance/receipt.pdf", to: "Finance/receipt.pdf", needsDownload: false)])
+        #expect(plan.dropboxOnly == ["Finance/Old/evidence.pdf"])
+    }
+
     @Test func aRenameToMatchThatWaitsAdoptsNothing() {
         // X.pdf is too small to pair by contents and takes the name x.pdf needs in Dropbox.
         let plan = world(

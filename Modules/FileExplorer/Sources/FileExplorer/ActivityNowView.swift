@@ -74,8 +74,11 @@ public struct ActivityNowView: View {
             Divider()
             // One-way sync's rows (RD67, DC): what needs you, and what is for your information.
             if !center.oneWaySync.rows.isEmpty {
-                // The popover hangs from the main window's toolbar: its sheets open there.
-                OneWaySyncNowRows(center: center, host: .main)
+                // The popover hangs from the main window's toolbar: its sheets open there. Capped as
+                // Recent is, so a long list never pushes Open as Window off the screen.
+                ScrollView { OneWaySyncNowRows(center: center, host: .main) }
+                    .frame(maxHeight: 320)
+                    .fixedSize(horizontal: false, vertical: true)
                 Divider()
             }
             if !cloudApps.notices.isEmpty {

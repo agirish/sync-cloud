@@ -4,6 +4,7 @@
 //
 
 import Darwin
+import Events
 import Foundation
 
 /// One look at both sides: the listings, the plan made from them, and what the lister skipped.
@@ -34,6 +35,15 @@ public struct OneWaySyncLook: Sendable {
             guard wait.reason == .refusedByDropbox, case .file(let iCloudPath?, _) = wait.subject else { return nil }
             return OneWaySyncSkippedItem(path: iCloudPath, reason: OneWaySyncSkippedItem.dropboxWontTakeIt)
         }
+    }
+
+    /// iCloud files that wait because their contents, or their Dropbox counterpart's, couldn't
+    /// be read to compare (a read failed, or a download didn't finish), by their iCloud path.
+    public var unread: [String] {
+        Array(Set(plan.waits.compactMap { wait -> String? in
+            guard wait.reason == .contentsNotRead, case .file(let i, let d) = wait.subject else { return nil }
+            return i ?? d
+        })).sorted()
     }
 
     /// The iCloud item at `path`, as listed.
@@ -68,6 +78,8 @@ public struct OneWaySyncSummary: Equatable, Sendable {
     public var syncedBytes: Int64 = 0
 
     public var changes: Int { copies + replaces + moves + removals }
+
+    public init() {}
 
     init(_ look: OneWaySyncLook) {
         var iCloud: [String: OneWaySyncItem] = [:]
@@ -118,9 +130,45 @@ public struct OneWaySyncRunResult: Sendable {
     public var refused: [OneWaySyncSkippedItem]
     /// Written, but Dropbox didn't report the upload in time.
     public var unconfirmed: [String]
-    public var historyEntry: UUID?
+    /// Dropbox reported the account full for a file this pass wrote: the sync stops.
+    public var dropboxFull = false
 
     public var synced: Int { outcomes.filter(\.counts).count }
+}
+
+extension OneWaySyncRunResult {
+    /// What the log keeps of a pass besides its count, one line each: what went to SyncCloud
+    /// Removed, what was replaced or moved back, what didn't go through and why, what Dropbox
+    /// refused or hasn't reported, and what waits, by kind. Paths, never contents; at most 20 a line.
+    public var logDetails: [String] {
+        func listed(_ paths: [String]) -> String {
+            paths.prefix(20).joined(separator: "; ") + (paths.count > 20 ? "; and \(paths.count - 20) more" : "")
+        }
+        var removed: [String] = [], replaced: [String] = [], movedBack: [String] = [], refusedWhy: [String] = []
+        for (index, step) in look.plan.steps.enumerated() {
+            switch (step.action, outcomes[index]) {
+            case (.moveToRemoved(let path, _), .removed(let to)): removed.append("\(path) → \(to)")
+            case (.replace(let path, _, _, _), let outcome) where outcome.happened: replaced.append(path)
+            case (.moveBackFromRemoved(let from, let to), let outcome) where outcome.happened: movedBack.append("\(from) → \(to)")
+            default: break
+            }
+            if case .refused(let why, _) = outcomes[index] {
+                refusedWhy.append("\(OneWaySyncRun.dropboxPaths(of: step.action).first ?? "?") (\(why))")
+            }
+        }
+        var lines: [String] = []
+        if !removed.isEmpty { lines.append("moved to SyncCloud Removed: " + listed(removed)) }
+        if !replaced.isEmpty { lines.append("replaced with iCloud’s version, the old one kept: " + listed(replaced)) }
+        if !movedBack.isEmpty { lines.append("moved back from SyncCloud Removed: " + listed(movedBack)) }
+        if !notDone.isEmpty { lines.append("didn’t go through: " + listed(notDone.map { "\($0.path) (\($0.why))" })) }
+        if !refusedWhy.isEmpty { lines.append("Dropbox won’t take: " + listed(refusedWhy)) }
+        if !unconfirmed.isEmpty { lines.append("not yet reported uploaded: " + listed(unconfirmed)) }
+        var kinds: [String: Int] = [:]
+        for wait in look.plan.waits { kinds[OneWaySyncRun.words(wait.reason), default: 0] += 1 }
+        if !kinds.isEmpty { lines.append("waits: " + kinds.sorted { $0.key < $1.key }.map { "\($0.value) \($0.key)" }.joined(separator: ", ")) }
+        if !look.unread.isEmpty { lines.append("couldn’t be read to compare: " + listed(look.unread)) }
+        return lines
+    }
 }
 
 /// **RD67's pass: look, then apply.** Lists both sides, plans, reads the contents the plan asks
@@ -162,6 +210,12 @@ public enum OneWaySyncRun {
         exclude(exclusions, from: &iCloud.listing, side: .iCloud)
         exclude(exclusions, from: &dropbox.listing, side: .dropbox)
 
+        // An item emptied from SyncCloud Removed since it went there (Choose Items to Empty…, or by
+        // hand) can't be moved back: a file of its ID back in iCloud syncs as a new one.
+        var record = record
+        record.removed.removeAll { removed in
+            (try? OneWaySyncDisk.url(removed.removedPath, in: places.dropboxAccountFolder)).map { OneWaySyncDisk.kind(at: $0.path) == nil } ?? true
+        }
         let confirmed = Set(state.confirmed)
         var pass = OneWaySyncPass(
             record: record, iCloud: iCloud.listing, dropbox: dropbox.listing, settings: state.settings,
@@ -170,8 +224,8 @@ public enum OneWaySyncRun {
         hashes.read(firstRunCandidates(pass), into: &pass)
         var plan = OneWaySyncPlanner.plan(pass)
         for _ in 0..<4 {
-            let wanted = (iCloud: plan.iCloudContentsToRead + changedOnBothSides(plan, record: record).iCloud,
-                          dropbox: plan.dropboxContentsToRead + changedOnBothSides(plan, record: record).dropbox)
+            let both = changedOnBothSides(plan, record: record)
+            let wanted = (iCloud: plan.iCloudContentsToRead + both.iCloud, dropbox: plan.dropboxContentsToRead + both.dropbox)
             guard hashes.read(wanted, into: &pass) else { break }
             plan = OneWaySyncPlanner.plan(pass)
         }
@@ -196,12 +250,15 @@ public enum OneWaySyncRun {
             [OneWaySyncSide.dropbox.nameKey($0.iCloudPath), OneWaySyncSide.dropbox.nameKey($0.dropboxPath)]
         })
         guard !firstRun.isEmpty else { return ([], []) }
-        struct Shape: Hashable { var size: Int64; var type: String }
+        // In one folder, as the matcher pairs them.
+        struct Shape: Hashable { var folder: String; var size: Int64; var type: String }
         func candidates(_ items: [OneWaySyncItem]) -> [Shape: [OneWaySyncItem]] {
             var shapes: [Shape: [OneWaySyncItem]] = [:]
             for item in items where item.kind == .file && !item.isExcluded && item.size > OneWaySyncMatcher.contentsPairingMinimumSize
                 && firstRun.contains(OneWaySyncSide.dropbox.nameKey(OneWaySyncPath.top(item.path))) {
-                shapes[Shape(size: item.size, type: (item.path as NSString).pathExtension.lowercased()), default: []].append(item)
+                let shape = Shape(folder: OneWaySyncSide.dropbox.nameKey(OneWaySyncPath.parent(item.path)), size: item.size,
+                                  type: (item.path as NSString).pathExtension.lowercased())
+                shapes[shape, default: []].append(item)
             }
             return shapes
         }
@@ -226,7 +283,7 @@ public enum OneWaySyncRun {
             guard case .found(let i, _) = plan.matches.iCloud.files[file.key] ?? .gone,
                   case .found(let d, _) = plan.matches.dropbox.files[file.key] ?? .gone,
                   i.size == d.size, i.size != file.size || i.second != file.modified,
-                  d.size != file.size || d.second != file.modified,
+                  d.size != file.size || d.second != file.modified(on: .dropbox),
                   i.contentHash == nil || d.contentHash == nil else { continue }
             if i.contentHash == nil { wanted.iCloud.append(i.path) }
             if d.contentHash == nil { wanted.dropbox.append(d.path) }
@@ -290,16 +347,16 @@ public enum OneWaySyncRun {
     ) async throws -> OneWaySyncRunResult {
         let plan = look.plan
         var state = state
-        // Before any removal: a crash after one would otherwise let it drop out of the 24 hours.
-        state.window = plan.window
-        try store.saveState(state)
         // What the user changes while the pass runs (Pause, the settings, answers) is saved by
-        // others: each save below reads the state again and changes only the pass's own fields.
+        // others, from the moment the pass started: each save here reads the state again and
+        // changes only the pass's own fields.
         func savingState(_ change: (inout OneWaySyncSavedState) -> Void) throws {
             var current = store.loadState().value ?? state
             change(&current)
             try store.saveState(current)
         }
+        // Before any removal: a crash after one would otherwise let it drop out of the 24 hours.
+        try savingState { $0.window = plan.window }
 
         let history = store.history
         for unfinished in history.unfinished(firstRun: firstRun) { try? history.finish(unfinished.id, now: now()) }
@@ -311,13 +368,36 @@ public enum OneWaySyncRun {
                        now: now, progress: progress)
         }
         var outcomes = applied.outcomes
+        // Files moved one by one out of a folder iCloud no longer has (its rename couldn't be one
+        // move): the folder they left goes, once nothing at all is left in it (31 Oct).
+        let emptied = await onWriteQueue {
+            removeFoldersLeftEmpty(plan, outcomes: applied.outcomes, iCloud: look.pass.iCloud, dropboxParent: writer.places.dropboxParent)
+        }
+        if !emptied.isEmpty { Logger.shared.info("One-way sync: removed folders left empty in Dropbox: " + emptied.joined(separator: "; ")) }
         var refused: [OneWaySyncSkippedItem] = []
         var unconfirmed: [String] = []
+        var dropboxFull = false
         var notDone = applied.notDone
+
+        let dropboxParent = writer.places.dropboxParent
+        func recordAfter(_ outcomes: [OneWaySyncStepOutcome]) -> OneWaySyncRecord {
+            OneWaySyncRecordKeeper.update(
+                look.pass.record, pass: look.pass, plan: plan, outcomes: outcomes,
+                dropboxFolderID: { relative in
+                    guard let url = try? OneWaySyncDisk.url(relative, in: dropboxParent) else { return nil }
+                    var info = stat()
+                    guard lstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { return nil }
+                    return OneWaySyncFolderID(inode: UInt64(info.st_ino))
+                },
+                now: now())
+        }
 
         // Nothing counts as synced until Dropbox reports the upload.
         let written = applied.written
         if !written.isEmpty {
+            // What the steps did is saved before the wait for uploads: a quit or a crash during it
+            // would otherwise leave SyncCloud's own moves and writes to read as Dropbox's next time.
+            try store.saveRecord(recordAfter(outcomes), firstRun: firstRun)
             let reports = await confirmUploads(written.map(\.absolute))
             for upload in written {
                 switch reports[upload.absolute] ?? .notConfirmed {
@@ -339,20 +419,16 @@ public enum OneWaySyncRun {
                 case .notConfirmed:
                     outcomes[upload.step] = .unconfirmed
                     unconfirmed.append(upload.relative)
+                case .dropboxFull:
+                    outcomes[upload.step] = .unconfirmed
+                    unconfirmed.append(upload.relative)
+                    dropboxFull = true
                 }
             }
         }
 
-        let dropboxParent = writer.places.dropboxParent
-        let record = OneWaySyncRecordKeeper.update(
-            look.pass.record, pass: look.pass, plan: plan, outcomes: outcomes,
-            dropboxFolderID: { relative in
-                guard let url = try? OneWaySyncDisk.url(relative, in: dropboxParent) else { return nil }
-                var info = stat()
-                guard lstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { return nil }
-                return OneWaySyncFolderID(inode: UInt64(info.st_ino))
-            },
-            now: now())
+        var record = recordAfter(outcomes)
+        record.pendingUploads = pendingUploads(after: written, outcomes: outcomes, plan: plan, record: record, now: now())
         try store.saveRecord(record, firstRun: firstRun)
         // Each landed step ticked again with the file as now recorded: what *Reverse in iCloud*
         // checks both sides against.
@@ -384,7 +460,11 @@ public enum OneWaySyncRun {
                   let id = look.iCloudItem(from).flatMap({ plan.matches.iCloud.recordableID(of: $0) }) else { continue }
             outside.carry(id: id, path: origin)
         }
-        if outside.byID != look.pass.outside { try? store.saveOutside(outside) }
+        if outside.byID != look.pass.outside {
+            do { try store.saveOutside(outside) } catch {
+                Logger.shared.warning("One-way sync: where iCloud’s other files are couldn’t be saved: \(error.localizedDescription)")
+            }
+        }
 
         let done = Set(plan.steps.indices.filter { outcomes[$0].counts }.compactMap { plan.steps[$0].record })
         let finished = now()
@@ -395,14 +475,106 @@ public enum OneWaySyncRun {
             $0.lastSyncAt = lastSyncAt
         }
         if let entry { try? history.finish(entry.id, now: finished) }
-        if let marker {
-            let claimedAt: Int64
-            if case .thisMac(let existing) = marker.check(hardwareID: hardwareID) { claimedAt = existing.claimedAt } else { claimedAt = state.lastSyncAt! }
-            try? marker.write(OneWaySyncMacMarker(hardwareID: hardwareID, macName: macName, claimedAt: claimedAt,
-                                                  lastSyncAt: state.lastSyncAt))
+        history.prune(now: finished, firstRun: firstRun)
+        // Only over this Mac's own marker: another Mac that took the sync over while this pass ran
+        // keeps it, and this Mac stops at its next start check.
+        if let marker, case .thisMac(let existing) = marker.check(hardwareID: hardwareID) {
+            do {
+                try marker.write(OneWaySyncMacMarker(hardwareID: hardwareID, macName: macName, claimedAt: existing.claimedAt,
+                                                     lastSyncAt: state.lastSyncAt))
+            } catch {
+                Logger.shared.warning("One-way sync: its marker in Dropbox couldn’t be written: \(error.localizedDescription)")
+            }
         }
         return OneWaySyncRunResult(look: look, record: record, outcomes: outcomes, notDone: notDone, refused: refused,
-                                   unconfirmed: unconfirmed, historyEntry: entry?.id)
+                                   unconfirmed: unconfirmed, dropboxFull: dropboxFull)
+    }
+
+    /// The record's uploads still to hear about: those carried from before (whose files are still
+    /// recorded), and this pass's writes Dropbox hadn't reported, each with its copy as written.
+    static func pendingUploads(after written: [Written], outcomes: [OneWaySyncStepOutcome], plan: OneWaySyncPlan,
+                               record: OneWaySyncRecord, now: Date) -> [OneWaySyncPendingUpload] {
+        let dKey = OneWaySyncSide.dropbox.nameKey
+        var byDropbox: [String: OneWaySyncFileRecord] = [:]
+        for file in record.files { byDropbox[dKey(file.dropboxPath)] = file }
+        var fresh: [OneWaySyncPendingUpload] = []
+        for upload in written where outcomes[upload.step] == .unconfirmed {
+            guard let file = byDropbox[dKey(upload.relative)], let state = try? OneWaySyncDisk.state(at: upload.absolute) else { continue }
+            let step = plan.steps[upload.step]
+            var wasNew = false
+            if case .copy = step.action, step.record == nil { wasNew = true }
+            fresh.append(OneWaySyncPendingUpload(record: file.key, dropboxPath: file.dropboxPath, wasNew: wasNew, size: state.size,
+                                                 modified: state.modifiedSecond, writtenAt: OneWaySyncHistoryStore.seconds(now)))
+        }
+        let freshKeys = Set(fresh.map(\.record)), keys = Set(record.files.map(\.key))
+        return record.pendingUploads.filter { !freshKeys.contains($0.record) && keys.contains($0.record) } + fresh
+    }
+
+    /// What reading the pending uploads again found.
+    public struct PendingCheck: Sendable {
+        public var record: OneWaySyncRecord
+        /// Copies Dropbox now says it won't take, by their iCloud path: listed as skipped (ES).
+        public var refused: [String] = []
+        /// Uploaded since, or no longer SyncCloud's copy: nothing more to hear.
+        public var settled = 0
+        /// Dropbox still reports the account full for one: the sync stops before writing more.
+        public var stillFull = false
+    }
+
+    /// **The uploads a pass didn't hear about, read again before the next one looks** (31 Oct). A
+    /// copy refused since leaves the record's synced files for its refusals, as one refused at once
+    /// does (ES); one uploaded, gone, or changed since leaves the list; one Dropbox still reports
+    /// full stops the pass. One not answering yet stays, for a day.
+    public static func recheckPending(
+        _ record: OneWaySyncRecord, dropboxParent: URL, now: Date,
+        confirm: @Sendable ([String]) async -> [String: OneWaySyncUploadOutcome] = {
+            await OneWaySyncUploads.confirm($0, interval: .seconds(1), deadline: .seconds(5))
+        }
+    ) async -> PendingCheck {
+        var check = PendingCheck(record: record)
+        guard !record.pendingUploads.isEmpty else { return check }
+        let seconds = OneWaySyncHistoryStore.seconds(now)
+        var asking: [(OneWaySyncPendingUpload, String)] = []
+        var kept: [OneWaySyncPendingUpload] = []
+        for pending in record.pendingUploads {
+            guard let url = try? OneWaySyncDisk.url(pending.dropboxPath, in: dropboxParent),
+                  let state = try? OneWaySyncDisk.state(at: url.path),
+                  state.size == pending.size, state.modifiedSecond == pending.modified else {
+                check.settled += 1
+                continue
+            }
+            asking.append((pending, url.path))
+        }
+        let outcomes = await confirm(asking.map(\.1))
+        for (pending, path) in asking {
+            switch outcomes[path] ?? .notConfirmed {
+            case .uploaded(let id):
+                check.settled += 1
+                if let id, let index = check.record.files.firstIndex(where: { $0.key == pending.record }), check.record.files[index].dropboxID == nil {
+                    check.record.files[index].dropboxID = id
+                }
+            case .gone:
+                check.settled += 1
+            case .refused(let why):
+                guard let index = check.record.files.firstIndex(where: { $0.key == pending.record }) else { continue }
+                let file = check.record.files[index]
+                check.record.refused.removeAll { OneWaySyncSide.iCloud.nameKey($0.iCloudPath) == OneWaySyncSide.iCloud.nameKey(file.iCloudPath) }
+                check.record.refused.append(OneWaySyncRefusedFile(
+                    iCloudPath: file.iCloudPath, iCloudID: file.iCloudID, size: file.size, modified: file.modified, changed: file.changed,
+                    dropboxPath: pending.dropboxPath, copySize: pending.size, copyModified: pending.modified,
+                    record: pending.wasNew ? nil : file.key, why: why, refusedAt: seconds))
+                // A copy of a file Dropbox never had isn't synced at all; an edit's keeps its record.
+                if pending.wasNew { check.record.files.remove(at: index) }
+                check.refused.append(file.iCloudPath)
+            case .dropboxFull:
+                check.stillFull = true
+                kept.append(pending)
+            case .notConfirmed:
+                if seconds - pending.writtenAt < 86_400 { kept.append(pending) } else { check.settled += 1 }
+            }
+        }
+        check.record.pendingUploads = kept
+        return check
     }
 
     struct Written: Sendable {
@@ -439,6 +611,9 @@ public enum OneWaySyncRun {
         /// What a replace left in Dropbox, by record (or new file's iCloud path): the move after it
         /// re-checks against that, not against the listing's older version.
         var rewritten: [String: OneWaySyncExpectedState] = [:]
+        /// What a move back from SyncCloud Removed put in Dropbox, by its Dropbox name key: the
+        /// replace that follows it re-checks against that.
+        var movedBack: [String: OneWaySyncExpectedState] = [:]
         func writtenKey(_ step: OneWaySyncStep, iCloudPath: String) -> String {
             step.record.map { "r:\($0)" } ?? "i:" + OneWaySyncSide.iCloud.nameKey(iCloudPath)
         }
@@ -450,9 +625,14 @@ public enum OneWaySyncRun {
             }
         }
 
-        func tick(_ index: Int, _ status: OneWaySyncHistoryStep.Status, keptAt: String? = nil) {
+        var tickFailed = false
+        func tick(_ index: Int, _ status: OneWaySyncHistoryStep.Status, keptAt: String? = nil, emptied: [String]? = nil) {
             guard let entry else { return }
-            try? history.tick(entry, step: index, status: status, now: now(), keptAt: keptAt)
+            do { try history.tick(entry, step: index, status: status, now: now(), keptAt: keptAt, emptied: emptied) } catch {
+                // Once a pass: the steps still apply; History shows them as not ticked off.
+                if !tickFailed { Logger.shared.warning("One-way sync: History couldn’t be written: \(error.localizedDescription)") }
+                tickFailed = true
+            }
         }
 
         for (index, step) in plan.steps.enumerated() {
@@ -480,7 +660,7 @@ public enum OneWaySyncRun {
                 case .replace(let path, let with, _, _):
                     // A file never synced: the Dropbox file paired with it, or SyncCloud's refused copy.
                     let key = OneWaySyncSide.iCloud.nameKey(with)
-                    expected = (pairs[key] ?? plan.refusedCopies[dKey(path)]).map(OneWaySyncExpectedState.init)
+                    expected = (pairs[key] ?? plan.refusedCopies[dKey(path)]).map(OneWaySyncExpectedState.init) ?? movedBack[dKey(path)]
                 case .moveInDropbox(_, let to): expected = pairs[OneWaySyncSide.iCloud.nameKey(to)].map(OneWaySyncExpectedState.init)
                 // SyncCloud's refused copy, its iCloud file gone.
                 case .moveToRemoved(let path, _): expected = plan.refusedCopies[dKey(path)].map(OneWaySyncExpectedState.init)
@@ -489,6 +669,13 @@ public enum OneWaySyncRun {
             }
             if case .moveFolderInDropbox = step.action { expected = nil }
             if case .moveInDropbox(_, let to) = step.action, let after = rewritten[writtenKey(step, iCloudPath: to)] { expected = after }
+            // A replace writes only over what was checked: one whose file the plan expected and
+            // didn't find there (a move back before it that didn't land) leaves the name alone.
+            if case .replace = step.action, expected == nil {
+                notDone.append((touched.first ?? "", "what it would replace wasn’t the file the sync checked"))
+                tick(index, .skipped("not the file the sync checked"))
+                continue
+            }
             var keptAt: String?
             if case .moveToRemoved(let path, _) = step.action {
                 keptAt = writer.removalPlace(dropboxPath: path)
@@ -497,7 +684,7 @@ public enum OneWaySyncRun {
             do {
                 let result = try writer.apply(step, expected: expected, file: step.record.flatMap { records[$0] })
                 switch result {
-                case .wrote(let path, let kept, _):
+                case .wrote(let path, let kept, let emptied):
                     outcomes[index] = .unconfirmed
                     let absolute = (try? OneWaySyncDisk.url(path, in: writer.places.dropboxParent).path) ?? path
                     if case .replace(_, let with, _, _) = step.action, let state = try? OneWaySyncDisk.state(at: absolute) {
@@ -505,7 +692,11 @@ public enum OneWaySyncRun {
                             size: state.size, modified: state.modifiedSecond, documentID: OneWaySyncDisk.documentID(at: absolute))
                     }
                     written.append(Written(step: index, relative: path, absolute: absolute))
-                    tick(index, .applied, keptAt: kept?.path)
+                    tick(index, .applied, keptAt: kept?.path, emptied: emptied.isEmpty ? nil : emptied.map(\.path))
+                    if !emptied.isEmpty {
+                        Logger.shared.info("One-way sync: past seven kept versions of \(path), sent the oldest to Dropbox’s deleted files: "
+                                           + emptied.map(\.path).joined(separator: "; "))
+                    }
                 case .removed(let item):
                     outcomes[index] = .removed(removedPath: item.path)
                     tick(index, .confirmed, keptAt: item.path)
@@ -513,6 +704,10 @@ public enum OneWaySyncRun {
                     if case .moveBackFromRemoved = step.action {
                         outcomes[index] = .unconfirmed
                         let absolute = (try? OneWaySyncDisk.url(to, in: writer.places.dropboxParent).path) ?? to
+                        if let state = try? OneWaySyncDisk.state(at: absolute) {
+                            movedBack[dKey(to)] = OneWaySyncExpectedState(
+                                size: state.size, modified: state.modifiedSecond, documentID: OneWaySyncDisk.documentID(at: absolute))
+                        }
                         written.append(Written(step: index, relative: to, absolute: absolute))
                         tick(index, .applied)
                     } else {
@@ -560,6 +755,58 @@ public enum OneWaySyncRun {
         return Applied(outcomes: outcomes, written: written, notDone: notDone)
     }
 
+    /// Puts back files a swap of names parked and never finished (the app quit mid-swap): under
+    /// the name each had, where that is free, or else where the swap was taking it, as the
+    /// unfinished History entry `steps` say. What can't go either way stays parked. Paths are
+    /// relative to the Dropbox parent.
+    public static func putBackParked(_ parked: [String], steps: [OneWaySyncStep], writer: OneWaySyncWriter)
+        -> (putBack: [String], left: [String]) {
+        var putBack: [String] = [], left: [String] = []
+        let dKey = OneWaySyncSide.dropbox.nameKey
+        for path in parked {
+            guard let original = OneWaySyncPlanner.parkedOriginal(OneWaySyncPath.name(path)) else { continue }
+            var targets = [OneWaySyncPath.join(OneWaySyncPath.parent(path), original)]
+            for step in steps {
+                if case .moveInDropbox(let from, let to) = step.action, dKey(from) == dKey(path) { targets.append(to) }
+            }
+            if let target = targets.first(where: { (try? writer.move(from: path, to: $0)) != nil }) {
+                putBack.append(target)
+            } else {
+                left.append(path)
+            }
+        }
+        return (putBack, left)
+    }
+
+    /// Removes, in Dropbox, each folder a move this pass took the last file out of, when iCloud
+    /// has no folder there any more and it holds nothing but Finder's `.DS_Store`; then its parent,
+    /// the same way, up to (never including) the synced folder. A folder holding anything stays.
+    static func removeFoldersLeftEmpty(_ plan: OneWaySyncPlan, outcomes: [OneWaySyncStepOutcome], iCloud: OneWaySyncListing,
+                                       dropboxParent: URL) -> [String] {
+        let iKey = OneWaySyncSide.iCloud.nameKey
+        let iCloudFolders = Set(iCloud.items.filter { $0.kind == .folder }.map { iKey($0.path) })
+        var left = Set<String>()
+        for (index, step) in plan.steps.enumerated() where outcomes[index].happened {
+            guard case .moveInDropbox(let from, let to) = step.action,
+                  OneWaySyncSide.dropbox.nameKey(OneWaySyncPath.parent(from)) != OneWaySyncSide.dropbox.nameKey(OneWaySyncPath.parent(to))
+            else { continue }
+            left.insert(OneWaySyncPath.parent(from))
+        }
+        var removed: [String] = []
+        for start in left.sorted(by: { OneWaySyncPath.depth($0) > OneWaySyncPath.depth($1) }) {
+            var folder = start
+            while OneWaySyncPath.depth(folder) > 1, !iCloudFolders.contains(iKey(folder)),
+                  let url = try? OneWaySyncDisk.url(folder, in: dropboxParent), OneWaySyncDisk.kind(at: url.path) == .folder,
+                  let names = try? FileManager.default.contentsOfDirectory(atPath: url.path), names.allSatisfy({ $0 == ".DS_Store" }) {
+                unlink(url.appendingPathComponent(".DS_Store").path)
+                guard rmdir(url.path) == 0 else { break }
+                removed.append(folder)
+                folder = OneWaySyncPath.parent(folder)
+            }
+        }
+        return removed
+    }
+
     /// The iCloud file a copy or replace writes from.
     static func iCloudPath(of action: OneWaySyncAction) -> String? {
         switch action {
@@ -576,6 +823,31 @@ public enum OneWaySyncRun {
         case .moveToRemoved(let path, _), .replace(let path, _, _, _), .setTags(let path, _): return [path]
         case .copy(_, let to, _), .moveBackFromRemoved(_, let to): return [to]
         case .adopt, .forget: return []
+        }
+    }
+
+    /// A wait's reason in the log's words.
+    public static func words(_ reason: OneWaySyncWaitReason) -> String {
+        switch reason {
+        case .editedInDropbox: return "edited in Dropbox"
+        case .editedOnBothSides: return "edited on both sides"
+        case .deletedInICloudEditedInDropbox: return "deleted in iCloud, edited in Dropbox"
+        case .deletedOrMovedInDropbox: return "deleted, renamed or moved in Dropbox"
+        case .changedInDropboxAgainToday: return "changed in Dropbox again today"
+        case .changedOnBothSides: return "changed on both sides"
+        case .conflictedCopy: return "conflicted copies"
+        case .nameTakenByDropboxOnlyFile, .nameTaken: return "name taken in Dropbox"
+        case .dropboxNewerOnFirstRun: return "newer in Dropbox on a first run"
+        case .sameDateOnFirstRun, .futureDateOnFirstRun: return "unclear which is newer on a first run"
+        case .overRemovalLimit: return "over a folder’s removal limit"
+        case .overRemovalLimitAcrossFolders: return "over the removal limit across folders"
+        case .syncedFolderRenamedInICloud: return "synced folder renamed in iCloud"
+        case .syncedFolderMovedOrDeletedInICloud: return "synced folder moved or deleted in iCloud"
+        case .syncedFolderShared: return "synced folder shared now"
+        case .syncedFolderChangedInDropbox: return "synced folder changed in Dropbox"
+        case .waitingForRemovalOf: return "waiting for a removal"
+        case .contentsNotRead: return "contents not read yet"
+        case .refusedByDropbox: return "refused by Dropbox"
         }
     }
 

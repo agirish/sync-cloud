@@ -37,6 +37,124 @@ import Testing
         #expect(rows.first?.buttons == [.review])
     }
 
+    /// Files edited and renamed in iCloud over the limit are replacements, in the row as in Review.
+    @Test func overTheLimitTheRowCountsWhatReviewLists() async throws {
+        let world = try OneWayDiskWorld()
+        defer { world.remove() }
+        for index in 0..<30 { try run.write(world, .iCloud, "Legal/\(index).pdf", "file \(index)", modified: OneWaySyncRunTests.earlier) }
+        let sync = try Sync(world: world, folders: ["Legal"])
+        try await sync.run()
+        for index in 0..<30 {
+            try run.move(world, .iCloud, "Legal/\(index).pdf", "Legal/renamed \(index).pdf")
+            try run.write(world, .iCloud, "Legal/renamed \(index).pdf", "file \(index), edited", modified: OneWayDiskWorld.day0)
+        }
+        let look = sync.look()
+        let pending = OneWaySyncAnswers.pendingRemovals(in: look, folder: "Legal")
+        #expect(pending.count == 30)
+        #expect(pending.allSatisfy { $0.kind == .replaced })
+        let rows = OneWaySyncRows.rows(for: look, knownUnsynced: [], at: sync.now)
+        #expect(rows.first { $0.id == "ows:folder:Legal:limit" }?.title == "Legal: 30 replacements wait for you")
+    }
+
+    /// A Dropbox folder that couldn't be read whole says so, and blames Dropbox, not iCloud.
+    @Test func aDropboxFolderNotReadFullyIsDropboxsRow() async throws {
+        let world = try OneWayDiskWorld()
+        defer {
+            chmod(world.dropbox.appendingPathComponent("Legal/Locked").path, 0o755)
+            world.remove()
+        }
+        try run.write(world, .iCloud, "Legal/a.pdf", "a")
+        let sync = try Sync(world: world, folders: ["Legal"])
+        try await sync.run()
+        let locked = world.dropbox.appendingPathComponent("Legal/Locked")
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        try world.write(.dropbox, "Legal/Locked/x.pdf", "x")
+        chmod(locked.path, 0)
+        let rows = OneWaySyncRows.rows(for: sync.look(), knownUnsynced: [], at: sync.now)
+        let row = try #require(rows.first { $0.id == "ows:folder:Legal:listing" })
+        #expect(row.title == "Dropbox’s Legal couldn’t be read fully on this Mac")
+        #expect(row.buttons == [.retry])
+    }
+
+    /// A file whose contents couldn't be read to compare waits, and Now says so.
+    @Test func aFileThatCouldNotBeReadToCompareIsListed() async throws {
+        let world = try OneWayDiskWorld()
+        defer {
+            chmod(world.iCloud.appendingPathComponent("Legal/a.pdf").path, 0o644)
+            world.remove()
+        }
+        // A first run: the same name and size on both sides, so only the contents can tell.
+        try run.write(world, .iCloud, "Legal/a.pdf", "iCloud's", modified: OneWaySyncRunTests.earlier)
+        try run.write(world, .dropbox, "Legal/a.pdf", "Dropbox!", modified: OneWaySyncRunTests.earlier)
+        chmod(world.iCloud.appendingPathComponent("Legal/a.pdf").path, 0)
+        let sync = try Sync(world: world, folders: ["Legal"])
+        let look = sync.look()
+        #expect(look.unread == ["Legal/a.pdf"])
+        let rows = OneWaySyncRows.rows(for: look, knownUnsynced: [], at: sync.now)
+        let row = try #require(rows.first { $0.id == "ows:info:unread" })
+        #expect(row.title == "1 file couldn’t be read to compare")
+        #expect(row.buttons == [.showThem])
+    }
+
+    /// A synced folder macOS now reports as shared stopped syncing, and says why.
+    @Test func aSyncedFolderThatBecameSharedSaysSo() async throws {
+        let world = try OneWayDiskWorld()
+        defer { world.remove() }
+        try run.write(world, .iCloud, "Family/a.pdf", "a")
+        let sync = try Sync(world: world, folders: ["Family"])
+        try await sync.run()
+        let shared = world.iCloud.appendingPathComponent("Family").path
+        let look = OneWaySyncRun.look(record: sync.record, state: sync.state, exclusions: OneWaySyncExclusions(), places: world.places,
+                                      download: false, now: sync.now, isShared: { $0.path == shared })
+        #expect(look.plan.waits.map(\.reason) == [.syncedFolderShared])
+        #expect(look.plan.steps.isEmpty)
+        let rows = OneWaySyncRows.rows(for: look, knownUnsynced: [], at: sync.now)
+        #expect(rows.map(\.id) == ["ows:folder:Family:shared"])
+        #expect(rows.first?.buttons == [.stopSyncing, .retry])
+    }
+
+    /// A whole-sync stop goes as soon as its cause clears, by the cloud app status; the others
+    /// wait for a pass.
+    @Test func stopsClearWhenTheirCauseDoes() {
+        let t0 = Date(timeIntervalSince1970: 1_793_361_600)
+        let ids = ["ows:stop:dropbox", "ows:stop:uploading", "ows:stop:icloud", "ows:stop:disk"]
+        var status = CloudAppStatusModel()
+        status.app(.dropbox, isRunning: false, at: t0)
+        status.iCloudAvailable = false
+        status.noteChanged("/D/Documents/a.pdf", at: t0)
+        let later = t0.addingTimeInterval(31 * 60)
+        #expect(OneWaySyncRows.stopsCleared(ids, status: status, dropboxParent: "/D/Documents", now: later).isEmpty)
+        status.app(.dropbox, isRunning: true, at: later)
+        status.iCloudAvailable = true
+        status.record(.uploaded, for: "/D/Documents/a.pdf", at: later)
+        #expect(OneWaySyncRows.stopsCleared(ids, status: status, dropboxParent: "/D/Documents", now: later)
+                == ["ows:stop:dropbox", "ows:stop:uploading", "ows:stop:icloud"])
+    }
+
+    /// DF: SyncCloud Removed past a tenth of free space says so, once.
+    @Test func syncCloudRemovedPastATenthOfFreeSpaceSaysSo() throws {
+        let now = Date(timeIntervalSince1970: 1_793_361_600)
+        #expect(OneWaySyncRows.removedSpace(holding: 10, free: 100, at: now) == nil)
+        let row = try #require(OneWaySyncRows.removedSpace(holding: 11, free: 100, at: now))
+        #expect(row.kind == .information)
+        #expect(row.notifiesOnce)
+        #expect(row.buttons == [.chooseItemsToEmpty])
+        #expect(OneWaySyncRows.removedSpace(holding: 5, free: 0, at: now) == nil)
+    }
+
+    /// Setup lists what it can tick, and what it can add to Dropbox and then tick; a shared folder
+    /// only in iCloud is neither.
+    @Test func setupNeverOffersASharedICloudOnlyFolder() {
+        let iCloud = OneWaySyncSideListing(listing: OneWaySyncListing(items: [
+            OneWaySyncItem(path: "Family", kind: .folder), OneWaySyncItem(path: "Notes", kind: .folder),
+            OneWaySyncItem(path: "Legal", kind: .folder),
+        ]), sharedFolders: ["Family"])
+        let dropbox = OneWaySyncSideListing(listing: OneWaySyncListing(items: [OneWaySyncItem(path: "Legal", kind: .folder)]))
+        let choices = OneWaySyncSetup.choices(iCloud: iCloud, dropbox: dropbox)
+        #expect(choices.filter(\.isListed).map(\.name) == ["Legal", "Notes"])
+        #expect(choices.filter(\.canAddToDropbox).map(\.name) == ["Notes"])
+    }
+
     @Test func aNewICloudFolderAndDropboxOnlyFilesAreForYourInformation() async throws {
         let world = try OneWayDiskWorld()
         defer { world.remove() }

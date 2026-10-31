@@ -132,7 +132,10 @@ extension FileSyncManager {
                 paths.formUnion(targets.values)
             }
         }
-        return Set(paths.map(FolderWatchRoot.init(path:)))
+        // A network volume is never watched: FSEvents reports nothing made on the server, and
+        // pointing a stream at one resolves its path on the main thread, which a server gone to
+        // sleep holds until it times out (v6.2's pane loads touched no disk there).
+        return Set(paths.filter(FolderWatcher.isOnLocalVolume).map(FolderWatchRoot.init(path:)))
     }
 
     /// The oldest walk anything on screen or in the cache over `root` still relies on — where a
@@ -190,6 +193,11 @@ extension FileSyncManager {
     /// about. They are kept apart rather than dropped (`hiddenChangeMark`), so showing hidden items
     /// later shows the warning with them. The cached walks go either way — they hold hidden items
     /// whatever the pane shows.
+    /// Whether a change touched nothing but extended attributes (whatever kind of item it is).
+    nonisolated static func onlyExtendedAttributes(_ change: FolderWatchEvent.Change) -> Bool {
+        change.subtracting([.isFile, .isDirectory, .isSymlink]) == .extendedAttributes
+    }
+
     func absorbFolderChanges(_ batch: FolderWatchBatch) {
         guard folderWatcher != nil else { return }
         let links = linkedFolders
@@ -214,8 +222,13 @@ extension FileSyncManager {
         }
 
         // One pass per path: a burst names the same item many times, and only its newest id counts.
+        // A change only to a file's extended attributes (measured 31 Oct: a "last opened" stamp, a
+        // quarantine mark and a Finder tag all arrive as exactly that, with no other flag) is news
+        // only while the panes read tags, which they do only when sorting by them; otherwise
+        // nothing a pane lists or caches could have changed.
+        let tagsListed = sortOption == .tags
         var newest: [String: FolderWatchEvent] = [:]
-        for event in batch.events where !event.isOwn {
+        for event in batch.events where !event.isOwn && (tagsListed || !Self.onlyExtendedAttributes(event.change)) {
             if let seen = newest[event.path], seen.id >= event.id { continue }
             newest[event.path] = event
         }

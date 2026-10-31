@@ -243,6 +243,12 @@ extension FileSyncManager {
         //    A large candidate is read whole only if its ends match another's of the same size —
         //    see `duplicateEdgeSampleAbove` for why, and `candidatesNeedingFullHash` for the rule.
         let large = candidates.filter { $0.size > sampleAbove }
+        // Reading 2 MB of each takes a while on a slow disk: say so, rather than leave the walk's
+        // words up while it runs.
+        if !large.isEmpty {
+            updateScan(\.duplicateScanLifecycle, epoch: epoch,
+                       status: "Comparing the ends of \(large.count) large file\(large.count == 1 ? "" : "s")…")
+        }
         let samples = large.isEmpty ? [:]
             : await Self.edgeSamples(large, fileManager: fileManager, cache: cache,
                                      isCloudOnly: isCloudOnly)

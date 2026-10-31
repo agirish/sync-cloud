@@ -1,5 +1,6 @@
 import AppKit
 import Design
+import ServiceManagement
 import SwiftUI
 import Sync
 import UserNotifications
@@ -10,8 +11,11 @@ import UserNotifications
 public struct OneWaySyncSettingsView: View {
     @ObservedObject var controller: OneWaySyncController
     @ObservedObject var center: ActivityCenter
+    /// Observed so the footer's "Dropbox app running" follows the app opening and quitting.
+    @ObservedObject var cloudApps: CloudAppMonitor = .shared
     @State private var removed: (count: Int, bytes: Int64, oldest: Date?) = (0, 0, nil)
     @State private var notificationsAllowed: Bool?
+    @State private var opensAtLogin: Bool?
 
     public init(controller: OneWaySyncController = .shared, center: ActivityCenter = .shared) {
         self.controller = controller
@@ -47,11 +51,19 @@ public struct OneWaySyncSettingsView: View {
             }
         }
         .scaledFont(.system(size: 12))
-        .task(id: controller.state?.lastSyncAt) {
+        .task(id: Refresh(lastSyncAt: controller.state?.lastSyncAt, removed: controller.removedRevision)) {
             removed = await controller.removedSummary()
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             notificationsAllowed = settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
+            opensAtLogin = SMAppService.mainApp.status == .enabled
         }
+    }
+
+    /// What reads SyncCloud Removed's size and the rest again: a sync, or Removed emptied or
+    /// restored from between syncs.
+    struct Refresh: Equatable {
+        var lastSyncAt: Int64?
+        var removed: Int
     }
 
     func refusalText(_ refusal: OneWaySyncLaunchRefusal) -> String {
@@ -72,7 +84,7 @@ public struct OneWaySyncSettingsView: View {
             }
             Spacer()
             if controller.isPaused {
-                Button("Resume") { controller.resume() }
+                Button("Resume…") { Task { await controller.confirmResume() } }
             } else {
                 Button("Pause") { controller.pause() }
             }
@@ -145,21 +157,27 @@ public struct OneWaySyncSettingsView: View {
         }
     }
 
-    var removedLine: String {
-        var parts = ["Dropbox ▸ SyncCloud Removed", removed.count == 1 ? "1 item" : "\(removed.count) items", OneWaySyncWords.bytes(removed.bytes)]
-        if let oldest = removed.oldest {
-            let days = Int(Date().timeIntervalSince(oldest) / 86_400)
-            parts.append(days < 1 ? "oldest today" : days < 60 ? "oldest \(days) days" : "oldest \(days / 30) months")
+    var removedLine: String { Self.removedLine(count: removed.count, bytes: removed.bytes, oldest: removed.oldest, now: Date()) }
+
+    static func removedLine(count: Int, bytes: Int64, oldest: Date?, now: Date) -> String {
+        var parts = ["Dropbox ▸ SyncCloud Removed", count == 1 ? "1 item" : "\(count.formatted()) items", OneWaySyncWords.bytes(bytes)]
+        if let oldest {
+            let days = Int(now.timeIntervalSince(oldest) / 86_400)
+            parts.append(days < 1 ? "oldest today" : days == 1 ? "oldest 1 day" : days < 60 ? "oldest \(days) days" : "oldest \(days / 30) months")
         }
-        parts.append("emptied only when you choose")
+        // DJ sends a file's eighth kept version on to Dropbox's deleted files on its own.
+        parts.append("emptied when you choose, or past seven versions of one file")
         return parts.joined(separator: " · ")
     }
 
     var footer: String {
         var parts: [String] = []
         let notify = UserDefaults.standard.bool(forKey: OneWaySyncNoticeBoard.notifyKey)
+        if let opensAtLogin {
+            parts.append(opensAtLogin ? "opens at login" : "doesn’t open at login (Settings ▸ General)")
+        }
         parts.append(notify ? (notificationsAllowed == false ? "notifications on, but macOS doesn’t allow them" : "notifications on") : "notifications off")
-        parts.append(CloudAppMonitor.shared.statusModel.runningSince[.dropbox] != nil ? "Dropbox app running" : "Dropbox app not running")
+        parts.append(cloudApps.statusModel.runningSince[.dropbox] != nil ? "Dropbox app running" : "Dropbox app not running")
         if let other = controller.otherMac {
             parts.append("\(other.macName) syncs; this Mac doesn’t")
         } else {

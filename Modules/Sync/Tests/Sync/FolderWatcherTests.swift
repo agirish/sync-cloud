@@ -157,6 +157,29 @@ import Testing
 
 /// A burst reaches the consumer once: due when the events have been quiet for `quiet`, or
 /// `maxDelay` after the first, whichever is sooner.
+/// A pane on a network volume is never watched: FSEvents sees nothing made on the server, and
+/// starting a stream there resolves the path on the main thread.
+@Suite struct FolderWatcherLocalVolumeTests {
+    @Test func localFoldersAreLocalAndNetworkMountsArent() {
+        #expect(FolderWatcher.isOnLocalVolume(NSTemporaryDirectory()))
+        #expect(FolderWatcher.isOnLocalVolume("/"))
+        // Every Mac mounts autofs's home map, which is not local; checked from the mount table
+        // so a machine without it still runs the half that applies.
+        var mounts: UnsafeMutablePointer<statfs>?
+        let count = getmntinfo(&mounts, MNT_NOWAIT)
+        let nonLocal = (0..<Int(max(count, 0))).compactMap { index -> String? in
+            var entry = mounts![index]
+            guard entry.f_flags & UInt32(MNT_LOCAL) == 0 else { return nil }
+            return withUnsafePointer(to: &entry.f_mntonname) {
+                $0.withMemoryRebound(to: CChar.self, capacity: Int(MAXPATHLEN)) { String(cString: $0) }
+            }
+        }
+        for point in nonLocal.prefix(3) where point != "/" {
+            #expect(!FolderWatcher.isOnLocalVolume(point + "/a folder"), "\(point)")
+        }
+    }
+}
+
 @Suite struct FolderWatchCoalescerTests {
     private let t0 = Date(timeIntervalSinceReferenceDate: 1_000)
 
@@ -441,6 +464,30 @@ import Testing
         }
     }
 
+    /// **The replay point is saved at most once a `persistEvery`, and at stop**: a batch every few
+    /// seconds (an autosave in a watched folder) is not a defaults write each time.
+    @MainActor
+    @Test func theReplayPointIsSavedSparinglyAndAtStop() async throws {
+        let folder = try Self.makeFolder("sparing")
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+        let saves = SaveCount()
+        let history = FolderWatchHistory(load: { saves.records }, save: { saves.save($0) })
+        let inbox = Inbox()
+        let watcher = FolderWatcher(history: history, latency: 0.05, quiet: 0.1, maxDelay: 1, persistEvery: 3600) { inbox.add($0) }
+        watcher.watch([FolderWatchRoot(path: folder)], replay: .none)
+        let afterWatch = saves.count
+        for index in 0..<4 {
+            try Self.touch(folder + "/\(index).txt")
+            await waitUntil("write \(index) was never reported", timeout: 10) {
+                inbox.events.contains { $0.path.hasSuffix("/\(index).txt") }
+            }
+        }
+        #expect(saves.count - afterWatch <= 1, "\(saves.count - afterWatch) saves for four batches")
+        watcher.stop()
+        let newest = try #require(inbox.events.map(\.id).max())
+        #expect(saves.records.values.contains { $0.lastEventId >= newest })
+    }
+
     /// **A root that cannot be watched yet is tried again** — not taken as settled because it was
     /// once asked for. The folder appears after the first `watch`; the same set asked again must
     /// start its stream, and a change in it must be reported.
@@ -462,6 +509,15 @@ import Testing
             inbox.events.contains { $0.path.hasSuffix("/now.txt") }
         }
     }
+}
+
+private final class SaveCount: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [String: FolderWatchHistory.Record] = [:]
+    private var saved = 0
+    var records: [String: FolderWatchHistory.Record] { lock.lock(); defer { lock.unlock() }; return stored }
+    var count: Int { lock.lock(); defer { lock.unlock() }; return saved }
+    func save(_ records: [String: FolderWatchHistory.Record]) { lock.lock(); stored = records; saved += 1; lock.unlock() }
 }
 
 private extension FolderWatcherLiveTests {

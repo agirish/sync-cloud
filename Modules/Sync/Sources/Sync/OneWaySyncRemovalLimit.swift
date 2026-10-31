@@ -95,7 +95,7 @@ public struct OneWaySyncRemovalWindow: Codable, Equatable, Sendable {
         return Verdict(overFolders: over, acrossCount: all.count)
     }
 
-    /// The window to save once `applied` have gone through.
+    /// The window with `applied` in it, to save before they go through (see `OneWaySyncPlan.window`).
     public func adding(_ applied: [Change], now: Int64) -> OneWaySyncRemovalWindow {
         var window = current(at: now)
         window.changes.append(contentsOf: applied)

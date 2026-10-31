@@ -53,17 +53,30 @@ import Testing
         #expect(world.stagingContents == [])
     }
 
-    /// The design's "Never send the old file to the Mac's Trash": nothing one-way sync writes
-    /// calls it, unlike the panes' `finalizeBackup`.
-    @Test func noOneWaySyncSourceSendsAnythingToTheTrash() throws {
-        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .appendingPathComponent("../../Sources/Sync").standardizedFileURL
-        let files = try FileManager.default.contentsOfDirectory(atPath: sources.path).filter { $0.hasPrefix("OneWaySync") }
-        #expect(files.count >= 8)
-        for file in files {
-            let text = try String(contentsOf: sources.appendingPathComponent(file), encoding: .utf8)
-            #expect(!text.contains("trashItem") && !text.contains("recycle"), "\(file) trashes")
+    /// The design's "Never send the old file to the Mac's Trash", and nothing deleted outright: no
+    /// one-way sync source, here or in the app's screens, trashes anything, and only the places
+    /// that empty SyncCloud's own staging, SyncCloud Removed and folders left empty delete at all.
+    @Test func noOneWaySyncSourceTrashesOrDeletesOutsideItsOwnPlaces() throws {
+        let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let folders = [here.appendingPathComponent("../../Sources/Sync").standardizedFileURL,
+                       here.appendingPathComponent("../../../FileExplorer/Sources/FileExplorer").standardizedFileURL]
+        let deletesAllowed: [String: Set<String>] = [
+            "removeItem(": ["OneWaySyncDisk.swift", "OneWaySyncRemovedStore.swift"],
+            "unlink(": ["OneWaySyncAnswers.swift", "OneWaySyncFiles.swift", "OneWaySyncRemovedStore.swift", "OneWaySyncRun.swift"],
+            "rmdir(": ["OneWaySyncAnswers.swift", "OneWaySyncRemovedStore.swift", "OneWaySyncRun.swift"],
+        ]
+        var scanned = 0
+        for folder in folders {
+            for file in try FileManager.default.contentsOfDirectory(atPath: folder.path) where file.hasPrefix("OneWaySync") {
+                scanned += 1
+                let text = try String(contentsOf: folder.appendingPathComponent(file), encoding: .utf8)
+                #expect(!text.contains("trashItem") && !text.contains("recycle"), "\(file) trashes")
+                for (call, allowed) in deletesAllowed where !allowed.contains(file) {
+                    #expect(!text.contains(call), "\(file) calls \(call)")
+                }
+            }
         }
+        #expect(scanned >= 25)
     }
 
     @Test func aDropboxCopyChangedSinceTheDiffWaitsAndNothingMoves() throws {

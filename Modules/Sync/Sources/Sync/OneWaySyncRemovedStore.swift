@@ -275,10 +275,15 @@ public struct OneWaySyncRemovedStore: Sendable {
 
     /// The items as *Choose Items to Empty…* lists them.
     public func itemsToEmpty(_ order: EmptyOrder) -> [OneWaySyncRemovedItem] {
-        let all = items()
+        Self.ordered(items(), order)
+    }
+
+    /// `items` (as `items()` lists them, oldest first) in `order`: largest first breaks ties by
+    /// age, then by place, so the list never reshuffles between two reads.
+    public static func ordered(_ items: [OneWaySyncRemovedItem], _ order: EmptyOrder) -> [OneWaySyncRemovedItem] {
         switch order {
-        case .oldestFirst: return all
-        case .largestFirst: return all.sorted { ($1.size, $0.origin.removedAt, $0.path) < ($0.size, $1.origin.removedAt, $1.path) }
+        case .oldestFirst: return items
+        case .largestFirst: return items.sorted { ($1.size, $0.origin.removedAt, $0.path) < ($0.size, $1.origin.removedAt, $1.path) }
         }
     }
 

@@ -35,6 +35,22 @@ final class OneWayScratch {
         window: OneWaySyncRemovalWindow(changes: [.init(file: 7, folder: 1001, kind: .replaced, seenAt: 1_790_000_000)]),
         pausedSince: 1_790_000_500, lastSyncAt: 1_790_000_400, knownUnsyncedFolders: ["Work"], confirmed: [3, 9])
 
+    /// A new first run keeps a record this build can't read aside rather than deleting it.
+    @Test func aNewFirstRunKeepsAnUnreadableRecordAside() throws {
+        let scratch = OneWayScratch()
+        let store = scratch.store
+        try FileManager.default.createDirectory(at: store.directory, withIntermediateDirectories: true)
+        try Data(#"{"version": 99, "from": "a newer build"}"#.utf8).write(to: store.recordURL)
+        _ = try store.startFirstRun(OneWayWorld().record, state: OneWaySyncSavedState())
+        let aside = scratch.names().filter { $0.hasPrefix("record.unreadable-") }
+        #expect(aside.count == 1)
+        let kept = try #require(aside.first)
+        #expect(try String(contentsOf: store.directory.appendingPathComponent(kept), encoding: .utf8).contains("a newer build"))
+        // A readable record is replaced as before, with nothing kept.
+        _ = try store.startFirstRun(OneWayWorld().record, state: OneWaySyncSavedState())
+        #expect(scratch.names().filter { $0.hasPrefix("record.unreadable-") }.count == 1)
+    }
+
     @Test func aSavedRecordComesBackWithItsFirstRunAndState() throws {
         let scratch = OneWayScratch()
         let store = scratch.store
@@ -120,11 +136,11 @@ final class OneWayScratch {
         let store = OneWayScratch().store
         try store.startFirstRun(OneWaySyncRecordTests.record, state: Self.state)
         var json = try JSONSerialization.jsonObject(with: Data(contentsOf: store.recordURL)) as! [String: Any]
-        json["version"] = 3
+        json["version"] = 4
         try JSONSerialization.data(withJSONObject: json).write(to: store.recordURL)
-        #expect(store.loadRecord(on: OneWayWorld.binding) == .needsNewFirstRun(.unsupportedVersion(3)))
+        #expect(store.loadRecord(on: OneWayWorld.binding) == .needsNewFirstRun(.unsupportedVersion(4)))
 
-        json["version"] = 2
+        json["version"] = 3
         json["firstRun"] = nil
         try JSONSerialization.data(withJSONObject: json).write(to: store.recordURL)
         #expect(store.loadRecord(on: OneWayWorld.binding) == .needsNewFirstRun(.unreadable))

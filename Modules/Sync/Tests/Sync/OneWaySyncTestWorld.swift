@@ -5,8 +5,8 @@ import Foundation
 /// recorded, and a test changes one side or the other before planning.
 ///
 /// A recorded file numbered n (1-based, in `files` order) has iCloud ID n, Dropbox ID n + 10,000,
-/// 2,000 bytes, date `t0` and hash "h<n>"; its record key is n. Folders carry an inode and a
-/// provider item ID in iCloud and an inode alone in Dropbox, so both ways of finding a folder run.
+/// 2,000 bytes, date `t0` and hash "h<n>"; its record key is n. Folders carry an inode alone on
+/// both sides, as the lister reads them: a test never finds a folder by a key the app never has.
 struct OneWayWorld {
     static let t0 = Date(timeIntervalSince1970: 1_790_000_000)
     static let binding = OneWaySyncBinding(
@@ -27,7 +27,7 @@ struct OneWayWorld {
         var key: UInt64 = 1000
         for path in folders + subfolders {
             key += 1
-            let iCloudID = OneWaySyncFolderID(inode: key, providerItemID: "icloud-\(key)")
+            let iCloudID = OneWaySyncFolderID(inode: key)
             let dropboxID = OneWaySyncFolderID(inode: key + 50_000)
             let folder = OneWaySyncFolderRecord(
                 key: key, iCloudPath: path, dropboxPath: path, iCloudID: iCloudID, dropboxID: dropboxID,

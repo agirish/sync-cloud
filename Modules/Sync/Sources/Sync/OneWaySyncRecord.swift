@@ -17,11 +17,12 @@ import Foundation
 /// folder's name ("Finance/2026/W-2.pdf"). Dates are whole seconds since 1970, because the design
 /// compares dates to the second.
 public struct OneWaySyncRecord: Codable, Equatable, Sendable {
-    /// The layout this build writes. Version 1 (before change times and refused files) is read
-    /// and carried forward; a record of any other version is never read as this one, so a build
-    /// that doesn't know a field can't drop it by writing the record back.
-    public static let currentVersion = 2
-    static let readableVersions: Set<Int> = [1, currentVersion]
+    /// The layout this build writes. Version 1 (before change times and refused files) and 2
+    /// (before Dropbox's own dates and uploads not yet reported) are read and carried forward; a
+    /// record of any other version is never read as this one, so a build that doesn't know a field
+    /// can't drop it by writing the record back.
+    public static let currentVersion = 3
+    static let readableVersions: Set<Int> = [1, 2, currentVersion]
 
     public var version: Int
     public var binding: OneWaySyncBinding
@@ -39,6 +40,10 @@ public struct OneWaySyncRecord: Codable, Equatable, Sendable {
     /// iCloud files whose copy Dropbox refused (ES): never counted as synced, listed as skipped,
     /// and tried again only once the file changes in iCloud.
     public var refused: [OneWaySyncRefusedFile]
+    /// Copies SyncCloud wrote whose upload Dropbox hadn't reported by the pass's deadline: recorded
+    /// as synced, and read again at the next pass, which lists a refused one as skipped (ES) and
+    /// stops at once while Dropbox still reports the account full.
+    public var pendingUploads: [OneWaySyncPendingUpload]
     /// The next unused `key`, shared by folder and file records.
     public var nextKey: UInt64
 
@@ -52,6 +57,7 @@ public struct OneWaySyncRecord: Codable, Equatable, Sendable {
         files: [OneWaySyncFileRecord] = [],
         removed: [OneWaySyncRemovedFile] = [],
         refused: [OneWaySyncRefusedFile] = [],
+        pendingUploads: [OneWaySyncPendingUpload] = [],
         nextKey: UInt64 = 1
     ) {
         self.version = version
@@ -63,10 +69,12 @@ public struct OneWaySyncRecord: Codable, Equatable, Sendable {
         self.files = files
         self.removed = removed
         self.refused = refused
+        self.pendingUploads = pendingUploads
         self.nextKey = nextKey
     }
 
-    /// Reads every field; `refused`, which version 1 didn't have, reads as none.
+    /// Reads every field; `refused`, which version 1 didn't have, and `pendingUploads`, which
+    /// versions 1 and 2 didn't, read as none.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         version = try container.decode(Int.self, forKey: .version)
@@ -78,6 +86,7 @@ public struct OneWaySyncRecord: Codable, Equatable, Sendable {
         files = try container.decode([OneWaySyncFileRecord].self, forKey: .files)
         removed = try container.decode([OneWaySyncRemovedFile].self, forKey: .removed)
         refused = try container.decodeIfPresent([OneWaySyncRefusedFile].self, forKey: .refused) ?? []
+        pendingUploads = try container.decodeIfPresent([OneWaySyncPendingUpload].self, forKey: .pendingUploads) ?? []
         nextKey = try container.decode(UInt64.self, forKey: .nextKey)
     }
 }
@@ -123,7 +132,8 @@ public struct OneWaySyncParentRecord: Codable, Equatable, Sendable {
     }
 }
 
-/// A folder's own identity on one side: its inode and the provider's item ID.
+/// A folder's own identity on one side: its inode, which the lister reads, and room for a
+/// provider's item ID, which nothing fills yet (the lister reads only `lstat`).
 public struct OneWaySyncFolderID: Codable, Hashable, Sendable {
     public var inode: UInt64?
     public var providerItemID: String?
@@ -187,8 +197,12 @@ public struct OneWaySyncFileRecord: Codable, Equatable, Sendable {
     public var iCloudID: UInt64?
     public var dropboxID: UInt64?
     public var size: Int64
-    /// Modification date in whole seconds since 1970.
+    /// Modification date in whole seconds since 1970: iCloud's file's, and Dropbox's copy's unless
+    /// `dropboxModified` says otherwise.
     public var modified: Int64
+    /// Dropbox's copy's own date, when it differs from iCloud's: a pair adopted as identical
+    /// whose two files carry different dates. Nil when Dropbox's copy has iCloud's date.
+    public var dropboxModified: Int64?
     /// iCloud's change time (`st_ctimespec`) in nanoseconds since 1970, when the file was on this
     /// Mac as recorded; nil while it was offloaded, or unknown (a version 1 record). An edit that
     /// keeps the size and date moves it (ET), and so do tags, attributes and offloading.
@@ -205,8 +219,8 @@ public struct OneWaySyncFileRecord: Codable, Equatable, Sendable {
     public init(
         key: UInt64, iCloudPath: String, dropboxPath: String,
         iCloudID: UInt64?, dropboxID: UInt64?,
-        size: Int64, modified: Int64, changed: Int64? = nil, tags: [String] = [], contentHash: String? = nil,
-        iCloudGoneSince: Int64? = nil, matchedICloudAt: Int64? = nil
+        size: Int64, modified: Int64, dropboxModified: Int64? = nil, changed: Int64? = nil, tags: [String] = [],
+        contentHash: String? = nil, iCloudGoneSince: Int64? = nil, matchedICloudAt: Int64? = nil
     ) {
         self.key = key
         self.iCloudPath = iCloudPath
@@ -215,6 +229,7 @@ public struct OneWaySyncFileRecord: Codable, Equatable, Sendable {
         self.dropboxID = dropboxID
         self.size = size
         self.modified = modified
+        self.dropboxModified = dropboxModified
         self.changed = changed
         self.tags = tags
         self.contentHash = contentHash
@@ -224,6 +239,29 @@ public struct OneWaySyncFileRecord: Codable, Equatable, Sendable {
 
     func path(on side: OneWaySyncSide) -> String { side == .iCloud ? iCloudPath : dropboxPath }
     func id(on side: OneWaySyncSide) -> UInt64? { side == .iCloud ? iCloudID : dropboxID }
+
+    /// The date the copy on `side` had when the two last agreed.
+    func modified(on side: OneWaySyncSide) -> Int64 { side == .iCloud ? modified : dropboxModified ?? modified }
+
+    /// Whether `item`, on `side`, differs from the file as recorded: by size or date, or by a hash
+    /// both have. The planner and the record keeper ask the same question.
+    func differs(from item: OneWaySyncItem, on side: OneWaySyncSide) -> Bool {
+        if item.size != size || item.second != modified(on: side) { return true }
+        if let hash = item.contentHash, let recorded = contentHash { return hash != recorded }
+        return false
+    }
+
+    /// Takes iCloud's file as what both sides now hold: its size, date, change time, tags and
+    /// hash, with Dropbox's copy dated `dropboxSecond` (its own date, for a pair adopted as
+    /// identical; iCloud's, for a copy SyncCloud wrote).
+    mutating func take(_ i: OneWaySyncItem, dropboxSecond: Int64?, hash: String?) {
+        size = i.size
+        modified = i.second
+        dropboxModified = dropboxSecond.flatMap { $0 == i.second ? nil : $0 }
+        changed = i.isDownloaded ? i.changed : nil
+        tags = i.tags
+        contentHash = i.contentHash ?? hash
+    }
 }
 
 public struct OneWaySyncRemovedFile: Codable, Equatable, Sendable {
@@ -235,6 +273,30 @@ public struct OneWaySyncRemovedFile: Codable, Equatable, Sendable {
     public init(file: OneWaySyncFileRecord, removedPath: String) {
         self.file = file
         self.removedPath = removedPath
+    }
+}
+
+/// A copy SyncCloud wrote whose upload Dropbox hadn't reported by the pass's deadline.
+public struct OneWaySyncPendingUpload: Codable, Equatable, Sendable {
+    /// The file record it was recorded as.
+    public var record: UInt64
+    /// Where it is in Dropbox, relative to the Dropbox parent.
+    public var dropboxPath: String
+    /// A copy of a file Dropbox had no copy of before; false for a replace or a move back.
+    public var wasNew: Bool
+    /// The copy's size and date (whole seconds) as written: a copy since changed is no longer
+    /// SyncCloud's, and its upload says nothing about this one.
+    public var size: Int64
+    public var modified: Int64
+    public var writtenAt: Int64
+
+    public init(record: UInt64, dropboxPath: String, wasNew: Bool, size: Int64, modified: Int64, writtenAt: Int64) {
+        self.record = record
+        self.dropboxPath = dropboxPath
+        self.wasNew = wasNew
+        self.size = size
+        self.modified = modified
+        self.writtenAt = writtenAt
     }
 }
 

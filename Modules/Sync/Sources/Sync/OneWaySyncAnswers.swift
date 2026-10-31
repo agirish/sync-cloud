@@ -15,6 +15,12 @@ public struct OneWaySyncVersions: Equatable, Sendable {
     /// Where iCloud's file is, or would go back to.
     public var iCloudPath: String
     public var dropboxPath: String
+    /// The Dropbox file is a conflicted copy Dropbox made of the synced file, not the synced
+    /// file itself: told by the wait, never by the name, which a synced file can share.
+    public var isConflictedCopy = false
+    /// Both copies still hold the contents the record has for them, each with its own date: the
+    /// same file, whatever the dates say (a pair adopted with two dates).
+    public var sameAsRecorded = false
 
     /// *Copy Dropbox’s into iCloud* is offered only when iCloud's file is downloaded here, or gone.
     public var canCopyDropboxsIntoICloud: Bool { dropbox != nil && (iCloud?.isDownloaded ?? true) }
@@ -33,6 +39,13 @@ public struct OneWaySyncPendingRemoval: Equatable, Sendable, Identifiable {
     public var dropboxPath: String
     public var kind: Kind
     public var id: UInt64 { record }
+
+    public init(record: UInt64, iCloudPath: String, dropboxPath: String, kind: Kind) {
+        self.record = record
+        self.iCloudPath = iCloudPath
+        self.dropboxPath = dropboxPath
+        self.kind = kind
+    }
 }
 
 /// One change of a History entry that *Reverse in iCloud…* can undo in iCloud.
@@ -116,11 +129,14 @@ public enum OneWaySyncAnswers {
             }
             var d = plan.matches.dropbox.files[file.key]?.item
             // A conflicted copy: the Dropbox file asked about is the copy, not the synced file.
-            if let dropboxPath, OneWaySyncSide.dropbox.nameKey(dropboxPath) != OneWaySyncSide.dropbox.nameKey(file.dropboxPath) {
-                d = look.dropboxItem(dropboxPath)
+            let copy = plan.waits.contains { wait in
+                guard case .conflictedCopy = wait.reason, case .file(_, let waiting?) = wait.subject, let dropboxPath else { return false }
+                return OneWaySyncSide.dropbox.nameKey(waiting) == OneWaySyncSide.dropbox.nameKey(dropboxPath)
             }
+            if copy, let dropboxPath { d = look.dropboxItem(dropboxPath) }
+            let same = !copy && i.map { !file.differs(from: $0, on: .iCloud) } == true && d.map { !file.differs(from: $0, on: .dropbox) } == true
             return OneWaySyncVersions(iCloud: i, dropbox: d, record: file.key, iCloudPath: i?.path ?? file.iCloudPath,
-                                      dropboxPath: d?.path ?? file.dropboxPath)
+                                      dropboxPath: d?.path ?? file.dropboxPath, isConflictedCopy: copy, sameAsRecorded: same)
         }
         let i = iCloudPath.flatMap(look.iCloudItem)
         let d = dropboxPath.flatMap(look.dropboxItem)
@@ -136,18 +152,13 @@ public enum OneWaySyncAnswers {
     public static func useICloudsVersion(_ versions: OneWaySyncVersions, writer: OneWaySyncWriter) throws {
         guard let d = versions.dropbox else { return }
         let expected = OneWaySyncExpectedState(d)
-        if let i = versions.iCloud, OneWaySyncSide.dropbox.nameKey(d.path) == OneWaySyncSide.dropbox.nameKey(versions.dropboxPath),
-           !isConflictedCopy(d.path) {
+        if let i = versions.iCloud, !versions.isConflictedCopy {
             _ = try writer.replace(dropboxPath: d.path, with: i.path, needsDownload: !i.isDownloaded,
                                    previousIsDropboxEdit: true, expected: expected, recordedID: d.documentID)
         } else {
             _ = try writer.moveToRemoved(dropboxPath: d.path, cause: .deletedInICloud, iCloudPath: versions.iCloud?.path,
                                          expected: expected, recordedID: d.documentID)
         }
-    }
-
-    static func isConflictedCopy(_ path: String) -> Bool {
-        OneWaySyncPath.name(path).range(of: "conflicted copy", options: .caseInsensitive) != nil
     }
 
     /// *Copy Dropbox’s into iCloud*: iCloud's current version is kept in SyncCloud Removed, then
@@ -166,7 +177,7 @@ public enum OneWaySyncAnswers {
     /// Dropbox is copied again.
     public static func matchICloud(_ versions: OneWaySyncVersions, writer: OneWaySyncWriter) throws {
         guard let i = versions.iCloud else { return }
-        guard var d = versions.dropbox, !isConflictedCopy(d.path) else {
+        guard var d = versions.dropbox, !versions.isConflictedCopy else {
             try writer.copy(from: i.path, to: i.path, needsDownload: !i.isDownloaded)
             return
         }
@@ -174,7 +185,8 @@ public enum OneWaySyncAnswers {
             try writer.move(from: d.path, to: i.path, expected: OneWaySyncExpectedState(d))
             d.path = i.path
         }
-        let same = d.size == i.size && d.second == i.second
+        // Identical by the record, though dated apart: the name alone goes back, nothing uploads.
+        let same = versions.sameAsRecorded || (d.size == i.size && d.second == i.second)
         if !same {
             _ = try writer.replace(dropboxPath: d.path, with: i.path, needsDownload: !i.isDownloaded,
                                    previousIsDropboxEdit: true, expected: OneWaySyncExpectedState(d), recordedID: d.documentID)
@@ -182,19 +194,25 @@ public enum OneWaySyncAnswers {
     }
 
     /// *Match iCloud* for a synced folder renamed, moved or deleted in Dropbox: put back under its
-    /// recorded name, or, if it is gone, made again with every synced file copied in.
-    public static func matchICloudFolder(_ name: String, look: OneWaySyncLook, writer: OneWaySyncWriter) throws {
+    /// recorded name, or, if it is gone, made again with every synced file copied in. Returns the
+    /// files that couldn't be copied, with why; the next pass compares them again.
+    @discardableResult
+    public static func matchICloudFolder(_ name: String, look: OneWaySyncLook, writer: OneWaySyncWriter) throws -> [String] {
         let key = OneWaySyncSide.dropbox.nameKey
-        guard let folder = look.pass.record.syncedFolders.first(where: { key($0.iCloudPath) == key(name) || key($0.dropboxPath) == key(name) }) else { return }
+        guard let folder = look.pass.record.syncedFolders.first(where: { key($0.iCloudPath) == key(name) || key($0.dropboxPath) == key(name) }) else { return [] }
         if let item = look.plan.matches.dropbox.folders[folder.key]?.item, key(item.path) != key(folder.dropboxPath) {
             try writer.move(from: item.path, to: folder.dropboxPath)
-            return
+            return []
         }
         try OneWaySyncDisk.makeFolders(folder.dropboxPath, in: writer.places.dropboxParent)
+        var failed: [String] = []
         for file in look.pass.record.files where key(OneWaySyncPath.top(file.dropboxPath)) == key(folder.dropboxPath) {
             guard case .found(let i, _) = look.plan.matches.iCloud.files[file.key] ?? .gone else { continue }
-            try? writer.copy(from: i.path, to: i.path, needsDownload: !i.isDownloaded)
+            do { try writer.copy(from: i.path, to: i.path, needsDownload: !i.isDownloaded) } catch {
+                failed.append("\(i.path) (\(OneWaySyncRun.describe(error)))")
+            }
         }
+        return failed
     }
 
     // MARK: Stop syncing
@@ -297,6 +315,28 @@ public enum OneWaySyncAnswers {
     public static func createInDropbox(_ name: String, places: OneWaySyncPlaces) throws {
         let dropboxParent = URL(fileURLWithPath: OneWaySyncDisk.canonicalPath(places.dropboxParent), isDirectory: true)
         try OneWaySyncDisk.makeFolders(name, in: dropboxParent)
+    }
+
+    // MARK: After a takeover
+
+    /// Moves the Dropbox-only files at `paths` to SyncCloud Removed, as deleted in iCloud, each
+    /// checked against the look first. Returns the ones that didn't go, with why.
+    public static func removeDropboxOnly(_ paths: [String], look: OneWaySyncLook, writer: OneWaySyncWriter) -> [String] {
+        let only = Set(look.plan.dropboxOnly.map(OneWaySyncSide.dropbox.nameKey))
+        var failed: [String] = []
+        for path in paths {
+            guard only.contains(OneWaySyncSide.dropbox.nameKey(path)), let item = look.dropboxItem(path) else {
+                failed.append("\(path) (it isn’t only in Dropbox now)")
+                continue
+            }
+            do {
+                _ = try writer.moveToRemoved(dropboxPath: path, cause: .deletedInICloud, iCloudPath: nil,
+                                             expected: OneWaySyncExpectedState(item), recordedID: item.documentID)
+            } catch {
+                failed.append("\(path) (\(OneWaySyncRun.describe(error)))")
+            }
+        }
+        return failed
     }
 
     // MARK: The removal limit
@@ -407,7 +447,7 @@ public enum OneWaySyncAnswers {
         guard i.size == recorded.size, i.second == recorded.modified, recorded.iCloudID == nil || i.documentID == recorded.iCloudID else {
             return "it changed in iCloud since"
         }
-        guard d.size == recorded.size, d.second == recorded.modified else { return "Dropbox’s copy changed since" }
+        guard d.size == recorded.size, d.second == recorded.modified(on: .dropbox) else { return "Dropbox’s copy changed since" }
         guard i.isDownloaded else { return "it isn’t downloaded in iCloud" }
         return nil
     }

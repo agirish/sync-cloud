@@ -19,6 +19,22 @@ import Testing
         OneWaySyncDropboxGate.check(status: status, arrivals: arrivals, lastWake: wake, now: Self.t0.addingTimeInterval(minutes * 60))
     }
 
+    /// A file SyncCloud put in the Dropbox parent and Dropbox hasn't uploaded in 30 minutes stops
+    /// the sync; one elsewhere, or still within the 30 minutes, doesn't.
+    @Test func aFileNotUploadedFor30MinutesStopsTheSync() {
+        var status = running(since: Self.t0)
+        status.noteChanged("/Dropbox/Documents/Finance/a.pdf", at: Self.t0)
+        status.noteChanged("/Dropbox/Other/b.pdf", at: Self.t0)
+        func check(at minutes: Double) -> OneWaySyncDropboxGate.Verdict {
+            OneWaySyncDropboxGate.check(status: status, arrivals: OneWaySyncArrivals(), lastWake: nil,
+                                        now: Self.t0.addingTimeInterval(minutes * 60), dropboxParent: "/Dropbox/Documents")
+        }
+        #expect(check(at: 29) == .caughtUp(holdingBack: []))
+        #expect(check(at: 30) == .stop(.dropboxNotUploading(since: Self.t0)))
+        status.record(.uploaded, for: "/Dropbox/Documents/Finance/a.pdf", at: Self.t0.addingTimeInterval(30 * 60))
+        #expect(check(at: 31) == .caughtUp(holdingBack: []))
+    }
+
     @Test func dropboxMustHaveRunFiveMinutes() {
         let status = running(since: Self.t0)
         #expect(check(status, at: 4.9) == .waiting(.dropboxJustStarted(until: Self.t0.addingTimeInterval(300))))

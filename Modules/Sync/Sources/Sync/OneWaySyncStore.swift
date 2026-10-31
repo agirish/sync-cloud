@@ -86,10 +86,21 @@ public struct OneWaySyncStore: Sendable {
     @discardableResult
     public func startFirstRun(_ record: OneWaySyncRecord, state: OneWaySyncSavedState) throws -> UUID {
         let firstRun = UUID()
+        // One this build can't read (damaged, or a newer build's) is kept aside, not lost.
+        if let data = try? Data(contentsOf: recordURL), !Self.isReadableRecord(data) {
+            let aside = directory.appendingPathComponent("record.unreadable-\(OneWaySyncHistoryStore.seconds(Date())).json")
+            _ = rename(recordURL.path, aside.path)
+        }
         try OneWaySyncFiles.remove(recordURL)
         try saveState(state)
         try saveRecord(record, firstRun: firstRun)
         return firstRun
+    }
+
+    static func isReadableRecord(_ data: Data) -> Bool {
+        guard let header = try? JSONDecoder().decode(OneWaySyncVersionHeader.self, from: data),
+              OneWaySyncRecord.readableVersions.contains(header.version) else { return false }
+        return (try? JSONDecoder().decode(OneWaySyncRecord.self, from: data)) != nil
     }
 
     /// Turn Off One-Way Sync: the record, the state and the files outside go. Exclusions, saved
@@ -244,6 +255,11 @@ public struct OneWaySyncSavedState: Codable, Equatable, Sendable, OneWaySyncEmpt
     /// Files (record keys) whose removal or replacement the user confirmed and the sync hasn't
     /// applied yet (`OneWaySyncPass.confirmed`): a quit before it does keeps the answer.
     public var confirmed: [UInt64]
+    /// When this Mac took the sync over from another (*Sync From This Mac Instead…*), in seconds,
+    /// until the user answers: the Dropbox-only files its first run finds may be removals that
+    /// waited on the other Mac, whose list this Mac can't see, so they are offered as one group to
+    /// confirm (decided 31 Oct). Nil otherwise.
+    public var takenOverAt: Int64?
 
     public init(
         version: Int = OneWaySyncSavedState.currentVersion, settings: OneWaySyncSettings = OneWaySyncSettings(),

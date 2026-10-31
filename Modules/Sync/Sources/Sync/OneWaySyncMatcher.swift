@@ -299,12 +299,14 @@ public enum OneWaySyncMatcher {
             pairs.append(OneWaySyncPair(iCloud: item, dropbox: dropbox[match], basis: .name))
         }
 
-        // By contents: on a first run only, and only where nothing else could be the match.
+        // By contents: on a first run only, only where nothing else could be the match, and only
+        // within one folder: a Dropbox file filed elsewhere stays where it was filed (decided
+        // 31 Oct), and iCloud's is copied.
         let firstRun = Set(record.syncedFolders.filter { !$0.firstRunCompleted }.flatMap { [key($0.iCloudPath), key($0.dropboxPath)] })
         if !firstRun.isEmpty {
-            struct Shape: Hashable { var size: Int64; var type: String }
+            struct Shape: Hashable { var folder: String; var size: Int64; var type: String }
             func shape(_ item: OneWaySyncItem) -> Shape {
-                Shape(size: item.size, type: (item.path as NSString).pathExtension.lowercased())
+                Shape(folder: key(OneWaySyncPath.parent(item.path)), size: item.size, type: (item.path as NSString).pathExtension.lowercased())
             }
             func candidate(_ item: OneWaySyncItem) -> Bool {
                 firstRun.contains(key(OneWaySyncPath.top(item.path))) && item.size > contentsPairingMinimumSize

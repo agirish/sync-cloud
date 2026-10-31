@@ -27,7 +27,7 @@ import Testing
         let json = try JSONSerialization.jsonObject(with: Self.record.encoded()) as! [String: Any]
         let file = (json["files"] as! [[String: Any]])[0]
         #expect(file["modified"] as? Int == Int(OneWayWorld.t0.timeIntervalSince1970))
-        #expect(json["version"] as? Int == 2)
+        #expect(json["version"] as? Int == 3)
     }
 
     /// Version 1, before change times and refused files: read as this version, with neither, so
@@ -83,11 +83,21 @@ import Testing
         #expect(OneWaySyncRecord.load(Data("not json".utf8), on: OneWayWorld.binding) == .needsNewFirstRun(.unreadable))
 
         var json = try JSONSerialization.jsonObject(with: Self.record.encoded()) as! [String: Any]
-        json["version"] = 3
+        json["version"] = 4
         let newer = try JSONSerialization.data(withJSONObject: json)
-        #expect(OneWaySyncRecord.load(newer, on: OneWayWorld.binding) == .needsNewFirstRun(.unsupportedVersion(3)))
+        #expect(OneWaySyncRecord.load(newer, on: OneWayWorld.binding) == .needsNewFirstRun(.unsupportedVersion(4)))
 
+        // A version 2 record (before Dropbox's own dates and pending uploads) still reads.
         json["version"] = 2
+        json.removeValue(forKey: "pendingUploads")
+        let older = try JSONSerialization.data(withJSONObject: json)
+        guard case .ready(let read) = OneWaySyncRecord.load(older, on: OneWayWorld.binding) else {
+            Issue.record("a version 2 record didn’t read"); return
+        }
+        #expect(read.version == OneWaySyncRecord.currentVersion)
+        #expect(read.pendingUploads.isEmpty)
+
+        json["version"] = 3
         json.removeValue(forKey: "files")
         let damaged = try JSONSerialization.data(withJSONObject: json)
         #expect(OneWaySyncRecord.load(damaged, on: OneWayWorld.binding) == .needsNewFirstRun(.unreadable))

@@ -111,6 +111,8 @@ public enum OneWaySyncDropboxGate {
         /// Missing for `CloudAppStatusModel.notRunningGrace`, the same 5 minutes RD68 waits.
         case dropboxNotRunning(since: Date)
         case dropboxNeverQuiet(since: Date)
+        /// A file SyncCloud put in the Dropbox parent still not uploaded after RD68's 30 minutes.
+        case dropboxNotUploading(since: Date)
     }
 
     public enum Verdict: Equatable, Sendable {
@@ -121,11 +123,16 @@ public enum OneWaySyncDropboxGate {
     }
 
     /// Whether a pass may write into Dropbox at `now`. `lastWake` is when the Mac last woke.
+    /// `dropboxParent`, when given, is where a file SyncCloud wrote and Dropbox hasn't uploaded in
+    /// 30 minutes stops the sync: writing more there would only pile up.
     public static func check(status: CloudAppStatusModel, arrivals: OneWaySyncArrivals,
-                             lastWake: Date?, now: Date) -> Verdict {
+                             lastWake: Date?, now: Date, dropboxParent: String? = nil) -> Verdict {
         if let missing = status.missingSince[.dropbox] {
             return now.timeIntervalSince(missing) >= CloudAppStatusModel.notRunningGrace
                 ? .stop(.dropboxNotRunning(since: missing)) : .waiting(.dropboxNotSeenRunning)
+        }
+        if let dropboxParent, let since = status.notUploading(within: dropboxParent, now: now) {
+            return .stop(.dropboxNotUploading(since: since))
         }
         guard let running = status.runningSince[.dropbox] else { return .waiting(.dropboxNotSeenRunning) }
         // A wake dated ahead of now (a clock set back) can't be placed; it is left out.

@@ -221,6 +221,14 @@ public struct CloudAppStatusModel: Sendable {
 
     // MARK: Answers out
 
+    /// When the oldest file SyncCloud changed inside `folder` was changed, among those still not
+    /// uploaded past the deadline; nil when none is. One-way sync stops on it (the whole sync).
+    public func notUploading(within folder: String, now: Date) -> Date? {
+        changed.filter { path, file in
+            file.reading == .pending && now.timeIntervalSince(file.changedAt) >= Self.uploadDeadline && path.hasPrefix(folder + "/")
+        }.map(\.value.changedAt).min()
+    }
+
     /// Each enabled cloud source's problem, by provider id. A source with no known problem is
     /// absent — there is no "fine" entry to draw. `waitingOutTheGrace` drops what the user asked
     /// about (DN) back to the grace — what Activity's rows use, which appear on their own.
@@ -276,6 +284,12 @@ public struct CloudAppStatusModel: Sendable {
 
     /// Whether an upload error is the provider refusing THIS file — its name, or a kind it never
     /// syncs — rather than the account or the network being in the way, which is "not uploading".
+    /// Whether an upload error is the account being out of space.
+    public static func isQuotaError(_ error: Error) -> Bool {
+        let error = error as NSError
+        return error.domain == NSFileProviderErrorDomain && error.code == NSFileProviderError.Code.insufficientQuota.rawValue
+    }
+
     public static func isRefusal(_ error: Error) -> Bool {
         let error = error as NSError
         guard error.domain == NSFileProviderErrorDomain else { return false }

@@ -65,6 +65,9 @@ public final class CloudAppMonitor: ObservableObject {
     @Published public private(set) var notices: [CloudAppNotice] = []
 
     private var model = CloudAppStatusModel()
+
+    /// A test's way to set what the monitor has seen, without a running app to see.
+    func updateModelForTests(_ change: (inout CloudAppStatusModel) -> Void) { change(&model) }
     /// The status as the rules hold it, for one-way sync's Dropbox gate (RD67).
     public var statusModel: CloudAppStatusModel { model }
     /// When the Mac last woke while SyncCloud ran: the gate's five minutes count from it too.

@@ -13361,3 +13361,27 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s run=%s refused=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No one-way sync at all | RECORDED — not owed (new feature) |
+
+## One-way sync's adversarial review: record, stops, screens (RD67) — main only
+
+2026-10-31, for v7.0. On `main`: one review of the whole one-way sync, fixed. The record stays
+true after an upload Dropbox hasn't reported, a quit mid-pass, a pair dated differently on each
+side, a step whose file isn't what was checked, a swap cut short and SyncCloud Removed emptied;
+a pass keeps settings and another Mac's marker it didn't set; new whole-sync stops (Dropbox not
+uploading or full, no access) and folder and takeover rows; History pruned to 90 days; the pill
+priced by its words and shown before setup only for iCloud beside Dropbox. Beside it, the folder
+watcher saves its replay point at most every 30 s and never watches a network volume, and the
+duplicate scan says when it compares large files' ends. All of it in code only `main` has.
+
+```sh
+for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s run=%s watcher=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/OneWaySyncRun.swift | wc -l | tr -d ' ')" \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/FolderWatcher.swift | wc -l | tr -d ' ')"; done
+# measured 2026-10-31, against origin, before this landed:
+# main                                run=1 watcher=1
+# v6.x / v5.x / v4.x / v3.x / v2.x    run=0 watcher=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No one-way sync, folder watcher or edge-sampled duplicate scan | RECORDED — not owed (new feature) |

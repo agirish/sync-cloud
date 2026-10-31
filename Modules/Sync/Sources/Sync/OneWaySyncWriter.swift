@@ -3,6 +3,7 @@
 //  SyncCloud
 //
 
+import Events
 import Foundation
 
 /// Where one-way sync reads and writes on this Mac.
@@ -350,6 +351,8 @@ public enum OneWaySyncUploadOutcome: Equatable, Sendable {
     case gone
     /// Not reported uploaded by the deadline, or the wait was cancelled. Not synced.
     case notConfirmed
+    /// Not uploaded, and Dropbox says the account is out of space: not synced, and the sync stops.
+    case dropboxFull
 }
 
 public enum OneWaySyncUploads {
@@ -358,6 +361,7 @@ public enum OneWaySyncUploads {
         case upload(CloudAppStatusModel.UploadReading)
         case gone
         case ignoredByDropbox
+        case dropboxFull
     }
 
     /// Reads `path`'s upload: gone, carrying Dropbox's ignore mark (`com.dropbox.ignored`, which
@@ -365,7 +369,11 @@ public enum OneWaySyncUploads {
     public static func reading(at path: String) -> Reading {
         guard OneWaySyncDisk.kind(at: path) != nil else { return .gone }
         if OneWaySyncDisk.attribute("com.dropbox.ignored", at: path) != nil { return .ignoredByDropbox }
-        return .upload(CloudAppStatusModel.reading(at: path))
+        let reading = CloudAppStatusModel.reading(at: path)
+        if reading == .pending,
+           let error = (try? URL(fileURLWithPath: path).resourceValues(forKeys: [.ubiquitousItemUploadingErrorKey]))?.ubiquitousItemUploadingError,
+           CloudAppStatusModel.isQuotaError(error) { return .dropboxFull }
+        return .upload(reading)
     }
 
     /// **Nothing counts as synced until Dropbox reports the upload** — measured: not uploaded,
@@ -396,10 +404,18 @@ public enum OneWaySyncUploads {
                     case .upload(.refused(let reason)): return (path, .refused(reason))
                     case .ignoredByDropbox: return (path, .refused("Dropbox ignores it"))
                     case .gone: return (path, .gone)
+                    case .dropboxFull: return (path, .dropboxFull)
                     case .upload(.pending), .upload(.unknown): return (path, nil)
                     }
                 }
-            }) else { break }
+            }) else {
+                // A read still out at the deadline: File Provider hasn't answered, which a slow
+                // upload alone doesn't explain.
+                if !Task.isCancelled, clock.now >= end {
+                    Logger.shared.warning("One-way sync: Dropbox’s upload state didn’t answer within \(deadline) for \(round.count) files")
+                }
+                break
+            }
             waiting = []
             for (path, outcome) in read {
                 if let outcome {

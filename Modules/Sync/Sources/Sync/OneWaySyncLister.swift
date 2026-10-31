@@ -28,11 +28,15 @@ public struct OneWaySyncSideListing: Equatable, Sendable {
     public var skipped: [OneWaySyncSkippedItem]
     /// Folders directly in the parent that macOS reports as shared: never offered, never synced.
     public var sharedFolders: [String]
+    /// Files a swap of names parked under a temporary name and never put back (the app quit
+    /// mid-swap), relative to the parent: what the next pass puts back first.
+    public var parked: [String]
 
-    public init(listing: OneWaySyncListing, skipped: [OneWaySyncSkippedItem] = [], sharedFolders: [String] = []) {
+    public init(listing: OneWaySyncListing, skipped: [OneWaySyncSkippedItem] = [], sharedFolders: [String] = [], parked: [String] = []) {
         self.listing = listing
         self.skipped = skipped
         self.sharedFolders = sharedFolders
+        self.parked = parked
     }
 }
 
@@ -90,6 +94,7 @@ public struct OneWaySyncLister: Sendable {
         var items: [OneWaySyncItem] = []
         var skipped: [OneWaySyncSkippedItem] = []
         var shared: [String] = []
+        var parked: [String] = []
         var incomplete = Set<String>()
         let syncedKeys = Set(syncedFolders.map(side.nameKey))
         let alsoKeys = Set(alsoInside.map(side.nameKey))
@@ -98,7 +103,7 @@ public struct OneWaySyncLister: Sendable {
             guard !Self.isNeverListed(name) else { continue }
             let url = parent.appendingPathComponent(name)
             var info = stat()
-            guard lstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, !isPackage(url, name: name) else { continue }
+            guard lstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, !isPackage(url) else { continue }
             let isSharedFolder = isShared(url)
             if isSharedFolder { shared.append(name) }
             let managed = side == .dropbox && Self.dropboxManagedNames.contains(name)
@@ -108,20 +113,22 @@ public struct OneWaySyncLister: Sendable {
             if MaterializationStatus.isDataless(flags: info.st_flags) {
                 if syncedKeys.contains(key) { incomplete.insert(name) }
             } else if syncedKeys.contains(key) {
-                if !walk(name, excluded: isSharedFolder, into: &items, skipped: &skipped) { incomplete.insert(name) }
+                if !walk(name, excluded: isSharedFolder, into: &items, skipped: &skipped, parked: &parked) { incomplete.insert(name) }
             } else if alsoKeys.contains(key) {
                 var ignored: [OneWaySyncSkippedItem] = []
-                _ = walk(name, excluded: true, into: &items, skipped: &ignored)
+                var ignoredParked: [String] = []
+                _ = walk(name, excluded: true, into: &items, skipped: &ignored, parked: &ignoredParked)
             }
         }
         return OneWaySyncSideListing(
-            listing: OneWaySyncListing(items: items, incompleteFolders: incomplete), skipped: skipped, sharedFolders: shared.sorted())
+            listing: OneWaySyncListing(items: items, incompleteFolders: incomplete), skipped: skipped, sharedFolders: shared.sorted(),
+            parked: side == .dropbox ? parked.sorted() : [])
     }
 
     /// Lists `relative`'s contents into `items`. False when the folder couldn't be read whole: a
     /// read failed, a folder below is still cloud-only, or the pass was cancelled.
     private func walk(_ relative: String, excluded: Bool, into items: inout [OneWaySyncItem],
-                      skipped: inout [OneWaySyncSkippedItem]) -> Bool {
+                      skipped: inout [OneWaySyncSkippedItem], parked: inout [String]) -> Bool {
         var complete = true
         var pending = [(relative, excluded)]
         while let (folder, folderExcluded) = pending.popLast() {
@@ -132,6 +139,7 @@ public struct OneWaySyncLister: Sendable {
                 continue
             }
             for name in children.sorted() {
+                if OneWaySyncPlanner.parkedOriginal(name) != nil { parked.append(folder + "/" + name) }
                 guard !Self.isNeverListed(name) else { continue }
                 let path = folder + "/" + name
                 let url = folderURL.appendingPathComponent(name)
@@ -147,10 +155,10 @@ public struct OneWaySyncLister: Sendable {
                 switch info.st_mode & S_IFMT {
                 case S_IFLNK:
                     if !folderExcluded { skipped.append(OneWaySyncSkippedItem(path: path, reason: "a symlink")) }
-                case S_IFDIR where isPackage(url, name: name) && MaterializationStatus.isDataless(flags: info.st_flags):
+                case S_IFDIR where isPackage(url) && MaterializationStatus.isDataless(flags: info.st_flags):
                     // An offloaded package: its size can't be read without reading inside it.
                     if !folderExcluded { complete = false }
-                case S_IFDIR where isPackage(url, name: name):
+                case S_IFDIR where isPackage(url):
                     if Self.liveLibraryExtensions.contains((name as NSString).pathExtension.lowercased()) {
                         if !folderExcluded { skipped.append(OneWaySyncSkippedItem(path: path, reason: "a live library")) }
                         continue
@@ -190,7 +198,7 @@ public struct OneWaySyncLister: Sendable {
         ((try? FileManager.default.contentsOfDirectory(atPath: path)) ?? []).sorted()
     }
 
-    private func isPackage(_ url: URL, name: String) -> Bool {
+    private func isPackage(_ url: URL) -> Bool {
         (try? URL(fileURLWithPath: url.path).resourceValues(forKeys: [.isPackageKey]).isPackage) == true
     }
 

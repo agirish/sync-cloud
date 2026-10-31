@@ -47,6 +47,7 @@ struct OneWaySyncSheetView: View {
         case .chooseItemsToEmpty: OneWaySyncEmptySheet(controller: controller)
         case .stoppedFiles: OneWaySyncStoppedFilesSheet(controller: controller)
         case .group(let folder): OneWaySyncGroupSheet(controller: controller, folder: folder)
+        case .reviewDropboxOnly: OneWaySyncTakeoverSheet(controller: controller)
         }
     }
 }
@@ -162,7 +163,8 @@ struct OneWaySyncSetupSheet: View {
                 Button("Save") { saveFolders() }
                     .keyboardShortcut(.defaultAction)
                     .accentedProminent()
-                    .disabled(draft == nil || controller.isRunning || controller.isAnswering)
+                    .disabled(draft == nil || controller.isRunning || controller.isAnswering
+                              || draft?.problem != nil || Self.saveRefusal(added: added, notShared: notShared) != nil)
             } else {
                 if step == .folders {
                     Button("Cancel") { dismiss() }
@@ -307,10 +309,22 @@ struct OneWaySyncSetupSheet: View {
                 end(.dropbox, url: dropboxParent) { dropboxParent = $0 }
             }
         }
-        Text(choosingFolders ? "Which folders should Dropbox keep a copy of?" : "Which folders should Dropbox keep a copy of?")
+        Text("Which folders should Dropbox keep a copy of?")
             .scaledFont(.system(size: 13, weight: .semibold))
         folderList
-        Text("Folders with the same name in both are offered. Folders macOS reports as shared, and the ones Dropbox looks after (Apps, Camera Uploads), aren’t; you confirm none is shared on Dropbox before starting.")
+        // DL holds for a folder ticked later too: its first run sends changes into whatever
+        // shares it on Dropbox, which SyncCloud can't see.
+        if choosingFolders, !added.isEmpty {
+            Toggle(added.count == 1 ? "\(added.sorted()[0]) isn’t shared with anyone on Dropbox"
+                                    : "These \(added.count) folders aren’t shared with anyone on Dropbox", isOn: $notShared)
+            Text("Each folder ticked now starts with a first run of its own.")
+                .scaledFont(.system(size: 11)).foregroundStyle(.secondary)
+        }
+        // What stops Next, said where Next is: a folder outside Dropbox, one inside the other.
+        if let why = draft?.problem {
+            Text(why).foregroundStyle(OneWaySyncPalette.hold).scaledFont(.system(size: 12))
+        }
+        Text("Folders with the same name in both are offered. Folders macOS reports as shared, and the ones Dropbox looks after (\(OneWaySyncLister.dropboxManagedNames.filter { $0 != OneWaySyncRemovedStore.folderName }.sorted().joined(separator: ", "))), aren’t; you confirm none is shared on Dropbox before starting.")
             .scaledFont(.system(size: 11))
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -376,7 +390,7 @@ struct OneWaySyncSetupSheet: View {
                 }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        ForEach(draft.choices.filter { $0.canTick || $0.place == .onlyInICloud }) { choice in
+                        ForEach(draft.choices.filter(\.isListed)) { choice in
                             folderRow(choice)
                             Divider()
                         }
@@ -403,7 +417,7 @@ struct OneWaySyncSetupSheet: View {
             }
             .disabled(!choice.canTick)
             Spacer()
-            if choice.place == .onlyInICloud {
+            if choice.canAddToDropbox {
                 Text("only in iCloud ·").foregroundStyle(.secondary)
                 Button("Add to Dropbox") { createInDropbox(choice.name) }
                     .buttonStyle(.link)
@@ -481,12 +495,12 @@ struct OneWaySyncSetupSheet: View {
             HStack(spacing: 8) {
                 number(summary.copies, "copy to Dropbox")
                 number(summary.replaces, "replace with iCloud’s newer version", show: "replace")
-                number(waits.count, "wait for you to choose", show: "waits", waits: true)
+                number(waits.count, waits.count == 1 ? "waits for you to choose" : "wait for you to choose", show: "waits", waits: true)
             }
             if summary.moves + summary.same + summary.dropboxOnly > 0 {
-                Text([summary.moves > 0 ? "rename \(summary.moves) in Dropbox to match" : nil,
-                      summary.same > 0 ? "\(summary.same) already the same" : nil,
-                      summary.dropboxOnly > 0 ? "\(summary.dropboxOnly) only in Dropbox, left alone" : nil]
+                Text([summary.moves > 0 ? "rename \(summary.moves.formatted()) in Dropbox to match" : nil,
+                      summary.same > 0 ? "\(summary.same.formatted()) already the same" : nil,
+                      summary.dropboxOnly > 0 ? "\(summary.dropboxOnly.formatted()) only in Dropbox, left alone" : nil]
                         .compactMap { $0 }.joined(separator: " · ").capitalizedFirst)
                     .scaledFont(.system(size: 12))
             }
@@ -526,6 +540,7 @@ struct OneWaySyncSetupSheet: View {
                 Button(showing == show ? "Hide" : "Show") { showing = showing == show ? nil : show }
                     .buttonStyle(.link)
                     .scaledFont(.system(size: 11))
+                    .accessibilityLabel("\(showing == show ? "Hide" : "Show") the files that \(label)")
             }
         }
         .padding(10)
@@ -537,7 +552,7 @@ struct OneWaySyncSetupSheet: View {
     func pathList(_ paths: [String]) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
-                ForEach(paths, id: \.self) { Text($0).font(.system(size: 11, design: .monospaced)) }
+                ForEach(paths, id: \.self) { Text($0).scaledFont(.system(size: 11, design: .monospaced)) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -572,6 +587,22 @@ struct OneWaySyncSetupSheet: View {
                 dismiss()
             }
         }
+    }
+
+    /// Folders ticked in Choose Folders that don't sync yet.
+    var added: Set<String> { Self.added(ticked: ticked, synced: (controller.record?.syncedFolders ?? []).map(\.iCloudPath)) }
+
+    /// The ticked folders that don't sync yet, by Dropbox's names (case folded): each needs DL's
+    /// "not shared on Dropbox" before Save.
+    static func added(ticked: Set<String>, synced: [String]) -> Set<String> {
+        let key = OneWaySyncSide.dropbox.nameKey
+        let syncedKeys = Set(synced.map(key))
+        return Set(ticked.filter { !syncedKeys.contains(key($0)) })
+    }
+
+    /// Why Save in Choose Folders waits, or nil.
+    static func saveRefusal(added: Set<String>, notShared: Bool) -> String? {
+        added.isEmpty || notShared ? nil : "Confirm the folders ticked now aren’t shared on Dropbox"
     }
 
     func saveFolders() {
@@ -614,8 +645,13 @@ struct OneWaySyncOverviewSheet: View {
                 }
                 HStack(spacing: 8) {
                     if controller.activity != nil { ProgressView().controlSize(.small) }
-                    Text(controller.activity ?? controller.ladder?.title() ?? "Not set up")
-                        .fontWeight(.semibold)
+                    // The ladder's first rung, as the pill says it; what a running sync does beside it.
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(controller.ladder?.title() ?? "Not set up").fontWeight(.semibold)
+                        if let activity = controller.activity, controller.ladder != .syncing(activity) {
+                            Text(activity).foregroundStyle(.secondary)
+                        }
+                    }
                     Spacer()
                     if controller.isRunning {
                         Button("Stop") { controller.cancel() }
@@ -625,7 +661,7 @@ struct OneWaySyncOverviewSheet: View {
                             .help(controller.syncNowRefusal ?? "Copy what changed in iCloud to Dropbox now")
                     }
                     if controller.isPaused {
-                        Button("Resume") { controller.resume() }
+                        Button("Resume…") { Task { await controller.confirmResume() } }
                     } else {
                         Button("Pause") { controller.pause() }
                     }
@@ -642,6 +678,8 @@ struct OneWaySyncOverviewSheet: View {
         } actions: {
             Button("Choose Folders…") { controller.open(.chooseFolders, from: .main) }
                 .disabled(controller.isRunning || !controller.isSetUp)
+            Button("History…") { dismiss(); controller.onOpenHistory() }
+                .help("This sync’s History in Activity, with Reverse in iCloud…")
             Button("Open Activity") { dismiss(); controller.onOpenActivity() }
             Button("Settings…") { dismiss(); controller.onOpenSettings() }
             Button("Done") { dismiss() }
@@ -671,8 +709,18 @@ struct OneWaySyncReviewSheet: View {
     @State private var pending: [OneWaySyncPendingRemoval] = []
     @State private var ticked: Set<UInt64> = []
 
+    /// "Legal: 31 removals", "Legal: 1 replacement", "Legal: 3 removals and replacements".
+    static func title(folder: String?, pending: [OneWaySyncPendingRemoval], loaded: Bool) -> String {
+        let prefix = folder.map { "\($0): " } ?? ""
+        guard loaded else { return prefix + "Review" }
+        let replacements = pending.filter { $0.kind == .replaced }.count
+        let what = replacements == 0 ? (pending.count == 1 ? "removal" : "removals")
+            : replacements == pending.count ? (pending.count == 1 ? "replacement" : "replacements") : "removals and replacements"
+        return prefix + "\(pending.count.formatted()) \(what)"
+    }
+
     var body: some View {
-        OneWaySyncSheetFrame(title: (folder.map { "\($0): " } ?? "") + "\(pending.count) removals", width: 560) {
+        OneWaySyncSheetFrame(title: Self.title(folder: folder, pending: pending, loaded: look != nil), width: 560) {
             VStack(alignment: .leading, spacing: 10) {
                 if look == nil {
                     ProgressView().controlSize(.small)
@@ -685,7 +733,8 @@ struct OneWaySyncReviewSheet: View {
                                 HStack {
                                     Toggle(isOn: Binding(get: { ticked.contains(item.record) },
                                                          set: { if $0 { ticked.insert(item.record) } else { ticked.remove(item.record) } })) {
-                                        Text(item.iCloudPath).font(.system(size: 11, design: .monospaced)).lineLimit(1)
+                                        Text(item.iCloudPath).scaledFont(.system(size: 11, design: .monospaced))
+                                            .lineLimit(1).truncationMode(.middle)
                                     }
                                     Spacer()
                                     Text(describe(item.kind)).foregroundStyle(.secondary).scaledFont(.system(size: 11))
@@ -810,7 +859,7 @@ struct OneWaySyncVersionSheet: View {
         HStack(spacing: 10) {
             OneWaySyncSideChip(side: side, label: side == .iCloud ? "iCloud" : "Dropbox")
             if let item {
-                Text("Modified \(item.modified.formatted(date: .abbreviated, time: .shortened))")
+                Text("Modified \(OneWaySyncWords.when(item.modified, now: Date(), saysToday: true))")
                 Spacer()
                 Text(OneWaySyncWords.bytes(item.size)).foregroundStyle(.secondary).monospacedDigit()
                 if !item.isDownloaded { Text("not downloaded").foregroundStyle(.secondary) }
@@ -879,7 +928,7 @@ struct OneWaySyncReverseSheet: View {
 
     var title: String {
         guard let entry else { return "Reverse in iCloud" }
-        return "Reverse in iCloud · sync of " + Date(timeIntervalSince1970: TimeInterval(entry.startedAt)).formatted(date: .omitted, time: .shortened)
+        return "Reverse in iCloud · sync of " + OneWaySyncWords.when(Date(timeIntervalSince1970: TimeInterval(entry.startedAt)), now: Date())
     }
 
     var body: some View {
@@ -938,14 +987,14 @@ struct OneWaySyncReverseSheet: View {
     @ViewBuilder func row(_ reversal: OneWaySyncReversal) -> some View {
         HStack {
             if let why = reversal.unavailable {
-                Text(reversal.item).font(.system(size: 11, design: .monospaced)).lineLimit(1).foregroundStyle(.secondary)
+                Text(reversal.item).scaledFont(.system(size: 11, design: .monospaced)).lineLimit(1).foregroundStyle(.secondary)
                 Spacer()
                 Text("\(reversal.summary): can’t, \(why)").foregroundStyle(.secondary).scaledFont(.system(size: 11))
                     .lineLimit(2).multilineTextAlignment(.trailing)
             } else {
                 Toggle(isOn: Binding(get: { ticked.contains(reversal.step) },
                                      set: { if $0 { ticked.insert(reversal.step) } else { ticked.remove(reversal.step) } })) {
-                    Text(reversal.item).font(.system(size: 11, design: .monospaced)).lineLimit(1)
+                    Text(reversal.item).scaledFont(.system(size: 11, design: .monospaced)).lineLimit(1)
                 }
                 Spacer()
                 Text(reversal.summary).foregroundStyle(.secondary).scaledFont(.system(size: 11))
@@ -965,9 +1014,16 @@ struct OneWaySyncEmptySheet: View {
     @State private var ticked: Set<String> = []
     @State private var bySize = false
     @State private var loaded = false
+    /// What the last Empty or Restore couldn't do, said here rather than only in the log.
+    @State private var problem: String?
+
+    static func title(count: Int, bytes: Int64, loaded: Bool) -> String {
+        guard loaded else { return "SyncCloud Removed" }
+        return "SyncCloud Removed · " + (count == 1 ? "1 item" : "\(count.formatted()) items") + " · " + OneWaySyncWords.bytes(bytes)
+    }
 
     var body: some View {
-        OneWaySyncSheetFrame(title: "SyncCloud Removed · \(items.count) items · \(OneWaySyncWords.bytes(items.reduce(0) { $0 + $1.size }))", width: 600) {
+        OneWaySyncSheetFrame(title: Self.title(count: items.count, bytes: items.reduce(0) { $0 + $1.size }, loaded: loaded), width: 640) {
             VStack(alignment: .leading, spacing: 8) {
                 Picker("Order", selection: $bySize) {
                     Text("Oldest first").tag(false)
@@ -976,17 +1032,26 @@ struct OneWaySyncEmptySheet: View {
                 .fixedSize()
                 if !loaded { ProgressView().controlSize(.small) }
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(sorted, id: \.path) { item in
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(OneWaySyncRemovedStore.ordered(items, bySize ? .largestFirst : .oldestFirst), id: \.path) { item in
                             HStack {
                                 Toggle(isOn: Binding(get: { ticked.contains(item.path) },
                                                      set: { if $0 { ticked.insert(item.path) } else { ticked.remove(item.path) } })) {
-                                    Text(item.origin.dropboxPath).font(.system(size: 11, design: .monospaced)).lineLimit(1)
+                                    Text(item.origin.dropboxPath)
+                                        .scaledFont(.system(size: 11, design: .monospaced))
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
                                 }
                                 Spacer()
                                 Text(Date(timeIntervalSince1970: TimeInterval(item.origin.removedAt)).formatted(date: .abbreviated, time: .omitted))
                                     .foregroundStyle(.secondary)
                                 Text(OneWaySyncWords.bytes(item.size)).foregroundStyle(.secondary).monospacedDigit().frame(width: 70, alignment: .trailing)
+                                if item.origin.iCloudPath != nil {
+                                    Button("Restore to iCloud") { Task { await restore(item) } }
+                                        .controlSize(.small)
+                                        .disabled(controller.isRunning || controller.isAnswering)
+                                        .help("Copies it back into iCloud where it came from, keeping both if the name is taken; the sync then carries it to Dropbox")
+                                }
                             }
                             .scaledFont(.system(size: 11))
                             .padding(.vertical, 2)
@@ -995,6 +1060,10 @@ struct OneWaySyncEmptySheet: View {
                     }
                 }
                 .frame(maxHeight: 300)
+                if let problem {
+                    Text(problem).scaledFont(.system(size: 11)).foregroundStyle(OneWaySyncPalette.hold)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Text("Emptied items go to Dropbox’s own deleted files, which keeps them for as long as your Dropbox plan does. Nothing goes to this Mac’s Trash.")
                     .scaledFont(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
@@ -1002,7 +1071,15 @@ struct OneWaySyncEmptySheet: View {
             Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
             Button("Empty \(ticked.count)") {
                 let chosen = items.filter { ticked.contains($0.path) }
-                Task { await controller.empty(chosen); dismiss() }
+                Task {
+                    let left = await controller.empty(chosen)
+                    guard left > 0 else { return dismiss() }
+                    // Some had changed since the list was read: they stay, and the list reads again.
+                    problem = left == 1 ? "1 item had changed since this list was read, so it was left."
+                                        : "\(left) items had changed since this list was read, so they were left."
+                    ticked = []
+                    items = await controller.removedItems()
+                }
             }
             .disabled(ticked.isEmpty || controller.isRunning || controller.isAnswering)
         }
@@ -1012,8 +1089,73 @@ struct OneWaySyncEmptySheet: View {
         }
     }
 
-    var sorted: [OneWaySyncRemovedItem] {
-        bySize ? items.sorted { $0.size > $1.size } : items
+    func restore(_ item: OneWaySyncRemovedItem) async {
+        if let failure = await controller.restoreToICloud(item) {
+            problem = "\(OneWaySyncPath.name(item.origin.dropboxPath)) couldn’t be restored: \(failure)"
+        } else {
+            problem = nil
+        }
+    }
+}
+
+// MARK: - After a takeover
+
+/// **Files only in Dropbox, after taking the sync over** (decided 31 Oct): removals that may have
+/// waited on the other Mac, each ticked to go to SyncCloud Removed or kept in Dropbox.
+struct OneWaySyncTakeoverSheet: View {
+    @ObservedObject var controller: OneWaySyncController
+    @Environment(\.dismiss) private var dismiss
+    @State private var look: OneWaySyncLook?
+    @State private var ticked: Set<String> = []
+    @State private var problem: String?
+
+    var body: some View {
+        let paths = look?.plan.dropboxOnly ?? []
+        OneWaySyncSheetFrame(title: look == nil ? "Only in Dropbox" : "\(paths.count.formatted()) only in Dropbox", width: 600) {
+            VStack(alignment: .leading, spacing: 10) {
+                if look == nil {
+                    ProgressView().controlSize(.small)
+                } else {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(paths, id: \.self) { path in
+                                Toggle(isOn: Binding(get: { ticked.contains(path) },
+                                                     set: { if $0 { ticked.insert(path) } else { ticked.remove(path) } })) {
+                                    Text(path).scaledFont(.system(size: 11, design: .monospaced)).lineLimit(1).truncationMode(.middle)
+                                }
+                                .padding(.vertical, 2)
+                                Divider()
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 300)
+                }
+                Text("This Mac took the sync over, and can’t see what waited on the other Mac. Ticked files go to Dropbox ▸ SyncCloud Removed, "
+                     + "as files deleted in iCloud. Unticked ones stay in Dropbox as files only there, left alone.")
+                    .scaledFont(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if let problem {
+                    Text(problem).scaledFont(.system(size: 11)).foregroundStyle(OneWaySyncPalette.hold).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        } actions: {
+            Button("Later") { dismiss() }.keyboardShortcut(.cancelAction)
+            Button("Keep All in Dropbox") { answer([]) }
+                .disabled(look == nil || controller.isRunning || controller.isAnswering)
+            // Nothing ticked to start with, and no default button: files kept only in Dropbox on
+            // purpose are in this list too, and moving them is an answer, never a default.
+            Button("Move \(ticked.count) to SyncCloud Removed") { answer(Array(ticked).sorted()) }
+                .disabled(ticked.isEmpty || look == nil || controller.isRunning || controller.isAnswering)
+        }
+        .task {
+            look = await controller.freshLook()
+        }
+    }
+
+    func answer(_ remove: [String]) {
+        guard let look else { return }
+        Task {
+            if let failure = await controller.answerTakeover(remove: remove, look: look) { problem = failure } else { dismiss() }
+        }
     }
 }
 
@@ -1029,18 +1171,26 @@ struct OneWaySyncStoppedFilesSheet: View {
                 if controller.exclusions.files.isEmpty {
                     Text("None.").foregroundStyle(.secondary)
                 }
-                ForEach(controller.exclusions.files, id: \.self) { exclusion in
-                    HStack {
-                        Text(exclusion.iCloudPath).font(.system(size: 11, design: .monospaced)).lineLimit(1)
-                        Spacer()
-                        Button("Show") { controller.reveal(exclusion) }
-                        Button("Sync Again…") { controller.syncAgain(exclusion) }
-                            .disabled(controller.syncNowRefusal != nil)
+                // Scrolls past a few hundred points: Keep All in Dropbox on a long Review can add dozens.
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(controller.exclusions.files, id: \.self) { exclusion in
+                            HStack {
+                                Text(exclusion.iCloudPath).scaledFont(.system(size: 11, design: .monospaced))
+                                    .lineLimit(1).truncationMode(.middle)
+                                Spacer()
+                                Button("Show") { controller.reveal(exclusion) }
+                                    .accessibilityLabel("Show \(OneWaySyncPath.name(exclusion.iCloudPath)) in iCloud and Dropbox")
+                                Button("Sync Again…") { controller.syncAgain(exclusion) }
+                                    .disabled(controller.syncNowRefusal != nil)
+                            }
+                            .controlSize(.small)
+                            .padding(.vertical, 3)
+                            Divider()
+                        }
                     }
-                    .controlSize(.small)
-                    .padding(.vertical, 3)
-                    Divider()
                 }
+                .frame(maxHeight: 320)
                 Text("Each stays as it is in Dropbox. Sync Again compares the two: the same contents are recorded as synced; others wait for you.")
                     .scaledFont(.system(size: 11)).foregroundStyle(.secondary).padding(.top, 8).fixedSize(horizontal: false, vertical: true)
             }

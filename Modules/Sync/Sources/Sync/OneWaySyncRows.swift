@@ -9,6 +9,10 @@ import Foundation
 public enum OneWaySyncStopReason: Equatable, Sendable {
     case dropboxNotRunning
     case dropboxNeverQuiet
+    /// A file SyncCloud put in Dropbox hasn't uploaded for 30 minutes.
+    case dropboxNotUploading
+    /// Dropbox reports the account is full. `removedBytes` is what SyncCloud Removed holds.
+    case dropboxFull(removedBytes: Int64?)
     /// A parent can't be read, or written: no access, or an access prompt unanswered.
     case noAccess(folder: String)
     /// A parent moved, was renamed, or its link now leads elsewhere.
@@ -48,6 +52,15 @@ public enum OneWaySyncRows {
         case .dropboxNeverQuiet:
             return row("busy", "Sync stopped: Dropbox hasn’t been quiet for 30 minutes",
                        "Changes keep arriving in the synced folders, so SyncCloud waits rather than write over them.", [.retry])
+        case .dropboxNotUploading:
+            return row("uploading", "Sync stopped: Dropbox hasn’t uploaded a changed file for 30 minutes",
+                       "Dropbox’s copies here may not be reaching Dropbox. SyncCloud waits rather than add to them.",
+                       [.openDropbox, .retry])
+        case .dropboxFull(let removed):
+            return row("full", "Sync stopped: Dropbox reports it’s full",
+                       removed.map { "SyncCloud Removed holds \(bytes($0)). Empty some of it, or make room in Dropbox." }
+                           ?? "Make room in Dropbox, then try again.",
+                       [.chooseItemsToEmpty, .retry])
         case .noAccess(let folder):
             return row("access", "Sync stopped: no access to \(folder)",
                        "macOS hasn’t given SyncCloud access to the folder, or a prompt asking is still open.", [.grantAccess, .retry])
@@ -93,11 +106,42 @@ public enum OneWaySyncRows {
         }
     }
 
+    /// DF: SyncCloud Removed past a tenth of this Mac's free space is an information row with one
+    /// notification; nil below it.
+    public static let removedSpaceID = "ows:info:removed-space"
+
+    public static func removedSpace(holding bytes: Int64, free: Int64, at now: Date) -> OneWaySyncNotice? {
+        guard free > 0, bytes * 10 > free else { return nil }
+        return OneWaySyncNotice(
+            id: removedSpaceID, kind: .information, scope: .wholeSync,
+            title: "SyncCloud Removed holds \(Self.bytes(bytes)), more than a tenth of this Mac’s free space",
+            detail: "Dropbox keeps a copy of it here. Empty what you no longer need; it goes to Dropbox’s own deleted files.",
+            buttons: [.chooseItemsToEmpty], raisedAt: now, notifiesOnce: true)
+    }
+
+    /// The whole-sync stop rows among `ids` whose cause has cleared by `now`, as the cloud app
+    /// status reads it: Dropbox running again, its uploads caught up, iCloud back. They go at once
+    /// rather than at the next pass; the rest wait for a pass to say.
+    public static func stopsCleared(_ ids: [String], status: CloudAppStatusModel, dropboxParent: String?, now: Date) -> [String] {
+        ids.filter { id in
+            switch id {
+            case stopPrefix + "dropbox": return status.missingSince[.dropbox] == nil && status.runningSince[.dropbox] != nil
+            case stopPrefix + "uploading": return dropboxParent.map { status.notUploading(within: $0, now: now) == nil } ?? false
+            case stopPrefix + "icloud": return status.iCloudAvailable
+            default: return false
+            }
+        }
+    }
+
     // MARK: A pass
+
+    public static let takeoverID = "ows:takeover"
 
     /// The rows a look raises: what waits, folder by folder and file by file, and what is only
     /// for your information. `knownUnsynced` are iCloud folders already announced or declined.
-    public static func rows(for look: OneWaySyncLook, knownUnsynced: Set<String>, at now: Date) -> [OneWaySyncNotice] {
+    /// `takenOver`: this Mac took the sync over and hasn't answered for the Dropbox-only files yet.
+    public static func rows(for look: OneWaySyncLook, knownUnsynced: Set<String>, takenOver: Bool = false,
+                            at now: Date) -> [OneWaySyncNotice] {
         var rows: [OneWaySyncNotice] = []
         let plan = look.plan
         if case .overRemovalLimitAcrossFolders(let count) = plan.stop {
@@ -105,14 +149,15 @@ public enum OneWaySyncRows {
         }
 
         // Over the limit in one folder: one row per folder, its removals listed in Review.
+        // Counted as Review lists them, so the row and the sheet agree on what each one is.
         var overLimit: [String: (removals: Int, replacements: Int)] = [:]
-        for wait in plan.waits where wait.reason == .overRemovalLimit {
-            guard case .file(let iCloudPath, let dropboxPath) = wait.subject else { continue }
-            let folder = OneWaySyncPath.top(iCloudPath ?? dropboxPath ?? "")
-            let replacement = iCloudPath.flatMap(look.iCloudItem) != nil
-            var count = overLimit[folder] ?? (0, 0)
-            if replacement { count.replacements += 1 } else { count.removals += 1 }
-            overLimit[folder] = count
+        if plan.stop == nil {
+            for pending in OneWaySyncAnswers.pendingRemovals(in: look, folder: nil) {
+                let folder = OneWaySyncPath.top(pending.iCloudPath)
+                var count = overLimit[folder] ?? (0, 0)
+                if pending.kind == .replaced { count.replacements += 1 } else { count.removals += 1 }
+                overLimit[folder] = count
+            }
         }
         for (folder, count) in overLimit.sorted(by: { $0.key < $1.key }) {
             let total = count.removals + count.replacements
@@ -120,7 +165,7 @@ public enum OneWaySyncRows {
                 : count.removals == 0 ? (total == 1 ? "replacement" : "replacements") : "removals and replacements"
             rows.append(OneWaySyncNotice(
                 id: "ows:folder:\(folder):limit", kind: .needsYou, scope: .folder(folder),
-                title: "\(folder): \(total) \(what) wait for you",
+                title: "\(folder): \(total) \(what) \(total == 1 ? "waits" : "wait") for you",
                 detail: "Over the removal limit for \(folder) in 24 hours. Everything else keeps syncing.",
                 buttons: [.review], raisedAt: now))
         }
@@ -134,16 +179,36 @@ public enum OneWaySyncRows {
             }
         }
 
+        let iCloudIncomplete = Set(look.pass.iCloud.incompleteFolders.map(OneWaySyncSide.iCloud.nameKey))
         for folder in plan.notFullyListed {
+            if iCloudIncomplete.contains(OneWaySyncSide.iCloud.nameKey(folder)) {
+                rows.append(OneWaySyncNotice(
+                    id: "ows:folder:\(folder):listing", kind: .needsYou, scope: .folder(folder),
+                    title: "iCloud hasn’t listed \(folder) fully on this Mac",
+                    detail: "Nothing in it syncs, and nothing anywhere is removed, until it has.",
+                    buttons: [.downloadFolderList], raisedAt: now))
+            } else {
+                // Dropbox's side: a folder in it that couldn't be read, or isn't on this Mac.
+                rows.append(OneWaySyncNotice(
+                    id: "ows:folder:\(folder):listing", kind: .needsYou, scope: .folder(folder),
+                    title: "Dropbox’s \(folder) couldn’t be read fully on this Mac",
+                    detail: "Part of it isn’t on this Mac, or can’t be read. Nothing in it syncs, and nothing anywhere is removed, until it can.",
+                    buttons: [.retry], raisedAt: now))
+            }
+        }
+
+        // After a takeover, the Dropbox-only files may be removals that waited on the other Mac.
+        if takenOver, !plan.dropboxOnly.isEmpty {
+            let count = plan.dropboxOnly.count
             rows.append(OneWaySyncNotice(
-                id: "ows:folder:\(folder):listing", kind: .needsYou, scope: .folder(folder),
-                title: "iCloud hasn’t listed \(folder) fully on this Mac",
-                detail: "Nothing in it syncs, and nothing anywhere is removed, until it has.",
-                buttons: [.downloadFolderList], raisedAt: now))
+                id: takeoverID, kind: .needsYou, scope: .wholeSync,
+                title: count == 1 ? "1 file is only in Dropbox — deleted in iCloud?" : "\(count.formatted()) files are only in Dropbox — deleted in iCloud?",
+                detail: "This Mac took the sync over; the other Mac may have had their removal waiting. Nothing moves until you review them.",
+                buttons: [.reviewDropboxOnly], raisedAt: now))
         }
 
         // For your information.
-        if !plan.dropboxOnly.isEmpty {
+        if !plan.dropboxOnly.isEmpty, !takenOver {
             let count = plan.dropboxOnly.count
             rows.append(OneWaySyncNotice(
                 id: "ows:info:dropbox-only", kind: .information, scope: .wholeSync,
@@ -162,6 +227,13 @@ public enum OneWaySyncRows {
                 title: "\(folder) is new in iCloud",
                 detail: inDropbox ? "Not synced. Dropbox has a \(folder) folder too." : "Not synced. Dropbox has no \(folder) folder.",
                 buttons: [.createInDropboxAndSync], raisedAt: now))
+        }
+        let unread = look.unread
+        if !unread.isEmpty {
+            rows.append(OneWaySyncNotice(
+                id: "ows:info:unread", kind: .information, scope: .wholeSync,
+                title: unread.count == 1 ? "1 file couldn’t be read to compare" : "\(unread.count) files couldn’t be read to compare",
+                detail: "Each waits until SyncCloud can read it; it tries again at every sync.", buttons: [.showThem], raisedAt: now))
         }
         let skipped = look.skipped
         if !skipped.isEmpty {
@@ -201,6 +273,10 @@ public enum OneWaySyncRows {
             return OneWaySyncNotice(id: id, kind: .needsYou, scope: .folder(name), title: "\(name) was moved or deleted in iCloud",
                                     detail: "\(name) waits. Removing it moves only synced files; it stays while it holds files only in Dropbox.",
                                     buttons: [.moveToSyncCloudRemoved, .stopSyncing], raisedAt: now)
+        case .syncedFolderShared:
+            return OneWaySyncNotice(id: id, kind: .needsYou, scope: .folder(name), title: "\(name) is shared now, so it stopped syncing",
+                                    detail: "SyncCloud doesn’t sync shared folders. Dropbox’s copy stays as it is.",
+                                    buttons: [.stopSyncing, .retry], raisedAt: now)
         default:
             return OneWaySyncNotice(id: id, kind: .needsYou, scope: .folder(name),
                                     title: "\(name) was renamed, moved or deleted in Dropbox",
@@ -210,8 +286,12 @@ public enum OneWaySyncRows {
     }
 
     static func fileRow(iCloudPath: String?, dropboxPath: String?, _ reason: OneWaySyncWaitReason, at now: Date) -> OneWaySyncNotice {
-        let path = iCloudPath ?? dropboxPath ?? ""
-        let name = OneWaySyncPath.name(path)
+        // A conflicted copy is its own row, by the copy's path: the synced file it was made from
+        // can wait on something else at the same time.
+        let isCopy: Bool
+        if case .conflictedCopy = reason { isCopy = true } else { isCopy = false }
+        let path = (isCopy ? dropboxPath ?? iCloudPath : iCloudPath ?? dropboxPath) ?? ""
+        let name = OneWaySyncPath.name(isCopy ? iCloudPath ?? path : path)
         let folder = OneWaySyncPath.top(path)
         let scope = OneWaySyncNotice.Scope.file(folder: folder, path: path)
         let rest = "\(folder) · this file waits; the rest keeps syncing"
@@ -251,6 +331,7 @@ public enum OneWaySyncRows {
         switch reason {
         case .syncedFolderRenamedInICloud: return "renamed"
         case .syncedFolderMovedOrDeletedInICloud: return "gone"
+        case .syncedFolderShared: return "shared"
         case .syncedFolderChangedInDropbox: return "dropbox"
         default: return "waits"
         }

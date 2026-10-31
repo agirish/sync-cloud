@@ -1800,9 +1800,12 @@ struct FileContextMenu: View {
                         .lockedDuringRun()
                 }
                 Divider()
+                // A file one-way sync keeps as a copy is renamed in iCloud (RD67): not offered here.
+                let syncedCopy = OneWaySyncController.shared.refusal(forChanging: [singleNode.id])
                 Button(action: { delegate.handleRename(singleNode) }) {
                     Label("Rename", systemImage: "pencil")
                 }
+                .disabled(syncedCopy != nil)
                 .lockedDuringRun()
                 // Offered only when this provider will actually reject the name — a finding, not a
                 // standing menu item. **This runs on the main thread, at the right-click, before the
@@ -2023,9 +2026,11 @@ struct FileContextMenu: View {
             
             // Ellipsis, as File ▸ Move Selection to Trash… has it: it asks first whenever "Confirm
             // before deleting" is on (the default), and this menu cannot see that setting.
+            let syncedCopies = OneWaySyncController.shared.refusal(forChanging: selectedNodes.map(\.id))
             Button(role: .destructive, action: { delegate.handleDelete(selectedNodes) }) {
                 Label(count > 1 ? "Move \(count) Items to Trash…" : "Move to Trash…", systemImage: "trash")
             }
+            .disabled(syncedCopies != nil)
             .lockedDuringRun()
         }
     }

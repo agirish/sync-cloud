@@ -83,6 +83,49 @@ import Sync
         #expect(OneWaySyncSetupSheet.ticks(offered: offered, synced: ["Legal", "Old"], startsFromSynced: true, current: []) == ["Legal"])
     }
 
+    /// DL in Choose Folders: a folder ticked now that doesn't sync yet needs "not shared on
+    /// Dropbox" before Save; unticking one, or keeping what syncs, doesn't.
+    @Test func chooseFoldersAsksAboutSharingForFoldersTickedNow() {
+        let added = OneWaySyncSetupSheet.added(ticked: ["legal", "Work"], synced: ["Legal", "Old"])
+        #expect(added == ["Work"])
+        #expect(OneWaySyncSetupSheet.saveRefusal(added: added, notShared: false) != nil)
+        #expect(OneWaySyncSetupSheet.saveRefusal(added: added, notShared: true) == nil)
+        #expect(OneWaySyncSetupSheet.saveRefusal(added: [], notShared: false) == nil)
+    }
+
+    /// A takeover's first run says so in its state, so its Dropbox-only files are offered as a
+    /// group; any other first run doesn't.
+    @Test func aTakeoversFirstRunIsMarked() throws {
+        let scratch = try Scratch()
+        let (controller, _) = controller(scratch)
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        #expect(OneWaySyncController.firstRunState(settings: OneWaySyncSettings(), unticked: [], takingOver: false, now: now).takenOverAt == nil)
+        #expect(OneWaySyncController.firstRunState(settings: OneWaySyncSettings(), unticked: ["Work"], takingOver: true, now: now).takenOverAt
+                == 1_790_000_000)
+        controller.syncFromThisMacInstead()
+        #expect(controller.takingOver)
+        // Its setup closed without starting: a later first run is no takeover.
+        controller.setupClosed()
+        #expect(!controller.takingOver)
+    }
+
+    /// Pause, or a setting, changed while a pass runs saves over what is stored, not over the
+    /// copy the controller took when the pass started: the pass's removal window stays.
+    @Test func pauseKeepsTheWindowAPassSaved() throws {
+        let scratch = try Scratch()
+        let store = OneWaySyncStore(directory: scratch.root.appendingPathComponent("Store"))
+        _ = try store.startFirstRun(scratch.record, state: OneWaySyncSavedState())
+        let controller = OneWaySyncController(store: store, center: ActivityCenter(), cloudApps: CloudAppMonitor(), refusal: .testRunner)
+        controller.adopt(scratch.record, state: OneWaySyncSavedState())
+        var passSaved = OneWaySyncSavedState()
+        passSaved.window = OneWaySyncRemovalWindow(changes: [.init(file: 2, folder: 1, kind: .deletedOrMovedOut, seenAt: 1_790_000_000)])
+        try store.saveState(passSaved)
+        controller.pause()
+        let saved = try #require(store.loadState().value)
+        #expect(saved.window == passSaved.window)
+        #expect(saved.pausedSince != nil)
+    }
+
     @Test func eachPaneKnowsItsSide() throws {
         let scratch = try Scratch()
         let (controller, _) = controller(scratch)
@@ -122,6 +165,49 @@ import Sync
         controller.adopt(record, state: OneWaySyncSavedState(lastSyncAt: 1_789_990_000))
         #expect(controller.ladder == .upToDate(asOf: Date(timeIntervalSince1970: 1_789_990_000), skipped: 1))
         #expect(OneWaySyncStatusPill(controller: controller, center: center, onSetUp: {}).title.hasSuffix(" · 1 skipped · Sync Now"))
+    }
+
+    /// Sync Now's refusals past the first rung: a copy that may sync still doesn't while paused,
+    /// so an answer (which syncs after) never starts a pass you paused.
+    @Test func syncNowIsRefusedWhilePaused() throws {
+        let scratch = try Scratch()
+        let controller = OneWaySyncController(store: nil, center: ActivityCenter(), cloudApps: CloudAppMonitor(), refusal: nil)
+        controller.adopt(scratch.record, state: OneWaySyncSavedState(pausedSince: 1_790_000_000))
+        #expect(controller.syncNowRefusal == "Paused — resume to sync")
+        controller.adopt(scratch.record, state: OneWaySyncSavedState())
+        #expect(controller.syncNowRefusal == nil)
+        controller.adopt(nil, state: nil)
+        #expect(controller.syncNowRefusal == "Set up one-way sync first")
+    }
+
+    /// Turn Off removes this Mac's own marker in Dropbox, and never another Mac's: on a Mac the
+    /// sync was taken over from, removing it would stop the Mac that syncs now.
+    @Test func turnOffLeavesAnotherMacsMarker() throws {
+        let scratch = try Scratch()
+        let store = OneWaySyncStore(directory: scratch.root.appendingPathComponent("Store"))
+        let marker = OneWaySyncMarkerFile(folder: scratch.dropbox)
+        for (hardwareID, kept) in [("HW-OTHER", true), (OneWaySyncBinding.platformUUID() ?? "", false)] {
+            _ = try store.startFirstRun(scratch.record, state: OneWaySyncSavedState())
+            try marker.claim(OneWaySyncMacMarker(hardwareID: hardwareID, macName: "A Mac", claimedAt: 1_790_000_000))
+            let controller = OneWaySyncController(store: store, center: ActivityCenter(), cloudApps: CloudAppMonitor(), refusal: nil)
+            controller.adopt(scratch.record, state: OneWaySyncSavedState())
+            controller.turnOff()
+            #expect(controller.isSetUp == false)
+            #expect((marker.check(hardwareID: hardwareID) != .missing) == kept, "\(hardwareID)")
+        }
+    }
+
+    /// A list of files you stopped syncing that couldn't be read is never written over by an
+    /// answer starting from an empty one.
+    @Test func anUnreadableStoppedFilesListIsNotWrittenOver() throws {
+        let scratch = try Scratch()
+        let store = OneWaySyncStore(directory: scratch.root.appendingPathComponent("Store"))
+        try FileManager.default.createDirectory(at: store.directory, withIntermediateDirectories: true)
+        try Data("not a list".utf8).write(to: store.exclusionsURL)
+        let controller = OneWaySyncController(store: store, center: ActivityCenter(), cloudApps: CloudAppMonitor(), refusal: .testRunner)
+        controller.adopt(scratch.record, state: OneWaySyncSavedState())
+        #expect(throws: CocoaError.self) { try controller.save(OneWaySyncExclusions()) }
+        #expect(try String(contentsOf: store.exclusionsURL, encoding: .utf8) == "not a list")
     }
 
     /// EU: History says a copy of a file moved in was a move in, from where.

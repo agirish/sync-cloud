@@ -450,8 +450,10 @@ public final class FolderWatcher: @unchecked Sendable {
     ///   - quiet: how long the events must stop before a batch goes out — the second fold.
     ///   - maxDelay: the longest a batch waits however busy the folder stays.
     public init(history: FolderWatchHistory, latency: TimeInterval = 0.3,
-                quiet: TimeInterval = 1, maxDelay: TimeInterval = 5, handler: @escaping Handler) {
+                quiet: TimeInterval = 1, maxDelay: TimeInterval = 5, persistEvery: TimeInterval = 30,
+                handler: @escaping Handler) {
         self.history = history
+        self.persistEvery = persistEvery
         self.latency = latency
         self.coalescer = FolderWatchCoalescer(quiet: quiet, maxDelay: maxDelay)
         self.handler = handler
@@ -516,6 +518,7 @@ public final class FolderWatcher: @unchecked Sendable {
         queue.sync {
             for stream in streams.values { stream.invalidate() }
             flush()
+            persist(force: true)
             streams = [:]
             watched = []
         }
@@ -644,7 +647,15 @@ public final class FolderWatcher: @unchecked Sendable {
     /// the others had. Only ids that reached the HANDLER — called from ``flush()`` once a batch has
     /// gone out, never as a callback arrives: a batch still being coalesced is lost with the
     /// process, and an id stored ahead of it would make the next replay skip it for good.
-    private func persist() {
+    /// The replay point is saved at most this often while batches flow, and always at `stop`:
+    /// each save is a defaults write every observer of the domain hears, and an autosave in a
+    /// watched folder makes a batch every few seconds. One lost to a crash replays at most this
+    /// much again, which the consumers order by id and drop.
+    let persistEvery: TimeInterval
+    private var lastPersisted: Date?
+
+    private func persist(force: Bool = false) {
+        if !force, let lastPersisted, Date().timeIntervalSince(lastPersisted) < persistEvery { return }
         var records = storedRecords ?? history.load()
         var oldest: [String: (uuid: String, id: UInt64)] = [:]
         for stream in streams.values {
@@ -661,7 +672,10 @@ public final class FolderWatcher: @unchecked Sendable {
             }
         }
         storedRecords = records
-        if changed { history.save(records) }
+        if changed {
+            history.save(records)
+            lastPersisted = Date()
+        }
     }
 
     private static let callback: FSEventStreamCallback = { _, info, count, paths, flags, ids in
@@ -719,6 +733,31 @@ public final class FolderWatcher: @unchecked Sendable {
     }
 
     // MARK: Resolution
+
+    /// Whether `path` lies on a local volume, read from the kernel's mount table as it stands
+    /// (`getfsstat` with `MNT_NOWAIT`, into a buffer of its own: `getmntinfo`'s is shared and not
+    /// thread-safe), so a network server that doesn't answer is never asked. By the path as
+    /// spelled: the mount whose point is its longest prefix; a link into a network mount from a
+    /// local folder reads as local.
+    public static func isOnLocalVolume(_ path: String) -> Bool {
+        let capacity = getfsstat(nil, 0, MNT_NOWAIT)
+        guard capacity > 0 else { return true }
+        let room = Int(capacity) + 4
+        let mounts = UnsafeMutablePointer<statfs>.allocate(capacity: room)
+        defer { mounts.deallocate() }
+        let count = getfsstat(mounts, Int32(room * MemoryLayout<statfs>.stride), MNT_NOWAIT)
+        guard count > 0 else { return true }
+        var best: (length: Int, local: Bool) = (-1, true)
+        for index in 0..<Int(count) {
+            var entry = mounts[index]
+            let point = withUnsafePointer(to: &entry.f_mntonname) {
+                $0.withMemoryRebound(to: CChar.self, capacity: Int(MAXPATHLEN)) { String(cString: $0) }
+            }
+            let covers = point == "/" || path == point || path.hasPrefix(point + "/")
+            if covers, point.count > best.length { best = (point.count, entry.f_flags & UInt32(MNT_LOCAL) != 0) }
+        }
+        return best.local
+    }
 
     /// `realpath(3)`: the folder's location with every link resolved, as FSEvents spells it — nil
     /// when nothing is there, or it is not a folder.

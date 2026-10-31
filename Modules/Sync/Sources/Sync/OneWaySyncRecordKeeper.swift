@@ -12,8 +12,11 @@ public enum OneWaySyncStepOutcome: Equatable, Sendable {
     case landed(dropboxID: UInt64?)
     /// Moved into SyncCloud Removed, at `removedPath` (relative to the Dropbox account folder).
     case removed(removedPath: String)
-    /// Written, but Dropbox didn't report the upload: it doesn't count as synced, so the record
-    /// keeps what it had and the next pass compares the file again.
+    /// Written, but Dropbox didn't report the upload by the deadline: not counted in the pass's
+    /// synced count, and History shows the step "Not yet uploaded"; but the record takes what
+    /// SyncCloud wrote, so the next pass reads the copy as SyncCloud's own and not as an edit made
+    /// in Dropbox. A refusal Dropbox reports later isn't heard (RD68's 30-minute "not uploading"
+    /// is what catches a copy that never goes).
     case unconfirmed
     /// Written, and Dropbox won't take it (ES): never synced, and listed as skipped until iCloud's
     /// file changes (`OneWaySyncRecord.refused`). `why` is Dropbox's words; `copy` is the refused
@@ -33,6 +36,15 @@ public enum OneWaySyncStepOutcome: Equatable, Sendable {
         switch self {
         case .landed, .removed: return true
         case .unconfirmed, .refused, .notDone: return false
+        }
+    }
+
+    /// Whether the record takes the step as done: everything that counts, and a write Dropbox
+    /// hasn't reported yet, which is SyncCloud's own copy whatever Dropbox later says of it.
+    var agrees: Bool {
+        switch self {
+        case .landed, .removed, .unconfirmed: return true
+        case .refused, .notDone: return false
         }
     }
 }
@@ -164,6 +176,7 @@ private struct Keeper {
                     fate.wrote = true
                     fate.dropboxID = id ?? fate.dropboxID
                 }
+                if case .unconfirmed = outcome { fate.wrote = true }
                 if case .refused(let why, let copy) = outcome { fate.refused = (why, copy) }
                 if outcome.happened { fate.wroteAny = true }
             }
@@ -174,6 +187,7 @@ private struct Keeper {
                     fate.wrote = true
                     fate.dropboxID = id
                 }
+                if case .unconfirmed = outcome { fate.wrote = true }
                 if case .refused(let why, let copy) = outcome { fate.refused = (why, copy) }
                 if outcome.happened { fate.wroteAny = true }
             }
@@ -203,7 +217,7 @@ private struct Keeper {
     mutating func change(_ step: OneWaySyncStep, iCloudPath: String?, _ outcome: OneWaySyncStepOutcome, _ body: (inout Fate) -> Void) {
         func mark(_ fate: inout Fate) {
             fate.anyStep = true
-            if !outcome.counts { fate.allCounted = false }
+            if !outcome.agrees { fate.allCounted = false }
             if outcome.happened, step.undoesDropboxChange { fate.undid = true }
             body(&fate)
         }
@@ -257,6 +271,11 @@ private struct Keeper {
         var iCloud = Set<String>(), dropbox = Set<String>()
         for wait in plan.waits {
             guard case .file(let i, let d) = wait.subject else { continue }
+            // A conflicted copy waits; the synced file it was made from goes on syncing.
+            if case .conflictedCopy = wait.reason {
+                if let d { dropbox.insert(dKey(d)) }
+                continue
+            }
             if let i { iCloud.insert(iKey(i)) }
             if let d { dropbox.insert(dKey(d)) }
         }
@@ -277,12 +296,8 @@ private struct Keeper {
                let location = fate.location {
                 file.iCloudPath = i.path
                 file.dropboxPath = location
-                file.size = i.size
-                file.modified = i.second
-                file.changed = Self.changeTime(i)
-                file.tags = i.tags
                 let twin = pass.dropbox.items.first { dKey($0.path) == dKey(location) }
-                file.contentHash = i.contentHash ?? twin?.contentHash
+                file.take(i, dropboxSecond: twin?.second, hash: twin?.contentHash)
                 file.dropboxID = twin.flatMap { plan.matches.dropbox.recordableID(of: $0) }
                 if let id = plan.matches.iCloud.recordableID(of: i) { file.iCloudID = id }
                 kept.append(file)
@@ -302,18 +317,18 @@ private struct Keeper {
             if case .found(let item, _) = dMatch, let id = plan.matches.dropbox.recordableID(of: item) { file.dropboxID = id }
             let isHeld = held.contains(dKey(OneWaySyncPath.top(file.iCloudPath))) || held.contains(dKey(OneWaySyncPath.top(file.dropboxPath)))
                 || iMatch.item.map { held.contains(dKey(OneWaySyncPath.top($0.path))) } == true
+                || dMatch.item.map { held.contains(dKey(OneWaySyncPath.top($0.path))) } == true
             let waits = waiting.iCloud.contains(iKey(file.iCloudPath)) || waiting.dropbox.contains(dKey(file.dropboxPath))
             let agreed = !isHeld && !waits && fate.allCounted && fate.location != nil && !fate.folderMoveFailed
             // Agreed, Dropbox's copy is where it is; otherwise where SyncCloud's own moves left it.
             file.dropboxPath = (agreed ? fate.location : fate.recordedPath) ?? file.dropboxPath
             if agreed, case .found(let i, _) = iMatch {
                 file.iCloudPath = i.path
-                if fate.wrote || fate.adopted {
-                    file.size = i.size
-                    file.modified = i.second
-                    file.changed = Self.changeTime(i)
-                    file.tags = i.tags
-                    file.contentHash = i.contentHash ?? (fate.adopted ? dMatch.item?.contentHash : nil)
+                if fate.wrote {
+                    file.take(i, dropboxSecond: nil, hash: nil)
+                } else if fate.adopted {
+                    // Identical, whatever the two dates: each side keeps its own.
+                    file.take(i, dropboxSecond: dMatch.item?.second, hash: dMatch.item?.contentHash)
                 } else {
                     if fate.tagged { file.tags = i.tags }
                     // ET: a change time moved with nothing else is taken once the contents read as
@@ -358,12 +373,8 @@ private struct Keeper {
                 file.iCloudID = plan.matches.iCloud.recordableID(of: i) ?? file.iCloudID
                 file.dropboxID = fate.dropboxID ?? file.dropboxID
                 file.iCloudGoneSince = nil
-                if fate.allCounted && (fate.wrote || !contentsDiffer(i, file)) {
-                    file.size = i.size
-                    file.modified = i.second
-                    file.changed = Self.changeTime(i)
-                    file.tags = i.tags
-                    file.contentHash = i.contentHash ?? file.contentHash
+                if fate.allCounted && (fate.wrote || !file.differs(from: i, on: .iCloud)) {
+                    file.take(i, dropboxSecond: fate.wrote ? nil : file.modified(on: .dropbox), hash: file.contentHash)
                 }
                 record.files.append(file)
                 continue
@@ -377,17 +388,11 @@ private struct Keeper {
                 key: record.nextKey, iCloudPath: i.path, dropboxPath: location,
                 iCloudID: plan.matches.iCloud.recordableID(of: i),
                 dropboxID: fate.dropboxID ?? d.flatMap { plan.matches.dropbox.recordableID(of: $0) },
-                size: i.size, modified: i.second, changed: Self.changeTime(i), tags: i.tags,
-                contentHash: i.contentHash ?? (fate.adopted ? d?.contentHash : nil))
+                size: i.size, modified: i.second, dropboxModified: fate.adopted && d?.second != i.second ? d?.second : nil,
+                changed: Self.changeTime(i), tags: i.tags, contentHash: i.contentHash ?? (fate.adopted ? d?.contentHash : nil))
             record.nextKey += 1
             record.files.append(file)
         }
-    }
-
-    func contentsDiffer(_ item: OneWaySyncItem, _ file: OneWaySyncFileRecord) -> Bool {
-        if item.size != file.size || item.second != file.modified { return true }
-        if let hash = item.contentHash, let recorded = file.contentHash { return hash != recorded }
-        return false
     }
 
     /// The change time a record keeps for iCloud's file: none while it is offloaded.

@@ -81,6 +81,9 @@ public enum OneWaySyncWaitReason: Codable, Equatable, Sendable {
     case overRemovalLimitAcrossFolders
     case syncedFolderRenamedInICloud(to: String)
     case syncedFolderMovedOrDeletedInICloud
+    /// The synced folder is still there in iCloud, and macOS now reports it as shared: shared
+    /// folders aren't synced, so it stopped.
+    case syncedFolderShared
     case syncedFolderChangedInDropbox
     /// Its Dropbox name is held by a file whose removal hasn't gone through yet.
     case waitingForRemovalOf(String)
@@ -198,7 +201,8 @@ public struct OneWaySyncPlan: Sendable {
     /// Every file record gone from iCloud and when it was first seen gone, to save in the record
     /// whatever is applied.
     public var goneSince: [UInt64: Int64]
-    /// The removal window to save once the actions are applied.
+    /// The removal window with this plan's removals in it: saved BEFORE they are applied, so a
+    /// crash mid-pass never lets one drop out of the 24 hours (`OneWaySyncRun.apply`).
     public var window: OneWaySyncRemovalWindow
     public var matches: OneWaySyncMatches
     /// Refused files that still stand (ES): iCloud's file unchanged, or not decided this pass.
@@ -230,6 +234,18 @@ public enum OneWaySyncPlanner {
     public static let againWithin: Int64 = 24 * 60 * 60
     /// SyncCloud's temporary names in Dropbox start with this; the lister skips them.
     public static let temporaryNamePrefix = ".SyncCloud-"
+
+    /// The name a swap of names parked as `.SyncCloud-swap-<n>-<name>` had before, or nil for any
+    /// other name.
+    public static func parkedOriginal(_ name: String) -> String? {
+        let prefix = temporaryNamePrefix + "swap-"
+        guard name.hasPrefix(prefix) else { return nil }
+        let rest = name.dropFirst(prefix.count)
+        guard let dash = rest.firstIndex(of: "-"), dash > rest.startIndex,
+              rest[..<dash].allSatisfy(\.isNumber) else { return nil }
+        let original = rest[rest.index(after: dash)...]
+        return original.isEmpty ? nil : String(original)
+    }
 
     public static func plan(_ pass: OneWaySyncPass) -> OneWaySyncPlan {
         var builder = PlanBuilder(pass: pass)
@@ -409,7 +425,10 @@ private struct PlanBuilder {
             case .found:
                 break
             case .movedOut, .gone:
-                reason = .syncedFolderMovedOrDeletedInICloud
+                let sharedNow = pass.iCloud.items.contains {
+                    $0.kind == .folder && $0.isExcluded && OneWaySyncPath.depth($0.path) == 1 && iKey($0.path) == iKey(folder.iCloudPath)
+                }
+                reason = sharedNow ? .syncedFolderShared : .syncedFolderMovedOrDeletedInICloud
             }
             if reason == nil {
                 switch matches.dropbox.folders[folder.key] ?? .gone {
@@ -483,12 +502,6 @@ private struct PlanBuilder {
 
     // MARK: Recorded files: the state table
 
-    func contentsDiffer(_ item: OneWaySyncItem, _ file: OneWaySyncFileRecord) -> Bool {
-        if item.size != file.size || item.second != file.modified { return true }
-        if let hash = item.contentHash, let recorded = file.contentHash { return hash != recorded }
-        return false
-    }
-
     /// Whether iCloud's file differs from the record: by size or date, by a hash already read, or
     /// (ET) by its contents when only its change time moved — an edit that kept the size and date.
     /// Those are compared with the recorded hash, or else with Dropbox's copy where it is as
@@ -498,7 +511,7 @@ private struct PlanBuilder {
         if i.size != file.size || i.second != file.modified { return true }
         let moved = Self.changeTimeMoved(i, since: file.changed)
         var reference = file.contentHash
-        if reference == nil, moved, let d, d.kind == .file, d.size == file.size, d.second == file.modified {
+        if reference == nil, moved, let d, d.kind == .file, d.size == file.size, d.second == file.modified(on: .dropbox) {
             if d.contentHash == nil { dropboxContentsToRead.append(d.path) }
             reference = d.contentHash
         }
@@ -593,7 +606,7 @@ private struct PlanBuilder {
         var iEdited = overRefusedCopy ? iItem != nil : iItem.map { iCloudEdited($0, file, dropbox: dItem) } ?? false
         // Moved by itself, not just carried along by a folder renamed above it.
         let iMoved = iItem.map { $0.path != matches.iCloud.followingFolders(file.iCloudPath) } ?? false
-        var dEdited = overRefusedCopy ? false : dItem.map { contentsDiffer($0, file) } ?? false
+        var dEdited = overRefusedCopy ? false : dItem.map { file.differs(from: $0, on: .dropbox) } ?? false
         let dMoved = dItem.map { dKey($0.path) != dKey(file.dropboxPath) } ?? false
         let dGone = dItem == nil
         let again = file.matchedICloudAt.map { $0 <= now && now - $0 < OneWaySyncPlanner.againWithin } ?? false
@@ -859,7 +872,7 @@ private struct PlanBuilder {
         for back in matches.reappeared where !isHeld(iCloudPath: back.item.path) {
             let subject = OneWaySyncWait.Subject.file(iCloudPath: back.item.path, dropboxPath: nil)
             ops.append(Op(kind: .moveBack(removedPath: back.removed.removedPath), target: back.item.path, subject: subject))
-            if contentsDiffer(back.item, back.removed.file) {
+            if back.removed.file.differs(from: back.item, on: .iCloud) {
                 ops.append(Op(
                     kind: .replace(iCloudPath: back.item.path, needsDownload: !back.item.isDownloaded, previousIsDropboxEdit: false),
                     dropboxPath: back.item.path, subject: subject, dependsOn: ops.count - 1, late: true))

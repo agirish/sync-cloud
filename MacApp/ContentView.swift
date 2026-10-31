@@ -1320,6 +1320,10 @@ struct ContentView: View {
             .task {
                 syncManager.oneWaySyncRefusal = { paths in OneWaySyncController.shared.refusal(forChanging: paths) }
                 oneWaySync.onOpenActivity = { openActivityOnNow() }
+                oneWaySync.onOpenHistory = {
+                    ActivityCenter.shared.tab = .history
+                    openWindow(id: ActivityCenter.windowID)
+                }
                 oneWaySync.onOpenSettings = { openSettings(on: .sync) }
                 // The sync's own writes are this process's, which the watcher doesn't report:
                 // the walks listing them are dropped and the panes read again.
@@ -5510,9 +5514,12 @@ struct ContentView: View {
             // that pane is half of the comparison this list IS, and re-rooting it would re-scope the
             // comparison, re-run its scan and drop the session's "Ignore in comparison" entries.
             DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, paneRules: paneRules, onQuickLook: { toggleQuickLook($0) }, onGetInfo: { showInfo(for: $0) }, onOpenInEditor: { handOffToEditor($0, pane: .staysPut) }, isCollapsed: $bottomPaneCollapsed, shortcutsSuspended: pendingDestination != nil, onCompareFilePair: { compareDifferencePair = $0 }, session: differencesSession,
-                            // One-way sync's pill beside the count (RD67 ED).
-                            accessory: AnyView(OneWaySyncStatusPill(onSetUp: { openOneWaySyncSetup() })),
-                            accessoryWidth: OneWaySyncStatusPill.maxWidth,
+                            // One-way sync's pill beside the count (RD67 ED); before setup, only
+                            // for an iCloud pane compared with a Dropbox one.
+                            accessory: OneWaySyncStatusPill.isShown(controller: oneWaySync, paneTypes: [true, false].map { isLeft in
+                                settings.availableProviders.first { $0.id == (isLeft ? leftProviderId : rightProviderId) }?.type
+                            }) ? AnyView(OneWaySyncStatusPill(onSetUp: { openOneWaySyncSetup() })) : nil,
+                            accessoryWidth: OneWaySyncStatusPill.width(controller: oneWaySync, scale: appFontScale),
                             askClaude: DifferencesAskClaude(refusal: { askClaudeRowRefusal($0) }, ask: { askClaudeAttach($0) }))
         } else {
             // Compare with nothing to list yet: scanning / all-in-sync / not-scanned placeholder.

@@ -153,7 +153,7 @@ import Testing
     }
 
     /// A retry written but not yet reported uploaded is no longer the copy Dropbox refused: it is
-    /// compared next time like any other unreported upload, and the refusal goes.
+    /// recorded as SyncCloud's own copy, like any other unreported upload, and the refusal goes.
     @Test func anUnreportedRetryIsComparedLikeAnyUnreportedUpload() async throws {
         let world = try OneWayDiskWorld()
         defer { world.remove() }
@@ -167,7 +167,8 @@ import Testing
         let unreported = try await sync.run()
         #expect(unreported.unconfirmed == ["Finance/bad.pdf"])
         #expect(sync.record.refused.isEmpty)
-        #expect(sync.record.files.isEmpty)
+        #expect(sync.record.files.map(\.iCloudPath) == ["Finance/bad.pdf"])
+        #expect(sync.look().plan.steps.isEmpty)
     }
 
     /// A refused copy is matched by its own size and date as written, not iCloud's at the look.

@@ -26,6 +26,8 @@ extension OneWaySyncController {
             }
         case .chooseItemsToEmpty:
             sheet = .chooseItemsToEmpty
+        case .reviewDropboxOnly:
+            sheet = .reviewDropboxOnly
         case .review:
             if row.id.hasPrefix("group:") {
                 sheet = .group(String(row.id.dropFirst("group:".count)))
@@ -118,7 +120,7 @@ extension OneWaySyncController {
 
     /// *Sync Again…* for a file you stopped syncing.
     public func syncAgain(_ exclusion: OneWaySyncExclusion) {
-        do { try save(OneWaySyncAnswers.syncAgain(exclusion, exclusions: exclusions)) } catch { return }
+        guard saving("sync \(exclusion.iCloudPath) again", { try save(OneWaySyncAnswers.syncAgain(exclusion, exclusions: exclusions)) }) else { return }
         Logger.shared.info("One-way sync: syncing \(exclusion.iCloudPath) again")
         syncNow()
     }
@@ -156,17 +158,21 @@ extension OneWaySyncController {
             stopSyncingFolder(folder)
         case .createInDropboxAndSync:
             let places = places(for: record)
+            // Dropbox's folder of that name, already there, may be shared: DL asks first.
+            let existing = OneWaySyncDisk.kind(at: places.dropboxParent.appendingPathComponent(folder).path) == .folder
+            if existing, !confirmNotShared(folder) { return }
             if let failure = await answer("made \(folder) in Dropbox", then: false, { _ in
                 try OneWaySyncAnswers.createInDropbox(folder, places: places)
             }) {
-                Logger.shared.info("One-way sync: \(folder) couldn’t be made in Dropbox: \(failure)")
+                Logger.shared.warning("One-way sync: \(folder) couldn’t be made in Dropbox: \(failure)")
                 return
             }
             let draft = await draft(iCloudParent: places.iCloudParent, dropboxParent: places.dropboxParent)
             // The record as it is now, not as it was before the awaits.
             guard let current = self.record,
                   let added = OneWaySyncSetup.adding(folder, to: current, iCloud: draft.iCloud, dropbox: draft.dropbox) else { return }
-            try? save(added)
+            guard saving("start syncing \(folder)", { try save(added) }) else { return }
+            Logger.shared.info("One-way sync: syncing \(folder) from now, with its own first run")
             center.clearOneWaySync(["ows:info:new-folder:\(folder)"])
             syncNow()
         case .downloadFolderList:
@@ -181,7 +187,9 @@ extension OneWaySyncController {
                 renamed = try OneWaySyncAnswers.renameDropboxFolderToo(folder, look: look, writer: writer)
             }
             if failure == nil, let renamed {
-                try? save(renamed)
+                // Dropbox's folder is renamed already: a record left naming the old one would
+                // read as a rename made in Dropbox.
+                _ = saving("record \(folder)’s new name", { try save(renamed) })
                 clearRows(ofFolder: folder)
                 watchDropboxAgain()
                 syncNow()
@@ -193,13 +201,22 @@ extension OneWaySyncController {
                 result = OneWaySyncAnswers.moveFolderToRemoved(folder, look: look, writer: writer)
             }
             guard let result else { return }
-            try? save(result.0)
-            if result.failed.isEmpty { clearRows(ofFolder: folder) }
+            _ = saving("record \(folder)’s files as removed", { try save(result.0) })
+            if result.failed.isEmpty {
+                clearRows(ofFolder: folder)
+            } else {
+                Logger.shared.warning("One-way sync: \(result.failed.count) of \(folder)’s files didn’t move to SyncCloud Removed: "
+                                      + result.failed.prefix(5).joined(separator: "; "))
+            }
             syncNow()
         case .matchICloud:
             guard let look = await freshLook() else { return }
             _ = await answer("put \(folder) back as it is in iCloud") { writer in
-                try OneWaySyncAnswers.matchICloudFolder(folder, look: look, writer: writer)
+                let failed = try OneWaySyncAnswers.matchICloudFolder(folder, look: look, writer: writer)
+                if !failed.isEmpty {
+                    throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey:
+                        "\(failed.count) files weren’t copied back: " + failed.prefix(5).joined(separator: "; ")])
+                }
             }
         default:
             break
@@ -209,7 +226,7 @@ extension OneWaySyncController {
     /// *Stop Syncing* a folder: its record goes; Dropbox's copy stays as it is.
     public func stopSyncingFolder(_ folder: String) {
         guard let record else { return }
-        do { try save(OneWaySyncSetup.removing(folder, from: record)) } catch { return }
+        guard saving("stop syncing \(folder)", { try save(OneWaySyncSetup.removing(folder, from: record)) }) else { return }
         clearRows(ofFolder: folder)
         saveState { $0.knownUnsyncedFolders = Array(Set($0.knownUnsyncedFolders).union([folder])).sorted() }
         watchDropboxAgain()
@@ -237,12 +254,39 @@ extension OneWaySyncController {
         guard let record else { return }
         if !keep.isEmpty {
             let (newRecord, newExclusions) = OneWaySyncAnswers.keepInDropbox(keep, look: look, record: record, exclusions: exclusions, now: Date())
-            try? save(newExclusions)
-            try? save(newRecord)
+            guard saving("keep \(keep.count) in Dropbox", { try save(newExclusions); try save(newRecord) }) else { return }
         }
         if !go.isEmpty { saveState { $0.confirmed = Array(Set($0.confirmed).union(go.map(\.record))).sorted() } }
         Logger.shared.info("One-way sync: \(go.count) removals confirmed, \(keep.count) kept in Dropbox")
         syncNow()
+    }
+
+    // MARK: After a takeover
+
+    /// The takeover's question answered: `remove` go to SyncCloud Removed, the rest stay in
+    /// Dropbox as Dropbox-only files, listed for your information from now on.
+    public func answerTakeover(remove: [String], look: OneWaySyncLook) async -> String? {
+        var failure: String?
+        if !remove.isEmpty {
+            nonisolated(unsafe) var failed: [String] = []
+            failure = await answer("moved \(remove.count) files only in Dropbox to SyncCloud Removed", then: false) { writer in
+                failed = OneWaySyncAnswers.removeDropboxOnly(remove, look: look, writer: writer)
+            }
+            if failure == nil, !failed.isEmpty {
+                failure = failed.count == 1 ? "1 file didn’t move: \(failed[0])"
+                                            : "\(failed.count) files didn’t move: " + failed.prefix(3).joined(separator: "; ")
+                Logger.shared.warning("One-way sync: \(failed.count) files only in Dropbox didn’t move to SyncCloud Removed: "
+                                      + failed.prefix(5).joined(separator: "; "))
+            }
+        }
+        // Asked again while anything couldn't move: the next pass raises the row anew.
+        if failure == nil {
+            saveState { $0.takenOverAt = nil }
+            center.clearOneWaySync([OneWaySyncRows.takeoverID])
+            Logger.shared.info("One-way sync: after taking over, \(remove.count) only in Dropbox removed, the rest kept")
+        }
+        syncNow()
+        return failure
     }
 
     // MARK: Reverse in iCloud
@@ -279,6 +323,8 @@ extension OneWaySyncController {
             paths = (lastLook?.dropboxNotHere ?? []).map { places.dropboxParent.appendingPathComponent($0).path }
         case "ows:info:skipped":
             paths = (lastLook?.skipped ?? []).map { places.iCloudParent.appendingPathComponent($0.path).path }
+        case "ows:info:unread":
+            paths = (lastLook?.unread ?? []).map { places.iCloudParent.appendingPathComponent($0).path }
         default:
             paths = []
         }
@@ -290,6 +336,7 @@ extension OneWaySyncController {
                 switch row.id {
                 case "ows:info:dropbox-only": paths = look.plan.dropboxOnly.map { places.dropboxParent.appendingPathComponent($0).path }
                 case "ows:info:skipped": paths = look.skipped.map { places.iCloudParent.appendingPathComponent($0.path).path }
+                case "ows:info:unread": paths = look.unread.map { places.iCloudParent.appendingPathComponent($0).path }
                 default: paths = look.dropboxNotHere.map { places.dropboxParent.appendingPathComponent($0).path }
                 }
                 if !paths.isEmpty { NSWorkspace.shared.activateFileViewerSelecting(paths.prefix(200).map { URL(fileURLWithPath: $0) }) }
@@ -300,6 +347,48 @@ extension OneWaySyncController {
     }
 
     // MARK: Confirmations
+
+    /// *Resume* shows what the sync would apply first (the page's Pause row): changes made while
+    /// paused can be many.
+    public func confirmResume() async {
+        let look = await freshLook()
+        let alert = NSAlert()
+        alert.messageText = "Resume one-way sync?"
+        alert.informativeText = look.map { Self.resumeSummary($0.summary, waiting: $0.plan.waits.filter(\.reason.needsYou).count) }
+            ?? "SyncCloud couldn’t look at both sides just now; the next sync checks them first."
+        alert.addButton(withTitle: "Resume and Sync Now")
+        alert.addButton(withTitle: "Resume")
+        alert.addButton(withTitle: "Cancel")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: resume(); syncNow()
+        case .alertSecondButtonReturn: resume()
+        default: break
+        }
+    }
+
+    /// "The next sync copies 12, replaces 3 with iCloud's newer version, renames or moves 2 and
+    /// moves 1 to SyncCloud Removed; 1 waits for you."
+    nonisolated static func resumeSummary(_ summary: OneWaySyncSummary, waiting: Int) -> String {
+        var parts: [String] = []
+        if summary.copies > 0 { parts.append("copies \(summary.copies.formatted())") }
+        if summary.replaces > 0 { parts.append("replaces \(summary.replaces.formatted()) with iCloud’s newer version") }
+        if summary.moves > 0 { parts.append("renames or moves \(summary.moves.formatted())") }
+        if summary.removals > 0 { parts.append("moves \(summary.removals.formatted()) to SyncCloud Removed") }
+        var text = parts.isEmpty ? "The next sync has nothing to copy." : "The next sync " + ListFormatter.localizedString(byJoining: parts) + "."
+        if waiting > 0 { text += waiting == 1 ? " 1 thing waits for you." : " \(waiting.formatted()) things wait for you." }
+        return text
+    }
+
+    /// DL for a folder synced from a row: Dropbox's own folder of that name may be shared.
+    func confirmNotShared(_ folder: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Is \(folder) shared with anyone on Dropbox?"
+        alert.informativeText = "Dropbox already has a \(folder) folder. SyncCloud can’t see Dropbox’s sharing, and a shared folder "
+            + "would send your iCloud changes to everyone in it. Its first run replaces older files there, keeping them in SyncCloud Removed."
+        alert.addButton(withTitle: "It Isn’t Shared — Sync It")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
 
     func confirmTurnOff() {
         let alert = NSAlert()
@@ -358,7 +447,8 @@ extension OneWaySyncController {
             return
         }
         if iCloudMoved { record.iCloudParent = OneWaySyncSetup.parentRecord(url) } else { record.dropboxParent = OneWaySyncSetup.parentRecord(url) }
-        try? save(record)
+        guard saving("take \(url.path) as the \(iCloudMoved ? "iCloud" : "Dropbox") folder", { try save(record) }) else { return }
+        Logger.shared.info("One-way sync: found the \(iCloudMoved ? "iCloud" : "Dropbox") folder at \(url.path)")
         stop = nil
         center.clearOneWaySync([OneWaySyncRows.stopPrefix + "parent"])
         syncNow()

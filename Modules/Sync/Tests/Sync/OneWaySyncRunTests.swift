@@ -13,12 +13,19 @@ import Testing
         let world: OneWayDiskWorld
         let scratch = OneWayScratch()
         var record: OneWaySyncRecord
-        var state = OneWaySyncSavedState()
+        /// Saved as it is set, as the app's settings are: a pass reads the stored state again.
+        var state = OneWaySyncSavedState() { didSet { try? store.saveState(state) } }
         let firstRun = UUID()
         var now = OneWayDiskWorld.day0
         /// Paths whose upload Dropbox "refuses" or never reports.
         var refuse: Set<String> = []
         var neverReport: Set<String> = []
+        /// Paths Dropbox reports the account full for.
+        var full: Set<String> = []
+        /// The marker the pass writes at its end, when a test gives one.
+        var marker: OneWaySyncMarkerFile?
+        /// Runs while the pass waits for Dropbox to report its uploads.
+        var duringUploadWait: (@Sendable () -> Void)?
 
         init(world: OneWayDiskWorld, folders: [String]) throws {
             self.world = world
@@ -46,11 +53,12 @@ import Testing
         func run() async throws -> OneWaySyncRunResult {
             let look = look()
             let writer = try world.writer(at: now)
-            let refuse = refuse, neverReport = neverReport, now = now
+            let refuse = refuse, neverReport = neverReport, full = full, now = now, duringUploadWait = duringUploadWait
             let result = try await OneWaySyncRun.apply(
-                look, state: state, firstRun: firstRun, store: store, writer: writer, marker: nil,
+                look, state: state, firstRun: firstRun, store: store, writer: writer, marker: marker,
                 hardwareID: "HW-1", macName: "Test Mac",
                 confirmUploads: { paths in
+                    duringUploadWait?()
                     var outcomes: [String: OneWaySyncUploadOutcome] = [:]
                     for path in paths {
                         // As the real reading does: a file moved since it was written isn't there.
@@ -58,14 +66,21 @@ import Testing
                         let name = (path as NSString).lastPathComponent
                         if refuse.contains(name) { outcomes[path] = .refused("Dropbox won’t take it"); continue }
                         if neverReport.contains(name) { outcomes[path] = .notConfirmed; continue }
+                        if full.contains(name) { outcomes[path] = .dropboxFull; continue }
                         chflags(path, UInt32(UF_TRACKED))
                         outcomes[path] = .uploaded(documentID: OneWaySyncDisk.documentID(at: path))
                     }
                     return outcomes
                 },
                 now: { now })
-            record = result.record
-            if case .ready(_, _, let saved) = store.loadRecord(on: OneWayWorld.binding) { state = saved }
+            // The next pass starts from what was saved, as the app's does, never from memory.
+            guard case .ready(let saved, _, let savedState) = store.loadRecord(on: OneWayWorld.binding) else {
+                Issue.record("the record wasn’t saved readable")
+                return result
+            }
+            #expect(saved == result.record)
+            record = saved
+            state = savedState
             return result
         }
 
@@ -134,22 +149,44 @@ import Testing
         #expect(sync.store.history.entries().first?.finishedAt != nil)
     }
 
-    @Test func aFileDropboxNeverReportsUploadedIsRecordedByContentsNextTime() async throws {
+    /// A copy Dropbox hasn't reported uploaded by the deadline isn't counted as synced, but the
+    /// record takes it as SyncCloud's own: the next pass has nothing to do for it, and an edit in
+    /// iCloud meanwhile replaces it, rather than finding its name taken by a Dropbox-only file.
+    @Test func aFileDropboxNeverReportsUploadedIsRecordedAsSyncCloudsOwnCopy() async throws {
         let world = try OneWayDiskWorld()
         defer { world.remove() }
-        try write(world, .iCloud, "Finance/slow.pdf", "slow to upload")
+        try write(world, .iCloud, "Finance/slow.pdf", "slow to upload", modified: Self.earlier)
         let sync = try Sync(world: world, folders: ["Finance"])
         sync.neverReport = ["slow.pdf"]
         let first = try await sync.run()
         #expect(first.unconfirmed == ["Finance/slow.pdf"])
-        #expect(sync.record.files.isEmpty)
-
-        sync.neverReport = []
-        let next = sync.look()
-        #expect(next.plan.actions == [.adopt(iCloudPath: "Finance/slow.pdf", dropboxPath: "Finance/slow.pdf")])
-        try await sync.run()
+        #expect(first.synced == 0)
         #expect(sync.record.files.map(\.iCloudPath) == ["Finance/slow.pdf"])
         #expect(sync.look().plan.steps.isEmpty)
+
+        try write(world, .iCloud, "Finance/slow.pdf", "edited again before it uploaded", modified: OneWayDiskWorld.day0)
+        let next = sync.look()
+        #expect(next.plan.waits.isEmpty)
+        #expect(next.plan.actions == [.replace(dropboxPath: "Finance/slow.pdf", with: "Finance/slow.pdf", needsDownload: false,
+                                               previousIsDropboxEdit: false)])
+    }
+
+    /// The same for a recorded file's replace: SyncCloud's own unreported version is never read
+    /// as an edit made in Dropbox when iCloud's file changes again.
+    @Test func anUnreportedReplaceIsNotReadAsADropboxEditNextTime() async throws {
+        let world = try OneWayDiskWorld()
+        defer { world.remove() }
+        try write(world, .iCloud, "Finance/a.pdf", "one", modified: Self.earliest)
+        let sync = try Sync(world: world, folders: ["Finance"])
+        try await sync.run()
+        sync.neverReport = ["a.pdf"]
+        try write(world, .iCloud, "Finance/a.pdf", "two, longer", modified: Self.earlier)
+        #expect(try await sync.run().unconfirmed == ["Finance/a.pdf"])
+        try write(world, .iCloud, "Finance/a.pdf", "three, longer still", modified: OneWayDiskWorld.day0)
+        let next = sync.look()
+        #expect(next.plan.waits.isEmpty)
+        #expect(next.plan.actions == [.replace(dropboxPath: "Finance/a.pdf", with: "Finance/a.pdf", needsDownload: false,
+                                               previousIsDropboxEdit: false)])
     }
 
     // MARK: Changes after it
@@ -309,6 +346,10 @@ import Testing
         #expect(world.read(.dropbox, "Legal/Scan.pdf") == nil)
         #expect(sync.file("Legal/Scan 2026.pdf")?.dropboxPath == "Legal/Scan 2026.pdf")
         #expect(sync.record.removed.isEmpty)
+        // The old copy is kept in SyncCloud Removed, never deleted.
+        let kept = try world.writer().removed.items()
+        #expect(kept.map(\.origin.kind) == [.duplicateOfAdoptedFile])
+        #expect(kept.map { world.read(account: $0.path) } == [text])
         #expect(sync.look().plan.steps.isEmpty)
         #expect(sync.look().plan.waits.isEmpty)
     }

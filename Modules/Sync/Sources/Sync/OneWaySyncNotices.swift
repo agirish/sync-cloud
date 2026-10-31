@@ -85,8 +85,16 @@ public enum OneWaySyncNoticeButton: String, Codable, CaseIterable, Sendable {
     case renameIClouds = "Rename iCloud’s…"
     case syncNow = "Sync Now"
     case createInDropboxAndSync = "Create in Dropbox & Sync"
+    case reviewDropboxOnly = "Review Them…"
 
     public var title: String { rawValue }
+
+    /// The title on a row: *Stop Syncing* names the folder it stops, as the mockup's "Stop Syncing
+    /// Health" does.
+    public func title(on row: OneWaySyncNoticeRow) -> String {
+        if self == .stopSyncing, case .folder(let name)? = row.members.first?.scope { return "Stop Syncing \(name)" }
+        return title
+    }
 }
 
 /// Now's rows as shown: more than three file rows in one folder fold into one.

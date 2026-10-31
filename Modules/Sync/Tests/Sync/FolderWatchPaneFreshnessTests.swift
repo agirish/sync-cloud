@@ -154,6 +154,32 @@ import Testing
         #expect(m.prefetchedTrees[f.left] == nil)
     }
 
+    /// **A change to a file's extended attributes alone is no news unless the panes read tags**
+    /// (measured 31 Oct: opening a file, a quarantine mark and a Finder tag each arrive as that and
+    /// nothing else). Sorting by tags reads them, and then a tag change is news.
+    @MainActor
+    @Test func anAttributeOnlyChangeIsNewsOnlyWhileTagsAreListed() async throws {
+        let f = try Self.makeFixture()
+        defer { f.remove() }
+        let m = await Self.watchingManager(f)
+        defer { m.disableFolderWatching() }
+        await Self.settle(m)
+        let mark = try #require(m.leftWatch.readMark)
+        let path = f.left + "/Finance/x.txt"
+        let stamp = FolderWatchEvent(id: mark + 1, root: f.left, path: path, realPath: path, change: [.extendedAttributes, .isFile])
+        m.absorbFolderChanges(FolderWatchBatch(events: [stamp]))
+        #expect(!m.leftChangedOnDisk, "a \"last opened\" stamp marked the pane changed")
+        #expect(m.prefetchedTrees[f.left] != nil, "a \"last opened\" stamp dropped the cached walk")
+        // The same with other flags is news: an attribute change alongside an edit.
+        #expect(!FileSyncManager.onlyExtendedAttributes([.extendedAttributes, .modified, .isFile]))
+        m.sortOption = .tags
+        await Self.settle(m)
+        let tagged = FolderWatchEvent(id: FolderWatcher.currentEventId() + 1, root: f.left, path: path, realPath: path,
+                                      change: [.extendedAttributes, .isFile])
+        m.absorbFolderChanges(FolderWatchBatch(events: [tagged]))
+        #expect(m.leftChangedOnDisk, "a tag change didn't mark a pane sorted by tags")
+    }
+
     /// **The app hears nothing while a refresh runs** — its answer is a refresh, which would cancel
     /// and restart that one — and hears it once that refresh lets go, through the refresh's own end
     /// (`refreshTreesAndScan`), not a hand call. The change lands inside the refresh, as its left
@@ -236,6 +262,21 @@ import Testing
         await m.loadTree(path: f.left, isLeft: true)
         #expect(m.leftTree.map(\.name) == ["a.txt"], "the slice did not load")
         #expect(m.leftWatch.readMark == walked, "a slice of the cached root did not inherit the root's mark")
+    }
+
+    /// **A pane on a network volume asks for no stream**: nothing to see there, and starting one
+    /// resolves the path on the main thread.
+    @MainActor
+    @Test func aPaneOnANetworkVolumeIsNotWatched() throws {
+        let m = FileSyncManager()
+        let local = FileManager.default.temporaryDirectory.appendingPathComponent("watched-\(UUID().uuidString)").path
+        m.leftWatch.focus = local
+        m.rightWatch.focus = "/System/Volumes/Data/home/someone"
+        let roots = m.folderWatchRoots().map(\.path)
+        #expect(roots.contains(local), "\(roots)")
+        if !FolderWatcher.isOnLocalVolume("/System/Volumes/Data/home/someone") {
+            #expect(!roots.contains("/System/Volumes/Data/home/someone"))
+        }
     }
 
     /// **The walk kept across a source switch keeps its mark** (`dropPrefetchedTrees(keeping:)`).
