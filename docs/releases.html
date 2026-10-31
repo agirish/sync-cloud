@@ -156,6 +156,18 @@
         <li><span class="ic">↺</span><span><b>Files of any size are compared by content.</b> Verify All, Compare Copies, Review and the command-line tool now hash files over 100 MB, which v6.2 skipped. Stop reaches a check mid-file, and closing Review or Compare Copies stops its checks. The duplicate scan compares the first and last 1 MB of large files of the same size and reads whole only those that match, so large copies are found.</span></li>
       </ul>
     </div>
+    <div class="grp">
+      <h3>Around the app</h3>
+      <ul class="flist">
+        <li><span class="ic">&#9000;</span><span><b>Cloud Filing prices Sonnet 5 at $2/$10.</b> v6.2 quoted and counted it at Sonnet 4.6's $3/$15 per million tokens, so a scan cost half as much again as the quote said and reached the spend caps early.</span></li>
+        <li><span class="ic">&#9000;</span><span><b>A remembered check on a FAT or exFAT disk now expires.</b> Those disks can't show that a file was rewritten under the same date and size, so v6.2 trusted such a check for as long as scans kept finding the file. It now lapses 30 days after the file was read.</span></li>
+        <li><span class="ic">&#9000;</span><span><b>The Columns pane no longer blanks for a frame</b> when you switch back to it and its columns fit.</span></li>
+        <li><span class="ic">&#9000;</span><span><b>Edit's rail keeps up while you type.</b> In a folder slow to list, each autosave could throw away the rail's update, so it stopped changing.</span></li>
+        <li><span class="ic">&#9000;</span><span><b>Undoing a reorganization shows the restored folder's survey date</b> at once, not the date of the folder it left.</span></li>
+        <li><span class="ic">&#9000;</span><span><b>To File no longer matches a PDF by what it used to say.</b> A text PDF later overwritten by a scan with no text kept its old identity, so a loose file could be called already filed as it.</span></li>
+      </ul>
+    </div>
+    <p class="known"><b>Known limitations.</b> The check that runs after each scan still skips files over 100 MB. Verify All checks them. A pane that reaches a cloud account through a link in your home folder, such as <code>~/OneDrive</code>, shows no cloud app line.</p>
     <p class="chlog">Changes so far: <a href="https://github.com/agirish/sync-cloud/compare/v6.2...main">v6.2...main</a></p>
   </article>
 

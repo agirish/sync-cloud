@@ -41,6 +41,28 @@ Requires **macOS 26**, unchanged from v6.2.
   last 1 MB of large files of the same size and reads whole only those that match, so large copies
   are found.
 
+### Around the app
+
+- **Cloud Filing prices Sonnet 5 at $2/$10.** v6.2 quoted and counted it at Sonnet 4.6's $3/$15 per
+  million tokens, so a scan cost half as much again as the quote said and reached the spend caps
+  early.
+- **A remembered check on a FAT or exFAT disk now expires.** Those disks can't show that a file
+  was rewritten under the same date and size, so v6.2 trusted such a check for as long as scans kept
+  finding the file. It now lapses 30 days after the file was read.
+- **The Columns pane no longer blanks for a frame** when you switch back to it and its columns fit.
+- **Edit's rail keeps up while you type.** In a folder slow to list, each autosave could throw away
+  the rail's update, so it stopped changing.
+- **Undoing a reorganization shows the restored folder's survey date** at once, not the date of the
+  folder it left.
+- **To File no longer matches a PDF by what it used to say.** A text PDF later overwritten by a scan
+  with no text kept its old identity, so a loose file could be called already filed as it.
+
+### Known limitations
+
+- The check that runs after each scan still skips files over 100 MB. Verify All checks them.
+- A pane that reaches a cloud account through a link in your home folder, such as `~/OneDrive`, shows
+  no cloud app line.
+
 ---
 
 ## v6.2
