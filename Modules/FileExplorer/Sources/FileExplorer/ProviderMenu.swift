@@ -75,7 +75,11 @@ public struct ProviderMenu<LabelContent: View>: View {
             // the other — the list would visibly re-space as you switched between a cloud account
             // and a folder. `mapProviders` already sorts folder sources last as a block, so the
             // grouping the divider would have drawn is there in the order.
-            Picker("Source", selection: Binding(get: { currentId }, set: { onSelect($0) })) {
+            // A pick is the user asking about that source (DN): its app is checked at once.
+            Picker("Source", selection: Binding(get: { currentId }, set: { id in
+                cloudApps.checkNow([id])
+                onSelect(id)
+            })) {
                 ForEach(providers, id: \.id) { provider in
                     // A cloud app not syncing (RD68): an amber dot and what is wrong. Nothing
                     // otherwise — no green.
@@ -113,6 +117,11 @@ public struct ProviderMenu<LabelContent: View>: View {
             label
         }
         .menuStyle(.borderlessButton)
+        // Reaching for the chip checks every source it lists (DN), so the menu opens on current
+        // dots: the check takes milliseconds, the click comes after the pointer arrives.
+        .onHover { inside in
+            if inside { cloudApps.checkNow(providers.map(\.id)) }
+        }
         // Keep the native trailing menu indicator — it places the chevron correctly for the
         // borderless style (a custom one plus `.menuIndicator(.hidden)` mis-rendered under it).
         //

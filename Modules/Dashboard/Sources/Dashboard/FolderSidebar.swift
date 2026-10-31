@@ -1545,6 +1545,8 @@ public struct FolderSidebarView: View {
     private func sourceRow(for source: SidebarSourceRow) -> some View {
         let isCurrent = source.id == currentSourceId
         return Button {
+            // Opening a source is asking about it (DN): its cloud app is checked at once.
+            cloudApps.checkNow([source.id])
             onOpenSource(source, FolderSidebarModel.opensInNewTab(NSEvent.modifierFlags))
         } label: {
             HStack(spacing: 6) {

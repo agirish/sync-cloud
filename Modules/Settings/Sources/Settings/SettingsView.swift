@@ -1384,6 +1384,7 @@ struct FolderNameRuleOption: Identifiable {
 
 /// One source's rows: identity + enable switch, then — once opened — its root-path config.
 struct ProviderSettingsSection: View {
+    @Environment(\.cloudAppStatusLabels) private var cloudAppStatusLabels
     let provider: CloudProvider
     /// Whether the path configuration is showing. The header line is always there.
     @Binding var isExpanded: Bool
@@ -1447,6 +1448,18 @@ struct ProviderSettingsSection: View {
                 }
 
                 Spacer()
+
+                // Its cloud app not syncing (RD68): the amber dot the sidebar draws.
+                if let label = cloudAppStatusLabels[provider.id] {
+                    HStack(spacing: 4) {
+                        Circle().fill(SemanticColor.warning).frame(width: 6, height: 6)
+                        Text(label)
+                            .scaledFont(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .fixedSize()
+                    .help("\(provider.displayName) — \(label)")
+                }
 
                 // SettingsManager owns validity (re-checked on discovery/refresh and
                 // path edits), so re-renders here never stat the disk.

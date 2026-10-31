@@ -128,6 +128,11 @@ public struct CloudAppStatusModel: Sendable {
 
     /// When each app was first seen missing; absent while it runs.
     public private(set) var missingSince: [CloudApp: Date] = [:]
+    /// **Apps the user asked about while they were missing** (decision DN): a source picked in a
+    /// pane, its menu opened, Settings ▸ Sources shown. The panes, menus and sidebar say "not
+    /// running" for these at once; the grace stays for what appears on its own — at launch, on
+    /// wake, and in Activity. Cleared when the app runs.
+    public private(set) var askedWhileMissing: Set<CloudApp> = []
     /// Folders not downloaded to this Mac that did not answer.
     public var unanswered: [String] = []
     public var iCloudAvailable = true
@@ -147,9 +152,16 @@ public struct CloudAppStatusModel: Sendable {
     public mutating func app(_ app: CloudApp, isRunning: Bool, at now: Date) {
         if isRunning {
             missingSince[app] = nil
+            askedWhileMissing.remove(app)
         } else if missingSince[app] == nil {
             missingSince[app] = now
         }
+    }
+
+    /// The user asked about `app` and it was seen `isRunning` just now (DN).
+    public mutating func asked(_ app: CloudApp, isRunning: Bool, at now: Date) {
+        self.app(app, isRunning: isRunning, at: now)
+        if !isRunning { askedWhileMissing.insert(app) }
     }
 
     /// SyncCloud changed the file at `path` at `now`. A later change restarts its wait — the
@@ -197,9 +209,10 @@ public struct CloudAppStatusModel: Sendable {
     // MARK: Answers out
 
     /// Each enabled cloud source's problem, by provider id. A source with no known problem is
-    /// absent — there is no "fine" entry to draw.
+    /// absent — there is no "fine" entry to draw. `waitingOutTheGrace` drops what the user asked
+    /// about (DN) back to the grace — what Activity's rows use, which appear on their own.
     public func problems(for providers: [CloudProvider], disabled: Set<String>,
-                         now: Date) -> [String: CloudAppProblem] {
+                         now: Date, waitingOutTheGrace: Bool = false) -> [String: CloudAppProblem] {
         let sources = providers.filter { !$0.isLocalFolder && !disabled.contains($0.id) && !leftoverIds.contains($0.id) }
         let coverage = FileLocation.coverage(of: sources, disabledProviderIds: [])
         func owner(_ path: String) -> String? { FileLocation.covering(path: path, in: coverage)?.providerId }
@@ -215,7 +228,8 @@ public struct CloudAppStatusModel: Sendable {
             if source.type == .iCloud, !iCloudAvailable {
                 answer[source.id] = .iCloudOff
             } else if let app = CloudApp(source.type), let since = missingSince[app],
-                      now.timeIntervalSince(since) >= Self.notRunningGrace {
+                      now.timeIntervalSince(since) >= Self.notRunningGrace
+                        || (!waitingOutTheGrace && askedWhileMissing.contains(app)) {
                 answer[source.id] = .notRunning(app)
             } else if let app = CloudApp(source.type), missingSince[app] != nil {
                 // Missing, and still within its grace: a folder of an app that is not running does

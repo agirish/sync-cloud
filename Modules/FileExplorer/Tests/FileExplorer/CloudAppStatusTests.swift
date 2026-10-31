@@ -507,4 +507,74 @@ import Sync
         #expect(CloudAppNotice.Action.show(["/a"]).title == "Show It")
         #expect(CloudAppNotice.Action.show(["/a", "/b"]).title == "Show Them")
     }
+
+    // MARK: Asked about at once (decision DN)
+
+    /// **A source the user picks says "not running" at once; one restored at launch waits.** The
+    /// launch's own refresh with OneDrive already quit shows nothing — the grace — and picking a
+    /// OneDrive source then shows it with no wait, on every OneDrive account (it is the app that
+    /// is down). Activity's row still waits out the grace: it appears on its own.
+    @Test func aPickedSourceSaysNotRunningAtOnceAndARestoredOneWaits() async {
+        let fake = Fake()
+        fake.set(running: .oneDrive, false)
+        let monitor = monitor(fake)
+        await monitor.refresh()   // launch, with the panes' restored tabs on OneDrive
+        #expect(monitor.problems.isEmpty, "a restored tab did not wait out the grace")
+
+        fake.now += 10
+        await monitor.check([Self.personal.id])
+        #expect(monitor.problems == [Self.personal.id: .notRunning(.oneDrive), Self.work.id: .notRunning(.oneDrive)],
+                "picking the source did not say so at once")
+        #expect(monitor.notices.isEmpty, "Activity's row skipped the grace")
+
+        fake.now += CloudAppStatusModel.notRunningGrace
+        await monitor.refresh()
+        #expect(monitor.notices.map(\.id) == ["not-running"])
+    }
+
+    /// Once the app runs, the at-once rule is spent: a later quit nobody asked about waits again.
+    @Test func aLaunchEndsTheAtOnceRule() async {
+        let fake = Fake()
+        fake.set(running: .dropbox, false)
+        let monitor = monitor(fake)
+        await monitor.check([Self.dropbox.id])
+        #expect(monitor.problems == [Self.dropbox.id: .notRunning(.dropbox)])
+
+        fake.set(running: .dropbox, true)
+        await monitor.refresh()
+        #expect(monitor.problems.isEmpty)
+        fake.now += 60
+        fake.set(running: .dropbox, false)
+        await monitor.refresh()
+        #expect(monitor.problems.isEmpty, "a quit nobody asked about skipped the grace")
+    }
+
+    /// Asking about a running app, a disabled source, iCloud or a folder shows nothing.
+    @Test func askingAboutAHealthyOrDisabledSourceShowsNothing() async {
+        let fake = Fake()
+        fake.set(running: .oneDrive, false)
+        let monitor = monitor(fake, disabled: [Self.personal.id, Self.work.id])
+        await monitor.check([Self.personal.id, Self.work.id, Self.dropbox.id, Self.iCloud.id, Self.folder.id])
+        #expect(monitor.problems.isEmpty, "said \(monitor.problems)")
+    }
+
+    /// **The four places that ask, and the one that must not.** A pick in the source menu and the
+    /// pointer reaching its chip, a click on a sidebar source, and Settings ▸ Sources on screen
+    /// all check at once; the window's own provider restore does not — ContentView's one call is
+    /// the Settings one.
+    @Test func theUserGesturesAskAndARestoreDoesNot() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        func source(_ path: String) throws -> String { try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8) }
+        let menu = try source("Modules/FileExplorer/Sources/FileExplorer/ProviderMenu.swift")
+        #expect(menu.contains("cloudApps.checkNow([id])\n                onSelect(id)"), "a pick does not check before selecting")
+        #expect(menu.contains(".onHover { inside in\n            if inside { cloudApps.checkNow(providers.map(\\.id)) }"),
+                "reaching the chip does not check what the menu lists")
+        let sidebar = try source("Modules/Dashboard/Sources/Dashboard/FolderSidebar.swift")
+        #expect(sidebar.contains("cloudApps.checkNow([source.id])\n            onOpenSource("), "a sidebar click does not check")
+        let window = try source("MacApp/ContentView.swift")
+        #expect(window.components(separatedBy: "checkNow(").count - 1 == 1, "ContentView checks somewhere other than Settings ▸ Sources")
+        #expect(window.contains(".onChange(of: showSettings && settingsTab == .providers)"), "Settings ▸ Sources does not check")
+    }
 }

@@ -1878,6 +1878,10 @@ struct ContentView: View {
         .onChange(of: settings.disabledProviderIds) { _, disabled in
             cloudApps.setProviders(settings.availableProviders, disabled: disabled)
         }
+        // Settings ▸ Sources on screen is asking about every source (DN): checked at once.
+        .onChange(of: showSettings && settingsTab == .providers) { _, showsSources in
+            if showsSources { cloudApps.checkNow(settings.availableProviders.map(\.id)) }
+        }
         // Watches the enabled subset (not the full discovered list) so toggling a provider
         // off in Settings re-resolves any pane that was showing it and rescans.
         .onChange(of: settings.enabledProviders) { oldProviders, newProviders in
@@ -3025,6 +3029,7 @@ struct ContentView: View {
             },
             availableSize: available
         )
+        .environment(\.cloudAppStatusLabels, cloudApps.problems.mapValues(\.shortLabel))
         .environmentObject(settings)
         .contentSurface(hue: glassHue, tint: surfaceTint)
         .groundedGlassCard(level: glassLevel)

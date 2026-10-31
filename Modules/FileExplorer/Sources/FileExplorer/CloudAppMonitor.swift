@@ -134,6 +134,31 @@ public final class CloudAppMonitor: ObservableObject {
         }
     }
 
+    /// **The user asked about these sources** (decision DN) — picked one in a pane, opened a
+    /// source menu, or showed Settings ▸ Sources. Their apps are checked now, and one that is not
+    /// running says so at once, without the grace. Ids that are not a cloud app's are ignored.
+    public func checkNow(_ providerIds: [String]) {
+        Task { await check(providerIds) }
+    }
+
+    /// `checkNow`, awaitable — what a test drives.
+    func check(_ providerIds: [String]) async {
+        let ids = Set(providerIds)
+        let apps = Set(providers.filter { ids.contains($0.id) && !disabled.contains($0.id) }.compactMap { CloudApp($0.type) })
+        guard !apps.isEmpty else { return }
+        let system = self.system
+        let running = await Self.offPool { Set(apps.filter(system.isRunning)) }
+        let now = clock()
+        for app in apps.sorted() {
+            let isRunning = running.contains(app)
+            if !isRunning, !model.askedWhileMissing.contains(app) {
+                Logger.shared.info("Cloud app status: \(app.name) isn’t running — asked about, so said at once")
+            }
+            model.asked(app, isRunning: isRunning, at: now)
+        }
+        publish()
+    }
+
     /// Hides `notice` until what it says changes.
     public func dismiss(_ notice: CloudAppNotice) {
         dismissed[notice.id] = notice.signature
@@ -252,7 +277,10 @@ public final class CloudAppMonitor: ObservableObject {
             self.problems = problems
         }
         if skipped != self.skipped { self.skipped = skipped }
-        let current = CloudAppNotice.notices(problems: problems, skipped: skipped, providers: providers, now: now)
+        // Activity's rows appear on their own, so they keep the grace even for an app the user
+        // asked about (DN); the panes, menus and sidebar do not.
+        let unasked = model.problems(for: providers, disabled: disabled, now: now, waitingOutTheGrace: true)
+        let current = CloudAppNotice.notices(problems: unasked, skipped: skipped, providers: providers, now: now)
         // A row that went away forgets its dismissal: the same problem coming back is a change.
         dismissed = dismissed.filter { id, _ in current.contains { $0.id == id } }
         let notices = current.filter { dismissed[$0.id] != $0.signature }
