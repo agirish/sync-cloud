@@ -292,6 +292,22 @@ import Testing
             "OneWaySyncWritersTests.swift": [
                 "DispatchQueue.global().async { done.resume(returning: read.wait(timeout: .now() + 30) == .success) }",
             ],
+            // RD67's coordination deadline: a detached Thread (not the pool) holds a coordinated
+            // write until released, bounded at 60 s; the test's own two waits are bounded at 30 s
+            // and it declares `.parksAThread`, since a coordinated read blocks its thread too.
+            "OneWaySyncWriterTests.swift": [
+                "#expect(holding.wait(timeout: .now() + 30) == .success)",
+                "#expect(done.wait(timeout: .now() + 30) == .success)",
+                "_ = release.wait(timeout: .now() + 60)",
+            ],
+            // A hung upload read: it runs on `OneWaySyncUploads.readQueue`, a dispatch queue, never
+            // the pool; bounded at 30 s and released by the test. The other wait is on
+            // `DispatchQueue.global`, bounded at 30 s.
+            "OneWaySyncDropboxGateTests.swift": [
+                "reading: { _ in _ = release.wait(timeout: .now() + 30); return .upload(.uploaded) }, documentID: { _ in 1 })",
+                "reading: { _ in started.signal(); _ = release.wait(timeout: .now() + 30); return .upload(.uploaded) },",
+                "DispatchQueue.global().async { _ = started.wait(timeout: .now() + 30); continuation.resume() }",
+            ],
             "UnansweredListingTests.swift": [
                 "DispatchQueue.global().async { done.resume(returning: ran.wait(timeout: .now() + 5) == .success) }",
             ],

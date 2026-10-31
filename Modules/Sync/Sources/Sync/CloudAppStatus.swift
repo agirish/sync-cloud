@@ -128,6 +128,10 @@ public struct CloudAppStatusModel: Sendable {
 
     /// When each app was first seen missing; absent while it runs.
     public private(set) var missingSince: [CloudApp: Date] = [:]
+    /// When each app was first seen running since it was last missing, or when its process
+    /// started if the caller knew; absent while it is missing or before it is first seen. One-way
+    /// sync waits until Dropbox has run a while (`OneWaySyncDropboxGate`).
+    public private(set) var runningSince: [CloudApp: Date] = [:]
     /// **Apps the user asked about while they were missing** (decision DN): a source picked in a
     /// pane, its menu opened, Settings ▸ Sources shown. The panes, menus and sidebar say "not
     /// running" for these at once; the grace stays for what appears on its own — at launch, on
@@ -148,13 +152,22 @@ public struct CloudAppStatusModel: Sendable {
     // MARK: Facts in
 
     /// The app was seen running, or seen missing at `now`. Missing keeps the FIRST time it was seen
-    /// missing, so a refresh does not restart the grace; running clears it at once.
-    public mutating func app(_ app: CloudApp, isRunning: Bool, at now: Date) {
+    /// missing, so a refresh does not restart the grace; running clears it at once. Running keeps
+    /// the first time it was seen running, or `startedAt` when the caller read the process's start.
+    public mutating func app(_ app: CloudApp, isRunning: Bool, at now: Date, startedAt: Date? = nil) {
         if isRunning {
             missingSince[app] = nil
             askedWhileMissing.remove(app)
-        } else if missingSince[app] == nil {
-            missingSince[app] = now
+            // Kept across refreshes. A later process start (a restart between two looks) or a
+            // stored time ahead of now (a clock set back) starts it again. A start dated after
+            // now (the clock set back since it) can't be placed and is left out, or every look
+            // would start the wait again.
+            let started = startedAt.flatMap { $0 <= now ? $0 : nil }
+            let stale = runningSince[app].map { $0 > now || (started ?? $0) > $0 } ?? true
+            if stale { runningSince[app] = started ?? now }
+        } else {
+            runningSince[app] = nil
+            if missingSince[app] == nil { missingSince[app] = now }
         }
     }
 
