@@ -106,7 +106,7 @@ import Testing
         return out.sorted { $0.0 < $1.0 }
     }()
 
-    /// The three files behind *Refine with Claude*, and the whole of SyncCloud's network surface.
+    /// The three files behind *Refine with Claude*, plus Ask Claude's engine: the whole of SyncCloud's network surface.
     ///
     /// Two post to `CloudFilingProtocol.endpoint` (`api.anthropic.com/v1/messages`); the third
     /// checks a pasted key against `api.anthropic.com/v1/models` so Settings can say whether it
@@ -115,6 +115,9 @@ import Testing
         "MacApp/CloudFilingClassifier.swift",
         "MacApp/CloudMappingRefiner.swift",
         "Modules/Sync/Sources/Sync/AnthropicKeyCheck.swift",
+        // Ask Claude (RD69, v7.0): the toolbar chat. Help ▸ Reading your documents now names it as
+        // the second feature that reaches the internet, and what it sends.
+        "Modules/Sync/Sources/Sync/AskClaudeEngine.swift",
     ]
 
     /// Every way this codebase could open a socket. Named types rather than a general "http"

@@ -447,6 +447,22 @@ extension ContentView {
             .designAnimation(.easeOut(duration: 0.12), value: showCommandPalette)
         }
 
+        // Ask Claude (RD69, v7.0): its own glass circle between ⌘K and the utility pill, accent-
+        // tinted while the panel is open, like Info. Disabled during a destination pick, like
+        // every other toolbar control. The fixed spacers are what make it its own capsule: macOS 26
+        // draws adjacent items in one shared glass group otherwise, and the first build showed the
+        // button inside the utility pill.
+        if #available(macOS 26.0, *) {
+            ToolbarSpacer(.fixed)
+        }
+        ToolbarItem(placement: .primaryAction) {
+            AskClaudeToolbarButton(visibility: askClaudeHolder.visibility, accent: glassHue.accentColor) { toggleAskClaude() }
+                .disabled(askClaudeStateBusy != nil)
+        }
+        if #available(macOS 26.0, *) {
+            ToolbarSpacer(.fixed)
+        }
+
         ToolbarItemGroup(placement: .primaryAction) {
             Button(action: { showSettings = true }) {
                 Label("Settings", systemImage: "gear")

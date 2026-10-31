@@ -7,6 +7,9 @@ import Security
 /// the API call) and Settings (which writes it).
 public enum AnthropicKeychain {
     private static let service = "com.synccloud.anthropic-api-key"
+    /// Posted after the key is stored, replaced or deleted, so a reader holding a copy (Ask
+    /// Claude reads it once per chat) lets it go.
+    public static let didChange = Notification.Name("AnthropicKeychainDidChange")
     private static let account = "default"
 
     private static func baseQuery() -> [String: Any] {
@@ -42,6 +45,7 @@ public enum AnthropicKeychain {
         // `kSecValueData` and leaves the item's accessibility as the add set it. The add keeps the
         // attribute: a create states it once. Checked against a fake only — the tests never touch
         // the real login keychain.
+        defer { NotificationCenter.default.post(name: didChange, object: nil) }
         let updated = store.update(baseQuery(), attributes: secret)
         guard updated == errSecItemNotFound else { return updated }
         return store.add(baseQuery().merging(secret) { _, new in new }
@@ -123,6 +127,7 @@ public enum AnthropicKeychain {
     @discardableResult
     public static func delete(from store: KeychainStore = SecItemKeychainStore()) -> OSStatus {
         let status = store.delete(baseQuery())
+        NotificationCenter.default.post(name: didChange, object: nil)
         if status != errSecSuccess, status != errSecItemNotFound {
             log("Anthropic API key: the Keychain refused to delete the stored item (status \(status)) — the key is still there")
         }

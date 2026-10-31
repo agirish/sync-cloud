@@ -258,6 +258,10 @@ struct ContentView: View {
     /// controller's single `onDismiss`. The query and the selection live with the panel; a copy
     /// here would be a second answer to what has been typed.
     @State var showCommandPalette = false
+    /// Ask Claude's panel (RD69, v7.0) and its chat. One chat for the window: it follows the
+    /// person across workspaces and tabs (decision DU).
+    /// Holds Ask Claude's chat without observing it: see `AskClaudeChatHolder`.
+    @StateObject var askClaudeHolder = AskClaudeChatHolder()
 
     /// Organize's rail selection, **as `@AppStorage` rather than raw `UserDefaults`**.
     ///
@@ -1263,6 +1267,11 @@ struct ContentView: View {
             // fifth segment spends first. `ROADMAP.md` §1b prices Backup against exactly this, and
             // the answer there is that 810 comes back with it.
             //
+            // **v7.0: 760 → 804, for Ask Claude's button** (RD69). The button is charged 44pt in
+            // `WorkspaceBarMetrics.reservedChrome`, which moves the four thresholds above to
+            // 710.8 / 727.8 / 769.1 / 785.6. 804 is 760 plus exactly that charge, so every margin
+            // here — Largest's 18.4pt, and the ⌘K field's own floor — is what it was before.
+            //
             // **One consequence, recorded rather than fixed:** with four labels fitting at every
             // size, the bar's icon-only rung is unreachable at any legal window width.
             // `testTheIconOnlyRungIsOutOfTheShippingBarsReachButStillLive` states that in both
@@ -1280,7 +1289,7 @@ struct ContentView: View {
             // also clears the 428pt below which `SettingsLayout` stops shrinking its sheet
             // (`floorSize` 380 + `hostMargin` 48) and
             // starts overflowing the window it is centered in.
-            .frame(minWidth: 760, minHeight: 560)
+            .frame(minWidth: 804, minHeight: 560)
             // Resolved in the transform, so the action — and the state write behind it — fires
             // only when the answer changes. See `workspaceBarStyle`. The label widths are measured
             // rather than tabulated because the app scales its own type (Settings ▸ Text size), and
@@ -1333,6 +1342,10 @@ struct ContentView: View {
                     }
                 }
             }
+            // Ask Claude's panel is a child window over the content (AskClaudeWindow.swift). It
+            // steps aside while Settings, Help, setup, a destination pick, a question or a sheet is
+            // up, and ⌘J and its toolbar button are off then.
+            .modifier(askClaudeHost)
             // Names the window on the two surfaces that read `NSWindow.title` whether or not a
             // title bar is drawn — the Window menu and Mission Control. Zero-sized, in the
             // background, because it is a binding to AppKit and not a view.

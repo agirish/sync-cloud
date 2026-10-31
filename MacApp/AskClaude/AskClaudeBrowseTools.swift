@@ -1,0 +1,1083 @@
+import AppKit
+import Foundation
+import Sync
+import UniformTypeIdentifiers
+import Events
+
+/// Ask Claude’s tools in Browse (RD69, v7.0 first slice): Look and Steer only. Nothing here touches
+/// a file on disk.
+///
+/// **Reads the pane first, then the disk.** A folder the Browse pane has loaded is read from its
+/// tree, which is what the person sees. One it hasn’t is listed from disk, names and metadata
+/// only (`AskClaudeDisk`), and names are searched through Spotlight’s index. Reading only the
+/// pane cost a wasted round per unloaded folder in the first version.
+@MainActor
+final class AskClaudeBrowseTools: AskClaudeToolRunning {
+
+    /// What the tools need from the window, read fresh at each call: the person may have moved
+    /// between two tool calls.
+    struct Context {
+        let inBrowse: Bool
+        let sourceName: String
+        /// The source’s root, absolute.
+        let root: String
+        /// The folder on screen, relative to the root.
+        let folder: String
+        let sort: SortOption
+        /// The folder’s direct items, as the pane lists them; nil when that folder isn’t loaded.
+        let items: (_ absoluteFolder: String) -> [FileNode]?
+        /// A node by absolute path, if the pane has it.
+        let node: (_ absolutePath: String) -> FileNode?
+        let selection: Set<String>
+        /// Why the view can’t be moved right now, or nil when it can (decision EB).
+        let busyReason: String?
+        let goTo: (_ absoluteFolder: String) -> Void
+        let select: (_ absolutePaths: Set<String>) -> Void
+        /// The Browse pane's source, and every source it can switch to.
+        var sourceID = ""
+        var sources: [Source] = []
+        /// Switches the Browse pane to a source, landing on a folder in it when one is given.
+        var switchSource: (_ id: String, _ absoluteFolder: String?) -> Void = { _, _ in }
+        /// Switches workspace by name; false for a name that isn't one.
+        var switchWorkspace: (_ name: String) -> Bool = { _ in false }
+        /// Opens a file in the Edit workspace.
+        var openInEdit: (_ absolutePath: String) -> EditOutcome = { _ in .notNow }
+        /// The Never show Claude list, absolute (TE246).
+        var hidden: [String] = []
+        /// Built from `hidden` at first use and kept with this context, so a folder's rows share
+        /// their parent's resolved spelling.
+        var hiddenMatcher = MatcherBox()
+        func isHidden(_ path: String) -> Bool { hiddenMatcher.matcher(for: hidden).isHidden(path) }
+        /// Whether passages may go to Claude without the Send button (decision DQ).
+        var readsFiles = false
+        /// The pane's tabs, the one on screen first, and how to switch or open one (TE242).
+        var tabs: [Tab] = []
+        var switchTab: (_ id: UUID) -> Void = { _ in }
+        var addTab: (_ absoluteFolder: String) -> Void = { _ in }
+        /// Closes the pane's tabs by id; the last one never closes.
+        var closeTabs: (_ ids: [UUID]) -> Void = { _ in }
+        /// Each side's live source and folder (left true), and the move that points one side at a
+        /// source, a folder, or both — Compare's two sides.
+        var pane: (_ isLeft: Bool) -> Pane = { _ in Pane(sourceID: "", root: "", folder: "") }
+        var movePane: (_ isLeft: Bool, _ sourceID: String?, _ absoluteFolder: String?) -> Void = { _, _, _ in }
+        /// The pane's Back (false) and Forward (true); false when there was nowhere to go.
+        var history: (_ forward: Bool) -> Bool = { _ in false }
+        /// Quick Look on a file (TE243).
+        var preview: (_ url: URL) -> Void = { _ in }
+        /// View changes (TE244); each false when the value isn't one.
+        var setSort: (_ name: String) -> Bool = { _ in false }
+        var setHiddenFiles: (_ shown: Bool) -> Void = { _ in }
+        var setMode: (_ name: String) -> Bool = { _ in false }
+        /// Opens settings (and a tab), activity, help or the Trash; false for a place that isn't one.
+        var showPlace: (_ place: String, _ tab: String?, _ visible: Bool) -> Bool = { _, _, _ in false }
+    }
+
+    struct Tab: Equatable {
+        let id: UUID
+        let title: String
+        /// Pinned tabs survive "every tab but this one", as they do the strip's Close Other Tabs.
+        var isPinned = false
+        /// At a hidden folder: titled "(hidden)", and never switched to.
+        var isHidden = false
+    }
+
+    struct Pane: Equatable {
+        let sourceID: String
+        let root: String
+        /// Relative to `root`.
+        let folder: String
+    }
+
+    /// How a hand-off to Edit ended.
+    enum EditOutcome: Equatable {
+        case opened
+        /// Edit loaded it and couldn't show it (a kind it can't open, say).
+        case refused
+        /// Canceled, or waiting on a question about the open document; it may open after that.
+        case notNow
+    }
+
+    /// One matcher for the list it was built from, rebuilt if the list differs.
+    final class MatcherBox {
+        private var built: (list: [String], matcher: AskClaudePrivacy.Matcher)?
+        func matcher(for list: [String]) -> AskClaudePrivacy.Matcher {
+            if let built, built.list == list { return built.matcher }
+            let matcher = AskClaudePrivacy.Matcher(list)
+            built = (list, matcher)
+            return matcher
+        }
+    }
+
+    struct Source: Equatable {
+        let id: String
+        let name: String
+        let root: String
+    }
+
+    static let maxListed = 60
+    static let maxFound = 50
+
+    private let context: () -> Context
+    private let listDisk: (String) async -> [FileNode]?
+    private let searchNames: ([String], String) async -> [String]?
+    private let statDisk: (String) -> FileNode?
+    private let openFile: (URL) -> Bool
+    private let extract: (String) async -> [String]?
+    private let answerOnDevice: (_ question: String, _ text: String, _ file: String) async -> AskClaudeReading.OnDeviceAnswer
+    private let searchContents: ([String], String) async -> [String]?
+
+    init(context: @escaping () -> Context,
+         listDisk: @escaping (String) async -> [FileNode]? = { await AskClaudeDisk.list($0) },
+         searchNames: @escaping ([String], String) async -> [String]? = { await AskClaudeDisk.findNames($0, under: $1) },
+         statDisk: @escaping (String) -> FileNode? = { AskClaudeDisk.node(atPath: $0) },
+         openFile: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) },
+         extract: @escaping (String) async -> [String]? = { await AskClaudeReading.extract($0) },
+         answerOnDevice: @escaping (String, String, String) async -> AskClaudeReading.OnDeviceAnswer = { await AskClaudeReading.answerOnDevice($0, from: $1, file: $2) },
+         searchContents: @escaping ([String], String) async -> [String]? = { await AskClaudeDisk.findContents($0, under: $1) }) {
+        self.context = context
+        self.extract = extract
+        self.answerOnDevice = answerOnDevice
+        self.searchContents = searchContents
+        self.openFile = openFile
+        self.listDisk = listDisk
+        self.searchNames = searchNames
+        self.statDisk = statDisk
+    }
+
+    func run(_ call: AskClaudeToolCall, handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
+        var ctx = context()
+        // Look tools and open work from any workspace: they read the source, not the pane. A tool
+        // that moves or selects in the Browse pane takes them to Browse first, and says so.
+        var movedToBrowse: String?
+        // A call that would be refused is refused before it moves them anywhere.
+        if !ctx.inBrowse, Self.needsBrowsePane(call), let refusal = preflight(call, ctx, handles) { return refusal }
+        if !ctx.inBrowse, Self.needsBrowsePane(call) {
+            guard ctx.busyReason == nil, ctx.switchWorkspace("Browse") else {
+                return AskClaudeToolOutcome(result: "That needs the Browse pane, and the window is busy.", isError: true,
+                                            step: "Couldn’t reach Browse")
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            ctx = context()
+            movedToBrowse = "Moved you to Browse"
+        }
+        let outcome = await dispatch(call, ctx, &handles)
+        guard let movedToBrowse, outcome.movedView == nil else { return outcome }
+        return AskClaudeToolOutcome(result: outcome.result, isError: outcome.isError, step: outcome.step,
+                                    movedView: movedToBrowse, passage: outcome.passage)
+    }
+
+    /// What a Browse-pane call would refuse anyway (an unknown or hidden handle, a folder that isn't
+    /// there or is hidden), checked before the switch to Browse it would otherwise cost them.
+    private func preflight(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: AskClaudeHandles) -> AskClaudeToolOutcome? {
+        if let busy = ctx.busyReason {
+            return AskClaudeToolOutcome(result: "Can’t move the view right now: \(busy).", isError: true, step: "Didn’t move the view: \(busy)")
+        }
+        let named = ([call.string("handle")].compactMap { $0 } + (call.strings("handles") ?? []))
+        for handle in named {
+            guard let path = handles.path(for: handle) else { return unknownHandle(handle) }
+            if ctx.isHidden(path) { return hiddenFolder() }
+        }
+        switch AskClaudeToolCatalog.Name(rawValue: call.name) {
+        case .goTo:
+            // The source and folder it names, in that source.
+            var root = ctx.root
+            var sourceName = ctx.sourceName
+            if let name = call.string("source")?.trimmingCharacters(in: .whitespaces).nonEmpty {
+                guard let source = Self.source(named: name, in: ctx.sources) else {
+                    return AskClaudeToolOutcome(result: "There is no source called \(name). Sources: \(ctx.sources.map(\.name).joined(separator: ", ")).",
+                                                isError: true, step: "No source \(name)")
+                }
+                root = source.root
+                sourceName = source.name
+            }
+            if let folderArg = call.string("folder") {
+                guard let folder = Self.resolve(folderArg, root: root) else { return badFolder(folderArg) }
+                if ctx.isHidden(folder.absolute) { return hiddenFolder() }
+                guard Self.isFolder(folder.absolute) else {
+                    return AskClaudeToolOutcome(result: "There is no folder \(folder.label) in \(sourceName).", isError: true,
+                                                step: Self.sentence("No folder \(folder.label)"))
+                }
+            }
+            if let name = call.string("tab"), Self.tab(named: name, in: ctx.tabs) == nil {
+                return AskClaudeToolOutcome(result: "There’s no tab called \(name). Tabs: \(ctx.tabs.map(\.title).joined(separator: ", ")).",
+                                            isError: true, step: "No tab \(name)")
+            }
+            if let history = call.string("history")?.lowercased(), history != "back", history != "forward" {
+                return AskClaudeToolOutcome(result: "history is back or forward.", isError: true, step: "No history \(history)")
+            }
+        case .view:
+            let sorts = ["name", "kind", "date", "date modified", "size", "tags"]
+            if let sort = call.string("sort"), !sorts.contains(sort.lowercased()) {
+                return AskClaudeToolOutcome(result: "Sort by name, kind, date, size or tags.", isError: true, step: "No sort called \(sort)")
+            }
+            if let mode = call.string("mode"), !["columns", "list", "tree"].contains(mode.lowercased()) {
+                return AskClaudeToolOutcome(result: "The view is columns or list.", isError: true, step: "No view called \(mode)")
+            }
+        case .open, .reveal:
+            if let path = call.string("handle").flatMap(handles.path(for:)),
+               Self.relativeIfInside(path, root: ctx.root) == nil, Self.closestSource(containing: path, in: ctx.sources) == nil {
+                return AskClaudeToolOutcome(result: "That item isn’t in any source SyncCloud shows.", isError: true,
+                                            step: "Couldn’t show it: not in a source")
+            }
+            if AskClaudeToolCatalog.Name(rawValue: call.name) == .open, let path = call.string("handle").flatMap(handles.path(for:)),
+               let node = ctx.node(path) ?? statDisk(path) {
+                if node.isDirectory {
+                    return AskClaudeToolOutcome(result: "\(node.name) is a folder. Use go_to to show it.", isError: true, step: "Didn’t open a folder")
+                }
+                if Self.launches(path) {
+                    return AskClaudeToolOutcome(result: "\(node.name) is an app, script, installer or shortcut, and Ask Claude doesn’t open those. Reveal it, and they can open it themselves.",
+                                                isError: true, step: "Didn’t open \(node.name): it would run something")
+                }
+            }
+        default:
+            break
+        }
+        return nil
+    }
+
+    /// Tools that act on the Browse pane itself.
+    static func needsBrowsePane(_ call: AskClaudeToolCall) -> Bool {
+        switch AskClaudeToolCatalog.Name(rawValue: call.name) {
+        case .reveal, .select, .view: return true
+        case .goTo:
+            // A side of Compare is set in Compare, not Browse.
+            guard call.string("pane") == nil else { return false }
+            return call.string("folder") != nil || call.string("source") != nil
+                || call.string("history") != nil || call.string("tab") != nil
+        // Every open but Edit's shows the file in the Browse pane first.
+        case .open: return call.string("in")?.lowercased() != "edit"
+        default: return false
+        }
+    }
+
+    private func dispatch(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
+        // The Never show Claude list (TE246): a hidden item can't be named into any tool.
+        let named = ([call.string("handle")].compactMap { $0 } + (call.strings("handles") ?? [])).compactMap { handles.path(for: $0) }
+        if named.contains(where: { ctx.isHidden($0) }) {
+            return AskClaudeToolOutcome(result: "That item is on their Never show Claude list. Don’t ask about it or guess what it holds.",
+                                        isError: true, step: "Left alone: hidden from Claude")
+        }
+        switch AskClaudeToolCatalog.Name(rawValue: call.name) {
+        case .readText: return await readText(call, ctx, handles)
+        case .findInContents: return await findInContents(call, ctx, &handles)
+        case .view: return view(call, ctx)
+        case .showInApp:
+            let place = (call.string("place") ?? "").lowercased()
+            if let busy = ctx.busyReason {
+                return AskClaudeToolOutcome(result: "Can’t open it right now: \(busy).", isError: true, step: "Didn’t open \(place): \(busy)")
+            }
+            let visible = call.input["visible"]?.boolValue ?? true
+            guard ctx.showPlace(place, call.string("tab"), visible) else {
+                return AskClaudeToolOutcome(result: "Places are settings, activity, help, trash, info and sidebar; a settings tab or setting must be one Settings has.",
+                                            isError: true, step: "No place called \(place)")
+            }
+            let names = ["info": "the Info inspector", "sidebar": "the sidebar"]
+            if let name = names[place] {
+                let did = visible ? "Showed \(name)" : "Hid \(name)"
+                return AskClaudeToolOutcome(result: did + ".", step: did)
+            }
+            let label = place == "settings" ? "Settings" + (call.string("tab").map { " ▸ \($0.capitalized)" } ?? "") : place.capitalized
+            return AskClaudeToolOutcome(result: "Opened \(label).", step: "Opened \(label)", movedView: "Opened \(label)")
+        case .listFolder: return await listFolder(call, ctx, &handles)
+        case .findByName: return await findByName(call, ctx, &handles)
+        case .fileDetails: return fileDetails(call, ctx, handles)
+        case .goTo: return await goTo(call, ctx)
+        case .open: return await open(call, ctx, handles)
+        case .reveal: return await reveal(call, ctx, handles)
+        case .select: return select(call, ctx, handles)
+        case .closeTabs: return closeTabs(call, ctx)
+        case nil:
+            return AskClaudeToolOutcome(result: "There is no tool called \(call.name).", isError: true,
+                                        step: "Asked for an unknown tool")
+        }
+    }
+
+    // MARK: Look
+
+    private func listFolder(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
+        guard let folder = Self.resolve(call.string("folder") ?? "", root: ctx.root) else {
+            return badFolder(call.string("folder"))
+        }
+        // Checked before anything is read, so a hidden folder answers the same whether a path in
+        // it exists or not.
+        if ctx.isHidden(folder.absolute) { return hiddenFolder() }
+        var loaded = ctx.items(folder.absolute)
+        if loaded == nil { loaded = await listDisk(folder.absolute) }
+        guard let everything = loaded else {
+            return AskClaudeToolOutcome(result: "\(folder.label) couldn’t be read: it may not exist, or the cloud is slow to answer.",
+                                        isError: true, step: Self.sentence("\(folder.label) couldn’t be read"))
+        }
+        let items = everything.filter { !ctx.isHidden($0.id) }
+        let from = max(0, call.int("from") ?? 0)
+        let page = items.dropFirst(from).prefix(Self.maxListed)
+        var lines = ["folder: \(AskClaudeScreenCard.escape(folder.label)) · \(items.count) items",
+                     "rows: handle|name|kind|size|modified|tags"]
+        lines += page.map { AskClaudeScreenCard.row(for: Self.row($0), handles: &handles) }
+        let rest = items.count - from - page.count
+        if rest > 0 { lines.append("\(rest) more; call again with from \(from + page.count).") }
+        if everything.count > items.count { lines.append("\(everything.count - items.count) more hidden from Claude by them.") }
+        return AskClaudeToolOutcome(result: lines.joined(separator: "\n"),
+                                    step: "Listed \(folder.label) · \(items.count) item\(items.count == 1 ? "" : "s")")
+    }
+
+    private func findByName(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
+        let words = (call.string("words") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+        guard !words.isEmpty else {
+            return AskClaudeToolOutcome(result: "Give at least one word to look for.", isError: true, step: "Search had no words")
+        }
+        guard let folder = Self.resolve(call.string("folder") ?? ctx.folder, root: ctx.root) else {
+            return badFolder(call.string("folder"))
+        }
+        // A search with no folder named runs where they are; in a hidden folder even its name is
+        // not said, so it isn't searched.
+        if ctx.isHidden(folder.absolute) { return hiddenFolder() }
+        let kind = call.string("kind")?.trimmingCharacters(in: .whitespaces)
+        let minBytes = call.input["larger_than_mb"].flatMap { value -> Double? in
+            if case .number(let d) = value { return d }
+            return value.intValue.map(Double.init)
+        }.map { Int(exactly: ($0 * 1_000_000).rounded()) ?? (($0 < 0) ? 0 : Int.max) }
+
+        // Spotlight first: it covers folders the pane has never opened. Where it can’t answer, the
+        // pane’s loaded tree is searched instead, and the result says so. Either way an item
+        // matches when its folders and name TOGETHER hold every word: in a filed archive the
+        // folders say what a file is (a person, a year, a period) and many names say nothing.
+        var candidates: [FileNode] = []
+        var searchedIndex = false
+        if let paths = await searchNames(words, folder.absolute) {
+            searchedIndex = true
+            let matching = paths.filter { Self.holdsEvery(words, in: Self.relative($0, root: ctx.root)) && !ctx.isHidden($0) }
+            candidates = matching.prefix(AskClaudeDisk.maxExamined).compactMap { ctx.node($0) ?? statDisk($0) }
+        } else if let top = ctx.items(folder.absolute) {
+            var stack = top.reversed() as [FileNode]
+            while let node = stack.popLast() {
+                if Self.holdsEvery(words, in: Self.relative(node.id, root: ctx.root)), !ctx.isHidden(node.id) { candidates.append(node) }
+                if let children = node.children { stack.append(contentsOf: children.reversed()) }
+            }
+        }
+        var kept = candidates.filter { node in
+            let kindMatches = kind.map { Self.kind(node).localizedCaseInsensitiveContains($0) } ?? true
+            let sizeMatches = minBytes.map { !node.isDirectory && (node.fileSize ?? 0) > $0 } ?? true
+            return kindMatches && sizeMatches
+        }
+        // Newest first, judged the way the archive is filed: the latest year anywhere in the path
+        // (“2026-2029” counts as 2029), then items whose own name holds every word, then the
+        // modified date. So the newest period leads for every model, not only one that reasons it.
+        let years = Dictionary(kept.map { ($0.id, Self.latestYear(in: Self.relative($0.id, root: ctx.root)) ?? 0) },
+                               uniquingKeysWith: { a, _ in a })
+        kept.sort { a, b in
+            let ay = years[a.id] ?? 0, by = years[b.id] ?? 0
+            if ay != by { return ay > by }
+            let an = Self.holdsEvery(words, in: a.name), bn = Self.holdsEvery(words, in: b.name)
+            if an != bn { return an }
+            return (a.modificationDate ?? .distantPast) > (b.modificationDate ?? .distantPast)
+        }
+        let total = kept.count
+        let hits = Array(kept.prefix(Self.maxFound))
+        let label = words.joined(separator: " ")
+        guard total > 0 else {
+            let scope = searchedIndex ? "" : " Spotlight didn’t answer, so only folders the pane has open were searched."
+            return AskClaudeToolOutcome(result: "Nothing under \(folder.label) matches “\(label)”.\(scope)",
+                                        step: "Found nothing for “\(label)”")
+        }
+        var lines = ["\(total) match\(total == 1 ? "" : "es") under \(AskClaudeScreenCard.escape(folder.label)), newest period first:",
+                     "rows: handle|name|kind|size|modified|tags|folder"]
+        lines += hits.map { node in
+            let where_ = Self.relative((node.id as NSString).deletingLastPathComponent, root: ctx.root)
+            return AskClaudeScreenCard.row(for: Self.row(node), handles: &handles) + "|" + AskClaudeScreenCard.escape(where_.isEmpty ? "(top level)" : where_)
+        }
+        if total > hits.count { lines.append("\(total - hits.count) more not listed; narrow the words or the folder.") }
+        return AskClaudeToolOutcome(result: lines.joined(separator: "\n"),
+                                    step: "Found \(total) for “\(label)”")
+    }
+
+    private func fileDetails(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: AskClaudeHandles) -> AskClaudeToolOutcome {
+        guard let handle = call.string("handle"), let path = handles.path(for: handle) else {
+            return unknownHandle(call.string("handle"))
+        }
+        guard let node = ctx.node(path) ?? statDisk(path) else {
+            return AskClaudeToolOutcome(result: "\(handle) is gone from the pane; it may have moved or been renamed. Look again.",
+                                        isError: true, step: "\(handle) is no longer in the pane")
+        }
+        let folder = Self.relative((path as NSString).deletingLastPathComponent, root: ctx.root)
+        var lines = ["name: \(AskClaudeScreenCard.escape(node.name))",
+                     "folder: \(folder.isEmpty ? "(top level)" : AskClaudeScreenCard.escape(folder))",
+                     "kind: \(AskClaudeScreenCard.escape(Self.kind(node)))"]
+        if node.isDirectory {
+            lines.append(node.isUnexplored == true ? "items: not loaded" : node.children.map { "items: \($0.count)" } ?? "items: not loaded")
+        } else if let size = node.fileSize {
+            lines.append("size: \(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)) (\(size) bytes)")
+        }
+        if let date = node.modificationDate { lines.append("modified: \(date.formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false)))") }
+        if let tags = node.tags, !tags.isEmpty { lines.append("tags: \(tags.map(AskClaudeScreenCard.escape).joined(separator: ", "))") }
+        if !node.isDirectory, let cloudOnly = MaterializationStatus.isCloudOnlyIfKnown(atPath: path) {
+            lines.append(cloudOnly ? "on this Mac: no, only in the cloud" : "on this Mac: yes")
+        }
+        return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: "Read the details of \(node.name)")
+    }
+
+    // MARK: Steer
+
+    /// Shows an item where it lives: its folder in the pane, with it selected. Its own tool, and
+    /// the first half of `open`, so the person always sees where a file is before it opens.
+    private func reveal(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: AskClaudeHandles) async -> AskClaudeToolOutcome {
+        guard let handle = call.string("handle"), let path = handles.path(for: handle) else {
+            return unknownHandle(call.string("handle"))
+        }
+        switch await show(path, ctx) {
+        case .failure(let failure): return failure.outcome
+        case .success(let moved):
+            let name = (path as NSString).lastPathComponent
+            return AskClaudeToolOutcome(result: "Showing \(name) in its folder, selected.", step: "Selected \(name)",
+                                        movedView: moved)
+        }
+    }
+
+    /// Reveals a file named in an answer (TE245): its folder in the pane, the file selected.
+    func reveal(path: String) async {
+        var ctx = context()
+        let name = (path as NSString).lastPathComponent
+        guard !ctx.isHidden(path) else { return }
+        if let busy = ctx.busyReason {
+            Logger.shared.info("Ask Claude didn’t reveal \(name): \(busy)")
+            return
+        }
+        guard Self.relativeIfInside(path, root: ctx.root) != nil || Self.closestSource(containing: path, in: ctx.sources) != nil else {
+            Logger.shared.info("Ask Claude didn’t reveal \(name): it is in no source SyncCloud shows")
+            return
+        }
+        if !ctx.inBrowse {
+            guard ctx.switchWorkspace("Browse") else { return }
+            try? await Task.sleep(for: .milliseconds(200))
+            ctx = context()
+        }
+        if case .failure(let failure) = await show(path, ctx) {
+            Logger.shared.info("Ask Claude didn’t reveal \(name): \(failure.outcome.step)")
+        }
+    }
+
+    /// Moves the pane to `path`'s folder if it isn't there, waits for it, and selects `path`.
+    /// Succeeds with the "Moved you to …" note when the view moved, nil when it was already there.
+    private func show(_ path: String, _ ctx: Context) async -> Result<String?, ShowFailure> {
+        if let busy = ctx.busyReason {
+            return .failure(.init(AskClaudeToolOutcome(result: "Can’t move the view right now: \(busy).", isError: true,
+                                                       step: "Didn’t move the view: \(busy)")))
+        }
+        let parent = (path as NSString).deletingLastPathComponent
+        // A handle stays good for the whole chat, so it can name a file in another source than
+        // the one on screen: that source is switched to, never a same-named folder in this one.
+        guard let relative = Self.relativeIfInside(parent, root: ctx.root) else {
+            guard let source = Self.closestSource(containing: parent, in: ctx.sources) else {
+                Logger.shared.info("Ask Claude couldn’t show \((path as NSString).lastPathComponent): it is in no source SyncCloud shows")
+                return .failure(.init(AskClaudeToolOutcome(result: "That item isn’t in any source SyncCloud shows.", isError: true,
+                                                           step: "Couldn’t show it: not in a source")))
+            }
+            ctx.switchSource(source.id, parent)
+            for _ in 0..<60 {
+                let now = context()
+                if now.sourceID == source.id, (now.items(parent) ?? []).contains(where: { AskClaudePaths.same($0.id, path) }) {
+                    now.select([(now.items(parent) ?? []).first(where: { AskClaudePaths.same($0.id, path) })?.id ?? path])
+                    return .success("Moved you to \(source.name)")
+                }
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            Logger.shared.info("Ask Claude switched to \(source.name) but the item hadn’t shown after 3 seconds")
+            return .failure(.init(AskClaudeToolOutcome(result: "Switched the pane to \(source.name), but it hadn’t shown the item after 3 seconds.",
+                                                       isError: true, step: "Couldn’t select it yet", movedView: "Moved you to \(source.name)")))
+        }
+        var moved: String?
+        if relative != ctx.folder {
+            ctx.goTo(parent)
+            // Said only once the pane is there: a move that didn't happen isn't claimed.
+            if await waitForPane(at: relative, absolute: parent) {
+                moved = "Moved you to \(relative.isEmpty ? ctx.sourceName : (relative as NSString).lastPathComponent)"
+            }
+        }
+        let now = context()
+        guard (now.items(parent) ?? []).contains(where: { AskClaudePaths.same($0.id, path) }) else {
+            return .failure(.init(AskClaudeToolOutcome(result: "The pane didn’t reach \(relative.isEmpty ? "the top level" : relative) in time to select it.",
+                                                       isError: true, step: "Couldn’t select it yet", movedView: moved)))
+        }
+        now.select([(now.items(parent) ?? []).first(where: { AskClaudePaths.same($0.id, path) })?.id ?? path])
+        return .success(moved)
+    }
+
+    struct ShowFailure: Error {
+        let outcome: AskClaudeToolOutcome
+        init(_ outcome: AskClaudeToolOutcome) { self.outcome = outcome }
+    }
+
+    /// The pane moves on a later turn of the run loop. Waits for it (up to 2 s), so whatever comes
+    /// next in the same round sees the folder Claude went to, not the one it left.
+    /// True when the pane got there; its listing may still be loading, as a slow cloud folder's is.
+    @discardableResult
+    private func waitForPane(at relative: String, absolute: String) async -> Bool {
+        for _ in 0..<40 {
+            let now = context()
+            if now.folder == relative, now.items(absolute) != nil { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return context().folder == relative
+    }
+
+    private func open(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: AskClaudeHandles) async -> AskClaudeToolOutcome {
+        guard let handle = call.string("handle"), let path = handles.path(for: handle) else {
+            return unknownHandle(call.string("handle"))
+        }
+        guard let node = ctx.node(path) ?? statDisk(path) else {
+            return AskClaudeToolOutcome(result: "\(handle) is gone; it may have moved or been renamed. Look again.",
+                                        isError: true, step: "\(handle) is no longer there")
+        }
+        guard !node.isDirectory else {
+            return AskClaudeToolOutcome(result: "\(node.name) is a folder. Use go_to to show it.", isError: true,
+                                        step: "Didn’t open a folder")
+        }
+        if let busy = ctx.busyReason {
+            return AskClaudeToolOutcome(result: "Can’t open it right now: \(busy).", isError: true, step: "Didn’t open: \(busy)")
+        }
+        // Opening a cloud-only file downloads it. Up to 5 MB that happens on its own (decision DW);
+        // above it, the person downloads it themselves until downloads get a plan card.
+        if MaterializationStatus.isCloudOnlyIfKnown(atPath: path) == true, (node.fileSize ?? 0) > Self.autoDownloadBytes {
+            return AskClaudeToolOutcome(result: "\(node.name) is only in the cloud and larger than 5 MB, so it isn’t opened without them. Tell them to download it first.",
+                                        isError: true, step: "Didn’t open \(node.name): cloud-only, over 5 MB")
+        }
+        if call.string("in")?.lowercased() == "preview" {
+            var moved: String?
+            if case .success(let note) = await show(path, ctx) { moved = note }
+            ctx.preview(URL(fileURLWithPath: path))
+            return AskClaudeToolOutcome(result: "Showing a Quick Look preview of \(node.name).", step: "Previewed \(node.name)", movedView: moved)
+        }
+        if call.string("in")?.lowercased() == "edit" {
+            // Edit's own hand-off shows the file in its folder there, so no reveal here first.
+            switch ctx.openInEdit(AskClaudePaths.canonical(path)) {
+            case .opened:
+                return AskClaudeToolOutcome(result: "Opened \(node.name) in SyncCloud’s Edit workspace.", step: "Opened \(node.name) in Edit",
+                                            movedView: "Moved you to Edit")
+            case .refused:
+                return AskClaudeToolOutcome(result: "Edit couldn’t show \(node.name); it may be a kind Edit doesn’t open. Edit says why.",
+                                            isError: true, step: "Edit couldn’t show \(node.name)", movedView: "Moved you to Edit")
+            case .notNow:
+                return AskClaudeToolOutcome(result: "\(node.name) didn’t open in Edit yet: it was canceled, or Edit is waiting on a question about the open document. It opens if they answer that.",
+                                            isError: true, step: "Didn’t open \(node.name) in Edit yet")
+            }
+        }
+        // Never something that runs: an app, a script, an installer or a link that launches one.
+        // A file's name can carry words that ask Claude to open it, and a click by the person is
+        // the only thing that should start a program.
+        if Self.launches(path) {
+            return AskClaudeToolOutcome(result: "\(node.name) is an app, script, installer or shortcut, and Ask Claude doesn’t open those. Reveal it, and they can open it themselves.",
+                                        isError: true, step: "Didn’t open \(node.name): it would run something")
+        }
+        // Shown where it lives first, always: a file opening from somewhere the person can't see
+        // leaves them not knowing where it is. A failed reveal doesn't stop the open.
+        var moved: String?
+        var shown = false
+        if case .success(let note) = await show(path, ctx) { moved = note; shown = true }
+        guard openFile(URL(fileURLWithPath: path)) else {
+            return AskClaudeToolOutcome(result: "macOS couldn’t open \(node.name).", isError: true, step: "Couldn’t open \(node.name)",
+                                        movedView: moved)
+        }
+        return AskClaudeToolOutcome(result: shown ? "Showed \(node.name) in its folder, selected, and opened it in its default app."
+                                        : "Opened \(node.name) in its default app; the pane couldn’t show it in its folder.",
+                                    step: "Opened \(node.name)", movedView: moved)
+    }
+
+    static let autoDownloadBytes = 5_000_000
+
+    /// Whether opening `path` would start a program: an app or executable, a script, an
+    /// installer, or a shortcut file that opens one (Terminal settings, a workflow, a web or file
+    /// location). By type, and by the file's execute bit for anything without a known type.
+    static func launches(_ path: String) -> Bool {
+        let ext = (path as NSString).pathExtension.lowercased()
+        let launchers: Set<String> = ["app", "command", "tool", "sh", "zsh", "bash", "csh", "pkg", "mpkg", "workflow", "action",
+                                      "terminal", "webloc", "inetloc", "fileloc", "scpt", "scptd", "applescript", "prefpane",
+                                      "kext", "dmg", "jar", "py", "rb", "pl"]
+        if launchers.contains(ext) { return true }
+        if let type = UTType(filenameExtension: ext),
+           [UTType.application, .executable, .script, .shellScript, .applicationBundle, .package].contains(where: { type.conforms(to: $0) }) {
+            return type.conforms(to: .package) ? type.conforms(to: .applicationBundle) : true
+        }
+        var isDirectory: ObjCBool = false
+        return ext.isEmpty && FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && !isDirectory.boolValue
+            && FileManager.default.isExecutableFile(atPath: path)
+    }
+
+    private func goTo(_ call: AskClaudeToolCall, _ ctx: Context) async -> AskClaudeToolOutcome {
+        let folderArg = call.string("folder")
+        let sourceArg = call.string("source")?.trimmingCharacters(in: .whitespaces).nonEmpty
+        let workspaceArg = call.string("workspace")?.trimmingCharacters(in: .whitespaces).nonEmpty
+        // Every move waits for the window: never under a sheet or a question (decision EB).
+        if let busy = ctx.busyReason {
+            return AskClaudeToolOutcome(result: "Can’t move the view right now: \(busy). Tell them where it is instead.",
+                                        isError: true, step: "Didn’t move the view: \(busy)")
+        }
+        // A side of Compare first: `history` and the rest move the Browse pane.
+        if let pane = call.string("pane")?.lowercased() {
+            return await goToPane(pane, call, ctx)
+        }
+        if let history = call.string("history")?.lowercased() {
+            guard history == "back" || history == "forward" else {
+                return AskClaudeToolOutcome(result: "history is back or forward.", isError: true, step: "No history \(history)")
+            }
+            guard ctx.history(history == "forward") else {
+                return AskClaudeToolOutcome(result: "There’s nowhere to go \(history).", isError: true, step: "Nowhere to go \(history)")
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            let now = context()
+            // Back can land in a hidden folder Claude never named; it isn't named now either.
+            let hidden = now.isHidden(Self.absolute(now.folder, root: now.root))
+            let landed = hidden ? "a folder hidden from Claude" : now.folder.isEmpty ? "the top level" : now.folder
+            return AskClaudeToolOutcome(result: "Went \(history) to \(landed).", step: "Went \(history)",
+                                        movedView: "Moved you \(history)" + (hidden ? "" : " to \(now.folder.isEmpty ? now.sourceName : (now.folder as NSString).lastPathComponent)"))
+        }
+        if let tabName = call.string("tab") {
+            guard let tab = Self.tab(named: tabName, in: ctx.tabs) else {
+                return AskClaudeToolOutcome(result: "There’s no tab called \(tabName). Tabs: \(ctx.tabs.map(\.title).joined(separator: ", ")).",
+                                            isError: true, step: "No tab \(tabName)")
+            }
+            ctx.switchTab(tab.id)
+            try? await Task.sleep(for: .milliseconds(300))
+            return AskClaudeToolOutcome(result: "Switched to the \(tab.title) tab.", step: "Switched to the \(tab.title) tab",
+                                        movedView: "Moved you to the \(tab.title) tab")
+        }
+        if call.input["new_tab"]?.boolValue == true, let folderArg {
+            // A new tab opens in the pane's source; another source is a switch first.
+            if let sourceArg, Self.source(named: sourceArg, in: ctx.sources)?.id != ctx.sourceID {
+                return AskClaudeToolOutcome(result: "A new tab opens in the source on screen (\(ctx.sourceName)). Switch to \(sourceArg) with go_to first, then open the tab.",
+                                            isError: true, step: "Didn’t open a tab in another source")
+            }
+            guard let folder = Self.resolve(folderArg, root: ctx.root) else { return badFolder(folderArg) }
+            if ctx.isHidden(folder.absolute) { return hiddenFolder() }
+            guard Self.isFolder(folder.absolute) else { return badFolder(folderArg) }
+            ctx.addTab(folder.absolute)
+            try? await Task.sleep(for: .milliseconds(300))
+            return AskClaudeToolOutcome(result: "Opened \(folder.label) in a new tab.", step: "Opened \(folder.label) in a new tab",
+                                        movedView: "Opened a tab at \(folder.relative.isEmpty ? ctx.sourceName : (folder.relative as NSString).lastPathComponent)")
+        }
+        guard folderArg != nil || sourceArg != nil || workspaceArg != nil else {
+            return AskClaudeToolOutcome(result: "Give a folder, a source or a workspace.", isError: true, step: "go_to had nothing to go to")
+        }
+        var steps: [String] = []
+        var moved: String?
+        var folderDone = false
+        // 1. The source, with the folder inside it when one is named: one move, not two.
+        if let sourceArg {
+            guard let source = Self.source(named: sourceArg, in: ctx.sources) else {
+                return AskClaudeToolOutcome(result: "There is no source called \(sourceArg). Sources: \(ctx.sources.map(\.name).joined(separator: ", ")).",
+                                            isError: true, step: "No source \(sourceArg)")
+            }
+            if source.id != ctx.sourceID {
+                var target: (absolute: String, relative: String, label: String)?
+                if let folderArg {
+                    guard let resolved = Self.resolve(folderArg, root: source.root) else { return badFolder(folderArg) }
+                    if ctx.isHidden(resolved.absolute) { return hiddenFolder() }
+                    guard Self.isFolder(resolved.absolute) else {
+                        return AskClaudeToolOutcome(result: "There is no folder \(resolved.label) in \(source.name).", isError: true,
+                                                    step: Self.sentence("No folder \(resolved.label) in \(source.name)"))
+                    }
+                    target = resolved
+                }
+                ctx.switchSource(source.id, target?.absolute)
+                var landed = false
+                for _ in 0..<60 {
+                    let now = context()
+                    if now.sourceID == source.id, target.map({ now.folder == $0.relative }) ?? true { landed = true; break }
+                    try? await Task.sleep(for: .milliseconds(50))
+                }
+                guard landed else {
+                    return AskClaudeToolOutcome(result: "Asked the pane to switch to \(source.name), but it hadn’t got there after 3 seconds. The next screen says where it is.",
+                                                isError: true, step: "Switching to \(source.name) hadn’t finished")
+                }
+                folderDone = folderArg != nil
+                steps.append("Switched to \(source.name)" + (target.map { " › \($0.label)" } ?? ""))
+                moved = "Moved you to " + (target.map { $0.relative.isEmpty ? source.name : ($0.relative as NSString).lastPathComponent } ?? source.name)
+            }
+        }
+        // 2. A folder in whichever source the pane is on now.
+        if let folderArg, !folderDone {
+            let now = context()
+            guard let folder = Self.resolve(folderArg, root: now.root) else { return badFolder(folderArg) }
+            if now.isHidden(folder.absolute) { return hiddenFolder() }
+            guard Self.isFolder(folder.absolute) else {
+                return AskClaudeToolOutcome(result: "There is no folder \(folder.label) in \(now.sourceName).", isError: true,
+                                            step: Self.sentence("No folder \(folder.label)"))
+            }
+            if !(now.inBrowse && now.folder == folder.relative) {
+                now.goTo(folder.absolute)
+                guard await waitForPane(at: folder.relative, absolute: folder.absolute) else {
+                    return AskClaudeToolOutcome(result: "Asked the pane to go to \(folder.label), but it hadn’t got there after 2 seconds. The next screen says where it is.",
+                                                isError: true, step: Self.sentence("The pane hadn’t reached \(folder.label)"))
+                }
+                steps.append("Went to \(folder.label)")
+                moved = "Moved you to \(folder.relative.isEmpty ? now.sourceName : (folder.relative as NSString).lastPathComponent)"
+            }
+        }
+        // 3. The workspace, last, so a folder named with it is where that workspace opens.
+        if let workspaceArg {
+            guard ctx.switchWorkspace(workspaceArg) else {
+                return AskClaudeToolOutcome(result: "There is no workspace called \(workspaceArg). Workspaces: Browse, Compare, Organize, Edit.",
+                                            isError: true, step: "No workspace \(workspaceArg)")
+            }
+            steps.append("Switched to \(workspaceArg.capitalized)")
+            moved = "Moved you to \(workspaceArg.capitalized)"
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        guard !steps.isEmpty else {
+            return AskClaudeToolOutcome(result: "They are already there.", step: "Already there")
+        }
+        return AskClaudeToolOutcome(result: steps.joined(separator: "; ") + ". The next message’s screen describes it.",
+                                    step: steps.joined(separator: " · "), movedView: moved)
+    }
+
+    /// Sets one side of Compare to a source, a folder, or both, opening Compare unless another
+    /// workspace is named.
+    private func goToPane(_ paneArg: String, _ call: AskClaudeToolCall, _ ctx: Context) async -> AskClaudeToolOutcome {
+        guard paneArg == "left" || paneArg == "right" else {
+            return AskClaudeToolOutcome(result: "pane is left or right.", isError: true, step: "No pane \(paneArg)")
+        }
+        if let busy = ctx.busyReason {
+            return AskClaudeToolOutcome(result: "Can’t move the view right now: \(busy).", isError: true, step: "Didn’t move the view: \(busy)")
+        }
+        let isLeft = paneArg == "left"
+        let side = isLeft ? "left" : "right"
+        let before = ctx.pane(isLeft)
+        var source = ctx.sources.first { $0.id == before.sourceID } ?? Source(id: before.sourceID, name: before.sourceID, root: before.root)
+        if let name = call.string("source")?.trimmingCharacters(in: .whitespaces).nonEmpty {
+            guard let named = Self.source(named: name, in: ctx.sources) else {
+                return AskClaudeToolOutcome(result: "There is no source called \(name). Sources: \(ctx.sources.map(\.name).joined(separator: ", ")).",
+                                            isError: true, step: "No source \(name)")
+            }
+            source = named
+        }
+        var target: (absolute: String, relative: String, label: String)?
+        if let folderArg = call.string("folder") {
+            guard let resolved = Self.resolve(folderArg, root: source.root) else { return badFolder(folderArg) }
+            if ctx.isHidden(resolved.absolute) { return hiddenFolder() }
+            guard Self.isFolder(resolved.absolute) else {
+                return AskClaudeToolOutcome(result: "There is no folder \(resolved.label) in \(source.name).", isError: true,
+                                            step: Self.sentence("No folder \(resolved.label) in \(source.name)"))
+            }
+            target = resolved
+        }
+        // Sides are Compare's: Browse shows one pane, and the others aren't a comparison.
+        let workspace = call.string("workspace")?.trimmingCharacters(in: .whitespaces).nonEmpty ?? "Compare"
+        guard workspace.caseInsensitiveCompare("Compare") == .orderedSame else {
+            return AskClaudeToolOutcome(result: "pane sets a side of Compare. Leave out workspace, or use go_to without pane to move the Browse pane.",
+                                        isError: true, step: "pane is for Compare")
+        }
+        guard ctx.switchWorkspace(workspace) else {
+            return AskClaudeToolOutcome(result: "There is no workspace called \(workspace).", isError: true, step: "No workspace \(workspace)")
+        }
+        ctx.movePane(isLeft, source.id == before.sourceID ? nil : source.id, target?.absolute)
+        var landed = false
+        for _ in 0..<60 {
+            let now = context().pane(isLeft)
+            if now.sourceID == source.id, target.map({ now.folder == $0.relative }) ?? true { landed = true; break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        let what = source.name + (target.map { " › \($0.label)" } ?? "")
+        guard landed else {
+            return AskClaudeToolOutcome(result: "Asked the \(side) side to show \(what), but it hadn’t got there after 3 seconds. The next screen says where it is.",
+                                        isError: true, step: "The \(side) side hadn’t reached \(what)")
+        }
+        return AskClaudeToolOutcome(result: "The \(side) side of \(workspace.capitalized) shows \(what).", step: "Set the \(side) side to \(what)",
+                                    movedView: "Set \(workspace.capitalized)’s \(side) side to \(what)")
+    }
+
+    /// The tab a name means: its whole title, or else the one tab with a word starting with it.
+    /// Never a substring, as for sources.
+    static func tab(named name: String, in allTabs: [Tab]) -> Tab? {
+        let tabs = allTabs.filter { !$0.isHidden }
+        let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+        if let exact = tabs.first(where: { $0.title.compare(name, options: options) == .orderedSame }) { return exact }
+        let byWord = tabs.filter { tab in
+            tab.title.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+                .contains { $0.range(of: name, options: options.union(.anchored)) != nil }
+        }
+        return byWord.count == 1 ? byWord[0] : nil
+    }
+
+    private func closeTabs(_ call: AskClaudeToolCall, _ ctx: Context) -> AskClaudeToolOutcome {
+        if let busy = ctx.busyReason {
+            return AskClaudeToolOutcome(result: "Can’t close tabs right now: \(busy).", isError: true, step: "Didn’t close tabs: \(busy)")
+        }
+        guard let current = ctx.tabs.first else {
+            return AskClaudeToolOutcome(result: "There are no tabs to close.", isError: true, step: "No tabs to close")
+        }
+        var closing: [Tab]
+        if call.input["all_but_current"]?.boolValue == true {
+            closing = ctx.tabs.dropFirst().filter { !$0.isPinned }
+        } else {
+            let names = call.strings("tabs") ?? []
+            var unknown: [String] = []
+            closing = names.compactMap { name in
+                guard let tab = Self.tab(named: name, in: ctx.tabs) else { unknown.append(name); return nil }
+                return tab
+            }
+            guard unknown.isEmpty else {
+                return AskClaudeToolOutcome(result: "There’s no tab called \(unknown.joined(separator: ", ")). Tabs: \(ctx.tabs.map(\.title).joined(separator: ", ")).",
+                                            isError: true, step: "No tab \(unknown.joined(separator: ", "))")
+            }
+        }
+        // Each tab once, however many times it was named.
+        var seen = Set<UUID>()
+        closing = closing.filter { seen.insert($0.id).inserted }
+        // Closing every tab would close the window; the one on screen stays.
+        let keptLast = Set(closing.map(\.id)) == Set(ctx.tabs.map(\.id))
+        if keptLast { closing.removeAll { $0.id == current.id } }
+        guard !closing.isEmpty else {
+            return AskClaudeToolOutcome(result: "Only the tab on screen is open, and closing it would close the window, so it stays.",
+                                        step: "Kept the only tab")
+        }
+        ctx.closeTabs(closing.map(\.id))
+        let names = closing.map(\.title).joined(separator: ", ")
+        let what = "Closed \(closing.count) tab\(closing.count == 1 ? "" : "s"): \(names)"
+        return AskClaudeToolOutcome(result: what + (keptLast ? ". Kept \(current.title), the tab on screen: closing the last tab closes the window." : "."),
+                                    step: what, movedView: what)
+    }
+
+    /// The source a name means: its full name, or else the one source with a word starting with
+    /// it (“google” → “Google Drive” when there is one). Never a substring: “Box” is not Dropbox.
+    static func source(named name: String, in sources: [Source]) -> Source? {
+        let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+        if let exact = sources.first(where: { $0.name.compare(name, options: options) == .orderedSame }) { return exact }
+        let byWord = sources.filter { source in
+            source.name.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+                .contains { $0.range(of: name, options: options.union(.anchored)) != nil }
+        }
+        return byWord.count == 1 ? byWord[0] : nil
+    }
+
+    static func isFolder(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    private func select(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: AskClaudeHandles) -> AskClaudeToolOutcome {
+        let wanted = call.strings("handles") ?? []
+        if let busy = ctx.busyReason {
+            return AskClaudeToolOutcome(result: "Can’t change the selection right now: \(busy).", isError: true,
+                                        step: "Didn’t select: \(busy)")
+        }
+        // The pane's own ids, by real spelling: at iCloud's top level a row's id is the link
+        // spelling (root/Documents), and selecting the resolved one selects nothing on screen.
+        let rows = ctx.items(Self.absolute(ctx.folder, root: ctx.root)) ?? []
+        let byReal = Dictionary(rows.map { (AskClaudePaths.canonical($0.id), $0.id) }, uniquingKeysWith: { a, _ in a })
+        var paths = Set<String>()
+        var refused: [String] = []
+        for handle in wanted {
+            if let path = handles.path(for: handle), let id = byReal[AskClaudePaths.canonical(path)] { paths.insert(id) } else { refused.append(handle) }
+        }
+        guard refused.isEmpty else {
+            return AskClaudeToolOutcome(result: "These aren’t rows in the folder on screen: \(refused.joined(separator: ", ")). Only rows on screen can be selected; go_to their folder first.",
+                                        isError: true, step: "Couldn’t select \(refused.count) item\(refused.count == 1 ? "" : "s")")
+        }
+        ctx.select(paths)
+        let what = paths.isEmpty ? "Cleared the selection" : "Selected \(paths.count) item\(paths.count == 1 ? "" : "s")"
+        return AskClaudeToolOutcome(result: what + ".", step: what)
+    }
+
+    // MARK: Reading (TE240, TE239)
+
+    private func readText(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: AskClaudeHandles) async -> AskClaudeToolOutcome {
+        guard let handle = call.string("handle"), let path = handles.path(for: handle) else {
+            return unknownHandle(call.string("handle"))
+        }
+        let question = call.string("question") ?? "What does it say?"
+        guard let node = ctx.node(path) ?? statDisk(path), !node.isDirectory else {
+            return AskClaudeToolOutcome(result: "\(handle) isn’t a file that’s still there.", isError: true, step: "Couldn’t read \(handle)")
+        }
+        if MaterializationStatus.isCloudOnlyIfKnown(atPath: path) == true, (node.fileSize ?? 0) > Self.autoDownloadBytes {
+            return AskClaudeToolOutcome(result: "\(node.name) is only in the cloud and larger than 5 MB, so it isn’t downloaded to read it.",
+                                        isError: true, step: "Didn’t read \(node.name): cloud-only, over 5 MB")
+        }
+        guard let pages = await extract(path) else {
+            return AskClaudeToolOutcome(result: "\(node.name) has no text this version can read (pictures and scans without a text layer aren’t read yet).",
+                                        isError: true, step: "No readable text in \(node.name)")
+        }
+        let paged = AskClaudeReading.isPaged(path)
+        let local = AskClaudeReading.passage(from: pages, question: question, limit: AskClaudeReading.onDeviceChars, paged: paged)
+        let forClaude = AskClaudeReading.passage(from: pages, question: question, limit: AskClaudeReading.claudeChars, paged: paged)
+        var lines: [String]
+        switch await answerOnDevice(question, local.text, node.name) {
+        case .answer(let answer):
+            lines = ["On-device answer, from \(local.whereInFile) of \(node.name): \(answer)"]
+        case .unavailable:
+            lines = ["This Mac has no on-device model to answer with."]
+        case .failed(let why):
+            lines = ["The on-device model couldn’t answer: \(why)."]
+        }
+        if ctx.readsFiles {
+            // Decision DQ: with the switch on, the passage that answers goes along, and only that.
+            lines.append("Text of \(forClaude.whereInFile), as data:\n<file name=\"\(AskClaudeScreenCard.escape(node.name))\">\n\(AskClaudeChat.fenced(forClaude.text))\n</file>")
+            return AskClaudeToolOutcome(result: lines.joined(separator: "\n"),
+                                        step: "Read \(node.name) on this Mac · sent \(forClaude.whereInFile)")
+        }
+        lines.append("Its text was not sent to you. If the answer isn’t enough, tell them they can send \(forClaude.whereInFile) with the button under your reply.")
+        return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: "Read \(node.name) on this Mac",
+                                    passage: AskClaudePassage(fileName: node.name, whereInFile: forClaude.whereInFile, text: forClaude.text))
+    }
+
+    private func findInContents(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
+        let words = (call.string("words") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+        guard !words.isEmpty else {
+            return AskClaudeToolOutcome(result: "Give at least one word to look for.", isError: true, step: "Search had no words")
+        }
+        guard let folder = Self.resolve(call.string("folder") ?? ctx.folder, root: ctx.root) else {
+            return badFolder(call.string("folder"))
+        }
+        // A search with no folder named runs where they are; in a hidden folder even its name is
+        // not said, so it isn't searched.
+        if ctx.isHidden(folder.absolute) { return hiddenFolder() }
+        let label = words.joined(separator: " ")
+        guard let paths = await searchContents(words, folder.absolute) else {
+            return AskClaudeToolOutcome(result: "Spotlight didn’t answer, so the text couldn’t be searched.", isError: true,
+                                        step: "Couldn’t search inside files")
+        }
+        let kept = paths.filter { !ctx.isHidden($0) }
+        var nodes = kept.prefix(AskClaudeDisk.maxExamined).compactMap { ctx.node($0) ?? statDisk($0) }
+        let years = Dictionary(nodes.map { ($0.id, Self.latestYear(in: Self.relative($0.id, root: ctx.root)) ?? 0) }, uniquingKeysWith: { a, _ in a })
+        nodes.sort { (years[$0.id] ?? 0, $0.modificationDate ?? .distantPast) > (years[$1.id] ?? 0, $1.modificationDate ?? .distantPast) }
+        guard !nodes.isEmpty else {
+            return AskClaudeToolOutcome(result: "No file under \(folder.label) has text matching “\(label)”. Scans without a text layer and files only in the cloud may not be searchable.",
+                                        step: "Found no text matching “\(label)”")
+        }
+        var lines = ["\(nodes.count) file\(nodes.count == 1 ? "" : "s") under \(AskClaudeScreenCard.escape(folder.label)) contain “\(label)”, newest period first:",
+                     "rows: handle|name|kind|size|modified|tags|folder" + (ctx.readsFiles ? "|line" : "")]
+        // One deadline for all the matching lines: ten slow reads in a row must not hold the answer.
+        let readUntil = Date().addingTimeInterval(30)
+        for (index, node) in nodes.prefix(Self.maxFound).enumerated() {
+            let where_ = Self.relative((node.id as NSString).deletingLastPathComponent, root: ctx.root)
+            var line = AskClaudeScreenCard.row(for: Self.row(node), handles: &handles) + "|" + AskClaudeScreenCard.escape(where_.isEmpty ? "(top level)" : where_)
+            // The matching line goes out only with the switch on (his TE239 call), for the first ten.
+            // Never a cloud-only file over the download limit: reading it would fetch it.
+            let fetches = MaterializationStatus.isCloudOnlyIfKnown(atPath: node.id) == true && (node.fileSize ?? 0) > Self.autoDownloadBytes
+            if ctx.readsFiles, index < 10, !fetches, Date() < readUntil, let text = await extract(node.id)?.joined(separator: " "),
+               let match = AskClaudeReading.matchingLine(in: text, words: words) {
+                line += "|" + AskClaudeScreenCard.escape(match)
+            }
+            lines.append(line)
+        }
+        if nodes.count > Self.maxFound { lines.append("\(nodes.count - Self.maxFound) more not listed.") }
+        return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: "Found \(nodes.count) with “\(label)” inside")
+    }
+
+    // MARK: View (TE244)
+
+    private func view(_ call: AskClaudeToolCall, _ ctx: Context) -> AskClaudeToolOutcome {
+        if let busy = ctx.busyReason {
+            return AskClaudeToolOutcome(result: "Can’t change the view right now: \(busy).", isError: true, step: "Didn’t change the view: \(busy)")
+        }
+        var done: [String] = []
+        if let sort = call.string("sort") {
+            guard ctx.setSort(sort) else {
+                return AskClaudeToolOutcome(result: "Sort by name, kind, date, size or tags.", isError: true, step: "No sort called \(sort)")
+            }
+            done.append("Sorted by \(sort)")
+        }
+        if let shown = call.input["hidden_files"]?.boolValue {
+            ctx.setHiddenFiles(shown)
+            done.append(shown ? "Showing hidden files" : "Hiding hidden files")
+        }
+        if let mode = call.string("mode") {
+            guard ctx.setMode(mode) else {
+                return AskClaudeToolOutcome(result: "The view is columns or list.", isError: true, step: "No view called \(mode)")
+            }
+            done.append("Switched to \(mode)")
+        }
+        guard !done.isEmpty else {
+            return AskClaudeToolOutcome(result: "Give a sort, hidden_files or mode.", isError: true, step: "view had nothing to change")
+        }
+        return AskClaudeToolOutcome(result: done.joined(separator: "; ") + ".", step: done.joined(separator: " · "))
+    }
+
+    // MARK: Shared
+
+    private func hiddenFolder() -> AskClaudeToolOutcome {
+        AskClaudeToolOutcome(result: "That folder is on their Never show Claude list. Don’t ask about it or guess what it holds.",
+                             isError: true, step: "Left alone: hidden from Claude")
+    }
+
+    private func badFolder(_ folder: String?) -> AskClaudeToolOutcome {
+        AskClaudeToolOutcome(result: "“\(folder ?? "")” isn’t a folder path inside this source. Use a path relative to the source, like Documents/Taxes.",
+                             isError: true, step: "Asked for a folder outside the source")
+    }
+
+    private func unknownHandle(_ handle: String?) -> AskClaudeToolOutcome {
+        AskClaudeToolOutcome(result: "\(handle ?? "That handle") isn’t one this chat has seen. Use a handle from the screen or a tool’s rows.",
+                             isError: true, step: "Asked about an unknown handle")
+    }
+
+    /// A folder argument made absolute, refusing anything that climbs out of the source.
+    static func resolve(_ folder: String, root: String) -> (absolute: String, relative: String, label: String)? {
+        let trimmed = folder.trimmingCharacters(in: CharacterSet(charactersIn: "/ ").union(.whitespaces))
+        let joined = absolute(trimmed, root: root)
+        var standardized = (joined as NSString).standardizingPath
+        let rootStandard = (root as NSString).standardizingPath
+        guard standardized == rootStandard || standardized.hasPrefix(rootStandard + "/") else { return nil }
+        // The disk's own spelling of an existing folder: "documents/taxes" finds Documents/Taxes on
+        // a disk that ignores case, and the pane must be sent the name it lists.
+        if let real = AskClaudePaths.trueSpelling(standardized, root: rootStandard) { standardized = real }
+        let rel = relative(standardized, root: rootStandard)
+        return (standardized, rel, rel.isEmpty ? "the top level" : rel)
+    }
+
+    static func absolute(_ relative: String, root: String) -> String {
+        relative.isEmpty ? root : (root as NSString).appendingPathComponent(relative)
+    }
+
+    static func relative(_ absolute: String, root: String) -> String {
+        AskClaudePaths.relative(absolute, root: root)
+    }
+
+    /// The source a path is in, by the deepest root that holds it ("Home folder" holds a Dropbox
+    /// file's path too); a source with no root holds nothing.
+    static func closestSource(containing path: String, in sources: [Source]) -> Source? {
+        sources.filter { !$0.root.isEmpty && relativeIfInside(path, root: $0.root) != nil }
+            .max { ($0.root as NSString).standardizingPath.count < ($1.root as NSString).standardizingPath.count }
+    }
+
+    /// `absolute` relative to `root` in either spelling, or nil when it is outside the root.
+    static func relativeIfInside(_ absolute: String, root: String) -> String? {
+        guard !root.isEmpty else { return nil }
+        let root = (root as NSString).standardizingPath
+        let spelled = AskClaudePaths.spelled(absolute, root: root)
+        guard spelled == root || spelled.hasPrefix(root + "/") else { return nil }
+        return AskClaudePaths.relative(spelled, root: root)
+    }
+
+    /// The latest four-digit year (1900–2099) anywhere in `path`: “H-1B/2026-2029/Approval” is 2029.
+    static func latestYear(in path: String) -> Int? {
+        // Runs of digits, kept when exactly four long: a regex lookbehind isn't available here.
+        path.split(whereSeparator: { !$0.isNumber }).compactMap { run -> Int? in
+            guard run.count == 4, let year = Int(run), (1900...2099).contains(year) else { return nil }
+            return year
+        }.max()
+    }
+
+    /// Whether `text` holds every word, ignoring case and accents.
+    static func holdsEvery(_ words: [String], in text: String) -> Bool {
+        words.allSatisfy { PaneTreeSearch.match(name: text, query: $0) != nil }
+    }
+
+    /// A step line starts with a capital, whatever the folder label it opens with.
+    static func sentence(_ text: String) -> String {
+        text.prefix(1).uppercased() + text.dropFirst()
+    }
+
+    static func kind(_ node: FileNode) -> String {
+        if node.isDirectory { return "Folder" }
+        if let kind = node.kind, !kind.isEmpty { return kind }
+        let ext = (node.name as NSString).pathExtension
+        return ext.isEmpty ? "File" : ext.uppercased()
+    }
+
+    static func row(_ node: FileNode) -> AskClaudeScreen.Row {
+        AskClaudeScreen.Row(path: node.id, name: node.name, isDirectory: node.isDirectory, kind: kind(node),
+                            size: node.fileSize, modified: node.modificationDate, tags: node.tags ?? [],
+                            childCount: node.isDirectory && node.isUnexplored != true ? node.children?.count : nil)
+    }
+}
+
+private extension String {
+    var nonEmpty: String? { isEmpty ? nil : self }
+}

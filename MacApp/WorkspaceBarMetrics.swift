@@ -115,7 +115,9 @@ enum WorkspaceBarMetrics {
     // what keeps the five labels under a floor that would otherwise have had to rise further.
 
     /// Toolbar width the bar can never have: the traffic lights and their margin, the minimum gap
-    /// before the trailing group, and the utility pill (Settings, Activity Log, Info). Deliberately
+    /// before the trailing group, the utility pill (Settings, Activity Log, Info), and Ask Claude's
+    /// button (RD69, v7.0) — a glass circle of its own plus the gap before the pill, charged at 44,
+    /// an estimate on the generous side rather than a measurement. Deliberately
     /// generous — being one segment too cautious costs a label, being one too optimistic costs the
     /// entire control behind an overflow chevron.
     ///
@@ -124,7 +126,7 @@ enum WorkspaceBarMetrics {
     /// over-reserving whenever it is compact or under-reserving whenever it is full. It is charged
     /// per-rung in ``styles(contentWidth:labelWidths:searchLabelWidth:searchKeycapWidth:openField:)``,
     /// which is the one place the two controls' widths are added together.
-    static let reservedChrome: CGFloat = 78 + 24 + 132
+    static let reservedChrome: CGFloat = 78 + 24 + 132 + 44
 
     /// Width of the bar with every label spelled out.
     ///

@@ -793,6 +793,10 @@ private struct InfoInspectorKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
 
+private struct AskClaudeKey: FocusedValueKey {
+    typealias Value = Binding<Bool>
+}
+
 private struct DifferencesListVisibleKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
@@ -1096,6 +1100,12 @@ extension FocusedValues {
     var infoInspector: Binding<Bool>? {
         get { self[InfoInspectorKey.self] }
         set { self[InfoInspectorKey.self] = newValue }
+    }
+
+    /// Ask Claude's panel (RD69). Nil while a destination pick is up.
+    var askClaude: Binding<Bool>? {
+        get { self[AskClaudeKey.self] }
+        set { self[AskClaudeKey.self] = newValue }
     }
 
     /// The differences list, in VISIBLE sense (the stored flag is "collapsed"). `nil` when the
@@ -3004,6 +3014,32 @@ struct ToggleInspectorCommand: View {
             }))
             .keyboardShortcut(AppChord.infoInspector.key, modifiers: AppChord.infoInspector.modifiers)
             .disabled(infoInspector == nil)
+    }
+}
+
+/// View ▸ Info Inspector and View ▸ Ask Claude as ONE child of the View menu's builder, which is
+/// at its ten — the same shape as `ColumnCommands` and `PaneChromeCommands`.
+struct InspectorAndAskClaudeCommands: View {
+    var body: some View {
+        ToggleInspectorCommand()
+        ToggleAskClaudeCommand()
+    }
+}
+
+/// View ▸ Ask Claude, ⌘J (RD69, v7.0) — the toolbar button's menu half, so the chord fires with
+/// focus in a file table, where it always is.
+struct ToggleAskClaudeCommand: View {
+    @FocusedValue(\.askClaude) private var askClaude
+    /// Observed, so the tick follows the panel: the binding alone is rebuilt only when the window
+    /// redraws, which opening the panel deliberately doesn't do.
+    @FocusedObject private var visibility: AskClaudeVisibility?
+
+    var body: some View {
+        Toggle("Ask Claude", isOn: Binding(
+            get: { visibility?.isOpen ?? askClaude?.wrappedValue ?? false },
+            set: { askClaude?.wrappedValue = $0 }))
+            .keyboardShortcut(AppChord.askClaude.key, modifiers: AppChord.askClaude.modifiers)
+            .disabled(askClaude == nil)
     }
 }
 

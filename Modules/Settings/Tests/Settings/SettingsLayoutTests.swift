@@ -121,7 +121,7 @@ import Testing
     /// as a literal because the Settings module cannot see `MacApp`; the same arrangement
     /// `sheetClampsToTheSpaceTheHostHas` has always used, and the direction is safe — a floor
     /// raised in `ContentView` without updating this only ever gives the sheet more room.
-    private static let windowFloor = CGSize(width: 760, height: 560)
+    private static let windowFloor = CGSize(width: 804, height: 560)
 
     /// The version string this branch's builds actually carry, mirroring `project.yml`'s
     /// `CFBundleShortVersionString`. Kept in step by the release procedure in `RELEASE.md`, which

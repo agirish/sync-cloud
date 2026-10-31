@@ -130,6 +130,12 @@ enum AppCopyScan {
         return [
             .init(file: "Modules/Dashboard/Sources/Dashboard/FileActionHandler.swift", contains: "tell application \"Finder\"",
                   reason: "AppleScript source, run and never shown"),
+            .init(file: "MacApp/AskClaude/AskClaudeDisk.swift", contains: "kMDItemFSName",
+                  reason: "Spotlight query syntax, sent to the index and never shown"),
+            .init(file: "MacApp/AskClaude/AskClaudeReading.swift", contains: "kMDItemTextContent",
+                  reason: "Spotlight query syntax, sent to the index and never shown"),
+            .init(file: "MacApp/AskClaude/AskClaudeBrowseTools.swift", contains: "<file name=", reason: prompt),
+            .init(file: "MacApp/AskClaude/AskClaudeChat.swift", contains: "<file name=", reason: prompt),
             .init(file: "Modules/FileExplorer/Sources/FileExplorer/RestructureLens.swift", contains: "'T'", reason: dateFormat),
             .init(file: "Modules/FileExplorer/Sources/FileExplorer/RestructurePlanSheet.swift", contains: "'T'", reason: dateFormat),
             .init(file: "Modules/Sync/Sources/Sync/FilingArtifactStamp.swift", contains: "'T'", reason: dateFormat),

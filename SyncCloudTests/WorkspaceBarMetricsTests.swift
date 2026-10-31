@@ -19,14 +19,14 @@ import FileExplorer
 /// the old numbers were true of a toolbar this app no longer has.
 @Suite struct WorkspaceBarMetricsTests {
 
-    /// The narrowest window there is: `ContentView`'s `.frame(minWidth: 810, …)`, which
+    /// The narrowest window there is: `ContentView`'s `.frame(minWidth: 804, …)`, which
     /// `.windowResizability(.contentMinSize)` makes a floor rather than a preference.
     ///
     /// **One constant, because "the floor" is a claim every test here makes.** It was the bare
     /// literal 600, nine times across four tests, until the window was raised — and a literal
     /// repeated nine times is nine chances to update eight of them, the shape that leaves one
     /// assertion quietly measuring a width no window can have.
-    private static let windowFloor: CGFloat = 760
+    private static let windowFloor: CGFloat = 804
 
     /// The real labels at the real weight, so these assertions measure the shipping bar rather
     /// than a hypothetical one. Semibold because that is the selected segment's weight, and the

@@ -159,7 +159,7 @@ import FileExplorer
     ///   `enabledProviders` by the ids as they now are.
     @Test func theSwitchNavigatesFirstThenAdoptsUnderSuppressionThenReloads() throws {
         let body = try declarationBody(
-            of: "private func switchSourceAndReveal(providerId: String, path: String) {",
+            of: "private func switchSourceAndReveal(providerId: String, path: String, isLeft paneIsLeft: Bool? = nil) {",
             in: try Self.source("CommandPaletteHost.swift"))
         let focus = try #require(body.range(of: "syncManager.focusOn(relativePath: relative"),
                                  "the switch no longer focuses the pane on the typed folder at all")
@@ -189,7 +189,7 @@ import FileExplorer
     /// logging exists for — `revealInSourcePane` shipped two silent `return`s of exactly this shape.
     @Test func everyRefusalIsLoggedRatherThanReturningSilently() throws {
         let body = try declarationBody(
-            of: "private func switchSourceAndReveal(providerId: String, path: String) {",
+            of: "private func switchSourceAndReveal(providerId: String, path: String, isLeft paneIsLeft: Bool? = nil) {",
             in: try Self.source("CommandPaletteHost.swift"))
         for branch in ["case .noSuchSource:", "case .outsideNamedSource(let root):",
                        "case .nothingAtThatPath:"] {
@@ -208,10 +208,11 @@ import FileExplorer
     /// the same side, and the side has to be a binding rather than the expression twice.
     @Test func bothWritesNameTheSameCapturedPane() throws {
         let body = try declarationBody(
-            of: "private func switchSourceAndReveal(providerId: String, path: String) {",
+            of: "private func switchSourceAndReveal(providerId: String, path: String, isLeft paneIsLeft: Bool? = nil) {",
             in: try Self.source("CommandPaletteHost.swift"))
         let code = Self.codeOnly(body)
-        #expect(code.contains("let isLeft = !aimedAtRight"),
+        // A caller may name its pane (Ask Claude setting one side of Compare); otherwise the aim.
+        #expect(code.contains("let isLeft = paneIsLeft ?? !aimedAtRight"),
                 "the aimed pane is no longer captured once at the top")
         // Counted, not merely present: a second live read of `aimedAtRight` in here is the shape
         // that made the Organize route reveal into the wrong pane.
@@ -233,7 +234,7 @@ import FileExplorer
     /// route has always used, so this introduces no asymmetry between the two path rows.
     @Test func theSwitchMovesOnePaneAndNeverFollowsTheLink() throws {
         let body = try declarationBody(
-            of: "private func switchSourceAndReveal(providerId: String, path: String) {",
+            of: "private func switchSourceAndReveal(providerId: String, path: String, isLeft paneIsLeft: Bool? = nil) {",
             in: try Self.source("CommandPaletteHost.swift"))
         let code = Self.codeOnly(body)
         for both in ["focusBoth", "PaneLinkPreference", "isLinked", "PaneSideChoice.sibling"] {

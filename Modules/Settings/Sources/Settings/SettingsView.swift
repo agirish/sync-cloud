@@ -417,6 +417,30 @@ public struct SettingsView: View {
 
 // MARK: - Settings search
 
+public extension SettingsView.SettingsTab {
+    /// The tab that holds a setting or section named in words (“Ask Claude”, “monthly limit”,
+    /// “API key”), by the same index Settings' own search reads: an exact title first, then a title
+    /// containing it, then a keyword. Nil when nothing matches.
+    static func holding(_ words: String) -> SettingsView.SettingsTab? {
+        let needle = words.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty else { return nil }
+        let entries = SettingsSearchIndex.all
+        // Whole words: "log" is Log level, not "Launch SyncCloud at login".
+        func wordsOf(_ text: String) -> [Substring] { text.lowercased().split { !$0.isLetter && !$0.isNumber } }
+        let wanted = wordsOf(needle)
+        func holdsWords(_ title: String) -> Bool {
+            let have = wordsOf(title)
+            return !wanted.isEmpty && have.indices.contains { start in
+                have.dropFirst(start).starts(with: wanted)
+            }
+        }
+        return (entries.first { $0.title.lowercased() == needle }
+                ?? entries.first { $0.keywords.contains { $0.lowercased() == needle } }
+                ?? entries.first { holdsWords($0.title) }
+                ?? entries.first { $0.matches(needle) })?.tab
+    }
+}
+
 /// One searchable settings control: the tab it lives on, its display title, and a few
 /// synonyms/keywords so a search for "blur" finds "Glass effect" and "trash" finds the
 /// delete confirmation. Pure data with a pure match — no SwiftUI — so the filter is unit-testable.
@@ -650,9 +674,22 @@ enum SettingsSearchIndex {
         // and the product says Claude, and someone pasting an `sk-ant-…` types whichever of the
         // two they last read — which for anyone coming from the Console or the Refine button is
         // "claude api key".
-        .init(tab: .intelligence, title: "Anthropic API key",
-              keywords: ["api key", "key", "keychain", "sk-ant", "anthropic key", "token",
-                         "api", "credentials", "secret", "claude", "claude key", "claude api key"]),
+        .init(tab: .intelligence, title: "Claude API key",
+              keywords: ["api key", "key", "keychain", "sk-ant", "anthropic key", "anthropic api key", "token",
+                         "api", "credentials", "secret", "claude", "claude key"]),
+        // Ask Claude (RD69, v7.0): the chat panel's own model and limit, separate from Filing's.
+        .init(tab: .intelligence, title: "Ask Claude",
+              keywords: ["chat", "assistant", "ask", "claude chat", "panel", "⌘J", "copilot", "help me"]),
+        .init(tab: .intelligence, title: "Answers",
+              keywords: ["brief", "detailed", "verbose", "answer length", "concise", "ask claude answers"]),
+        .init(tab: .intelligence, title: "Let Claude read files",
+              keywords: ["read files", "file contents", "passage", "privacy", "send text", "ask claude reading"]),
+        .init(tab: .intelligence, title: "Hidden from Claude",
+              keywords: ["never show claude", "hide folder", "privacy", "exclude", "private folders"]),
+        .init(tab: .intelligence, title: "Monthly limit",
+              keywords: ["ask claude limit", "chat limit", "spend limit", "budget", "cap", "money"]),
+        .init(tab: .intelligence, title: "This month",
+              keywords: ["ask claude spend", "chat cost", "spent", "usage", "cost"]),
         .init(tab: .intelligence, title: "Cloud model",
               keywords: ["model", "haiku", "sonnet", "opus", "claude model"]),
         // Titled for the section it now sits in ("Cost and limits"); "cloud spend" stays as a
@@ -2416,6 +2453,13 @@ struct IntelligenceSettingsTab: View {
     @AppStorage(FileSyncManager.reuseVerdictsDefaultsKey) private var filingReuseVerdicts: Bool = true
     @AppStorage(FileSyncManager.monthlyBudgetCapKey) private var monthlyBudgetUSD: Double = 0
     @AppStorage(FileSyncManager.totalBudgetCapKey) private var totalBudgetUSD: Double = FileSyncManager.defaultTotalBudgetCapUSD
+    @AppStorage(AskClaudeModels.defaultsKey) private var askClaudeModel: String = AskClaudeModels.defaultModel.id
+    @AppStorage(AskClaudeSpend.limitDefaultsKey) private var askClaudeLimitUSD: Double = AskClaudeSpend.defaultLimitUSD
+    @AppStorage(AskClaudeDetail.defaultsKey) private var askClaudeAnswers: String = AskClaudeDetail.brief.rawValue
+    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
+    @AppStorage(AskClaudePrivacy.readsFilesKey) private var askClaudeReadsFiles = false
+    @State private var askClaudeHidden: [String] = []
+    @State private var askClaudeSpentUSD = 0.0
 
     /// How many saved suggestions there are. Read on appear and after a clear rather than computed
     /// in `body`: answering it touches the cache file, and `body` runs far more often than the
@@ -2492,12 +2536,112 @@ struct IntelligenceSettingsTab: View {
             }
 
             SettingsSection(
+                "Claude API key",
+                caption: "Used by Organize’s Refine and by Ask Claude, and billed to that key. A Max or Ultra plan’s monthly API credit pays for both once its Console organization is linked. The key is stored in the macOS Keychain."
+            ) {
+                CloudKeyRow()
+            }
+
+            SettingsSection(
+                "Ask Claude",
+                caption: "The chat button in the toolbar, ⌘J. Claude sees a description of the screen you’re on — the names, kinds, sizes, dates and tags of what’s shown — and can look things up, move your view and open your places. When it needs what’s inside a file, this Mac reads the file and sends Claude a short answer, not the file; a passage goes only if you send it, or always with Let Claude read files on. It can’t change files. Every answer says what it sent and what it cost."
+            ) {
+                SettingsRow("Model") {
+                    Picker("Model", selection: Binding(
+                        get: { AskClaudeModels.option(for: askClaudeModel).id },
+                        set: { askClaudeModel = $0 })) {
+                        ForEach(AskClaudeModels.options) { option in
+                            Text(option.label).tag(option.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                    .help("Sonnet 5.5 answers a typical question for about a cent. Changing it starts a new chat at the next question.")
+                }
+                SettingsRow("Answers") {
+                    Picker("Answers", selection: $askClaudeAnswers) {
+                        ForEach(AskClaudeDetail.allCases, id: \.rawValue) { detail in
+                            Text(detail.label).tag(detail.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .accentedSegments(LiquidGlassHue(rawValue: glassHueRaw) ?? .blue)
+                    .labelsHidden()
+                    .fixedSize()
+                    .help("Brief answers in a sentence or two. Detailed explains what it checked and names close alternatives, and costs a little more per answer. Changing it starts a new chat at the next question.")
+                }
+                SettingsRow("Monthly limit") {
+                    Picker("Monthly limit", selection: $askClaudeLimitUSD) {
+                        ForEach(AskClaudeSpend.limitChoices, id: \.self) { value in
+                            Text(value == 0 ? "No limit" : AskClaudeSpend.format(value)).tag(value)
+                        }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                    .help("Ask Claude warns at 80% of this and stops taking questions at it, until the month turns. Estimated from list prices; the Console has what was billed.")
+                }
+                SettingsRow("This month") {
+                    Text(AskClaudeSpend.format(askClaudeSpentUSD))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                Toggle("Let Claude read files", isOn: $askClaudeReadsFiles)
+                    .help("Off: a file’s text is read on this Mac by the on-device model, and a passage goes to Claude only when you press Send. On: the passage that answers goes without asking, never a whole file.")
+                SettingsRow("Hidden from Claude") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if askClaudeHidden.isEmpty {
+                            Text("None").foregroundStyle(.secondary)
+                        }
+                        ForEach(askClaudeHidden, id: \.self) { folder in
+                            HStack(spacing: 6) {
+                                Text((folder as NSString).abbreviatingWithTildeInPath)
+                                    .lineLimit(1).truncationMode(.middle)
+                                // Hidden by path: a folder renamed or moved since is no longer
+                                // covered, so the list says so rather than looking protected.
+                                if !FileManager.default.fileExists(atPath: folder) {
+                                    Text("Not found — renamed or moved?")
+                                        .font(.caption)
+                                        .foregroundStyle(.orange)
+                                        .help("This folder is hidden by its path. If it was renamed or moved, add it again under its new name.")
+                                }
+                                Button("Remove") {
+                                    AskClaudePrivacy.unhide(folder, in: .standard)
+                                    askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard)
+                                }
+                                .controlSize(.small)
+                                .accessibilityLabel("Remove \((folder as NSString).lastPathComponent) from the hidden list")
+                            }
+                        }
+                        Button("Add Folder…") {
+                            let panel = NSOpenPanel()
+                            panel.canChooseDirectories = true
+                            panel.canChooseFiles = false
+                            panel.allowsMultipleSelection = true
+                            panel.prompt = "Hide from Claude"
+                            if panel.runModal() == .OK {
+                                for url in panel.urls { AskClaudePrivacy.hide(url.path, in: .standard) }
+                                askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard)
+                            }
+                        }
+                        .controlSize(.small)
+                    }
+                    .help("Claude is never shown what’s in these folders: not their names, not their files. They appear to it only as a count.")
+                }
+            }
+            .onAppear { askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard) }
+            .onReceive(NotificationCenter.default.publisher(for: AskClaudePrivacy.didChange)
+                .receive(on: DispatchQueue.main)) { _ in askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard) }
+            .onAppear { askClaudeSpentUSD = AskClaudeSpend.spent(in: .standard) }
+            .onReceive(NotificationCenter.default.publisher(for: AskClaudeSpend.didChange)
+                .receive(on: DispatchQueue.main)) { _ in askClaudeSpentUSD = AskClaudeSpend.spent(in: .standard) }
+
+            SettingsSection(
                 "Claude (cloud)",
-                caption: "Refining is the opt-in second pass — once a scan has results, a Refine button re-asks Claude about them, billed to your API key. It is the only thing here that spends money, it never runs on its own, and you see a cost estimate before each one. To keep cost low it sends your folder names plus file names — and a short text excerpt only for files whose name says nothing — for up to 150 files per pass. Pick Haiku for the cheapest runs (roughly a penny a pass). The key is stored in the macOS Keychain."
+                caption: "Refining is the opt-in second pass — once a scan has results, a Refine button re-asks Claude about them, billed to your API key. With Ask Claude above, it is what spends money here; it never runs on its own, and you see a cost estimate before each one. To keep cost low it sends your folder names plus file names — and a short text excerpt only for files whose name says nothing — for up to 150 files per pass. Pick Haiku for the cheapest runs (roughly a penny a pass). The key is stored in the macOS Keychain."
             ) {
                 Toggle("Use Claude (cloud) to refine suggestions", isOn: $filingUseCloud)
                     .disabled(!Self.cloudToggleEnabled(useAI: filingUseAI))
-                    .help("Lets Organize’s Refine button send to Claude — with the key below; without one it offers to bring you back here instead. Scans stay free and on-device either way; refining is the only thing that reaches Claude, and only when you click it.")
+                    .help("Lets Organize’s Refine button send to Claude — with the key above; without one it offers to bring you back here instead. Scans stay free and on-device either way; Organize reaches Claude only when you click Refine.")
                 // Shown ALWAYS, disabled rather than absent when the toggles are off. It used to
                 // be gated on `filingUseCloud && filingUseAI`, which meant "is a key stored?" —
                 // the one question this row exists to answer — became unanswerable the moment
@@ -2508,7 +2652,6 @@ struct IntelligenceSettingsTab: View {
                 // which swept the toggle in and made cloud refining impossible to switch on at
                 // all — see `cloudToggleEnabled`.
                 Group {
-                    CloudKeyRow()
                     // Read through `currentModel(for:)` so a value stored before a model refresh
                     // (e.g. "claude-opus-4-8") still lights up its family's row instead of leaving
                     // the picker blank — the scan resolves it the same way.

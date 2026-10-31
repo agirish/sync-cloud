@@ -1418,9 +1418,13 @@ import Sync
         // **`ContentView+Editor.swift` joined the list on 2026-10-03**: when Edit opens a file the
         // pane follows it by tab — `selectTab` to a tab already at its folder, `openTabAtRoute` for a
         // new one — and the waiting tabs of a batch from Finder are built with `tabAtRoute`.
+        //
+        // **`ContentView+AskClaude.swift` joined it in v7.0** (RD69): Ask Claude's `go_to` switches
+        // to a tab by name (`selectTab`), opens a folder in a new tab (`openInNewTab`), and names
+        // the tabs on screen to Claude (`paneTabItems`, a reader).
         let wiringFiles = ["ContentView.swift", "ShortcutCommands.swift", "ContentView+PaneSearch.swift",
                            "ContentView+FolderSidebar.swift", "CommandPaletteHost.swift",
-                           "ContentView+Editor.swift"]
+                           "ContentView+Editor.swift", "ContentView+AskClaude.swift"]
         var derived: Set<String> = []
         for file in hostFiles where file.lastPathComponent != "ContentView+PaneTabs.swift" {
             let code = Self.codeOnly(try String(contentsOf: file, encoding: .utf8))

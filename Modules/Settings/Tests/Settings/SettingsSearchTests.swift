@@ -21,6 +21,18 @@ import Testing
         #expect(filterSettings(SettingsSearchIndex.all, query: "zzzznotasetting").isEmpty)
     }
 
+    /// Ask Claude's show_in_app opens Settings at the tab holding a named setting (RD69 v7.0).
+    @Test func aSettingNamedInWordsFindsItsTab() {
+        #expect(SettingsView.SettingsTab.holding("Ask Claude") == .intelligence)
+        #expect(SettingsView.SettingsTab.holding("monthly limit") == .intelligence)
+        #expect(SettingsView.SettingsTab.holding("API key") == .intelligence)
+        #expect(SettingsView.SettingsTab.holding("Theme") == .appearance)
+        #expect(SettingsView.SettingsTab.holding("Log level") == SettingsSearchIndex.all.first { $0.title == "Log level" }?.tab)
+        #expect(SettingsView.SettingsTab.holding("log") == SettingsSearchIndex.all.first { $0.title == "Log level" }?.tab)
+        #expect(SettingsView.SettingsTab.holding("zzzznotasetting") == nil)
+        #expect(SettingsView.SettingsTab.holding("  ") == nil)
+    }
+
     @Test func titleMatchIsFound() {
         let results = filterSettings(SettingsSearchIndex.all, query: "Log level")
         #expect(results.contains { $0.title == "Log level" })
@@ -148,7 +160,7 @@ import Testing
             .intelligence: ["Suggest folders with on-device AI",
                             "Read file contents on-device for better signals",
                             "Use Claude (cloud) to refine suggestions",
-                            "Anthropic API key", "Cloud model",
+                            "Claude API key", "Cloud model",
                             "Cost and limits", "Monthly budget cap", "Total budget cap",
                             "Reuse suggestions for files that haven’t changed", "Saved suggestions"],
             .people: ["People", "Add Person…"],
@@ -201,7 +213,7 @@ import Testing
     /// right destination is that the key is on it, and if the key ever moves again this fails
     /// instead of agreeing with itself.
     @Test func theCloudRefineOfferLandsOnTheTabThatHoldsTheKey() throws {
-        let key = try #require(SettingsSearchIndex.all.first { $0.title == "Anthropic API key" })
+        let key = try #require(SettingsSearchIndex.all.first { $0.title == "Claude API key" })
         let toggle = try #require(SettingsSearchIndex.all.first {
             $0.title == "Use Claude (cloud) to refine suggestions"
         })
@@ -225,8 +237,8 @@ import Testing
     @Test func theApiKeyIsFindableByTheWordsPeopleActuallyType() {
         for query in ["api key", "anthropic", "claude", "keychain", "sk-ant", "token", "secret"] {
             let results = filterSettings(SettingsSearchIndex.all, query: query)
-            #expect(results.contains { $0.title == "Anthropic API key" && $0.tab == .intelligence },
-                    "'\(query)' should surface the Anthropic API key control")
+            #expect(results.contains { $0.title == "Claude API key" && $0.tab == .intelligence },
+                    "'\(query)' should surface the Claude API key control")
         }
     }
 

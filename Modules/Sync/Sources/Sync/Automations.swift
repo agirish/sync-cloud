@@ -527,7 +527,7 @@ extension AutomationRule {
 /// condition's payload (``AutomationCondition/unrecognized``) or a rule field it has no case for.
 /// Kept as a value rather than as raw `Data` because it has to sit inside a `Codable`, `Hashable`
 /// struct and be written back through whatever encoder the caller is using.
-indirect enum JSONFragment: Codable, Equatable, Hashable, Sendable {
+public indirect enum JSONFragment: Codable, Equatable, Hashable, Sendable {
     case null, bool(Bool), integer(Int), unsignedInteger(UInt64), number(Double), string(String)
     case array([JSONFragment]), object([String: JSONFragment])
 
@@ -538,7 +538,7 @@ indirect enum JSONFragment: Codable, Equatable, Hashable, Sendable {
     /// untouched" must not be the thing that alters it. Everything else round-trips as it arrived,
     /// also measured: `7` stays `7` (not `7.0`) and is still `Int`-decodable, `true` decodes as a
     /// Bool rather than as 1, and nesting survives.
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let c = try decoder.singleValueContainer()
         if c.decodeNil() { self = .null }
         else if let v = try? c.decode(Bool.self) { self = .bool(v) }
@@ -556,7 +556,7 @@ indirect enum JSONFragment: Codable, Equatable, Hashable, Sendable {
         else { self = .object(try c.decode([String: JSONFragment].self)) }
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var c = encoder.singleValueContainer()
         switch self {
         case .null: try c.encodeNil()

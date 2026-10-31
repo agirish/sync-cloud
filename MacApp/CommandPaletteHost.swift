@@ -347,6 +347,26 @@ extension ContentView {
         if aimedAtRight { rightProviderId = id } else { leftProviderId = id }
     }
 
+    /// Points one named pane at a source, a folder, or both — ⌘K's own routes, aimed at a side
+    /// rather than at the pane the palette is aimed at. Ask Claude sets Compare's two sides with it
+    /// (RD69), and its Browse moves go through it with `isLeft` true, so a focused right pane in
+    /// Compare can't take a move meant for the left.
+    func movePane(isLeft: Bool, providerId: String?, absolutePath: String?) {
+        let current = isLeft ? leftProviderId : rightProviderId
+        if let providerId, providerId != current {
+            if let absolutePath {
+                switchSourceAndReveal(providerId: providerId, path: absolutePath, isLeft: isLeft)
+            } else if isLeft {
+                leftProviderId = providerId
+            } else {
+                rightProviderId = providerId
+            }
+        } else if let absolutePath {
+            let root = (settings.rootPath(for: current) as NSString).expandingTildeInPath
+            revealInSourcePane(absolutePath, root: root, isLeft: isLeft)
+        }
+    }
+
     /// The store's rule, wired to the real disk. Separate from `FolderJumpStore.reachable` so the
     /// rule stays testable without one, and `static` for the reason `isMountedFolder` is.
     /// `nonisolated`, so the one rule is reachable from the sidebar refresh's detached walk as
@@ -792,11 +812,12 @@ extension ContentView {
     ///
     /// The workspace is left alone, exactly as `.folder` leaves it: this is a navigation, not a
     /// change of place.
-    private func switchSourceAndReveal(providerId: String, path: String) {
+    private func switchSourceAndReveal(providerId: String, path: String, isLeft paneIsLeft: Bool? = nil) {
         // **Which pane, read once and used for every write below.** `aimedAtRight` is computed over
         // the layout, and re-reading it per statement is how `aimOrganize` came to reveal a
-        // right-pane scope into the left pane.
-        let isLeft = !aimedAtRight
+        // right-pane scope into the left pane. A caller that names its pane (Ask Claude, setting
+        // one side of Compare) is taken at its word.
+        let isLeft = paneIsLeft ?? !aimedAtRight
         // The pane's own list, not the discovered one — `paneCanShowSource`'s reading. A source
         // switched off in Settings is one no refresh will walk, so pointing a pane at it is the
         // invisible middle case `PaneTabProviderSwitch` was written around.

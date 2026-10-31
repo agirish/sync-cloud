@@ -77,6 +77,10 @@ public extension AppChord {
     // General
     static let settings = AppChord(",", .command)
     static let infoInspector = AppChord("i", .command)
+    /// ⌘J — Ask Claude's panel (RD69, v7.0). Free in this app: no chord here used J, and it is not
+    /// one of macOS's reserved single-window equivalents. A menu item like ⌘K, for the same reason:
+    /// focus-scoped key handlers never fire with focus in a file table.
+    static let askClaude = AppChord("j", .command)
     static let activityLog = AppChord("l", .command)
     static let shortcutsReference = AppChord("/", .command)
     /// ⌘K — the command palette (ROADMAP 14).
@@ -411,7 +415,7 @@ public extension AppChord {
     /// source. `workspace(_:)` is excluded on purpose — it is a family, not a chord, and the
     /// reference lists it as the range `⌘ 1 – ⌘ N`, which its own test pins.
     static let registry: [AppChord] = [
-        settings, infoInspector, activityLog, shortcutsReference, commandPalette,
+        settings, infoInspector, askClaude, activityLog, shortcutsReference, commandPalette,
         selectAll, cut, copy, paste,
         findInPane, paneBack, paneForward, rescan, newFolder,
         saveDocument, newTextFile, printDocument, openInEditor,

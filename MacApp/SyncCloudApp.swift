@@ -873,7 +873,8 @@ struct SyncCloudApp: App {
                 PaneChromeCommands()            // ⇧⌘T, and Status Bar with no chord
                 ToggleHiddenFilesCommand()      // ⇧⌘.
                 TogglePreviewColumnCommand()    // ⇧⌘P
-                ToggleInspectorCommand()        // ⌘I — and Italic, when the caret is in Edit's document
+                // With Ask Claude after it, as one child — this builder is at its ten. See the type.
+                InspectorAndAskClaudeCommands() // ⌘I (and Italic in Edit's document), ⌘J
                 ToggleDifferencesListCommand()  // ⌘D
                 FoldAllDifferencesCommand()     // ⇧⌘F
                 // The whole app's type, on the slider's own stops (roadmap RD2): a divider and a

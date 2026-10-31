@@ -100,6 +100,7 @@ enum ShortcutsReference {
             // Routed by where the caret is, like ⌘F: the row has to name both meanings, because
             // this is the one place a reader is told the chord has two.
             Item(keys: "⌘ I", action: "Show or hide the Info inspector — in Edit’s text, Italic"),
+            Item(keys: "⌘ J", action: "Show or hide Ask Claude, to ask about the screen you’re on"),
             Item(keys: "⌘ L", action: "Open Activity — runs, messages, Sync History and the log"),
             // The slider's own stops, from the keyboard — never a size Settings cannot reach. The
             // same keys zoom a PDF whose pages have the keyboard (`PDFZoomVerbs`), so the row names

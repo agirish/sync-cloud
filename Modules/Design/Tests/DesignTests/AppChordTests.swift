@@ -11,6 +11,7 @@ import Foundation
     @Test func everyChordRendersItsDocumentedDisplay() {
         #expect(AppChord.settings.display == "⌘,")
         #expect(AppChord.infoInspector.display == "⌘I")
+        #expect(AppChord.askClaude.display == "⌘J")
         #expect(AppChord.activityLog.display == "⌘L")
         #expect(AppChord.shortcutsReference.display == "⌘/")
         #expect(AppChord.commandPalette.display == "⌘K")
