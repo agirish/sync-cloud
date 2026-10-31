@@ -1,6 +1,7 @@
 import SwiftUI
 import Dashboard
 import Events
+import FileExplorer
 import Settings
 import Sync
 import Design
@@ -803,7 +804,9 @@ extension ContentView {
             onMoveFavorite: { from, to in moveFolderSidebarFavorite(from: from, to: to) },
             onMoveSource: { from, to in moveFolderSidebarSource(from: from, to: to) },
             onFavoriteRecent: { row, to in favoriteRecentByDrag(row, to: to) },
-            onForgetRecent: { row in forgetFolderSidebarRecent(row) })
+            onForgetRecent: { row in forgetFolderSidebarRecent(row) },
+            // One-way sync's Syncs (RD67 ED): Compare's sidebar only.
+            syncs: selectedWorkspace == .compare ? AnyView(OneWaySyncSidebarSection(onSetUp: { openOneWaySyncSetup() })) : nil)
         .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
     }
 

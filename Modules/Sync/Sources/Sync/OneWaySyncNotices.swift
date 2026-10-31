@@ -103,6 +103,21 @@ public struct OneWaySyncNoticeRow: Equatable, Sendable, Identifiable {
     public var raisedAt: Int64
 
     public var stopsTheWholeSync: Bool { members.contains { $0.scope == .wholeSync } }
+
+    /// One notice's row, unfolded.
+    public init(_ notice: OneWaySyncNotice) {
+        self.init(id: notice.id, title: notice.title, detail: notice.detail, buttons: notice.buttons,
+                  members: [notice], raisedAt: notice.raisedAt)
+    }
+
+    init(id: String, title: String, detail: String?, buttons: [OneWaySyncNoticeButton], members: [OneWaySyncNotice], raisedAt: Int64) {
+        self.id = id
+        self.title = title
+        self.detail = detail
+        self.buttons = buttons
+        self.members = members
+        self.raisedAt = raisedAt
+    }
 }
 
 /// A notification due now: a row's first, or its reminder.

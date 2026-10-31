@@ -7,6 +7,11 @@ import Combine
 /// and serializes file operations (copy, move, delete) with undo support and termination guards.
 @MainActor
 public class FileSyncManager: ObservableObject {
+    /// **One-way sync's copy is iCloud's to change** (RD67): given the paths a rename, move or
+    /// delete is about to touch, why it may not, or nil. Set by the app; a synced Dropbox file is
+    /// changed in iCloud, and the sync carries it over.
+    public var oneWaySyncRefusal: (([String]) -> String?)?
+
     /// File system abstraction used for all disk I/O (supports injection for tests).
     public let fileManager: FileManaging
     

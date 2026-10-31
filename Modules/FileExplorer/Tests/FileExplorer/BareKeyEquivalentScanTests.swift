@@ -171,6 +171,10 @@ import Testing
         // the same modal convention.
         "DestinationPicker.swift":
             "modal sheet: Cancel/Choose pair, plus ⇧⌘N (a chord, not a bare key)",
+        // One-way sync's sheets (RD67), each presented with `.sheet` over the window that asked
+        // for it: ⏎ on the primary, esc on Later/Cancel, the platform convention for a modal.
+        "OneWaySyncSheets.swift":
+            "modal sheets: each primary carries .defaultAction, Later/Cancel .cancelAction",
         // Sheet with a single Done button.
         "FilingSpendHistoryView.swift":
             "modal sheet: a lone Done button carrying .defaultAction",

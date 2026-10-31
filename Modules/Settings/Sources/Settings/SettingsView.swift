@@ -315,7 +315,8 @@ public struct SettingsView: View {
         onResetSetup: (() -> Void)? = nil,
         onShowPerson: ((Person) -> Void)? = nil,
         onOpenHelp: ((String) -> Void)? = nil,
-        availableSize: CGSize? = nil
+        availableSize: CGSize? = nil,
+        oneWaySync: AnyView? = nil
     ) {
         _selectedTab = selection
         self.onClose = onClose
@@ -326,7 +327,11 @@ public struct SettingsView: View {
         self.onShowPerson = onShowPerson
         self.onOpenHelp = onOpenHelp
         self.availableSize = availableSize
+        self.oneWaySync = oneWaySync
     }
+
+    /// Sync ▸ One-Way Sync (RD67): the app's, since its state lives above Settings.
+    private let oneWaySync: AnyView?
 
     /// The sheet's size: see `SettingsSheetMetrics`, which owns the arithmetic.
     private var sheetSize: CGSize {
@@ -395,7 +400,7 @@ public struct SettingsView: View {
             case .people:
                 PeopleSettingsTab(syncManager: syncManager, onShowPerson: onShowPerson)
             case .sync:
-                SyncSettingsTab(syncManager: syncManager)
+                SyncSettingsTab(syncManager: syncManager, oneWaySync: oneWaySync)
             case .filing:
                 FilingSettingsTab(syncManager: syncManager)
             case .duplicates:
@@ -565,6 +570,9 @@ enum SettingsSearchIndex {
                          "which person", "match", "attribute", "explain"]),
 
         // Sync
+        .init(tab: .sync, title: "One-Way Sync",
+              keywords: ["one-way", "one way", "mirror", "sync now", "icloud to dropbox", "dropbox", "pause", "synccloud removed",
+                         "stopped syncing", "first run", "turn off"]),
         .init(tab: .sync, title: "When a file already exists",
               keywords: ["conflict", "conflict policy", "overwrite", "replace", "keep both", "duplicate handling"]),
         .init(tab: .sync, title: "Treat dates as equal within",
@@ -2061,12 +2069,21 @@ enum SettingsPickerOptions {
 struct SyncSettingsTab: View {
     @EnvironmentObject var settings: SettingsManager
     let syncManager: FileSyncManager?
+    var oneWaySync: AnyView?
     @AppStorage(GeneralSettings.confirmBeforeDeleteKey) private var confirmBeforeDelete: Bool = true
     @AppStorage(GeneralSettings.confirmBeforeTransferKey) private var confirmBeforeTransfer: Bool = true
     @State private var patternDraft = ""
 
     var body: some View {
         SettingsPage {
+            if let oneWaySync {
+                SettingsSection(
+                    "One-Way Sync",
+                    caption: "iCloud to Dropbox, one way: change files in iCloud and Sync Now copies the change. Whatever SyncCloud removes or replaces in Dropbox goes to Dropbox ▸ SyncCloud Removed."
+                ) {
+                    oneWaySync
+                }
+            }
             SettingsSection(
                 "Conflicts",
                 caption: "Applies to copies, moves, and syncs. Keep both renames the incoming file; Replace moves the existing file to the Trash first. Folder conflicts always ask."

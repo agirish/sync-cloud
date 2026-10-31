@@ -10,10 +10,39 @@ User-facing changes, newest first. For the full commit history see the
 > What is on `main` since v6.2. It may still change before v6.3 is cut, and nothing here is
 > installable from a release yet.
 
-**Know when a cloud folder is out of date.** v6.3 says when Dropbox, OneDrive or Google Drive isn't
-syncing, notices when a pane's folders change on disk, and compares files of any size by content.
+**Copy iCloud to Dropbox, one way, and know when a cloud folder is out of date.** v6.3 syncs chosen
+folders from iCloud Drive to Dropbox when you click Sync Now, says when Dropbox, OneDrive or Google
+Drive isn't syncing, notices when a pane's folders change on disk, and compares files of any size by
+content.
 
 Requires **macOS 26**, unchanged from v6.2.
+
+### One-way sync
+
+- **Sync chosen folders from iCloud Drive to Dropbox, when you click Sync Now.** Set it up from
+  Compare: the One-Way Sync pill beside the differences count, or Add a Sync… in the Syncs section
+  of Compare's sidebar. Setup opens on the two folders Compare shows when one is in iCloud Drive and
+  the other in Dropbox, and takes three steps: the folders with the same name in both, what to do
+  when someone changes a copy in Dropbox, and what the first sync will do. Folders macOS reports as
+  shared, and the ones Dropbox manages, aren't offered; SyncCloud can't see Dropbox's own sharing,
+  so you confirm none is shared there. The last step counts what the first sync will copy, replace
+  with iCloud's newer version and leave for you to choose. Start Syncing needs the Dropbox app to
+  have run for five minutes and be quiet.
+- **Sync Now copies what changed in iCloud:** new files, edits, renames and moves, and deletions. A
+  renamed folder moves once in Dropbox, with nothing uploaded again. A deletion is copied once the
+  file has been gone 30 minutes and a later Sync Now still finds it gone.
+- **Nothing in Dropbox is deleted outright.** Whatever the sync removes or replaces goes to Dropbox
+  ▸ SyncCloud Removed.
+- **What needs you waits in Activity ▸ Now.** A file changed directly in Dropbox, and more removals
+  in a day than the limit, wait there with Choose a Version…, Review… and Match iCloud, with a
+  notification if you turned them on. A sync in Activity ▸ History offers Reverse in iCloud….
+- **Each side says what it is.** The pill and the sidebar say how the sync stands; the iCloud pane
+  says "Changes made here" and the Dropbox pane "Kept as a copy". In SyncCloud's Dropbox pane,
+  renaming, moving or deleting a synced file is refused, and Show in iCloud finds the file it comes
+  from.
+- **Settings ▸ Sync ▸ One-Way Sync** has Pause, Choose Folders…, the two settings for changes made
+  in Dropbox, files you stopped syncing, SyncCloud Removed with Choose Items to Empty…, and Turn Off
+  One-Way Sync…. Only SyncCloud in the Applications folder syncs.
 
 ### Cloud apps
 
@@ -59,6 +88,13 @@ Requires **macOS 26**, unchanged from v6.2.
 
 ### Known limitations
 
+- One-way sync runs only when you click Sync Now; it doesn't yet sync on its own as files change.
+- Reverse in iCloud… doesn't offer a file copied into a synced folder, or two names swapped.
+- One-way sync notices an edit by a file's size or date: an edit that keeps both, which is rare,
+  isn't copied until the file changes again.
+- In SyncCloud's Dropbox pane, a copy that replaces a synced file, and Compare's copies and syncs
+  into Dropbox, aren't refused. The next Sync Now finds it edited in Dropbox, and the “If a
+  Dropbox file is edited” setting decides.
 - The check that runs after each scan still skips files over 100 MB. Verify All checks them.
 - A pane that reaches a cloud account through a link in your home folder, such as `~/OneDrive`, shows
   no cloud app line.

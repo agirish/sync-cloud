@@ -104,6 +104,10 @@ struct HeaderLadder {
 
         // View zone
         var showsCollapseToggle: Bool
+
+        /// The room the host's status pill takes after the count (one-way sync's, RD67 ED): its
+        /// widest, which the drawn pill is capped at. Zero without one.
+        var accessoryWidth: CGFloat = 0
     }
 
     /// Every control's laid-out width, measured once. Which controls a rung actually *draws* is the
@@ -279,6 +283,7 @@ struct HeaderLadder {
     func width(of compaction: HeaderCompaction) -> CGFloat {
         var run: [CGFloat] = [widths.countPill]
         if facts.itemCountsText != nil { run.append(widths.itemCounts) }
+        if facts.accessoryWidth > 0 { run.append(facts.accessoryWidth) }
         run.append(Self.dividerWidth)
         if FoldAllAction.isOffered(sectionCount: facts.sectionCount, compaction: compaction) {
             run.append(Self.glyphButtonSide)

@@ -15,6 +15,8 @@ struct ContentView: View {
     @EnvironmentObject var settings: SettingsManager
     /// Whose cloud app isn't syncing (RD68) — the amber bar under a pane's header.
     @ObservedObject var cloudApps = CloudAppMonitor.shared
+    /// One-way sync (RD67): the toolbar's chip, the panes' role line, Compare's strip, its sheets.
+    @ObservedObject var oneWaySync = OneWaySyncController.shared
     /// Read here rather than in `ContentView+Toolbar`, which is an extension and cannot declare
     /// stored properties. Gates the sidebar toggle's reveal — see `withDesignAnimation`.
     @Environment(\.accessibilityReduceMotion) var reduceMotion
@@ -1301,6 +1303,36 @@ struct ContentView: View {
                 toolbarStyleSet = styles
             }
             .toolbar { mainToolbar }
+            .oneWaySyncSheets(host: .main)
+            // A synced Dropbox file is changed in iCloud: the panes' rename, move and delete ask first.
+            .task {
+                syncManager.oneWaySyncRefusal = { paths in OneWaySyncController.shared.refusal(forChanging: paths) }
+                oneWaySync.onOpenActivity = { openActivityOnNow() }
+                oneWaySync.onOpenSettings = { openSettings(on: .sync) }
+                // The sync's own writes are this process's, which the watcher doesn't report:
+                // the walks listing them are dropped and the panes read again.
+                oneWaySync.onWrote = { paths in
+                    for path in paths { syncManager.prepareReread(afterWritingAt: path) }
+                    // Only the pane that shows what was written reads again: usually Dropbox's.
+                    let roots = [true, false].map { isLeft in
+                        OneWaySyncDisk.canonicalPath(URL(fileURLWithPath:
+                            (settings.rootPath(for: paneContext(isLeft: isLeft).providerId) as NSString).expandingTildeInPath))
+                    }
+                    func shows(_ isLeft: Bool) -> Bool {
+                        let root = roots[isLeft ? 0 : 1]
+                        return paths.contains { path in
+                            let canonical = OneWaySyncDisk.canonicalPath(URL(fileURLWithPath: path))
+                            return canonical == root || canonical.hasPrefix(root + "/") || root.hasPrefix(canonical + "/")
+                        }
+                    }
+                    switch (shows(true), shows(false)) {
+                    case (true, true): _ = refreshAction()
+                    case (true, false): _ = refreshAction(reloading: .leftOnly)
+                    case (false, true): _ = refreshAction(reloading: .rightOnly)
+                    case (false, false): break
+                    }
+                }
+            }
             // Names the window on the two surfaces that read `NSWindow.title` whether or not a
             // title bar is drawn — the Window menu and Mission Control. Zero-sized, in the
             // background, because it is a binding to AppKit and not a view.
@@ -3031,7 +3063,8 @@ struct ContentView: View {
                 helpTopic = topic
                 showHelp = true
             },
-            availableSize: available
+            availableSize: available,
+            oneWaySync: AnyView(OneWaySyncSettingsView())
         )
         .environment(\.cloudAppStatusLabels, cloudApps.problems.mapValues(\.shortLabel))
         .environmentObject(settings)
@@ -5025,6 +5058,11 @@ struct ContentView: View {
     /// own (TE236).
     private func treeView(_ pane: PaneContext) -> some View {
         VStack(spacing: 0) {
+            // Which side of one-way sync this pane shows (RD67).
+            if let role = oneWaySync.role(ofFolder: shownFolder(isLeft: pane.isLeft)) {
+                OneWaySyncRoleLine(role: role)
+                Divider()
+            }
             if let problem = cloudApps.problem(for: pane.providerId) {
                 CloudAppWarningBar(
                     problem: problem,
@@ -5449,7 +5487,10 @@ struct ContentView: View {
             // the window toolbar. Its Open in Edit leaves the left pane where it is (`.staysPut`):
             // that pane is half of the comparison this list IS, and re-rooting it would re-scope the
             // comparison, re-run its scan and drop the session's "Ignore in comparison" entries.
-            DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, paneRules: paneRules, onQuickLook: { toggleQuickLook($0) }, onGetInfo: { showInfo(for: $0) }, onOpenInEditor: { handOffToEditor($0, pane: .staysPut) }, isCollapsed: $bottomPaneCollapsed, shortcutsSuspended: pendingDestination != nil, onCompareFilePair: { compareDifferencePair = $0 }, session: differencesSession)
+            DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, paneRules: paneRules, onQuickLook: { toggleQuickLook($0) }, onGetInfo: { showInfo(for: $0) }, onOpenInEditor: { handOffToEditor($0, pane: .staysPut) }, isCollapsed: $bottomPaneCollapsed, shortcutsSuspended: pendingDestination != nil, onCompareFilePair: { compareDifferencePair = $0 }, session: differencesSession,
+                            // One-way sync's pill beside the count (RD67 ED).
+                            accessory: AnyView(OneWaySyncStatusPill(onSetUp: { openOneWaySyncSetup() })),
+                            accessoryWidth: OneWaySyncStatusPill.maxWidth)
         } else {
             // Compare with nothing to list yet: scanning / all-in-sync / not-scanned placeholder.
                 Group {

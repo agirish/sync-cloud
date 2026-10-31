@@ -985,7 +985,7 @@ build notes and what was measured on this Mac, is
 tracks what is left.
 
 **On `main`:** the engine core (`53e3e480d`: record, matching order, diff, removal limit), the
-folder watcher (`ce6490cc2`, item 5's work), hashing of any size (`624799987`, `7508cfebf`) and
+file-writing layer (`df5520a32`), the saved state (`d86f30909`), the folder watcher (`ce6490cc2`, item 5's work), hashing of any size (`624799987`, `7508cfebf`) and
 the cloud-app status RD67 stops on (RD68, `c7a3a7839` and follow-ups).
 
 **v6.3 waits for step 3** (his call EC, 2026-10-30): the cut is held until a manual Sync Now is
@@ -993,11 +993,13 @@ on `main`. Steps 1–2 come first; step 4 follows its week of hand use, so it ma
 
 **Left, in order:**
 1. The sync's own replace and SyncCloud Removed: stage outside Dropbox, clone the old version, keep
-   the Dropbox item (in progress).
+   the Dropbox item (landed).
 2. Saved state: the record on disk, History entries written before applying, saved Needs-you rows,
-   one writing process and one writing Mac (in progress).
-3. A manual **Sync Now**: setup, first-run preview, Review and Choose a Version, Reverse in iCloud.
-   Used by hand for a week before the trigger ships.
+   one writing process and one writing Mac (landed).
+3. A manual **Sync Now**: setup, first-run preview, Review and Choose a Version, Reverse in iCloud
+   (built; in its week of hand use). Not done in it: hashing a file whose change time moved with
+   its size and date unchanged (the record keeps no change time), and Reverse of a file copied in
+   (the plan's copy doesn't carry where it came from).
 4. The watcher as the trigger, then unattended removals.
 
 **Not measured:** whether macOS reports a shared Dropbox folder as shared (decision DL asks at setup

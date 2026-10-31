@@ -19,6 +19,9 @@ public struct OneWaySyncRemovedItem: Equatable, Sendable {
         case movedOutInICloud
         /// Made redundant when a Dropbox-only file with the same contents was adopted.
         case duplicateOfAdoptedFile
+        /// iCloud's version, kept before SyncCloud wrote over it in iCloud (*Copy Dropbox’s into
+        /// iCloud*, *Reverse in iCloud*). Outside DG's and DJ's limits.
+        case replacedICloudVersion
         /// Nothing on the item says where it came from; its place in the folder still does.
         case unrecorded
     }
@@ -200,6 +203,20 @@ public struct OneWaySyncRemovedStore: Sendable {
         let placed = try OneWaySyncDisk.url(path, in: accountFolder)
         ChangedFileLedger.shared.note(placed.path)
         return item(at: placed, path: path, origin: origin)
+    }
+
+    /// Where an item removed from `dropboxPath` (relative to the account folder) at `date` would
+    /// go now: the first free name at its place. A moment's answer, ticked into History before
+    /// the move, so a crash mid-move still names where the file went.
+    public func nextPlace(forDropboxPath dropboxPath: String, at date: Date) -> String {
+        let folderPath = OneWaySyncPath.join(Self.folderName + "/" + dayName(date), OneWaySyncPath.parent(dropboxPath))
+        let name = OneWaySyncPath.name(dropboxPath)
+        guard let folder = try? OneWaySyncDisk.url(folderPath, in: accountFolder) else { return folderPath + "/" + name }
+        for attempt in 1...10_000 {
+            let candidate = Self.numbered(name, attempt)
+            if OneWaySyncDisk.kind(at: folder.appendingPathComponent(candidate).path) == nil { return folderPath + "/" + candidate }
+        }
+        return folderPath + "/" + name
     }
 
     /// Moves `url` to the first free name at its place in the store and returns that place.

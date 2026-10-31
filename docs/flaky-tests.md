@@ -4751,3 +4751,30 @@ wait for the next push, before changing anything.
 
 **Not fixed.** One red run, healed by the next. If it recurs, a retry of the failed package build
 from a clean `.build` in `hosted-ci.yml` would turn it green at the cost of one cold build.
+
+### 48. Every FileExplorer shard stops making progress under load, with `CompareRenderCancellationTests` waiting on its lane — cause not found
+
+**Symptom.** `scripts/test-shards Modules/FileExplorer` never finishes: no chunk reports, and the
+three `swiftpm-testing-helper` processes sit at 37–98% CPU each. Seen twice in a row on this Mac on
+2026-10-31, from the RD67 Sync Now branch (`61c17cf77`), while other sessions' builds held the load
+average at 5–10. Once for 71 minutes, then for 32 minutes; both runs were stopped by hand. The same
+tree had run all six chunks green 40 minutes before, with one design-scan red that was its own. At
+08:18, with the load starting near 4, the same command ran all 4,569 tests green in 237 s.
+
+**What was seen.** `swift-inspect dump-concurrency` on one wedged helper, 18 minutes in, found
+`CompareRenderCancellationTests.ofThreeQueuedCancellingTwoRunsOne` inside its bounded
+`waitForQueued`. Its three detached renders were parked in `PDFKitSerialAccess.performUnlessCancelled`
+behind the test's `LaneHold`. The same dump held 16 `FileRowView` badge lookups waiting in
+`CloudOnlyBadgeCache.isCloudOnly` and several `LayoutPumpWait.pump` callers from other suites.
+Run alone, the suite passes in 0.07 s.
+
+**Not established:** why the shards stopped progressing. `waitForQueued` is bounded, so being inside
+it at the moment of the dump does not make this test the one that hung. It may simply have been the
+test running when the dump was taken. The CPU use says something spun; one dump of one helper can't
+say what. If it recurs, dump all three helpers twice a minute apart, and compare which tasks moved.
+
+**Tell.** Load average well above the slot count, no chunk ever reports, and the helpers stay busy.
+Check `uptime` and `scripts/build-slot --status`, stop the run (killing the wrapper ends its helpers),
+and run it again once the load is down before suspecting the commit.
+
+**Not fixed.**

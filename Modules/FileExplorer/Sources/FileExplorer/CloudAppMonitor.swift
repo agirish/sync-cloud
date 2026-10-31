@@ -24,6 +24,9 @@ public final class CloudAppMonitor: ObservableObject {
         public var changes: @Sendable () -> [(path: String, at: Date)]
         /// Where the app is installed, or nil. A LaunchServices call; asked off the main thread.
         public var appURL: @Sendable (CloudApp) -> URL?
+        /// When the app's running process started, or nil when unknown: the Dropbox gate's five
+        /// minutes count from it, not from when SyncCloud first saw it (RD67).
+        public var startedAt: @Sendable (CloudApp) -> Date?
 
         public init(isRunning: @escaping @Sendable (CloudApp) -> Bool,
                     iCloudAvailable: @escaping @Sendable () -> Bool,
@@ -31,7 +34,8 @@ public final class CloudAppMonitor: ObservableObject {
                     reading: @escaping @Sendable (String) -> CloudAppStatusModel.UploadReading,
                     unanswered: @escaping @Sendable () -> [String],
                     changes: @escaping @Sendable () -> [(path: String, at: Date)],
-                    appURL: @escaping @Sendable (CloudApp) -> URL? = { _ in nil }) {
+                    appURL: @escaping @Sendable (CloudApp) -> URL? = { _ in nil },
+                    startedAt: @escaping @Sendable (CloudApp) -> Date? = { _ in nil }) {
             self.isRunning = isRunning
             self.iCloudAvailable = iCloudAvailable
             self.isLiveAccount = isLiveAccount
@@ -39,6 +43,7 @@ public final class CloudAppMonitor: ObservableObject {
             self.unanswered = unanswered
             self.changes = changes
             self.appURL = appURL
+            self.startedAt = startedAt
         }
 
         public static let live = System(
@@ -50,7 +55,8 @@ public final class CloudAppMonitor: ObservableObject {
             changes: { ChangedFileLedger.shared.drain() },
             appURL: { app in
                 app.bundleIdentifiers.lazy.compactMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }.first
-            })
+            },
+            startedAt: { RunningBundles.shared.earliestStart(of: $0.bundleIdentifiers) })
     }
 
     @Published public private(set) var problems: [String: CloudAppProblem] = [:]
@@ -59,6 +65,10 @@ public final class CloudAppMonitor: ObservableObject {
     @Published public private(set) var notices: [CloudAppNotice] = []
 
     private var model = CloudAppStatusModel()
+    /// The status as the rules hold it, for one-way sync's Dropbox gate (RD67).
+    public var statusModel: CloudAppStatusModel { model }
+    /// When the Mac last woke while SyncCloud ran: the gate's five minutes count from it too.
+    public private(set) var lastWake: Date?
     private var providers: [CloudProvider] = []
     private var disabled: Set<String> = []
     /// Dismissed notices, by id, at the signature they had.
@@ -117,6 +127,7 @@ public final class CloudAppMonitor: ObservableObject {
         let workspace = NSWorkspace.shared.notificationCenter
         observers.append(workspace.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
+                self?.lastWake = self?.clock()
                 self?.liveAccounts = [:]
                 self?.requestRefresh()
             }
@@ -205,10 +216,13 @@ public final class CloudAppMonitor: ObservableObject {
         let system = self.system
         // `.userInitiated`: a launch clears its warning through this half, and on a busy Mac a
         // `.utility` thread waited minutes (hosted CI, 2026-10-30).
-        let (running, iCloudAvailable) = await Self.offPool(qos: .userInitiated) {
-            (Set(CloudApp.allCases.filter(system.isRunning)), system.iCloudAvailable())
+        let (running, iCloudAvailable, starts) = await Self.offPool(qos: .userInitiated) { () -> (Set<CloudApp>, Bool, [CloudApp: Date]) in
+            let running = Set(CloudApp.allCases.filter(system.isRunning))
+            var starts: [CloudApp: Date] = [:]
+            for app in running { starts[app] = system.startedAt(app) }
+            return (running, system.iCloudAvailable(), starts)
         }
-        for app in CloudApp.allCases { model.app(app, isRunning: running.contains(app), at: now) }
+        for app in CloudApp.allCases { model.app(app, isRunning: running.contains(app), at: now, startedAt: starts[app]) }
         if let lastRunning, lastRunning != running {
             for app in running.subtracting(lastRunning).sorted() { Logger.shared.info("Cloud app status: \(app.name) is running") }
             for app in lastRunning.subtracting(running).sorted() {
@@ -406,6 +420,33 @@ final class RunningBundles: @unchecked Sendable {
     static func bundlePath(ofExecutable path: String) -> String? {
         guard let range = path.range(of: "/Contents/MacOS/", options: .backwards) else { return nil }
         return String(path[..<range.lowerBound])
+    }
+
+    /// When the earliest of this user's processes from a bundle with one of `identifiers` started,
+    /// read from the kernel (`pbi_start_tvsec`); nil when none runs.
+    func earliestStart(of identifiers: [String]) -> Date? {
+        let wanted = Set(identifiers)
+        let capacity = proc_listallpids(nil, 0)
+        guard capacity > 0 else { return nil }
+        var pids = [pid_t](repeating: 0, count: Int(capacity) + 64)
+        let count = pids.withUnsafeMutableBufferPointer {
+            proc_listallpids($0.baseAddress, Int32($0.count * MemoryLayout<pid_t>.size))
+        }
+        guard count > 0 else { return nil }
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        let user = getuid()
+        let infoSize = Int32(MemoryLayout<proc_bsdinfo>.size)
+        var earliest: Date?
+        for pid in pids.prefix(Int(count)) where pid > 0 {
+            var info = proc_bsdinfo()
+            guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, infoSize) == infoSize, info.pbi_uid == user,
+                  proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0,
+                  let bundle = Self.bundlePath(ofExecutable: String(cString: buffer)),
+                  let id = identifier(ofBundle: bundle), wanted.contains(id) else { continue }
+            let start = Date(timeIntervalSince1970: TimeInterval(info.pbi_start_tvsec) + TimeInterval(info.pbi_start_tvusec) / 1_000_000)
+            earliest = min(earliest ?? start, start)
+        }
+        return earliest
     }
 
     /// Every running process's executable path — this user's only: another user logged in on the

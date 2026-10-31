@@ -91,25 +91,25 @@ public struct OneWaySyncListing: Equatable, Sendable {
 }
 
 /// Path arithmetic on the relative, `/`-separated paths the sync works in.
-enum OneWaySyncPath {
-    static func components(_ path: String) -> [String] {
+public enum OneWaySyncPath {
+    public static func components(_ path: String) -> [String] {
         path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
     }
 
-    static func depth(_ path: String) -> Int { components(path).count }
+    public static func depth(_ path: String) -> Int { components(path).count }
 
-    static func top(_ path: String) -> String { components(path).first ?? "" }
+    public static func top(_ path: String) -> String { components(path).first ?? "" }
 
-    static func parent(_ path: String) -> String { components(path).dropLast().joined(separator: "/") }
+    public static func parent(_ path: String) -> String { components(path).dropLast().joined(separator: "/") }
 
-    static func name(_ path: String) -> String { components(path).last ?? "" }
+    public static func name(_ path: String) -> String { components(path).last ?? "" }
 
-    static func join(_ parent: String, _ name: String) -> String { parent.isEmpty ? name : parent + "/" + name }
+    public static func join(_ parent: String, _ name: String) -> String { parent.isEmpty ? name : parent + "/" + name }
 
     /// Whether moving the Dropbox item at `current` to `desired` changes anything Dropbox shows.
     /// The folder part compares as Dropbox does, ignoring case; the last component compares
     /// exactly, so a change of letter case alone is a rename in place. Unicode form never counts.
-    static func needsMove(from current: String, to desired: String) -> Bool {
+    public static func needsMove(from current: String, to desired: String) -> Bool {
         let side = OneWaySyncSide.dropbox
         if side.nameKey(parent(current)) != side.nameKey(parent(desired)) { return true }
         return name(current).precomposedStringWithCanonicalMapping != name(desired).precomposedStringWithCanonicalMapping

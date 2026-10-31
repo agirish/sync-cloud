@@ -257,5 +257,5 @@ public struct OneWaySyncHistoryStore: Sendable {
         var recorded: OneWaySyncFileRecord?
     }
 
-    static func seconds(_ date: Date) -> Int64 { Int64(date.timeIntervalSince1970.rounded(.down)) }
+    public static func seconds(_ date: Date) -> Int64 { Int64(date.timeIntervalSince1970.rounded(.down)) }
 }

@@ -112,6 +112,10 @@ public struct DifferencesView: View {
     /// and hands the freed height to the panes above). `nil` — the default — means the pane can't
     /// collapse and the chevron is withheld.
     private let isCollapsed: Binding<Bool>?
+    /// A status pill after the count — one-way sync's (RD67 ED), in both the collapsed bar and the
+    /// header — and the widest it may draw, which the header's ladder prices.
+    private let accessory: AnyView?
+    private let accessoryWidth: CGFloat
     /// True while the host has a destination pick in flight — its overlay blocks the mouse from
     /// this header, so the menu chords published below must go quiet too. See
     /// `ShortcutValuePublisher.suspended` for the full rationale; this is the same rule, carried
@@ -159,7 +163,9 @@ public struct DifferencesView: View {
     ///     action, one per side that holds a text file). The app routes this to the same
     ///     `handOffToEditor` every other door uses, told to leave the left pane where it is —
     ///     here it is half of the comparison; `nil` hides the items.
-    public init(syncManager: FileSyncManager, reviewStore: ReviewSessionStore, paneNames: PaneProviderNames = .leftRight, paneRules: PaneProviderRules = .strictest, onQuickLook: ((URL) -> Void)? = nil, onGetInfo: @escaping (String) -> Void = { _ in }, onOpenInEditor: ((String) -> Void)? = nil, isCollapsed: Binding<Bool>? = nil, shortcutsSuspended: Bool = false, onCompareFilePair: @escaping (DifferencePair) -> Void = { _ in }, session: DifferencesSession? = nil) {
+    public init(syncManager: FileSyncManager, reviewStore: ReviewSessionStore, paneNames: PaneProviderNames = .leftRight, paneRules: PaneProviderRules = .strictest, onQuickLook: ((URL) -> Void)? = nil, onGetInfo: @escaping (String) -> Void = { _ in }, onOpenInEditor: ((String) -> Void)? = nil, isCollapsed: Binding<Bool>? = nil, shortcutsSuspended: Bool = false, onCompareFilePair: @escaping (DifferencePair) -> Void = { _ in }, session: DifferencesSession? = nil, accessory: AnyView? = nil, accessoryWidth: CGFloat = 0) {
+        self.accessory = accessory
+        self.accessoryWidth = accessory == nil ? 0 : accessoryWidth
         self.syncManager = syncManager
         self.reviewStore = reviewStore
         self.paneNames = paneNames
@@ -679,7 +685,16 @@ public struct DifferencesView: View {
                 pill
             }
         }
+        accessoryView
         Spacer()
+    }
+
+    /// The host's status pill, no wider than the ladder priced it.
+    @ViewBuilder
+    private var accessoryView: some View {
+        if let accessory {
+            accessory.frame(maxWidth: accessoryWidth, alignment: .leading)
+        }
     }
 
     /// The show/hide chevron pinned to the header's trailing edge. Points down while the list is
@@ -845,7 +860,8 @@ public struct DifferencesView: View {
             leftName: paneNames.left,
             rightName: paneNames.right,
             isMove: modifierTracker.isMoveModifierPressed,
-            showsCollapseToggle: isCollapsed != nil && reviewStore.session == nil)
+            showsCollapseToggle: isCollapsed != nil && reviewStore.session == nil,
+            accessoryWidth: accessoryWidth)
     }
 
     /// The compaction rungs the ladder walks, in order. Read by `HeaderLadder.rung(fitting:)` to
@@ -874,6 +890,7 @@ public struct DifferencesView: View {
         HStack(spacing: 10) {
             countPillToggle(dressing)                           // STATE
             itemCountsReadout(facts.itemCountsText)
+            accessoryView
             ActionBarDivider()
             foldAllToggle(compaction, sections: sections)       // SCOPE
             filterMenu(compaction, sections: sections)

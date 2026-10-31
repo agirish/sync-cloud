@@ -13284,3 +13284,26 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s store=%s engine=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No one-way sync at all | RECORDED — not owed (new feature) |
+
+## One-way sync's Sync Now (RD67 step 3) — main only
+
+2026-10-31, for v6.3. On `main`: the first part of one-way sync a user runs — setup and its first
+run, Sync Now, Activity ▸ Now's rows and their sheets, Reverse in iCloud, Settings ▸ Sync ▸
+One-Way Sync — with the lister, the pass runner and the record keeper under them; the cloud-app
+monitor reading when Dropbox's process started and when the Mac woke; and the panes refusing to
+rename, move or delete a synced Dropbox file. A new feature, built on the engine, the writer and
+the saved state that only `main` has.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s run=%s planner=%s monitor=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/OneWaySyncRun.swift | wc -l | tr -d ' ')" \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/OneWaySyncPlanner.swift | wc -l | tr -d ' ')" \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/CloudAppMonitor.swift | wc -l | tr -d ' ')"; done
+# measured 2026-10-31, against origin, before this landed (the change reads run=1 on main):
+# main                         run=0 planner=1 monitor=1
+# v5.x / v4.x / v3.x / v2.x    run=0 planner=0 monitor=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No one-way sync at all | RECORDED — not owed (new feature) |

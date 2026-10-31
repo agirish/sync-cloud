@@ -72,6 +72,12 @@ public struct ActivityNowView: View {
         VStack(alignment: .leading, spacing: 0) {
             running(fillsWidth: false)
             Divider()
+            // One-way sync's rows (RD67, DC): what needs you, and what is for your information.
+            if !center.oneWaySync.rows.isEmpty {
+                // The popover hangs from the main window's toolbar: its sheets open there.
+                OneWaySyncNowRows(center: center, host: .main)
+                Divider()
+            }
             if !cloudApps.notices.isEmpty {
                 CloudAppNoticeRows(monitor: cloudApps)
                 Divider()
@@ -107,6 +113,14 @@ public struct ActivityNowView: View {
             running(fillsWidth: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .glassSurface(level, cornerRadius: Radius.card)
+            // One-way sync's rows (RD67, DC), saved: what needs you first, under what runs.
+            if !center.oneWaySync.rows.isEmpty {
+                ScrollView { OneWaySyncNowRows(center: center, host: .activity) }
+                    .frame(maxHeight: 320)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .glassSurface(level, cornerRadius: Radius.card)
+            }
             // A cloud app not syncing (RD68): information, between what runs and what was said.
             if !cloudApps.notices.isEmpty {
                 CloudAppNoticeRows(monitor: cloudApps)

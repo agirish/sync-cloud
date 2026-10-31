@@ -1166,6 +1166,8 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         let center = ActivityCenter.shared
         center.postOneWaySyncNotice = { OneWaySyncNotifier.post($0) }
         center.attachOneWaySync(OneWaySyncNoticeStore(url: OneWaySyncStore(directory: directory).noticesURL))
+        // Sync Now's state, read once; nothing syncs until asked (RD67 step 3).
+        OneWaySyncController.shared.start()
         oneWaySyncReminders = Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { _ in
             MainActor.assumeIsolated { ActivityCenter.shared.remindOneWaySync() }
         }
@@ -1753,6 +1755,8 @@ private struct ActivityWindowHost: View {
                        activeProgressStartedAt: syncManager.activeProgressStartedAt,
                        runWriteLock: syncManager.activeProgress.map { $0.runLockReason ?? Progress.genericRunLockReason },
                        scans: ActivityScanRows.rows(syncManager) { ActivityCenter.shared.doors.showScan($0) }) {
+            // One-way sync's History entries (RD67), with Reverse in iCloud…, above Sync History.
+            OneWaySyncHistoryHost()
             SyncHistoryView(
                 store: .shared,
                 runFilter: Binding(get: { ActivityCenter.shared.historyRun },
@@ -1764,6 +1768,23 @@ private struct ActivityWindowHost: View {
                     // itself — it used to land in the main window's banner, out of sight.
                     syncManager.undoLastSyncRunAskingFirst(confirm: SyncOperationAlerts.confirmUndoLastSyncRun)
                 })
+        }
+        // One-way sync's sheets opened from Now's rows and History (RD67), over this window.
+        .oneWaySyncSheets(host: .activity)
+    }
+}
+
+/// One-way sync's History entries over Sync History's, in a height of their own, only when it
+/// has any (RD67).
+private struct OneWaySyncHistoryHost: View {
+    @ObservedObject var controller = OneWaySyncController.shared
+
+    var body: some View {
+        if controller.isSetUp {
+            ScrollView { OneWaySyncHistoryRows() }
+                .frame(maxHeight: 240)
+                .fixedSize(horizontal: false, vertical: true)
+            Divider()
         }
     }
 }

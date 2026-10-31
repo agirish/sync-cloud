@@ -307,6 +307,14 @@ public final class OneWaySyncWriter {
         ChangedFileLedger.shared.note(target.path)
     }
 
+    /// Where `moveToRemoved` would put the Dropbox file at `dropboxPath` now, relative to the
+    /// account folder: what History is ticked with before the move.
+    public func removalPlace(dropboxPath: String) -> String? {
+        guard let target = try? OneWaySyncDisk.url(dropboxPath, in: places.dropboxParent),
+              let accountPath = try? accountPath(of: target) else { return nil }
+        return removed.nextPlace(forDropboxPath: accountPath, at: now())
+    }
+
     // MARK: Helpers
 
     /// Dropbox's file, re-checked against what the diff saw. Returns its state now.

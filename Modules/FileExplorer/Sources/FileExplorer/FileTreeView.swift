@@ -1743,6 +1743,12 @@ struct FileContextMenu: View {
                 Button(action: { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: singleNode.id)]) }) {
                     Label("Reveal in Finder", systemImage: RevealGlyph.inFinder)
                 }
+                // A file one-way sync copied from iCloud is changed there (RD67): the way to it.
+                if let iCloudPath = OneWaySyncController.shared.iCloudFile(forDropbox: singleNode.id) {
+                    Button(action: { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: iCloudPath)]) }) {
+                        Label("Show in iCloud", systemImage: "icloud")
+                    }
+                }
                 // **Ahead of Quick Look, deliberately** (roadmap Fig. 11). With no ＋ on screen
                 // until a second tab exists, this item is the whole discovery story for tabs — it
                 // earns a place people's eyes actually reach rather than the bottom of the menu.

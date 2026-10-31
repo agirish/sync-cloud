@@ -23,6 +23,32 @@ extension ContentView {
     /// is preserved via a hit-testable divider handle that updates `paneSplitFraction`.
     @ViewBuilder
     var panesSplit: some View {
+        panesRow
+    }
+
+    /// One-way sync's setup (RD67 EE), opened on the folders Compare's two panes show.
+    func openOneWaySyncSetup() {
+        oneWaySync.openSetup(panes: [shownFolder(isLeft: true), shownFolder(isLeft: false)])
+    }
+
+    /// The folder a pane shows: its source's root and where the pane is below it — in Columns,
+    /// the deepest open column, as the pane's own crumbs say.
+    func shownFolder(isLeft: Bool) -> String {
+        let pane = paneContext(isLeft: isLeft)
+        let root = (settings.rootPath(for: pane.providerId) as NSString).expandingTildeInPath
+        let relative = syncManager.paneLocation(isLeft: isLeft, drawsColumns: pane.viewMode == .columns)
+        return relative.isEmpty ? root : (root as NSString).appendingPathComponent(relative)
+    }
+
+    /// Opens Activity on Now: the toolbar chip's and the strip's door.
+    func openActivityOnNow() {
+        ActivityCenter.shared.tab = .now
+        ActivityCenter.shared.markSeen()
+        openWindow(id: ActivityCenter.windowID)
+    }
+
+    @ViewBuilder
+    private var panesRow: some View {
         GeometryReader { geo in
             // Named on `PaneLogic` so the sidebar's width clamp reasons about the SAME number —
             // two copies of a layout minimum is how a clamp comes to disagree with what it clamps.

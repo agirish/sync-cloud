@@ -592,6 +592,8 @@ public struct FolderSidebarView: View {
     }
 
     private let folderRows: [FolderSidebarRow]
+    /// A section above the rest, from the host: one-way sync's Syncs, in Compare only (RD67 ED).
+    private let syncs: AnyView?
     /// Whose cloud app isn't syncing (RD68): an amber dot beside the source.
     @ObservedObject private var cloudApps = CloudAppMonitor.shared
     /// Locations' rows — clouds, devices, Trash.
@@ -874,7 +876,9 @@ public struct FolderSidebarView: View {
                 onMoveFavorite: @escaping (Int, Int) -> Void = { _, _ in },
                 onMoveSource: @escaping (Int, Int) -> Void = { _, _ in },
                 onFavoriteRecent: @escaping (FolderSidebarRow, Int) -> Void = { _, _ in },
-                onForgetRecent: @escaping (FolderSidebarRow) -> Void = { _ in }) {
+                onForgetRecent: @escaping (FolderSidebarRow) -> Void = { _ in },
+                syncs: AnyView? = nil) {
+        self.syncs = syncs
         self.folderRows = folderRows
         self.locationRows = locationRows
         self.shortcutRows = shortcutRows
@@ -931,6 +935,7 @@ public struct FolderSidebarView: View {
                 // groups by roughly a row's height and its rows by nothing, which is what makes a
                 // heading read as a heading without a rule under it.
                 VStack(alignment: .leading, spacing: 14) {
+                    if let syncs { syncs }
                     ForEach(Section.allCases, id: \.self) { section in
                         // **A section with nothing in it is not drawn at all**, rather than drawn
                         // empty — except Favorites, which draws its invitation instead, because an

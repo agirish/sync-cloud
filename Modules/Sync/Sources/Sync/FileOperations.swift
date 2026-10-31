@@ -333,6 +333,10 @@ extension FileSyncManager {
             banner = .warning("Wait for Verify All to finish before copying or moving items")
             return []
         }
+        if isMove, let refusal = oneWaySyncRefusal?(nodes.map(\.id)) {
+            banner = .warning(refusal)
+            return []
+        }
         let prunedNodes = nodes.pruneNestedNodes()
         let total = Int64(prunedNodes.count)
         // Standardize away a trailing slash for the existence stat; an empty root must stay
@@ -941,6 +945,10 @@ extension FileSyncManager {
 
     /// Testable core; production resolves `caseSensitiveVolume` from the item's volume.
     func renameItem(at path: String, to newName: String, fileManager fm: FileManaging, caseSensitiveVolume: Bool) async {
+        if let refusal = oneWaySyncRefusal?([path]) {
+            banner = .warning(refusal)
+            return
+        }
         if let reason = Self.validateItemName(newName) {
             // Deterministic — the same name would be rejected again, so not retryable.
             present(SyncError(title: "Rename Failed", message: reason, path: path))
@@ -1442,6 +1450,10 @@ extension FileSyncManager {
         // syncFile's): a delete landing mid-verify can remove a file as it's hashed.
         guard !isVerifyAllRunning else {
             banner = .warning("Wait for Verify All to finish before deleting items")
+            return DeleteOutcome()
+        }
+        if let refusal = oneWaySyncRefusal?(paths) {
+            banner = .warning(refusal)
             return DeleteOutcome()
         }
         let confirmPermanentDelete = permanentDeleteConfirmer
