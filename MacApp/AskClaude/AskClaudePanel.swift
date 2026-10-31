@@ -26,6 +26,8 @@ struct AskClaudePanel: View {
     var onReveal: (String) -> Void = { _ in }
     /// Sends an offered passage (decision DS).
     var onSendOffer: (UUID) -> Void = { _ in }
+    /// A download card's buttons (TE258).
+    var onDownloadCard: (UUID, AskClaudeDownloadAction) -> Void = { _, _ in }
     /// Where the panel wants its window, top-left within `container` (AskClaudeWindow.swift).
     var onPlace: (CGRect) -> Void = { _ in }
 
@@ -291,6 +293,7 @@ struct AskClaudePanel: View {
                     ForEach(chat.items) { item in
                         AskClaudeThreadRow(item: item, accent: accent, accentFill: accentFill, onAccent: onAccent, onOpenSettings: onOpenSettings,
                                            linkTargets: chat.linkTargets, onReveal: onReveal, onSendOffer: onSendOffer,
+                                           onDownloadCard: onDownloadCard,
                                            isLatestReceipt: item.id == latestReceipt, isRunning: chat.isRunning)
                             // Rows that didn't change aren't redrawn as each word streams in.
                             .equatable()
@@ -374,6 +377,7 @@ private struct AskClaudeThreadRow: View, Equatable {
     let linkTargets: [String: String]
     let onReveal: (String) -> Void
     let onSendOffer: (UUID) -> Void
+    let onDownloadCard: (UUID, AskClaudeDownloadAction) -> Void
     /// The newest receipt shows its summary; older ones fold to an icon, so the thread doesn't
     /// repeat “Sent screen …” under every answer.
     var isLatestReceipt = false
@@ -468,6 +472,8 @@ private struct AskClaudeThreadRow: View, Equatable {
             }
             .padding(10)
             .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.well))
+        case .download(let download, let state):
+            downloadCard(download, state)
         case .problem(let problem):
             VStack(alignment: .leading, spacing: 6) {
                 Label(problem.message, systemImage: "exclamationmark.triangle")
@@ -511,6 +517,56 @@ private struct AskClaudeThreadRow: View, Equatable {
                 .frame(width: 360)
                 .presentedNativeControlAccent()
             }
+        }
+    }
+
+    /// TE258: offered, downloading, then done, failed or timed out; Not Now folds it to a line.
+    @ViewBuilder
+    private func downloadCard(_ download: AskClaudeDownload, _ state: AskClaudeChat.DownloadState) -> some View {
+        let size = download.size.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
+        let verb = download.purpose == .read ? "Download and Read" : "Download and Open"
+        VStack(alignment: .leading, spacing: 6) {
+            switch state {
+            case .offered:
+                Label(download.summary, systemImage: "icloud.and.arrow.down").font(.caption)
+                HStack(spacing: 8) {
+                    Button(verb) { onDownloadCard(item.id, .download) }
+                        .controlSize(.small)
+                        .help("Downloads it to this Mac, then \(download.purpose == .read ? "Claude reads it" : "it opens"). Claude never downloads without this click.")
+                    Button("Not Now") { onDownloadCard(item.id, .notNow) }
+                        .controlSize(.small)
+                }
+            case .downloading:
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Downloading \(download.fileName)…" + (size.map { " \($0)" } ?? "")).font(.caption)
+                }
+                Button("Stop Waiting") { onDownloadCard(item.id, .stopWaiting) }
+                    .controlSize(.small)
+                    .help("Stops waiting here. The download itself goes on until the cloud app finishes it.")
+            case .done:
+                Label("Downloaded \(download.fileName).", systemImage: "checkmark").font(.caption).foregroundStyle(.secondary)
+            case .declined:
+                Label("Didn’t download \(download.fileName).", systemImage: "icloud").font(.caption).foregroundStyle(.secondary)
+            case .failed(let why):
+                Label("Couldn’t download \(download.fileName): \(why).", systemImage: "exclamationmark.circle").font(.caption)
+                retry()
+            case .timedOut:
+                Label("\(download.fileName) didn’t arrive within ten minutes.", systemImage: "exclamationmark.circle").font(.caption)
+                retry()
+            }
+        }
+        .padding(10)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.well))
+        .accessibilityElement(children: .contain)
+    }
+
+    private func retry() -> some View {
+        HStack(spacing: 8) {
+            Button("Try Again") { onDownloadCard(item.id, .download) }.controlSize(.small)
+            Button("Reveal in Finder") { onDownloadCard(item.id, .revealInFinder) }
+                .controlSize(.small)
+                .help("Shows it in Finder, where you can download it yourself.")
         }
     }
 
@@ -656,4 +712,9 @@ struct AskClaudeResizeHandle: NSViewRepresentable {
             dragged = false
         }
     }
+}
+
+/// What a download card's button asks for (TE258).
+enum AskClaudeDownloadAction: Equatable {
+    case download, stopWaiting, notNow, revealInFinder
 }

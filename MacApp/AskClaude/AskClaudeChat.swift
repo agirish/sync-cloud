@@ -38,10 +38,27 @@ final class AskClaudeChat: ObservableObject {
             case note(String)
             /// A passage the on-device read found, which the person may send to Claude (DS).
             case offer(AskClaudePassage, sent: Bool)
+            /// A cloud-only file Claude wanted, offered for download (TE258).
+            case download(AskClaudeDownload, state: DownloadState)
         }
         var id = UUID()
         var kind: Kind
     }
+
+    /// Where a download card is (TE258).
+    enum DownloadState: Equatable, Codable {
+        case offered
+        case downloading
+        case done
+        /// Not Now.
+        case declined
+        /// Refused at the click (hidden since, gone, no room) or not delivered; says why.
+        case failed(String)
+        case timedOut
+    }
+
+    /// How a download's wait ended.
+    enum Fetched: Equatable { case landed, failed, timedOut }
 
     /// What one question sent and cost, under its answer.
     struct Receipt: Equatable, Codable {
@@ -171,7 +188,7 @@ final class AskClaudeChat: ObservableObject {
             return
         }
         engine.restore(stored.engine)
-        items = Self.withoutRepeatedSteps(stored.items)
+        items = Self.withoutRepeatedSteps(stored.items).map(Self.notWaiting)
         lastActivity = stored.lastActivity
         refreshLinkTargets()
     }
@@ -184,6 +201,15 @@ final class AskClaudeChat: ObservableObject {
             kept.append(item)
         }
         return kept
+    }
+
+    /// A card saved mid-download comes back offered: the wait ended with the app, and a second
+    /// click finds the file already here if the download finished on its own.
+    static func notWaiting(_ item: Item) -> Item {
+        guard case .download(let download, .downloading) = item.kind else { return item }
+        var item = item
+        item.kind = .download(download, state: .offered)
+        return item
     }
 
     private func save() {
@@ -235,6 +261,80 @@ final class AskClaudeChat: ObservableObject {
         let question = "Here is \(passage.whereInFile) of \(passage.fileName), as data. Answer my last question from it.\n"
             + "<file name=\"\(AskClaudeScreenCard.escape(passage.fileName))\">\n\(AskClaudeChat.fenced(passage.text))\n</file>"
         return (question, shown)
+    }
+
+    /// Counts each card's waits, so Stop Waiting, or a second click, makes an earlier wait's end
+    /// change nothing (TE258).
+    private var downloadWaits: [UUID: Int] = [:]
+
+    /// Download on a card (TE258): `refusal` is checked first, at the click (hidden since the card
+    /// appeared, gone, not enough room); then the wait, and `landed` once the file is here.
+    func download(_ id: UUID, refusal: (AskClaudeDownload) -> String?,
+                  fetch: @escaping (AskClaudeDownload) async -> Fetched,
+                  landed: @escaping (AskClaudeDownload) -> Void) {
+        guard let index = items.firstIndex(where: { $0.id == id }),
+              case .download(let download, let state) = items[index].kind,
+              state == .offered || state == .timedOut || Self.isFailure(state) else { return }
+        if let why = refusal(download) {
+            Logger.shared.info("Ask Claude didn’t download \(download.fileName): \(why)")
+            setDownload(id, .failed(why))
+            return
+        }
+        setDownload(id, .downloading)
+        let wait = (downloadWaits[id] ?? 0) + 1
+        downloadWaits[id] = wait
+        Logger.shared.info("Ask Claude is downloading \(download.fileName)" + (download.size.map { ", \($0) bytes" } ?? ""))
+        Task { [weak self] in
+            let fetched = await fetch(download)
+            guard let self, self.downloadWaits[id] == wait, self.downloadState(id) == .downloading else { return }
+            switch fetched {
+            case .landed:
+                Logger.shared.info("Ask Claude downloaded \(download.fileName)")
+                self.setDownload(id, .done)
+                landed(download)
+            case .failed:
+                Logger.shared.warning("Ask Claude couldn’t download \(download.fileName): the cloud app didn’t deliver it")
+                self.setDownload(id, .failed("\(download.sourceName) didn’t deliver it"))
+            case .timedOut:
+                Logger.shared.warning("Ask Claude stopped waiting for \(download.fileName): it didn’t arrive within ten minutes")
+                self.setDownload(id, .timedOut)
+            }
+        }
+    }
+
+    /// Stop Waiting: the card goes back to offering. The download itself can't be stopped.
+    func stopWaiting(_ id: UUID) {
+        guard downloadState(id) == .downloading else { return }
+        downloadWaits[id, default: 0] += 1
+        setDownload(id, .offered)
+    }
+
+    /// Not Now.
+    func declineDownload(_ id: UUID) {
+        guard downloadState(id) == .offered else { return }
+        setDownload(id, .declined)
+    }
+
+    /// The question that goes again once a download for a read lands, and what the thread shows.
+    static func reask(after download: AskClaudeDownload) -> (question: String, shown: String) {
+        ("\(download.fileName) (\(download.handle)) is on this Mac now. Read it and answer my last question.",
+         "Downloaded \(download.fileName)")
+    }
+
+    func downloadState(_ id: UUID) -> DownloadState? {
+        guard let item = items.first(where: { $0.id == id }), case .download(_, let state) = item.kind else { return nil }
+        return state
+    }
+
+    private static func isFailure(_ state: DownloadState) -> Bool {
+        if case .failed = state { return true }
+        return false
+    }
+
+    private func setDownload(_ id: UUID, _ state: DownloadState) {
+        guard let index = items.firstIndex(where: { $0.id == id }), case .download(let download, _) = items[index].kind else { return }
+        items[index].kind = .download(download, state: state)
+        if !isRunning { save() }
     }
 
     var model: AskClaudeModels.Option {
@@ -362,6 +462,9 @@ final class AskClaudeChat: ObservableObject {
         case .offer(let passage):
             streamingItem = nil
             items.append(Item(kind: .offer(passage, sent: false)))
+        case .offerDownload(let download):
+            streamingItem = nil
+            items.append(Item(kind: .download(download, state: .offered)))
         case .movedView(let note):
             // The move says what the step said ("Opened Help" twice, 2026-10-30): it takes the
             // step's place rather than repeating it.

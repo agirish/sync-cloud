@@ -37,6 +37,7 @@ extension ContentView {
                                guard let offer = askClaudeChat.takeOffer(id) else { return }
                                askClaudeAsk(offer.question, shown: offer.shown)
                            },
+                           onDownloadCard: { askClaudeDownloadCard($0, $1) },
                            onPlace: onPlace)
     }
 
@@ -72,6 +73,46 @@ extension ContentView {
             let fromDisk = await AskClaudeDisk.list(folder) ?? []
             return askClaudeScreen(fallbackRows: fromDisk)
         }, tools: tools)
+    }
+
+    /// A download card's buttons (TE258). Download checks again at the click, waits, and then
+    /// asks the question again (a read) or opens the file (an open), with no Claude round for that.
+    func askClaudeDownloadCard(_ id: UUID, _ action: AskClaudeDownloadAction) {
+        let chat = askClaudeChat
+        switch action {
+        case .notNow: chat.declineDownload(id)
+        case .stopWaiting: chat.stopWaiting(id)
+        case .revealInFinder:
+            guard case .download(let download, _)? = chat.items.first(where: { $0.id == id })?.kind else { return }
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: download.path)])
+        case .download:
+            chat.download(id, refusal: { download in
+                let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
+                return AskClaudeBrowseTools.downloadRefusal(download, isHidden: { hidden.isHidden($0) })
+            }, fetch: { await AskClaudeBrowseTools.fetch($0) }, landed: { download in
+                askClaudeDownloaded(download)
+            })
+        }
+    }
+
+    private func askClaudeDownloaded(_ download: AskClaudeDownload) {
+        let chat = askClaudeChat
+        switch download.purpose {
+        case .read:
+            // A question running since: this one would be refused, so the thread says what to do.
+            guard !chat.isRunning else {
+                chat.addNote("Downloaded \(download.fileName). Ask again and Claude reads it.")
+                return
+            }
+            let again = AskClaudeChat.reask(after: download)
+            askClaudeAsk(again.question, shown: again.shown)
+        case .open:
+            Task { @MainActor in
+                let outcome = await askClaudeTools().openDownloaded(download)
+                Logger.shared.info("Ask Claude opened a downloaded file: \(outcome.step)" + (outcome.isError ? " (refused)" : ""))
+                chat.addNote(outcome.isError ? "Downloaded \(download.fileName), but: \(outcome.step)." : "\(outcome.step).")
+            }
+        }
     }
 
     /// TE246: puts the folder on screen on the Never show Claude list, or takes it off, and says so

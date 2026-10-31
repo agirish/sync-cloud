@@ -104,3 +104,40 @@ public struct AskClaudePassage: Codable, Equatable, Sendable {
     /// About four characters to a token.
     public var tokens: Int { max(1, text.count / 4) }
 }
+
+/// A file only in the cloud that Claude wanted to read or open, offered to the person as a card
+/// (TE258). Up to `AskClaudeBrowseTools.autoDownloadBytes` the read or open downloads it on its own
+/// (decision EJ); over that, or of unknown size, nothing downloads until they click.
+public struct AskClaudeDownload: Codable, Equatable, Sendable {
+    /// What happens once the file is here.
+    public enum Purpose: Codable, Equatable, Sendable {
+        /// The question asked again, so Claude reads it.
+        case read
+        /// Opened as the open asked: `in` is nil, "edit" or "preview".
+        case open(in: String?)
+    }
+
+    public let fileName: String
+    public let path: String
+    /// The chat's handle for it, so the question asked again can name it.
+    public let handle: String
+    /// Nil when the provider didn't say.
+    public let size: Int?
+    /// Where it lives: "iCloud", "Dropbox".
+    public let sourceName: String
+    public let purpose: Purpose
+
+    public init(fileName: String, path: String, handle: String, size: Int?, sourceName: String, purpose: Purpose) {
+        self.fileName = fileName
+        self.path = path
+        self.handle = handle
+        self.size = size
+        self.sourceName = sourceName
+        self.purpose = purpose
+    }
+
+    /// "Lease.pdf is only in iCloud (38 MB)."
+    public var summary: String {
+        "\(fileName) is only in \(sourceName)" + (size.map { " (\(ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file)))" } ?? "") + "."
+    }
+}

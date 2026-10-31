@@ -117,6 +117,9 @@ public enum AskClaudeRequest {
     do it themselves.
     - You see names, kinds, sizes, dates and tags. For what a file says, use read_text: an on-device \
     model reads it on their Mac and answers. Its text reaches you only if they allow it.
+    - A file only in the cloud over 25 MB is downloaded only when they click Download on a card the \
+    tool shows them. When a tool says it offered one, say so in a line and stop; the question comes \
+    back to you once the file is here.
     - Folders they put on their Never show Claude list appear only as a count. Never guess what is in them.
     - Your look-up tools and open work from any workspace. Tools that move or select in the Browse \
     pane take them to Browse first; in Edit, prefer answering without moving them.
@@ -216,7 +219,7 @@ public enum AskClaudeToolCatalog {
                                              "description": .string("Handles such as r3, r9.")])],
              required: ["handles"]),
         tool(.open,
-             "Open a file in its default app, as double-clicking it would, or in SyncCloud’s Edit workspace with in: edit (text, Markdown and PDF files). It first shows the file in its folder, selected. Not for folders: use go_to. A cloud-only file over 5 MB is not opened.",
+             "Open a file in its default app, as double-clicking it would, or in SyncCloud’s Edit workspace with in: edit (text, Markdown and PDF files). It first shows the file in its folder, selected. Not for folders: use go_to. A file only in the cloud over 25 MB, or of unknown size, isn’t opened: they get a Download card, and it opens when they download it.",
              properties: ["handle": string("A handle such as r9."),
                           "in": string("default (its own app), edit (SyncCloud’s Edit workspace), or preview (Quick Look, for show me or preview).")],
              required: ["handle"]),

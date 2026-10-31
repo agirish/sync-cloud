@@ -767,6 +767,109 @@ import Sync
         let bad = await runner.run(call("view", ["sort": .string("colour")]), handles: &handles)
         #expect(bad.isError)
     }
+
+    // MARK: Download cards (TE258)
+
+    private static let lease = file("Documents/Taxes/Lease.pdf", size: 38_000_000)
+    private static let mystery = FileNode(id: root + "/Documents/Taxes/Scan.pdf", name: "Scan.pdf", isDirectory: false)
+    private static let small = file("Documents/Taxes/Small.pdf", size: 1_000_000)
+
+    private func cloudTools(cloudOnly: @escaping (String) -> Bool?, extra: [FileNode], statDisk: @escaping (String) -> FileNode? = { _ in nil },
+                            extracted: Box<Int>, opened: Box<[URL]>) -> AskClaudeBrowseTools {
+        var map: [String: FileNode] = [:]
+        Self.index(Self.tree + extra, into: &map)
+        return AskClaudeBrowseTools(context: {
+            AskClaudeBrowseTools.Context(
+                inBrowse: true, sourceName: "iCloud Drive", root: Self.root, folder: "Documents/Taxes", sort: .name,
+                items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: statDisk,
+           openFile: { opened.value.append($0); return true },
+           extract: { _ in extracted.value += 1; return ["Rent is $2,400."] },
+           answerOnDevice: { _, _, _ in .answer("$2,400.") }, isCloudOnly: cloudOnly)
+    }
+
+    @Test func aLargeOrUnknownCloudFileGetsACardAndIsNotRead() async {
+        let extracted = Box(0), opened = Box<[URL]>([])
+        let runner = cloudTools(cloudOnly: { _ in true }, extra: [Self.lease, Self.mystery, Self.small], extracted: extracted, opened: opened)
+        var handles = AskClaudeHandles()
+        let big = await runner.run(call("read_text", ["handle": .string(handles.handle(for: Self.lease.id)), "question": .string("Rent?")]), handles: &handles)
+        #expect(!big.isError && big.download?.size == 38_000_000 && big.download?.purpose == .read)
+        #expect(big.download?.summary == "Lease.pdf is only in iCloud Drive (38 MB).")
+        #expect(big.result.contains("Download card"))
+        // A size the provider doesn't give counts as large.
+        let unknown = await runner.run(call("read_text", ["handle": .string(handles.handle(for: Self.mystery.id))]), handles: &handles)
+        #expect(unknown.download != nil && unknown.download?.size == nil)
+        #expect(extracted.value == 0)
+        // Up to 25 MB the read downloads it on its own (decision EJ).
+        let fine = await runner.run(call("read_text", ["handle": .string(handles.handle(for: Self.small.id))]), handles: &handles)
+        #expect(fine.download == nil && extracted.value == 1)
+        let open = await runner.run(call("open", ["handle": .string(handles.handle(for: Self.lease.id)), "in": .string("edit")]), handles: &handles)
+        #expect(open.download?.purpose == .open(in: "edit") && opened.value.isEmpty)
+    }
+
+    @Test func outsideBrowseACardIsOfferedWithoutMovingThem() async {
+        let recorder = Recorder()
+        var map: [String: FileNode] = [:]
+        Self.index(Self.tree + [Self.lease], into: &map)
+        var switched: [String] = []
+        let runner = AskClaudeBrowseTools(context: {
+            var ctx = AskClaudeBrowseTools.Context(
+                inBrowse: false, sourceName: "iCloud Drive", root: Self.root, folder: "Documents/Taxes", sort: .name,
+                items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { recorder.wentTo.append($0) }, select: { _ in })
+            ctx.switchWorkspace = { switched.append($0); return true }
+            return ctx
+        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
+           openFile: { recorder.opened.append($0); return true }, isCloudOnly: { _ in true })
+        var handles = AskClaudeHandles()
+        let out = await runner.run(call("open", ["handle": .string(handles.handle(for: Self.lease.id))]), handles: &handles)
+        #expect(out.download?.purpose == .open(in: nil))
+        #expect(switched.isEmpty && recorder.wentTo.isEmpty && recorder.opened.isEmpty)
+    }
+
+    @Test func throughALinkTheFileItPointsToIsChecked() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudeLink-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let target = dir.appendingPathComponent("Big Target.pdf")
+        try Data("x".utf8).write(to: target)
+        let link = dir.appendingPathComponent("Shortcut.pdf")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        // The link itself is local and tiny; what it points to is in the cloud and big.
+        let linkNode = FileNode(id: link.path, name: "Shortcut.pdf", isDirectory: false, fileSize: 40)
+        let extracted = Box(0), opened = Box<[URL]>([])
+        let runner = cloudTools(cloudOnly: { $0.hasSuffix("Big Target.pdf") ? true : false }, extra: [linkNode],
+                                statDisk: { $0.hasSuffix("Big Target.pdf") ? FileNode(id: $0, name: "Big Target.pdf", isDirectory: false, fileSize: 40_000_000) : nil },
+                                extracted: extracted, opened: opened)
+        var handles = AskClaudeHandles()
+        let out = await runner.run(call("read_text", ["handle": .string(handles.handle(for: link.path))]), handles: &handles)
+        #expect(out.download?.size == 40_000_000)
+        #expect(extracted.value == 0)
+    }
+
+    @Test func theClickChecksHiddenGoneAndRoomAgain() {
+        let download = AskClaudeDownload(fileName: "Lease.pdf", path: "/c/Taxes/Lease.pdf", handle: "f1", size: 38_000_000,
+                                         sourceName: "iCloud", purpose: .read)
+        typealias T = AskClaudeBrowseTools
+        #expect(T.downloadRefusal(download, isHidden: { _ in false }, exists: { _ in true }, freeBytes: { _ in 1_000_000_000 }) == nil)
+        #expect(T.downloadRefusal(download, isHidden: { $0.hasPrefix("/c/Taxes") }, exists: { _ in true }, freeBytes: { _ in nil })?
+            .contains("hidden") == true)
+        #expect(T.downloadRefusal(download, isHidden: { _ in false }, exists: { _ in false }, freeBytes: { _ in nil })?
+            .contains("isn’t there") == true)
+        // Twice its size, or it isn't downloaded.
+        #expect(T.downloadRefusal(download, isHidden: { _ in false }, exists: { _ in true }, freeBytes: { _ in 70_000_000 })?
+            .contains("needs 76 MB") == true)
+    }
+
+    @Test func aDownloadedOpenOpensWithTheOpensOwnChecks() async {
+        let recorder = Recorder()
+        let runner = tools(recorder: recorder)
+        let path = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
+        let out = await runner.openDownloaded(AskClaudeDownload(fileName: "Receipt REI 2025.pdf", path: path, handle: "f9",
+                                                                size: 30_000_000, sourceName: "iCloud", purpose: .open(in: nil)))
+        #expect(!out.isError && recorder.opened == [URL(fileURLWithPath: path)])
+        let read = await runner.openDownloaded(AskClaudeDownload(fileName: "x", path: path, handle: "f9", size: nil, sourceName: "iCloud", purpose: .read))
+        #expect(read.isError && recorder.opened.count == 1)
+    }
 }
 
 /// A transport that answers every request with one short text reply.
@@ -1195,5 +1298,114 @@ private final class Counter: @unchecked Sendable {
             #expect(AskClaudePanelWindow.forwards(key(chars, flags)), "\(chars) should go to the main window")
         }
         #expect(!AskClaudePanelWindow.forwards(key("k", [])))   // not a chord at all
+    }
+}
+
+/// A box a test closure can write to.
+private final class Box<Value>: @unchecked Sendable {
+    var value: Value
+    init(_ value: Value) { self.value = value }
+}
+
+/// Answers the first request with one read_text call and every later one with text.
+private final class ToolThenTextTransport: AskClaudeTransport, @unchecked Sendable {
+    private var sent = 0
+    func send(_ request: URLRequest) async throws -> AskClaudeTransportResponse {
+        sent += 1
+        guard sent == 1 else { return try await OneLineTransport(text: "It’s offered.").send(request) }
+        let lines = [
+            #"data: {"type":"message_start","message":{"model":"claude-sonnet-5-5","usage":{"input_tokens":300}}}"#,
+            #"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"read_text","input":{}}}"#,
+            #"data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"handle\":\"f1\"}"}}"#,
+            #"data: {"type":"content_block_stop","index":0}"#,
+            #"data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":20}}"#,
+            #"data: {"type":"message_stop"}"#,
+        ]
+        return AskClaudeTransportResponse(status: 200, retryAfter: nil, lines: AsyncThrowingStream { c in
+            lines.forEach { c.yield($0) }
+            c.finish()
+        })
+    }
+}
+
+@MainActor
+private final class OffersADownload: AskClaudeToolRunning {
+    static let download = AskClaudeDownload(fileName: "Lease.pdf", path: "/c/Lease.pdf", handle: "f1", size: 38_000_000,
+                                            sourceName: "iCloud", purpose: .read)
+    func run(_ call: AskClaudeToolCall, handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
+        AskClaudeToolOutcome(result: "offered", step: "Offered to download Lease.pdf to read it", download: Self.download)
+    }
+}
+
+@MainActor
+@Suite struct AskClaudeDownloadCardTests {
+
+    private func chatWithACard(_ test: String = #function) async -> (AskClaudeChat, UUID) {
+        let name = "AskClaudeDownloadCardTests." + test.prefix { $0 != "(" }
+        let d = UserDefaults(suiteName: name)!
+        d.removePersistentDomain(forName: name)
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
+                                 readKey: { "k" })
+        chat.ask("What’s the rent?", screen: AskClaudeScreen(workspace: "Browse", source: "iCloud", folder: "", sort: "Name",
+                                                            rows: [], selection: [], toolsAvailable: true), tools: OffersADownload())
+        for _ in 0..<200 where chat.isRunning { try? await Task.sleep(for: .milliseconds(10)) }
+        let id = chat.items.first { if case .download = $0.kind { true } else { false } }?.id ?? UUID()
+        return (chat, id)
+    }
+
+    private func settle(_ chat: AskClaudeChat, _ id: UUID) async {
+        for _ in 0..<200 where chat.downloadState(id) == .downloading { try? await Task.sleep(for: .milliseconds(10)) }
+    }
+
+    @Test func aToolsOfferBecomesACardThatDownloadsThenAsksAgain() async {
+        let (chat, id) = await chatWithACard()
+        #expect(chat.downloadState(id) == .offered)
+        var landed: [AskClaudeDownload] = []
+        chat.download(id, refusal: { _ in nil }, fetch: { _ in .landed }, landed: { landed.append($0) })
+        await settle(chat, id)
+        #expect(chat.downloadState(id) == .done && landed == [OffersADownload.download])
+        // Done is done: a second click does nothing.
+        chat.download(id, refusal: { _ in nil }, fetch: { _ in .landed }, landed: { landed.append($0) })
+        #expect(landed.count == 1)
+        let again = AskClaudeChat.reask(after: OffersADownload.download)
+        #expect(again.shown == "Downloaded Lease.pdf" && again.question.contains("(f1)") && again.question.contains("my last question"))
+    }
+
+    @Test func failedTimedOutRefusedStoppedAndNotNow() async {
+        let (chat, id) = await chatWithACard()
+        var landed = 0
+        chat.download(id, refusal: { _ in nil }, fetch: { _ in .failed }, landed: { _ in landed += 1 })
+        await settle(chat, id)
+        #expect(chat.downloadState(id) == .failed("iCloud didn’t deliver it"))
+        chat.download(id, refusal: { _ in nil }, fetch: { _ in .timedOut }, landed: { _ in landed += 1 })
+        await settle(chat, id)
+        #expect(chat.downloadState(id) == .timedOut)
+        // Hidden since the card appeared: refused at the click, and nothing fetched.
+        var fetched = 0
+        chat.download(id, refusal: { _ in "it’s in a folder hidden from Claude now" }, fetch: { _ in fetched += 1; return .landed },
+                      landed: { _ in landed += 1 })
+        #expect(chat.downloadState(id) == .failed("it’s in a folder hidden from Claude now") && fetched == 0)
+        // Stop Waiting: the card offers again, and the wait's end changes nothing.
+        chat.download(id, refusal: { _ in nil }, fetch: { _ in try? await Task.sleep(for: .milliseconds(150)); return .landed },
+                      landed: { _ in landed += 1 })
+        #expect(chat.downloadState(id) == .downloading)
+        chat.stopWaiting(id)
+        #expect(chat.downloadState(id) == .offered)
+        try? await Task.sleep(for: .milliseconds(400))
+        #expect(chat.downloadState(id) == .offered && landed == 0)
+        chat.declineDownload(id)
+        #expect(chat.downloadState(id) == .declined)
+        chat.download(id, refusal: { _ in nil }, fetch: { _ in .landed }, landed: { _ in landed += 1 })
+        #expect(chat.downloadState(id) == .declined && landed == 0)
+    }
+
+    @Test func aSavedCardComesBackOfferedIfItWasWaiting() throws {
+        typealias Item = AskClaudeChat.Item
+        let items = [Item(kind: .download(OffersADownload.download, state: .downloading)),
+                     Item(kind: .download(OffersADownload.download, state: .failed("no room")))]
+        let decoded = try JSONDecoder().decode([Item].self, from: JSONEncoder().encode(items))
+        #expect(decoded == items)
+        #expect(decoded.map(AskClaudeChat.notWaiting).map(\.kind) == [.download(OffersADownload.download, state: .offered),
+                                                                    .download(OffersADownload.download, state: .failed("no room"))])
     }
 }

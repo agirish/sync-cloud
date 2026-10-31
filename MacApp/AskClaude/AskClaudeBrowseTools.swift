@@ -135,6 +135,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     private let extract: (String) async -> [String]?
     private let answerOnDevice: (_ question: String, _ text: String, _ file: String) async -> AskClaudeReading.OnDeviceAnswer
     private let searchContents: ([String], String) async -> [String]?
+    private let isCloudOnly: (String) -> Bool?
 
     init(context: @escaping () -> Context,
          listDisk: @escaping (String) async -> [FileNode]? = { await AskClaudeDisk.list($0) },
@@ -143,8 +144,10 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
          openFile: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) },
          extract: @escaping (String) async -> [String]? = { await AskClaudeReading.extract($0) },
          answerOnDevice: @escaping (String, String, String) async -> AskClaudeReading.OnDeviceAnswer = { await AskClaudeReading.answerOnDevice($0, from: $1, file: $2) },
-         searchContents: @escaping ([String], String) async -> [String]? = { await AskClaudeDisk.findContents($0, under: $1) }) {
+         searchContents: @escaping ([String], String) async -> [String]? = { await AskClaudeDisk.findContents($0, under: $1) },
+         isCloudOnly: @escaping (String) -> Bool? = { MaterializationStatus.isCloudOnlyIfKnown(atPath: $0) }) {
         self.context = context
+        self.isCloudOnly = isCloudOnly
         self.extract = extract
         self.answerOnDevice = answerOnDevice
         self.searchContents = searchContents
@@ -173,7 +176,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         let outcome = await dispatch(call, ctx, &handles)
         guard let movedToBrowse, outcome.movedView == nil else { return outcome }
         return AskClaudeToolOutcome(result: outcome.result, isError: outcome.isError, step: outcome.step,
-                                    movedView: movedToBrowse, passage: outcome.passage)
+                                    movedView: movedToBrowse, passage: outcome.passage, download: outcome.download)
     }
 
     /// What a Browse-pane call would refuse anyway (an unknown or hidden handle, a folder that isn't
@@ -237,6 +240,11 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                 if Self.launches(path) {
                     return AskClaudeToolOutcome(result: "\(node.name) is an app, script, installer or shortcut, and Ask Claude doesn’t open those. Reveal it, and they can open it themselves.",
                                                 isError: true, step: "Didn’t open \(node.name): it would run something")
+                }
+                // A card, not a trip to Browse: nothing opens until they download it (TE258).
+                if let size = largeCloudOnly(node, path), let handle = call.string("handle") {
+                    let mode = call.string("in")?.lowercased()
+                    return offerDownload(node, path, handle: handle, size: size, purpose: .open(in: mode == "preview" ? mode : nil), ctx)
                 }
             }
         default:
@@ -545,11 +553,11 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         if let busy = ctx.busyReason {
             return AskClaudeToolOutcome(result: "Can’t open it right now: \(busy).", isError: true, step: "Didn’t open: \(busy)")
         }
-        // Opening a cloud-only file downloads it. Up to 5 MB that happens on its own (decision DW);
-        // above it, the person downloads it themselves until downloads get a plan card.
-        if MaterializationStatus.isCloudOnlyIfKnown(atPath: path) == true, (node.fileSize ?? 0) > Self.autoDownloadBytes {
-            return AskClaudeToolOutcome(result: "\(node.name) is only in the cloud and larger than 5 MB, so it isn’t opened without them. Tell them to download it first.",
-                                        isError: true, step: "Didn’t open \(node.name): cloud-only, over 5 MB")
+        // Opening a cloud-only file downloads it. Up to 25 MB that happens on its own (decision EJ);
+        // above it, they get a card and it opens when they download it (TE258).
+        if let size = largeCloudOnly(node, path) {
+            let mode = call.string("in")?.lowercased()
+            return offerDownload(node, path, handle: handle, size: size, purpose: .open(in: mode == "edit" || mode == "preview" ? mode : nil), ctx)
         }
         if call.string("in")?.lowercased() == "preview" {
             var moved: String?
@@ -592,7 +600,79 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                     step: "Opened \(node.name)", movedView: moved)
     }
 
-    static let autoDownloadBytes = 5_000_000
+    /// The most a read or open downloads on its own (decision EJ); over it, a card asks (TE258).
+    static let autoDownloadBytes = 25_000_000
+
+    /// When reading or opening `path` would download more than `autoDownloadBytes`: the size, nil
+    /// when unknown; or nil when it wouldn't. Through a link, the file it points to is the one
+    /// fetched, so that is the one checked, and a size the provider doesn't give counts as large.
+    private func largeCloudOnly(_ node: FileNode, _ path: String) -> Int?? {
+        let target = MaterializationStatus.linkTarget(of: path)
+        guard isCloudOnly(target) == true else { return nil }
+        let size = target == path ? node.fileSize : statDisk(target)?.fileSize
+        guard let size else { return .some(nil) }
+        return size > Self.autoDownloadBytes ? .some(size) : nil
+    }
+
+    /// The tool's answer when a card is offered instead (TE258): nothing is downloaded yet.
+    private func offerDownload(_ node: FileNode, _ path: String, handle: String, size: Int?,
+                               purpose: AskClaudeDownload.Purpose, _ ctx: Context) -> AskClaudeToolOutcome {
+        let source = Self.closestSource(containing: path, in: ctx.sources)?.name ?? ctx.sourceName
+        let download = AskClaudeDownload(fileName: node.name, path: path, handle: handle, size: size,
+                                         sourceName: source, purpose: purpose)
+        let verb = purpose == .read ? "read" : "open"
+        return AskClaudeToolOutcome(result: "\(download.summary) It isn’t downloaded without them: they have a Download card in the chat now. Tell them in a line and stop; once it’s here, the file \(purpose == .read ? "comes back to you to read" : "opens on its own").",
+                                    step: "Offered to download \(node.name) to \(verb) it", download: download)
+    }
+
+    /// Why a card's Download is refused at the click (TE258), or nil: hidden since the card
+    /// appeared, gone, or less free space than twice its size on its volume.
+    static func downloadRefusal(_ download: AskClaudeDownload, isHidden: (String) -> Bool,
+                                exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) },
+                                freeBytes: (String) -> Int64? = AskClaudeBrowseTools.freeBytes) -> String? {
+        if isHidden(download.path) { return "it’s in a folder hidden from Claude now" }
+        guard exists(download.path) else { return "it isn’t there anymore; it may have moved or been renamed" }
+        if let size = download.size, let free = freeBytes((download.path as NSString).deletingLastPathComponent),
+           free < 2 * Int64(size) {
+            let need = ByteCountFormatter.string(fromByteCount: 2 * Int64(size), countStyle: .file)
+            let have = ByteCountFormatter.string(fromByteCount: free, countStyle: .file)
+            return "this Mac has \(have) free, and it needs \(need)"
+        }
+        return nil
+    }
+
+    /// Free space for files the person keeps, on the volume holding `folder`; nil when unknown.
+    nonisolated static func freeBytes(_ folder: String) -> Int64? {
+        (try? URL(fileURLWithPath: folder).resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
+            .volumeAvailableCapacityForImportantUsage
+    }
+
+    /// How long a card waits for its file, as Edit's Download does.
+    static let downloadWait: Duration = .seconds(600)
+
+    /// The wait behind a card: the system's download first, where the provider takes it, then the
+    /// one-byte read every provider answers (`ExternalOpen.fetch`).
+    nonisolated static func fetch(_ download: AskClaudeDownload, timeout: Duration = downloadWait) async -> AskClaudeChat.Fetched {
+        try? MaterializationStatus.download(atPath: download.path)
+        let started = ContinuousClock.now
+        if await ExternalOpen.fetch(download.path, timeout: timeout) { return .landed }
+        // The fetch answers false both when it gave up waiting and when the read came back with
+        // the file still in the cloud; only the clock tells them apart.
+        return ContinuousClock.now - started >= timeout - .seconds(1) ? .timedOut : .failed
+    }
+
+    /// Opens a file a card just downloaded, as the open that offered the card asked (TE258). Run
+    /// as that call again, so every check it made is made again now.
+    func openDownloaded(_ download: AskClaudeDownload) async -> AskClaudeToolOutcome {
+        guard case .open(let mode) = download.purpose else {
+            return AskClaudeToolOutcome(result: "", isError: true, step: "Nothing to open")
+        }
+        var handles = AskClaudeHandles()
+        let handle = handles.handle(for: download.path)
+        var input: [String: JSONFragment] = ["handle": .string(handle)]
+        if let mode { input["in"] = .string(mode) }
+        return await run(AskClaudeToolCall(id: "download", name: "open", input: .object(input)), handles: &handles)
+    }
 
     /// Whether opening `path` would start a program: an app or executable, a script, an
     /// installer, or a shortcut file that opens one (Terminal settings, a workflow, a web or file
@@ -897,9 +977,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         guard let node = ctx.node(path) ?? statDisk(path), !node.isDirectory else {
             return AskClaudeToolOutcome(result: "\(handle) isn’t a file that’s still there.", isError: true, step: "Couldn’t read \(handle)")
         }
-        if MaterializationStatus.isCloudOnlyIfKnown(atPath: path) == true, (node.fileSize ?? 0) > Self.autoDownloadBytes {
-            return AskClaudeToolOutcome(result: "\(node.name) is only in the cloud and larger than 5 MB, so it isn’t downloaded to read it.",
-                                        isError: true, step: "Didn’t read \(node.name): cloud-only, over 5 MB")
+        if let size = largeCloudOnly(node, path) {
+            return offerDownload(node, path, handle: handle, size: size, purpose: .read, ctx)
         }
         guard let pages = await extract(path) else {
             return AskClaudeToolOutcome(result: "\(node.name) has no text this version can read (pictures and scans without a text layer aren’t read yet).",
@@ -961,7 +1040,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             var line = AskClaudeScreenCard.row(for: Self.row(node), handles: &handles) + "|" + AskClaudeScreenCard.escape(where_.isEmpty ? "(top level)" : where_)
             // The matching line goes out only with the switch on (his TE239 call), for the first ten.
             // Never a cloud-only file over the download limit: reading it would fetch it.
-            let fetches = MaterializationStatus.isCloudOnlyIfKnown(atPath: node.id) == true && (node.fileSize ?? 0) > Self.autoDownloadBytes
+            let fetches = largeCloudOnly(node, node.id) != nil
             if ctx.readsFiles, index < 10, !fetches, Date() < readUntil, let text = await extract(node.id)?.joined(separator: " "),
                let match = AskClaudeReading.matchingLine(in: text, words: words) {
                 line += "|" + AskClaudeScreenCard.escape(match)

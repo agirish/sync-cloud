@@ -56,14 +56,17 @@ public struct AskClaudeToolOutcome: Equatable, Sendable {
     public let movedView: String?
     /// A passage the person may choose to send to Claude (decision DS), shown as a button.
     public let passage: AskClaudePassage?
+    /// A cloud-only file the person may choose to download (TE258), shown as a card.
+    public let download: AskClaudeDownload?
 
     public init(result: String, isError: Bool = false, step: String, movedView: String? = nil,
-                passage: AskClaudePassage? = nil) {
+                passage: AskClaudePassage? = nil, download: AskClaudeDownload? = nil) {
         self.result = result
         self.isError = isError
         self.step = step
         self.movedView = movedView
         self.passage = passage
+        self.download = download
     }
 }
 
@@ -146,6 +149,8 @@ public enum AskClaudeEvent: Equatable, Sendable {
     case step(String, isError: Bool)
     case movedView(String)
     case offer(AskClaudePassage)
+    /// A cloud-only file offered for download (TE258).
+    case offerDownload(AskClaudeDownload)
     /// One round trip finished: its usage and estimated cost.
     case round(AskClaudeUsage, costUSD: Double, model: String)
     case finished(stopReason: String?)
@@ -399,6 +404,7 @@ public final class AskClaudeEngine {
                 emit(.step(outcome.step, isError: outcome.isError))
                 if let moved = outcome.movedView { emit(.movedView(moved)) }
                 if let passage = outcome.passage { emit(.offer(passage)) }
+                if let download = outcome.download { emit(.offerDownload(download)) }
                 results.append(Self.result(for: call, text: outcome.result, isError: outcome.isError))
             }
             if Task.isCancelled {
