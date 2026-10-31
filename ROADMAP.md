@@ -969,7 +969,7 @@ loaded; with none, the engine behaves exactly as it did.
 
 ---
 
-## 23. One-way sync, iCloud → Dropbox (RD67) — in progress for v6.3
+## 23. One-way sync, iCloud → Dropbox (RD67) — in progress for v7.0
 
 **What:** automatic one-way sync of chosen folders from a parent in iCloud Drive (on this Mac,
 iCloud Drive ▸ Documents) to a parent in Dropbox. Folders with the same name directly inside both
@@ -988,9 +988,9 @@ tracks what is left.
 file-writing layer (`df5520a32`), the saved state (`d86f30909`), the folder watcher (`ce6490cc2`, item 5's work), hashing of any size (`624799987`, `7508cfebf`) and
 the cloud-app status RD67 stops on (RD68, `c7a3a7839` and follow-ups).
 
-**v6.3 is held until he says** (his call EC, 2026-10-30, then "Not yet" on 2026-10-31): Sync Now
-landed in `2aacc1d31`, and he wants to use it for a while before the cut. Step 4 follows its week
-of hand use, so it may land after the cut.
+**v6.3 was skipped** (his call, 2026-10-31): `main` opened the v7 line instead, so Sync Now
+(`2aacc1d31`) ships in v7.0, and v6.2 users get fixes from `v6.x`. Step 4 follows its week of hand
+use, so it may land after the v7.0 cut.
 
 **Left, in order:**
 1. The sync's own replace and SyncCloud Removed: stage outside Dropbox, clone the old version, keep

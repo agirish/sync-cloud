@@ -44,7 +44,7 @@ Check the table against `project.yml` from the repo root — this prints nothing
 ```sh
 # main is read from the working tree (the copy you are about to land); maintenance lines from origin.
 # Do not read main from origin too: that reports clean throughout a local bump.
-for l in main v5.x v4.x v3.x v2.x; do
+for l in main v6.x v5.x v4.x v3.x v2.x; do
   if [ "$l" = main ]; then m=$(grep -o '"[0-9.]*-dev"' project.yml | tr -d '"')
   else m=$(git show origin/$l:project.yml | grep -o '"[0-9.]*-dev"' | tr -d '"'); fi
   r=$(grep "^| \`$l\`" CLAUDE.md | grep -o '`[0-9.]*-dev`' | tr -d '`')

@@ -5,12 +5,12 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
-## v6.3 — DRAFT, not released
+## v7.0 — DRAFT, not released
 
-> What is on `main` since v6.2. It may still change before v6.3 is cut, and nothing here is
+> What is on `main` since v6.2. It may still change before v7.0 is cut, and nothing here is
 > installable from a release yet.
 
-**Copy iCloud to Dropbox, one way, and know when a cloud folder is out of date.** v6.3 syncs chosen
+**Copy iCloud to Dropbox, one way, and know when a cloud folder is out of date.** v7.0 syncs chosen
 folders from iCloud Drive to Dropbox when you click Sync Now, says when Dropbox, OneDrive or Google
 Drive isn't syncing, notices when a pane's folders change on disk, and compares files of any size by
 content.

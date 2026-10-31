@@ -22,11 +22,12 @@ bump.
 
 ## 1. Branches
 
-Five long-lived branches, and only five:
+Six long-lived branches, and only six:
 
 | Branch | Carries | Marker at tip | Breaking changes |
 |---|---|---|---|
-| `main` | the **v6 line** — where the next release is built | `6.3-dev` / `603` | **allowed** |
+| `main` | the **v7 line** — where the next release is built | `7.0-dev` / `700` | **allowed** |
+| `v6.x` | maintenance for the shipped **6.x series** (cut at `v6.2`) | `6.3-dev` / `603` | **never** |
 | `v5.x` | maintenance for the shipped **5.x series** (cut at `v5.5`) | `5.6-dev` / `506` | **never** |
 | `v4.x` | maintenance for the shipped **4.x series** (cut at `v4.6`) | `4.7-dev` / `407` | **never** |
 | `v3.x` | maintenance for the shipped **3.x series** (cut at `v3.1`) | `3.2-dev` / `302` | **never** |
@@ -41,9 +42,9 @@ Five long-lived branches, and only five:
   mention the gap in your report.
 - Keep every line linear. If a pick between lines is ever authorised, use `git cherry-pick` and
   verify it landed by content, not by `git branch -r --contains`.
-- `origin` holds exactly these five branches. Check it:
+- `origin` holds exactly these six branches. Check it:
   ```sh
-  git ls-remote --heads origin | awk '{print $2}'   # expect refs/heads/{main,v2.x,v3.x,v4.x,v5.x}
+  git ls-remote --heads origin | awk '{print $2}'   # expect refs/heads/{main,v2.x,v3.x,v4.x,v5.x,v6.x}
   ```
 - Any other remote branch may be deleted — ask first, and only once both checks pass:
   `git diff --name-status main <branch> | grep '^A'` prints nothing, and its commits survive in a

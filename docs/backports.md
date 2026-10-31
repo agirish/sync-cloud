@@ -1275,6 +1275,16 @@ sends the next person back to `git log`.
 
 Move an item out of "owed" only when `git branch -r --contains <sha>` names the line.
 
+## 2026-10-31 — the `v6.x` line opens; `main` moves to 7.0-dev
+
+`v6.x` was cut from the `v6.2` tag when `main` opened the v7 line, skipping v6.3. Unlike the earlier
+cuts, `main` carries unreleased work past the tag: one-way sync (RD67), the folder watcher, hashing of
+any size, the cloud-app status bar (RD68), name bytes kept on copy and move, and the fixes in the
+v7.0 notes' Around the app section. `v6.x` has none of it. Recorded, not owed: it is the v7.0 release
+under the no-backport standing direction. Ask Claude (RD69) lands on `main` with this cut and is
+v7-only too. `v6.x`'s opening commit re-bumps it to `6.3-dev`/`603` and carries the six-line
+documents (CLAUDE.md, RELEASE.md, the install skill, this record).
+
 ## 2026-10-17 — the `v5.x` line opens; `main` moves to 6.0-dev
 
 `v5.x` was cut from the `v5.5` tag when `main` opened the v6 line. Nothing lies between the tag and
