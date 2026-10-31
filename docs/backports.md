@@ -13215,3 +13215,25 @@ for l in main v5.x v4.x v3.x v2.x; do printf '%-5s stallWatch=%s veil=%s railTic
 | Line | Carries | Status |
 |---|---|---|
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | None of the code these fix | CLOSED — does not apply |
+
+---
+
+## Sonnet 5 is priced at $2/$10, not Sonnet 4.6's $3/$15 — main only
+
+2026-10-30, for v6.3. On `main`: `CloudFilingProtocol.pricing(for:)` prices Sonnet by generation —
+`claude-sonnet-5` (the Sonnet Settings offers) at $2/$10 per million tokens, an older Sonnet such as
+`claude-sonnet-4-6` still at $3/$15. The rate feeds the Filing and Refine pre-flight quote, the
+recorded spend and both spend caps, so every Sonnet 5 scan was quoted and counted at 1.5× its cost
+and reached a cap early. Every maintenance line offers Sonnet 5 at the old rate.
+
+```sh
+for l in main v5.x v4.x v3.x v2.x; do printf '%-5s offersSonnet5=%s sonnet5Rate=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/CloudFilingProtocol.swift 2>/dev/null | grep -cF '("claude-sonnet-5", ')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/CloudFilingProtocol.swift 2>/dev/null | grep -cF 'hasPrefix("claude-sonnet-5-")')"; done
+# measured 2026-10-30, against origin, before this landed (the change reads sonnet5Rate=1):
+# main / v5.x / v4.x / v3.x / v2.x   offersSonnet5=1 sonnet5Rate=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | Sonnet 5 offered and priced at $3/$15 | RECORDED — not owed |

@@ -28,7 +28,7 @@ import Foundation
     }
 
     /// A real Anthropic id that the price table has no rate for. `pricing(for:)` matches on the
-    /// `claude-<family>` prefix, so a dated pre-alias id like this one falls outside all four
+    /// `claude-<family>` prefix, so a dated pre-alias id like this one falls outside all its
     /// arms — and `currentModel(for:)` passes it through untouched, because it shares no
     /// `claude-<family>-` prefix with any selectable model. Both facts are asserted below rather
     /// than assumed, so a future pricing or alias change fails there instead of silently making

@@ -156,6 +156,20 @@ import Testing
         #expect(CloudFilingProtocol.estimatedCostUSD(model: "gpt-9", usage: usage) == nil)
     }
 
+    @Test func sonnetIsPricedByGeneration() throws {
+        // The Sonnet Settings offers is Sonnet 5, at $2/$10 — not the family's older $3/$15.
+        let sonnet5 = try #require(CloudFilingProtocol.pricing(for: "claude-sonnet-5"))
+        #expect(sonnet5.input == 2 && sonnet5.output == 10)
+        // A hand-set older Sonnet keeps its own rate.
+        let sonnet46 = try #require(CloudFilingProtocol.pricing(for: "claude-sonnet-4-6"))
+        #expect(sonnet46.input == 3 && sonnet46.output == 15)
+        // Same usage as above: 0.02 (in) + 0.001 (cache-read) + 0.0025 (cache-write) + 0.02 (out).
+        let usage = CloudFilingProtocol.Usage(inputTokens: 10_000, outputTokens: 2_000,
+                                              cacheCreationTokens: 1_000, cacheReadTokens: 5_000)
+        let cost = try #require(CloudFilingProtocol.estimatedCostUSD(model: "claude-sonnet-5", usage: usage))
+        #expect(abs(cost - 0.0435) < 1e-6)
+    }
+
     // MARK: Pre-call estimate (spend guardrails)
 
     @Test func estimateTokensArePositiveAndGrowWithFileCount() {

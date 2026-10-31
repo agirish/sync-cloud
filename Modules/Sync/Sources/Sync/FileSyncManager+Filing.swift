@@ -938,7 +938,7 @@ extension FileSyncManager {
         let estTokens = CloudFilingProtocol.estimateTokens(taxonomyFolders: taxonomyFolders, files: files)
         // **An unpriced model is not a free one, and `?? 0` said it was.**
         //
-        // `pricing(for:)` answers nil for any id outside the four `claude-<family>` arms, and
+        // `pricing(for:)` answers nil for any id outside its `claude-<family>` arms, and
         // `currentModel(for:)` deliberately hands such an id through untouched — "it can only have
         // been set by hand, so honor it rather than overriding a deliberate choice" — so a
         // `tidyFilingCloudModel` the user typed, or any dated pre-alias id, arrives here with no

@@ -256,9 +256,15 @@ public enum CloudFilingProtocol {
 
     /// Approximate list price ($/million tokens) as of 2026 — for a rough cost estimate only; the
     /// Anthropic Console is the source of truth. nil for a model we don't have a rate for.
+    ///
+    /// Sonnet's rate changed with its generation, so it is priced by generation: Sonnet 5 (what
+    /// Settings offers) is $2/$10, while an older Sonnet such as `claude-sonnet-4-6` stays $3/$15.
+    /// These rates feed the spend caps as well as the log, so a family-wide rate overcharged every
+    /// Sonnet 5 scan against the caps by half.
     public static func pricing(for model: String) -> (input: Double, output: Double)? {
         if model.hasPrefix("claude-opus") { return (5, 25) }
         if model.hasPrefix("claude-fable") || model.hasPrefix("claude-mythos") { return (10, 50) }
+        if model == "claude-sonnet-5" || model.hasPrefix("claude-sonnet-5-") { return (2, 10) }
         if model.hasPrefix("claude-sonnet") { return (3, 15) }
         if model.hasPrefix("claude-haiku") { return (1, 5) }
         return nil
