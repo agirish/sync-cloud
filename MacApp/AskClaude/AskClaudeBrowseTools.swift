@@ -73,8 +73,11 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         /// How long a Scan Again asked for is given to land before the list read before it is
         /// answered from; a test shortens it.
         var scanStartWait: Duration = .seconds(5)
-        /// Where a file belongs by the Filing profile (TE255); nil when filing help can't run.
-        var whereToFile: (_ path: String) async -> FilingHelpAnswer? = { _ in nil }
+        /// Where a file belongs by the Filing profile (TE255), preferring a place they named,
+        /// absolute (TE266); nil when filing help can't run.
+        var whereToFile: (_ path: String, _ place: String?) async -> FilingHelpAnswer? = { _, _ in nil }
+        /// A folder of the survey by what they called it ("Travel"), absolute; nil when it has none.
+        var surveyFolder: (_ name: String) -> String? = { _ in nil }
         /// Organize's Refine with Claude is set up, so the card may offer it (decision EY).
         var canRefineFiling = false
         /// The pane's Back (false) and Forward (true); false when there was nowhere to go.
@@ -1070,40 +1073,65 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             return AskClaudeToolOutcome(result: "\(handle) isn’t a file that’s still there; filing help is for files.", isError: true,
                                         step: "Filing help needs a file")
         }
-        guard let answer = await ctx.whereToFile(path) else {
+        var place: String?
+        if let into = call.string("into")?.trimmingCharacters(in: .whitespaces).nonEmpty {
+            guard let resolved = Self.place(into, ctx) else {
+                return AskClaudeToolOutcome(result: "There’s no folder called \(into) in their folder survey or their sources. Ask where they mean.",
+                                            isError: true, step: "No place called \(into)")
+            }
+            if ctx.isHidden(resolved) { return hiddenFolder() }
+            place = resolved
+        }
+        guard let answer = await ctx.whereToFile(path, place) else {
             return AskClaudeToolOutcome(result: "Filing help can’t run right now.", isError: true, step: "Filing help couldn’t run")
         }
-        let card = Self.filingCard(answer, node: node, ctx: ctx)
+        let card = Self.filingCard(answer, node: node, ctx: ctx, place: place)
         let step: String
         switch card.kind {
         case .suggestions: step = "Found where \(node.name) fits: \(card.folders.first?.label ?? "")"
         case .noProfile: step = "No folder survey to go by"
-        case .outside: step = "\(node.name) is outside the surveyed folder"
+        case .outside: step = "\(card.place ?? "That place") is outside the folder survey"
         case .noMatch: step = "No folder fits \(node.name)"
         }
         return AskClaudeToolOutcome(result: AskClaudeFiling.result(card, readsFiles: ctx.readsFiles), step: step, filing: card)
     }
 
     /// The card for an answer: each folder by source and path, as To File shows it.
-    static func filingCard(_ answer: FilingHelpAnswer, node: FileNode, ctx: Context) -> AskClaudeFilingCard {
+    static func filingCard(_ answer: FilingHelpAnswer, node: FileNode, ctx: Context, place: String? = nil) -> AskClaudeFilingCard {
+        let placeLabel = place.map { breadcrumb($0, sources: ctx.sources, fallback: ($0 as NSString).lastPathComponent) }
         switch answer.outcome {
         case .noProfile:
             return AskClaudeFilingCard(fileName: node.name, filePath: node.id, kind: .noProfile)
         case .outsideProfile(let surveyed):
             let named = breadcrumb(surveyed, sources: ctx.sources, fallback: (surveyed as NSString).lastPathComponent)
-            return AskClaudeFilingCard(fileName: node.name, filePath: node.id, kind: .outside(surveyed: named))
+            return AskClaudeFilingCard(fileName: node.name, filePath: node.id, kind: .outside(surveyed: named), place: placeLabel)
         case .noMatch:
-            return AskClaudeFilingCard(fileName: node.name, filePath: node.id, kind: .noMatch)
+            return AskClaudeFilingCard(fileName: node.name, filePath: node.id, kind: .noMatch, place: placeLabel)
         case .suggested(let list):
+            let shortPlace = place.map { ($0 as NSString).lastPathComponent }
             let folders = list.map { s in
                 AskClaudeFilingCard.Folder(label: breadcrumb(s.folder, sources: ctx.sources, fallback: s.relativePath),
                                            path: s.folder, confidence: AskClaudeFiling.label(s.confidence),
-                                           reason: s.reason, fromFile: s.evidenceToken != nil)
+                                           reason: s.reason, fromFile: s.evidenceToken != nil,
+                                           note: s.outsidePlace ? shortPlace.map { "Outside \($0)" } : nil)
             }
             return AskClaudeFilingCard(fileName: node.name, filePath: node.id, kind: .suggestions, folders: folders,
                                        staleDays: answer.isStale(now: ctx.now()) ? answer.surveyAgeDays(now: ctx.now()) : nil,
-                                       canRefine: ctx.canRefineFiling && list.first?.confidence != .high)
+                                       canRefine: ctx.canRefineFiling && list.first?.confidence != .high, place: placeLabel)
         }
+    }
+
+    /// Where they said a file should go, absolute (TE266): a source and folder when the first
+    /// part names a source ("Dropbox", "iCloud/Documents/Travel"), else a folder of their survey
+    /// ("Travel", "Documents/Taxes/2025"). Nil when it is neither.
+    static func place(_ into: String, _ ctx: Context) -> String? {
+        let trimmed = into.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        let parts = trimmed.split(separator: "/", maxSplits: 1).map(String.init)
+        if let first = parts.first, let source = Self.source(named: first, in: ctx.sources),
+           let folder = Self.resolve(parts.count > 1 ? parts[1] : "", root: source.root) {
+            return folder.absolute
+        }
+        return ctx.surveyFolder(trimmed)
     }
 
     /// "iCloud › Documents › Taxes", from the source holding `absolute`.

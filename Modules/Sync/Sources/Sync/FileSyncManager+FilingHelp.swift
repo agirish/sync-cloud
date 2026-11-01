@@ -16,8 +16,9 @@ public struct FilingHelpAnswer: Sendable, Equatable {
         case suggested([Suggestion])
         /// No Filing profile: Setup's survey never ran.
         case noProfile
-        /// The file isn't under the folder the profile surveyed, absolute: the caller names it by
-        /// source, as an answer to Claude never carries an absolute path.
+        /// The place they named isn't under the folder the profile surveyed, absolute: the caller
+        /// names it by source, as an answer to Claude never carries an absolute path (TE266). Where
+        /// the file itself sits doesn't matter: a file in Downloads is placed like any other.
         case outsideProfile(surveyed: String)
         /// The profile has no folder that fits this file.
         case noMatch
@@ -33,14 +34,18 @@ public struct FilingHelpAnswer: Sendable, Equatable {
         public let reason: String
         /// The word read from the file that decided it, when one did.
         public let evidenceToken: String?
+        /// They named a place and this folder isn't in it: kept because the file plainly belongs
+        /// here (decision FX).
+        public let outsidePlace: Bool
 
         public init(folder: String, relativePath: String, confidence: FilingConfidence, reason: String,
-                    evidenceToken: String?) {
+                    evidenceToken: String?, outsidePlace: Bool = false) {
             self.folder = folder
             self.relativePath = relativePath
             self.confidence = confidence
             self.reason = reason
             self.evidenceToken = evidenceToken
+            self.outsidePlace = outsidePlace
         }
     }
 
@@ -69,15 +74,24 @@ public struct FilingHelpAnswer: Sendable, Equatable {
 
 extension FileSyncManager {
 
-    /// Where `path` would go, from the active Filing profile. `snippet` is page 1 as read on this
-    /// Mac (nil ranks by name alone); `isHidden` is the Never show Claude list.
-    public func whereToFile(_ path: String, snippet: String?, isHidden: (String) -> Bool) async -> FilingHelpAnswer {
+    /// Where `path` would go, from the active Filing profile. The file may be anywhere on this
+    /// Mac (TE266): only the destination has to be in the survey. `snippet` is page 1 as read on
+    /// this Mac (nil ranks by name alone); `place`, absolute, is a folder they named ("into
+    /// Travel"), whose folders are preferred (decision FX); `isHidden` is the Never show Claude list.
+    public func whereToFile(_ path: String, snippet: String?, preferring place: String? = nil,
+                            isHidden: (String) -> Bool) async -> FilingHelpAnswer {
         let surveyedAt = filingSurveyedAt
         guard let profile = filingFolderProfile, let root = profile.recordedFolderPath else {
             return FilingHelpAnswer(outcome: .noProfile, surveyedAt: surveyedAt)
         }
-        guard Self.isInside(path, root: root) else {
-            return FilingHelpAnswer(outcome: .outsideProfile(surveyed: root), surveyedAt: surveyedAt)
+        let placeRelative: String?
+        if let place {
+            guard let relative = Self.relative(place, toRoot: root) else {
+                return FilingHelpAnswer(outcome: .outsideProfile(surveyed: root), surveyedAt: surveyedAt)
+            }
+            placeRelative = relative.isEmpty ? nil : relative
+        } else {
+            placeRelative = nil
         }
         let memory = filingMemory, registry = filingPersonRegistry, satellites = filingSatelliteHomes
         // Asked here, once per folder: the list's matcher reads the disk and stays on this actor.
@@ -94,11 +108,14 @@ extension FileSyncManager {
         }.value
         let fileName = (path as NSString).lastPathComponent
         let ranking = await Task.detached(priority: .userInitiated) {
-            let ranked = FilingRouter.rank(fileName: fileName, contentSnippet: snippet, index: index, limit: 5)
+            // Deeper with a place named, so its folders are among the ranked even when others lead.
+            let ranked = FilingRouter.rank(fileName: fileName, contentSnippet: snippet, index: index,
+                                           limit: placeRelative == nil ? 5 : 12)
             // The scan's peer-name rerank too (a folder against its own subfolder), so this and
             // To File agree about the same file.
             let peers = PeerNameCache()
-            return FilingRouter.rerankedByPeerNames(ranked, fileName: fileName) { peers.names(in: root + "/" + $0) }
+            let reranked = FilingRouter.rerankedByPeerNames(ranked, fileName: fileName) { peers.names(in: root + "/" + $0) }
+            return Self.preferring(reranked, under: placeRelative)
         }.value
         guard !ranking.candidates.isEmpty else {
             return FilingHelpAnswer(outcome: .noMatch, surveyedAt: surveyedAt)
@@ -124,27 +141,67 @@ extension FileSyncManager {
             return FilingHelpAnswer(outcome: .noMatch, surveyedAt: surveyedAt)
         }
         let shown = kept.prefix(confidence == .high ? 1 : 2).map { dest in
-            FilingHelpAnswer.Suggestion(folder: dest.path,
-                                        relativePath: String(dest.path.dropFirst(root.count + 1)),
-                                        confidence: confidence, reason: dest.reasons.first ?? "",
-                                        evidenceToken: dest.evidenceToken)
+            let relative = String(dest.path.dropFirst(root.count + 1))
+            return FilingHelpAnswer.Suggestion(folder: dest.path, relativePath: relative,
+                                               confidence: confidence, reason: dest.reasons.first ?? "",
+                                               evidenceToken: dest.evidenceToken,
+                                               outsidePlace: placeRelative.map { !Self.isAtOrUnder(relative, $0) } ?? false)
         }
         Logger.shared.info("Filing help: “\(fileName)” → \(shown.map(\.relativePath).joined(separator: ", ")) (\(confidence.rawValue)\(snippet == nil ? ", by name" : ""))")
         return FilingHelpAnswer(outcome: .suggested(Array(shown)), surveyedAt: surveyedAt)
+    }
+
+    /// A named place's folders first (decision FX: prefer it, allow others). A High answer outside
+    /// it stands, since that file plainly belongs elsewhere (a W-2 asked into Travel); otherwise the
+    /// place's best folder leads, and the margin is taken against the strongest of the rest, so a
+    /// stronger folder outside it makes the answer unsure rather than vanishing.
+    nonisolated static func preferring(_ ranking: FilingRouter.Ranking, under place: String?) -> FilingRouter.Ranking {
+        guard let place, ranking.confidence != .high else { return ranking }
+        let inside = ranking.candidates.filter { isAtOrUnder($0.relativePath, place) }
+        guard let top = inside.first else { return ranking }
+        let ordered = inside + ranking.candidates.filter { !isAtOrUnder($0.relativePath, place) }
+        return FilingRouter.Ranking(candidates: ordered,
+                                    margin: FilingRouter.margin(top: top.score, runnerUp: ordered.dropFirst().map(\.score).max()))
+    }
+
+    /// `relative` is `place` or a folder inside it, ignoring case as the volume does.
+    nonisolated static func isAtOrUnder(_ relative: String, _ place: String) -> Bool {
+        let r = relative.lowercased(), p = place.lowercased()
+        return r == p || r.hasPrefix(p + "/")
+    }
+
+    /// `path` relative to `root`: "" for the root itself, nil when it isn't at or under it, in
+    /// either spelling of a link on the way.
+    nonisolated static func relative(_ path: String, toRoot root: String) -> String? {
+        func real(_ p: String) -> String { URL(fileURLWithPath: p).resolvingSymlinksInPath().path }
+        for (p, r) in [(path, root), (real(path), real(root))] {
+            if p == r { return "" }
+            if p.hasPrefix(r + "/") { return String(p.dropFirst(r.count + 1)) }
+        }
+        return nil
+    }
+
+    /// A folder of the survey by what they called it: its path from the surveyed folder ("Travel/
+    /// Trips", with or without the surveyed folder's own name in front), else the shallowest
+    /// folder with that name. Absolute; nil when the survey has none.
+    public func filingSurveyFolder(named name: String) -> String? {
+        guard let profile = filingFolderProfile, let root = profile.recordedFolderPath else { return nil }
+        var wanted = name.trimmingCharacters(in: CharacterSet(charactersIn: "/ ")).lowercased()
+        let rootName = (root as NSString).lastPathComponent.lowercased()
+        if wanted == rootName { return root }
+        if wanted.hasPrefix(rootName + "/") { wanted = String(wanted.dropFirst(rootName.count + 1)) }
+        guard !wanted.isEmpty else { return nil }
+        let folders = profile.folders.keys
+        if let exact = folders.first(where: { $0.lowercased() == wanted }) { return root + "/" + exact }
+        let named = folders.filter { ($0 as NSString).lastPathComponent.lowercased() == wanted }
+            .sorted { ($0.split(separator: "/").count, $0) < ($1.split(separator: "/").count, $1) }
+        return named.first.map { root + "/" + $0 }
     }
 
     /// To File's sentences, so the card and Organize say the same thing about the same folder.
     nonisolated static func reason(_ candidate: FilingRouter.Candidate) -> String {
         candidate.evidenceToken.map { "Matched “\($0.capitalized)” read from the file — a word this folder’s documents use" }
             ?? "Fits how this folder is used"
-    }
-
-    /// `path` is at or under `root`, in either spelling of a link on the way (iCloud's Documents
-    /// is a link to a folder in Mobile Documents).
-    nonisolated static func isInside(_ path: String, root: String) -> Bool {
-        func real(_ p: String) -> String { URL(fileURLWithPath: p).resolvingSymlinksInPath().path }
-        let candidates = [(path, root), (real(path), real(root))]
-        return candidates.contains { p, r in p.hasPrefix(r + "/") }
     }
 
     /// Changes whenever the profile, memory or registry is replaced, so a cached index never

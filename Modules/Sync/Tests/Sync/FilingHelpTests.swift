@@ -68,12 +68,68 @@ import Testing
         #expect(suggestions.allSatisfy { $0.confidence != .high })
     }
 
-    @Test func noProfileAndOutsideTheSurveyedFolderSaySo() async {
+    /// TE266: the file can sit anywhere on this Mac; only a place they name has to be surveyed.
+    @Test func aFileOutsideTheSurveyIsPlacedAndAPlaceOutsideItSaysSo() async {
         let bare = FileSyncManager()
         #expect(await bare.whereToFile("/x/a.pdf", snippet: nil, isHidden: { _ in false }).outcome == .noProfile)
-        let m = manager("help-outside", root: root, anchors: ["Taxes/2025": ["wages"]])
-        let outside = await m.whereToFile("/Users/someone/Dropbox/a.pdf", snippet: nil, isHidden: { _ in false })
-        #expect(outside.outcome == .outsideProfile(surveyed: root))
+        let m = manager("help-outside", root: root, anchors: ["Taxes/2025": ["wages", "employer"], "Home": ["meter"]])
+        let downloads = await m.whereToFile("/Users/someone/Downloads/scan.pdf", snippet: "wages employer",
+                                            isHidden: { _ in false })
+        guard case .suggested(let s) = downloads.outcome else { Issue.record("no suggestion: \(downloads)"); return }
+        #expect(s.first?.relativePath == "Taxes/2025")
+        let dropbox = await m.whereToFile("/Users/someone/Downloads/scan.pdf", snippet: "wages employer",
+                                          preferring: "/Users/someone/Dropbox", isHidden: { _ in false })
+        #expect(dropbox.outcome == .outsideProfile(surveyed: root))
+        // The surveyed folder itself is in the survey: no preference, the plain answer.
+        let whole = await m.whereToFile("/Users/someone/Downloads/scan.pdf", snippet: "wages employer",
+                                        preferring: root, isHidden: { _ in false })
+        #expect(whole.outcome == downloads.outcome)
+    }
+
+    private func candidate(_ path: String, _ score: Double) -> FilingRouter.Candidate {
+        FilingRouter.Candidate(relativePath: path, score: score, evidenceToken: nil, sharedAnchors: 1)
+    }
+
+    /// Decision FX: the named place's folders lead unless a High answer says the file belongs
+    /// elsewhere; a stronger folder outside it then makes the answer unsure.
+    @Test func aNamedPlaceIsPreferredButAPlainHomeElsewhereStands() {
+        let unsure = FilingRouter.Ranking(candidates: [candidate("Home/Receipts", 10), candidate("Travel/Trips", 9),
+                                                       candidate("Work", 2)], margin: 0.1)
+        let preferred = FileSyncManager.preferring(unsure, under: "travel")
+        #expect(preferred.candidates.map(\.relativePath) == ["Travel/Trips", "Home/Receipts", "Work"])
+        #expect(preferred.confidence == .low, "a stronger folder outside the place must leave it unsure")
+        let plain = FilingRouter.Ranking(candidates: [candidate("Taxes/2025", 10), candidate("Travel", 2)], margin: 0.8)
+        #expect(FileSyncManager.preferring(plain, under: "Travel") == plain)
+        let stronger = FilingRouter.Ranking(candidates: [candidate("Home", 10), candidate("Travel/Trips", 9),
+                                                         candidate("Travel", 1)], margin: 0.1)
+        let led = FileSyncManager.preferring(stronger, under: "Travel")
+        #expect(led.best?.relativePath == "Travel/Trips")
+        #expect(led.confidence == .low, "the margin is taken against the strongest of the rest, not the next in the place")
+        let ahead = FilingRouter.Ranking(candidates: [candidate("Travel/Trips", 10), candidate("Travel", 9),
+                                                      candidate("Home", 3)], margin: 0.1)
+        #expect(FileSyncManager.preferring(ahead, under: "Travel").confidence == ahead.confidence)
+        // Nothing in the place ranked: the plain answer.
+        #expect(FileSyncManager.preferring(unsure, under: "Health") == unsure)
+        #expect(FileSyncManager.preferring(unsure, under: nil) == unsure)
+    }
+
+    @Test func outsidePlaceIsMarkedOnTheSuggestion() async {
+        let m = manager("help-place", root: root, anchors: ["Taxes/2025": ["wages", "employer"], "Travel/Trips": ["airlines"]])
+        let answer = await m.whereToFile("/elsewhere/w2.pdf", snippet: "wages employer", preferring: root + "/Travel",
+                                         isHidden: { _ in false })
+        guard case .suggested(let s) = answer.outcome else { Issue.record("no suggestion: \(answer)"); return }
+        #expect(s.first?.relativePath == "Taxes/2025" && s.first?.outsidePlace == true)
+    }
+
+    @Test func aSurveyFolderIsFoundByPathOrByItsName() {
+        let m = manager("help-named", root: root, anchors: ["Travel": [], "Travel/Trips": [], "Work/Trips": [],
+                                                           "Work/Old/Trips": []])
+        #expect(m.filingSurveyFolder(named: "travel") == root + "/Travel")
+        #expect(m.filingSurveyFolder(named: "Documents/Travel/Trips/") == root + "/Travel/Trips")
+        #expect(m.filingSurveyFolder(named: "Trips") == root + "/Travel/Trips", "the shallowest, then by path")
+        #expect(m.filingSurveyFolder(named: "Documents") == root)
+        #expect(m.filingSurveyFolder(named: "Dropbox") == nil)
+        #expect(FileSyncManager().filingSurveyFolder(named: "Travel") == nil)
     }
 
     @Test func aSurveyThreeWeeksOldIsStale() {

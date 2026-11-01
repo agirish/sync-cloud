@@ -664,7 +664,7 @@ private struct AskClaudeThreadRow: View, Equatable {
                             Image(systemName: "folder").foregroundStyle(.secondary)
                             Text(folder.label).font(.caption.weight(.medium)).lineLimit(2).truncationMode(.head)
                         }
-                        Text("\(index == 0 ? "" : "Runner-up · ")\(folder.confidence) · \(folder.reason)")
+                        Text("\(index == 0 ? "" : "Runner-up · ")\(folder.confidence) · \(folder.reason)\(folder.note.map { " · \($0)" } ?? "")")
                             .font(.caption2).foregroundStyle(.secondary)
                         Button("Go to Folder") { onFilingCard(.goTo(folder.path)) }
                             .controlSize(.small)
@@ -687,7 +687,7 @@ private struct AskClaudeThreadRow: View, Equatable {
                     .controlSize(.small)
                     .help("Setup’s folder survey learns how you file; this answer comes from it.")
             case .outside(let surveyed):
-                Label("Your folder survey covers \(surveyed); \(card.fileName) is elsewhere.", systemImage: "folder.badge.questionmark")
+                Label("Your folder survey covers \(surveyed); \(card.place ?? "that place") isn’t in it.", systemImage: "folder.badge.questionmark")
                     .font(.caption)
             case .noMatch:
                 Label("No folder in your folder survey fits \(card.fileName).", systemImage: "folder.badge.questionmark")

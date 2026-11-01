@@ -1527,15 +1527,19 @@ private final class OffersADownload: AskClaudeToolRunning {
     private static let root = "/never-on-disk-icloud"
     private let file = FileNode(id: root + "/Downloads/scan.pdf", name: "scan.pdf", isDirectory: false, fileSize: 2_000)
 
-    private func runner(_ answer: FilingHelpAnswer?, canRefine: Bool = true, readsFiles: Bool = false) -> AskClaudeBrowseTools {
+    private func runner(_ answer: FilingHelpAnswer?, canRefine: Bool = true, readsFiles: Bool = false,
+                        asked: PlaceBox = PlaceBox()) -> AskClaudeBrowseTools {
         let file = self.file
         return AskClaudeBrowseTools(context: {
             var ctx = AskClaudeBrowseTools.Context(
                 inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Downloads", sort: .name,
                 items: { _ in nil }, node: { $0 == file.id ? file : nil }, selection: [], busyReason: nil,
                 goTo: { _ in }, select: { _ in })
-            ctx.sources = [.init(id: "icloud", name: "iCloud", root: Self.root)]
-            ctx.whereToFile = { _ in answer }
+            ctx.sources = [.init(id: "icloud", name: "iCloud", root: Self.root),
+                           .init(id: "dropbox", name: "Dropbox", root: "/never-on-disk-dropbox")]
+            ctx.whereToFile = { _, place in asked.places.append(place); return answer }
+            ctx.surveyFolder = { $0.lowercased() == "travel" ? Self.root + "/Documents/Travel" : nil }
+            ctx.hidden = [Self.root + "/Documents/Private"]
             ctx.canRefineFiling = canRefine
             ctx.readsFiles = readsFiles
             ctx.now = { Date(timeIntervalSince1970: 1_792_000_000) }
@@ -1543,11 +1547,50 @@ private final class OffersADownload: AskClaudeToolRunning {
         }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
     }
 
-    private func ask(_ runner: AskClaudeBrowseTools) async -> AskClaudeToolOutcome {
+    final class PlaceBox: @unchecked Sendable { var places: [String?] = [] }
+
+    private func ask(_ runner: AskClaudeBrowseTools, into: String? = nil) async -> AskClaudeToolOutcome {
         var handles = AskClaudeHandles()
         let handle = handles.handle(for: file.id)
-        return await runner.run(AskClaudeToolCall(id: "t", name: "where_to_file", input: .object(["handle": .string(handle)])),
-                                handles: &handles)
+        var input: [String: JSONFragment] = ["handle": .string(handle)]
+        if let into { input["into"] = .string(into) }
+        return await runner.run(AskClaudeToolCall(id: "t", name: "where_to_file", input: .object(input)), handles: &handles)
+    }
+
+    /// TE266: a place they name is found in their survey or their sources and handed over
+    /// absolute; one that is neither, or hidden, is refused before filing help runs.
+    @Test func aNamedPlaceIsResolvedBySurveyOrSource() async throws {
+        let asked = PlaceBox()
+        let high = FilingHelpAnswer(outcome: .suggested([suggestion("Travel/Trips", .high)]), surveyedAt: nil)
+        _ = await ask(runner(high, asked: asked), into: "Travel")
+        _ = await ask(runner(high, asked: asked), into: "Dropbox/Receipts")
+        _ = await ask(runner(high, asked: asked))
+        #expect(asked.places == [Self.root + "/Documents/Travel", "/never-on-disk-dropbox/Receipts", nil])
+        let unknown = await ask(runner(high, asked: asked), into: "Narnia")
+        #expect(unknown.isError && unknown.step == "No place called Narnia")
+        let hidden = await ask(runner(high, asked: asked), into: "iCloud/Documents/Private")
+        #expect(hidden.isError && hidden.step == "Left alone: hidden from Claude")
+        #expect(asked.places.count == 3, "filing help ran for a refused place")
+    }
+
+    /// Decision FY: a place outside the survey is named, and Claude is told to offer the survey.
+    @Test func aPlaceOutsideTheSurveyOffersTheSurveyInstead() async throws {
+        let out = await ask(runner(FilingHelpAnswer(outcome: .outsideProfile(surveyed: Self.root + "/Documents"), surveyedAt: nil)),
+                            into: "Dropbox")
+        let card = try #require(out.filing)
+        #expect(card.kind == .outside(surveyed: "iCloud › Documents") && card.place == "Dropbox")
+        #expect(out.result.contains("Dropbox isn’t in it") && out.result.contains("offer to sort it into iCloud › Documents"))
+        #expect(out.step == "Dropbox is outside the folder survey")
+    }
+
+    /// Decision FX: a home kept outside the named place says so, to the card and to Claude.
+    @Test func aHomeOutsideTheNamedPlaceSaysSo() async throws {
+        let w2 = FilingHelpAnswer.Suggestion(folder: Self.root + "/Documents/Taxes/2025", relativePath: "Taxes/2025",
+                                             confidence: .high, reason: "Fits how this folder is used",
+                                             evidenceToken: nil, outsidePlace: true)
+        let out = await ask(runner(FilingHelpAnswer(outcome: .suggested([w2]), surveyedAt: nil)), into: "Travel")
+        #expect(out.filing?.folders.first?.note == "Outside Travel")
+        #expect(out.result.contains("Outside Travel, where it plainly belongs"))
     }
 
     private func suggestion(_ rel: String, _ confidence: FilingConfidence, token: String? = nil) -> FilingHelpAnswer.Suggestion {

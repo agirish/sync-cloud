@@ -559,7 +559,7 @@ extension ContentView {
                 differencesSession.show(filter, selecting: ids)
                 return true
             },
-            whereToFile: { path in
+            whereToFile: { path, place in
                 // Page 1 read on this Mac (decision EW) by To File's reader, which leaves a file
                 // only in the cloud unread rather than fetch it (`FilingSurvey.isAvailable`), so
                 // that one is placed by its name, as To File places it. A large one isn't even
@@ -569,8 +569,9 @@ extension ContentView {
                     && (size ?? .max) > AskClaudeBrowseTools.autoDownloadBytes
                 let page = fetches ? nil : await syncManager.filingHelpPage(path)
                 let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
-                return await syncManager.whereToFile(path, snippet: page, isHidden: { hidden.isHidden($0) })
+                return await syncManager.whereToFile(path, snippet: page, preferring: place, isHidden: { hidden.isHidden($0) })
             },
+            surveyFolder: { syncManager.filingSurveyFolder(named: $0) },
             canRefineFiling: syncManager.filingHelpCanRefine,
             history: { forward in
                 let columns = paneDrawsColumns(isLeft: true)

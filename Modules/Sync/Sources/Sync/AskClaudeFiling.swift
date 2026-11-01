@@ -9,7 +9,7 @@ public struct AskClaudeFilingCard: Codable, Equatable, Sendable {
         case suggestions
         /// No Filing profile yet (decision EX): the card offers Setup.
         case noProfile
-        /// The file is outside the surveyed folder, which is named.
+        /// The place they named is outside the surveyed folder, which is named (TE266).
         case outside(surveyed: String)
         /// The profile has no folder that fits.
         case noMatch
@@ -25,13 +25,17 @@ public struct AskClaudeFilingCard: Codable, Equatable, Sendable {
         public let reason: String
         /// The reason names a word read from the file.
         public let fromFile: Bool
+        /// Not in the place they named, which is kept because the file plainly belongs here
+        /// (decision FX): "Outside Travel".
+        public let note: String?
 
-        public init(label: String, path: String, confidence: String, reason: String, fromFile: Bool) {
+        public init(label: String, path: String, confidence: String, reason: String, fromFile: Bool, note: String? = nil) {
             self.label = label
             self.path = path
             self.confidence = confidence
             self.reason = reason
             self.fromFile = fromFile
+            self.note = note
         }
     }
 
@@ -44,15 +48,18 @@ public struct AskClaudeFilingCard: Codable, Equatable, Sendable {
     public let staleDays: Int?
     /// Refine with Claude can be offered: the answer isn't High and Organize's Refine is set up.
     public let canRefine: Bool
+    /// The place they named, by source and folder ("Dropbox", "iCloud › Documents › Travel").
+    public let place: String?
 
     public init(fileName: String, filePath: String, kind: Kind, folders: [Folder] = [], staleDays: Int? = nil,
-                canRefine: Bool = false) {
+                canRefine: Bool = false, place: String? = nil) {
         self.fileName = fileName
         self.filePath = filePath
         self.kind = kind
         self.folders = folders
         self.staleDays = staleDays
         self.canRefine = canRefine
+        self.place = place
     }
 }
 
@@ -74,7 +81,10 @@ public enum AskClaudeFiling {
         case .noProfile:
             return "They have no folder survey yet, so there are no conventions of theirs to go by. Say so; their card offers Setup, whose survey learns how they file. Don’t guess a folder."
         case .outside(let surveyed):
-            return "Their folder survey covers \(AskClaudeScreenCard.escape(surveyed)) only, and \(name) is somewhere else, so there are no conventions for it. Say so; don’t guess a folder."
+            // Decision FY: say so, and offer the survey's folder instead.
+            let survey = AskClaudeScreenCard.escape(surveyed)
+            let place = card.place.map(AskClaudeScreenCard.escape) ?? "the place they named"
+            return "Their folder survey covers \(survey) only, and \(place) isn’t in it, so there are no conventions of theirs to sort by there. Say so, and offer to sort it into \(survey) by how they file instead. Don’t guess a folder."
         case .noMatch:
             return "No folder in their folder survey fits \(name). Say so; don’t guess one."
         case .suggestions:
@@ -82,7 +92,8 @@ public enum AskClaudeFiling {
             for (i, folder) in card.folders.enumerated() {
                 let reason = folder.fromFile && !readsFiles
                     ? "Matched a word read from the file that this folder’s documents use" : folder.reason
-                lines.append("\(i == 0 ? "best" : "runner-up"): \(AskClaudeScreenCard.escape(folder.label)) · \(folder.confidence) · \(AskClaudeScreenCard.escape(reason))")
+                let note = folder.note.map { " · \(AskClaudeScreenCard.escape($0)), where it plainly belongs" } ?? ""
+                lines.append("\(i == 0 ? "best" : "runner-up"): \(AskClaudeScreenCard.escape(folder.label)) · \(folder.confidence) · \(AskClaudeScreenCard.escape(reason))\(note)")
             }
             if let days = card.staleDays {
                 lines.append("Their survey is \(days) days old, so folders made since aren’t known; Update the Survey is in Organize ▸ Restructure.")

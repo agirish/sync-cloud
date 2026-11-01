@@ -123,7 +123,8 @@ public enum AskClaudeRequest {
     - Folders and files they put on their Never show Claude list appear only as a count. Never guess what is in them.
     - An attached section lists what they right-clicked to ask about; their question is about those, wherever they are.
     - For “where should this go?”, use where_to_file and answer from what it says, including when it has no answer. \
-    Never name a folder it didn’t.
+    Never name a folder it didn’t. The file can be anywhere on their Mac, Downloads included. When they \
+    say where (into Travel, into Dropbox), pass that as into.
     - Your look-up tools and open work from any workspace. Tools that move or select in the Browse \
     pane take them to Browse first; in Edit, prefer answering without moving them.
 
@@ -248,8 +249,9 @@ public enum AskClaudeToolCatalog {
                                  "description": .string("Also show these rows in Compare’s differences list, filtered and selected. Opens Compare.")]),
              ], required: []),
         tool(.whereToFile,
-             "Where a file belongs by how they file: their folder survey, from Setup. Gives the best folder and why, and a runner-up when it isn’t sure. Read on their Mac and free; it moves nothing. They get a card with Go to Folder.",
-             properties: ["handle": string("A file’s handle, such as r9.")],
+             "Where a file belongs by how they file: their folder survey, from Setup. The file can be anywhere on their Mac. Gives the best folder and why, and a runner-up when it isn’t sure. Read on their Mac and free; it moves nothing. They get a card with Go to Folder.",
+             properties: ["handle": string("A file’s handle, such as r9."),
+                          "into": string("Optional: where they said it should go, as they said it: a folder of their survey (Travel, Taxes/2025) or a source and folder (Dropbox, iCloud/Documents/Travel). Its folders are preferred; one outside the survey is answered as that.")],
              required: ["handle"]),
         tool(.view,
              "Change how the Browse pane shows things: sort order, hidden files, list or columns.",
