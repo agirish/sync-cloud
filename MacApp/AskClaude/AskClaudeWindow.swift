@@ -135,6 +135,10 @@ final class AskClaudeWindowController {
         backdrop.material = .popover
         backdrop.blendingMode = .behindWindow
         backdrop.state = .active
+        // The blur's own shape. Behind-window blending is done by the window server over the
+        // whole window, which the layer's rounding below doesn't reach: each corner showed a
+        // square of blur outside the panel's curve (2026-11-01).
+        backdrop.maskImage = Self.cornerMask(radius: Radius.card)
         backdrop.wantsLayer = true
         backdrop.layer?.cornerRadius = Radius.card
         backdrop.layer?.cornerCurve = .continuous
@@ -167,6 +171,24 @@ final class AskClaudeWindowController {
         // Key, so the composer takes the keyboard at once.
         if activate && !returning { window.makeKeyAndOrderFront(nil) } else { window.orderFront(nil) }
         returning = false
+    }
+
+    /// A rounded rectangle the backdrop stretches to its size: the corners kept, the middle
+    /// stretched. Continuous like the panel's border, whose curve runs about 1.53 radii along
+    /// each side, so the caps hold 1.6.
+    static func cornerMask(radius: CGFloat) -> NSImage {
+        let cap = (radius * 1.6).rounded(.up)
+        let side = cap * 2 + 1
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            context.addPath(RoundedRectangle(cornerRadius: radius, style: .continuous).path(in: rect).cgPath)
+            context.setFillColor(NSColor.black.cgColor)
+            context.fillPath()
+            return true
+        }
+        image.capInsets = NSEdgeInsets(top: cap, left: cap, bottom: cap, right: cap)
+        image.resizingMode = .stretch
+        return image
     }
 
     /// Makes an open panel the key window, so its text box takes the keyboard (TE263).

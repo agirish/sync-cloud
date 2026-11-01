@@ -56,14 +56,19 @@ struct AskClaudePanel: View {
     /// How close to a side of the window a drop docks the panel there.
     static let snapZone: CGFloat = 56
 
-    // TE248, round 3: docked right (the default), docked left, or floating where it was dropped.
+    // TE248, round 3: docked right (the default), docked left, or floating where it was dropped;
+    // TE288 adds the two bottom corners, where the panel grows upward from the window's bottom.
     // One size in every placement, so moving never changes it (round 2 switched a docked panel's
     // full height for the floating one's on drop, and the jump read as the panel resizing itself).
     // Resized from its inner edge, its bottom edge and the corner between them, by AppKit handles:
     // SwiftUI gestures laid over the thread's scroll view lost the mouse to it. The move is
     // measured in window coordinates: measured in the panel's own, the moving panel fed its own
     // movement back into the drag and it jittered.
-    enum Placement: String { case right, left, floating }
+    enum Placement: String {
+        case right, left, bottomRight, bottomLeft, floating
+        var isRight: Bool { self == .right || self == .bottomRight }
+        var isBottom: Bool { self == .bottomRight || self == .bottomLeft }
+    }
     @AppStorage("askClaudePanelPlacement") private var placementRaw = Placement.right.rawValue
     @AppStorage("askClaudePanelWidth") private var storedWidth: Double = 372
     /// 0 is automatic: the panel fits its thread, from `startHeight` up to the window's height.
@@ -93,8 +98,24 @@ struct AskClaudePanel: View {
         return CGSize(width: width, height: min(tallest, max(Self.minHeight, wanted)))
     }
 
-    private func docked(_ placement: Placement, width: CGFloat) -> CGPoint {
-        placement == .left ? CGPoint(x: Self.margin, y: 8) : CGPoint(x: container.width - width - Self.margin, y: 8)
+    /// A docked panel's top-left: under the toolbar, or its bottom edge on the window's.
+    static func docked(_ placement: Placement, size: CGSize, in container: CGSize) -> CGPoint {
+        CGPoint(x: placement.isRight ? container.width - size.width - margin : margin,
+                y: placement.isBottom ? max(8, container.height - size.height - 10) : 8)
+    }
+
+    /// Where a panel dropped with its top-left at `point` docks, or nil to float there. Near a side
+    /// it docks at that side's top or bottom, whichever edge of the window it is nearer; near the
+    /// bottom alone, at the nearer bottom corner. The top has no zone of its own: dropped under the
+    /// toolbar away from the sides, it floats there, as before the bottom could dock.
+    static func dock(droppedAt point: CGPoint, size: CGSize, in container: CGSize) -> Placement? {
+        let topGap = point.y - 8
+        let bottomGap = container.height - 10 - (point.y + size.height)
+        let low = bottomGap < topGap
+        if point.x <= margin + snapZone { return low ? .bottomLeft : .left }
+        if point.x + size.width >= container.width - margin - snapZone { return low ? .bottomRight : .right }
+        if low && bottomGap <= snapZone { return point.x + size.width / 2 < container.width / 2 ? .bottomLeft : .bottomRight }
+        return nil
     }
 
     private func clamped(_ point: CGPoint, size: CGSize) -> CGPoint {
@@ -106,7 +127,7 @@ struct AskClaudePanel: View {
         if let liveOrigin { return liveOrigin }
         switch placement {
         case .floating: return clamped(CGPoint(x: storedX, y: storedY), size: size)
-        case .left, .right: return docked(placement, width: size.width)
+        default: return Self.docked(placement, size: size, in: container)
         }
     }
 
@@ -172,10 +193,8 @@ struct AskClaudePanel: View {
             .onEnded { _ in
                 let dropped = liveOrigin ?? origin
                 withDesignAnimation(.spring(duration: 0.25), reduceMotion: reduceMotion) {
-                    if dropped.x <= Self.margin + Self.snapZone {
-                        placementRaw = Placement.left.rawValue
-                    } else if dropped.x + size.width >= container.width - Self.margin - Self.snapZone {
-                        placementRaw = Placement.right.rawValue
+                    if let dock = Self.dock(droppedAt: dropped, size: size, in: container) {
+                        placementRaw = dock.rawValue
                     } else {
                         placementRaw = Placement.floating.rawValue
                         storedX = dropped.x
@@ -188,25 +207,39 @@ struct AskClaudePanel: View {
             }
     }
 
-    /// The inner side edge (the trailing one when floating), the bottom edge, and the corner
-    /// between them, each a band just inside the border: the panel's window ends at its edge, so a
-    /// band straddling it lost its outer half.
+    /// The inner side edge (the trailing one when floating), the free end (the bottom edge, or the
+    /// top one when docked at the bottom), and the corner between them, each a band just inside the
+    /// border: the panel's window ends at its edge, so a band straddling it lost its outer half.
     private var resizeHandles: some View {
-        let inner: AskClaudeResizeHandle.Edge = placement == .right ? .leading : .trailing
-        let corner: AskClaudeResizeHandle.Edge = placement == .right ? .bottomLeading : .bottomTrailing
+        let right = placement.isRight
+        let low = placement.isBottom
+        let inner: AskClaudeResizeHandle.Edge = right ? .leading : .trailing
+        let end: AskClaudeResizeHandle.Edge = low ? .top : .bottom
+        let corner: AskClaudeResizeHandle.Edge = switch (low, right) {
+        case (false, true): .bottomLeading
+        case (false, false): .bottomTrailing
+        case (true, true): .topLeading
+        case (true, false): .topTrailing
+        }
+        let cornerAlignment: Alignment = switch corner {
+        case .bottomLeading: .bottomLeading
+        case .topLeading: .topLeading
+        case .topTrailing: .topTrailing
+        default: .bottomTrailing
+        }
         let band: CGFloat = 6
         return ZStack {
             handle(inner)
                 .frame(width: band)
                 .padding(.vertical, Radius.card)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: inner == .leading ? .leading : .trailing)
-            handle(.bottom)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: right ? .leading : .trailing)
+            handle(end)
                 .frame(height: band)
                 .padding(.horizontal, Radius.card)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: low ? .top : .bottom)
             handle(corner)
                 .frame(width: Radius.card, height: Radius.card)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: corner == .bottomLeading ? .bottomLeading : .bottomTrailing)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: cornerAlignment)
         }
     }
 
@@ -219,8 +252,11 @@ struct AskClaudePanel: View {
             case .leading: next.width = start.width - dx
             case .trailing: next.width = start.width + dx
             case .bottom: next.height = start.height + dy
+            case .top: next.height = start.height - dy
             case .bottomLeading: next = CGSize(width: start.width - dx, height: start.height + dy)
             case .bottomTrailing: next = CGSize(width: start.width + dx, height: start.height + dy)
+            case .topLeading: next = CGSize(width: start.width - dx, height: start.height - dy)
+            case .topTrailing: next = CGSize(width: start.width + dx, height: start.height - dy)
             }
             liveSize = next
         }, onEnd: {
@@ -230,7 +266,7 @@ struct AskClaudePanel: View {
             liveSize = nil
             resizeStart = nil
         }, onDoubleClick: {
-            // The bottom edge's double-click goes back to fitting the thread.
+            // The free end's double-click goes back to fitting the thread.
             guard edge != .leading && edge != .trailing else { return }
             withDesignAnimation(.spring(duration: 0.25), reduceMotion: reduceMotion) { storedHeight = 0 }
         })
@@ -259,7 +295,7 @@ struct AskClaudePanel: View {
                             .help(place.fullPath)
                     }
                 }
-                .help("Drag the header to move. Drop it at the left or right side to dock it there; double-click to dock it right.")
+                .help("Drag the header to move. Drop it at a side or the bottom to dock it there; double-click to dock it top right.")
                 .accessibilityElement(children: .combine)
                 Spacer(minLength: 8)
             }
@@ -333,7 +369,7 @@ struct AskClaudePanel: View {
         .defaultScrollAnchor(.bottom, for: .sizeChanges)
         // Docked left or floating, the resize band runs down the trailing edge: the scroll bar
         // moves in past it, or a drag on the bar would resize the panel.
-        .contentMargins(.trailing, placement == .right ? 0 : 6, for: .scrollIndicators)
+        .contentMargins(.trailing, placement.isRight ? 0 : 6, for: .scrollIndicators)
     }
 
     private var composer: some View {
@@ -1119,7 +1155,7 @@ enum AskClaudeLinks {
 /// it even where it lies over the thread's scroll view. The drag is reported in window points,
 /// right and down positive, measured from where it began.
 struct AskClaudeResizeHandle: NSViewRepresentable {
-    enum Edge { case leading, trailing, bottom, bottomLeading, bottomTrailing }
+    enum Edge { case leading, trailing, bottom, top, bottomLeading, bottomTrailing, topLeading, topTrailing }
 
     let edge: Edge
     let onDrag: (_ dx: CGFloat, _ dy: CGFloat) -> Void
@@ -1160,8 +1196,11 @@ struct AskClaudeResizeHandle: NSViewRepresentable {
             case .leading: .left
             case .trailing: .right
             case .bottom: .bottom
+            case .top: .top
             case .bottomLeading: .bottomLeft
             case .bottomTrailing: .bottomRight
+            case .topLeading: .topLeft
+            case .topTrailing: .topRight
             }
             addCursorRect(bounds, cursor: .frameResize(position: position, directions: .all))
         }

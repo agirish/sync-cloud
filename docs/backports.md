@@ -13503,3 +13503,20 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s scopeHides=%s unreadable
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` | Both defects; no File Into or Download and Read | RECORDED — not owed |
 | `v3.x` / `v2.x` | Neither defect (no scope, no Read Scan) and no File Into | CLOSED — does not apply |
+
+## Ask Claude docks at the bottom, and its corners are round (TE288) — main only
+
+2026-11-01, for v7.0. On `main`: the Ask Claude panel docks at the bottom-left and bottom-right of
+the window as well as the top (`AskClaudePanel.dock(droppedAt:size:in:)`), and its frosted
+backdrop is masked to the panel's curve (`AskClaudeWindowController.cornerMask`), where each corner
+used to show a square of blur. No maintenance line has the panel:
+
+```sh
+for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l -- MacApp/AskClaude/AskClaudeWindow.swift | wc -l | tr -d ' ')"; done
+# measured 2026-11-01, against origin: main 1, every other line 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude panel | CLOSED — does not apply |

@@ -3,6 +3,7 @@ import Foundation
 import SwiftUI
 import Testing
 import Sync
+import Design
 import Settings
 import FileExplorer
 @testable import SyncCloud
@@ -1231,6 +1232,62 @@ private final class Counter: @unchecked Sendable {
         #expect(editing.subtitle == "Editing notes.md")
     }
 
+    /// TE288: a drop near a side docks at that side's nearer corner, near the bottom alone at the
+    /// nearer bottom corner; under the toolbar away from the sides it still floats.
+    @Test func aDropDocksAtTheNearerCorner() {
+        let container = CGSize(width: 1000, height: 800)
+        let size = CGSize(width: 372, height: 420)
+        func dock(_ x: CGFloat, _ y: CGFloat, _ size: CGSize = size) -> AskClaudePanel.Placement? {
+            AskClaudePanel.dock(droppedAt: CGPoint(x: x, y: y), size: size, in: container)
+        }
+        #expect(dock(20, 30) == .left)
+        #expect(dock(600, 30) == .right)
+        #expect(dock(20, 340) == .bottomLeft)
+        #expect(dock(600, 340) == .bottomRight)
+        // Near the bottom, away from both sides: the corner nearer the panel's middle.
+        #expect(dock(200, 340) == .bottomLeft)
+        #expect(dock(400, 340) == .bottomRight)
+        // Clear of every zone, or under the toolbar in the middle: floating, as before.
+        #expect(dock(300, 200) == nil)
+        #expect(dock(300, 8) == nil)
+        // A panel as tall as the window, dropped at a side, stays at the top it already reaches.
+        #expect(dock(20, 8, CGSize(width: 372, height: 782)) == .left)
+        #expect(dock(300, 8, CGSize(width: 372, height: 782)) == nil)
+    }
+
+    @Test func aBottomDockSitsOnTheWindowsBottomEdge() {
+        let container = CGSize(width: 1000, height: 800)
+        let size = CGSize(width: 372, height: 420)
+        #expect(AskClaudePanel.docked(.right, size: size, in: container) == CGPoint(x: 618, y: 8))
+        #expect(AskClaudePanel.docked(.left, size: size, in: container) == CGPoint(x: 10, y: 8))
+        #expect(AskClaudePanel.docked(.bottomRight, size: size, in: container) == CGPoint(x: 618, y: 370))
+        #expect(AskClaudePanel.docked(.bottomLeft, size: size, in: container) == CGPoint(x: 10, y: 370))
+        // Taller than the room below the toolbar: its top stays under the toolbar.
+        #expect(AskClaudePanel.docked(.bottomLeft, size: CGSize(width: 372, height: 790), in: container).y == 8)
+    }
+
+    /// 2026-11-01: each corner showed a square of blur outside the panel's curve. The mask,
+    /// stretched to a panel's size, is clear in each corner's square and solid along the sides.
+    @Test func theBlurIsMaskedToRoundedCorners() throws {
+        let mask = AskClaudeWindowController.cornerMask(radius: Radius.card)
+        let size = NSSize(width: 372, height: 420)
+        let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height),
+                                                   bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                                   colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        mask.draw(in: NSRect(origin: .zero, size: size))
+        NSGraphicsContext.restoreGraphicsState()
+        func alpha(_ x: Int, _ y: Int) -> CGFloat { bitmap.colorAt(x: x, y: y)?.alphaComponent ?? -1 }
+        let w = Int(size.width) - 1, h = Int(size.height) - 1
+        for (x, y) in [(1, 1), (w - 1, 1), (1, h - 1), (w - 1, h - 1)] {
+            #expect(alpha(x, y) == 0, "corner (\(x), \(y)) is \(alpha(x, y))")
+        }
+        for (x, y) in [(w / 2, 1), (w / 2, h - 1), (1, h / 2), (w - 1, h / 2), (w / 2, h / 2)] {
+            #expect(alpha(x, y) == 1, "edge (\(x), \(y)) is \(alpha(x, y))")
+        }
+    }
+
     @Test func eachHandleTakesTheMouseAtItsEdge() throws {
         let chat = AskClaudeChat(readKey: { nil })
         let container = CGSize(width: 1000, height: 800)
@@ -1292,6 +1349,8 @@ private final class Counter: @unchecked Sendable {
         // Top-left within the area, flipped onto the screen's bottom-left origin.
         #expect(child?.frame == NSRect(x: -30_000 + 618, y: -30_000 + 760 - 428, width: 372, height: 420))
         #expect(child?.canBecomeKey == true && child?.canBecomeMain == false)
+        // The blur is cut to the panel's curve, not the window's rectangle.
+        #expect((child?.contentView as? NSVisualEffectView)?.maskImage != nil)
         // A new place is taken a turn later, out of the panel's own view update.
         controller.panelRect = CGRect(x: 10, y: 8, width: 400, height: 500)
         #expect(child?.frame.size == NSSize(width: 372, height: 420))
