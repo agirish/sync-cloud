@@ -271,30 +271,44 @@ import Testing
     }
 
     /// **"Counts once": a burst of fifty files is one batch** — and one the WATCHER folded, not
-    /// FSEvents: the files go in five writes a third of a second apart, past the stream's 0.05 s
-    /// latency, so FSEvents hands them over in several callbacks (counted) and the three-second
-    /// quiet window must join them. Asserted as the first batch holding every file.
+    /// FSEvents: the files go in five writes, each only once the watcher holds the one before it,
+    /// so FSEvents hands them over in at least five callbacks (counted) and the watcher must join
+    /// them. Asserted as no batch before `stop`, then one batch holding every file.
+    ///
+    /// The quiet window is two minutes, so no timer can fire inside the test however long the
+    /// machine takes between writes. With a three-second window and writes a third of a second
+    /// apart, a full-package run at load ~20 once let a gap outlast it and split the burst
+    /// ("Tests racing a real-time window" in `docs/flaky-tests.md`); that a batch goes out once the
+    /// events have been quiet is the other live tests' wait, and the window's arithmetic is
+    /// `FolderWatchCoalescerTests`'.
     @MainActor
     @Test func aBurstArrivesAsOneBatch() async throws {
         let folder = try Self.makeFolder("burst")
         defer { try? FileManager.default.removeItem(atPath: folder) }
         let inbox = Inbox()
-        let watcher = FolderWatcher(history: .inMemory(), latency: 0.05, quiet: 3, maxDelay: 60) { inbox.add($0) }
+        let watcher = FolderWatcher(history: .inMemory(), latency: 0.05, quiet: 120, maxDelay: 600) { inbox.add($0) }
         defer { watcher.stop() }
         watcher.watch([FolderWatchRoot(path: folder)], replay: .none)
 
         let names = (0..<50).map { "f\($0).txt" }
         for group in stride(from: 0, to: names.count, by: 10) {
-            if group > 0 { try await Task.sleep(nanoseconds: 330_000_000) }   // spacing, not a wait
-            try Self.touch(contentsOf: names[group..<group + 10].map { folder + "/" + $0 })
+            let written = names[group..<group + 10]
+            try Self.touch(contentsOf: written.map { folder + "/" + $0 })
+            await waitUntil("the watcher never received files \(group)–\(group + 9)", timeout: 30) {
+                // Held or already handed over: a batch gone out early fails below, by name.
+                Set((watcher.pendingEvents + inbox.events).map { ($0.path as NSString).lastPathComponent })
+                    .isSuperset(of: written)
+            }
         }
-        await waitUntil("the burst never arrived", timeout: 30) { !inbox.batches.isEmpty }
-        let burst = inbox.batches[0]
-        let reported = Set(burst.events.map { ($0.path as NSString).lastPathComponent })
+        #expect(watcher.callbackCount >= 5,
+                "FSEvents delivered five separate writes in \(watcher.callbackCount) callback(s)")
+        #expect(inbox.batches.isEmpty, "a batch went out while the burst was still arriving")
+
+        watcher.stop()
+        #expect(inbox.batches.count == 1, "the burst went out as \(inbox.batches.count) batches")
+        let reported = Set((inbox.batches.first?.events ?? []).map { ($0.path as NSString).lastPathComponent })
         #expect(reported.isSuperset(of: names),
-                "the burst was split: \(names.count - reported.intersection(names).count) file(s) missing from its first batch")
-        #expect(watcher.callbackCount >= 2,
-                "FSEvents delivered the burst in one callback — nothing here shows the watcher folding it")
+                "the burst was split: \(names.count - reported.intersection(names).count) file(s) missing from its batch")
     }
 
     /// The process's own write is reported, marked as its own.

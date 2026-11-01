@@ -972,6 +972,23 @@ this Mac (`build-slot --exclusive`) it then passed three of three in about 1 s.
 The same run's Sync red, `DifferenceResolutionTests.testSyncAllDropsReentrantRunWhileFirstIsInFlight`,
 was a different mechanism: see its entry under "Fixed pumps and fixed sleeps".
 
+#### Seen: `FolderWatcherLiveTests.aBurstArrivesAsOneBatch`, 2026-10-31 — FIXED
+
+Red once in a full `Modules/Sync` run at load ~20, `reported.isSuperset(of: names)`: the 50-file
+burst came out as two batches. Alone it passed. The test wrote five groups 330 ms apart from the main
+actor and needed every gap under the watcher's 3 s quiet window. Timed in three full-package runs at
+load 10–18: the `Task.sleep(330 ms)` resumed after 0.5–2.75 s, because other suites held the main
+actor, and the widest gap between callbacks was 2.81 s. FSEvents was never slow; each callback came
+within about 30 ms of its write. So the window raced the main actor, not the disk.
+
+Now the quiet window is two minutes, each write waits until the watcher holds the one before it
+(a test-only `pendingEvents`), and `stop()` hands over the batch. The test asserts no batch before
+`stop`, then exactly one with all fifty files, from at least five callbacks. It went from 14 s to
+0.3 s. Three mutations still turn it red: flushing on every callback, replacing the pending events
+instead of adding to them, and a `stop()` that drops the batch.
+Under 20 `yes` spinners (`build-slot --exclusive`, load up to 113) it passed 3 of 3 full-package
+runs and 10 of 10 runs of the suite alone.
+
 #### Seen: `ScanSupersedenceTests.testCancellingScanAbortsTheDiskWalkPromptly`, 2026-08-11
 
 **FIXED 2026-10-25** (mechanism 40): the test now parks the walk inside entry 2 and counts the

@@ -484,6 +484,9 @@ public final class FolderWatcher: @unchecked Sendable {
     var callbackCount: Int { queue.sync { callbacks } }
     private var callbacks = 0
 
+    /// The events still being coalesced — for a test pacing its writes by what the watcher holds.
+    var pendingEvents: [FolderWatchEvent] { queue.sync { pending.events } }
+
     /// Watches exactly `roots` from now on, every newly added one replaying as `replay` says. A
     /// root already watched keeps its stream; one no longer listed stops. Synchronous: when it
     /// returns, a change made afterwards under any of them will be reported.
