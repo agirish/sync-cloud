@@ -79,7 +79,15 @@ final class AskClaudeWindowController {
     /// The area the panel lives in: the window's content below the toolbar, on screen.
     var container: NSRect = .zero { didSet { if container != oldValue { place() } } }
     /// Where the panel wants to be, top-left within `container`.
-    var panelRect: CGRect = .zero { didSet { if panelRect != oldValue { place() } } }
+    ///
+    /// **Applied a turn later, never at once.** The panel sets it from its own view update (New
+    /// Chat shrinking a long thread to the starting height, an answer growing it), and resizing the
+    /// window there resizes the hosting view in the middle of its own layout: the layout then
+    /// finished with the size it began with, and the window's content no longer matched the window
+    /// (an 800-point panel in a 610-point window, its header cut off). Closing and reopening drew
+    /// it right again (2026-10-31, after New Chat).
+    var panelRect: CGRect = .zero { didSet { if panelRect != oldValue { placeSoon() } } }
+    private var placeQueued = false
     /// Out of the way while the main window is busy (Settings, Help, a sheet, a question): a
     /// child window would otherwise sit over them and keep the keyboard. It comes back after.
     ///
@@ -190,6 +198,17 @@ final class AskClaudeWindowController {
         if wasKey, let parent, parent.isVisible { parent.makeKey() }
     }
 
+    /// Places the window once the current update is done; several changes in one turn place once.
+    private func placeSoon() {
+        guard !placeQueued else { return }
+        placeQueued = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.placeQueued = false
+            self.place()
+        }
+    }
+
     private func place() {
         guard let window, panelRect.width > 0, panelRect.height > 0, container.width > 0 else { return }
         let frame = NSRect(x: container.minX + panelRect.minX, y: container.maxY - panelRect.maxY,
@@ -197,6 +216,14 @@ final class AskClaudeWindowController {
         if frame != window.frame {
             window.setFrame(frame, display: true)
             window.invalidateShadow()
+        }
+        // Content that doesn't fill its window draws cut off; said, and put right.
+        if let content = window.contentView {
+            let fits = window.contentRect(forFrameRect: window.frame).size
+            if content.frame.size != fits {
+                Logger.shared.info("[askclaude] panel content was \(content.frame.size) in a \(fits) window; refitted")
+                content.frame = NSRect(origin: .zero, size: fits)
+            }
         }
         if !placed {
             placed = true

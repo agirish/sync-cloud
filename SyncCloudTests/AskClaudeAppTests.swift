@@ -1267,7 +1267,7 @@ private final class Counter: @unchecked Sendable {
 
     /// The panel is its own child window over the main one (2026-10-31: as an overlay, the panes'
     /// AppKit tables took its clicks). Parked far off every display, so the run shows nothing.
-    @Test func thePanelIsAChildWindowWhereItAsksToBe() {
+    @Test func thePanelIsAChildWindowWhereItAsksToBe() async {
         let parent = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 1000, height: 800),
                               styleMask: [.borderless], backing: .buffered, defer: true)
         let controller = AskClaudeWindowController()
@@ -1280,7 +1280,10 @@ private final class Counter: @unchecked Sendable {
         // Top-left within the area, flipped onto the screen's bottom-left origin.
         #expect(child?.frame == NSRect(x: -30_000 + 618, y: -30_000 + 760 - 428, width: 372, height: 420))
         #expect(child?.canBecomeKey == true && child?.canBecomeMain == false)
+        // A new place is taken a turn later, out of the panel's own view update.
         controller.panelRect = CGRect(x: 10, y: 8, width: 400, height: 500)
+        #expect(child?.frame.size == NSSize(width: 372, height: 420))
+        for _ in 0..<100 where child?.frame.size != NSSize(width: 400, height: 500) { try? await Task.sleep(for: .milliseconds(10)) }
         #expect(child?.frame == NSRect(x: -30_000 + 10, y: -30_000 + 760 - 508, width: 400, height: 500))
         // While the main window is busy (Settings, a sheet) it steps out of the way, and nothing
         // the main window redraws meanwhile puts it back.
@@ -1302,6 +1305,39 @@ private final class Counter: @unchecked Sendable {
         controller.hide()
         #expect(parent.childWindows?.isEmpty ?? true)
         #expect(!controller.isShowing)
+    }
+}
+
+/// The real panel in its window, placed from its own view update: its content fills the window.
+@MainActor
+@Suite struct AskClaudePanelWindowFitTests {
+
+    /// 2026-10-31: placed from inside the panel's own layout (its first placement, or New Chat
+    /// shrinking a long thread), the window took the new size and the content kept another — an
+    /// 800-point panel in a 610-point window, its header cut off until it was closed and reopened.
+    @Test func theContentFillsTheWindowAfterOpeningAndAfterNewChat() async throws {
+        let parent = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 1000, height: 760),
+                              styleMask: [.borderless], backing: .buffered, defer: true)
+        let chat = AskClaudeChat(readKey: { nil })
+        for i in 0..<40 { chat.addNote("Note \(i), long enough to take a line of the thread.") }
+        let controller = AskClaudeWindowController()
+        controller.container = NSRect(x: -30_000, y: -30_000, width: 1000, height: 720)
+        let panel = AskClaudePanel(chat: chat, place: AskClaudePanelHandleTests.place, accent: .blue, accentFill: .blue, onAccent: .white,
+                                   onAsk: { _ in }, onClose: {}, onOpenSettings: {}, container: CGSize(width: 1000, height: 720),
+                                   onPlace: { controller.panelRect = $0 })
+        controller.show(AnyView(panel), over: parent, activate: false)
+        let child = try #require(parent.childWindows?.first)
+        func fits() -> Bool {
+            child.contentView?.frame.size == child.contentRect(forFrameRect: child.frame).size && child.frame.size != NSSize(width: 372, height: 420)
+        }
+        func settle() async { for _ in 0..<30 { try? await Task.sleep(for: .milliseconds(10)) } }
+        await settle()
+        #expect(fits(), "content \(child.contentView?.frame.size ?? .zero) in a \(child.frame.size) window")
+        chat.startOver()
+        await settle()
+        #expect(child.contentView?.frame.size == child.contentRect(forFrameRect: child.frame).size,
+                "content \(child.contentView?.frame.size ?? .zero) in a \(child.frame.size) window")
+        controller.hide()
     }
 }
 
