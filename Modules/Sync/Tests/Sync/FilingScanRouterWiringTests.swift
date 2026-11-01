@@ -15,12 +15,15 @@ import Testing
         func token(_ p: String) { lock.lock(); tokens.append(p); lock.unlock() }
     }
 
-    static func profile(_ folders: [String]) -> FolderProfile {
+    /// `root` is the tree the profile describes. A scan of a tree the profile does not describe
+    /// now uses it only when half or more of that tree's folders are in it (GN), so a fixture
+    /// that means "this tree's survey" records the tree it scans.
+    static func profile(_ folders: [String], root: String = "~") -> FolderProfile {
         let entries = folders.map {
             FolderProfileEntry(path: $0, role: .destination, naming: nil, anchors: [],
                                acceptsNewFiles: nil, fileCount: 2, subfolderCount: 0, axes: [:])
         }
-        return FolderProfile(profileId: "t", root: "~",
+        return FolderProfile(profileId: "t", root: root,
                              folders: Dictionary(entries.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a }),
                              personTokens: [])
     }
@@ -49,7 +52,7 @@ import Testing
         m.filingSnippetExtractor = { p in reads.snippet(p); return "PG&E gas and electric 2023" }
         m.filingTokensFromText = { _ in ["pge"] }
         if withRouter {
-            m.filingFolderProfile = profile(["Documents/Home/Utilities/PG&E/2023"])
+            m.filingFolderProfile = profile(["Documents/Home/Utilities/PG&E/2023"], root: root.path)
             m.filingMemory = memory("Documents/Home/Utilities/PG&E/2023", ["pge", "electric"])
         }
         return (m, root)
@@ -135,7 +138,7 @@ import Testing
         m.filingContentExtractor = { _ in Set(FilingRouter.tokenize(vocabulary)) }
         m.filingSnippetExtractor = { _ in vocabulary }
         m.filingTokensFromText = { Set(FilingRouter.tokenize($0)) }
-        m.filingFolderProfile = Self.profile([target, "Documents/Records/Consular"])
+        m.filingFolderProfile = Self.profile([target, "Documents/Records/Consular"], root: root.path)
         m.filingMemory = Self.memory("Documents/Records/Consular", vocabulary.split(separator: " ").map(String.init))
 
         final class Seen: @unchecked Sendable {
@@ -190,7 +193,7 @@ import Testing
         m.filingContentExtractor = { _ in Set(FilingRouter.tokenize(vocabulary)) }
         m.filingSnippetExtractor = { _ in counts.snippet(); return vocabulary }
         m.filingTokensFromText = { counts.token(); return Set(FilingRouter.tokenize($0)) }
-        m.filingFolderProfile = Self.profile([target])
+        m.filingFolderProfile = Self.profile([target], root: root.path)
         m.filingMemory = Self.memory(target, vocabulary.split(separator: " ").map(String.init))
         m.filingClassifier = { _, _, _ in [:] }
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
@@ -231,7 +234,7 @@ import Testing
         m.filingContentExtractor = { _ in Set(FilingRouter.tokenize(vocabulary)) }
         m.filingSnippetExtractor = { _ in vocabulary }
         m.filingTokensFromText = { Set(FilingRouter.tokenize($0)) }
-        m.filingFolderProfile = Self.profile([target])
+        m.filingFolderProfile = Self.profile([target], root: root.path)
         m.filingMemory = Self.memory(target, vocabulary.split(separator: " ").map(String.init))
 
         final class Seen: @unchecked Sendable {
@@ -277,7 +280,7 @@ import Testing
         m.filingSnippetExtractor = { p in p.hasSuffix("scanned.pdf") ? nil : "lease tenancy landlord" }
         m.filingTokensFromText = { Set(FilingRouter.tokenize($0)) }
         m.filingOCRExtractor = { p in calls.ocr(p); return "WILSON PROPERTY MANAGEMENT lease tenancy" }
-        m.filingFolderProfile = Self.profile([target])
+        m.filingFolderProfile = Self.profile([target], root: root.path)
         m.filingMemory = Self.memory(target, ["lease", "tenancy", "landlord"])
         m.filingClassifier = { _, _, _ in [:] }
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
@@ -306,7 +309,7 @@ import Testing
         m.filingSnippetExtractor = { _ in nil }
         m.filingTokensFromText = { Set(FilingRouter.tokenize($0)) }
         m.filingOCRExtractor = { _ in calls.hit(); return "lease tenancy landlord rent" }
-        m.filingFolderProfile = Self.profile([target])
+        m.filingFolderProfile = Self.profile([target], root: root.path)
         m.filingMemory = Self.memory(target, ["lease", "tenancy", "landlord"])
         m.filingClassifier = { _, _, _ in [:] }
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
@@ -336,7 +339,7 @@ import Testing
         m.filingSnippetExtractor = { _ in nil }
         m.filingTokensFromText = { Set(FilingRouter.tokenize($0)) }
         m.filingOCRExtractor = { _ in nil }
-        m.filingFolderProfile = Self.profile(["Documents/Home/Leases"])
+        m.filingFolderProfile = Self.profile(["Documents/Home/Leases"], root: root.path)
         m.filingMemory = Self.memory("Documents/Home/Leases", ["lease"])
         m.filingClassifier = { _, _, _ in [:] }
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
@@ -368,7 +371,8 @@ import Testing
         m.filingSnippetExtractor = { _ in nil }
         m.filingTokensFromText = { Set(FilingRouter.tokenize($0)) }
         m.filingOCRExtractor = { _ in "lease tenancy landlord rent" }
-        m.filingFolderProfile = Self.profile([target])
+        // Surveyed in A; B is a copy of A's layout, so it borrows A's survey (GN) and builds an index.
+        m.filingFolderProfile = Self.profile(["Documents", "Documents/Home", target], root: rootA.path)
         m.filingMemory = Self.memory(target, ["lease", "tenancy", "landlord"])
         m.filingClassifier = { _, _, _ in [:] }
 

@@ -154,6 +154,16 @@ Requires **macOS 26**, unchanged from v6.2.
   last 1 MB of large files of the same size and reads whole only those that match, so large copies
   are found.
 
+### Organize
+
+- **To File learns each cloud source's folders.** iCloud's survey stays the primary one. A source
+  laid out like iCloud's Documents, with half or more of its folders found there as in a Dropbox
+  copy, uses iCloud's survey. A source laid out differently places files by name and offers Learn
+  Its Folders, which reads folder names only, takes seconds and downloads nothing. v6.2 applied
+  iCloud's survey in every source wherever a folder's path happened to match. To File's header names
+  the survey in use and switches it, and Settings ▸ Organize ▸ Folder surveys lists every source.
+  Ask Claude answers "where should this go?" from the survey of the file's own source.
+
 ### Around the app
 
 - **Cloud Filing prices Sonnet 5 at $2/$10.** v6.2 quoted and counted it at Sonnet 4.6's $3/$15 per

@@ -13441,3 +13441,26 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s validate=%s renameGuard=
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | All three gaps | RECORDED — not owed |
+
+## Folder surveys by source (GK–GN) — main only
+
+2026-10-31, for v7.0. On `main`: To File decides per tree which survey places its files
+(`FilingSurveyInUse`): the primary survey for its own tree and for a source with half or more of its
+folders in it, a source's own survey learned from its folder names (`SourceSurveyStore`,
+`profiles/source-surveys.json`), or none. Before, the one active profile was applied to every tree
+wherever a relative path happened to match, so a differently laid out source got the coincidences.
+`v6.x`, `v5.x` and `v4.x` carry that behaviour; `v3.x` and `v2.x` have no folder profile or router at all.
+
+```sh
+for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s sources=%s anyTree=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/SourceSurveyStore.swift | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+FilingRoute.swift 2>/dev/null | grep -c 'guard filingFolderProfile != nil || filingMemory != nil')"; done
+# measured 2026-10-31, against origin, before this landed (the change reads sources=1 anyTree=0 on main):
+# main / v6.x / v5.x / v4.x   sources=0 anyTree=1
+# v3.x / v2.x                 sources=0 anyTree=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` | The one profile applied to every tree by path | RECORDED — not owed (design change with a new feature) |
+| `v3.x` / `v2.x` | No folder profile or router | CLOSED — does not apply |

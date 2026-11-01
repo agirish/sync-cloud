@@ -253,6 +253,8 @@ public struct SettingsView: View {
     /// ignored-items list, the orphan sweep). Optional so previews and hosts without an
     /// engine still render; the dependent controls hide when nil.
     private let syncManager: FileSyncManager?
+    /// The sources, for Organize's Folder surveys. The host injects it, as it does for every tab.
+    @EnvironmentObject private var settings: SettingsManager
 
     /// Runs the full settings reset (defaults wipe plus the host's re-seeding of live state).
     /// Provided by the host; the Reset control hides when nil.
@@ -402,7 +404,9 @@ public struct SettingsView: View {
             case .sync:
                 SyncSettingsTab(syncManager: syncManager, oneWaySync: oneWaySync)
             case .filing:
-                FilingSettingsTab(syncManager: syncManager)
+                FilingSettingsTab(syncManager: syncManager,
+                                  surveySources: settings.enabledProviders.filter { !$0.isLocalFolder }
+                                      .map { ($0.displayName, settings.landingPath(for: $0.id)) })
             case .duplicates:
                 DuplicatesSettingsTab()
             case .intelligence:
@@ -633,6 +637,9 @@ enum SettingsSearchIndex {
                          "organize", "tidy", "filing"]),
         .init(tab: .filing, title: "Remembered rules",
               keywords: ["filing rules", "rules", "remembered rules", "manage rules", "automation", "automations"]),
+        .init(tab: .filing, title: "Folder surveys",
+              keywords: ["survey", "folder survey", "learn folders", "learn its folders", "profile",
+                         "google drive", "dropbox", "onedrive", "icloud", "layout", "forget survey"]),
         // Nearly every query for this one misses the label. The section is titled "Kept names",
         // but the decision is made from a menu item worded "Always Allow This Name" and withdrawn
         // from one worded "Stop Allowing This Name" — so "allow" is the word the user has actually
@@ -2360,9 +2367,13 @@ struct DuplicatesSettingsTab: View {
 /// path cost me?") and splitting them would be the third place to look for one workflow the old
 /// comment was rightly worried about.
 struct FilingSettingsTab: View {
-    /// Only the kept-names list needs it, and only to reach `keptNamesStore`. Optional for the
-    /// same reason every other tab's is: tests and previews build the tab without an engine.
+    /// The kept-names list reaches `keptNamesStore` through it, and Folder surveys the surveys.
+    /// Optional for the same reason every other tab's is: tests and previews build the tab
+    /// without an engine.
     let syncManager: FileSyncManager?
+    /// Cloud sources by name and landing folder, for Folder surveys. Empty hides the section,
+    /// which is how the layout tests build the tab.
+    var surveySources: [(name: String, root: String)] = []
     @AppStorage(GeneralSettings.filingInboxRelativePathKey) private var filingInbox: String = "TODO"
 
     var body: some View {
@@ -2396,6 +2407,10 @@ struct FilingSettingsTab: View {
                 // the API key go?" has no answer on the page it used to be answered on.
                 Text("Organize suggests where loose files belong, starting from the inbox folder above. What it suggests, and what the cloud pass costs, now live under **Intelligence**; the household it files for lives under **People**. Corrections you ask it to remember are saved as rules, listed under Rules in the Organize workspace.")
             })
+
+            if let syncManager, !surveySources.isEmpty {
+                FolderSurveysSection(syncManager: syncManager, sources: surveySources)
+            }
 
             SettingsSection(
                 "Kept names",

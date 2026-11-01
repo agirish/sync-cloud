@@ -168,7 +168,7 @@ import Testing
                                fileCount: 2, subfolderCount: 0, axes: ["person": "Son"]),
         ]
         m.filingFolderProfile = FolderProfile(
-            profileId: "t", root: "~",
+            profileId: "t", root: root.path,
             folders: Dictionary(entries.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a }),
             personTokens: ["daughter", "son"])
         m.filingPersonRegistry = PersonRegistry(people: [

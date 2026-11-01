@@ -78,12 +78,17 @@ extension FileSyncManager {
     /// Mac (TE266): only the destination has to be in the survey. `snippet` is page 1 as read on
     /// this Mac (nil ranks by name alone); `place`, absolute, is a folder they named ("into
     /// Travel"), whose folders are preferred (decision FX); `isHidden` is the Never show Claude list.
+    ///
+    /// **The survey follows the source (GM):** a file in a source with its own survey (Google
+    /// Drive) is answered from that survey, and placed in that source; anything else from the
+    /// primary one. A named place decides it first, so "into Finance in iCloud" asked about a Google
+    /// Drive file is answered from iCloud's.
     public func whereToFile(_ path: String, snippet: String?, preferring place: String? = nil,
                             isHidden: (String) -> Bool) async -> FilingHelpAnswer {
-        let surveyedAt = filingSurveyedAt
-        guard let profile = filingFolderProfile, let root = profile.recordedFolderPath else {
-            return FilingHelpAnswer(outcome: .noProfile, surveyedAt: surveyedAt)
+        guard let survey = filingHelpSurvey(for: place ?? path) else {
+            return FilingHelpAnswer(outcome: .noProfile, surveyedAt: filingSurveyedAt)
         }
+        let (profile, root, surveyedAt) = (survey.profile, survey.root, survey.surveyedAt)
         let placeRelative: String?
         if let place {
             guard let relative = Self.relative(place, toRoot: root) else {
@@ -93,7 +98,9 @@ extension FileSyncManager {
         } else {
             placeRelative = nil
         }
-        let memory = filingMemory, registry = filingPersonRegistry, satellites = filingSatelliteHomes
+        let memory = survey.memory, registry = filingPersonRegistry
+        // The satellite map is the primary survey's tree; a source's own survey has none.
+        let satellites = survey.profile.profileId == filingFolderProfile?.profileId ? filingSatelliteHomes : [:]
         // Asked here, once per folder: the list's matcher reads the disk and stays on this actor.
         let hidden = Set(profile.folders.keys.filter { isHidden(root + "/" + $0) })
         let key = FilingHelpIndexCache.Key(profileId: profile.profileId, generation: filingHelpProfileStamp,

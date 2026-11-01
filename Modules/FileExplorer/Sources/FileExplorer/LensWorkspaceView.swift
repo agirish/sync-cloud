@@ -1126,6 +1126,14 @@ public struct LensWorkspaceView: View {
                     .padding(.horizontal, sectionInset + 12)
                     .padding(.top, stripGap)
             }
+            // A tree placed by name, or one whose folders are being learned (GL).
+            if effectiveLens == .filing, organizeLens == .toFile, !syncManager.isSuggestingFiles,
+               FilingSurveyStrip.isShown(syncManager) {
+                FilingSurveyStrip(syncManager: syncManager, sources: filingSurveySources,
+                                  accent: glassHue.accentColor, onRescan: onFindFilingSuggestions)
+                    .padding(.horizontal, sectionInset + 12)
+                    .padding(.top, stripGap)
+            }
             if showSourcePicker { sourceBar }
             lensBody(rows: rows, counts: counts, scopeFolders: scopeFolders)
         }
@@ -1668,7 +1676,12 @@ public struct LensWorkspaceView: View {
                   !(organizeLens.goesStaleDuringFilingScan && syncManager.isSuggestingFiles) {
             switch organizeLens {
             case .toFile:
-                if hasFilingResults { filingSummary(rows.filing) }
+                if hasFilingResults {
+                    filingSummary(rows.filing)
+                    // Whose survey placed these cards, and the choice of another (GK–GN).
+                    FilingSurveyMenu(syncManager: syncManager, sources: filingSurveySources,
+                                     onRescan: onFindFilingSuggestions)
+                }
             case .renames:
                 // The FILTERED plans, like the queue's readout beside it and unlike the rail badge
                 // that got you here: a badge is a signpost and counts its whole list, a readout
@@ -1681,6 +1694,11 @@ public struct LensWorkspaceView: View {
                 EmptyView()
             }
         }
+    }
+
+    /// The sources, by name and root, that name a tree in To File's survey menu and strip.
+    private var filingSurveySources: [(name: String, root: String)] {
+        providers.map { ($0.displayName, $0.rootPath) }
     }
 
     /// "3 reporting · 2 clean · 1 not scanned" — the rail, said in prose.

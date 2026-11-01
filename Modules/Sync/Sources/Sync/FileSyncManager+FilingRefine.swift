@@ -330,7 +330,7 @@ extension FileSyncManager {
                                                  rejectedByFile: rejectedByFile,
                                                  contentBlind: contentBlind,
                                                  satelliteHomes: filingSatelliteHomes,
-                                                 profile: filingFolderProfile,
+                                                 profile: filingRoutingProfile,
                                                  registry: filingPersonRegistry,
                                                  pageSamples: filingPageSamples,
                                                  identity: filingPersonIdentity,

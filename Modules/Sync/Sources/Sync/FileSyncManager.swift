@@ -1525,6 +1525,19 @@ public class FileSyncManager: ObservableObject {
     /// count mismatch, and an exact comparison cannot collide into serving a stale index.
     var filingRouterIndex: FilingRouter.Index?
     var filingRouterIndexKey: Set<String>?
+    /// Which survey the last To File scan placed its files with (GK–GN) — see
+    /// ``FilingSurveyInUse``. Nil before the first scan. The header's survey menu reads it.
+    @Published public internal(set) var filingSurveyInUse: FilingSurveyInUse?
+    /// Sources' own surveys, read once per profile id: a profile is thousands of entries to decode.
+    var sourceSurveyProfiles: [String: FolderProfile] = [:]
+    /// The tree whose folders are being learned right now, nil when none is.
+    @Published public internal(set) var learningSourceSurveyRoot: String?
+    /// What the last Learn Its Folders did, for the strip under To File's header: the folders it
+    /// learned, or why it could not. Cleared by the strip's ✕ and by a scan of another tree.
+    @Published public internal(set) var sourceSurveyNote: SourceSurveyNote?
+    /// Where a replaced or forgotten source survey's folder goes: the Trash in the app, so a
+    /// survey forgotten by mistake can be put back by hand. A test substitutes a plain removal.
+    var sourceSurveyRetire: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
     /// How many times the index has actually been built. Nothing reads it in the app — it exists
     /// so a test can tell a reused index from a rebuilt one, which is otherwise invisible: a
     /// rebuild produces a value equal to the one it replaced.
@@ -1543,7 +1556,7 @@ public class FileSyncManager: ObservableObject {
 
     /// Rebuilds ``filingSatelliteHomes`` when the indexes behind it have moved.
     func refreshSatelliteHomes(providerRoot: String?, fileManager fm: FileManager = .default) {
-        guard let providerRoot, let profile = filingFolderProfile,
+        guard let providerRoot, let profile = filingRoutingProfile,
               let directory = contentIndexDirectory
         else {
             filingSatelliteHomes = [:]

@@ -12,7 +12,10 @@ extension FileSyncManager {
 
     /// Builds the router index for a taxonomy, reusing the last one when the taxonomy has not moved.
     func prepareFilingRouter(destinations: Set<String>, providerRoot: String? = nil) {
-        guard filingFolderProfile != nil || filingMemory != nil, !destinations.isEmpty else {
+        // Which survey answers for this tree (GK–GN) — decided first, since everything below reads
+        // the profile and memory it picks.
+        if let providerRoot { resolveFilingSurvey(providerRoot: providerRoot, folders: destinations) }
+        guard filingRoutingProfile != nil || filingRoutingMemory != nil, !destinations.isEmpty else {
             invalidateFilingRouterIndex()
             return
         }
@@ -25,8 +28,8 @@ extension FileSyncManager {
         if filingRouterIndex != nil, filingRouterIndexKey == destinations,
            before == filingSatelliteHomes { return }
         filingRouterIndex = FilingRouter.makeIndex(destinations: Array(destinations),
-                                                   profile: filingFolderProfile,
-                                                   memory: filingMemory,
+                                                   profile: filingRoutingProfile,
+                                                   memory: filingRoutingMemory,
                                                    registry: filingPersonRegistry,
                                                    satelliteHomes: filingSatelliteHomes)
         filingRouterIndexKey = destinations
@@ -36,7 +39,7 @@ extension FileSyncManager {
     /// The context handed to a classifier — the taxonomy plus whatever has been learned about it.
     func filingContext(taxonomyFolders: [String]) -> FilingContext {
         FilingContext(taxonomyFolders: taxonomyFolders,
-                      profile: filingFolderProfile, memory: filingMemory)
+                      profile: filingRoutingProfile, memory: filingRoutingMemory)
     }
 
     /// The folders worth spending the classifier's budget on, most-deserving first — the router's
@@ -352,7 +355,7 @@ extension FileSyncManager {
         var refused = false
         let swept = FilingEngine.refusingCrossPersonHomes(
             [outcome.suggestion], providerRoot: root,
-            profile: filingFolderProfile, registry: filingPersonRegistry,
+            profile: filingRoutingProfile, registry: filingPersonRegistry,
             identity: filingPersonIdentity, pageSamples: filingPageSamples,
             onVeto: { [weak self] refusal in
                 refused = true

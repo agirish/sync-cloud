@@ -706,7 +706,7 @@ extension FileSyncManager {
                                                          contentBlind: contentBlind,
                                                          routerShortlists: routerShortlists,
                                                          satelliteHomes: filingSatelliteHomes,
-                                                         profile: filingFolderProfile,
+                                                         profile: filingRoutingProfile,
                                                          registry: filingPersonRegistry,
                                                          pageSamples: pageSamples,
                                                          identity: filingPersonIdentity,
@@ -729,7 +729,7 @@ extension FileSyncManager {
         // naming pass so nothing is asked what a refused folder would call the file.
         suggestions = FilingEngine.refusingCrossPersonHomes(
             suggestions, providerRoot: providerRoot.path,
-            profile: filingFolderProfile, registry: filingPersonRegistry,
+            profile: filingRoutingProfile, registry: filingPersonRegistry,
             identity: filingPersonIdentity, pageSamples: pageSamples,
             onVeto: { [weak self] refusal in self?.recordPersonVeto(refusal) })
 
@@ -742,7 +742,7 @@ extension FileSyncManager {
         // main actor for **21 ms** — small, but spent at exactly the moment the results publish and
         // the list rebuilds. Nothing here touches the manager, so there is nothing to hop back for.
         let namingInput = suggestions
-        let namingProfile = filingFolderProfile
+        let namingProfile = filingRoutingProfile
         let namingRoot = providerRoot.path
         suggestions = await Task.detached(priority: .userInitiated) {
             Self.namingSuggestions(namingInput, taxonomy: taxonomy, rootPath: namingRoot,
@@ -1523,7 +1523,7 @@ extension FileSyncManager {
             else { return nil }
             if let refusal = FilingEngine.personVeto(
                 fileName: suggestion.fileName, destination: dest.path, providerRoot: root,
-                profile: filingFolderProfile, registry: filingPersonRegistry,
+                profile: filingRoutingProfile, registry: filingPersonRegistry,
                 identity: filingPersonIdentity,
                 pageSample: filingPageSamples[suggestion.filePath]) {
                 if let reported = refusal.reported { recordPersonVeto(reported) }
@@ -1571,7 +1571,7 @@ extension FileSyncManager {
             guard dest.newSegments.isEmpty else { return dest }
             return dest.naming(Self.liveIncomingName(
                 for: s.fileName, destination: dest.path, providerRoot: s.providerRoot,
-                profile: filingFolderProfile, fileManager: fileManager))
+                profile: filingRoutingProfile, fileManager: fileManager))
         }
         filingSuggestions[i] = s.replacingCandidates(named)
     }
@@ -1880,7 +1880,7 @@ extension FileSyncManager {
         }
 
         let logger = Logger.shared   // captured on the main actor; its methods are nonisolated
-        let profile = filingFolderProfile
+        let profile = filingRoutingProfile
         let anchor = Self.filingAnchor(for: destination, under: suggestion.providerRoot)
         let recordedSource = suggestion.sourceIdentity
         let outcome: FilingMoveOutcome = await enqueueFileOperation {
