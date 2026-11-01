@@ -31,9 +31,14 @@ public struct FilingSurveyInUse: Equatable, Sendable {
     public let ownProfileId: String?
     public let ownLearnedAt: Date?
     public let ownFolderCount: Int?
+    /// When the own survey's documents were read, and how many — nil until Read Documents has
+    /// finished for it.
+    public let ownDocumentsReadAt: Date?
+    public let ownDocumentsRead: Int?
 
     public init(kind: Kind, root: String, matched: Int, total: Int, chosen: Bool,
-                ownProfileId: String? = nil, ownLearnedAt: Date? = nil, ownFolderCount: Int? = nil) {
+                ownProfileId: String? = nil, ownLearnedAt: Date? = nil, ownFolderCount: Int? = nil,
+                ownDocumentsReadAt: Date? = nil, ownDocumentsRead: Int? = nil) {
         self.kind = kind
         self.root = root
         self.matched = matched
@@ -42,6 +47,8 @@ public struct FilingSurveyInUse: Equatable, Sendable {
         self.ownProfileId = ownProfileId
         self.ownLearnedAt = ownLearnedAt
         self.ownFolderCount = ownFolderCount
+        self.ownDocumentsReadAt = ownDocumentsReadAt
+        self.ownDocumentsRead = ownDocumentsRead
     }
 
     /// The share of `root`'s folders the primary survey also has, 0…1; 1 for an empty tree.

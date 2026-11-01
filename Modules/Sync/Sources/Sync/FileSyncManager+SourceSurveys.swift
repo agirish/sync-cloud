@@ -20,14 +20,46 @@ extension FileSyncManager {
         }
     }
 
-    /// The learned memory that goes with ``filingRoutingProfile``. A source's own survey is learned
-    /// from folder names only, so it has none.
+    /// The learned memory that goes with ``filingRoutingProfile``. A source's own survey has one
+    /// once its documents have been read (Read Documents); learned from folder names alone, none.
     var filingRoutingMemory: FilingMemory? {
         guard let use = filingSurveyInUse else { return filingMemory }
         switch use.kind {
         case .primary, .borrowed: return filingMemory
-        case .own, .byName: return nil
+        case .own: return use.ownProfileId.flatMap { sourceSurveyMemory(id: $0) }
+        case .byName: return nil
         }
+    }
+
+    /// The fingerprint cached verdicts are keyed with for the tree the last scan filed into.
+    ///
+    /// **A source's own survey is part of the question**, so it is part of the key: a verdict
+    /// composed against Google Drive's survey before its documents were read must not be replayed
+    /// after. The primary fingerprint stays in it too, since that is where the household lives.
+    /// Nil — cache off — when either half is unreadable.
+    var filingRoutingFingerprint: String? {
+        guard let use = filingSurveyInUse, use.kind == .own, let id = use.ownProfileId else {
+            return filingArtifactFingerprint
+        }
+        guard let primary = filingArtifactFingerprint, let own = sourceSurveyFingerprint(id: id) else { return nil }
+        return primary + "+" + own
+    }
+
+    func sourceSurveyFingerprint(id: String) -> String? {
+        if let cached = sourceSurveyFingerprints[id] { return cached }
+        guard let directory = filingProfilesDirectory,
+              let fingerprint = FilingProfileStore.fingerprint(id: id, in: directory) else { return nil }
+        sourceSurveyFingerprints[id] = fingerprint
+        return fingerprint
+    }
+
+    /// The source survey's learned memory, read once and kept; nil before its documents are read.
+    func sourceSurveyMemory(id: String) -> FilingMemory? {
+        if let cached = sourceSurveyMemories[id] { return cached }
+        guard let directory = filingProfilesDirectory,
+              let memory = FilingProfileStore.memory(id: id, in: directory) else { return nil }
+        sourceSurveyMemories[id] = memory
+        return memory
     }
 
     /// The source's own survey, read once and kept; nil when absent or unreadable.
@@ -72,10 +104,13 @@ extension FileSyncManager {
         let use = FilingSurveyInUse(kind: decided.kind, root: providerRoot, matched: matched, total: total,
                                     chosen: decided.chosen, ownProfileId: ownId,
                                     ownLearnedAt: ownId == nil ? nil : entry?.learnedAt,
-                                    ownFolderCount: ownId == nil ? nil : entry?.folderCount)
+                                    ownFolderCount: ownId == nil ? nil : entry?.folderCount,
+                                    ownDocumentsReadAt: ownId == nil ? nil : entry?.documentsReadAt,
+                                    ownDocumentsRead: ownId == nil ? nil : entry?.documentsRead)
         let previous = filingSurveyInUse
         if let note = sourceSurveyNote, !SourceSurveyStore.sameFolder(note.root, providerRoot) { sourceSurveyNote = nil }
         if previous?.kind != use.kind || previous?.ownProfileId != use.ownProfileId
+            || previous?.ownDocumentsReadAt != use.ownDocumentsReadAt
             || previous.map({ SourceSurveyStore.sameFolder($0.root, use.root) }) != true {
             invalidateFilingRouterIndex()
             filingSatelliteKey = nil
@@ -106,6 +141,8 @@ extension FileSyncManager {
         case unreadable(String)
         case nothingToLearn(String)
         case refused(String)
+        /// The source's documents are being read into the survey this would replace or forget.
+        case readingDocuments
 
         public var sentence: String {
             switch self {
@@ -114,6 +151,8 @@ extension FileSyncManager {
             case .unreadable(let path): return "“\((path as NSString).lastPathComponent)” can’t be read."
             case .nothingToLearn(let path): return "“\((path as NSString).lastPathComponent)” holds no folders to learn."
             case .refused(let why): return why
+            case .readingDocuments:
+                return "Its documents are being read. Try again when the reading finishes, or stop it first."
             }
         }
     }
@@ -128,6 +167,7 @@ extension FileSyncManager {
     public func learnSourceSurvey(root: String, now: Date = Date()) async -> Result<FilingSurveyInUse?, SourceSurveyFailure> {
         guard let directory = filingProfilesDirectory else { return .failure(.noProfilesDirectory) }
         guard learningSourceSurveyRoot == nil else { return .failure(.alreadyLearning) }
+        guard !isReadingDocuments(ofSource: root) else { return .failure(.readingDocuments) }
         learningSourceSurveyRoot = root
         defer { learningSourceSurveyRoot = nil }
         sourceSurveyNote = nil
@@ -165,11 +205,17 @@ extension FileSyncManager {
         let previousId = SourceSurveyStore.entry(forRoot: root, in: directory)?.profileId
         do {
             try FilingProfileStore.writeSourceProfile(profile, in: directory, now: now)
+            // GP, 2026-10-31: learning the folders again keeps what reading the documents learned.
+            let carried = previousId.map { carryDocumentReading(from: $0, to: profile, in: directory, now: now) } ?? false
             try SourceSurveyStore.update(root: root, in: directory) {
                 $0.profileId = id
                 $0.learnedAt = now
                 $0.folderCount = learned
                 $0.choice = .own
+                if !carried {
+                    $0.documentsReadAt = nil
+                    $0.documentsRead = nil
+                }
             }
         } catch {
             Logger.shared.warning("Source survey: could not save \(root)'s survey: \(error)")
@@ -200,12 +246,18 @@ extension FileSyncManager {
     public func forgetSourceSurvey(root: String) {
         guard let directory = filingProfilesDirectory,
               let entry = SourceSurveyStore.entry(forRoot: root, in: directory) else { return }
+        guard !isReadingDocuments(ofSource: root) else {
+            Logger.shared.info("Source survey: not forgetting \(root)'s survey — its documents are being read")
+            return
+        }
         do {
             try SourceSurveyStore.update(root: root, in: directory) {
                 $0.profileId = nil
                 $0.learnedAt = nil
                 $0.folderCount = nil
                 $0.choice = nil
+                $0.documentsReadAt = nil
+                $0.documentsRead = nil
             }
         } catch {
             Logger.shared.warning("Source survey: could not forget \(root)'s survey: \(error)")
@@ -242,7 +294,9 @@ extension FileSyncManager {
         return FilingSurveyInUse(kind: decided.kind, root: root, matched: matched, total: total,
                                  chosen: decided.chosen, ownProfileId: ownId,
                                  ownLearnedAt: ownId == nil ? nil : entry?.learnedAt,
-                                 ownFolderCount: ownId == nil ? nil : entry?.folderCount)
+                                 ownFolderCount: ownId == nil ? nil : entry?.folderCount,
+                                 ownDocumentsReadAt: ownId == nil ? nil : entry?.documentsReadAt,
+                                 ownDocumentsRead: ownId == nil ? nil : entry?.documentsRead)
     }
 
     /// The survey Ask Claude answers from for a file at `path` (GM: it follows the source) — the
@@ -256,7 +310,7 @@ extension FileSyncManager {
                 .max { $0.root.count < $1.root.count }
             if let holding, let id = holding.profileId, let profile = sourceSurveyProfile(id: id),
                let root = profile.recordedFolderPath {
-                return (profile, nil, root, holding.learnedAt)
+                return (profile, sourceSurveyMemory(id: id), root, holding.documentsReadAt ?? holding.learnedAt)
             }
         }
         guard let profile = filingFolderProfile, let root = profile.recordedFolderPath else { return nil }
@@ -266,12 +320,97 @@ extension FileSyncManager {
     /// A source survey's folder, to the Trash rather than deleted (``sourceSurveyRetire``).
     func retireSourceSurveyFolder(_ id: String, in directory: URL) {
         sourceSurveyProfiles[id] = nil
+        sourceSurveyMemories[id] = nil
+        sourceSurveyFingerprints[id] = nil
         let folder = directory.appendingPathComponent(id)
         do {
             try sourceSurveyRetire(folder)
         } catch {
             Logger.shared.warning("Source survey: could not move '\(id)' to the Trash: \(error)")
         }
+    }
+
+    /// Reads a source's documents from a plan its sheet confirmed, and says how it went on the
+    /// banner — the one start both To File's survey menu and Settings use.
+    @discardableResult
+    public func readSourceDocuments(plan: DocumentSurveyPlan) async -> Result<DocumentSurveyReport, DocumentSurveyRefusal> {
+        let result = await runDocumentSurvey(plan: plan)
+        switch result {
+        case .success(let report):
+            banner = report.isComplete ? .success(report.summary) : .warning(report.summary)
+        case .failure(let refusal):
+            Logger.shared.info("Document survey: not started — \(refusal.sentence)")
+            banner = .warning(refusal.sentence)
+        }
+        return result
+    }
+
+    /// Whether a reading of `root`'s own survey is running now.
+    public func isReadingDocuments(ofSource root: String) -> Bool {
+        documentSurveySourceRoot.map { SourceSurveyStore.sameFolder($0, root) } ?? false
+    }
+
+    /// What a finished Read Documents leaves behind for a source: its memory in use, its entry
+    /// dated, and the scan on screen re-decided so the cards follow at the next scan.
+    func recordSourceDocumentsRead(sourceRoot: String, profileId: String, memory: FilingMemory?,
+                                   documentsRead: Int, in directory: URL, now: Date) {
+        if let memory { sourceSurveyMemories[profileId] = memory }
+        sourceSurveyFingerprints[profileId] = nil
+        do {
+            try SourceSurveyStore.update(root: sourceRoot, in: directory) {
+                $0.documentsReadAt = now
+                $0.documentsRead = documentsRead
+            }
+        } catch {
+            Logger.shared.warning("Source survey: could not date the reading of \(sourceRoot): \(error)")
+        }
+        refreshSurveyInUse(forRoot: sourceRoot)
+    }
+
+    /// Copies a source survey's reading — its corpus and memory — to the survey learned to replace
+    /// it, before the old one goes to the Trash (GP). The memory keeps only folders the new survey
+    /// still has: a folder that is gone has nothing left to place files in. False when there was
+    /// nothing read to carry, or it could not be carried.
+    func carryDocumentReading(from oldId: String, to profile: FolderProfile, in directory: URL, now: Date) -> Bool {
+        guard case .loaded(let corpus) = FilingSurveyStore.corpusRead(id: oldId, in: directory), !corpus.isEmpty,
+              let memory = FilingProfileStore.memory(id: oldId, in: directory),
+              let root = profile.recordedFolderPath else { return false }
+        let newId = profile.profileId
+        let carried = FilingMemory(profileId: newId, salt: memory.salt,
+                                   folders: memory.folders.filter { profile.folders[$0.key] != nil })
+        do {
+            _ = try FilingSurveyStore.write(corpus: FilingCorpus(profileId: newId, salt: corpus.salt,
+                                                                 documents: corpus.documents),
+                                            memory: carried, previousMemory: nil,
+                                            id: newId, in: directory, root: root,
+                                            now: corpus.surveyedAt ?? now)
+        } catch {
+            Logger.shared.warning("Source survey: could not carry the documents read from '\(oldId)' to '\(newId)': \(error)")
+            return false
+        }
+        Logger.shared.info("Source survey: carried the documents read from '\(oldId)' to '\(newId)' — "
+                           + "\(carried.folders.count) of \(memory.folders.count) folder(s) still there")
+        return true
+    }
+
+    /// Downloads a cloud-only document and waits, bounded, for its content to land (GL). Returns
+    /// at once for a provider that refuses; the reading then counts the document unavailable.
+    nonisolated static func fetchCloudOnly(_ path: String, deadline: Duration = .seconds(120),
+                                           pollEvery: Duration = .milliseconds(250)) async {
+        do {
+            try MaterializationStatus.download(atPath: path)
+        } catch {
+            Logger.shared.info("Document survey: the provider would not download \((path as NSString).lastPathComponent): \(error.localizedDescription)")
+            return
+        }
+        let clock = ContinuousClock()
+        let end = clock.now + deadline
+        while clock.now < end, !Task.isCancelled {
+            // Nil is a file gone mid-download: nothing more will land.
+            guard MaterializationStatus.isCloudOnlyIfKnown(atPath: MaterializationStatus.linkTarget(of: path)) == true else { return }
+            try? await Task.sleep(for: pollEvery)
+        }
+        Logger.shared.info("Document survey: \((path as NSString).lastPathComponent) had not downloaded after \(deadline) — left for a later reading")
     }
 
     /// `source-<stamp>`, unique on disk — the walk's id scheme, with its own prefix so a person

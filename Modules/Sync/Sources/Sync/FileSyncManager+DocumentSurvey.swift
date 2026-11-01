@@ -114,6 +114,10 @@ extension FileSyncManager {
         /// whoever stopped it starts it again on the new profile; **not a success**, whose
         /// "Stopped after reading …" banner would sit over the reading carrying on.
         case stoppedForNewProfile
+        /// Read Documents was asked of a source that has no survey of its own to read into.
+        case noSourceSurvey
+        /// The source's documents have been read already. A source has no Refresh yet.
+        case sourceAlreadyRead
 
         public var sentence: String {
             switch self {
@@ -155,6 +159,10 @@ extension FileSyncManager {
             case .stoppedForNewProfile:
                 return "Stopped so the new folder survey could take over. Nothing has been lost — "
                     + "the reading carries on from here."
+            case .noSourceSurvey:
+                return "This source has no folder survey of its own yet. Learn its folders first."
+            case .sourceAlreadyRead:
+                return "This source’s documents have been read already."
             }
         }
     }
@@ -187,6 +195,13 @@ extension FileSyncManager {
         /// in a derived survey, and one that a summary reporting only what it read would hide.
         public let skippedUnreadableTypes: Int
         public var total: Int { paths.count }
+        /// The source whose own survey this reads into (its ``SourceSurveyEntry/root``), or nil for
+        /// the primary survey — the active profile.
+        public let sourceRoot: String?
+        /// Documents in ``paths`` whose content is not on this disk. A source's reading downloads
+        /// them first (GO: and leaves them downloaded); the primary survey's skips them. Counted
+        /// only for a source, whose sheet states it — 0 for the primary survey.
+        public let toDownload: Int
     }
 
     // MARK: - Working out what to do
@@ -238,7 +253,38 @@ extension FileSyncManager {
         Logger.shared.info("Document survey: planning for \(root.path), the folder this profile was "
                            + "built from" + (askedAboutIt ? "" : " — not \(requested.path), which it "
                                                            + "was asked about"))
+        return await planDocumentSurvey(profileId: profileId, root: root, memory: filingMemory,
+                                        directory: directory, sourceRoot: nil)
+    }
 
+    /// Plans Read Documents for a source's own survey (GL, 2026-10-31) — Google Drive's, say: the
+    /// tree that survey was learned from, read into `profiles/<its id>/`, never the active profile.
+    ///
+    /// `sourceRoot` is the source's ``SourceSurveyEntry/root``. The same walk, refusals and
+    /// checkpoint as the primary survey's; what differs is that cloud-only documents are counted,
+    /// because this reading downloads them.
+    public func planSourceDocumentSurvey(sourceRoot: String) async -> Result<DocumentSurveyPlan, DocumentSurveyRefusal> {
+        guard !filingSurveyLifecycle.isRunning else { return .failure(.alreadyRunning) }
+        guard let directory = filingProfilesDirectory else { return .failure(.noProfileDirectory) }
+        guard filingSnippetExtractor != nil else { return .failure(.noExtractor) }
+        guard let entry = SourceSurveyStore.entry(forRoot: sourceRoot, in: directory),
+              let profileId = entry.profileId,
+              let profile = sourceSurveyProfile(id: profileId) else {
+            return .failure(.noSourceSurvey)
+        }
+        guard let rootPath = profile.recordedFolderPath else { return .failure(.noRecordedFolder) }
+        Logger.shared.info("Document survey: planning for \(rootPath), the source survey '\(profileId)'")
+        let planned = await planDocumentSurvey(profileId: profileId,
+                                               root: URL(fileURLWithPath: rootPath, isDirectory: true),
+                                               memory: sourceSurveyMemory(id: profileId),
+                                               directory: directory, sourceRoot: entry.root)
+        if case .failure(.alreadySurveyed) = planned { return .failure(.sourceAlreadyRead) }
+        return planned
+    }
+
+    /// The walk and the count, for whichever survey `profileId` names.
+    private func planDocumentSurvey(profileId: String, root: URL, memory: FilingMemory?,
+                                    directory: URL, sourceRoot: String?) async -> Result<DocumentSurveyPlan, DocumentSurveyRefusal> {
         // Decoded off the main actor: on a surveyed tree the corpus is megabytes, and this read is
         // also what refuses there — so it was what every refused start paid on the main thread.
         let existing: FilingCorpus?
@@ -288,18 +334,22 @@ extension FileSyncManager {
             .checkpoint.flatMap { $0.rootPath == root.path ? $0.salt : nil }
         let salt = resumableSalt
             ?? (existing?.salt.isEmpty == false ? existing!.salt
-                : (filingMemory?.salt.isEmpty == false ? filingMemory!.salt : Self.newSurveySalt()))
-        let memory = filingMemory
-        let (paths, unreadableTypes) = await Task.detached(priority: .userInitiated) {
-            (FilingSurvey.documentsToRead(tree: tree, corpus: existing, memory: memory),
-             tree.documents.keys.filter {
-                !FilingSurvey.readableExtensions.contains(($0 as NSString).pathExtension.lowercased())
-             }.count)
+                : (memory?.salt.isEmpty == false ? memory!.salt : Self.newSurveySalt()))
+        let isAvailable = documentSurveyIsAvailable
+        let (paths, unreadableTypes, toDownload) = await Task.detached(priority: .userInitiated) {
+            let paths = FilingSurvey.documentsToRead(tree: tree, corpus: existing, memory: memory)
+            return (paths,
+                    tree.documents.keys.filter {
+                        !FilingSurvey.readableExtensions.contains(($0 as NSString).pathExtension.lowercased())
+                    }.count,
+                    sourceRoot == nil ? 0
+                        : paths.filter { !isAvailable(root.appendingPathComponent($0).path) }.count)
         }.value
 
         return .success(DocumentSurveyPlan(root: root, paths: paths, tree: tree, salt: salt,
                                            profileId: profileId,
-                                           skippedUnreadableTypes: unreadableTypes))
+                                           skippedUnreadableTypes: unreadableTypes,
+                                           sourceRoot: sourceRoot, toDownload: toDownload))
     }
 
     /// The unfinished survey on disk, if there is one this root could carry on — for the offer card
@@ -311,6 +361,18 @@ extension FileSyncManager {
               case .loaded(let checkpoint) = DocumentSurveyCheckpointStore.read(id: profileId,
                                                                                 in: directory),
               checkpoint.rootPath == root.path
+        else { return nil }
+        return checkpoint.progress
+    }
+
+    /// The unfinished reading of a source's own survey on disk, for its sheet to say what carrying
+    /// on costs.
+    public func resumableSourceDocumentSurvey(sourceRoot: String) -> (done: Int, total: Int)? {
+        guard let directory = filingProfilesDirectory,
+              let profileId = SourceSurveyStore.entry(forRoot: sourceRoot, in: directory)?.profileId,
+              let root = sourceSurveyProfile(id: profileId)?.recordedFolderPath,
+              case .loaded(let checkpoint) = DocumentSurveyCheckpointStore.read(id: profileId, in: directory),
+              checkpoint.rootPath == URL(fileURLWithPath: root, isDirectory: true).path
         else { return nil }
         return checkpoint.progress
     }
@@ -385,9 +447,11 @@ extension FileSyncManager {
         guard !filingSurveyLifecycle.isRunning else { return .failure(.alreadyRunning) }
         guard let directory = filingProfilesDirectory else { return .failure(.noProfileDirectory) }
         guard let extractor = filingSnippetExtractor else { return .failure(.noExtractor) }
-        // The id the plan was made with, asked the way the plan asks it.
-        guard plan.profileId == (filingProfileDirectoryId ?? filingMemory?.profileId
-                                 ?? filingFolderProfile?.profileId) else {
+        // The id the plan was made with, asked the way the plan asks it — for a source, the id its
+        // entry names now, so a survey learned again or forgotten meanwhile is not read into.
+        let currentId = plan.sourceRoot.map { SourceSurveyStore.entry(forRoot: $0, in: directory)?.profileId }
+            ?? (filingProfileDirectoryId ?? filingMemory?.profileId ?? filingFolderProfile?.profileId)
+        guard plan.profileId == currentId else {
             Logger.shared.info("Document survey: not started — it was planned for profile "
                                + "'\(plan.profileId)', which this Mac no longer uses")
             return .failure(.profileReplaced)
@@ -424,12 +488,17 @@ extension FileSyncManager {
         // A waiver is for the run it was given in; a new one starts honouring every pause.
         documentSurveyOverride = DocumentSurveyOverride()
         let epoch = beginScan(\.filingSurveyLifecycle, status: "Reading your documents…")
-        defer { endScan(\.filingSurveyLifecycle) }
+        documentSurveySourceRoot = plan.sourceRoot
+        defer {
+            endScan(\.filingSurveyLifecycle)
+            documentSurveySourceRoot = nil
+        }
 
         let run = DocumentSurveyRun(
             profileId: plan.profileId, root: root, salt: plan.salt, plan: plan.paths,
             stamps: plan.stamps,
-            environment: documentSurveyEnvironment(extractor: extractor),
+            environment: documentSurveyEnvironment(extractor: extractor,
+                                                   fetch: plan.sourceRoot == nil ? nil : sourceDocumentFetch),
             directory: directory)
 
         // **The handle before the first await** (review, 2026-10-27): a Setup Save landing while the
@@ -474,14 +543,15 @@ extension FileSyncManager {
                 rootPath: root.path,
                 documentsRead: outcome.documentsRead, documentsBlank: outcome.documentsBlank,
                 documentsUnavailable: outcome.documentsUnavailable,
-                foldersLearned: filingMemory?.folders.count ?? 0,
+                foldersLearned: (plan.sourceRoot == nil ? filingMemory : sourceSurveyMemory(id: plan.profileId))?
+                    .folders.count ?? 0,
                 stoppedAt: outcome.stoppedAt, plannedTotal: plan.total, changed: false))
         }
 
         _ = updateScan(\.filingSurveyLifecycle, epoch: epoch, status: "Saving what was learned…")
 
         let tree = plan.tree
-        let previousMemory = filingMemory
+        let previousMemory = plan.sourceRoot == nil ? filingMemory : sourceSurveyMemory(id: plan.profileId)
         let profileId = plan.profileId
         let salt = plan.salt
         let read = outcome.read
@@ -516,10 +586,16 @@ extension FileSyncManager {
         // already covered. The other order leaves neither.
         try? DocumentSurveyCheckpointStore.discard(id: profileId, in: directory)
 
-        filingSurveyedAt = now
-        if let written, written.changed {
-            filingMemory = written.memory
-            filingArtifactFingerprint = FilingProfileStore.fingerprint(id: profileId, in: directory)
+        if let sourceRoot = plan.sourceRoot {
+            recordSourceDocumentsRead(sourceRoot: sourceRoot, profileId: profileId,
+                                      memory: written?.memory, documentsRead: outcome.documentsRead,
+                                      in: directory, now: now)
+        } else {
+            filingSurveyedAt = now
+            if let written, written.changed {
+                filingMemory = written.memory
+                filingArtifactFingerprint = FilingProfileStore.fingerprint(id: profileId, in: directory)
+            }
         }
         documentSurveyProgress = nil
         completeScan(\.filingSurveyLifecycle, root: root)
@@ -541,7 +617,8 @@ extension FileSyncManager {
 
     /// The run's environment, wired to this manager.
     private func documentSurveyEnvironment(
-        extractor: @escaping @Sendable (String) async -> String?
+        extractor: @escaping @Sendable (String) async -> String?,
+        fetch: (@Sendable (String) async -> Void)?
     ) -> DocumentSurveyRun.Environment {
         // Captured as a `@Sendable` closure hopping back to the actor rather than reading `self`
         // from the run's isolation — the conditions are six published properties and must be read
@@ -554,7 +631,8 @@ extension FileSyncManager {
         // them.
         return DocumentSurveyRun.Environment(
             readDocument: extractor,
-            isAvailable: { FilingSurvey.isAvailable($0) },
+            isAvailable: documentSurveyIsAvailable,
+            fetch: fetch,
             shouldPause: { [weak self] in
                 await self?.documentSurveyPause()
             },
@@ -642,7 +720,9 @@ extension FileSyncManager {
     ///
     /// - Parameter savingFolder: the folder the write is of.
     public func stopDocumentSurveyBeforeReplacingProfile(savingFolder: URL) async -> DocumentSurveyStop {
-        guard let run = documentSurveyRun, let directory = filingProfilesDirectory,
+        // A source's reading reads into its own survey, which no profile write replaces.
+        guard let run = documentSurveyRun, documentSurveySourceRoot == nil,
+              let directory = filingProfilesDirectory,
               !restructureLandingInProgress,
               FilingProfileStore.mayRepoint(activeId: FilingProfileStore.activeProfileId(in: directory),
                                             in: directory) else { return .nothingStopped }

@@ -41,6 +41,10 @@ public enum DocumentSurveyCost {
         n == 1 ? "1 document" : "\(n.formatted()) documents"
     }
 
+    /// The duration alone — `"About 3 h"`, `"A few minutes"` — for a sentence that says the count
+    /// itself (Read Documents for a source).
+    public static func duration(documents: Int) -> String { duration(documents) }
+
     /// The same figure as the survey card's offer draws it, in the middle of its sentence.
     public static func offerClause(documents: Int) -> String {
         "\(duration(documents)) for \(documentCount(documents)), in the background."

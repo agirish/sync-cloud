@@ -368,6 +368,7 @@ extension ContentView {
                 selectedWorkspace = .filing
                 switch scan {
                 case .readDocuments: selectedOrganizeLens = nil
+                case .readSourceDocuments: selectedOrganizeLens = .toFile
                 case .duplicates: selectedOrganizeLens = .duplicates
                 case .restructure: selectedOrganizeLens = .restructure
                 }

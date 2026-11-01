@@ -252,7 +252,7 @@ struct SetupSurveyRow: View {
     var onPause: () -> Void
 
     var body: some View {
-        if let progress = manager.documentSurveyProgress, progress.total > 0 {
+        if let progress = manager.documentSurveyProgress, progress.total > 0, manager.documentSurveySourceRoot == nil {
             HStack(spacing: 8) {
                 InlineSpinner()
                 Text("Reading documents: \(progress.completed.formatted()) of "

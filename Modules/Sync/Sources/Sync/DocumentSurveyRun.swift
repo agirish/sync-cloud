@@ -51,6 +51,13 @@ public actor DocumentSurveyRun {
         /// after a blank one**, because a provider can evict a file in between and a blank stamp is
         /// permanent — see `readOne(at:)`.
         public var isAvailable: @Sendable (String) -> Bool
+        /// Brings a document that is not on this disk onto it, returning once it is there or once
+        /// it gives up; nil never fetches, which is every reading of the primary survey's tree.
+        ///
+        /// **Set only for a source's own survey** (GL, 2026-10-31): there the person asked for the
+        /// cloud-only documents to be downloaded and read, and the sheet said how many. Availability
+        /// is asked again after it, so a download that never lands is counted unavailable, not blank.
+        public var fetch: (@Sendable (String) async -> Void)?
         /// Why the run should not be reading right now, or nil to carry on.
         ///
         /// **Async, and that is a correctness requirement rather than a convenience.** The real
@@ -70,12 +77,14 @@ public actor DocumentSurveyRun {
 
         public init(readDocument: @escaping @Sendable (String) async -> String?,
                     isAvailable: @escaping @Sendable (String) -> Bool = { _ in true },
+                    fetch: (@Sendable (String) async -> Void)? = nil,
                     shouldPause: @escaping @Sendable () async -> DocumentSurveyPause? = { nil },
                     whilePaused: @escaping @Sendable () async -> Void = {},
                     now: @escaping @Sendable () -> Date = { Date() },
                     publish: @escaping @Sendable (DocumentSurveyProgress) -> Void = { _ in }) {
             self.readDocument = readDocument
             self.isAvailable = isAvailable
+            self.fetch = fetch
             self.shouldPause = shouldPause
             self.whilePaused = whilePaused
             self.now = now
@@ -355,13 +364,21 @@ public actor DocumentSurveyRun {
         let absolute = root.appendingPathComponent(path).path
 
         // Asked before the read: opening a cloud placeholder is what makes the provider fetch it,
-        // and a survey must never download the user's offloaded library to look at page one.
-        guard environment.isAvailable(absolute) else {
+        // and a survey must never download the user's offloaded library to look at page one —
+        // unless it was asked to (`fetch`), and then the download is timed with the read.
+        var available = environment.isAvailable(absolute)
+        var fetchBegan: Date?
+        if !available, let fetch = environment.fetch {
+            fetchBegan = environment.now()
+            await fetch(absolute)
+            available = environment.isAvailable(absolute)
+        }
+        guard available else {
             unavailable += 1
             return
         }
 
-        let began = environment.now()
+        let began = fetchBegan ?? environment.now()
         let text = await environment.readDocument(absolute) ?? ""
         readingSeconds += max(0, environment.now().timeIntervalSince(began))
 

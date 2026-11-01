@@ -20,14 +20,21 @@ public struct SourceSurveyEntry: Codable, Sendable, Equatable {
     public var learnedAt: Date?
     public var folderCount: Int?
     public var choice: SourceSurveyChoice?
+    /// When Read Documents last finished for this survey, and how many documents it read — nil
+    /// until it has. Absent in a file written before Read Documents existed.
+    public var documentsReadAt: Date?
+    public var documentsRead: Int?
 
     public init(root: String, profileId: String? = nil, learnedAt: Date? = nil,
-                folderCount: Int? = nil, choice: SourceSurveyChoice? = nil) {
+                folderCount: Int? = nil, choice: SourceSurveyChoice? = nil,
+                documentsReadAt: Date? = nil, documentsRead: Int? = nil) {
         self.root = root
         self.profileId = profileId
         self.learnedAt = learnedAt
         self.folderCount = folderCount
         self.choice = choice
+        self.documentsReadAt = documentsReadAt
+        self.documentsRead = documentsRead
     }
 }
 

@@ -174,7 +174,7 @@ extension FileSyncManager {
         // `artifacts` nil ⇒ the fingerprint is unavailable and the cache is off, read and write
         // both — see the scan site in `FileSyncManager+Filing` for the full reasoning. On this
         // tier the stakes are the sharpest: these are the paid answers.
-        if let identity, let artifacts = filingArtifactFingerprint {
+        if let identity, let artifacts = filingRoutingFingerprint {
             // Warmed off the main actor before `recordFilingVerdicts` reaches the synchronous
             // accessor, for the same reason the scan warms it: at the entry cap the file is
             // multi-megabyte, and decoding it on the main actor is a hitch the user sees.

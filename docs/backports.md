@@ -13465,3 +13465,16 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s sources=%s anyTree=%s\n'
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` | The one profile applied to every tree by path | RECORDED — not owed (design change with a new feature) |
 | `v3.x` / `v2.x` | No folder profile or router | CLOSED — does not apply |
+
+## Read Documents for a source's own survey (GL, GO, GP) — main only
+
+2026-11-01, for v7.0. On `main`: a source with its own folder survey (Google Drive) can have page 1
+of its documents read into that survey (`planSourceDocumentSurvey`, `readSourceDocuments`),
+downloading cloud-only ones first and leaving them downloaded (GO). To File and Ask Claude then
+route with that survey's memory, cached verdicts are keyed with its fingerprint, and Learn Its
+Folders Again carries the reading over (GP). No maintenance line has source surveys
+(`SourceSurveyStore.swift`, landed 306a651aa), so there is nothing to read into.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No source surveys | CLOSED — does not apply |

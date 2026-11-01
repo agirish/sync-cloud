@@ -14,6 +14,16 @@ struct FolderSurveysSection: View {
     @State private var statuses: [String: FilingSurveyInUse] = [:]
     @State private var forgetting: (name: String, root: String)?
     @State private var generation = 0
+    /// The source whose documents are being counted for Read Documents' sheet.
+    @State private var counting: String?
+    @State private var pending: PendingReading?
+
+    /// A counted reading waiting on its sheet.
+    private struct PendingReading: Identifiable {
+        let id = UUID()
+        let plan: FileSyncManager.DocumentSurveyPlan
+        let facts: SourceDocumentsFacts
+    }
 
     private var primaryRoot: String? { syncManager.filingFolderProfile?.recordedFolderPath }
 
@@ -43,7 +53,36 @@ struct FolderSurveysSection: View {
                 generation += 1
             }
         } message: { _ in
-            Text("Its survey goes to the Trash, and To File goes back to deciding how alike its folders are to \(FilingSurveyInUse.possessive(primaryName)).")
+            Text("Its survey goes to the Trash, with any documents it read, and To File goes back to deciding how alike its folders are to \(FilingSurveyInUse.possessive(primaryName)).")
+        }
+        .sheet(item: $pending) { reading in
+            SourceDocumentsSheet(facts: reading.facts, onCancel: { pending = nil }, onRead: {
+                pending = nil
+                Task {
+                    await syncManager.readSourceDocuments(plan: reading.plan)
+                    generation += 1
+                }
+            })
+            .presentedNativeControlAccent()
+        }
+    }
+
+    /// Counts `source`'s documents and opens the sheet, or says on the banner why it cannot.
+    private func count(_ source: (name: String, root: String)) {
+        counting = source.root
+        Task {
+            defer { counting = nil }
+            switch await syncManager.planSourceDocumentSurvey(sourceRoot: source.root) {
+            case .failure(let refusal):
+                syncManager.banner = .warning(refusal.sentence)
+            case .success(let plan) where plan.total == 0:
+                syncManager.banner = .success("Nothing to read — no document in \(source.name) is in a format this app can open.")
+            case .success(let plan):
+                pending = PendingReading(plan: plan, facts: SourceDocumentsFacts(
+                    sourceName: source.name, documents: plan.total, toDownload: plan.toDownload,
+                    unreadableTypes: plan.skippedUnreadableTypes,
+                    alreadyRead: syncManager.resumableSourceDocumentSurvey(sourceRoot: source.root)?.done))
+            }
         }
     }
 
@@ -105,19 +144,41 @@ struct FolderSurveysSection: View {
             return "Uses \(primary) survey · \(status.matchPercent) of folders match" + (status.chosen ? " · your choice" : "")
         case .own:
             let date = status.ownLearnedAt.map { " \($0.formatted(date: .abbreviated, time: .omitted))" } ?? ""
-            return "Its own survey · \((status.ownFolderCount ?? 0).formatted()) folders learned\(date)"
+            return "Its own survey · \((status.ownFolderCount ?? 0).formatted()) folders learned\(date) · "
+                + Self.readingClause(status, reading: syncManager.isReadingDocuments(ofSource: source.root)
+                                        ? syncManager.documentSurveyProgress : nil)
         case .byName:
             return "No survey · \(status.matchPercent) of folders match \(primary) · placed by name"
         }
     }
 
+    /// "12,610 documents read 1 Nov", "documents not read", or the reading under way.
+    static func readingClause(_ status: FilingSurveyInUse, reading progress: DocumentSurveyProgress?) -> String {
+        if let progress {
+            return "reading documents, \(progress.completed.formatted()) of \(progress.total.formatted())"
+                + (progress.isPaused ? ", paused" : "")
+        }
+        guard let read = status.ownDocumentsRead, let at = status.ownDocumentsReadAt else { return "documents not read" }
+        return "\(read.formatted()) document\(read == 1 ? "" : "s") read \(at.formatted(date: .abbreviated, time: .omitted))"
+    }
+
     @ViewBuilder
     private func controls(_ source: (name: String, root: String), _ status: FilingSurveyInUse) -> some View {
         let learning = syncManager.learningSourceSurveyRoot.map { SourceSurveyStore.sameFolder($0, source.root) } ?? false
+        let reading = syncManager.isReadingDocuments(ofSource: source.root)
         HStack(spacing: 8) {
-            if learning {
+            if learning || counting == source.root {
                 InlineSpinner()
+            } else if reading {
+                InlineSpinner()
+                Button("Stop") { Task { await syncManager.stopDocumentSurvey() } }
+                    .help("Stops after the document being read. What was read is kept, and reading again carries on from there.")
             } else if status.ownProfileId != nil {
+                if status.ownDocumentsReadAt == nil {
+                    Button("Read Documents…") { count(source) }
+                        .disabled(counting != nil || syncManager.filingSurveyLifecycle.isRunning)
+                        .help("Reads page 1 of each document so To File and Ask Claude know what each folder holds. Counts them and asks before it starts.")
+                }
                 Picker("Survey for \(source.name)", selection: Binding(
                     get: { status.kind == .own ? SourceSurveyChoice.own : .primary },
                     set: { choice in

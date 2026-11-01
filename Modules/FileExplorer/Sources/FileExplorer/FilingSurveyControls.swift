@@ -43,6 +43,21 @@ public enum FilingSurveyText {
         "Learning \(possessive(sourceName)) folders…"
     }
 
+    public static func readItem(sourceName: String) -> String {
+        "Read \(possessive(sourceName)) Documents…"
+    }
+
+    public static let readHelp = "Reads page 1 of each document so To File and Ask Claude know what each "
+        + "folder holds. Counts them and asks before it starts."
+
+    /// The strip's title while a source's documents are read.
+    public static func reading(sourceName: String, _ progress: DocumentSurveyProgress) -> String {
+        if case .finishing = progress.phase { return "Learning from \(possessive(sourceName)) documents…" }
+        let counted = "\(progress.completed.formatted()) of \(progress.total.formatted())"
+        return progress.isPaused ? "Reading \(possessive(sourceName)) documents · paused at \(counted)"
+                                 : "Reading \(possessive(sourceName)) documents · \(counted)"
+    }
+
     public static func note(_ note: SourceSurveyNote, sourceName: String) -> String {
         if let failure = note.failure { return "Couldn’t learn \(possessive(sourceName)) folders. \(failure.sentence)" }
         let count = note.learnedFolders.map { "\($0.formatted()) " } ?? ""
@@ -63,6 +78,32 @@ struct FilingSurveyNames {
     }
 }
 
+/// A counted reading waiting on its sheet.
+struct PendingSourceReading: Identifiable {
+    let id = UUID()
+    let plan: FileSyncManager.DocumentSurveyPlan
+    let facts: SourceDocumentsFacts
+
+    /// Counts `root`'s documents for its sheet, or says on the banner why it cannot read them.
+    @MainActor
+    static func count(_ manager: FileSyncManager, root: String, sourceName: String) async -> PendingSourceReading? {
+        switch await manager.planSourceDocumentSurvey(sourceRoot: root) {
+        case .failure(let refusal):
+            manager.banner = .warning(refusal.sentence)
+            return nil
+        case .success(let plan):
+            guard plan.total > 0 else {
+                manager.banner = .success("Nothing to read — no document in \(sourceName) is in a format this app can open.")
+                return nil
+            }
+            return PendingSourceReading(plan: plan, facts: SourceDocumentsFacts(
+                sourceName: sourceName, documents: plan.total, toDownload: plan.toDownload,
+                unreadableTypes: plan.skippedUnreadableTypes,
+                alreadyRead: manager.resumableSourceDocumentSurvey(sourceRoot: root)?.done))
+        }
+    }
+}
+
 /// Row 2's survey menu: names the survey that placed the cards and lets the user choose another
 /// for this source. Absent for the primary survey's own tree, where there is nothing to choose.
 struct FilingSurveyMenu: View {
@@ -70,6 +111,9 @@ struct FilingSurveyMenu: View {
     let sources: [(name: String, root: String)]
     /// Scans again, so the cards follow the survey just chosen or learned.
     let onRescan: () -> Void
+
+    @State private var counting = false
+    @State private var pending: PendingSourceReading?
 
     var body: some View {
         if let use = syncManager.filingSurveyInUse, use.kind != .primary {
@@ -87,20 +131,45 @@ struct FilingSurveyMenu: View {
                     }
                 }
                 Divider()
+                if use.ownProfileId != nil, use.ownDocumentsReadAt == nil {
+                    Button(FilingSurveyText.readItem(sourceName: names.source)) {
+                        count(root: use.root, sourceName: names.source)
+                    }
+                    .disabled(counting || syncManager.filingSurveyLifecycle.isRunning)
+                    .help(FilingSurveyText.readHelp)
+                }
                 Button(use.ownProfileId == nil ? "Learn \(FilingSurveyText.possessive(names.source)) Own Folders"
                                                : "Learn Its Folders Again") {
                     learn(root: use.root)
                 }
-                .disabled(syncManager.learningSourceSurveyRoot != nil)
+                .disabled(syncManager.learningSourceSurveyRoot != nil || syncManager.isReadingDocuments(ofSource: use.root))
                 .help("Reads folder names and how the files in them are named. Nothing downloads.")
             } label: {
-                Label(FilingSurveyText.menuTitle(use, primaryName: names.primary), systemImage: "map")
-                    .scaledFont(.system(size: 12))
+                HStack(spacing: 4) {
+                    Label(FilingSurveyText.menuTitle(use, primaryName: names.primary), systemImage: "map")
+                        .scaledFont(.system(size: 12))
+                    if counting { InlineSpinner() }
+                }
             }
             .menuStyle(.button)
             .buttonStyle(.hoverAffordance(.inline))
             .fixedSize()
             .help(helpText(use, names: names))
+            .sheet(item: $pending) { reading in
+                SourceDocumentsSheet(facts: reading.facts, onCancel: { pending = nil }, onRead: {
+                    pending = nil
+                    Task { if case .success = await syncManager.readSourceDocuments(plan: reading.plan) { onRescan() } }
+                })
+                .presentedNativeControlAccent()
+            }
+        }
+    }
+
+    private func count(root: String, sourceName: String) {
+        counting = true
+        Task {
+            pending = await PendingSourceReading.count(syncManager, root: root, sourceName: sourceName)
+            counting = false
         }
     }
 
@@ -110,7 +179,9 @@ struct FilingSurveyMenu: View {
         case .borrowed:
             return "\(names.source) uses \(FilingSurveyText.possessive(names.primary)) survey: "
                 + "\(use.matched.formatted()) of its \(use.total.formatted()) folders match."
-        case .own: return "\(names.source) uses the survey learned from its own folders."
+        case .own:
+            return "\(names.source) uses the survey learned from its own folders"
+                + (use.ownDocumentsRead.map { " and \($0.formatted()) of its documents." } ?? ".")
         case .byName: return FilingSurveyText.byNameDetail(use)
         }
     }
@@ -137,7 +208,12 @@ struct FilingSurveyStrip: View {
 
     static func isShown(_ manager: FileSyncManager) -> Bool {
         manager.learningSourceSurveyRoot != nil || manager.sourceSurveyNote != nil
-            || manager.filingSurveyInUse?.kind == .byName
+            || manager.filingSurveyInUse?.kind == .byName || isReadingHere(manager)
+    }
+
+    /// The tree on screen is the source whose documents are being read.
+    static func isReadingHere(_ manager: FileSyncManager) -> Bool {
+        manager.filingSurveyInUse.map { manager.isReadingDocuments(ofSource: $0.root) } ?? false
     }
 
     var body: some View {
@@ -145,7 +221,9 @@ struct FilingSurveyStrip: View {
             let names = FilingSurveyNames(use: use, primaryRoot: syncManager.filingFolderProfile?.recordedFolderPath,
                                           sources: sources)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                if syncManager.learningSourceSurveyRoot != nil {
+                if Self.isReadingHere(syncManager), let progress = syncManager.documentSurveyProgress {
+                    readingRow(progress, sourceName: names.source)
+                } else if syncManager.learningSourceSurveyRoot != nil {
                     InlineSpinner()
                     Text(FilingSurveyText.learning(sourceName: names.source))
                         .scaledFont(.system(size: 11, weight: .semibold))
@@ -202,6 +280,44 @@ struct FilingSurveyStrip: View {
                         ? AnyShapeStyle(SemanticColor.caution.opacity(0.10))
                         : AnyShapeStyle(accent.opacity(0.10)))
             .accessibilityElement(children: .contain)
+        }
+    }
+
+    /// Progress for the source being read, with Pause or Resume, and Stop — the same verbs as
+    /// Organize's card has for the primary survey's reading.
+    @ViewBuilder
+    private func readingRow(_ progress: DocumentSurveyProgress, sourceName: String) -> some View {
+        InlineSpinner()
+        VStack(alignment: .leading, spacing: 3) {
+            Text(FilingSurveyText.reading(sourceName: sourceName, progress))
+                .scaledFont(.system(size: 11, weight: .semibold))
+                .monospacedDigit()
+            ProgressView(value: Double(progress.completed), total: Double(max(1, progress.total)))
+                .progressViewStyle(.linear)
+                .frame(maxWidth: 260)
+            Text(DocumentSurveyCardText.detail(for: .live(progress)))
+                .scaledFont(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        Spacer(minLength: 8)
+        if case .finishing = progress.phase {
+            EmptyView()
+        } else {
+            if progress.isPaused {
+                Button("Resume") { Task { await syncManager.resumeDocumentSurvey() } }
+                    .buttonStyle(.hoverAffordance(.inline))
+                    .scaledFont(.system(size: 11, weight: .semibold))
+            } else {
+                Button("Pause") { Task { await syncManager.pauseDocumentSurvey() } }
+                    .buttonStyle(.hoverAffordance(.inline))
+                    .scaledFont(.system(size: 11))
+            }
+            Button("Stop") { Task { await syncManager.stopDocumentSurvey() } }
+                .buttonStyle(.hoverAffordance(.inline))
+                .scaledFont(.system(size: 11))
+                .help("Stops after the document being read. What was read is kept, and reading again carries on from there.")
         }
     }
 }

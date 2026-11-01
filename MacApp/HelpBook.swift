@@ -421,7 +421,7 @@ enum HelpBook {
                 blocks: [
                     .bullets([
                         "SyncCloud reads your folder layout — the survey setup learned — and proposes where each loose file belongs.",
-                        "That survey is iCloud’s, and it serves every source laid out like iCloud’s Documents, such as a Dropbox copy. A source laid out differently places files by name until you click Learn Its Folders, which reads its folder names in seconds and downloads nothing. The header names the survey in use, and Folder surveys in Settings ▸ Organize lists every source.",
+                        "That survey is iCloud’s, and it serves every source laid out like iCloud’s Documents, such as a Dropbox copy. A source laid out differently places files by name until you click Learn Its Folders, which reads its folder names in seconds and downloads nothing. The header names the survey in use, and Folder surveys in Settings ▸ Organize lists every source. A source with its own survey can also have its documents read, page 1 of each: its cloud-only documents download first and stay downloaded.",
                         "On-device content signals handle files whose name says nothing on its own.",
                         "Accept a suggestion to move the file. For a pattern you will meet again, say it once as a rule in Organize ▸ Rules.",
                         "Ask for a specific folder from a pane: right-click it and choose “Organize This Folder…”.",

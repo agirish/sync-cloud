@@ -164,7 +164,10 @@ Requires **macOS 26**, unchanged from v6.2.
   Its Folders, which reads folder names only, takes seconds and downloads nothing. v6.2 applied
   iCloud's survey in every source wherever a folder's path happened to match. To File's header names
   the survey in use and switches it, and Settings ▸ Organize ▸ Folder surveys lists every source.
-  Ask Claude answers "where should this go?" from the survey of the file's own source.
+  Ask Claude answers "where should this go?" from the survey of the file's own source. A source with its
+  own survey can then have its documents read, page 1 of each, as iCloud's were: the survey menu's
+  Read Documents item first says how many, and how many are cloud-only and download (they stay
+  downloaded).
 
 ### Around the app
 

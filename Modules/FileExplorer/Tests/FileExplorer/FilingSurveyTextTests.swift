@@ -42,4 +42,22 @@ import Testing
         #expect(FilingSurveyText.note(failed, sourceName: "Google Drive")
                 .hasPrefix("Couldn’t learn Google Drive’s folders. “Empty” holds no folders"))
     }
+
+    /// Read Documents (GL): the menu item, and the strip's progress naming the source.
+    @Test func readingASourceNamesItInTheStrip() {
+        #expect(FilingSurveyText.readItem(sourceName: "Google Drive") == "Read Google Drive’s Documents…")
+        let started = Date(timeIntervalSince1970: 1_780_315_200)
+        let reading = DocumentSurveyProgress(completed: 4_360, total: 12_825, phase: .reading,
+                                             startedAt: started, readingSeconds: 60)
+        #expect(FilingSurveyText.reading(sourceName: "Google Drive", reading)
+                == "Reading Google Drive’s documents · 4,360 of 12,825")
+        let paused = DocumentSurveyProgress(completed: 4_360, total: 12_825, phase: .paused(.user),
+                                            startedAt: started, readingSeconds: 60)
+        #expect(FilingSurveyText.reading(sourceName: "Google Drive", paused)
+                == "Reading Google Drive’s documents · paused at 4,360 of 12,825")
+        let finishing = DocumentSurveyProgress(completed: 12_825, total: 12_825, phase: .finishing,
+                                               startedAt: started, readingSeconds: 60)
+        #expect(FilingSurveyText.reading(sourceName: "Google Drive", finishing)
+                == "Learning from Google Drive’s documents…")
+    }
 }

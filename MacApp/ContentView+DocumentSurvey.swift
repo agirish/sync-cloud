@@ -61,7 +61,11 @@ extension ContentView {
         // Shared with Activity's Running row (TE228), so the two say the same — `finishing` is its
         // own state, not a pause: rendered as one it read "paused at 7,558 of 7,558 … Resumes on its
         // own" over a survey that was not paused and could not be resumed.
-        if let progress = syncManager.documentSurveyProgress { return .live(progress) }
+        // A source's own reading (Google Drive's) is shown on To File's strip, not on this card,
+        // which is the primary survey's.
+        if let progress = syncManager.documentSurveyProgress, syncManager.documentSurveySourceRoot == nil {
+            return .live(progress)
+        }
         // 2. Just finished — the receipt, **for the tree it actually describes.**
         //    The report outlives the run and Organize's scope moves under it, so without the root
         //    check a completed survey's summary sat over whatever folder was selected next: a real
@@ -142,7 +146,7 @@ extension ContentView {
     /// One verb on purpose: from the card's side "Resume" means the same thing every way, and
     /// which machinery answers it is not the reader's problem.
     func resumeDocumentSurveyAction() {
-        if syncManager.documentSurveyProgress != nil {
+        if syncManager.documentSurveyProgress != nil, syncManager.documentSurveySourceRoot == nil {
             Task { await syncManager.resumeDocumentSurvey() }
             return
         }

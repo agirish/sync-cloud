@@ -598,7 +598,7 @@ extension FileSyncManager {
                 // it off: no key can honestly describe the question being asked, so nothing is
                 // looked up and — because `keysByFile` stays empty — nothing is recorded under a
                 // digest that can never recur. See `FilingProfileStore.fingerprint(id:in:)`.
-                if let identity, let artifacts = filingArtifactFingerprint {
+                if let identity, let artifacts = filingRoutingFingerprint {
                     // Warmed even on the ignore-cache path, where the READ result is thrown away.
                     // `recordFilingVerdicts` below still has to merge into the existing cache, and
                     // it reaches the SYNCHRONOUS accessor — so skipping this put a decode of a

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import Sync
+@testable import Sync
 @testable import FileExplorer
 
 /// **The long scans in Activity's Running** (Run Room TE228, CO, R21): listed with a Show and no
@@ -36,5 +36,18 @@ import Sync
         let finishing = DocumentSurveyProgress(completed: 300, total: 300, phase: .finishing,
                                                startedAt: started, readingSeconds: 60)
         #expect(DocumentSurveyCardState.live(finishing) == .finishing(done: 300))
+    }
+
+    /// A source's own reading is shown on To File's strip, so its row's Show goes there rather
+    /// than to Organize's card, which shows only the primary survey's reading.
+    @Test func aSourcesReadingShowsToFile() {
+        let manager = FileSyncManager()
+        manager.documentSurveyProgress = DocumentSurveyProgress(completed: 1, total: 3, phase: .reading,
+                                                                startedAt: Date(), readingSeconds: 1)
+        var shown: [ActivityScan] = []
+        ActivityScanRows.rows(manager) { shown.append($0) }.first?.onShow?()
+        manager.documentSurveySourceRoot = "/g/My Drive/Documents"
+        ActivityScanRows.rows(manager) { shown.append($0) }.first?.onShow?()
+        #expect(shown == [.readDocuments, .readSourceDocuments])
     }
 }

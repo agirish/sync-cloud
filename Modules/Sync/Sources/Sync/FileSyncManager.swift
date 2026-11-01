@@ -757,6 +757,18 @@ public class FileSyncManager: ObservableObject {
     /// can be read after the fact.
     @Published public internal(set) var documentSurveyReport: DocumentSurveyReport?
 
+    /// The source whose own survey the running reading reads into (its entry's root), or nil while
+    /// the primary survey's reads or nothing does. Organize's card shows only the primary's.
+    @Published public internal(set) var documentSurveySourceRoot: String?
+
+    /// Whether a document's content is on this disk — ``FilingSurvey/isAvailable(_:)``; a test
+    /// stands in for it, since only a File Provider can make a file cloud-only.
+    public var documentSurveyIsAvailable: @Sendable (String) -> Bool = { FilingSurvey.isAvailable($0) }
+
+    /// How a source's reading downloads a cloud-only document before reading it (GL). GO,
+    /// 2026-10-31: it stays downloaded after.
+    public var sourceDocumentFetch: @Sendable (String) async -> Void = { await FileSyncManager.fetchCloudOnly($0) }
+
     /// The running survey, so Pause, Resume and Stop reach it. Not published: it is a handle, not a
     /// state — `documentSurveyProgress` is what a view watches.
     var documentSurveyRun: DocumentSurveyRun?
@@ -1530,6 +1542,10 @@ public class FileSyncManager: ObservableObject {
     @Published public internal(set) var filingSurveyInUse: FilingSurveyInUse?
     /// Sources' own surveys, read once per profile id: a profile is thousands of entries to decode.
     var sourceSurveyProfiles: [String: FolderProfile] = [:]
+    /// Their learned memories, once their documents have been read — read once, like the profiles.
+    var sourceSurveyMemories: [String: FilingMemory] = [:]
+    /// Their artifact fingerprints, which key cached verdicts for a tree placed with one.
+    var sourceSurveyFingerprints: [String: String] = [:]
     /// The tree whose folders are being learned right now, nil when none is.
     @Published public internal(set) var learningSourceSurveyRoot: String?
     /// What the last Learn Its Folders did, for the strip under To File's header: the folders it

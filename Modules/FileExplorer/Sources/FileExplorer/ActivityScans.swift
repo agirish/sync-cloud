@@ -6,6 +6,8 @@ import Sync
 public enum ActivityScan: Equatable, Sendable {
     /// Read documents — Organize's overview card, with Pause, Resume and Stop.
     case readDocuments
+    /// Read Documents for a source's own survey — To File, whose strip carries its verbs.
+    case readSourceDocuments
     /// The duplicate scan — the Duplicates lens.
     case duplicates
     /// Restructure's apply — the Restructure lens, whose plan sheet shows it.
@@ -54,7 +56,8 @@ public enum ActivityScanRows {
                                         completed: Int64(progress.completed), total: Int64(progress.total),
                                         detail: detail),
                 symbol: "doc.text.magnifyingglass", startedAt: progress.startedAt,
-                onCancel: nil, onShow: { show(.readDocuments) }))
+                onCancel: nil,
+                onShow: { show(manager.documentSurveySourceRoot == nil ? .readDocuments : .readSourceDocuments) }))
         }
         if manager.isFindingDuplicates {
             let counted = manager.duplicateScanProgress
