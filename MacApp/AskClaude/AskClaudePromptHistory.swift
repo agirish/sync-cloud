@@ -16,8 +16,11 @@ struct AskClaudePromptHistory: Equatable {
     private var draft = ""
     private var edits: [Int: String] = [:]
 
+    /// Entries read back from disk go through `record`, so a file edited by hand can't bring back
+    /// a blank, a repeat or more than `limit`.
     init(entries: [String] = []) {
-        self.entries = Array(entries.suffix(Self.limit))
+        self.entries = []
+        for entry in entries { record(entry) }
     }
 
     /// The question before the one shown, or nil when there is none and the box stays as it is.

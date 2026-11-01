@@ -354,7 +354,7 @@ struct AskClaudePanel: View {
                         guard let shown = up ? chat.recallOlder(than: draft) : chat.recallNewer(than: draft) else {
                             return .ignored
                         }
-                        draft = shown
+                        if !caret.show(shown, atStart: up) { draft = shown }
                         return .handled
                     }
                     .disabled(chat.isRunning)
@@ -429,17 +429,37 @@ struct AskClaudePanel: View {
 }
 
 /// Where the box's caret is, for Up and Down: on the first line Up recalls, on the last Down does.
-/// Asked of the field editor in the box's own window, found through a zero-sized view in the box:
-/// the key window's could be another's. Asked through `firstRect(forCharacterRange:)`, which
-/// TextKit 1 and 2 both answer; reaching for `layoutManager` would drop a TextKit 2 view back to 1.
+/// Asked of the field editor in the box's own window, found through a view behind the box: the key
+/// window's could be another's. Asked through `firstRect(forCharacterRange:)`, which TextKit 1 and
+/// 2 both answer; reaching for `layoutManager` would drop a TextKit 2 view back to 1.
 @MainActor
 final class AskClaudeComposerCaret {
     fileprivate weak var anchor: NSView?
 
+    private var editor: NSTextView? { anchor?.window?.firstResponder as? NSTextView }
+
     func isOnEdgeLine(up: Bool) -> Bool {
         // No field editor in front (it hasn't come up yet): nothing to move the caret through.
-        guard let view = anchor?.window?.firstResponder as? NSTextView else { return true }
-        return Self.isOnEdgeLine(of: view, up: up)
+        guard let editor else { return true }
+        return Self.isOnEdgeLine(of: editor, up: up)
+    }
+
+    /// Puts a recalled question in the box with the caret at its start after Up and its end after
+    /// Down, so the same key again goes on to the next question rather than through this one's
+    /// lines. Written through the field editor, which tells the binding as typing does; false with
+    /// no field editor in front, for the caller to set the text itself.
+    func show(_ text: String, atStart: Bool) -> Bool {
+        guard let editor else { return false }
+        Self.show(text, in: editor, atStart: atStart)
+        return true
+    }
+
+    static func show(_ text: String, in editor: NSTextView, atStart: Bool) {
+        editor.insertText(text, replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+        let caret = NSRange(location: atStart ? 0 : (editor.string as NSString).length, length: 0)
+        // Not `scrollRangeToVisible`: called here, inside SwiftUI's key dispatch, it waited on the
+        // text view's layout and never returned (2026-10-31, an offscreen test window).
+        editor.setSelectedRange(caret)
     }
 
     static func isOnEdgeLine(of view: NSTextView, up: Bool) -> Bool {
@@ -455,14 +475,19 @@ final class AskClaudeComposerCaret {
         return abs(caretLine.midY - edgeLine.midY) < max(1, edgeLine.height / 2)
     }
 
+    /// Sits behind the field at its size, so it must never take the field's clicks.
     struct Anchor: NSViewRepresentable {
         let caret: AskClaudeComposerCaret
         func makeNSView(context: Context) -> NSView {
-            let view = NSView(frame: .zero)
+            let view = PassThrough(frame: .zero)
             caret.anchor = view
             return view
         }
         func updateNSView(_ view: NSView, context: Context) { caret.anchor = view }
+
+        final class PassThrough: NSView {
+            override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        }
     }
 }
 
