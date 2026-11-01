@@ -1152,8 +1152,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             return AskClaudeToolOutcome(result: "Give changes: a list of moves, renames, new folders and moves to the Trash.",
                                         isError: true, step: "Proposed nothing")
         }
-        guard list.count <= Self.looseFilesPerCard else {
-            return AskClaudeToolOutcome(result: "At most \(Self.looseFilesPerCard) changes on one card. Propose the first \(Self.looseFilesPerCard), and the rest once they’ve applied it.",
+        guard list.count <= Self.changesPerCard else {
+            return AskClaudeToolOutcome(result: "At most \(Self.changesPerCard) changes on one card. Propose the first \(Self.changesPerCard), and the rest once they’ve applied it.",
                                         isError: true, step: "Too many changes for one card")
         }
         // A folder named by source and path, or in the source on screen.
@@ -1255,8 +1255,10 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
 
     // MARK: Loose files (TE267)
 
-    /// Rows on one filing card (decision FC).
-    static let looseFilesPerCard = 50
+    /// Files on one filing card (decision GG, after his first use: 50 was too many to read).
+    static let looseFilesPerCard = 10
+    /// Changes on one card Claude proposes (decision FC).
+    static let changesPerCard = 50
 
     private func fileLooseFiles(_ call: AskClaudeToolCall, _ ctx: Context) async -> AskClaudeToolOutcome {
         guard let folder = Self.resolve(call.string("folder") ?? ctx.folder, root: ctx.root) else {
@@ -1321,20 +1323,25 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                 noHome += 1
                 continue
             }
+            // The card is on their Mac, so it says which word decided it; what Claude is told
+            // carries no reason at all.
             let choices = list.map { s in
                 AskClaudePlan.Choice(label: Self.breadcrumb(s.folder, sources: ctx.sources, fallback: s.relativePath),
-                                     path: s.folder, confidence: AskClaudeFiling.label(s.confidence),
-                                     reason: s.evidenceToken != nil && !ctx.readsFiles ? "Matched a word read from the file" : s.reason)
+                                     path: s.folder, confidence: AskClaudeFiling.label(s.confidence), reason: s.reason)
             }
+            let fromLabel = Self.breadcrumb((file.path as NSString).deletingLastPathComponent, sources: ctx.sources,
+                                            fallback: ((file.path as NSString).deletingLastPathComponent as NSString).lastPathComponent)
             let label = choices[0].label
             // Decision GF: the same bytes already in its home is a copy to put in the Trash.
             let isCloudOnly = ctx.isCloudOnly
             if let twin = await Task.detached(priority: .userInitiated, operation: {
                 AskClaudeLooseFiles.sameFile(as: file.path, in: best.folder, size: file.size, isCloudOnly: isCloudOnly)
             }).value {
-                rows.append(AskClaudePlan.Row(id: rows.count, name: file.name, change: .trash(path: file.path), ticked: false,
-                                              reason: "The same file is in \(label)", note: (twin as NSString).lastPathComponent == file.name ? nil : "As \((twin as NSString).lastPathComponent)",
-                                              folderLabel: label, choices: choices, alreadyFiled: true))
+                var row = AskClaudePlan.Row(id: rows.count, name: file.name, change: .trash(path: file.path), ticked: false,
+                                            reason: "The same file is in \(label)", note: (twin as NSString).lastPathComponent == file.name ? nil : "As \((twin as NSString).lastPathComponent)",
+                                            folderLabel: label, choices: choices, alreadyFiled: true)
+                (row.size, row.modified, row.fromLabel) = (file.size, file.modified, fromLabel)
+                rows.append(row)
                 continue
             }
             // Decision GE: a taken name is kept with a number, said before Apply.
@@ -1342,10 +1349,12 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             var notes: [String] = []
             if landing != file.name { notes.append("Kept as \(landing): the name is taken") }
             if best.outsidePlace { notes.append("Outside \((place as NSString).lastPathComponent)") }
-            rows.append(AskClaudePlan.Row(id: rows.count, name: file.name, change: .move(from: file.path, toFolder: best.folder),
-                                          ticked: best.confidence == .high, confidence: AskClaudeFiling.label(best.confidence),
-                                          reason: choices[0].reason, note: notes.isEmpty ? nil : notes.joined(separator: " · "),
-                                          folderLabel: label, choices: choices))
+            var row = AskClaudePlan.Row(id: rows.count, name: file.name, change: .move(from: file.path, toFolder: best.folder),
+                                        ticked: best.confidence == .high, confidence: AskClaudeFiling.label(best.confidence),
+                                        reason: choices[0].reason, note: notes.isEmpty ? nil : notes.joined(separator: " · "),
+                                        folderLabel: label, choices: choices)
+            (row.size, row.modified, row.fromLabel) = (file.size, file.modified, fromLabel)
+            rows.append(row)
         }
         // Decision GA: subfolders these files would leave empty, as one unticked Trash row.
         let emptied = AskClaudeLooseFiles.emptiedFolders(found, onCard: Set(rows.map(\.change.path)))
@@ -1360,10 +1369,16 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         if noHome > 0 { left.append("\(noHome) file\(noHome == 1 ? "" : "s") no folder fits") }
         if found.unfinished > 0 { left.append("\(found.unfinished) unfinished download\(found.unfinished == 1 ? "" : "s")") }
         let end = from + page.count
-        let more = end < total ? "\(from + 1)–\(end) of \(total) · \(total - end) more: ask for the next \(min(Self.looseFilesPerCard, total - end))" : nil
+        let next = min(Self.looseFilesPerCard, total - end)
+        let more = end < total ? "\(from + 1)–\(end) of \(total) · \(total - end) more" : nil
         let files = rows.filter { !$0.isTrash || $0.alreadyFiled }.count
-        let plan = AskClaudePlan(title: "File \(files) Loose File\(files == 1 ? "" : "s")", subtitle: "into \(placeLabel)", rows: rows,
+        var plan = AskClaudePlan(title: "File \(files) Loose File\(files == 1 ? "" : "s")", subtitle: "into \(placeLabel)", rows: rows,
                                  leftHere: left.isEmpty ? nil : "Left here: " + left.joined(separator: ", "), more: more)
+        if end < total {
+            // The same words they could type; Claude has the place and where to start from.
+            plan.nextAsk = "Show me the next \(next) loose file\(next == 1 ? "" : "s")."
+            plan.nextLabel = "Next \(next)"
+        }
         Logger.shared.info("Ask Claude filing card: \(rows.count) rows from \(page.count) of \(total) loose files in \(folder.label), \(noHome) with no home")
         let sure = rows.filter(\.ticked).count
         return AskClaudeToolOutcome(result: AskClaudeLooseFiles.result(plan, leftHereCount: left.count, nextFrom: more == nil ? nil : end),

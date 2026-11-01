@@ -166,7 +166,7 @@ extension AskClaudeLooseFiles {
         }
         if let left = plan.leftHere, leftHereCount > 0 { lines.append(AskClaudeScreenCard.escape(left)) }
         if let nextFrom, let more = plan.more {
-            lines.append("\(AskClaudeScreenCard.escape(more)). For the next ones, call again with from \(nextFrom).")
+            lines.append("\(AskClaudeScreenCard.escape(more)). The card has a Next button; when they ask for the next ones, call again with the same folder and into, and from \(nextFrom).")
         }
         lines.append("Say in a line or two how many have a sure home and what needs their pick. Don’t list the files: the card shows them.")
         return lines.joined(separator: "\n")

@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Sync
 import Design
+import UniformTypeIdentifiers
 
 /// Ask Claude’s panel (RD69, v7.0): attached to the window, hanging from its toolbar button over
 /// the right edge of the content (decision DO). It covers the content’s right side while open and
@@ -246,12 +247,12 @@ struct AskClaudePanel: View {
                 HStack(alignment: .center, spacing: 6) {
                     Image(systemName: "bubble.left.and.text.bubble.right")
                         .symbolRenderingMode(.hierarchical)
-                        .font(.headline)
+                        .scaledFont(.headline)
                     // The title, and under it what the next question will describe (TE260).
                     VStack(alignment: .leading, spacing: 0) {
-                        Text("Claude").font(.headline)
+                        Text("Claude").scaledFont(.headline)
                         Text(place.subtitle)
-                            .font(.caption)
+                            .scaledFont(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -318,7 +319,7 @@ struct AskClaudePanel: View {
                     if chat.isRunning && chat.isThinking {
                         HStack(spacing: 6) {
                             ProgressView().controlSize(.small)
-                            Text("Thinking…").foregroundStyle(.secondary).font(.caption)
+                            Text("Thinking…").foregroundStyle(.secondary).scaledFont(.caption)
                         }
                         .id("thinking")
                     }
@@ -365,7 +366,7 @@ struct AskClaudePanel: View {
                         .accessibilityLabel("Stop")
                 } else {
                     Button(action: send) {
-                        Image(systemName: "arrow.up.circle.fill").font(.title2).foregroundStyle(accent)
+                        Image(systemName: "arrow.up.circle.fill").scaledFont(.title2).foregroundStyle(accent)
                     }
                     .buttonStyle(.borderless)
                     .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -391,13 +392,13 @@ struct AskClaudePanel: View {
                             .foregroundStyle(.secondary)
                         Text(item.name).lineLimit(1).truncationMode(.middle)
                         Button { chat.detach(item.path) } label: {
-                            Image(systemName: "xmark").font(.caption2.weight(.semibold))
+                            Image(systemName: "xmark").scaledFont(.caption2.weight(.semibold))
                         }
                         .buttonStyle(.borderless)
                         .help("Remove")
                         .accessibilityLabel("Remove \(item.name)")
                     }
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .padding(.horizontal, 8).padding(.vertical, 4)
                     .background(.quaternary.opacity(0.7), in: Capsule())
                     .help(item.path)
@@ -486,6 +487,8 @@ private struct AskClaudeThreadRow: View, Equatable {
     /// While a question runs, an offer's Send waits: the send would be refused.
     var isRunning = false
     @State private var showsSent = false
+    /// The card row whose details are open; one at a time.
+    @State private var openRow: Int?
 
     /// What the row draws from; the closures never change what it shows.
     static func == (a: Self, b: Self) -> Bool {
@@ -549,26 +552,26 @@ private struct AskClaudeThreadRow: View, Equatable {
                 .accessibilityLabel("Claude: \(text)")
         case .step(let label, let isError):
             Label(label, systemImage: isError ? "exclamationmark.circle" : "checkmark")
-                .font(.caption)
+                .scaledFont(.callout)
                 .foregroundStyle(isError ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
         case .moved(let note):
             Label(note, systemImage: "arrow.turn.down.right")
-                .font(.caption.weight(.medium))
+                .scaledFont(.callout.weight(.medium))
                 .foregroundStyle(accent)
                 .accessibilityHint("Use Back to return")
         case .note(let text):
-            Text(text).font(.caption).foregroundStyle(.secondary)
+            Text(text).scaledFont(.callout).foregroundStyle(.secondary)
         case .offer(let passage, let sent):
             VStack(alignment: .leading, spacing: 6) {
                 Text("The on-device model read \(passage.fileName) here. Claude can read \(passage.whereInFile) itself for a fuller answer.")
-                    .font(.caption)
+                    .scaledFont(.callout)
                 HStack(spacing: 8) {
                     Button(sent ? "Sent" : "Send to Claude") { onSendOffer(item.id) }
                         .controlSize(.small)
                         .disabled(sent || isRunning)
                         .help("Sends only this passage of the file to Claude, once.")
                     Text("\(passage.whereInFile) · about \(passage.tokens.formatted()) tokens")
-                        .font(.caption2)
+                        .scaledFont(.footnote)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -598,7 +601,7 @@ private struct AskClaudeThreadRow: View, Equatable {
                     Button("Open Settings ▸ Intelligence", action: onOpenSettings).controlSize(.small)
                 }
             }
-            .font(.callout)
+            .scaledFont(.callout)
             .padding(10)
             .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.well))
         case .receipt(let receipt):
@@ -610,19 +613,19 @@ private struct AskClaudeThreadRow: View, Equatable {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .font(.caption)
+            .scaledFont(.callout)
             .foregroundStyle(.secondary)
             .help(isLatestReceipt ? "What this question sent" : Self.summary(receipt))
             .accessibilityLabel(Self.summary(receipt))
             .popover(isPresented: $showsSent, arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(Self.summary(receipt)).font(.callout)
+                    Text(Self.summary(receipt)).scaledFont(.callout)
                     Text("\(receipt.model.isEmpty ? "" : receipt.model + " · ")\(receipt.rounds) round\(receipt.rounds == 1 ? "" : "s")")
-                        .font(.caption)
+                        .scaledFont(.callout)
                         .foregroundStyle(.secondary)
                     ScrollView([.horizontal, .vertical]) {
                         Text(receipt.screenText)
-                            .font(.system(.caption2, design: .monospaced))
+                            .scaledFont(ScaledFont.system(.caption2, design: .monospaced))
                             .textSelection(.enabled)
                             .padding(8)
                     }
@@ -644,7 +647,7 @@ private struct AskClaudeThreadRow: View, Equatable {
         VStack(alignment: .leading, spacing: 6) {
             switch state {
             case .offered:
-                Label(download.summary, systemImage: "icloud.and.arrow.down").font(.caption)
+                Label(download.summary, systemImage: "icloud.and.arrow.down").scaledFont(.callout)
                 HStack(spacing: 8) {
                     Button(verb) { onDownloadCard(item.id, .download) }
                         .controlSize(.small)
@@ -655,20 +658,20 @@ private struct AskClaudeThreadRow: View, Equatable {
             case .downloading:
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Downloading \(download.fileName)…" + (size.map { " \($0)" } ?? "")).font(.caption)
+                    Text("Downloading \(download.fileName)…" + (size.map { " \($0)" } ?? "")).scaledFont(.callout)
                 }
                 Button("Stop Waiting") { onDownloadCard(item.id, .stopWaiting) }
                     .controlSize(.small)
                     .help("Stops waiting here. The download itself goes on until the cloud app finishes it.")
             case .done:
-                Label("Downloaded \(download.fileName).", systemImage: "checkmark").font(.caption).foregroundStyle(.secondary)
+                Label("Downloaded \(download.fileName).", systemImage: "checkmark").scaledFont(.callout).foregroundStyle(.secondary)
             case .declined:
-                Label("Didn’t download \(download.fileName).", systemImage: "icloud").font(.caption).foregroundStyle(.secondary)
+                Label("Didn’t download \(download.fileName).", systemImage: "icloud").scaledFont(.callout).foregroundStyle(.secondary)
             case .failed(let why):
-                Label("Couldn’t download \(download.fileName): \(why).", systemImage: "exclamationmark.circle").font(.caption)
+                Label("Couldn’t download \(download.fileName): \(why).", systemImage: "exclamationmark.circle").scaledFont(.callout)
                 retry()
             case .timedOut:
-                Label("\(download.fileName) didn’t arrive within ten minutes.", systemImage: "exclamationmark.circle").font(.caption)
+                Label("\(download.fileName) didn’t arrive within ten minutes.", systemImage: "exclamationmark.circle").scaledFont(.callout)
                 retry()
             }
         }
@@ -688,10 +691,10 @@ private struct AskClaudeThreadRow: View, Equatable {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 6) {
                             Image(systemName: "folder").foregroundStyle(.secondary)
-                            Text(folder.label).font(.caption.weight(.medium)).lineLimit(2).truncationMode(.head)
+                            Text(folder.label).scaledFont(.callout.weight(.medium)).lineLimit(2).truncationMode(.head)
                         }
                         Text("\(index == 0 ? "" : "Runner-up · ")\(folder.confidence) · \(folder.reason)\(folder.note.map { " · \($0)" } ?? "")")
-                            .font(.caption2).foregroundStyle(.secondary)
+                            .scaledFont(.footnote).foregroundStyle(.secondary)
                         HStack(spacing: 6) {
                             Button("Go to Folder") { onFilingCard(.goTo(folder.path)) }
                                 .controlSize(.small)
@@ -704,7 +707,7 @@ private struct AskClaudeThreadRow: View, Equatable {
                 }
                 if let days = card.staleDays {
                     Text("From a survey \(days) days old: folders made since aren’t known. Update the Survey is in Organize ▸ Restructure.")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .scaledFont(.footnote).foregroundStyle(.secondary)
                 }
                 if card.canRefine {
                     Button("Refine with Claude…") { onFilingCard(.refine(card.filePath)) }
@@ -713,16 +716,16 @@ private struct AskClaudeThreadRow: View, Equatable {
                 }
             case .noProfile:
                 Label("No folder survey yet, so there’s nothing of how you file to go by.", systemImage: "folder.badge.questionmark")
-                    .font(.caption)
+                    .scaledFont(.callout)
                 Button("Open Setup") { onFilingCard(.openSetup) }
                     .controlSize(.small)
                     .help("Setup’s folder survey learns how you file; this answer comes from it.")
             case .outside(let surveyed):
                 Label("Your folder survey covers \(surveyed); \(card.place ?? "that place") isn’t in it.", systemImage: "folder.badge.questionmark")
-                    .font(.caption)
+                    .scaledFont(.callout)
             case .noMatch:
                 Label("No folder in your folder survey fits \(card.fileName).", systemImage: "folder.badge.questionmark")
-                    .font(.caption)
+                    .scaledFont(.callout)
             }
         }
         .padding(10)
@@ -730,135 +733,284 @@ private struct AskClaudeThreadRow: View, Equatable {
         .accessibilityElement(children: .contain)
     }
 
-    /// TE267: rows by the folder they go to, each with its tick and its folder's menu. Trash rows
-    /// are red and never ticked for them.
+    /// A card of changes (TE267, TE262; redone after his first use, decision GG): one line per
+    /// item, grouped by the folder it goes to, and a click opens a row's details. Text follows the
+    /// app's text size. Every line is held to the card's width: a long name shortens in the
+    /// middle, a long path wraps in the details, and nothing sizes the card from its own text.
     private func planCard(_ plan: AskClaudePlan) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(plan.title).font(.caption.weight(.semibold))
-                Spacer(minLength: 6)
-                Text(plan.subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+        VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(plan.title).scaledFont(.headline)
+                if !plan.subtitle.isEmpty {
+                    Text(plan.subtitle)
+                        .scaledFont(.callout).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             ForEach(Array(plan.groups.enumerated()), id: \.offset) { _, entry in
-                VStack(alignment: .leading, spacing: 4) {
-                    if let heading = Self.heading(entry.group, count: entry.rows.count) {
-                        Text(heading).font(.caption2.weight(.semibold)).foregroundStyle(.secondary).lineLimit(2).truncationMode(.head)
-                    }
-                    ForEach(entry.rows) { row in planRow(row) }
+                VStack(alignment: .leading, spacing: 1) {
+                    planGroupHeading(entry.group, count: entry.rows.count)
+                    ForEach(entry.rows) { row in planRow(row, plan: plan) }
                 }
             }
             if let left = plan.leftHere {
-                Text(left).font(.caption2).foregroundStyle(.secondary)
-            }
-            if let more = plan.more {
-                Text(more).font(.caption2).foregroundStyle(.secondary)
+                Text(left).scaledFont(.callout).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             planFooter(plan)
         }
         .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.well))
         .accessibilityElement(children: .contain)
     }
 
-    /// TE262: Apply and Not Now; then applying, done with Undo, or partly done.
+    /// "Girish - 2025" with "in Travel · 3" beside it; the full path is in each row's details.
+    private func planGroupHeading(_ group: AskClaudePlan.Group, count: Int) -> some View {
+        let (title, detail): (String, String?) = {
+            switch group {
+            case .folder(let label):
+                let parts = label.components(separatedBy: " › ")
+                let parent = parts.count > 1 ? "in \(parts[parts.count - 2]) · " : ""
+                return (parts.last ?? label, label.isEmpty ? nil : "\(parent)\(count)")
+            case .needsPick: return ("Needs Your Pick", "\(count)")
+            case .alreadyFiled: return ("Already Filed", "\(count)")
+            case .emptied: return ("Emptied Folders", nil)
+            }
+        }()
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(title).scaledFont(.callout.weight(.semibold)).lineLimit(1).truncationMode(.middle)
+            if let detail { Text(detail).scaledFont(.footnote).foregroundStyle(.secondary).lineLimit(1) }
+        }
+        .padding(.top, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .help(group == .needsPick ? "Open a row to pick its folder" : { if case .folder(let l) = group { return l } else { return "" } }())
+    }
+
+    /// The SF Symbol for a file by its kind.
+    static func symbol(for name: String, change: AskClaudePlan.Change) -> String {
+        switch change {
+        case .newFolder: return "folder.badge.plus"
+        case .trashIfEmptied: return "folder"
+        case .rename: return "pencil"
+        default: break
+        }
+        guard let type = UTType(filenameExtension: (name as NSString).pathExtension) else { return "doc" }
+        if type.conforms(to: .image) { return "photo" }
+        if type.conforms(to: .pdf) { return "doc.richtext" }
+        if type.conforms(to: .archive) { return "doc.zipper" }
+        if type.conforms(to: .movie) || type.conforms(to: .audiovisualContent) { return "film" }
+        return "doc"
+    }
+
+    private func planRow(_ row: AskClaudePlan.Row, plan: AskClaudePlan) -> some View {
+        let editable = plan.state == .proposed && row.refusal == nil
+        let isOpen = openRow == row.id
+        let dotColor: Color = row.refusal != nil ? .secondary
+            : row.isTrash ? .red
+            : row.group == .needsPick ? .orange
+            : row.confidence == AskClaudeFiling.label(.high) ? .green
+            : row.confidence == nil ? .clear : .orange
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 7) {
+                Toggle("", isOn: Binding(get: { row.ticked }, set: { onPlanCard(item.id, .tick(row.id, $0)) }))
+                    .toggleStyle(.checkbox)
+                    .labelsHidden()
+                    .disabled(!editable)
+                    .accessibilityLabel(row.name)
+                Image(systemName: Self.symbol(for: row.name, change: row.change))
+                    .scaledFont(.callout).foregroundStyle(.secondary)
+                    .frame(width: 18)
+                Text(row.name)
+                    .scaledFont(.body)
+                    .lineLimit(1).truncationMode(.middle)
+                    .strikethrough(row.refusal != nil || row.applied == false)
+                    .foregroundStyle(row.refusal != nil ? AnyShapeStyle(.secondary) : row.isTrash ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .layoutPriority(1)
+                if row.applied == true {
+                    Image(systemName: "checkmark").scaledFont(.callout).foregroundStyle(.green)
+                }
+                // Its own width, never squeezed by the name: shortened here, so the name takes what's left.
+                HStack(spacing: 5) {
+                    Circle().fill(dotColor).frame(width: 7, height: 7)
+                    Text(AskClaudeThreadRowShortening.shortened(AskClaudeThreadRowShortening.destinationWord(row), to: 18))
+                        .scaledFont(.callout)
+                        .foregroundStyle(row.group == .needsPick ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                        .lineLimit(1)
+                }
+                .fixedSize()
+                Image(systemName: "chevron.right")
+                    .scaledFont(.footnote).foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(isOpen ? 90 : 0))
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { openRow = isOpen ? nil : row.id }
+            .help("Click for where it goes and why")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint(isOpen ? "Closes its details" : "Opens its details")
+            if isOpen { planDetails(row, editable: editable) }
+        }
+        .padding(.horizontal, 6).padding(.vertical, 5)
+        .background(isOpen ? AnyShapeStyle(accent.opacity(0.12)) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: Radius.control))
+    }
+
+    /// A row's details: where exactly, why, the file, and what else it could do.
+    private func planDetails(_ row: AskClaudePlan.Row, editable: Bool) -> some View {
+        let line: (String, String) -> AnyView = { key, value in
+            AnyView(HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(key).scaledFont(.callout).foregroundStyle(.secondary).frame(width: 64, alignment: .leading)
+                Text(value).scaledFont(.callout).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            })
+        }
+        var fileFacts: [String] = []
+        if let size = row.size { fileFacts.append(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)) }
+        if let modified = row.modified { fileFacts.append(modified.formatted(date: .abbreviated, time: .omitted)) }
+        if let from = row.fromLabel { fileFacts.append("in \(from)") }
+        let destination: String? = {
+            switch row.change {
+            case .move: return row.folderLabel
+            case .newFolder(_, let name): return row.folderLabel.map { "\($0) › \(name)" }
+            case .rename(_, let to): return "Renamed to \(to)"
+            case .trash: return "The Trash"
+            case .trashIfEmptied(let folders): return "The Trash, if empty: " + folders.map { ($0 as NSString).lastPathComponent }.joined(separator: ", ")
+            }
+        }()
+        // Not for an unsure row: its folder isn't decided.
+        let folderPath: String? = {
+            guard row.group != .needsPick, case .move(_, let to) = row.change else { return nil }
+            return to
+        }()
+        // The item itself, while it is still where the card found it.
+        let previewable: Bool = {
+            switch row.change {
+            case .move, .rename, .trash: return row.applied != true
+            case .newFolder, .trashIfEmptied: return false
+            }
+        }()
+        return VStack(alignment: .leading, spacing: 5) {
+            if let refusal = row.refusal { line("Can’t", refusal).foregroundStyle(.orange) }
+            if let result = row.result { line("Result", result) }
+            if row.group == .needsPick {
+                line("Goes to", "Not decided: pick one below")
+            } else if let destination {
+                line("Goes to", destination)
+            }
+            if let reason = row.reason { line("Why", reason) }
+            if let note = row.note { line("Note", note) }
+            if !fileFacts.isEmpty { line("File", fileFacts.joined(separator: " · ")) }
+            // Only a real choice: one folder is already said by Goes To.
+            if editable, case .move = row.change, row.choices.count > 1 || row.group == .needsPick {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("Folders").scaledFont(.callout).foregroundStyle(.secondary).frame(width: 64, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(Array(row.choices.enumerated()), id: \.offset) { _, choice in
+                            let chosen = row.group != .needsPick && folderPath == choice.path
+                            Button { onPlanCard(item.id, .choose(row.id, choice)) } label: {
+                                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                    Image(systemName: chosen ? "largecircle.fill.circle" : "circle")
+                                        .foregroundStyle(chosen ? AnyShapeStyle(accent) : AnyShapeStyle(.secondary))
+                                    Text(choice.label.components(separatedBy: " › ").suffix(2).joined(separator: " › "))
+                                        .lineLimit(2).truncationMode(.head)
+                                    // Only when it says something: every choice of an unsure row is unsure.
+                                    if let confidence = choice.confidence, confidence != AskClaudeFiling.label(.low) {
+                                        Text(confidence).foregroundStyle(.secondary)
+                                    }
+                                }
+                                .scaledFont(.callout)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help(choice.label)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            // One line when they fit, else two: a narrow panel cut "Choose Folder…" short.
+            let choose = editable && { if case .move = row.change { true } else { false } }()
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) { detailButtons(row, choose: choose, preview: previewable, folder: folderPath) }
+                    .fixedSize()
+                VStack(alignment: .leading, spacing: 6) {
+                    if choose { Button("Choose Folder…") { onPlanCard(item.id, .chooseFolder(row.id)) }.fixedSize() }
+                    HStack(spacing: 6) { detailButtons(row, choose: false, preview: previewable, folder: folderPath) }
+                        .fixedSize()
+                }
+            }
+            .controlSize(.small)
+            .padding(.top, 2)
+        }
+        .padding(.leading, 25)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func detailButtons(_ row: AskClaudePlan.Row, choose: Bool, preview: Bool, folder: String?) -> some View {
+        if choose { Button("Choose Folder…") { onPlanCard(item.id, .chooseFolder(row.id)) } }
+        if preview { Button("Quick Look") { onPlanCard(item.id, .quickLook(row.change.path)) } }
+        if let folder { Button("Go to Folder") { onPlanCard(item.id, .goTo(folder)) } }
+    }
+
+    /// TE262: Apply and Not Now; then applying, done with Undo, or partly done. Next asks for the
+    /// next card, whatever this one's state (decision GG).
     @ViewBuilder
     private func planFooter(_ plan: AskClaudePlan) -> some View {
         let count = plan.runnable.count
-        switch plan.state {
-        case .proposed:
-            HStack(spacing: 8) {
-                Text(isRunning ? "Apply waits for Claude to finish." : "Nothing changes until you click Apply.")
-                    .font(.caption2).foregroundStyle(.secondary)
-                Spacer(minLength: 4)
-                Button("Not Now") { onPlanCard(item.id, .notNow) }.controlSize(.small)
-                Button(count == 0 ? "Apply" : "Apply \(count) Change\(count == 1 ? "" : "s")") { onPlanCard(item.id, .apply) }
-                    .controlSize(.small)
-                    .buttonStyle(.borderedProminent)
-                    .accentedProminent()
-                    .disabled(count == 0 || isRunning)
-                    .help("Makes the ticked changes, checking each one again first. One Undo takes them all back.")
-            }
-        case .applying:
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text("Applying \(count) change\(count == 1 ? "" : "s")…").font(.caption)
-            }
-        case .applied, .partlyApplied:
-            VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
+            switch plan.state {
+            case .proposed:
+                HStack(spacing: 8) {
+                    Text(isRunning ? "Apply waits for Claude to finish." : "Nothing changes until you click Apply.")
+                        .scaledFont(.footnote).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button("Not Now") { onPlanCard(item.id, .notNow) }
+                    Button(count == 0 ? "Apply" : "Apply \(count)") { onPlanCard(item.id, .apply) }
+                        .buttonStyle(.borderedProminent)
+                        .accentedProminent()
+                        .disabled(count == 0 || isRunning)
+                        .help("Makes the ticked changes, checking each one again first. One Undo takes them all back.")
+                }
+            case .applying:
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Applying \(count) change\(count == 1 ? "" : "s")…").scaledFont(.callout)
+                }
+            case .applied, .partlyApplied:
                 Label(plan.summary ?? "Applied.", systemImage: plan.state == .applied ? "checkmark.circle" : "exclamationmark.circle")
-                    .font(.caption)
+                    .scaledFont(.callout)
                     .foregroundStyle(plan.state == .applied ? AnyShapeStyle(.green) : AnyShapeStyle(.orange))
+                    .fixedSize(horizontal: false, vertical: true)
                 if plan.undoName != nil {
                     HStack(spacing: 8) {
                         Button("Undo") { onPlanCard(item.id, .undo) }
-                            .controlSize(.small)
                             .help("Takes back everything this card did, as Edit ▸ Undo does.")
-                        Text("Also in Edit ▸ Undo").font(.caption2).foregroundStyle(.secondary)
+                        Text("Also in Edit ▸ Undo").scaledFont(.footnote).foregroundStyle(.secondary)
                     }
                 }
+            case .undone:
+                Label("Undone: everything is back where it was.", systemImage: "arrow.uturn.backward")
+                    .scaledFont(.callout).foregroundStyle(.secondary)
+            case .declined:
+                Text("Not applied.").scaledFont(.callout).foregroundStyle(.secondary)
             }
-        case .undone:
-            Label("Undone: everything is back where it was.", systemImage: "arrow.uturn.backward").font(.caption).foregroundStyle(.secondary)
-        case .declined:
-            Text("Not applied.").font(.caption).foregroundStyle(.secondary)
-        }
-    }
-
-    static func heading(_ group: AskClaudePlan.Group, count: Int) -> String? {
-        switch group {
-        case .folder(let label): return label.isEmpty ? nil : "→ \(label) · \(count)"
-        case .needsPick: return "Needs Your Pick · \(count)"
-        case .alreadyFiled: return "Already Filed · \(count)"
-        case .emptied: return nil
-        }
-    }
-
-    private func planRow(_ row: AskClaudePlan.Row) -> some View {
-        let plan: AskClaudePlan? = if case .plan(let p) = item.kind { p } else { nil }
-        let editable = plan?.state == .proposed && row.refusal == nil
-        return VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Toggle(isOn: Binding(get: { row.ticked }, set: { onPlanCard(item.id, .tick(row.id, $0)) })) {
-                    Text(row.name)
-                        .font(.caption)
-                        .strikethrough(row.refusal != nil || row.applied == false)
-                        .foregroundStyle(row.refusal != nil ? AnyShapeStyle(.secondary)
-                                         : row.isTrash ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
-                        .lineLimit(2)
-                }
-                .toggleStyle(.checkbox)
-                .disabled(!editable)
-                if row.applied == true { Image(systemName: "checkmark").font(.caption2).foregroundStyle(.green) }
-                Spacer(minLength: 4)
-                if let confidence = row.confidence, !row.isTrash {
-                    Text(confidence).font(.caption2.weight(.medium)).foregroundStyle(.secondary)
-                } else if row.isTrash {
-                    Text("Trash").font(.caption2.weight(.medium)).foregroundStyle(.red)
+            if let label = plan.nextLabel, plan.nextAsk != nil {
+                Divider()
+                HStack(spacing: 8) {
+                    Text(plan.more ?? "").scaledFont(.footnote).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button(label) { onPlanCard(item.id, .next) }
+                        .disabled(isRunning)
+                        .help("Asks Claude for the next card of loose files.")
                 }
             }
-            HStack(spacing: 4) {
-                Text(([row.refusal.map { "Can’t apply: \($0)" }, row.result, row.reason, row.note,
-                       plan?.subtitle.isEmpty == true ? row.folderLabel.map { "→ \($0)" } : nil] as [String?])
-                    .compactMap { $0 }.joined(separator: " · "))
-                    .font(.caption2).foregroundStyle(row.refusal != nil || row.applied == false ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
-                if case .move = row.change, editable, !row.choices.isEmpty || plan?.subtitle.isEmpty == false {
-                    Menu {
-                        ForEach(Array(row.choices.enumerated()), id: \.offset) { _, choice in
-                            Button(choice.label) { onPlanCard(item.id, .choose(row.id, choice)) }
-                        }
-                        if !row.choices.isEmpty { Divider() }
-                        Button("Choose Folder…") { onPlanCard(item.id, .chooseFolder(row.id)) }
-                    } label: {
-                        Text(row.group == .needsPick ? "Choose" : (row.folderLabel.map { ($0 as NSString).lastPathComponent } ?? "Folder"))
-                            .font(.caption2)
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                    .help("Where this file goes")
-                }
-            }
-            .padding(.leading, 20)
         }
+        .controlSize(.small)
+        .padding(.top, 4)
     }
 
     private func retry() -> some View {
@@ -898,7 +1050,7 @@ private struct AskClaudeHeaderButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 13, weight: .medium))
+                .scaledFont(ScaledFont.system(size: 13, weight: .medium))
                 .frame(width: 26, height: 26)
                 .background((hovering || isOn) && isEnabled ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear),
                             in: RoundedRectangle(cornerRadius: Radius.chip))
@@ -1024,10 +1176,15 @@ enum AskClaudePlanAction: Equatable {
     case tick(Int, Bool)
     /// A row sent to one of its menu's folders.
     case choose(Int, AskClaudePlan.Choice)
-    /// Choose Folder… on a row's menu.
+    /// Choose Folder… in a row's details.
     case chooseFolder(Int)
     /// TE262: the card's own buttons.
     case apply, notNow, undo
+    /// A row's details: Quick Look on the item, Go to Folder on where it goes.
+    case quickLook(String)
+    case goTo(String)
+    /// Next 10 (decision GG): asks for the next card.
+    case next
 }
 
 /// What filing help's card asks for (TE255).
@@ -1038,4 +1195,24 @@ enum AskClaudeFilingAction: Equatable {
     case openSetup
     /// Move Here (decision FE): the card becomes a one-row plan card.
     case moveHere(item: UUID, file: String, folder: String, label: String)
+}
+
+/// How a card row says where it goes, short (decision GG).
+enum AskClaudeThreadRowShortening {
+    /// `text` cut in the middle to `limit` characters: "Girish - 2025" stays, a long one keeps both ends.
+    static func shortened(_ text: String, to limit: Int) -> String {
+        guard text.count > limit else { return text }
+        let head = (limit - 1) / 2, tail = limit - 1 - head
+        return String(text.prefix(head)) + "…" + String(text.suffix(tail))
+    }
+
+    /// Where a row goes, short, for the end of its line.
+    static func destinationWord(_ row: AskClaudePlan.Row) -> String {
+        if row.group == .needsPick { return "Pick a folder" }
+        switch row.change {
+        case .trash, .trashIfEmptied: return "Trash"
+        case .rename(_, let to): return to
+        default: return row.folderLabel.map { $0.components(separatedBy: " › ").last ?? $0 } ?? ""
+        }
+    }
 }

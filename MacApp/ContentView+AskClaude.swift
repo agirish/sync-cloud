@@ -199,6 +199,20 @@ extension ContentView {
             askClaudeChat.updatePlan(id) { $0.choose(AskClaudePlan.Choice(label: label, path: path), forRow: row) }
         case .apply:
             askClaudeApplyPlan(id)
+        case .quickLook(let path):
+            guard !askClaudeIsHidden(path), FileManager.default.fileExists(atPath: path) else {
+                askClaudeChat.addNote("\((path as NSString).lastPathComponent) isn’t there to preview any more.")
+                return
+            }
+            quickLookURL = URL(fileURLWithPath: path)
+        case .goTo(let folder):
+            Task { @MainActor in
+                let outcome = await askClaudeTools().goToFolder(folder)
+                if outcome.isError { askClaudeChat.addNote("Couldn’t go there: \(outcome.step).") }
+            }
+        case .next:
+            guard let ask = askClaudeChat.plan(id)?.nextAsk else { return }
+            askClaudeSend(ask)
         case .notNow:
             askClaudeChat.updatePlan(id) { if $0.state == .proposed { $0.state = .declined } }
         case .undo:

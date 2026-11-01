@@ -129,12 +129,12 @@ import Testing
         let plan = AskClaudePlan(title: "File 2 Loose Files", subtitle: "into iCloud › Documents",
                                  rows: [row(0, "jal.pdf", to: "Travel › Trips", confidence: .high, ticked: true),
                                         row(1, "scan.pdf", to: "Health", confidence: .low, ticked: false)],
-                                 leftHere: "Left here: 1 app or installer", more: "1–50 of 80 · 30 more: ask for the next 30")
+                                 leftHere: "Left here: 1 app or installer", more: "1–50 of 80 · 30 more")
         let text = AskClaudeLooseFiles.result(plan, leftHereCount: 1, nextFrom: 50)
         #expect(!text.contains("Boarding"))
         #expect(text.contains("jal.pdf|Travel › Trips|High|ticked|"))
         #expect(text.contains("scan.pdf|needs their pick: Health or Work|Needs your pick|not ticked|"))
-        #expect(text.contains("call again with from 50"))
+        #expect(text.contains("call again with the same folder and into, and from 50"))
         #expect(text.contains("Left here: 1 app or installer"))
     }
 }

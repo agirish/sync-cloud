@@ -61,8 +61,9 @@ Requires **macOS 26**, unchanged from v6.2.
   Dropbox, is answered as that.
 - **File a folder's loose files.** In Downloads, say "file the loose files". Claude counts them,
   those in subfolders too, and asks where they go, with a button for your folder survey. Then one
-  card shows a home for each, grouped by folder, 50 at a time: High ones ticked, the rest with their
-  reason, and a menu on each row for the runner-up or another folder. A file already filed byte for
+  card shows a home for each, grouped by folder, 10 at a time with Next 10 for the rest: one line per
+  file, High ones ticked. Click a row for where exactly it goes and why, the file's size and date,
+  the other folders to pick from, Quick Look and Go to Folder. A file already filed byte for
   byte, and a subfolder the files would leave empty, get Trash rows, never ticked for you. A taken
   name is shown as the name it would get. Hidden files, unfinished downloads and installers stay
   where they are. Apply moves what's ticked, with one Undo.

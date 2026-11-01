@@ -1650,15 +1650,16 @@ private final class OffersADownload: AskClaudeToolRunning {
         }
     }
 
-    private func s(_ rel: String, _ c: FilingConfidence) -> FilingHelpAnswer.Suggestion {
+    private func s(_ rel: String, _ c: FilingConfidence, token: String? = nil) -> FilingHelpAnswer.Suggestion {
         FilingHelpAnswer.Suggestion(folder: dir + "/Documents/" + rel, relativePath: rel, confidence: c,
-                                    reason: "Fits how this folder is used", evidenceToken: nil)
+                                    reason: token.map { "Matched “\($0)” read from the file — a word this folder’s documents use" }
+                                        ?? "Fits how this folder is used", evidenceToken: token)
     }
 
-    private func runner(survey: Bool = true) -> AskClaudeBrowseTools {
+    private func runner(survey: Bool = true, token: Bool = false) -> AskClaudeBrowseTools {
         let dir = self.dir
         let homes: [String: [FilingHelpAnswer.Suggestion]] = [
-            "JAL Ticket.pdf": [s("Travel/Trips", .high)], "Ticket.pdf": [s("Travel/Trips", .high)],
+            "JAL Ticket.pdf": [s("Travel/Trips", .high, token: token ? "Japan Airlines" : nil)], "Ticket.pdf": [s("Travel/Trips", .high)],
             "W-2 2025.pdf": [s("Taxes/2025", .medium), s("Work", .medium)], "Statement.pdf": [s("Bank/Chase", .high)],
             "scan0042.pdf": [s("Health", .low), s("Insurance", .low)], "plan.pdf": [s("Travel/Trips", .high)],
         ]
@@ -1723,15 +1724,26 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(!out.result.contains("Fits how this folder is used"), "a reason went to Claude")
     }
 
-    /// Decision FC: 50 a card, the rest one call away.
-    @Test func aCardHoldsFiftyAndSaysWhatIsLeft() async throws {
+    /// Decision GG: 10 a card, and a Next button that asks for the next ones in their own words.
+    @Test func aCardHoldsTenAndItsNextButtonAsksForMore() async throws {
         defer { try? FileManager.default.removeItem(atPath: dir) }
         for i in 0..<55 { try Data("\(i)".utf8).write(to: URL(fileURLWithPath: dir + "/Downloads/n\(i).txt")) }
         let first = await call(["into": .string("Documents")], runner())
-        #expect(first.plan?.more == "1–50 of 62 · 12 more: ask for the next 12")
-        #expect(first.result.contains("call again with from 50"))
-        let second = await call(["into": .string("Documents"), "from": .integer(50)], runner())
-        #expect(second.plan?.more == nil)
+        #expect(first.plan?.more == "1–10 of 62 · 52 more")
+        #expect(first.plan?.nextLabel == "Next 10" && first.plan?.nextAsk == "Show me the next 10 loose files.")
+        #expect(first.result.contains("call again with the same folder and into, and from 10"))
+        let last = await call(["into": .string("Documents"), "from": .integer(60)], runner())
+        #expect(last.plan?.more == nil && last.plan?.nextAsk == nil)
+    }
+
+    /// The card is on their Mac: a row says which word decided it and what the file is.
+    @Test func aRowCarriesItsFileAndTheRealReason() async throws {
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let out = await call(["into": .string("Documents")], runner(token: true))
+        let row = try #require(out.plan?.rows.first { $0.name == "JAL Ticket.pdf" })
+        #expect(row.reason == "Matched “Japan Airlines” read from the file — a word this folder’s documents use")
+        #expect(row.size == 3 && row.modified != nil && row.fromLabel == "Home › Downloads")
+        #expect(!out.result.contains("Japan Airlines"), "the word went to Claude")
     }
 }
 
@@ -1830,5 +1842,28 @@ private final class OffersADownload: AskClaudeToolRunning {
         let item = AskClaudeChat.notWaiting(AskClaudeChat.Item(kind: .plan(decoded)))
         guard case .plan(let restored) = item.kind else { Issue.record("not a card"); return }
         #expect(restored.state == .partlyApplied)
+    }
+}
+
+/// The card's one-line rows (decision GG): the destination has its own width and never pushes
+/// the name off the card.
+@MainActor
+@Suite struct AskClaudeCardRowTests {
+
+    @Test func aLongDestinationIsCutInTheMiddleAndAShortOneStays() {
+        #expect(AskClaudeThreadRowShortening.shortened("Girish - 2025", to: 18) == "Girish - 2025")
+        let cut = AskClaudeThreadRowShortening.shortened("Twin Creeks Elementary Donations", to: 18)
+        #expect(cut.count == 18 && cut.hasPrefix("Twin Cre") && cut.hasSuffix("Donations") && cut.contains("…"))
+    }
+
+    @Test func aRowSaysWhereItGoesInAWordOrPicksAFolder() {
+        let move = AskClaudePlan.Row(id: 0, name: "a.pdf", change: .move(from: "/d/a.pdf", toFolder: "/t"), ticked: true,
+                                     confidence: "High", folderLabel: "iCloud › Documents › Travel › Girish - 2025")
+        #expect(AskClaudeThreadRowShortening.destinationWord(move) == "Girish - 2025")
+        var unsure = move
+        unsure.confidence = AskClaudeFiling.label(.low)
+        #expect(AskClaudeThreadRowShortening.destinationWord(unsure) == "Pick a folder")
+        let trash = AskClaudePlan.Row(id: 1, name: "b.pdf", change: .trash(path: "/d/b.pdf"), ticked: false)
+        #expect(AskClaudeThreadRowShortening.destinationWord(trash) == "Trash")
     }
 }

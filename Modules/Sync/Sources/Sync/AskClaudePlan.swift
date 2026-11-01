@@ -82,6 +82,10 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         public var result: String?
         /// Apply did it.
         public var applied: Bool?
+        /// The file's size, date and the folder it is in now, by label, for its details.
+        public var size: Int?
+        public var modified: Date?
+        public var fromLabel: String?
 
         public init(id: Int, name: String, change: Change, ticked: Bool, confidence: String? = nil, reason: String? = nil,
                     note: String? = nil, folderLabel: String? = nil, choices: [Choice] = [], chosen: Bool = false,
@@ -145,9 +149,14 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
     public var undoName: String?
     /// After Apply: "Moved 31 files and made 1 folder."
     public var summary: String?
+    /// What Next asks, the same words they could type: "Show me the next 10 loose files."
+    /// Nil when the card holds the last of them (decision GG).
+    public var nextAsk: String?
+    /// The Next button's label: "Next 10".
+    public var nextLabel: String?
 
     private enum CodingKeys: String, CodingKey {
-        case title, subtitle, rows, leftHere, more, savedState = "state", summary
+        case title, subtitle, rows, leftHere, more, savedState = "state", summary, nextAsk, nextLabel
     }
 
     public init(title: String, subtitle: String, rows: [Row], leftHere: String? = nil, more: String? = nil) {
