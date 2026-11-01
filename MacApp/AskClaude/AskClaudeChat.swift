@@ -152,8 +152,8 @@ final class AskClaudeChat: ObservableObject {
         .appendingPathComponent("SyncCloud/AskClaude/chat.json")
     static let defaultHistoryStore: URL? = defaultStore?.deletingLastPathComponent().appendingPathComponent("prompts.json")
 
-    /// The questions typed into the box, for Up and Down; kept between launches beside the chat,
-    /// and not cleared by New Chat or the hour's reset.
+    /// The questions typed into the box, for Up and Down; kept between launches beside the chat.
+    /// New Chat clears them; the chat's own fresh starts don't (`newChat`).
     private var promptHistory = AskClaudePromptHistory()
     private let historyURL: URL?
 
@@ -308,6 +308,15 @@ final class AskClaudeChat: ObservableObject {
         } catch {
             Logger.shared.warning("Ask Claude: the typed questions couldn’t be saved — \(error.localizedDescription)")
         }
+    }
+
+    /// New Chat, the button: a fresh chat, and the questions typed so far forgotten with it. The
+    /// chat's own fresh starts (an hour away, a hidden folder, a changed setting) keep them: they
+    /// come as a question is sent, and that question has just been remembered.
+    func newChat() {
+        startOver()
+        promptHistory = AskClaudePromptHistory()
+        if let historyURL { try? FileManager.default.removeItem(at: historyURL) }
     }
 
     private func restoreHistory() {

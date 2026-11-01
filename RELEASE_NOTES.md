@@ -70,8 +70,8 @@ Requires **macOS 26**, unchanged from v6.2.
 - **Every answer says what it sent and what it cost.** Spending counts against a monthly limit in
   Settings, $25 to start, with a note at 80%.
 - **Up and Down bring back what you asked.** In the text box, Up shows the questions you typed
-  before, newest first, and Down comes back to what you'd typed and not sent. The last 10 are kept,
-  across a relaunch and New Chat.
+  before, newest first, and Down comes back to what you'd typed and not sent. The last 10 are kept
+  across a relaunch; New Chat clears them.
 
 ### One-way sync
 

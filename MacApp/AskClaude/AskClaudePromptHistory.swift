@@ -5,7 +5,7 @@ import Foundation
 /// Up shows the one before; Down comes back, ending at what was typed and not sent. Changes made to
 /// a recalled question are kept while walking, so Up then Down loses nothing, and are dropped at the
 /// next send. Only typed questions are kept, the last `limit` of them, each once: sending one again
-/// moves it to the newest. It outlives New Chat and the hour's reset: it is his typing, not the chat.
+/// moves it to the newest. It outlives a relaunch and the chat's own fresh starts; New Chat clears it.
 struct AskClaudePromptHistory: Equatable {
     static let limit = 10
 

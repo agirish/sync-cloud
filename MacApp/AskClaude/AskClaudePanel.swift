@@ -278,7 +278,7 @@ struct AskClaudePanel: View {
                                        onEditHiddenList: { showsPlace = false; onOpenSettings() })
                         .presentedNativeControlAccent()
                 }
-            AskClaudeHeaderButton(symbol: "plus.bubble", help: "New chat", label: "New Chat") { chat.startOver() }
+            AskClaudeHeaderButton(symbol: "plus.bubble", help: "New chat", label: "New Chat") { chat.newChat() }
                 .disabled(chat.items.isEmpty && !chat.isRunning)
             AskClaudeHeaderButton(symbol: "xmark", help: ShortcutHint.tooltip("Close", AppChord.askClaude.display), label: "Close", action: onClose)
                 // ⌘J closes it from its own window too: while the panel is key, the menu's ⌘J

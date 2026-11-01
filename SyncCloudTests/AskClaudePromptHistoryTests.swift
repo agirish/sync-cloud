@@ -81,10 +81,16 @@ import Testing
 
     // MARK: The chat keeps it
 
-    @Test func theChatKeepsTypedQuestionsAcrossLaunchesAndNewChat() throws {
+    private func historyFile() -> (dir: URL, file: URL) {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudePromptHistoryTests-\(UUID().uuidString)")
+        return (dir, dir.appendingPathComponent("prompts.json"))
+    }
+
+    /// Kept across a relaunch, and through the chat's own fresh starts (an hour away, a hidden
+    /// folder, a changed setting), which come as a question is sent.
+    @Test func theChatKeepsTypedQuestionsAcrossLaunchesAndItsOwnFreshStarts() throws {
+        let (dir, file) = historyFile()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let file = dir.appendingPathComponent("prompts.json")
         let first = AskClaudeChat(historyURL: file)
         for n in 1...11 { first.rememberSent("question \(n)") }
         first.startOver()
@@ -97,6 +103,21 @@ import Testing
         #expect(seen == (2...11).reversed().map { "question \($0)" })
         while let newer = again.recallNewer(than: shown) { shown = newer }
         #expect(shown == "unsent")
+    }
+
+    /// New Chat, the button, forgets them, on disk too.
+    @Test func newChatClearsTheTypedQuestions() throws {
+        let (dir, file) = historyFile()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let chat = AskClaudeChat(historyURL: file)
+        chat.rememberSent("which are big?")
+        #expect(FileManager.default.fileExists(atPath: file.path))
+        chat.newChat()
+        #expect(chat.recallOlder(than: "typing") == nil)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+        #expect(AskClaudeChat(historyURL: file).recallOlder(than: "") == nil)
+        chat.rememberSent("open the receipts")
+        #expect(AskClaudeChat(historyURL: file).recallOlder(than: "") == "open the receipts")
     }
 
     // MARK: Where the caret is
