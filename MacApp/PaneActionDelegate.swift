@@ -127,6 +127,7 @@ struct PaneActionDelegate: FileActionDelegate {
     var onAskClaude: ([String]) -> Void = { _ in }
     var askClaudeRefusalFor: ([String]) -> String? = { _ in nil }
     var hiddenFromClaude: (String) -> Bool = { _ in false }
+    var hiddenFromClaudeCover: (String) -> String? = { _ in nil }
     var onSetHiddenFromClaude: (FileNode, Bool) -> Void = { _, _ in }
     /// The Never show Claude list, carried for the reason `ignoreStateToken` is: the row menu's
     /// Hide or Show label is built with the row, and a change to the list moves nothing else the
@@ -397,6 +398,8 @@ struct PaneActionDelegate: FileActionDelegate {
     }
 
     func isHiddenFromClaude(_ node: FileNode) -> Bool { hiddenFromClaude(node.id) }
+
+    func hiddenFromClaudeCover(_ node: FileNode) -> String? { hiddenFromClaudeCover(node.id) }
 
     func handleSetHiddenFromClaude(_ node: FileNode, hidden: Bool) {
         guard canAskClaude else { return }

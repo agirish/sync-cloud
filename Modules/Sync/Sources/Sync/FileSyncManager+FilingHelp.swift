@@ -16,7 +16,8 @@ public struct FilingHelpAnswer: Sendable, Equatable {
         case suggested([Suggestion])
         /// No Filing profile: Setup's survey never ran.
         case noProfile
-        /// The file isn't under the folder the profile surveyed, which is named.
+        /// The file isn't under the folder the profile surveyed, absolute: the caller names it by
+        /// source, as an answer to Claude never carries an absolute path.
         case outsideProfile(surveyed: String)
         /// The profile has no folder that fits this file.
         case noMatch
@@ -52,10 +53,17 @@ public struct FilingHelpAnswer: Sendable, Equatable {
         self.surveyedAt = surveyedAt
     }
 
-    /// Over 21 days old, the age at which Restructure calls a survey stale.
-    public func isStale(now: Date) -> Bool {
-        guard let surveyedAt else { return false }
-        return now.timeIntervalSince(surveyedAt) >= 21 * 86_400
+    /// Days since the survey, counted as Restructure counts them: calendar days, midnight to
+    /// midnight, so the two agree about the same survey. Nil when its date is unknown.
+    public func surveyAgeDays(now: Date, calendar: Calendar = .current) -> Int? {
+        guard let surveyedAt else { return nil }
+        return calendar.dateComponents([.day], from: calendar.startOfDay(for: surveyedAt),
+                                       to: calendar.startOfDay(for: now)).day
+    }
+
+    /// 21 days or more, the age at which Restructure calls a survey stale. Unknown is not stale.
+    public func isStale(now: Date, calendar: Calendar = .current) -> Bool {
+        (surveyAgeDays(now: now, calendar: calendar) ?? 0) >= 21
     }
 }
 
@@ -69,7 +77,7 @@ extension FileSyncManager {
             return FilingHelpAnswer(outcome: .noProfile, surveyedAt: surveyedAt)
         }
         guard Self.isInside(path, root: root) else {
-            return FilingHelpAnswer(outcome: .outsideProfile(surveyed: profile.root), surveyedAt: surveyedAt)
+            return FilingHelpAnswer(outcome: .outsideProfile(surveyed: root), surveyedAt: surveyedAt)
         }
         let memory = filingMemory, registry = filingPersonRegistry, satellites = filingSatelliteHomes
         // Asked here, once per folder: the list's matcher reads the disk and stays on this actor.
@@ -200,11 +208,21 @@ extension FileSyncManager {
     /// alone: the price is shown and agreed to before anything is sent, and the answer lands on
     /// Organize's card. Nil when it didn't run.
     public func refineAfterScan(filePath: String) async -> FilingRefineSummary? {
-        await filingScanTask?.value
+        await latestFilingScan()
         guard let suggestion = filingSuggestions.first(where: { $0.filePath == filePath }) else {
             Logger.shared.info("Filing help: Refine found no card for “\((filePath as NSString).lastPathComponent)” after the scan")
             return nil
         }
         return await refineFilingSuggestions([suggestion])
+    }
+
+    /// Returns once the latest Organize scan has finished, not only the one running when this was
+    /// called: a scan started meanwhile replaces it, and its cards are the ones on screen.
+    func latestFilingScan() async {
+        var awaited: Task<Void, Never>?
+        while let scan = filingScanTask, scan != awaited {
+            awaited = scan
+            await scan.value
+        }
     }
 }

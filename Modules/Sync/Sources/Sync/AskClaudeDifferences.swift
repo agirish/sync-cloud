@@ -33,6 +33,18 @@ public enum AskClaudeDifferences {
         }
     }
 
+    /// A kind in the sides' names, "only on Dropbox", for the steps the person reads; nil for all.
+    public static func label(_ kind: Kind, comparison: Comparison) -> String? {
+        switch kind {
+        case .all: return nil
+        case .onlyLeft: return "only on \(comparison.leftName)"
+        case .onlyRight: return "only on \(comparison.rightName)"
+        case .changed: return "changed"
+        case .nameConflicts: return "name conflicts"
+        case .heldBack: return "held back"
+        }
+    }
+
     /// The comparison the rows come from: its two sides and how fresh it is.
     public struct Comparison: Equatable, Sendable {
         public var leftName: String
@@ -80,9 +92,15 @@ public enum AskClaudeDifferences {
         let folder = folder?.trimmingCharacters(in: CharacterSet(charactersIn: "/ ")).nonEmptyValue
         return rows.filter { row in
             guard kind.matches(row) else { return false }
-            if let folder, !(row.relativePath == folder || row.relativePath.hasPrefix(folder + "/")) { return false }
+            // Case is ignored, as the Mac's disk ignores it: "taxes" is the Taxes folder.
+            if let folder, !Self.isAtOrUnder(row.relativePath, folder) { return false }
             return words.allSatisfy { row.relativePath.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
         }
+    }
+
+    static func isAtOrUnder(_ path: String, _ folder: String) -> Bool {
+        let path = path.lowercased(), folder = folder.lowercased()
+        return path == folder || path.hasPrefix(folder + "/")
     }
 
     /// The counts by kind, "9 only on Dropbox · 3 only on iCloud · 2 changed".
@@ -126,7 +144,17 @@ public enum AskClaudeDifferences {
         if let partial = comparison.partial { lines.append("partial: " + AskClaudeScreenCard.escape(partial)) }
         if hiddenCount > 0 { lines.append("\(hiddenCount) more hidden from Claude by them.") }
         guard !rows.isEmpty else {
-            lines.append(allRows.isEmpty ? "No differences: the two sides match." : "No differences match that.")
+            // "Match" only when nothing was left out: rows hidden from Claude, or a side read in
+            // part, can still differ.
+            if !allRows.isEmpty {
+                lines.append("No differences match that.")
+            } else if hiddenCount > 0 {
+                lines.append("No differences besides the ones hidden from Claude.")
+            } else if comparison.partial != nil {
+                lines.append("No differences in what could be read; the comparison is partial.")
+            } else {
+                lines.append("No differences: the two sides match.")
+            }
             return lines.joined(separator: "\n")
         }
         if rows.count != allRows.count { lines.append("matching: \(rows.count)") }

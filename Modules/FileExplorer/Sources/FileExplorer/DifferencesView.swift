@@ -2792,7 +2792,7 @@ private extension View {
 }
 
 /// Ask Claude About This on Compare's differences rows (TE263): why it can't take these paths now
-/// (hidden, busy), or nil; and the hand-off that opens the panel with them attached.
+/// (one is hidden from Claude), or nil; and the hand-off that opens the panel with them attached.
 public struct DifferencesAskClaude {
     public let refusal: ([String]) -> String?
     public let ask: ([String]) -> Void

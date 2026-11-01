@@ -485,8 +485,25 @@ import FileExplorer
                            type: .missingOnRight, action: .copyToRight, description: "Missing on right (Dropbox)", leftFileSize: 3),
         ]
         var rescans = 0
+        /// Reads of the comparison a Scan Again takes to land; nil, it never does.
+        var landsAfter: Int? = 3
+        var pending: Int?
         var shown: [(AskClaudeDifferences.Kind, Set<UUID>)] = []
         var workspaces: [String] = []
+
+        /// What Compare shows now. A scan asked for lands a few reads later and shows as running
+        /// for none of them, as the app's does while its folders are still being read.
+        func read() -> AskClaudeDifferences.Comparison {
+            if let left = pending {
+                if left <= 1 {
+                    pending = nil
+                    comparison.readAt = Date(timeIntervalSince1970: 1_792_000_000)
+                } else {
+                    pending = left - 1
+                }
+            }
+            return comparison
+        }
     }
 
     private func differencesTools(_ fake: CompareFake, busy: String? = nil) -> AskClaudeBrowseTools {
@@ -496,12 +513,12 @@ import FileExplorer
                 items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: busy, goTo: { _ in }, select: { _ in })
             ctx.hidden = ["/d/Documents/Private"]
             ctx.differences = { fake.rows }
-            ctx.comparison = { fake.comparison }
+            ctx.comparison = { fake.read() }
             ctx.now = { Date(timeIntervalSince1970: 1_792_000_000) }
+            ctx.scanStartWait = .seconds(2)
             ctx.rescan = {
                 fake.rescans += 1
-                // The scan lands at once in this fake: fresh, and with the same rows.
-                fake.comparison.readAt = Date(timeIntervalSince1970: 1_792_000_000)
+                fake.pending = fake.landsAfter
                 return true
             }
             ctx.switchWorkspace = { fake.workspaces.append($0); return true }
@@ -515,12 +532,24 @@ import FileExplorer
         var handles = AskClaudeHandles()
         let out = await differencesTools(fake).run(call("differences", [:]), handles: &handles)
         #expect(fake.rescans == 1)
+        // Answered from the new list, which landed reads after the ask with nothing showing as
+        // running in between, not from the list read before it.
         #expect(out.step.hasPrefix("Scanned again: the comparison was over an hour old"))
         #expect(out.result.contains("scanned just now"))
         // Under a sheet it isn't rescanned, and the answer says how old the list is.
         let underSettings = CompareFake()
         _ = await differencesTools(underSettings, busy: "Settings is open").run(call("differences", [:]), handles: &handles)
         #expect(underSettings.rescans == 0)
+    }
+
+    @Test func aScanAgainThatNeverLandsIsSaid() async {
+        let fake = CompareFake()
+        fake.landsAfter = nil
+        var handles = AskClaudeHandles()
+        let out = await differencesTools(fake).run(call("differences", [:]), handles: &handles)
+        #expect(fake.rescans == 1)
+        #expect(out.step.hasPrefix("Scan Again didn’t run"), "the step reads \(out.step)")
+        #expect(out.result.contains("scanned 2 h ago") && out.result.contains("Scan Again didn’t run"))
     }
 
     @Test func aHiddenSideLeavesItsRowOutAndCountsIt() async {
@@ -540,7 +569,7 @@ import FileExplorer
         let out = await differencesTools(fake).run(call("differences", ["kind": .string("only_right"), "show": .bool(true)]), handles: &handles)
         #expect(fake.workspaces == ["Compare"])
         #expect(fake.shown.count == 1 && fake.shown[0].0 == .onlyRight && fake.shown[0].1 == [fake.rows[0].id])
-        #expect(out.movedView == "Showing 1 difference (only right) in Compare’s list")
+        #expect(out.movedView == "Showing 1 difference (only on Dropbox) in Compare’s list")
         let bad = await differencesTools(fake).run(call("differences", ["kind": .string("newest")]), handles: &handles)
         #expect(bad.isError)
     }
@@ -1128,7 +1157,7 @@ private final class Counter: @unchecked Sendable {
         try Data("x".utf8).write(to: dir.appendingPathComponent("b.txt"))
         try Data("y".utf8).write(to: dir.appendingPathComponent(".hidden"))
         defer { try? FileManager.default.removeItem(at: dir) }
-        // A bound of its own: the 5 s one races the suite for a thread on CI (mechanism 5).
+        // A bound of its own: the 5 s one races the suite for a thread on CI (“Tests racing a real-time window”).
         let items = try #require(await AskClaudeDisk.list(dir.path, timeout: .seconds(120)))
         #expect(items.map(\.name) == ["b.txt", "Sub"])
         #expect(items.first?.fileSize == 1)
@@ -1386,18 +1415,23 @@ private final class OffersADownload: AskClaudeToolRunning {
         for _ in 0..<200 where chat.downloadState(id) == .downloading { try? await Task.sleep(for: .milliseconds(10)) }
     }
 
-    @Test func aToolsOfferBecomesACardThatDownloadsThenAsksAgain() async {
+    @Test func aToolsOfferBecomesACardThatDownloadsThenAsksAgain() async throws {
         let (chat, id) = await chatWithACard()
         #expect(chat.downloadState(id) == .offered)
         var landed: [AskClaudeDownload] = []
         chat.download(id, refusal: { _ in nil }, fetch: { _ in .landed }, landed: { landed.append($0) })
         await settle(chat, id)
-        #expect(chat.downloadState(id) == .done && landed == [OffersADownload.download])
+        #expect(chat.downloadState(id) == .done && landed.map(\.path) == [OffersADownload.download.path])
         // Done is done: a second click does nothing.
         chat.download(id, refusal: { _ in nil }, fetch: { _ in .landed }, landed: { landed.append($0) })
         #expect(landed.count == 1)
-        let again = AskClaudeChat.reask(after: OffersADownload.download)
-        #expect(again.shown == "Downloaded Lease.pdf" && again.question.contains("(f1)") && again.question.contains("my last question"))
+        // The card keeps the question that wanted the file, and asking again carries it rather
+        // than "my last question": the chat can have started over since, an hour away.
+        #expect(landed.first?.question == "What’s the rent?")
+        let again = AskClaudeChat.reask(after: try #require(landed.first))
+        #expect(again.shown == "Downloaded Lease.pdf")
+        #expect(again.question.hasSuffix("\nWhat’s the rent?") && again.question.contains("attached")
+                && !again.question.contains("my last question"), "asked \(again.question)")
     }
 
     @Test func failedTimedOutRefusedStoppedAndNotNow() async {
@@ -1543,5 +1577,13 @@ private final class OffersADownload: AskClaudeToolRunning {
         // Off in Organize: no Refine, whatever the confidence.
         let medium = FilingHelpAnswer(outcome: .suggested([suggestion("Work", .medium)]), surveyedAt: nil)
         #expect(await ask(runner(medium, canRefine: false)).filing?.canRefine == false)
+    }
+
+    /// The surveyed folder is named by source and folder, never by the absolute path the profile
+    /// keeps: that goes to Claude.
+    @Test func outsideTheSurveyNamesTheSurveyedFolderBySource() async throws {
+        let out = await ask(runner(FilingHelpAnswer(outcome: .outsideProfile(surveyed: Self.root + "/Documents"), surveyedAt: nil)))
+        #expect(out.filing?.kind == .outside(surveyed: "iCloud › Documents"))
+        #expect(out.result.contains("iCloud › Documents") && !out.result.contains(Self.root), "Claude was told \(out.result)")
     }
 }

@@ -70,6 +70,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var showDifferences: (_ kind: AskClaudeDifferences.Kind, _ ids: Set<UUID>) -> Bool = { _, _ in false }
         /// Clock, for how old a comparison is.
         var now: () -> Date = Date.init
+        /// How long a Scan Again asked for is given to land before the list read before it is
+        /// answered from; a test shortens it.
+        var scanStartWait: Duration = .seconds(5)
         /// Where a file belongs by the Filing profile (TE255); nil when filing help can't run.
         var whereToFile: (_ path: String) async -> FilingHelpAnswer? = { _ in nil }
         /// Organize's Refine with Claude is set up, so the card may offer it (decision EY).
@@ -1087,7 +1090,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         case .noProfile:
             return AskClaudeFilingCard(fileName: node.name, filePath: node.id, kind: .noProfile)
         case .outsideProfile(let surveyed):
-            return AskClaudeFilingCard(fileName: node.name, filePath: node.id, kind: .outside(surveyed: surveyed))
+            let named = breadcrumb(surveyed, sources: ctx.sources, fallback: (surveyed as NSString).lastPathComponent)
+            return AskClaudeFilingCard(fileName: node.name, filePath: node.id, kind: .outside(surveyed: named))
         case .noMatch:
             return AskClaudeFilingCard(fileName: node.name, filePath: node.id, kind: .noMatch)
         case .suggested(let list):
@@ -1096,9 +1100,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                            path: s.folder, confidence: AskClaudeFiling.label(s.confidence),
                                            reason: s.reason, fromFile: s.evidenceToken != nil)
             }
-            let days = answer.surveyedAt.map { Int(ctx.now().timeIntervalSince($0) / 86_400) }
             return AskClaudeFilingCard(fileName: node.name, filePath: node.id, kind: .suggestions, folders: folders,
-                                       staleDays: answer.isStale(now: ctx.now()) ? days : nil,
+                                       staleDays: answer.isStale(now: ctx.now()) ? answer.surveyAgeDays(now: ctx.now()) : nil,
                                        canRefine: ctx.canRefineFiling && list.first?.confidence != .high)
         }
     }
@@ -1141,28 +1144,45 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                         isError: true, step: "No kind called \(kindArg)")
         }
         var steps: [String] = []
+        var scanDidntLand = false
         // A comparison that's missing or over an hour old is scanned again first (decision EG):
         // nothing on disk changes, and an answer from an old list would be wrong in ways that
         // don't show. A scan already running is waited for.
         if comparison.isScanning || !comparison.hasScanned || comparison.isStale(now: ctx.now()) {
+            let before = comparison.readAt, hadScanned = comparison.hasScanned
+            var asked = false
             if !comparison.isScanning {
                 if let busy = ctx.busyReason {
                     steps.append("Didn’t rescan: \(busy)")
                 } else if ctx.rescan() {
-                    steps.append(comparison.hasScanned ? "Scanned again: the comparison was over an hour old" : "Scanned the two sides")
-                    Logger.shared.info("Ask Claude asked for Scan Again: the comparison was \(comparison.hasScanned ? "over an hour old" : "never scanned")")
-                    // The scan starts on a later turn; give it one to begin.
-                    try? await Task.sleep(for: .milliseconds(300))
+                    asked = true
+                    Logger.shared.info("Ask Claude asked for Scan Again: the comparison was \(hadScanned ? "over an hour old" : "never scanned")")
+                } else {
+                    steps.append("Couldn’t start a scan")
                 }
             }
-            let deadline = ContinuousClock.now + Self.scanWait
-            while let now = context().comparison(), now.isScanning, ContinuousClock.now < deadline {
+            // A scan asked for here shows as running only once it has begun, a turn or more later,
+            // so until its list lands it is waited for a little even while nothing shows: the list
+            // read before it would otherwise be answered from, as if it were the new one.
+            let asking = ContinuousClock.now
+            let deadline = asking + Self.scanWait
+            while ContinuousClock.now < deadline, let now = context().comparison(),
+                  now.isScanning || (asked && now.readAt == before && ContinuousClock.now < asking + ctx.scanStartWait) {
                 try? await Task.sleep(for: .milliseconds(250))
             }
             comparison = context().comparison() ?? comparison
             if comparison.isScanning {
                 return AskClaudeToolOutcome(result: "The scan is still running after 90 seconds; the list isn’t ready. Tell them it’s still scanning.",
                                             isError: true, step: "Still scanning")
+            }
+            if asked {
+                if comparison.readAt != before {
+                    steps.append(hadScanned ? "Scanned again: the comparison was over an hour old" : "Scanned the two sides")
+                } else {
+                    Logger.shared.warning("Ask Claude’s Scan Again didn’t land within \(ctx.scanStartWait); answering from the list read before it")
+                    steps.append("Scan Again didn’t run")
+                    scanDidntLand = true
+                }
             }
             guard comparison.hasScanned else {
                 return AskClaudeToolOutcome(result: "The two sides haven’t been compared, and a scan couldn’t start" + (ctx.busyReason.map { ": \($0)." } ?? "."),
@@ -1178,7 +1198,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var result = AskClaudeDifferences.render(rows, allRows: visible, hiddenCount: everything.count - visible.count,
                                                  comparison: comparison, from: max(0, call.int("from") ?? 0),
                                                  handles: &handles, now: ctx.now())
-        let summary = "\(rows.count) difference\(rows.count == 1 ? "" : "s")" + (kind == .all ? "" : " (\(kind.rawValue.replacingOccurrences(of: "_", with: " ")))")
+        if scanDidntLand { result += "\nScan Again didn’t run, so this is the list read before it; say how old it is." }
+        let summary = "\(rows.count) difference\(rows.count == 1 ? "" : "s")" + (AskClaudeDifferences.label(kind, comparison: comparison).map { " (\($0))" } ?? "")
         steps.append("Read \(summary)")
         var moved: String?
         // Shown in the list too (decision EI): Compare opens, its list narrows to the kind, and

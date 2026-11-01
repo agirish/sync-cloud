@@ -34,6 +34,8 @@ import Testing
             nodes.contains { hidden.contains($0.id) } ? "It’s hidden from Claude." : nil
         }
         func isHiddenFromClaude(_ node: FileNode) -> Bool { hidden.contains(node.id) }
+        var covers: [String: String] = [:]
+        func hiddenFromClaudeCover(_ node: FileNode) -> String? { covers[node.id] }
     }
 
     private static func menu(selecting nodes: [FileNode], row: FileNode, delegate: Stub) -> [NSMenuItem] {
@@ -74,6 +76,19 @@ import Testing
         let ask = try #require(items.first { $0.title == "Ask Claude About This" }, "the menu reads \(items.map(\.title))")
         #expect(!ask.isEnabled)
         #expect(items.contains { $0.title == "Show to Claude" } && !items.contains { $0.title == "Hide from Claude" })
+    }
+
+    /// A row hidden by the folder it's in: Show takes that whole folder off the list, so the item
+    /// names it, not "Show to Claude" as if it were this row alone.
+    @Test func aRowHiddenByItsFolderNamesTheFolderShowWouldShow() throws {
+        let stub = Stub()
+        stub.hidden = [file.id]
+        stub.covers = [file.id: "Taxes"]
+        let items = Self.menu(selecting: [], row: file, delegate: stub)
+        let show = try #require(items.first { $0.title.hasPrefix("Show") }, "the menu reads \(items.map(\.title))")
+        #expect(show.title == "Show “Taxes” to Claude")
+        #expect(show.toolTip?.contains("takes Taxes off the Never show Claude list, with everything in it") == true,
+                "the tooltip reads \(show.toolTip ?? "nothing")")
     }
 
     /// The control: a host with no Ask Claude behind it draws neither item.

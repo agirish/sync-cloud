@@ -82,6 +82,53 @@ import Testing
         #expect(FilingHelpAnswer(outcome: .noMatch, surveyedAt: now.addingTimeInterval(-21 * 86_400)).isStale(now: now))
         #expect(FilingHelpAnswer(outcome: .noMatch, surveyedAt: nil).isStale(now: now) == false)
     }
+
+    /// Refine waits for the scan whose cards are on screen: one started while it waited replaces
+    /// the one it began waiting on.
+    @Test func refineWaitsForTheScanThatReplacedTheOneItWaitedOn() async {
+        let m = FileSyncManager()
+        var finished: [String] = []
+        var waited = false
+        let (firstGate, openFirst) = AsyncStream<Void>.makeStream()
+        let (secondGate, openSecond) = AsyncStream<Void>.makeStream()
+        let second = Task { @MainActor in
+            for await _ in secondGate { break }
+            finished.append("second")
+        }
+        m.filingScanTask = Task { @MainActor in
+            for await _ in firstGate { break }
+            m.filingScanTask = second
+            finished.append("first")
+        }
+        let waiting = Task { @MainActor in
+            await m.latestFilingScan()
+            waited = true
+        }
+        // Waiting on the first scan, which then ends and hands over to the second: the wait
+        // must still be on, held by the second.
+        for _ in 0..<50 { await Task.yield() }
+        openFirst.yield()
+        openFirst.finish()
+        for _ in 0..<200 where finished.isEmpty { await Task.yield() }
+        for _ in 0..<50 { await Task.yield() }
+        #expect(finished == ["first"] && !waited, "the wait ended with the scan it began on")
+        openSecond.yield()
+        openSecond.finish()
+        await waiting.value
+        #expect(waited && finished == ["first", "second"])
+    }
+
+    /// Counted in calendar days, as Restructure counts them, so the card and Restructure agree on
+    /// the same survey: late on the 1st to early on the 22nd is 21 days, though under 21 × 24 h.
+    @Test func theSurveysAgeIsCountedInCalendarDays() throws {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = try #require(TimeZone(identifier: "UTC"))
+        let surveyed = try #require(utc.date(from: DateComponents(year: 2026, month: 10, day: 1, hour: 23)))
+        let now = try #require(utc.date(from: DateComponents(year: 2026, month: 10, day: 22, hour: 1)))
+        let answer = FilingHelpAnswer(outcome: .noMatch, surveyedAt: surveyed)
+        #expect(answer.surveyAgeDays(now: now, calendar: utc) == 21)
+        #expect(answer.isStale(now: now, calendar: utc))
+    }
 }
 
 /// What Claude is told about filing help's card (TE255).

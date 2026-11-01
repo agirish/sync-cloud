@@ -248,9 +248,9 @@ public protocol FileActionDelegate: Sendable {
     /// window behind it draws no Ask Claude items rather than ones that do nothing.
     var canAskClaude: Bool { get }
 
-    /// Why Ask Claude can't take these rows now — one is hidden from Claude, or the window is
-    /// busy — in the words the item's tooltip shows, or nil when it can. Asked when the menu is
-    /// built and again on the click.
+    /// Why Ask Claude can't take these rows now — one is hidden from Claude — in the words the
+    /// item's tooltip shows, or nil when it can. Asked when the menu is built and again on the
+    /// click.
     func askClaudeRefusal(_ nodes: [FileNode]) -> String?
 
     /// Opens Ask Claude with these rows attached above its text box.
@@ -260,6 +260,10 @@ public protocol FileActionDelegate: Sendable {
     /// Read when the menu is built, so the label can be a render old; the item acts on what its
     /// label said (`FileContextMenu.favoriteLabelStillHolds`), as Favorites does.
     func isHiddenFromClaude(_ node: FileNode) -> Bool
+
+    /// The folder that hides this row when its entry is a folder above it, by name, or nil:
+    /// Show to Claude takes that whole folder off the list, so the item says so.
+    func hiddenFromClaudeCover(_ node: FileNode) -> String?
 
     /// Puts this row on the Never show Claude list, or takes it off.
     func handleSetHiddenFromClaude(_ node: FileNode, hidden: Bool)
@@ -351,6 +355,7 @@ extension FileActionDelegate {
     public func askClaudeRefusal(_ nodes: [FileNode]) -> String? { nil }
     public func handleAskClaude(_ nodes: [FileNode]) {}
     public func isHiddenFromClaude(_ node: FileNode) -> Bool { false }
+    public func hiddenFromClaudeCover(_ node: FileNode) -> String? { nil }
     public func handleSetHiddenFromClaude(_ node: FileNode, hidden: Bool) {}
 }
 
@@ -366,6 +371,11 @@ struct AskClaudeMenuItems: View {
         count == 1 ? "Ask Claude About This" : "Ask Claude About These \(count) Items"
     }
 
+    static func hideTitle(hidden: Bool, cover: String?) -> String {
+        guard hidden else { return "Hide from Claude" }
+        return cover.map { "Show “\($0)” to Claude" } ?? "Show to Claude"
+    }
+
     var body: some View {
         let refusal = delegate.askClaudeRefusal(nodes)
         Button {
@@ -379,16 +389,20 @@ struct AskClaudeMenuItems: View {
         .help(refusal ?? "Opens Ask Claude with \(nodes.count == 1 ? "this" : "these") attached, for your question.")
         if nodes.count == 1, let node = nodes.first {
             let hidden = delegate.isHiddenFromClaude(node)
+            // Hidden by a folder above it: Show takes that folder off the list, and all it holds
+            // with it, so the item names it rather than reading as this row alone.
+            let cover = hidden ? delegate.hiddenFromClaudeCover(node) : nil
             Button {
                 guard FileContextMenu.favoriteLabelStillHolds(labelSaidFavorite: hidden,
                                                               isFavoriteNow: delegate.isHiddenFromClaude(node))
                 else { return }
                 delegate.handleSetHiddenFromClaude(node, hidden: !hidden)
             } label: {
-                Label(hidden ? "Show to Claude" : "Hide from Claude", systemImage: hidden ? "eye" : "eye.slash")
+                Label(Self.hideTitle(hidden: hidden, cover: cover), systemImage: hidden ? "eye" : "eye.slash")
             }
-            .help(hidden ? "Takes it off the Never show Claude list."
-                         : "Puts it on the Never show Claude list: Claude is never told it’s there, or what’s in it.")
+            .help(!hidden ? "Puts it on the Never show Claude list: Claude is never told it’s there, or what’s in it."
+                  : cover.map { "It’s hidden because \($0) is. This takes \($0) off the Never show Claude list, with everything in it." }
+                  ?? "Takes it off the Never show Claude list.")
         }
     }
 }

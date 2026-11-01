@@ -90,6 +90,8 @@ final class AskClaudeChat: ObservableObject {
     private var engine: AskClaudeEngine
     private var task: Task<Void, Never>?
     private var lastActivity: Date?
+    /// The question running, or last run: what a download card offered during it was wanted for.
+    private var askedQuestion: String?
     private var streamingItem: UUID?
     private var receipt: Receipt?
     private var warnedNearLimit = false
@@ -348,9 +350,16 @@ final class AskClaudeChat: ObservableObject {
     }
 
     /// The question that goes again once a download for a read lands, and what the thread shows.
+    /// The file goes attached and the question it was wanted for goes with it, not as "my last
+    /// question": an hour away, a folder hidden or a model changed in Settings starts a new chat
+    /// first, which holds neither the question nor the handle.
     static func reask(after download: AskClaudeDownload) -> (question: String, shown: String) {
-        ("\(download.fileName) (\(download.handle)) is on this Mac now. Read it and answer my last question.",
-         "Downloaded \(download.fileName)")
+        let shown = "Downloaded \(download.fileName)"
+        guard let question = download.question else {
+            return ("\(download.fileName) (\(download.handle)) is on this Mac now. Read it and answer my last question.", shown)
+        }
+        return ("\(download.fileName) is on this Mac now; it’s attached. Read it and answer what I asked before it was downloaded:\n\(question)",
+                shown)
     }
 
     func downloadState(_ id: UUID) -> DownloadState? {
@@ -405,6 +414,7 @@ final class AskClaudeChat: ObservableObject {
                                                           : "Started a new chat: Ask Claude was updated since this one began.")))
         }
         lastActivity = now()
+        askedQuestion = question
 
         items.append(Item(kind: .user(shown ?? question)))
         streamingItem = nil
@@ -494,8 +504,9 @@ final class AskClaudeChat: ObservableObject {
         case .offer(let passage):
             streamingItem = nil
             items.append(Item(kind: .offer(passage, sent: false)))
-        case .offerDownload(let download):
+        case .offerDownload(var download):
             streamingItem = nil
+            download.question = askedQuestion
             items.append(Item(kind: .download(download, state: .offered)))
         case .filing(let card):
             streamingItem = nil

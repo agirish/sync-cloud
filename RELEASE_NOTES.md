@@ -47,8 +47,8 @@ Requires **macOS 26**, unchanged from v6.2.
   in Settings ▸ Intelligence.
 - **Where should this go?** Ask about a file and Claude answers from how you file, as Setup's folder
   survey learned it from your own folders: the best folder and why, with a runner-up when it isn't
-  sure, and Go to Folder. It is worked out on this Mac from the file's name and first page, and
-  costs nothing. When the answer isn't sure, Refine with Claude opens the file in Organize, which
+  sure, and Go to Folder. It is worked out on this Mac from the file's name and, when the file is on
+  this Mac, its first page, and costs nothing. When the answer isn't sure, Refine with Claude opens the file in Organize, which
   shows the price before anything is sent.
 - **Every answer says what it sent and what it cost.** Spending counts against a monthly limit in
   Settings, $25 to start, with a note at 80%.

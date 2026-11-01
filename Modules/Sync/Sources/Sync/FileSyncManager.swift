@@ -2850,6 +2850,10 @@ public class FileSyncManager: ObservableObject {
     /// fires (explicit initial refresh + the provider-id onChange that resets navigation)
     /// instead of cancel-restarting them, which raced and could strand a pane's load.
     var activeRefreshKey: RefreshKey?
+    /// A refresh is reading the panes' folders or comparing them: from the moment one starts,
+    /// where `isScanning` rises only once both folders are read (Ask Claude's Scan Again waits on
+    /// this, TE261).
+    public var isRefreshing: Bool { activeRefreshKey != nil }
     /// Identity of a refresh target. Two concurrent refreshes with the same key would load the
     /// same thing, so the later one is skipped; a different key is real navigation and supersedes.
     struct RefreshKey: Equatable {

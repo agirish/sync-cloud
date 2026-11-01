@@ -44,7 +44,8 @@ enum AskClaudeDisk {
 
     /// A folder’s direct items, in name order, or nil when it can’t be read within `timeout`.
     /// A test passes its own bound: under a full suite on CI's three cores, a two-item listing
-    /// has waited longer than 5 s for a thread (2026-10-31, flaky-tests mechanism 5).
+    /// has waited longer than 5 s for a thread (2026-10-31; flaky-tests.md, “Tests racing a
+    /// real-time window”).
     nonisolated static func list(_ folder: String, timeout: Duration = timeout) async -> [FileNode]? {
         await bounded(timeout: timeout) {
             let url = URL(fileURLWithPath: folder, isDirectory: true)

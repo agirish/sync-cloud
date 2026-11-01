@@ -42,6 +42,29 @@ import Testing
         #expect(D.filter(rows, kind: .all, folder: nil, words: ["lca"]).map(\.relativePath) == ["2026-2029/LCA.pdf"])
         // A folder argument is a whole folder name, not a prefix of one.
         #expect(D.filter(rows, kind: .all, folder: "2019", words: []).isEmpty)
+        // And its case is the disk's: ignored.
+        let mixed = [row("Taxes/2025/W-2.pdf", .missingOnLeft, .copyToLeft, right: 10)]
+        #expect(D.filter(mixed, kind: .all, folder: "taxes/2025", words: []).count == 1)
+    }
+
+    @Test func kindsAreNamedForTheirSides() {
+        #expect(AskClaudeDifferences.label(.onlyRight, comparison: comparison) == "only on Dropbox")
+        #expect(AskClaudeDifferences.label(.onlyLeft, comparison: comparison) == "only on iCloud")
+        #expect(AskClaudeDifferences.label(.all, comparison: comparison) == nil)
+    }
+
+    /// "The two sides match" only when nothing was left out of what was compared.
+    @Test func anEmptyListSaysMatchOnlyWhenNothingWasLeftOut() {
+        var handles = AskClaudeHandles()
+        func last(_ hidden: Int, _ comparison: AskClaudeDifferences.Comparison) -> String? {
+            AskClaudeDifferences.render([], allRows: [], hiddenCount: hidden, comparison: comparison, from: 0,
+                                        handles: &handles, now: now).split(separator: "\n").last.map(String.init)
+        }
+        #expect(last(0, comparison) == "No differences: the two sides match.")
+        #expect(last(2, comparison) == "No differences besides the ones hidden from Claude.")
+        var partial = comparison
+        partial.partial = "Dropbox could be read only in part"
+        #expect(last(0, partial) == "No differences in what could be read; the comparison is partial.")
     }
 
     @Test func theScreenLineCountsByKindAndSaysHowFresh() {

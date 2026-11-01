@@ -5074,6 +5074,7 @@ struct ContentView: View {
             onAskClaude: { askClaudeAttach($0) },
             askClaudeRefusalFor: { askClaudeRowRefusal($0) },
             hiddenFromClaude: { askClaudeIsHidden($0) },
+            hiddenFromClaudeCover: { askClaudeHiddenCover($0) },
             onSetHiddenFromClaude: { node, hidden in askClaudeSetHidden(node.id, name: node.name, hidden) },
             hiddenFromClaudeToken: { _ = askClaudePrivacyChanges; return AskClaudePrivacy.hiddenFolders(in: .standard) }())
     }

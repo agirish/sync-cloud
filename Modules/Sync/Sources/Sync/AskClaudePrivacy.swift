@@ -126,14 +126,19 @@ public struct AskClaudeDownload: Codable, Equatable, Sendable {
     /// Where it lives: "iCloud", "Dropbox".
     public let sourceName: String
     public let purpose: Purpose
+    /// The question that wanted the file, set by the chat when the card arrives, so a read asked
+    /// again once it lands carries it: the chat it was asked in can be gone by then.
+    public var question: String?
 
-    public init(fileName: String, path: String, handle: String, size: Int?, sourceName: String, purpose: Purpose) {
+    public init(fileName: String, path: String, handle: String, size: Int?, sourceName: String, purpose: Purpose,
+                question: String? = nil) {
         self.fileName = fileName
         self.path = path
         self.handle = handle
         self.size = size
         self.sourceName = sourceName
         self.purpose = purpose
+        self.question = question
     }
 
     /// "Lease.pdf is only in iCloud (38 MB)."

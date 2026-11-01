@@ -265,7 +265,7 @@ Steps 5–6 only clean the bundle this install produced. Everything below is deb
     ```bash
     git ls-remote --heads origin | awk '{print $2}'   # expect refs/heads/{main,v2.x,v3.x,v4.x,v5.x,v6.x}, nothing else
     ```
-    A fifth branch is scaffolding per CLAUDE.md — with one exception that file names,
+    Any branch beyond those is scaffolding per CLAUDE.md — with one exception that file names,
     `candidate-tap-deferral`, which parks a falsified experiment a doc cites by SHA. Either way **a
     remote delete is outward-facing: report it and ask, never sweep it.** Before asking, establish
     nothing unique dies:

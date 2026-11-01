@@ -111,10 +111,18 @@ extension ContentView {
     /// above its text box and the caret in it.
     func askClaudeAttach(_ paths: [String]) {
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
-        let items = paths.filter { !hidden.isHidden($0) }.map { path in
+        let kept = paths.filter { !hidden.isHidden($0) }
+        // A name two chips share (a Compare row's two sides) says which source each is.
+        let names = (askClaudeChat.attachments.map(\.path) + kept).map { ($0 as NSString).lastPathComponent.lowercased() }
+        let items = kept.map { path in
             var isFolder: ObjCBool = false
             let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isFolder)
-            return AskClaudeChat.Attachment(path: path, name: (path as NSString).lastPathComponent, isDirectory: exists && isFolder.boolValue)
+            var name = (path as NSString).lastPathComponent
+            if names.filter({ $0 == name.lowercased() }).count > 1,
+               let source = AskClaudeBrowseTools.closestSource(containing: path, in: askClaudeSources) {
+                name += " (\(source.name))"
+            }
+            return AskClaudeChat.Attachment(path: path, name: name, isDirectory: exists && isFolder.boolValue)
         }
         guard !items.isEmpty else { return }
         askClaudeChat.attach(items)
@@ -169,7 +177,10 @@ extension ContentView {
         case .refine(let file):
             askClaudeRefineFiling(file)
         case .openSetup:
-            guard askClaudeStateBusy == nil else { return }
+            if let busy = askClaudeStateBusy {
+                askClaudeChat.addNote("Couldn’t open Setup: \(busy).")
+                return
+            }
             showSetup = true
         }
     }
@@ -177,8 +188,14 @@ extension ContentView {
     /// Refine with Claude from filing help's card (decision EY): Organize scans the file's folder,
     /// then refines this one file there, with its own price check first. The answer is Organize's.
     private func askClaudeRefineFiling(_ file: String) {
-        guard askClaudeStateBusy == nil,
-              let source = AskClaudeBrowseTools.closestSource(containing: file, in: askClaudeSources) else { return }
+        if let busy = askClaudeStateBusy {
+            askClaudeChat.addNote("Couldn’t open Organize: \(busy).")
+            return
+        }
+        guard let source = AskClaudeBrowseTools.closestSource(containing: file, in: askClaudeSources) else {
+            askClaudeChat.addNote("Couldn’t open Organize: \((file as NSString).lastPathComponent) isn’t in a source SyncCloud shows.")
+            return
+        }
         let folder = (file as NSString).deletingLastPathComponent
         Logger.shared.info("Ask Claude filing card: Refine with Claude for \((file as NSString).lastPathComponent), in Organize")
         organizeFolderAction(FileNode(id: folder, name: (folder as NSString).lastPathComponent, isDirectory: true),
@@ -196,8 +213,15 @@ extension ContentView {
                 chat.addNote("Downloaded \(download.fileName). Ask again and Claude reads it.")
                 return
             }
+            // Hidden since the click: not attached, and not asked about.
+            guard !askClaudeIsHidden(download.path) else {
+                chat.addNote("Downloaded \(download.fileName), but it’s hidden from Claude now, so Claude doesn’t read it.")
+                return
+            }
+            // Attached, so a chat started over since (an hour away, a folder hidden) still has it.
             let again = AskClaudeChat.reask(after: download)
-            askClaudeAsk(again.question, shown: again.shown)
+            askClaudeAsk(again.question, shown: again.shown,
+                         attached: [AskClaudeChat.Attachment(path: download.path, name: download.fileName, isDirectory: false)])
         case .open:
             Task { @MainActor in
                 let outcome = await askClaudeTools().openDownloaded(download)
@@ -223,17 +247,31 @@ extension ContentView {
             AskClaudePrivacy.hide(folder, in: .standard)
             askClaudeChat.addNote("Hid \(name) from Claude. Your next question starts a new chat, so nothing Claude saw of it stays.")
         } else {
-            let covering = AskClaudePrivacy.hiddenFolders(in: .standard).filter { AskClaudePrivacy.isHidden(folder, by: [$0]) }
+            let covering = askClaudeHiddenEntries(covering: folder)
             covering.forEach { AskClaudePrivacy.unhide($0, in: .standard) }
             // Says what came off the list: a folder above this one shows everything in it again.
-            // A source's own folder is called by the source's name.
-            let names = covering.map { entry in
-                AskClaudePaths.same(entry, askClaudeRoot) ? askClaudeSourceName : (entry as NSString).lastPathComponent
-            }
+            let names = covering.map(askClaudeHiddenName)
             askClaudeChat.addNote(names.map { $0.lowercased() } == [name.lowercased()] || names.isEmpty
                 ? "\(name) is no longer hidden from Claude."
                 : "Removed \(names.joined(separator: ", ")) from the hidden list, so \(name) and everything else in it is shown to Claude again.")
         }
+    }
+
+    /// The Never show Claude entries that hide `path`: its own, or a folder's above it.
+    private func askClaudeHiddenEntries(covering path: String) -> [String] {
+        AskClaudePrivacy.hiddenFolders(in: .standard).filter { AskClaudePrivacy.isHidden(path, by: [$0]) }
+    }
+
+    /// An entry as the thread and the row menu name it; a source's own folder by the source's name.
+    private func askClaudeHiddenName(_ entry: String) -> String {
+        AskClaudePaths.same(entry, askClaudeRoot) ? askClaudeSourceName : (entry as NSString).lastPathComponent
+    }
+
+    /// The folder above a row whose entry hides it, by name, or nil when only its own entry
+    /// hides it, or none: Show to Claude on that row takes the whole folder off (TE263).
+    func askClaudeHiddenCover(_ path: String) -> String? {
+        let above = askClaudeHiddenEntries(covering: path).filter { !AskClaudePaths.same($0, path) }
+        return above.isEmpty ? nil : above.map(askClaudeHiddenName).joined(separator: ", ")
     }
 
     /// Go to This Folder (TE260): the folder Claude sees is always the one the source pane is at,
@@ -368,7 +406,8 @@ extension ContentView {
             leftName: left, rightName: right,
             leftFolder: syncManager.leftRelativePath, rightFolder: syncManager.rightRelativePath,
             readAt: syncManager.lastScanReadAt ?? syncManager.lastScanDate,
-            isScanning: syncManager.isScanning, hasScanned: syncManager.hasScanned,
+            // The folders' reads count: the scan itself starts only once both are read.
+            isScanning: syncManager.isScanning || syncManager.isRefreshing, hasScanned: syncManager.hasScanned,
             partial: syncManager.lastScanCoverage.message(leftName: left, rightName: right))
     }
 
@@ -475,8 +514,11 @@ extension ContentView {
             comparison: { askClaudeComparison },
             rescan: {
                 guard askClaudeBusyReason == nil else { return false }
-                forceRefreshAction()
-                return true
+                // Scan Again's own two steps, so a refresh refused (a side's source switched off)
+                // is reported, not waited for.
+                Logger.shared.info("User requested a force refresh, through Ask Claude")
+                syncManager.prepareForcedRescan()
+                return refreshAction()
             },
             showDifferences: { kind, ids in
                 // The list's own filters; "changed" picks a direction when every row shares one.
@@ -495,8 +537,10 @@ extension ContentView {
                 return true
             },
             whereToFile: { path in
-                // Page 1 read on this Mac (decision EW), never a cloud-only file the read would
-                // download past the card's limit (TE258): that one is placed by its name.
+                // Page 1 read on this Mac (decision EW) by To File's reader, which leaves a file
+                // only in the cloud unread rather than fetch it (`FilingSurvey.isAvailable`), so
+                // that one is placed by its name, as To File places it. A large one isn't even
+                // offered to it.
                 let size = AskClaudeDisk.node(atPath: path)?.fileSize
                 let fetches = MaterializationStatus.isCloudOnlyIfKnown(atPath: MaterializationStatus.linkTarget(of: path)) == true
                     && (size ?? .max) > AskClaudeBrowseTools.autoDownloadBytes
