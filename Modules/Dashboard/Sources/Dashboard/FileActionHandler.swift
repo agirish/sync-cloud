@@ -176,11 +176,12 @@ public class FileActionHandler {
         let targetDisplayName = providerDisplayName(forProviderId: fromLeft ? rightProviderId : leftProviderId)
 
         Logger.shared.info("User initiated copy of \(nodes.count) item(s)")
+        let hidden = syncManager.typeFilterHiddenCounts(inside: nodes)
         Task {
             guard let roots = await transferRoots(fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId) else { return }
             let copiedNodes = await syncManager.copyItems(nodes: nodes, fromLeft: fromLeft, leftRoot: roots.left, rightRoot: roots.right,
                                                           fileManager: syncManager.fileManager)
-            setTransferBanner(verb: "Copied", copiedNodes, to: targetDisplayName)
+            setTransferBanner(verb: "Copied", copiedNodes, to: targetDisplayName, hiddenByFilter: hidden)
         }
     }
 
@@ -191,6 +192,7 @@ public class FileActionHandler {
     @discardableResult
     public func moveItems(_ nodes: [FileNode], fromLeft: Bool, leftProviderId: String, rightProviderId: String) async -> [FileNode] {
         guard !refusedWhileRunning() else { return [] }
+        let hidden = syncManager.typeFilterHiddenCounts(inside: nodes)
         guard let roots = await transferRoots(fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId) else { return [] }
 
         let targetDisplayName = providerDisplayName(forProviderId: fromLeft ? rightProviderId : leftProviderId)
@@ -198,7 +200,7 @@ public class FileActionHandler {
         Logger.shared.info("User initiated move of \(nodes.count) item(s)")
         let movedNodes = await syncManager.moveItems(nodes: nodes, fromLeft: fromLeft, leftRoot: roots.left, rightRoot: roots.right,
                                                      fileManager: syncManager.fileManager)
-        setTransferBanner(verb: "Moved", movedNodes, to: targetDisplayName)
+        setTransferBanner(verb: "Moved", movedNodes, to: targetDisplayName, hiddenByFilter: hidden)
         return movedNodes
     }
 
@@ -251,10 +253,11 @@ public class FileActionHandler {
         guard !refusedWhileRunning() else { return }
         let destDisplayName = providerDisplayName(forPath: destinationPath)
         Logger.shared.info("User initiated move of \(nodes.count) item(s) to a dropped-on directory")
+        let hidden = syncManager.typeFilterHiddenCounts(inside: nodes)
         Task {
             let movedNodes = await syncManager.moveItems(nodes: nodes, toPath: destinationPath,
                                                          fileManager: syncManager.fileManager)
-            setTransferBanner(verb: "Moved", movedNodes, to: destDisplayName)
+            setTransferBanner(verb: "Moved", movedNodes, to: destDisplayName, hiddenByFilter: hidden)
         }
     }
 
@@ -299,6 +302,7 @@ public class FileActionHandler {
         guard !refusedWhileRunning() else { return }
         let destDisplayName = providerDisplayName(forPath: destinationPath)
         Logger.shared.info("User pasted \(nodes.count) item(s) (\(isCut ? "move" : "copy"))")
+        let hidden = syncManager.typeFilterHiddenCounts(inside: nodes)
         Task {
             if isCut {
                 let movedNodes = await syncManager.moveItems(nodes: nodes, toPath: destinationPath,
@@ -321,11 +325,11 @@ public class FileActionHandler {
                         syncManager.clipboardPasteboardChangeCount = pasteboard.changeCount
                     }
                 }
-                setTransferBanner(verb: "Moved", movedNodes, to: destDisplayName)
+                setTransferBanner(verb: "Moved", movedNodes, to: destDisplayName, hiddenByFilter: hidden)
             } else {
                 let copiedNodes = await syncManager.copyItems(nodes: nodes, toPath: destinationPath,
                                                               fileManager: syncManager.fileManager)
-                setTransferBanner(verb: "Copied", copiedNodes, to: destDisplayName)
+                setTransferBanner(verb: "Copied", copiedNodes, to: destDisplayName, hiddenByFilter: hidden)
             }
         }
     }
@@ -392,13 +396,21 @@ public class FileActionHandler {
     
     /// Success banner after a transfer; no banner when nothing was actually transferred.
     /// `verb` is the past-tense operation name ("Copied" or "Moved").
-    private func setTransferBanner(verb: String, _ nodes: [FileNode], to destinationName: String) {
+    ///
+    /// `hiddenByFilter` is `typeFilterHiddenCounts` taken before the transfer: a folder carries
+    /// everything in it, and the result says how much of that the type filter was hiding (FJ), in
+    /// the Trash prompt's words. Only what landed counts.
+    private func setTransferBanner(verb: String, _ nodes: [FileNode], to destinationName: String,
+                                   hiddenByFilter: [String: Int] = [:]) {
         guard !nodes.isEmpty else { return }
+        let hidden = nodes.reduce(0) { $0 + (hiddenByFilter[$1.id] ?? 0) }
+        let includes = hidden == 0 ? ""
+            : ". Includes \(hidden == 1 ? "1 item" : "\(hidden.formatted()) items") the filter is hiding"
         // copyItems/moveItems register one grouped undo for the whole batch, so a single Undo (⌘Z)
         // reverses it — the banner may offer the button.
-        syncManager.banner = .success(nodes.count == 1
+        syncManager.banner = .success((nodes.count == 1
             ? "\(verb) “\(nodes[0].name)” to \(destinationName)"
-            : "\(verb) \(nodes.count) items to \(destinationName)", undoable: true)
+            : "\(verb) \(nodes.count) items to \(destinationName)") + includes, undoable: true)
     }
     
     // MARK: - Mutations

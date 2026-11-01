@@ -913,8 +913,13 @@ struct PaneColumnsView: View {
     /// placeholder deliberately does not show.
     ///
     /// `nonisolated` and pure so the rule can be asserted without mounting the column stack.
+    ///
+    /// **Under a type filter an empty column is a filtered one** (RD70, TE274's rule for the pane's
+    /// own placeholder): the column of a folder whose files the filter hides — open when the filter
+    /// changed, or reached by its path — has no rows, and "Empty" would say the folder has nothing.
     nonisolated static func emptyCaption(rowsEmpty: Bool, depth: Int, isUnexplored: Bool,
-                                         isLoading: Bool, isBeingRead: Bool) -> Caption? {
+                                         isLoading: Bool, isBeingRead: Bool,
+                                         typeFiltered: Bool = false) -> Caption? {
         guard rowsEmpty, depth > 0 else { return nil }
         // **The pane's walk outranks unexplored**, because during the shallow first paint every
         // directory is unexplored — `loadTree` paints at `maxDepth: 1` so the pane appears at once,
@@ -937,16 +942,19 @@ struct PaneColumnsView: View {
         // walked, genuinely empty, and still listed as in flight. Without the conjunction that
         // render draws a spinner over a folder whose answer is already known and already correct.
         if isBeingRead, isUnexplored { return .loading }
-        return isUnexplored ? .unreadable : .empty
+        if isUnexplored { return .unreadable }
+        return typeFiltered ? .filteredOut : .empty
     }
 
-    /// The three things a column with no rows can be.
+    /// The things a column with no rows can be.
     enum Caption: Equatable {
         case empty
         case unreadable
         /// This column's own listing is on its way while the pane itself is idle — the one case in
         /// which a column carries a spinner of its own.
         case loading
+        /// Nothing here that the pane's type filter shows.
+        case filteredOut
 
         /// `nil` while loading: that state draws a spinner, and a caption beside it would be the
         /// same sentence twice.
@@ -957,6 +965,7 @@ struct PaneColumnsView: View {
             // two surfaces cannot drift into two phrasings for one state.
             case .unreadable: return "Can’t be read"
             case .loading: return nil
+            case .filteredOut: return "No matching files"
             }
         }
 
@@ -970,7 +979,8 @@ struct PaneColumnsView: View {
         Self.emptyCaption(rowsEmpty: rowsEmpty, depth: depth,
                           isUnexplored: childrenIndex.isUnexplored(atPath: directory),
                           isLoading: isLoading,
-                          isBeingRead: graftsInFlight.contains(directory))
+                          isBeingRead: graftsInFlight.contains(directory),
+                          typeFiltered: typeFilter != nil)
     }
 
     /// **Whether this column should ask for its directory's contents.**

@@ -128,6 +128,20 @@ import Foundation
         #expect(PaneTypeFilter.absentTickedExtensions(of: .images, in: filter, census: Self.census).isEmpty)
     }
 
+    /// A kind whose only ticked type is missing here draws a dash, not an empty box: its row lists
+    /// that type at 0, ticked (FG, TE278).
+    @Test func aKindTickedOnlyElsewhereDrawsMixed() {
+        let filter = PaneTypeFilter(extensions: ["mp4"])
+        #expect(PaneTypeFilter.tick(of: .movies, in: filter, census: Self.census) == .mixed)
+        #expect(PaneTypeFilter.tick(of: .images, in: filter, census: Self.census) == .off)
+    }
+
+    /// With nothing counted yet there is nothing to compare against, so a choice stays a filter
+    /// rather than reading as "everything".
+    @Test func aChoiceOverNoCountsStaysAFilter() {
+        #expect(PaneTypeFilter.only(.pdfs, census: [:]) == PaneTypeFilter(families: [.pdfs]))
+    }
+
     @Test func extensionsListMostCommonFirst() {
         #expect(PaneTypeFilter.presentExtensions(of: .images, in: Self.census) == ["jpg", "png", "heic", "svg", "webp"])
         #expect(PaneTypeFilter.presentFamilies(in: Self.census)
@@ -273,6 +287,29 @@ import Foundation
         #expect(manager.leftTypeFilter == PaneTypeFilter(families: [.pdfs]))
     }
 
+    /// A filter left on is never saved (FH): the stored strip brings the tab back without it.
+    @Test func aTabsFilterDoesNotSurviveARelaunch() throws {
+        let defaults = try #require(UserDefaults(suiteName: "PaneTypeFilterManagerTests-\(UUID().uuidString)"))
+        let tab = PaneTab(providerId: "icloud", relativePath: "Downloads", typeFilter: PaneTypeFilter(families: [.pdfs]))
+        PaneTabsStore.save(tabs: [tab], selected: 0, isLeft: true, to: defaults)
+        let stored = try #require(PaneTabsStore.load(isLeft: true, from: defaults))
+        let restored = try #require(PaneTabsStore.restore(entries: stored.entries, selected: stored.selected,
+                                                          isKnownProvider: { _ in true }, folderExists: { _, _ in true }))
+        #expect(restored.list.tabs.map(\.relativePath) == ["Downloads"])
+        #expect(restored.list.tabs.map(\.typeFilter) == [nil])
+    }
+
+    /// A row the new filter hides leaves the selection, so nothing acts on it unseen (TE276).
+    @Test func aFilterChangeTakesHiddenRowsOutOfTheSelection() async {
+        let manager = FileSyncManager()
+        manager.rawLeftTree = PaneTypeFilterPassTests.tree
+        await manager.applyFilters()
+        manager.selectedLeftPaths = ["/Downloads/W-2 2025.pdf", "/Downloads/IMG_3912.jpg"]
+        manager.leftTypeFilter = PaneTypeFilter(families: [.images])
+        await waitUntil("the hidden PDF to leave the selection") { manager.selectedLeftPaths.count == 1 }
+        #expect(manager.selectedLeftPaths == ["/Downloads/IMG_3912.jpg"])
+    }
+
     @Test func aWriteIsKeptOnlyWhileAFilterIsOnAndUntilThePaneMoves() {
         let manager = FileSyncManager()
         manager.noteOwnWrite(atPath: "/Downloads/a")
@@ -299,6 +336,37 @@ import Foundation
         manager.leftTypeFilter = nil
         await manager.applyFilters()
         #expect(manager.itemsHiddenByTypeFilter(inside: manager.leftTree.findNodes(at: ["/Downloads/64183111"])) == 0)
+    }
+
+    /// A folder picked together with a folder inside it goes to the Trash once, so what it hides is
+    /// counted once; and a folder node not read off a pane (a Finder drop) has nothing to compare.
+    @Test func aNestedPickCountsItsHiddenItemsOnce() async {
+        let manager = FileSyncManager()
+        typealias T = PaneTypeFilterPassTests
+        // box/{sub/{x.jpg, y.pdf}, z.pdf}
+        manager.rawLeftTree = [T.folder("box", [T.folder("box/sub", [T.file("box/sub/x.jpg"), T.file("box/sub/y.pdf")]),
+                                                T.file("box/z.pdf")])]
+        manager.leftTypeFilter = PaneTypeFilter(families: [.images])
+        await manager.applyFilters()
+        let picked = manager.leftTree.findNodes(at: ["/Downloads/box", "/Downloads/box/sub"])
+        #expect(picked.count == 2)
+        // y.pdf and z.pdf, each once.
+        #expect(manager.itemsHiddenByTypeFilter(inside: picked) == 2)
+        #expect(manager.typeFilterHiddenCounts(inside: picked) == ["/Downloads/box": 2])
+        let dropped = FileNode(id: "/Downloads/box", name: "box", isDirectory: true)
+        #expect(manager.itemsHiddenByTypeFilter(inside: [dropped]) == 0)
+    }
+
+    /// New Folder and Rename land through the filter (TE277): the pane keeps what it just wrote.
+    @Test func aNewFolderAndARenameAreKeptVisible() async throws {
+        let manager = FileSyncManager()
+        let disk = MockFileManager()
+        try disk.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        disk.virtualDisk["/src/report.pdf"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        manager.leftTypeFilter = PaneTypeFilter(families: [.images])
+        await manager.createFolder(named: "untitled folder", in: "/src", fileManager: disk)
+        await manager.renameItem(at: "/src/report.pdf", to: "report.txt", fileManager: disk)
+        #expect(manager.leftTypeFilterKeep == ["/src/untitled folder", "/src/report.txt"])
     }
 
     /// A named reveal of a filtered-out file clears that pane's filter and says so (FM); a file the

@@ -546,6 +546,10 @@ and key refusals are tested; this is what is not.
   you leave the folder or change the filter.
 - [ ] **Trash prompt.** With Images ticked, select a folder that also holds a PDF and press Delete →
   the prompt says "Includes 1 item the filter is hiding."
+- [ ] **Copy banner.** Copy that folder to the other pane → the banner ends "Includes 1 item the
+  filter is hiding".
+- [ ] **Columns.** In Columns, open a folder that holds only images, then tick PDFs only → its column
+  says "No matching files", not "Empty".
 - [ ] **Compare.** Each pane's Filter is its own; "Use on Both Panes" copies one to the other; the
   differences list is unchanged by either.
 - [ ] **Narrow pane.** Narrow the pane until Filter folds into ⋯ → ⋯ ▸ Filter by Type lists the kinds

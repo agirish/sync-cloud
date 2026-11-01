@@ -2,7 +2,7 @@ import Testing
 import AppKit
 import Foundation
 import os
-import Sync
+@testable import Sync
 import Settings
 @testable import Dashboard
 
@@ -464,6 +464,51 @@ import Settings
         #expect(promptedNames == ["keep.txt"])
         #expect(FileManager.default.fileExists(atPath: file.path))
         #expect(manager.banner == nil)
+    }
+
+    /// A folder carries everything in it, and both the Trash prompt and a copy's result say how
+    /// much of that the pane's type filter is hiding (RD70, FJ) — the result in the banner the
+    /// handler sets last, which is the one on screen.
+    @MainActor
+    @Test func aFilteredFolderSaysWhatTheFilterHidesInThePromptAndTheResult() async throws {
+        let src = try makeTempDir("filter-src")
+        let dst = try makeTempDir("filter-dst")
+        defer {
+            try? FileManager.default.removeItem(at: src)
+            try? FileManager.default.removeItem(at: dst)
+        }
+        let box = src.appendingPathComponent("box")
+        try FileManager.default.createDirectory(at: box, withIntermediateDirectories: true)
+        let pdf = try makeFile(in: box, named: "a.pdf")
+        let jpg = try makeFile(in: box, named: "b.jpg")
+        let manager = FileSyncManager()
+        manager.rawLeftTree = [FileNode(id: box.path, name: "box", isDirectory: true, children: [
+            FileNode(id: pdf.path, name: "a.pdf", isDirectory: false),
+            FileNode(id: jpg.path, name: "b.jpg", isDirectory: false),
+        ])]
+        manager.leftTypeFilter = PaneTypeFilter(families: [.pdfs])
+        await manager.applyFilters()
+        let shown = manager.leftTree
+        #expect(shown.first?.children?.map(\.name) == ["a.pdf"])
+        var told: Int?
+        let handler = FileActionHandler(
+            syncManager: manager,
+            settings: makeSettings(providers: []),
+            defaults: ScratchDefaults("FAH-filter-prompt"),
+            pasteboard: Self.scratchPasteboard("aFilteredFolderSaysWhatTheFilterHidesInThePromptAndTheResult"),
+            deleteConfirmer: { _, hidden in
+                told = hidden
+                return false
+            }
+        )
+
+        handler.confirmDelete(shown)
+        #expect(told == 1)
+
+        handler.pasteItems(shown, toPath: dst.path, isCut: false)
+        await waitUntil("the copy's banner") { manager.banner?.message.hasPrefix("Copied “box”") == true }
+        #expect(manager.banner?.message == "Copied “box” to the other pane. Includes 1 item the filter is hiding")
+        #expect(FileManager.default.fileExists(atPath: dst.appendingPathComponent("box/b.jpg").path))
     }
 
     @MainActor

@@ -1717,16 +1717,26 @@ public class FileSyncManager: ObservableObject {
     /// confirmation and the result say out loud. `nodes` come from a pane's published tree, so
     /// their children are the filtered ones; the tree before the filter holds the rest.
     public func itemsHiddenByTypeFilter(inside nodes: [FileNode]) -> Int {
-        var hidden = 0
+        typeFilterHiddenCounts(inside: nodes).values.reduce(0, +)
+    }
+
+    /// `itemsHiddenByTypeFilter` per folder id, for a result that names only what landed. A folder
+    /// picked with something inside it counts once, as the outermost — the Trash and a transfer take
+    /// it once (`pruneNestedNodes`) — and a folder node with no children at all was not read off a
+    /// pane's tree, so there is nothing to measure it against.
+    public func typeFilterHiddenCounts(inside nodes: [FileNode]) -> [String: Int] {
+        var counts: [String: Int] = [:]
         let sides = [(leftTypeFilter, leftTreeBeforeTypeFilter), (rightTypeFilter, rightTreeBeforeTypeFilter)]
-        for node in nodes where node.isDirectory {
+        for node in nodes.pruneNestedNodes() where node.isDirectory {
+            guard let shown = node.children else { continue }
             for (filter, before) in sides where filter != nil {
                 guard let whole = before.findNodes(at: [node.id]).first else { continue }
-                hidden += Self.countItems(in: whole.children ?? []) - Self.countItems(in: node.children ?? [])
+                let hidden = Self.countItems(in: whole.children ?? []) - Self.countItems(in: shown)
+                if hidden > 0 { counts[node.id] = hidden }
                 break
             }
         }
-        return max(0, hidden)
+        return counts
     }
 
     /// Global toggle to show/hide hidden files (e.g. .DS_Store, .git)

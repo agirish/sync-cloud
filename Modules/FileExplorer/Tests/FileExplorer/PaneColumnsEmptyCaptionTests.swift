@@ -81,6 +81,20 @@ import Testing
         #expect(Set(states.map(String.init(describing:))).count == 3)
     }
 
+    /// **Under a type filter a column with no rows is a filtered one, not an empty one** (RD70): a
+    /// folder's column stays open when the filter changes, and its files are hidden, not gone. An
+    /// unread folder still says it cannot be read — the filter knows nothing about it either.
+    @Test func aColumnTheTypeFilterEmptiedSaysSo() {
+        #expect(PaneColumnsView.emptyCaption(rowsEmpty: true, depth: 1, isUnexplored: false,
+                                             isLoading: false, isBeingRead: false, typeFiltered: true) == .filteredOut)
+        #expect(PaneColumnsView.emptyCaption(rowsEmpty: true, depth: 1, isUnexplored: true,
+                                             isLoading: false, isBeingRead: false, typeFiltered: true) == .unreadable)
+        #expect(PaneColumnsView.emptyCaption(rowsEmpty: true, depth: 0, isUnexplored: false,
+                                             isLoading: false, isBeingRead: false, typeFiltered: true) == nil,
+                "the pane's own filtered-out placeholder answers for the root column")
+        #expect(PaneColumnsView.Caption.filteredOut.text == "No matching files")
+    }
+
     // MARK: - Wording
 
     /// The loading state draws a spinner and no text: a caption beside it would say the same thing
