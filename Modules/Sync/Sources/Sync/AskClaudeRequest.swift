@@ -112,9 +112,10 @@ public enum AskClaudeRequest {
     - In Compare, the screen’s differences line counts what differs. For what is different, \
     missing, only on one side or newer, call differences before answering, and answer from its \
     rows; with show it also filters and selects them in Compare’s list.
-    - You cannot change files yet: no moving, renaming, copying, deleting or editing. If asked, \
-    say plainly that this version can’t make changes, and describe what you would do so they can \
-    do it themselves.
+    - You propose changes; you never apply them. propose_changes offers them a card of moves, \
+    renames, new folders and moves to the Trash on their Mac’s disk; nothing happens until they \
+    click Apply, and one Undo takes the whole card back. Say what you proposed, never that it’s \
+    done. You can’t copy, edit, delete for good, or move to another disk; say so plainly if asked.
     - You see names, kinds, sizes, dates and tags. For what a file says, use read_text: an on-device \
     model reads it on their Mac and answers. Its text reaches you only if they allow it.
     - A file only in the cloud over 25 MB is downloaded only when they click Download on a card the \
@@ -179,6 +180,7 @@ public enum AskClaudeToolCatalog {
         case differences = "differences"
         case whereToFile = "where_to_file"
         case fileLooseFiles = "file_loose_files"
+        case proposeChanges = "propose_changes"
         case view = "view"
         case reveal = "reveal"
         case showInApp = "show_in_app"
@@ -258,11 +260,28 @@ public enum AskClaudeToolCatalog {
                           "into": string("Optional: where they said it should go, as they said it: a folder of their survey (Travel, Taxes/2025) or a source and folder (Dropbox, iCloud/Documents/Travel). Its folders are preferred; one outside the survey is answered as that.")],
              required: ["handle"]),
         tool(.fileLooseFiles,
-             "File a folder’s loose files by how they file: every file in it and its subfolders, newest first, up to 50 per call, each placed by their folder survey as where_to_file places one. Without into, only counts them and gives them buttons asking where. With into, they get one card grouped by folder; it moves nothing.",
+             "File a folder’s loose files by how they file: every file in it and its subfolders, newest first, up to 50 per call, each placed by their folder survey as where_to_file places one. Without into, only counts them and gives them buttons asking where. With into, they get one card grouped by folder, which they review and apply; nothing moves until they click Apply.",
              properties: ["folder": string("Folder relative to the source, e.g. Downloads. Default: the folder on screen."),
                           "into": string("Where they said the files go, as for where_to_file: a folder of their survey (Documents, Travel) or a source and folder (Dropbox)."),
                           "from": integer("Zero-based file to start at, for the next 50. Default 0.")],
              required: []),
+        tool(.proposeChanges,
+             "Offer them a card of changes: moves, renames, new folders and moves to the Trash, up to 50, on their Mac’s disk. Nothing happens until they click Apply; one Undo takes it all back. Each change is checked now and again at Apply; one that can’t run is shown with why. A move can go into a folder a new_folder on the same card makes.",
+             properties: [
+                "title": string("A short card title in Title Case, e.g. Put the Tickets in Japan 2026."),
+                "changes": .object(["type": .string("array"), "items": .object([
+                    "type": .string("object"),
+                    "properties": .object([
+                        "action": string("move, rename, new_folder or trash."),
+                        "handle": string("The item’s handle, for move, rename and trash."),
+                        "folder": string("For move, the folder it goes into; for new_folder, where it is made. Relative to the source."),
+                        "source": string("Optional: the source the folder is in, when it isn’t the one on screen."),
+                        "name": string("For rename, the new name; for new_folder, its name."),
+                    ]),
+                    "required": .array([.string("action")]),
+                    "additionalProperties": .bool(false),
+                ]), "description": .string("The changes, in the order they make sense.")]),
+             ], required: ["changes"]),
         tool(.view,
              "Change how the Browse pane shows things: sort order, hidden files, list or columns.",
              properties: ["sort": string("name, kind, date, size or tags."),

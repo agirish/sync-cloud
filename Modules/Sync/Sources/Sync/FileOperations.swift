@@ -953,6 +953,12 @@ extension FileSyncManager {
 
     /// Testable core; production resolves `caseSensitiveVolume` from the item's volume.
     func renameItem(at path: String, to newName: String, fileManager fm: FileManaging, caseSensitiveVolume: Bool) async {
+        // Verify All's exclusion guard, as every other write has it: a rename mid-verify moves a
+        // file out from under its hash.
+        guard !isVerifyAllRunning else {
+            banner = .warning("Wait for Verify All to finish before renaming")
+            return
+        }
         if let refusal = oneWaySyncRefusal?([path]) {
             banner = .warning(refusal)
             return
@@ -1008,11 +1014,18 @@ extension FileSyncManager {
             Logger.shared.info("Renamed item to \(newName)")
             noteOwnWrite(atPath: newURL.path)
             self.registerMoveUndo(items: [(from: url, to: newURL, overwritten: result.trashed)], actionName: "Rename Item", fileManager: fm)
+            // In History as the move it is, in the registration's own turn (FR26).
+            recordSyncHistory([SyncHistoryRecord(runId: UUID(), action: .move, sourcePath: url.path, destPath: newURL.path,
+                                                 backupPath: result.trashed?.path)])
         }
     }
     
     /// Creates a new empty directory on disk.
     public func createFolder(named name: String, in path: String, fileManager fm: FileManaging = FileManager.default) async {
+        guard !isVerifyAllRunning else {
+            banner = .warning("Wait for Verify All to finish before making a folder")
+            return
+        }
         if let reason = Self.validateItemName(name) {
             present(SyncError(title: "Couldn’t Create Folder", message: reason, path: path))
             return

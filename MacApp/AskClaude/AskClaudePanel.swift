@@ -293,7 +293,7 @@ struct AskClaudePanel: View {
                 // chat.json held every message); a chat's few hundred rows don't need laziness.
                 VStack(alignment: .leading, spacing: 10) {
                     if chat.items.isEmpty {
-                        Text("Ask about your files, or tell me what to open: a folder, a file, a tab, another cloud, or a place in SyncCloud. I can look things up and move your view, but I can’t change files.")
+                        Text("Ask about your files, or tell me what to open: a folder, a file, a tab, another cloud, or a place in SyncCloud. I can look things up and move your view, and propose changes, which happen only when you click Apply.")
                             .foregroundStyle(.secondary)
                             .padding(10)
                             .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: Radius.card))
@@ -473,6 +473,7 @@ private struct AskClaudeThreadRow: View, Equatable {
     let onFilingCard: (AskClaudeFilingAction) -> Void
     let onPlanCard: (UUID, AskClaudePlanAction) -> Void
     let onChoice: (UUID, Int) -> Void
+    /// A card applies only once the question that offered it has finished.
     /// The newest receipt shows its summary; older ones fold to an icon, so the thread doesn't
     /// repeat “Sent screen …” under every answer.
     var isLatestReceipt = false
@@ -685,9 +686,14 @@ private struct AskClaudeThreadRow: View, Equatable {
                         }
                         Text("\(index == 0 ? "" : "Runner-up · ")\(folder.confidence) · \(folder.reason)\(folder.note.map { " · \($0)" } ?? "")")
                             .font(.caption2).foregroundStyle(.secondary)
-                        Button("Go to Folder") { onFilingCard(.goTo(folder.path)) }
-                            .controlSize(.small)
-                            .help("Shows this folder in Browse. Nothing is moved.")
+                        HStack(spacing: 6) {
+                            Button("Go to Folder") { onFilingCard(.goTo(folder.path)) }
+                                .controlSize(.small)
+                                .help("Shows this folder in Browse. Nothing is moved.")
+                            Button("Move Here") { onFilingCard(.moveHere(item: item.id, file: card.filePath, folder: folder.path, label: folder.label)) }
+                                .controlSize(.small)
+                                .help("Makes this a card with one move. Nothing moves until you click Apply.")
+                        }
                     }
                 }
                 if let days = card.staleDays {
@@ -741,10 +747,55 @@ private struct AskClaudeThreadRow: View, Equatable {
             if let more = plan.more {
                 Text(more).font(.caption2).foregroundStyle(.secondary)
             }
+            planFooter(plan)
         }
         .padding(10)
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.well))
         .accessibilityElement(children: .contain)
+    }
+
+    /// TE262: Apply and Not Now; then applying, done with Undo, or partly done.
+    @ViewBuilder
+    private func planFooter(_ plan: AskClaudePlan) -> some View {
+        let count = plan.runnable.count
+        switch plan.state {
+        case .proposed:
+            HStack(spacing: 8) {
+                Text(isRunning ? "Apply waits for Claude to finish." : "Nothing changes until you click Apply.")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Spacer(minLength: 4)
+                Button("Not Now") { onPlanCard(item.id, .notNow) }.controlSize(.small)
+                Button(count == 0 ? "Apply" : "Apply \(count) Change\(count == 1 ? "" : "s")") { onPlanCard(item.id, .apply) }
+                    .controlSize(.small)
+                    .buttonStyle(.borderedProminent)
+                    .accentedProminent()
+                    .disabled(count == 0 || isRunning)
+                    .help("Makes the ticked changes, checking each one again first. One Undo takes them all back.")
+            }
+        case .applying:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Applying \(count) change\(count == 1 ? "" : "s")…").font(.caption)
+            }
+        case .applied, .partlyApplied:
+            VStack(alignment: .leading, spacing: 6) {
+                Label(plan.summary ?? "Applied.", systemImage: plan.state == .applied ? "checkmark.circle" : "exclamationmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(plan.state == .applied ? AnyShapeStyle(.green) : AnyShapeStyle(.orange))
+                if plan.undoName != nil {
+                    HStack(spacing: 8) {
+                        Button("Undo") { onPlanCard(item.id, .undo) }
+                            .controlSize(.small)
+                            .help("Takes back everything this card did, as Edit ▸ Undo does.")
+                        Text("Also in Edit ▸ Undo").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        case .undone:
+            Label("Undone: everything is back where it was.", systemImage: "arrow.uturn.backward").font(.caption).foregroundStyle(.secondary)
+        case .declined:
+            Text("Not applied.").font(.caption).foregroundStyle(.secondary)
+        }
     }
 
     static func heading(_ group: AskClaudePlan.Group, count: Int) -> String? {
@@ -757,15 +808,21 @@ private struct AskClaudeThreadRow: View, Equatable {
     }
 
     private func planRow(_ row: AskClaudePlan.Row) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        let plan: AskClaudePlan? = if case .plan(let p) = item.kind { p } else { nil }
+        let editable = plan?.state == .proposed && row.refusal == nil
+        return VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Toggle(isOn: Binding(get: { row.ticked }, set: { onPlanCard(item.id, .tick(row.id, $0)) })) {
                     Text(row.name)
                         .font(.caption)
-                        .foregroundStyle(row.isTrash ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
+                        .strikethrough(row.refusal != nil || row.applied == false)
+                        .foregroundStyle(row.refusal != nil ? AnyShapeStyle(.secondary)
+                                         : row.isTrash ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
                         .lineLimit(2)
                 }
                 .toggleStyle(.checkbox)
+                .disabled(!editable)
+                if row.applied == true { Image(systemName: "checkmark").font(.caption2).foregroundStyle(.green) }
                 Spacer(minLength: 4)
                 if let confidence = row.confidence, !row.isTrash {
                     Text(confidence).font(.caption2.weight(.medium)).foregroundStyle(.secondary)
@@ -774,9 +831,11 @@ private struct AskClaudeThreadRow: View, Equatable {
                 }
             }
             HStack(spacing: 4) {
-                Text([row.reason, row.note].compactMap { $0 }.joined(separator: " · "))
-                    .font(.caption2).foregroundStyle(.secondary)
-                if case .move = row.change {
+                Text(([row.refusal.map { "Can’t apply: \($0)" }, row.result, row.reason, row.note,
+                       plan?.subtitle.isEmpty == true ? row.folderLabel.map { "→ \($0)" } : nil] as [String?])
+                    .compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption2).foregroundStyle(row.refusal != nil || row.applied == false ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                if case .move = row.change, editable, !row.choices.isEmpty || plan?.subtitle.isEmpty == false {
                     Menu {
                         ForEach(Array(row.choices.enumerated()), id: \.offset) { _, choice in
                             Button(choice.label) { onPlanCard(item.id, .choose(row.id, choice)) }
@@ -961,6 +1020,8 @@ enum AskClaudePlanAction: Equatable {
     case choose(Int, AskClaudePlan.Choice)
     /// Choose Folder… on a row's menu.
     case chooseFolder(Int)
+    /// TE262: the card's own buttons.
+    case apply, notNow, undo
 }
 
 /// What filing help's card asks for (TE255).
@@ -969,4 +1030,6 @@ enum AskClaudeFilingAction: Equatable {
     /// Refine with Claude for this file, in Organize.
     case refine(String)
     case openSetup
+    /// Move Here (decision FE): the card becomes a one-row plan card.
+    case moveHere(item: UUID, file: String, folder: String, label: String)
 }

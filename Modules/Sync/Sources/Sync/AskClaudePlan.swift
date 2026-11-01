@@ -76,10 +76,16 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         public var chosen: Bool
         /// Shown in its own group, for a file already filed (decision GF).
         public var alreadyFiled: Bool
+        /// Why it can't run, found when it was proposed or at Apply (TE262); such a row has no tick.
+        public var refusal: String?
+        /// What Apply did with it: "Moved", "Moved, as Ticket 2.pdf", or why it didn't.
+        public var result: String?
+        /// Apply did it.
+        public var applied: Bool?
 
         public init(id: Int, name: String, change: Change, ticked: Bool, confidence: String? = nil, reason: String? = nil,
                     note: String? = nil, folderLabel: String? = nil, choices: [Choice] = [], chosen: Bool = false,
-                    alreadyFiled: Bool = false) {
+                    alreadyFiled: Bool = false, refusal: String? = nil) {
             self.id = id
             self.name = name
             self.change = change
@@ -91,6 +97,8 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
             self.choices = choices
             self.chosen = chosen
             self.alreadyFiled = alreadyFiled
+            self.refusal = refusal
+            if refusal != nil { self.ticked = false }
         }
 
         public var group: Group {
@@ -111,6 +119,12 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         }
     }
 
+    /// Where a card is (TE262). Optional in the saved chat: a card saved before Apply existed
+    /// reads as proposed.
+    public enum State: String, Codable, Sendable {
+        case proposed, applying, applied, partlyApplied, undone, declined
+    }
+
     /// "File 50 Loose Files".
     public let title: String
     /// "into iCloud › Documents".
@@ -121,12 +135,71 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
     /// "50 of 132 · 82 more: ask for the next 50"; nil when the card holds them all.
     public let more: String?
 
+    private var savedState: State?
+    public var state: State {
+        get { savedState ?? .proposed }
+        set { savedState = newValue }
+    }
+    /// The undo step Apply registered; the card's Undo acts only while it tops the stack. Never
+    /// saved: the undo history ends with the app, so a restored card offers no Undo.
+    public var undoName: String?
+    /// After Apply: "Moved 31 files and made 1 folder."
+    public var summary: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case title, subtitle, rows, leftHere, more, savedState = "state", summary
+    }
+
     public init(title: String, subtitle: String, rows: [Row], leftHere: String? = nil, more: String? = nil) {
         self.title = title
         self.subtitle = subtitle
         self.rows = rows
         self.leftHere = leftHere
         self.more = more
+    }
+
+    /// The rows Apply would run: ticked, and not refused.
+    public var runnable: [Row] { rows.filter { $0.ticked && $0.refusal == nil } }
+
+    /// Writes what Apply did into the rows and the card.
+    public mutating func record(_ outcome: AskClaudePlanOutcome) {
+        for index in rows.indices {
+            guard let row = outcome.rows[rows[index].id] else { continue }
+            switch row {
+            case .done(let what):
+                rows[index].result = what
+                rows[index].applied = true
+            case .refused(let why), .failed(let why):
+                rows[index].result = why
+                rows[index].applied = false
+            }
+        }
+        undoName = outcome.undoName
+        let done = outcome.doneCount
+        state = done == 0 ? .proposed : (done < outcome.rows.count ? .partlyApplied : .applied)
+        summary = Self.summary(rows.filter { $0.applied == true }, failed: outcome.rows.count - done)
+    }
+
+    static func summary(_ done: [Row], failed: Int) -> String {
+        var moved = 0, renamed = 0, made = 0, trashed = 0
+        for row in done {
+            switch row.change {
+            case .move: moved += 1
+            case .rename: renamed += 1
+            case .newFolder: made += 1
+            case .trash: trashed += 1
+            case .trashIfEmptied(let folders): trashed += folders.count
+            }
+        }
+        var parts: [String] = []
+        if made > 0 { parts.append("made \(made) folder\(made == 1 ? "" : "s")") }
+        if moved > 0 { parts.append("moved \(moved) file\(moved == 1 ? "" : "s")") }
+        if renamed > 0 { parts.append("renamed \(renamed)") }
+        if trashed > 0 { parts.append("moved \(trashed) to the Trash") }
+        var text = parts.isEmpty ? "Nothing changed" : ListFormatter.localizedString(byJoining: parts)
+        text = text.prefix(1).uppercased() + text.dropFirst() + "."
+        if failed > 0 { text += " \(failed) couldn’t, and stayed where \(failed == 1 ? "it was" : "they were")." }
+        return text
     }
 
     /// The rows by group, in card order: folders with the most rows first (then by label), then

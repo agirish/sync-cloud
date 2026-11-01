@@ -211,7 +211,7 @@ import Testing
     @Test func itSaysHowOldTheSurveyIsAndWhatTheCardOffers() {
         let text = AskClaudeFiling.result(card, readsFiles: false)
         #expect(text.contains("30 days old"))
-        #expect(text.contains("Go to Folder and Refine with Claude"))
+        #expect(text.contains("Go to Folder and Move Here, and Refine with Claude"))
         #expect(text.contains("Nothing was moved."))
     }
 

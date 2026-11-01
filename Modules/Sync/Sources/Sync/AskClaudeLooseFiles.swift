@@ -149,7 +149,7 @@ extension AskClaudeLooseFiles {
     /// it is ticked. Never a reason, which can name a word read from the file, and never a path
     /// outside the labels the card shows.
     public static func result(_ plan: AskClaudePlan, leftHereCount: Int, nextFrom: Int?) -> String {
-        var lines = ["They have a card: \(AskClaudeScreenCard.escape(plan.title)), \(AskClaudeScreenCard.escape(plan.subtitle)). Nothing was moved.",
+        var lines = ["They have a card: \(AskClaudeScreenCard.escape(plan.title)), \(AskClaudeScreenCard.escape(plan.subtitle)). Nothing moves until they click Apply.",
                      "rows: name|folder|confidence|ticked|note"]
         for (group, rows) in plan.groups {
             for row in rows {

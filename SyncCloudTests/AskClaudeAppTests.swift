@@ -1698,7 +1698,7 @@ private final class OffersADownload: AskClaudeToolRunning {
         defer { try? FileManager.default.removeItem(atPath: dir) }
         let out = await call(["into": .string("Dropbox")], runner())
         #expect(out.plan == nil && out.filing?.kind == .outside(surveyed: "Home › Documents"))
-        #expect(out.choices?.map(\.label) == ["Into Documents, by how I file"])
+        #expect(out.choices?.map(\.label) == ["Into Documents, by how I file", "Name a Dropbox folder…"])
         let none = await call(["into": .string("Documents")], runner(survey: false))
         #expect(none.filing?.kind == .noProfile)
     }
@@ -1732,5 +1732,103 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(first.result.contains("call again with from 50"))
         let second = await call(["into": .string("Documents"), "from": .integer(50)], runner())
         #expect(second.plan?.more == nil)
+    }
+}
+
+/// TE262: Claude proposes a card of changes; nothing runs from the tool.
+@MainActor
+@Suite struct AskClaudeProposeChangesTests {
+
+    private let dir: String
+
+    init() throws {
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent("propose-\(UUID().uuidString)").resolvingSymlinksInPath().path
+        for path in ["Downloads/JAL Ticket.pdf", "Downloads/old.dmg", "Documents/Travel/Trips/x.pdf"] {
+            let full = dir + "/" + path
+            try FileManager.default.createDirectory(atPath: (full as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+            try Data(path.utf8).write(to: URL(fileURLWithPath: full))
+        }
+    }
+
+    private func runner() -> AskClaudeBrowseTools {
+        let dir = self.dir
+        let manager = FileSyncManager()
+        return AskClaudeBrowseTools(context: {
+            var ctx = AskClaudeBrowseTools.Context(
+                inBrowse: true, sourceName: "Home", root: dir, folder: "Downloads", sort: .name,
+                items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+            ctx.sources = [.init(id: "home", name: "Home", root: dir)]
+            ctx.hidden = [dir + "/Documents/Private"]
+            ctx.planRefusal = { change, creating in
+                manager.planRefusal(change, creating: creating, isHidden: { $0.hasPrefix(dir + "/Documents/Private") }, protected: [dir])
+            }
+            return ctx
+        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+    }
+
+    private func propose(_ changes: [[String: String]], title: String? = nil) async -> (AskClaudeToolOutcome, AskClaudeHandles) {
+        var handles = AskClaudeHandles()
+        let jal = handles.handle(for: dir + "/Downloads/JAL Ticket.pdf")
+        let dmg = handles.handle(for: dir + "/Downloads/old.dmg")
+        let list: [JSONFragment] = changes.map { entry in
+            .object(entry.mapValues { .string($0.replacingOccurrences(of: "$jal", with: jal).replacingOccurrences(of: "$dmg", with: dmg)) })
+        }
+        var input: [String: JSONFragment] = ["changes": .array(list)]
+        if let title { input["title"] = .string(title) }
+        let out = await runner().run(AskClaudeToolCall(id: "t", name: "propose_changes", input: .object(input)), handles: &handles)
+        return (out, handles)
+    }
+
+    /// A new folder and a move into it on one card; the trash row starts unticked; nothing moved.
+    @Test func aCardIsOfferedAndNothingRuns() async throws {
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let (out, _) = await propose([
+            ["action": "new_folder", "folder": "Documents/Travel/Trips", "name": "Japan 2026"],
+            ["action": "move", "handle": "$jal", "folder": "Documents/Travel/Trips/Japan 2026"],
+            ["action": "trash", "handle": "$dmg"],
+        ], title: "Put the Tickets in Japan 2026")
+        let plan = try #require(out.plan)
+        #expect(plan.title == "Put the Tickets in Japan 2026" && plan.state == .proposed)
+        #expect(plan.rows.map(\.ticked) == [true, true, false])
+        #expect(plan.rows.allSatisfy { $0.refusal == nil }, "\(plan.rows.map(\.refusal))")
+        #expect(out.result.contains("Nothing has happened") && out.result.contains("Never say it’s done"))
+        #expect(FileManager.default.fileExists(atPath: dir + "/Downloads/JAL Ticket.pdf"))
+        #expect(!FileManager.default.fileExists(atPath: dir + "/Documents/Travel/Trips/Japan 2026"))
+    }
+
+    /// Checked when proposed: a row that can't run says why and has no tick, and Claude is told.
+    @Test func aRowThatCantRunSaysWhyWhenProposed() async throws {
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let (out, _) = await propose([
+            ["action": "move", "handle": "$jal", "folder": "Documents/Private"],
+            ["action": "rename", "handle": "$jal", "name": "old.dmg"],
+            ["action": "trash", "handle": "$jal"],
+        ])
+        let plan = try #require(out.plan)
+        #expect(plan.rows[0].refusal == "Private is hidden from Claude" && !plan.rows[0].ticked)
+        #expect(plan.rows[1].refusal == "old.dmg is taken there")
+        #expect(plan.rows[2].refusal == nil)
+        #expect(out.result.contains("Can’t apply JAL Ticket.pdf: Private is hidden from Claude"))
+    }
+
+    @Test func aBadEntryOrTooManyOffersNothing() async throws {
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let (bad, _) = await propose([["action": "copy", "handle": "$jal"]])
+        #expect(bad.isError && bad.plan == nil)
+        let many = Array(repeating: ["action": "trash", "handle": "$jal"], count: 51)
+        let (tooMany, _) = await propose(many)
+        #expect(tooMany.isError && tooMany.step == "Too many changes for one card")
+    }
+
+    /// A card saved while it applied comes back as partly applied; no saved card offers Undo.
+    @Test func aRestoredCardOffersNoUndo() throws {
+        var plan = AskClaudePlan(title: "T", subtitle: "", rows: [])
+        plan.state = .applying
+        plan.undoName = "T"
+        let decoded = try JSONDecoder().decode(AskClaudePlan.self, from: JSONEncoder().encode(plan))
+        #expect(decoded.undoName == nil && decoded.state == .applying)
+        let item = AskClaudeChat.notWaiting(AskClaudeChat.Item(kind: .plan(decoded)))
+        guard case .plan(let restored) = item.kind else { Issue.record("not a card"); return }
+        #expect(restored.state == .partlyApplied)
     }
 }

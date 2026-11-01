@@ -30,8 +30,14 @@ Requires **macOS 26**, unchanged from v6.2.
   spend.
 - **It looks things up and moves your view.** It lists and finds files and folders in any source,
   goes to folders, tabs, sources and either side of Compare, and reveals, selects, opens or Quick
-  Looks a file. It changes views and opens Settings, Help and Activity. It can't change a file, and
-  it never opens an app, script or installer.
+  Looks a file. It changes views and opens Settings, Help and Activity. It never opens an app, script
+  or installer.
+- **Claude proposes changes; you apply them.** Ask it to move, rename, make a folder or move
+  something to the Trash, and it shows a card of the changes, each checked first. Nothing happens
+  until you click Apply. Each change is checked again then; one that can't run is skipped with the
+  reason, and nothing asks partway through. One Undo on the card, or Edit ▸ Undo, takes the whole card
+  back, and every change is in History. Moves stay on this Mac's disk, and a move to the Trash starts
+  unticked. "Where should this go?" offers Move Here, and the loose-files card applies the same way.
 - **What's inside a file is read on this Mac.** An on-device model reads it and Claude gets a short
   answer. A passage of the file goes to Claude only when you click Send under the answer, or every
   time with Let Claude read files on.
@@ -59,7 +65,7 @@ Requires **macOS 26**, unchanged from v6.2.
   reason, and a menu on each row for the runner-up or another folder. A file already filed byte for
   byte, and a subfolder the files would leave empty, get Trash rows, never ticked for you. A taken
   name is shown as the name it would get. Hidden files, unfinished downloads and installers stay
-  where they are.
+  where they are. Apply moves what's ticked, with one Undo.
 - **Every answer says what it sent and what it cost.** Spending counts against a monthly limit in
   Settings, $25 to start, with a note at 80%.
 - **Up and Down bring back what you asked.** In the text box, Up shows the questions you typed
@@ -167,11 +173,15 @@ Requires **macOS 26**, unchanged from v6.2.
   sync in Compare, or a filing move wrote the second form whatever the original used, so Dropbox
   and iCloud received the name spelled differently from the original, and a long name with many
   such letters failed with "the file name … is invalid", though Finder copies it.
+- **Rename and New Folder wait for Verify All**, and a name longer than the disk takes (255
+  characters, an accented letter counting two) is refused when you type it, not when it's written.
+  A rename is now in History.
 
 ### Known limitations
 
-- **Ask Claude can't change files** in this version: no copy, move, rename or delete. It reads
-  and steers only.
+- **Ask Claude can't copy, edit or delete for good**, or move to another disk: it proposes moves,
+  renames, new folders and moves to the Trash on this Mac's disk, and you apply them. A card's Undo
+  ends with the app; Activity's History still lists what it did.
 - One-way sync runs only when you click Sync Now; it doesn't yet sync on its own as files change.
 - Reverse in iCloud… doesn't offer two names swapped.
 - One-way sync works from Dropbox's files on this Mac: a file in a synced Dropbox folder that is

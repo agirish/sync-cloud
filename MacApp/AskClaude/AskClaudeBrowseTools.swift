@@ -80,6 +80,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var surveyFolder: (_ name: String) -> String? = { _ in nil }
         /// The folder the survey covers, absolute; nil with no survey.
         var surveyRoot: String?
+        /// Why a change can't run (TE262): hidden, gone, taken, another disk…; nil when it can.
+        /// `creating` are folders the same card makes.
+        var planRefusal: (_ change: AskClaudePlan.Change, _ creating: Set<String>) -> String? = { _, _ in nil }
         /// Whether a file is only in the cloud, for the already-filed check, which never reads one.
         var isCloudOnly: (_ path: String) -> Bool = { MaterializationStatus.isCloudOnlyIfKnown(atPath: $0) == true }
         /// Organize's Refine with Claude is set up, so the card may offer it (decision EY).
@@ -322,6 +325,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         case .differences: return await differences(call, ctx, &handles)
         case .whereToFile: return await whereToFile(call, ctx, handles)
         case .fileLooseFiles: return await fileLooseFiles(call, ctx)
+        case .proposeChanges: return proposeChanges(call, ctx, handles)
         case nil:
             return AskClaudeToolOutcome(result: "There is no tool called \(call.name).", isError: true,
                                         step: "Asked for an unknown tool")
@@ -1139,6 +1143,116 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         return ctx.surveyFolder(trimmed)
     }
 
+    // MARK: Plan card (TE262)
+
+    /// Claude proposes; nothing runs until they click Apply. Each row is checked now, and again at
+    /// the click.
+    private func proposeChanges(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: AskClaudeHandles) -> AskClaudeToolOutcome {
+        guard let list = call.input["changes"]?.arrayValue, !list.isEmpty else {
+            return AskClaudeToolOutcome(result: "Give changes: a list of moves, renames, new folders and moves to the Trash.",
+                                        isError: true, step: "Proposed nothing")
+        }
+        guard list.count <= Self.looseFilesPerCard else {
+            return AskClaudeToolOutcome(result: "At most \(Self.looseFilesPerCard) changes on one card. Propose the first \(Self.looseFilesPerCard), and the rest once they’ve applied it.",
+                                        isError: true, step: "Too many changes for one card")
+        }
+        // A folder named by source and path, or in the source on screen.
+        func folder(_ entry: JSONFragment) -> (absolute: String, label: String)? {
+            var root = ctx.root
+            if let name = entry["source"]?.stringValue?.nonEmpty {
+                guard let source = Self.source(named: name, in: ctx.sources) else { return nil }
+                root = source.root
+            }
+            guard let resolved = Self.resolve(entry["folder"]?.stringValue ?? "", root: root) else { return nil }
+            return (resolved.absolute, Self.breadcrumb(resolved.absolute, sources: ctx.sources, fallback: resolved.label))
+        }
+        var rows: [AskClaudePlan.Row] = []
+        var creating = Set<String>()
+        var problems: [String] = []
+        for (index, entry) in list.enumerated() {
+            let action = entry["action"]?.stringValue?.lowercased() ?? ""
+            let handle = entry["handle"]?.stringValue
+            let item = handle.flatMap(handles.path(for:))
+            let newName = entry["name"]?.stringValue?.trimmingCharacters(in: .whitespaces)
+            var change: AskClaudePlan.Change?
+            var shown = ""
+            var label: String?
+            switch action {
+            case "move":
+                if let item, let to = folder(entry) {
+                    change = .move(from: item, toFolder: to.absolute)
+                    shown = (item as NSString).lastPathComponent
+                    label = to.label
+                }
+            case "rename":
+                if let item, let newName, !newName.isEmpty {
+                    change = .rename(path: item, to: newName)
+                    shown = (item as NSString).lastPathComponent
+                    label = "Rename to \(newName)"
+                }
+            case "new_folder":
+                if let to = folder(entry), let newName, !newName.isEmpty {
+                    change = .newFolder(in: to.absolute, name: newName)
+                    creating.insert((to.absolute as NSString).appendingPathComponent(newName))
+                    shown = "New folder “\(newName)”"
+                    label = to.label
+                }
+            case "trash":
+                if let item {
+                    change = .trash(path: item)
+                    shown = (item as NSString).lastPathComponent
+                }
+            default:
+                break
+            }
+            guard let change else {
+                problems.append("change \(index + 1) (\(action.isEmpty ? "no action" : action)) needs \(Self.needs(action)), and a handle or folder that exists")
+                continue
+            }
+            rows.append(AskClaudePlan.Row(id: rows.count, name: shown, change: change, ticked: !Self.isTrash(change),
+                                          folderLabel: label))
+        }
+        guard problems.isEmpty else {
+            return AskClaudeToolOutcome(result: "Nothing was offered: " + problems.joined(separator: "; ") + ".", isError: true,
+                                        step: "Couldn’t propose those changes")
+        }
+        // Checked now, with the folders this card makes counted as there.
+        for index in rows.indices {
+            if let why = ctx.planRefusal(rows[index].change, creating) {
+                rows[index].refusal = why
+                rows[index].ticked = false
+            }
+        }
+        let title = call.string("title")?.trimmingCharacters(in: .whitespaces).nonEmpty
+            ?? "\(rows.count) Change\(rows.count == 1 ? "" : "s")"
+        let plan = AskClaudePlan(title: title, subtitle: "", rows: rows)
+        var lines = ["Offered them a card: \(AskClaudeScreenCard.escape(title)), \(rows.count) change\(rows.count == 1 ? "" : "s"). Nothing has happened: they review it and click Apply or Not Now."]
+        for row in rows where row.refusal != nil {
+            lines.append("Can’t apply \(AskClaudeScreenCard.escape(row.name)): \(AskClaudeScreenCard.escape(row.refusal ?? ""))")
+        }
+        if rows.contains(where: { Self.isTrash($0.change) }) { lines.append("Moves to the Trash are unticked until they tick them.") }
+        lines.append("Say in one line what you proposed, and stop. Never say it’s done.")
+        return AskClaudeToolOutcome(result: lines.joined(separator: "\n"),
+                                    step: "Proposed \(rows.count) change\(rows.count == 1 ? "" : "s")", plan: plan)
+    }
+
+    static func isTrash(_ change: AskClaudePlan.Change) -> Bool {
+        switch change {
+        case .trash, .trashIfEmptied: return true
+        default: return false
+        }
+    }
+
+    static func needs(_ action: String) -> String {
+        switch action {
+        case "move": return "a handle and a folder"
+        case "rename": return "a handle and a name"
+        case "new_folder": return "a folder and a name"
+        case "trash": return "a handle"
+        default: return "an action: move, rename, new_folder or trash"
+        }
+    }
+
     // MARK: Loose files (TE267)
 
     /// Rows on one filing card (decision FC).
@@ -1189,7 +1303,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             let card = AskClaudeFilingCard(fileName: shown, filePath: folder.absolute, kind: .outside(surveyed: surveyLabel), place: placeLabel)
             return AskClaudeToolOutcome(result: AskClaudeFiling.result(card, readsFiles: ctx.readsFiles),
                                         step: "\(placeLabel) is outside the folder survey", filing: card,
-                                        choices: [AskClaudeChoice("Into \(surveyName), by how I file", sends: "Into \(surveyName), by how I file")])
+                                        choices: [AskClaudeChoice("Into \(surveyName), by how I file", sends: "Into \(surveyName), by how I file"),
+                                                  AskClaudeChoice("Name a \(placeLabel.components(separatedBy: " › ").last ?? placeLabel) folder…", sends: nil)])
         }
         let from = max(0, call.int("from") ?? 0)
         let page = Array(found.files.dropFirst(from).prefix(Self.looseFilesPerCard))

@@ -28,6 +28,12 @@ extension FileSyncManager {
         if trimmed.contains("\0") {
             return "Names can’t contain that character."
         }
+        // The disk's own limit, counted as the disk counts it: APFS keeps 255 UTF-16 units of the
+        // name in its decomposed form, which is what a path sends (é is two there). A longer name
+        // failed only when written, as "the file name is invalid".
+        if name.decomposedStringWithCanonicalMapping.utf16.count > 255 {
+            return "Names can’t be longer than 255 characters."
+        }
         return nil
     }
 }

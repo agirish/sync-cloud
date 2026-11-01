@@ -188,6 +188,7 @@ extension ContentView {
                 panel.directoryURL = URL(fileURLWithPath: root)
             }
             guard panel.runModal() == .OK, let url = panel.url else { return }
+            guard askClaudeChat.plan(id)?.state == .proposed else { return }
             // Spelled as the panel gave it, which keeps a link's spelling (iCloud's Documents).
             let path = url.path
             guard !askClaudeIsHidden(path) else {
@@ -196,6 +197,43 @@ extension ContentView {
             }
             let label = AskClaudeBrowseTools.breadcrumb(path, sources: askClaudeSources, fallback: url.lastPathComponent)
             askClaudeChat.updatePlan(id) { $0.choose(AskClaudePlan.Choice(label: label, path: path), forRow: row) }
+        case .apply:
+            askClaudeApplyPlan(id)
+        case .notNow:
+            askClaudeChat.updatePlan(id) { if $0.state == .proposed { $0.state = .declined } }
+        case .undo:
+            guard let plan = askClaudeChat.plan(id), let name = plan.undoName else { return }
+            // Only while it is still the step on top: an Undo under something done since would
+            // take back that instead.
+            guard let undo = syncManager.undoManager, undo.canUndo, undo.undoActionName == name else {
+                askClaudeChat.addNote("This card can’t be undone from here: something else was done since. Edit ▸ Undo takes back the latest step first.")
+                return
+            }
+            Logger.shared.info("Ask Claude card: Undo “\(name)”")
+            undo.undo()
+            askClaudeChat.updatePlan(id) {
+                $0.state = .undone
+                $0.undoName = nil
+            }
+        }
+    }
+
+    /// Apply on a card (TE262): its ticked rows, each checked again now, as one undo step.
+    private func askClaudeApplyPlan(_ id: UUID) {
+        guard !askClaudeChat.isRunning, let plan = askClaudeChat.plan(id), plan.state == .proposed else { return }
+        let rows = plan.runnable.map { (id: $0.id, change: $0.change) }
+        guard !rows.isEmpty else { return }
+        if let blocker = syncManager.planApplyBlocker {
+            askClaudeChat.addNote("Apply waits: \(blocker). Click it again once that’s done.")
+            return
+        }
+        askClaudeChat.updatePlan(id) { $0.state = .applying }
+        let protected = Set(askClaudeSources.map(\.root))
+        Task { @MainActor in
+            let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
+            let outcome = await syncManager.applyPlan(rows, actionName: plan.title, isHidden: { hidden.isHidden($0) },
+                                                      protected: protected)
+            askClaudeChat.updatePlan(id) { $0.record(outcome) }
         }
     }
 
@@ -216,6 +254,17 @@ extension ContentView {
                 return
             }
             showSetup = true
+        case .moveHere(let item, let file, let folder, let label):
+            // Decision FE: the card becomes a plan card with this one move, checked now.
+            let change = AskClaudePlan.Change.move(from: file, toFolder: folder)
+            let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
+            let refusal = syncManager.planRefusal(change, isHidden: { hidden.isHidden($0) }, protected: Set(askClaudeSources.map(\.root)))
+            let name = (file as NSString).lastPathComponent
+            let landing = AskClaudeLooseFiles.landingName(for: name, in: folder)
+            let row = AskClaudePlan.Row(id: 0, name: name, change: change, ticked: true,
+                                        note: landing == name ? nil : "Kept as \(landing): the name is taken",
+                                        folderLabel: label, refusal: refusal)
+            askClaudeChat.replace(item, with: .plan(AskClaudePlan(title: "Move \(name)", subtitle: "", rows: [row])))
         }
     }
 
@@ -607,6 +656,11 @@ extension ContentView {
             },
             surveyFolder: { syncManager.filingSurveyFolder(named: $0) },
             surveyRoot: syncManager.filingFolderProfile?.recordedFolderPath,
+            planRefusal: { change, creating in
+                let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
+                return syncManager.planRefusal(change, creating: creating, isHidden: { hidden.isHidden($0) },
+                                               protected: Set(askClaudeSources.map(\.root)))
+            },
             canRefineFiling: syncManager.filingHelpCanRefine,
             history: { forward in
                 let columns = paneDrawsColumns(isLeft: true)

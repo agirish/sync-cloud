@@ -253,10 +253,26 @@ final class AskClaudeChat: ObservableObject {
     /// A card saved mid-download comes back offered: the wait ended with the app, and a second
     /// click finds the file already here if the download finished on its own.
     static func notWaiting(_ item: Item) -> Item {
-        guard case .download(let download, .downloading) = item.kind else { return item }
         var item = item
-        item.kind = .download(download, state: .offered)
+        switch item.kind {
+        case .download(let download, .downloading):
+            item.kind = .download(download, state: .offered)
+        case .plan(var plan) where plan.state == .applying:
+            // The app quit while it applied: what ran is on disk, and its Undo went with the app.
+            plan.state = .partlyApplied
+            plan.summary = "SyncCloud quit while this was being applied, so some changes may not have run."
+            item.kind = .plan(plan)
+        default:
+            break
+        }
         return item
+    }
+
+    /// A card turned into another, in its place (Move Here on filing help's card, decision FE).
+    func replace(_ id: UUID, with kind: Item.Kind) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        items[index].kind = kind
+        if !isRunning { save() }
     }
 
     private func save() {

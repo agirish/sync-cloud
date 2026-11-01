@@ -84,7 +84,7 @@ public enum AskClaudeFiling {
             // Decision FY: say so, and offer the survey's folder instead.
             let survey = AskClaudeScreenCard.escape(surveyed)
             let place = card.place.map(AskClaudeScreenCard.escape) ?? "the place they named"
-            return "Their folder survey covers \(survey) only, and \(place) isn’t in it, so there are no conventions of theirs to sort by there. Say so, and offer to sort it into \(survey) by how they file instead. Don’t guess a folder."
+            return "Their folder survey covers \(survey) only, and \(place) isn’t in it, so there are no conventions of theirs to sort by there. Say so, and offer to sort it into \(survey) by how they file instead, or to move it into one folder of \(place) they name, with propose_changes. Don’t guess a folder."
         case .noMatch:
             return "No folder in their folder survey fits \(name). Say so; don’t guess one."
         case .suggestions:
@@ -98,7 +98,7 @@ public enum AskClaudeFiling {
             if let days = card.staleDays {
                 lines.append("Their survey is \(days) days old, so folders made since aren’t known; Update the Survey is in Organize ▸ Restructure.")
             }
-            lines.append("They have a card with Go to Folder\(card.canRefine ? " and Refine with Claude" : ""). Nothing was moved.")
+            lines.append("They have a card with Go to Folder and Move Here\(card.canRefine ? ", and Refine with Claude" : ""). Nothing was moved.")
             return lines.joined(separator: "\n")
         }
     }
