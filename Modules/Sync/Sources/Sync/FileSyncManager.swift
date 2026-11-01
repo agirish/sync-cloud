@@ -1185,6 +1185,22 @@ public class FileSyncManager: ObservableObject {
     public var filingOCRExtractor: (@Sendable (String) async -> String?)?
     /// Files whose OCR is currently running, so a second click cannot start a second render.
     public internal(set) var filingOCRInFlight: Set<String> = []
+    /// Loose files the last scan found only in the cloud (TE287, GJ), so it placed them by name.
+    ///
+    /// Recorded, never fetched: a scan that downloaded what it could not read would pull every
+    /// installer and archive in a cloud Downloads onto the disk to look at page 1. The cards say
+    /// "placed by name" and ``downloadAndReadFiling(_:)`` fetches them when asked.
+    public internal(set) var filingNotDownloaded: Set<String> = []
+    /// True while ``downloadAndReadFiling(_:)`` is fetching and reading.
+    @Published public internal(set) var isDownloadingFilingFiles = false
+    /// Asks a file's provider to fetch it. The real download in the app; a test substitutes.
+    public var filingDownloader: @Sendable (String) throws -> Void = { try MaterializationStatus.download(atPath: $0) }
+    /// The flags read that says whether a loose file is cloud-only. Real `lstat` in the app; a test
+    /// substitutes, because only a File Provider can set `SF_DATALESS`.
+    public var filingStatFlags: MaterializationStatus.StatFlags = MaterializationStatus.realStatFlags
+    /// How long ``downloadAndReadFiling(_:)`` watches for downloads to land: checks, and the pause
+    /// between them. Thirty seconds in the app; tests shorten it.
+    var filingDownloadWait: (checks: Int, interval: Duration) = (30, .seconds(1))
     public var filingMemory: FilingMemory? {
         didSet { invalidateFilingRouterIndex(); rebuildPersonIdentityIndex() }
     }

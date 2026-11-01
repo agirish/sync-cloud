@@ -135,6 +135,32 @@ Requires **macOS 26**, unchanged from v6.2.
   hasn't uploaded after 30 minutes. Picking a source checks at once; a warning that appears on its
   own waits until the app has been missing five minutes. Sources turned off in Settings get none.
 
+### Organize
+
+- **To File learns each cloud source's folders.** iCloud's survey stays the primary one. A source
+  laid out like iCloud's Documents, with half or more of its folders found there as in a Dropbox
+  copy, uses iCloud's survey. A source laid out differently places files by name and offers Learn
+  Its Folders, which reads folder names only, takes seconds and downloads nothing. v6.2 applied
+  iCloud's survey in every source wherever a folder's path happened to match. To File's header names
+  the survey in use and switches it, and Settings ▸ Organize ▸ Folder surveys lists every source.
+  Ask Claude answers "where should this go?" from the survey of the file's own source. A source with its
+  own survey can then have its documents read, page 1 of each, as iCloud's were: the survey menu's
+  Read Documents item first says how many, and how many are cloud-only and download (they stay
+  downloaded).
+- **To File reads loose files from anywhere on this Mac.** Right-click Downloads in the Home folder
+  and choose Organize This Folder…, and To File suggests homes in your primary survey's folder,
+  usually Documents in iCloud, rather than across the whole Home folder, which it used to stop and
+  ask about. File into, above the list, names where the files go. Pick another source's Documents or
+  Choose Folder… there, and each source keeps its choice. A cloud source still files into its own
+  folders.
+- **Download and Read for files only in the cloud.** To File places a file that isn't downloaded by
+  its name, and its card now says so. Download and Read, above the list, downloads those files,
+  reads page 1 of each and suggests again. A scan never downloads on its own, and the files stay
+  downloaded.
+- **A folder To File hasn't read says so.** Pointing Organize at a folder showed "Nothing in" that
+  folder when To File had last read a different one. It now says the folder hasn't been scanned and
+  offers Scan.
+
 ### Folders
 
 - **Panes notice when their folders change.** A change on disk after a pane was read shows as
@@ -155,19 +181,6 @@ Requires **macOS 26**, unchanged from v6.2.
   and closing Review or Compare Copies stops its checks. The duplicate scan compares the first and
   last 1 MB of large files of the same size and reads whole only those that match, so large copies
   are found.
-
-### Organize
-
-- **To File learns each cloud source's folders.** iCloud's survey stays the primary one. A source
-  laid out like iCloud's Documents, with half or more of its folders found there as in a Dropbox
-  copy, uses iCloud's survey. A source laid out differently places files by name and offers Learn
-  Its Folders, which reads folder names only, takes seconds and downloads nothing. v6.2 applied
-  iCloud's survey in every source wherever a folder's path happened to match. To File's header names
-  the survey in use and switches it, and Settings ▸ Organize ▸ Folder surveys lists every source.
-  Ask Claude answers "where should this go?" from the survey of the file's own source. A source with its
-  own survey can then have its documents read, page 1 of each, as iCloud's were: the survey menu's
-  Read Documents item first says how many, and how many are cloud-only and download (they stay
-  downloaded).
 
 ### Around the app
 

@@ -493,10 +493,14 @@ import Sync
         // two copies of `!hasSuggestedFiling` is what this test exists to prevent. So the chain
         // is followed rather than the literal: `filingContent` renders the card on that member,
         // and that member is still `!hasSuggestedFiling`.
+        //
+        // Since TE287 `filingContent` switches on `filingContentState(…)`, which answers `.setup`
+        // from its `showsSetup` argument (pinned by `FilingNotScannedHereTests`), so the chain runs
+        // through that argument and that case.
         let content = try Self.body(of: "private func filingContent(", in: view)
-        #expect(content.contains("else if showsFilingSetupCard {"),
+        #expect(content.contains("showsSetup: showsFilingSetupCard"),
                 "filingContent's intro gate is no longer showsFilingSetupCard — filingIntroOwnsInvitation is now describing a state that does not exist")
-        #expect(content.contains("filingIntroState"),
+        #expect(content.contains("case .setup: filingIntroState"),
                 "filingContent no longer renders the setup card the stand-down defers to")
         let showsCard = try Self.body(of: "private var showsFilingSetupCard: Bool {", in: view)
         #expect(showsCard.contains("!syncManager.hasSuggestedFiling"),

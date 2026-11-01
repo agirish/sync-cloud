@@ -136,8 +136,11 @@ import Foundation
         // and it starts a filing scan, whose taxonomy is the source's ANCHOR. Passing the anchor to
         // the scope makes every folder above the documents tree un-scopable; passing the root to
         // the scan hands filing the whole account.
-        #expect(body.contains("providerRoot: URL(fileURLWithPath: providerAnchor)"),
+        // Since TE287 the scan files into the row's File Into folder, resolved FROM the anchor —
+        // `filingDestinationRoot(forAnchor:)`, pinned in `OrganizeScopeAutoRescanTests`.
+        #expect(body.contains("let into = filingDestinationRoot(forAnchor: providerAnchor)"),
                 "the filing scan is anchored at the account root again, so its taxonomy is the whole account")
+        #expect(body.contains("providerRoot: URL(fileURLWithPath: into)"))
         // And the one write is where the root is normalized away, so no caller can mint a second
         // encoding of the global view.
         // The root is a REQUIRED argument, so no caller can silently inherit the focused pane's —

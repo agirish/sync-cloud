@@ -13478,3 +13478,28 @@ Folders Again carries the reading over (GP). No maintenance line has source surv
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No source surveys | CLOSED — does not apply |
+
+## To File from any folder: File Into, Download and Read, the never-scanned state (TE287) — main only
+
+2026-10-31, for v7.0. On `main`: To File files a folder source's loose files (Home ▸ Downloads)
+into the folder survey's root rather than the whole source, with a File Into menu per source
+(`FilingDestinationRoot`); cloud-only loose files are recorded and fetched only by Download and
+Read (`FileSyncManager+FilingDownload.swift`). Two defects came out with it, and the lines that
+have the code carry both: a scope To File never read showed "Nothing in" it
+(`scopeHidesAllState` with no coverage check), and a cloud-only PDF was offered Read Scan, whose
+render downloads it.
+
+```sh
+for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s scopeHides=%s unreadable=%s downloadRead=%s\n' $l \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/LensWorkspaceView.swift 2>/dev/null | grep -c 'private func scopeHidesAllState')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Filing.swift 2>/dev/null | grep -c 'filingUnreadableScans = Set(readSet')" \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/FileSyncManager+FilingDownload.swift | wc -l | tr -d ' ')"; done
+# measured 2026-10-31, against origin, before this landed:
+# main / v6.x / v5.x / v4.x    scopeHides=1 unreadable=1 downloadRead=0
+# v3.x / v2.x                  scopeHides=0 unreadable=0 downloadRead=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` | Both defects; no File Into or Download and Read | RECORDED — not owed |
+| `v3.x` / `v2.x` | Neither defect (no scope, no Read Scan) and no File Into | CLOSED — does not apply |

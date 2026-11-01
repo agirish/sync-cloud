@@ -287,6 +287,8 @@ struct ContentView: View {
     @AppStorage(OrganizeLens.defaultsKey) var paletteRailLens: OrganizeLens?
 
     @AppStorage("selectedLeftProviderId") var leftProviderId: String = "iCloud"
+    /// To File's File Into choices, source id → folder, as JSON (TE287). See `ContentView+FileInto`.
+    @AppStorage(FilingDestinationRoot.storedKey) var toFileDestinationsJSON: String = ""
     /// Text ▸ Edit in Preview (Experimental): whether Preview has a text view for the Markup and
     /// find items to act on (TE67) — read here so the menus follow the switch at once.
     @AppStorage(EditorTextSettings.editsInPreviewKey) var editsInPreviewSetting = EditorTextSettings.editsInPreviewDefault
@@ -3355,12 +3357,14 @@ struct ContentView: View {
         // The one filing scan publishes both of these lists — the loose files and the rename
         // backlog, risky names included — so either of them showing is a reason to refresh it.
         case .toFile, .renames:
-            // The taxonomy a filing scan files against — the anchor, not the account root.
-            let root = lensProviderAnchorExpanded
+            // The taxonomy a filing scan files against — File Into's folder (TE287), which is the
+            // anchor unless the source is a folder or the user chose another.
+            let root = lensFilingDestinationRoot
             guard !target.isEmpty, !root.isEmpty else { return }
             syncManager.autoRescanFilingIfEligible(
                 folder: URL(fileURLWithPath: target), providerRoot: URL(fileURLWithPath: root),
-                providerName: lensProviderName, nameProvider: lensProviderType)
+                providerName: lensFilingProviderName, nameProvider: lensProviderType,
+                reportsTreeFindings: lensFilingReportsTreeFindings)
         // **Storage is handled by `restoreStorageLensIfShowing`, not here, and the arm is written
         // out to say so.** Its results are RESTORED rather than recomputed — it is the one lens
         // whose report survives a launch — and it had a function of its own for that before the
@@ -3678,9 +3682,13 @@ struct ContentView: View {
         Logger.shared.info("User requested Organize for \(folder)")
         setOrganizeScope(folder, providerRoot: providerRoot)
         show(.toFile)
+        // Files into the row's source's File Into folder (TE287) — its anchor, unless it is a
+        // folder source or the user chose another.
+        let into = filingDestinationRoot(forAnchor: providerAnchor)
         syncManager.startFindFilingSuggestions(
-            folder: URL(fileURLWithPath: folder), providerRoot: URL(fileURLWithPath: providerAnchor),
-            providerName: lensProviderName, nameProvider: lensProviderType)
+            folder: URL(fileURLWithPath: folder), providerRoot: URL(fileURLWithPath: into),
+            providerName: filingProviderName(into: into, anchor: providerAnchor),
+            nameProvider: lensProviderType, reportsTreeFindings: into == providerAnchor)
     }
 
     /// §5.10's second deliberate route: the shape question, aimed at one folder — Restructure's
@@ -3945,7 +3953,10 @@ struct ContentView: View {
         // rule's "Home/Utilities/…" template files there even when previewing inside a subfolder,
         // instead of nesting the tree under whatever folder happened to be focused. The ANCHOR and
         // not the account root: every existing template was authored against the documents folder.
-        let providerRoot = lensProviderAnchorExpanded
+        //
+        // File Into's folder rather than the anchor itself (TE287): the same tree To File files
+        // into, so a rule previewed from Home ▸ Downloads lands where its suggestions would.
+        let providerRoot = lensFilingDestinationRoot
         guard !root.isEmpty, !providerRoot.isEmpty else { return }
         Logger.shared.info("User requested Rules preview for \(root)\(only == nil ? "" : " (single rule)")")
         show(.rules)
@@ -4014,7 +4025,9 @@ struct ContentView: View {
     /// loose files, and To File then reported "Nothing to do in TODO" without TODO ever having been
     /// enumerated.
     func findFilingSuggestionsAction(ignoringCache: Bool = false) {
-        let root = lensProviderAnchorExpanded
+        // File Into's folder (TE287): the anchor for a cloud source, the folder survey's root for
+        // a folder source, or whatever the user chose.
+        let root = lensFilingDestinationRoot
         // The provider root is the taxonomy the scan files AGAINST, so it is required whichever
         // folder is being enumerated. `filingScanTargetFolder` folded that check in; the scope
         // branch needs it stated.
@@ -4024,12 +4037,13 @@ struct ContentView: View {
         selectedWorkspace = .filing
         syncManager.startFindFilingSuggestions(folder: URL(fileURLWithPath: folder),
                                                providerRoot: URL(fileURLWithPath: root),
-                                               providerName: lensProviderName,
+                                               providerName: lensFilingProviderName,
                                                // Names come back on this pass — see
                                                // `detectRiskyNames`. The ruleset is the scanned
                                                // provider's, not whichever pane is focused later.
                                                nameProvider: lensProviderType,
-                                               ignoringCache: ignoringCache)
+                                               ignoringCache: ignoringCache,
+                                               reportsTreeFindings: lensFilingReportsTreeFindings)
     }
 
     /// Re-derives the folder memory from the provider tree as it stands now.
@@ -5480,6 +5494,7 @@ struct ContentView: View {
                 providerAnchor: lensProviderAnchorExpanded,
                 providerRoot: lensProviderRootExpanded,
                 filingInboxFolder: filingInboxFolder,
+                fileInto: fileIntoChoice,
                 onQuickLook: { toggleQuickLook($0) },
                 onBuildStorage: buildStorageLensAction,
                 documentSurveyCard: documentSurveyCardState,

@@ -88,6 +88,7 @@ extension FileSyncManager {
     public func startFindFilingSuggestions(folder: URL, providerRoot: URL, providerName: String? = nil,
                                            nameProvider: CloudProvider.ProviderType? = nil,
                                            ignoringCache: Bool = false,
+                                           reportsTreeFindings: Bool = true,
                                            options: FilingOptions = .init()) {
         filingScanTask = restartedScanTask(replacing: filingScanTask) { [weak self] in
             guard let self else {
@@ -101,7 +102,8 @@ extension FileSyncManager {
             }
             await self.findFilingSuggestions(folder: folder, providerRoot: providerRoot,
                                              providerName: providerName, nameProvider: nameProvider,
-                                             ignoringCache: ignoringCache, options: options)
+                                             ignoringCache: ignoringCache,
+                                             reportsTreeFindings: reportsTreeFindings, options: options)
         }
     }
 
@@ -129,6 +131,7 @@ extension FileSyncManager {
     @discardableResult
     public func autoRescanFilingIfEligible(folder: URL, providerRoot: URL, providerName: String? = nil,
                                            nameProvider: CloudProvider.ProviderType? = nil,
+                                           reportsTreeFindings: Bool = true,
                                            options: FilingOptions = .init()) -> Bool {
         guard lensScanTargetIsRemembered(folder.path, forKey: Self.lastFilingScanFolderKey),
               Self.isReachableDirectory(folder.path, fileManager: fileManager),
@@ -138,7 +141,7 @@ extension FileSyncManager {
         Logger.shared.info("Filing: auto-rescanning \(folder.lastPathComponent) (scanned before)")
         startFindFilingSuggestions(folder: folder, providerRoot: providerRoot,
                                    providerName: providerName, nameProvider: nameProvider,
-                                   options: options)
+                                   reportsTreeFindings: reportsTreeFindings, options: options)
         return true
     }
 
@@ -229,9 +232,16 @@ extension FileSyncManager {
     /// line at each `return` — there are sixteen, and the seventeenth to be added would not have
     /// one — the reporting hangs off the `defer` that already runs on every path, and names the
     /// phase the scan died in. A new cancellation check is covered the moment it is written.
+    ///
+    /// **`reportsTreeFindings` is false when `providerRoot` is not the source the other lenses
+    /// describe** (TE287): loose files in Home ▸ Downloads filed into Documents in iCloud. The walk
+    /// of `providerRoot` is still the taxonomy, but its risky names and rename plans are about
+    /// iCloud, and published under the Home folder source they would answer Names and Renames for
+    /// a tree that source does not show. So neither is run, and whatever they last said stands.
     public func findFilingSuggestions(
         folder: URL, providerRoot: URL, providerName: String? = nil,
         nameProvider: CloudProvider.ProviderType? = nil, ignoringCache: Bool = false,
+        reportsTreeFindings: Bool = true,
         options: FilingOptions = .init(), fileManager fm: FileManaging? = nil
     ) async {
         guard !isSuggestingFiles else {
@@ -277,6 +287,10 @@ extension FileSyncManager {
         let looseTree = await Self.buildTree(url: folder, sortOption: .name, fileManager: fileManager, maxDepth: 1)
         let looseFiles = looseTree.filter { !$0.isDirectory }
         if Task.isCancelled { return }
+        // Which of them are only in the cloud (GJ): the extractor will not open those, so their
+        // cards are placed by name and say so. Published with the results below.
+        let notDownloaded = await Self.cloudOnlyPaths(looseFiles.map { $0.id }, statFlags: filingStatFlags)
+        if Task.isCancelled { return }
 
         enter(.learningFolders)
         // Budgeted first, as a probe — see `buildStorageLens`. A taxonomy missing the folders the
@@ -302,7 +316,7 @@ extension FileSyncManager {
         // ground the standalone Rename scan used to cover — so folding the check in loses no
         // coverage, only the trip. Published before the suggestions so the finding is on screen
         // as soon as it is known rather than waiting on classification.
-        if let nameProvider {
+        if reportsTreeFindings, let nameProvider {
             await detectRiskyNames(in: taxonomy, root: providerRoot, provider: nameProvider)
             if Task.isCancelled { return }
         }
@@ -310,8 +324,10 @@ extension FileSyncManager {
         // The rename backlog, on the same walk and for the same reason. `RenamePlanner` is pure and
         // reads the folder profile rather than the disk, so this costs one traversal of a tree that
         // is already in memory — no second walk, and no tab to remember to visit.
-        await detectRenamePlans(in: taxonomy, root: providerRoot)
-        if Task.isCancelled { return }
+        if reportsTreeFindings {
+            await detectRenamePlans(in: taxonomy, root: providerRoot)
+            if Task.isCancelled { return }
+        }
 
         // The user's rules steer the suggestions. Automations are the one rule system; the legacy
         // remembered-rule store (F3) is consulted only until the one-time migration into
@@ -452,8 +468,11 @@ extension FileSyncManager {
                     // A PDF that was read and gave up nothing is a scan with no text layer. Noted
                     // now, while it is known which files were actually read; the expensive part —
                     // rendering and OCR — is offered, not spent. See `filingUnreadableScans`.
+                    // Not a cloud-only one: it gave nothing because it was not opened, and Read Scan
+                    // would render it — downloading it — to find text it may well have (GJ).
                     filingUnreadableScans = Set(readSet.map { $0.filePath }.filter {
-                        routerSnippets[$0] == nil && ($0 as NSString).pathExtension.lowercased() == "pdf"
+                        routerSnippets[$0] == nil && !notDownloaded.contains($0)
+                            && ($0 as NSString).pathExtension.lowercased() == "pdf"
                     })
                     // **Tokenize only what the keyword pass will use.** `filingTokensFromText` is
                     // NaturalLanguage named-entity recognition over up to 20,000 characters — the
@@ -765,6 +784,7 @@ extension FileSyncManager {
         // files it describes. Truncated to what the scorer was measured on, not to what the
         // extractor returned (see `filingPageSamples`).
         filingPageSamples = pageSamples
+        filingNotDownloaded = notDownloaded
         filingLastCacheReuse = cacheReuse
         // These results have not been refined — whatever the previous list's refine pass did, it
         // was about files that are no longer on screen. Cleared in the same publish so the summary
@@ -1663,6 +1683,7 @@ extension FileSyncManager {
         // rule-offer — held across every switch in a session, they only grow.
         filingUnreadableScans = []
         filingPageSamples = [:]
+        filingNotDownloaded = []
     }
 
     // MARK: Apply

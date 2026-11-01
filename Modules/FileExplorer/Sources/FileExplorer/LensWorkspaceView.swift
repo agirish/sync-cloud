@@ -483,6 +483,9 @@ public struct LensWorkspaceView: View {
     /// overview that replaced the hidden root-swap. nil hides the offer entirely rather than
     /// showing one that points nowhere.
     private let filingInboxFolder: String?
+    /// Where To File files into, with the choices for changing it (TE287). nil hides the menu —
+    /// a host with no sources to offer, and the tests that mount this view without one.
+    private let fileInto: FileIntoChoice?
     /// Presents a Quick Look preview for a file (routed to the same `quickLookPreview` binding the
     /// spacebar shortcut uses). nil disables the per-card Preview button.
     private let onQuickLook: ((URL) -> Void)?
@@ -571,6 +574,7 @@ public struct LensWorkspaceView: View {
         providerAnchor: String? = nil,
         providerRoot: String? = nil,
         filingInboxFolder: String? = nil,
+        fileInto: FileIntoChoice? = nil,
         onQuickLook: ((URL) -> Void)? = nil,
         onBuildStorage: @escaping () -> Void = {},
         documentSurveyCard: DocumentSurveyCardState? = nil,
@@ -631,6 +635,7 @@ public struct LensWorkspaceView: View {
         self.providerAnchor = providerAnchor ?? providerRoot
         self.providerRoot = providerRoot
         self.filingInboxFolder = filingInboxFolder
+        self.fileInto = fileInto
         self.onQuickLook = onQuickLook
         self.onBuildStorage = onBuildStorage
         self.documentSurveyCard = documentSurveyCard
@@ -1676,12 +1681,14 @@ public struct LensWorkspaceView: View {
                   !(organizeLens.goesStaleDuringFilingScan && syncManager.isSuggestingFiles) {
             switch organizeLens {
             case .toFile:
+                if hasFilingResults { filingSummary(rows.filing) }
+                // Which tree these files go into (TE287), then whose survey reads it (GK–GN).
+                if let fileInto { FileIntoMenu(choice: fileInto) }
                 if hasFilingResults {
-                    filingSummary(rows.filing)
-                    // Whose survey placed these cards, and the choice of another (GK–GN).
                     FilingSurveyMenu(syncManager: syncManager, sources: filingSurveySources,
                                      onRescan: onFindFilingSuggestions)
                 }
+                downloadAndReadButton(rows.filing)
             case .renames:
                 // The FILTERED plans, like the queue's readout beside it and unlike the rail badge
                 // that got you here: a badge is a signpost and counts its whole list, a readout
@@ -5282,18 +5289,19 @@ public struct LensWorkspaceView: View {
             // prompt's height. The offer rides in the move's "Filed …" result message as
             // "Save as rule…" (`FilingRuleOfferPanel`), and these cards never move for it.
             Group {
-                if syncManager.isSuggestingFiles {
-                    filingScanningState
-                } else if showsFilingSetupCard {
-                    filingIntroState
-                } else if syncManager.filingSuggestions.isEmpty {
-                    filingCleanState
-                } else if filing.isEmpty {
+                switch Self.filingContentState(
+                    isScanning: syncManager.isSuggestingFiles, showsSetup: showsFilingSetupCard,
+                    rowsShown: filing.count, suggestions: syncManager.filingSuggestions.count,
+                    scopeIsSet: scope != nil, scopeWasScanned: scope.map { passCoverage(for: $0).filing } ?? true) {
+                case .scanning: filingScanningState
+                case .setup: filingIntroState
+                case .notScannedHere: if let scope { filingNotScannedHereState(scope) }
+                case .clean: filingCleanState
+                case .hidden:
                     noMatchesState(scopedTotal: counts.toFile,
                                    globalTotal: syncManager.filingSuggestions.count,
                                    noun: "loose file")
-                } else {
-                    filingList(filing)
+                case .list: filingList(filing)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -5314,7 +5322,9 @@ public struct LensWorkspaceView: View {
                 state: automationsState,
                 rules: rules,
                 providerName: providerName,
-                destinationRoot: providerAnchor.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) },
+                // File Into's folder when the host gives one (TE287) — the tree the Rules preview
+                // resolves into, so the editor relativizes against the same root.
+                destinationRoot: (fileInto?.path ?? providerAnchor).flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) },
                 onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } },
                 onReveal: { path in NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) },
                 onPreview: onPreviewAutomations
@@ -5329,9 +5339,15 @@ public struct LensWorkspaceView: View {
     ///
     /// Assembled by the manager, not here: the proposal keys on the page this scan already read and
     /// on the tree's own filing memory, and both live there (see `proposeAutomationRule`).
+    ///
+    /// `providerRoot` is the tree the card was scanned against — the root a rule's relative
+    /// destination is resolved from on the next scan. Not ``providerAnchor``: with File Into on
+    /// Documents in iCloud and the source on the Home folder (TE287), measuring against the Home
+    /// folder saved `Documents/Family/Shweta`, which the next scan would resolve to
+    /// `Documents/Documents/Family/Shweta` and create.
     private func offerRule(fileName: String, filePath: String, destinationPath: String,
-                           modificationDate: Date?) {
-        let rel = RuleOfferLogic.relativeToProviderRoot(destinationPath, providerRoot: providerAnchor)
+                           providerRoot: String?, modificationDate: Date?) {
+        let rel = RuleOfferLogic.relativeToProviderRoot(destinationPath, providerRoot: providerRoot)
         // The file's own date is what lets a destination ending in a year generalise to `{year}`
         // rather than freezing the year the example happened to have.
         guard let proposal = syncManager.proposeAutomationRule(fileName: fileName,
@@ -5406,6 +5422,7 @@ public struct LensWorkspaceView: View {
                     guard await syncManager.applyFilingSuggestion(suggestion, to: dest) == .moved else { return }
                     offerRule(fileName: suggestion.fileName, filePath: suggestion.filePath,
                               destinationPath: dest.path,
+                              providerRoot: suggestion.providerRoot ?? providerAnchor,
                               modificationDate: suggestion.modificationDate)
                 }
             },
@@ -5423,7 +5440,8 @@ public struct LensWorkspaceView: View {
             onReadScan: syncManager.filingUnreadableScans.contains(suggestion.filePath)
                 ? { Task { await syncManager.readScan(for: suggestion) } }
                 : nil,
-            isReadScanBusy: syncManager.filingOCRInFlight.contains(suggestion.filePath)
+            isReadScanBusy: syncManager.filingOCRInFlight.contains(suggestion.filePath),
+            isNotDownloaded: syncManager.filingNotDownloaded.contains(suggestion.filePath)
         )
     }
 
@@ -5583,6 +5601,73 @@ public struct LensWorkspaceView: View {
         return (folder as NSString).lastPathComponent
     }
 
+    /// What To File's content area shows — the chooser `filingContent` switches on, kept pure so
+    /// the order of its questions can be asserted without mounting a scope.
+    enum FilingContentState: Equatable { case scanning, setup, notScannedHere, clean, hidden, list }
+
+    /// **"Not scanned here" is asked before "clean" and "hidden"** (TE287): with a scope To File
+    /// never read, the list is empty by construction, and both of those answers would describe a
+    /// folder nobody looked at — "Nothing loose to file", or "Nothing in “Downloads”".
+    static func filingContentState(isScanning: Bool, showsSetup: Bool, rowsShown: Int, suggestions: Int,
+                                   scopeIsSet: Bool, scopeWasScanned: Bool) -> FilingContentState {
+        if isScanning { return .scanning }
+        if showsSetup { return .setup }
+        if rowsShown == 0, scopeIsSet, !scopeWasScanned { return .notScannedHere }
+        if suggestions == 0 { return .clean }
+        if rowsShown == 0 { return .hidden }
+        return .list
+    }
+
+    /// The scope is a folder To File has not read (TE287).
+    ///
+    /// Moving the scope does not scan, and the filing pass reads one folder's own files, so after
+    /// a scan of `Finance` the list holds nothing under `Downloads` by construction. That empty
+    /// list used to reach ``scopeHidesAllState`` and read "Nothing in “Downloads”" over a folder of
+    /// twenty loose files nobody had looked at. ``passCoverage(for:)`` is the overview's own test
+    /// for this, so the two surfaces say the same thing about the same folder.
+    private func filingNotScannedHereState(_ scope: OrganizeScope) -> some View {
+        let into = fileInto.map { " in \($0.label)" } ?? ""
+        // Named apart when the two share a name — iCloud ▸ Downloads scanned, Home ▸ Downloads
+        // scoped — or the sentence reads "last read “Downloads”. Scan “Downloads”".
+        let last = syncManager.filingScanFolder.map { folder -> String in
+            let name = (folder as NSString).lastPathComponent
+            return name == scope.name ? "To File last read another folder named “\(name)”. "
+                                      : "To File last read “\(name)”. "
+        } ?? ""
+        return EmptyStateView(
+            icon: "scope",
+            title: "“\(scope.name)” hasn’t been scanned",
+            message: "\(last)Scan “\(scope.name)” to find homes\(into) for its loose files.",
+            primary: .init("Scan “\(scope.name)”", systemImage: "doc.text.magnifyingglass",
+                           handler: onFindFilingSuggestions),
+            secondary: .init("Organize Everything", systemImage: "xmark.circle",
+                             help: "Clear the “\(scope.name)” scope and show the whole tree") {
+                withAnimation(listSettle) { setScope(nil) }
+            }
+        )
+    }
+
+    /// "Download and Read 13" — fetches the cloud-only files among the rows on screen, reads
+    /// page 1 of each and places them again (GJ). Absent when none of them is cloud-only.
+    @ViewBuilder
+    private func downloadAndReadButton(_ filing: [FilingSuggestion]) -> some View {
+        let cloudOnly = filing.filter { syncManager.filingNotDownloaded.contains($0.filePath) }
+        if !cloudOnly.isEmpty, syncManager.filingSnippetExtractor != nil {
+            let busy = syncManager.isDownloadingFilingFiles
+            Button {
+                Task { await syncManager.downloadAndReadFiling(cloudOnly) }
+            } label: {
+                HStack(spacing: 4) {
+                    if busy { ProgressView().controlSize(.mini) }
+                    Text(busy ? "Downloading…" : "Download and Read \(cloudOnly.count)")
+                }
+            }
+            .controlSize(.small)
+            .disabled(busy || syncManager.isSuggestingFiles)
+            .help("Downloads the \(cloudOnly.count) file\(cloudOnly.count == 1 ? "" : "s") only in the cloud, reads page 1 of each, and suggests homes from what they say. They stay downloaded.")
+        }
+    }
+
     /// Asks where this suggestion should go, then files it there.
     ///
     /// The question used to be an `NSOpenPanel`, which knows nothing about the provider, nothing
@@ -5593,7 +5678,12 @@ public struct LensWorkspaceView: View {
         // Both fallbacks have to test for EMPTY, not just nil. `providerRoot` is handed
         // down as a non-optional String that is "" for an unconfigured provider, so `??` alone never
         // reached the suggestion's own root — the chain read as three options and behaved as one.
-        let root = [providerAnchor, suggestion.providerRoot]
+        //
+        // **The card's own root first** (TE287): it is the tree the scan filed this file against,
+        // which is the source's anchor except when File Into points elsewhere — loose files in
+        // Home ▸ Downloads filed into Documents in iCloud, where browsing the Home folder would
+        // offer every folder but the ones the suggestion came from.
+        let root = [suggestion.providerRoot, providerAnchor]
             .compactMap { $0 }
             .first { !$0.isEmpty } ?? ""
         let panel = { Self.runSystemFolderPanel(for: suggestion.fileName,
@@ -5611,10 +5701,15 @@ public struct LensWorkspaceView: View {
                 firstItemName: suggestion.fileName,
                 isMove: true,
                 providerRoot: root,
-                providerName: (providerName?.isEmpty == false) ? providerName! : "this provider",
+                providerName: fileInto.flatMap { $0.path == root ? $0.label : nil }
+                    ?? ((providerName?.isEmpty == false) ? providerName! : "this provider"),
                 // Opens where the rail is looking, not at the root — the folder you were just in is
-                // the best guess available, and it is one click from the root either way.
-                openAt: syncManager.filingScanFolder ?? root
+                // the best guess available, and it is one click from the root either way. Only when
+                // it IS in the tree being browsed: loose files read from Home ▸ Downloads and filed
+                // into Documents would otherwise open the picker outside its own root (TE287).
+                openAt: syncManager.filingScanFolder.flatMap {
+                    PathBoundary.relativize($0, under: root) != nil ? $0 : nil
+                } ?? root
             ),
             onCommit: { destination in file(suggestion, into: destination) },
             onOther: panel

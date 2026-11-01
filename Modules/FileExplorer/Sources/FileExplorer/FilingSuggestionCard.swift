@@ -36,6 +36,10 @@ struct FilingSuggestionCard: View {
     /// ignores a re-entrant click, so the button must look busy rather than look ready and do
     /// nothing. The wait is seconds, which is long enough to click twice.
     var isReadScanBusy: Bool = false
+    /// The file is only in the cloud, so its home was chosen from its name alone (TE287, GJ). The
+    /// card says so, because "placed by name" is why a suggestion like a ticket under a credit
+    /// card is weak — and Download and Read, above the list, is how to fix it.
+    var isNotDownloaded: Bool = false
 
     /// The name typed over a PROPOSED new folder, empty while it is untouched.
     ///
@@ -105,6 +109,7 @@ struct FilingSuggestionCard: View {
                     // compact card that dropped it would be the one place a silent second copy
                     // gets made.
                     if suggestion.isAlreadyFiled { alreadyFiledRow }
+                    if isNotDownloaded { notDownloadedRow }
                     if best?.remembered == true { rememberedBadge }
                     else if best?.fromAI == true { aiBadge }
                     if densityMetrics.showsSecondaryDetail, let best { whyRow(best) }
@@ -134,6 +139,19 @@ struct FilingSuggestionCard: View {
         return Text("from \(parent) · \(FileSyncManager.formatBytes(suggestion.size))")
             .scaledFont(.system(size: 11, design: .monospaced))
             .foregroundStyle(.tertiary)
+    }
+
+    private var notDownloadedRow: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "icloud")
+                .scaledFont(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.tertiary)
+            Text("Not downloaded · placed by name")
+                .scaledFont(.system(size: 11))
+                .foregroundStyle(.tertiary)
+        }
+        .lineLimit(1)
+        .help("This file is only in the cloud, so To File couldn’t read it. Download and Read fetches it and reads page 1.")
     }
 
     private func destinationRow(_ dest: FilingDestination) -> some View {

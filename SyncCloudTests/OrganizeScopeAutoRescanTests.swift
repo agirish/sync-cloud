@@ -67,8 +67,9 @@ import Foundation
                                    in: source)
         #expect(filing.contains("organizeScope?.path ?? filingScanTargetFolder"),
                 "the filing scan is aimed at the pane again")
-        // The source ANCHOR stays the taxonomy root in both, for the reason below.
-        #expect(filing.contains("let root = lensProviderAnchorExpanded"))
+        // File Into's folder is the taxonomy root (TE287) — the source ANCHOR unless the source is a
+        // folder or the user chose another, for the reason below.
+        #expect(filing.contains("let root = lensFilingDestinationRoot"))
     }
 
     @Test func theSourceAnchorIsStillTheTaxonomyRoot() throws {
@@ -81,10 +82,46 @@ import Foundation
         // documents folder, so anchoring at the root would repoint them all silently: `TODO`, the
         // inbox default, names a real folder at the top of a OneDrive account as well as one inside
         // its Documents. See `ContentView.lensProviderAnchorExpanded`.
+        //
+        // Since TE287 the root is File Into's folder, which for a cloud source with no choice made
+        // IS the anchor — so the anchor rule now lives in `filingDestinationRoot(forProviderId:)`,
+        // and is pinned there.
         let source = try Self.contentView()
         let body = try Self.body(of: "func autoRescanLensIfShowing() {", in: source)
-        #expect(body.contains("let root = lensProviderAnchorExpanded"))
+        #expect(body.contains("let root = lensFilingDestinationRoot"))
         #expect(body.contains("providerRoot: URL(fileURLWithPath: root)"))
+        let fileInto = try Self.contentViewFileInto()
+        let resolve = try Self.body(of: "func filingDestinationRoot(forProviderId id: String) -> String {", in: fileInto)
+        #expect(resolve.contains("let anchor = providerAnchorExpanded(forProviderId: id)"),
+                "File Into defaults from the account root again: rule destinations resolve one level too deep")
+        #expect(resolve.contains("sourceAnchor: anchor"))
+        #expect(fileInto.contains("var lensFilingDestinationRoot: String { filingDestinationRoot(forProviderId: lensProviderId) }"))
+    }
+
+    static func contentViewFileInto() throws -> String {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/ContentView+FileInto.swift")
+        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                "cannot read MacApp/ContentView+FileInto.swift — this scan would be vacuous")
+        try #require(text.count > 2_000, "ContentView+FileInto.swift is implausibly short")
+        return text
+    }
+
+    /// TE287: every door that starts a filing scan files into File Into's folder, and says when
+    /// that tree is not the source — so Names and Renames are not answered about another tree.
+    /// Row menus resolve it from the ROW's anchor, not the focused pane's.
+    @Test func everyFilingScanFilesIntoFileIntosFolder() throws {
+        let source = try Self.contentView()
+        let manual = try Self.body(of: "func findFilingSuggestionsAction(ignoringCache: Bool = false) {", in: source)
+        #expect(manual.contains("reportsTreeFindings: lensFilingReportsTreeFindings"))
+        let auto = try Self.body(of: "func autoRescanLensIfShowing() {", in: source)
+        #expect(auto.contains("reportsTreeFindings: lensFilingReportsTreeFindings"))
+        let row = try Self.body(of: "func organizeFolderAction(_ node: FileNode, providerRoot: String, providerAnchor: String) {", in: source)
+        #expect(row.contains("let into = filingDestinationRoot(forAnchor: providerAnchor)"))
+        #expect(row.contains("providerRoot: URL(fileURLWithPath: into)"))
+        #expect(row.contains("reportsTreeFindings: into == providerAnchor"))
+        #expect(source.contains("fileInto: fileIntoChoice,"), "the lens is not handed File Into")
     }
 
     /// The lens workspace is handed BOTH folders, and each of its two questions gets the right one.
@@ -117,12 +154,12 @@ import Foundation
     /// back to `lensProviderRootExpanded` left the whole suite green.
     @Test func everyTaxonomyAnchoredActionUsesTheAnchor() throws {
         let source = try Self.contentView()
-        for signature in ["func startAutomationPreviewAction(only: UUID? = nil) {",
-                          "func updateFolderMemoryAction() {"] {
-            let body = try Self.body(of: signature, in: source)
-            #expect(body.contains("lensProviderAnchorExpanded"),
-                    "\(signature) is anchored at the account root again")
-        }
+        let survey = try Self.body(of: "func updateFolderMemoryAction() {", in: source)
+        #expect(survey.contains("lensProviderAnchorExpanded"), "the re-survey is anchored at the account root again")
+        // The Rules preview resolves into To File's tree (TE287), which is anchored — see above.
+        let preview = try Self.body(of: "func startAutomationPreviewAction(only: UUID? = nil) {", in: source)
+        #expect(preview.contains("let providerRoot = lensFilingDestinationRoot"),
+                "the Rules preview resolves into a different tree from To File's")
     }
 
     @Test func theScopeIsResolvedThroughOneHelperForReadsAndWrites() throws {

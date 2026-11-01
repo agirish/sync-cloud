@@ -321,6 +321,29 @@ extension FileSyncManager {
               let live = filingSuggestions.first(where: { $0.id == suggestion.id })
         else { return false }
 
+        let (best, refused) = routeWithPage(live, text: text, providerRoot: root, index: index)
+        filingUnreadableScans.remove(suggestion.filePath)
+        guard let best else {
+            Logger.shared.info("Filing: read “\(live.fileName)” (\(text.count) chars) — "
+                               + (refused ? "the home it found is someone else’s folder"
+                                          : "no home matched it"))
+            return false
+        }
+        replaceFilingSuggestion(live.id, candidates: [best])
+        Logger.shared.info("Filing: read “\(live.fileName)” (\(text.count) chars) — "
+                           + "\((best.path as NSString).lastPathComponent)")
+        return true
+    }
+
+    /// Routes one card again now that its first page is in hand — the half of ``readScan(for:)``
+    /// that does not care where the text came from, shared with ``downloadAndReadFiling(_:)``
+    /// (TE287), whose text comes from a file that was only in the cloud when the scan ran.
+    ///
+    /// Records the page sample and applies the cross-person rule, exactly as the scan would.
+    /// Returns the home to show, or nil — with `refused` saying whether a home was found and then
+    /// refused as another person's folder. Changes no card: the caller does.
+    func routeWithPage(_ live: FilingSuggestion, text: String, providerRoot root: String,
+                       index: FilingRouter.Index) -> (best: FilingDestination?, refused: Bool) {
         let rejected = filingRejections(under: URL(fileURLWithPath: root))
         var rejectedByFile: [String: Set<String>] = [:]
         let paths = Self.rejectedPaths(forFileNamed: live.fileName, in: rejected)
@@ -339,11 +362,10 @@ extension FileSyncManager {
         let outcome = Self.route(blank, index: index, snippets: [live.filePath: text],
                                  providerRoot: root, rejectedByFile: rejectedByFile,
                                  peerNames: peerNameLookup())
-        filingUnreadableScans.remove(suggestion.filePath)
         // The scan recorded nothing for this file — it had no text to record. Now it has, and a
         // rule offered after filing it should key on what the OCR found rather than on a filename
         // that says `Son - eOCI.pdf`.
-        filingPageSamples[suggestion.filePath] = String(text.prefix(FilingRouter.contentSampleChars))
+        filingPageSamples[live.filePath] = String(text.prefix(FilingRouter.contentSampleChars))
         // **The same cross-person rule the scan applies, on the one card this replaces.** This
         // path routes and writes a home without going near `applyVerdicts`, so before the sweep
         // existed it was a second live way for one family member's document to land on another's
@@ -361,15 +383,7 @@ extension FileSyncManager {
                 refused = true
                 self?.recordPersonVeto(refusal)
             })
-        guard outcome.routed, let best = swept.first?.best else {
-            Logger.shared.info("Filing: read “\(live.fileName)” (\(text.count) chars) — "
-                               + (refused ? "the home it found is someone else’s folder"
-                                          : "no home matched it"))
-            return false
-        }
-        replaceFilingSuggestion(live.id, candidates: [best])
-        Logger.shared.info("Filing: read “\(live.fileName)” (\(text.count) chars) — "
-                           + "\((best.path as NSString).lastPathComponent)")
-        return true
+        guard outcome.routed, let best = swept.first?.best else { return (nil, refused) }
+        return (best, false)
     }
 }
