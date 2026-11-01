@@ -239,24 +239,35 @@ struct AskClaudePanel: View {
 
     private var header: some View {
         HStack(spacing: 2) {
-            HStack(alignment: .center, spacing: 6) {
-                Image(systemName: "bubble.left.and.text.bubble.right")
-                    .symbolRenderingMode(.hierarchical)
-                    .font(.headline)
-                // The title, and under it what the next question will describe (TE260).
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("Claude").font(.headline)
-                    Text(place.subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .help(place.fullPath)
+            // Double-click docks it right, on the title and the space beside it but not the
+            // buttons: a double-click gesture over a button holds each click until the double-click
+            // interval runs out (0.35 s measured), and the shield's popover came up that late.
+            HStack(spacing: 0) {
+                HStack(alignment: .center, spacing: 6) {
+                    Image(systemName: "bubble.left.and.text.bubble.right")
+                        .symbolRenderingMode(.hierarchical)
+                        .font(.headline)
+                    // The title, and under it what the next question will describe (TE260).
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("Claude").font(.headline)
+                        Text(place.subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(place.fullPath)
+                    }
+                }
+                .help("Drag the header to move. Drop it at the left or right side to dock it there; double-click to dock it right.")
+                .accessibilityElement(children: .combine)
+                Spacer(minLength: 8)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) {
+                withDesignAnimation(.spring(duration: 0.25), reduceMotion: reduceMotion) {
+                    placementRaw = Placement.right.rawValue
                 }
             }
-            .help("Drag the header to move. Drop it at the left or right side to dock it there; double-click to dock it right.")
-            .accessibilityElement(children: .combine)
-            Spacer(minLength: 8)
             AskClaudeHeaderButton(symbol: "checkmark.shield", help: "What Claude sees, and what it may see", label: "What Claude Sees",
                                   isOn: showsPlace) { showsPlace.toggle() }
                 .popover(isPresented: $showsPlace, arrowEdge: .bottom) {
@@ -279,11 +290,6 @@ struct AskClaudePanel: View {
         .padding(.bottom, 4)
         .contentShape(Rectangle())
         .gesture(moveGesture)
-        .onTapGesture(count: 2) {
-            withDesignAnimation(.spring(duration: 0.25), reduceMotion: reduceMotion) {
-                placementRaw = Placement.right.rawValue
-            }
-        }
     }
 
     private var thread: some View {
