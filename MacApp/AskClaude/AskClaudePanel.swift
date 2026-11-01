@@ -35,6 +35,7 @@ struct AskClaudePanel: View {
 
     @State private var draft = ""
     @FocusState private var composerFocused: Bool
+    @State private var caret = AskClaudeComposerCaret()
     @State private var spentText = ""
     @AppStorage(AskClaudePrivacy.readsFilesKey) private var readsFiles = false
     @State private var showsPlace = false
@@ -332,7 +333,20 @@ struct AskClaudePanel: View {
                     .lineLimit(1...4)
                     .focused($composerFocused)
                     .onSubmit(send)
+                    // Up and Down walk the questions typed before, like a shell (AskClaudePromptHistory);
+                    // inside a question of several lines they move the caret until it's on the edge line.
+                    .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { press in
+                        guard press.isPlainKeystroke else { return .ignored }
+                        let up = press.key == .upArrow
+                        guard caret.isOnEdgeLine(up: up) else { return .ignored }
+                        guard let shown = up ? chat.recallOlder(than: draft) : chat.recallNewer(than: draft) else {
+                            return .ignored
+                        }
+                        draft = shown
+                        return .handled
+                    }
                     .disabled(chat.isRunning)
+                    .background(AskClaudeComposerCaret.Anchor(caret: caret))
                 if chat.isRunning {
                     Button(action: chat.stop) { Image(systemName: "stop.fill") }
                         .buttonStyle(.borderless)
@@ -388,6 +402,7 @@ struct AskClaudePanel: View {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !chat.isRunning else { return }
         draft = ""
+        chat.rememberSent(text)
         onAsk(text)
     }
 
@@ -398,6 +413,44 @@ struct AskClaudePanel: View {
         spentText = limit > 0
             ? "\(AskClaudeSpend.format(spent)) of \(AskClaudeSpend.format(limit))"
             : AskClaudeSpend.format(spent)
+    }
+}
+
+/// Where the box's caret is, for Up and Down: on the first line Up recalls, on the last Down does.
+/// Asked of the field editor in the box's own window, found through a zero-sized view in the box:
+/// the key window's could be another's. Asked through `firstRect(forCharacterRange:)`, which
+/// TextKit 1 and 2 both answer; reaching for `layoutManager` would drop a TextKit 2 view back to 1.
+@MainActor
+final class AskClaudeComposerCaret {
+    fileprivate weak var anchor: NSView?
+
+    func isOnEdgeLine(up: Bool) -> Bool {
+        // No field editor in front (it hasn't come up yet): nothing to move the caret through.
+        guard let view = anchor?.window?.firstResponder as? NSTextView else { return true }
+        return Self.isOnEdgeLine(of: view, up: up)
+    }
+
+    static func isOnEdgeLine(of view: NSTextView, up: Bool) -> Bool {
+        // Mid-composition (an input method's marked text), the arrows belong to it.
+        guard !view.hasMarkedText() else { return false }
+        let length = (view.string as NSString).length
+        let selection = view.selectedRange()
+        let caret = up ? selection.location : NSMaxRange(selection)
+        let edge = up ? 0 : length
+        guard caret != edge else { return true }
+        let caretLine = view.firstRect(forCharacterRange: NSRange(location: caret, length: 0), actualRange: nil)
+        let edgeLine = view.firstRect(forCharacterRange: NSRange(location: edge, length: 0), actualRange: nil)
+        return abs(caretLine.midY - edgeLine.midY) < max(1, edgeLine.height / 2)
+    }
+
+    struct Anchor: NSViewRepresentable {
+        let caret: AskClaudeComposerCaret
+        func makeNSView(context: Context) -> NSView {
+            let view = NSView(frame: .zero)
+            caret.anchor = view
+            return view
+        }
+        func updateNSView(_ view: NSView, context: Context) { caret.anchor = view }
     }
 }
 

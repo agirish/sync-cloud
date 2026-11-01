@@ -15,7 +15,7 @@ import Events
 /// thread, not the layer that builds the panel.
 @MainActor
 final class AskClaudeChatHolder: ObservableObject {
-    let chat = AskClaudeChat(storeURL: AskClaudeChat.defaultStore)
+    let chat = AskClaudeChat(storeURL: AskClaudeChat.defaultStore, historyURL: AskClaudeChat.defaultHistoryStore)
     let visibility = AskClaudeVisibility()
 }
 
@@ -146,6 +146,12 @@ final class AskClaudeChat: ObservableObject {
 
     static let defaultStore: URL? = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
         .appendingPathComponent("SyncCloud/AskClaude/chat.json")
+    static let defaultHistoryStore: URL? = defaultStore?.deletingLastPathComponent().appendingPathComponent("prompts.json")
+
+    /// The questions typed into the box, for Up and Down; kept between launches beside the chat,
+    /// and not cleared by New Chat or the hour's reset.
+    private var promptHistory = AskClaudePromptHistory()
+    private let historyURL: URL?
 
     /// What is written between launches: the thread, when it was last used, and the transcript.
     private struct Stored: Codable {
@@ -161,6 +167,7 @@ final class AskClaudeChat: ObservableObject {
          // Nil by default: only the app's own chat passes the real file, so a test host (which IS
          // SyncCloud, with his home folder) can never write over his chat. It did once, 2026-10-30.
          storeURL: URL? = nil,
+         historyURL: URL? = nil,
          // Where a changed key is announced; tests pass their own, since a post to the shared
          // one reaches every chat in the process.
          keyChanges: NotificationCenter = .default) {
@@ -170,8 +177,10 @@ final class AskClaudeChat: ObservableObject {
         self.readKey = readKey
         self.now = now
         self.storeURL = storeURL
+        self.historyURL = historyURL
         self.engine = makeEngine()
         restore()
+        restoreHistory()
         // A key replaced or removed in Settings reaches this chat at once, not at its next start.
         keyCenter = keyChanges
         // Hiding a folder (from the panel or Settings) marks the chat to start fresh.
@@ -260,6 +269,34 @@ final class AskClaudeChat: ObservableObject {
         } catch {
             Logger.shared.warning("Ask Claude: the chat couldn’t be saved — \(error.localizedDescription)")
         }
+    }
+
+    /// The question before the one in the box (Up), or nil when there's none.
+    func recallOlder(than current: String) -> String? { promptHistory.older(than: current) }
+
+    /// The question after the one in the box (Down), ending at the unsent draft; nil at the draft.
+    func recallNewer(than current: String) -> String? { promptHistory.newer(than: current) }
+
+    /// A question sent from the box, kept for Up.
+    func rememberSent(_ question: String) {
+        promptHistory.record(question)
+        guard let historyURL else { return }
+        do {
+            let data = try JSONEncoder().encode(promptHistory.entries)
+            try FileManager.default.createDirectory(at: historyURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: historyURL, options: .atomic)
+        } catch {
+            Logger.shared.warning("Ask Claude: the typed questions couldn’t be saved — \(error.localizedDescription)")
+        }
+    }
+
+    private func restoreHistory() {
+        guard let historyURL, let data = try? Data(contentsOf: historyURL) else { return }
+        guard let entries = try? JSONDecoder().decode([String].self, from: data) else {
+            Logger.shared.warning("Ask Claude: the typed questions couldn’t be read, so Up starts empty")
+            return
+        }
+        promptHistory = AskClaudePromptHistory(entries: entries)
     }
 
     private func refreshLinkTargets() {
