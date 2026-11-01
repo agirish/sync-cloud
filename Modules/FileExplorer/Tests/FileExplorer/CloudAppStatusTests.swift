@@ -180,7 +180,7 @@ import Sync
     /// one.
     @Test func anUnansweredFolderMarksItsSourceNotResponding() async {
         let fake = Fake()
-        fake.set(unanswered: ["\(Self.storage)/OneDrive-Work/.Trash"])
+        fake.set(unanswered: ["\(Self.storage)/OneDrive-Work/Projects"])
         let monitor = monitor(fake)
         await monitor.refresh()
         #expect(monitor.problems == [Self.work.id: .notResponding])
@@ -189,6 +189,21 @@ import Sync
         fake.set(unanswered: [])
         await monitor.refresh()
         #expect(monitor.problems.isEmpty)
+    }
+
+    /// **A folder the provider never syncs says nothing about the app.** Each OneDrive account's
+    /// `.Trash` is dataless and never answers, OneDrive running or not (measured 2026-10-31) — it
+    /// marked both accounts "not responding" at every launch.
+    @Test func anUnansweredHiddenFolderMarksNothing() async {
+        let fake = Fake()
+        fake.set(unanswered: ["\(Self.storage)/OneDrive-Work/.Trash", "\(Self.storage)/OneDrive-Personal/.Trash"])
+        let monitor = monitor(fake)
+        await monitor.refresh()
+        #expect(monitor.problems.isEmpty, "said \(monitor.problems)")
+
+        fake.set(unanswered: ["\(Self.storage)/OneDrive-Work/.Trash", "\(Self.storage)/OneDrive-Work/Projects"])
+        await monitor.refresh()
+        #expect(monitor.problems == [Self.work.id: .notResponding])
     }
 
     @Test func iCloudSignedOutMarksICloudOnly() async {
@@ -354,13 +369,13 @@ import Sync
     /// running" is. A running app's unanswered folder outranks a late upload.
     @Test func notRunningOutranksAndSilencesNotResponding() async {
         let fake = Fake()
-        let trash = "\(Self.storage)/OneDrive-Work/.Trash"
+        let silent = "\(Self.storage)/OneDrive-Work/Projects"
         let plan = "\(Self.storage)/OneDrive-Work/Plan.docx"
         fake.change(plan)
         let monitor = monitor(fake)
         await monitor.refresh()
         fake.now += CloudAppStatusModel.uploadDeadline
-        fake.set(unanswered: [trash])
+        fake.set(unanswered: [silent])
         await monitor.refresh()
         #expect(monitor.problems == [Self.work.id: .notResponding], "a late upload outranked an unanswered folder")
 

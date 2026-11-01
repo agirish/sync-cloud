@@ -238,7 +238,12 @@ public struct CloudAppStatusModel: Sendable {
         let coverage = FileLocation.coverage(of: sources, disabledProviderIds: [])
         func owner(_ path: String) -> String? { FileLocation.covering(path: path, in: coverage)?.providerId }
 
-        let silent = Set(unanswered.compactMap(owner))
+        // A folder under a name the provider never syncs is not one it will ever answer for —
+        // measured 2026-10-31: each OneDrive account's dataless `.Trash` stayed silent past 20 s with
+        // OneDrive running and its Documents listing at once. Counting it said "not responding" at
+        // every launch.
+        let silent = Set(unanswered.filter { !Self.isNeverUploaded(name: ($0 as NSString).lastPathComponent) }
+            .compactMap(owner))
         var waiting: [String: [(String, Date)]] = [:]
         for (path, file) in changed where file.reading == .pending && now.timeIntervalSince(file.changedAt) >= Self.uploadDeadline {
             if let id = owner(path) { waiting[id, default: []].append((path, file.changedAt)) }

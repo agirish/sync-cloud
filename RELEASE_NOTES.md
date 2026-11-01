@@ -129,7 +129,8 @@ Requires **macOS 26**, unchanged from v6.2.
   says so: one amber line along the top of the file list, "Dropbox isn't running · files may be out
   of date", with Open Dropbox at its end; an amber dot in the source menu, the sidebar and
   Settings ▸ Sources; and a row in Activity ▸ Now, with Dismiss. It also covers a cloud folder that
-  doesn't answer, iCloud signed out or iCloud Drive off, and a file SyncCloud changed that still
+  doesn't answer (not a hidden one, such as OneDrive's Trash, which never does), iCloud signed out
+  or iCloud Drive off, and a file SyncCloud changed that still
   hasn't uploaded after 30 minutes. Picking a source checks at once; a warning that appears on its
   own waits until the app has been missing five minutes. Sources turned off in Settings get none.
 
