@@ -393,7 +393,7 @@ extension ContentView {
     private var askClaudeTypeFilterNote: String {
         guard let filter = syncManager.leftTypeFilter else { return "" }
         let total = syncManager.leftTypeFilterFacts?.itemCountBeforeFilter ?? syncManager.leftItemCount
-        return " · type filter on: the pane shows only \(filter.summary)"
+        return " · type filter on: the pane shows \(filter.showingPhrase)"
             + " (\(syncManager.leftItemCount.formatted()) of \(total.formatted()) items)"
     }
 

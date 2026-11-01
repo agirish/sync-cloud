@@ -70,6 +70,18 @@ extension ContentView {
         return PaneStatusFacts.TypeFilter(totalCount: facts.itemCountBeforeFilter, summary: filter.summary)
     }
 
+    /// The folders open in a pane, for its type filter to keep in place while they are open (his
+    /// call GQ): the column stack in Columns, the expanded folders in Tree. Empty with no filter, so
+    /// an unfiltered pane's expanding and drilling never reach the manager.
+    func typeFilterOpenFolders(_ pane: PaneContext) -> Set<String> {
+        guard (pane.isLeft ? syncManager.leftTypeFilter : syncManager.rightTypeFilter) != nil else { return [] }
+        if pane.viewMode == .columns {
+            let path = pane.isLeft ? syncManager.leftBrowsePath : syncManager.rightBrowsePath
+            return Set(path.columnDirectories(treeRoot: pane.currentPath).dropFirst())
+        }
+        return pane.isLeft ? leftTreeExpanded : rightTreeExpanded
+    }
+
     /// Counts the published tree's file types while the pane has no filter, so the type list opens
     /// on real numbers. Once per publish, off the main actor; with a filter on, the manager's pass
     /// counts instead and this stands down.

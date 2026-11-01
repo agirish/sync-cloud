@@ -5200,6 +5200,10 @@ struct ContentView: View {
                                       filterOn: typeFilterBinding(isLeft: pane.isLeft).wrappedValue != nil)) {
             await typeFilterCensusTask(isLeft: pane.isLeft)
         }
+        // The folders open in this pane, which its type filter keeps in place (GQ).
+        .onChange(of: typeFilterOpenFolders(pane), initial: true) { _, folders in
+            syncManager.setTypeFilterOpenFolders(folders, isLeft: pane.isLeft)
+        }
         // The pane's scroll offsets, kept across it being rebuilt. The surface is the workspace AND
         // the side — unlike `hostExpanded` above, which is per side only — because the stack's
         // sideways offset depends on the pane's width, and Browse's pane is not the width of

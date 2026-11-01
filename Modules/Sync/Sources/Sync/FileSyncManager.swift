@@ -1701,6 +1701,42 @@ public class FileSyncManager: ObservableObject {
     /// (TE277). Without it New Folder would make a folder that vanishes at once: it holds no matches.
     internal var leftTypeFilterKeep: Set<String> = []
     internal var rightTypeFilterKeep: Set<String> = []
+    /// Folders open in each pane — the Columns stack, or the outline's expanded folders — as the
+    /// host last reported them (`setTypeFilterOpenFolders`). A type filter keeps them where they
+    /// are while they are open, matches or not (his call GQ): opening a folder the walk had not
+    /// listed, or changing the filter under an open column stack, made the folder vanish from its
+    /// parent and the stack close back past it. Unlike the keep-set above, a filter change keeps
+    /// them; closing the folder is what lets it go.
+    internal var leftTypeFilterOpen: Set<String> = []
+    internal var rightTypeFilterOpen: Set<String> = []
+
+    /// Records the folders open in a pane, for the type filter's pass (GQ). Paths as the pane
+    /// spells them; a column's composed path is matched to the walk's node id, which differs below
+    /// a folder link (`TreeShape.position`). Re-runs the pass only when the pane is filtered and
+    /// the set changed.
+    public func setTypeFilterOpenFolders(_ folders: Set<String>, isLeft: Bool) {
+        guard folders != (isLeft ? leftTypeFilterOpen : rightTypeFilterOpen) else { return }
+        if isLeft { leftTypeFilterOpen = folders } else { rightTypeFilterOpen = folders }
+        guard (isLeft ? leftTypeFilter : rightTypeFilter) != nil else { return }
+        Task { await self.applyFilters() }
+    }
+
+    /// `leftTypeFilterOpen` or its right counterpart, plus each folder's node id where the walk
+    /// spells it otherwise.
+    func typeFilterOpenIDs(isLeft: Bool) -> Set<String> {
+        let open = isLeft ? leftTypeFilterOpen : rightTypeFilterOpen
+        guard !open.isEmpty, (isLeft ? leftTypeFilter : rightTypeFilter) != nil else { return [] }
+        let tree = isLeft ? rawLeftTree : rawRightTree
+        let root = paneTreeFolder(isLeft: isLeft) ?? ""
+        var ids = open
+        for path in open {
+            if let position = TreeShape.position(of: path, under: root, in: tree, links: linkedFolders),
+               let node = TreeShape.node(at: position, in: tree) {
+                ids.insert(node.id)
+            }
+        }
+        return ids
+    }
 
     /// Records that the app itself just wrote `path`, so a type filter does not hide it (TE277).
     /// Both panes: either may be showing the folder it landed in, and a path the other pane does not
@@ -3449,7 +3485,8 @@ public class FileSyncManager: ObservableObject {
         let rawDiffs = rawDifferences
         let showHidden = showHiddenFiles
         let leftTypes = leftTypeFilter, rightTypes = rightTypeFilter
-        let leftKeep = leftTypeFilterKeep, rightKeep = rightTypeFilterKeep
+        let leftKeep = leftTypeFilterKeep.union(typeFilterOpenIDs(isLeft: true))
+        let rightKeep = rightTypeFilterKeep.union(typeFilterOpenIDs(isLeft: false))
         let ignored = effectiveIgnoredPaths
         let patterns = ignorePatterns
         let verifiedSame = verifiedSameDifferenceIds

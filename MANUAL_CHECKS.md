@@ -548,8 +548,11 @@ and key refusals are tested; this is what is not.
   the prompt says "Includes 1 item the filter is hiding."
 - [ ] **Copy banner.** Copy that folder to the other pane → the banner ends "Includes 1 item the
   filter is hiding".
-- [ ] **Columns.** In Columns, open a folder that holds only images, then tick PDFs only → its column
-  says "No matching files", not "Empty".
+- [ ] **Columns.** In Columns, open a folder that holds only images, then tick PDFs only → the folder
+  stays in its parent column with no count, its column stays open and says "No matching files" (GQ).
+  Go back out of it → it disappears.
+- [ ] **All but.** With no filter, untick Images → the chip reads "All but Images", and a Word
+  document in a subfolder still shows (GR).
 - [ ] **Compare.** Each pane's Filter is its own; "Use on Both Panes" copies one to the other; the
   differences list is unchanged by either.
 - [ ] **Narrow pane.** Narrow the pane until Filter folds into ⋯ → ⋯ ▸ Filter by Type lists the kinds

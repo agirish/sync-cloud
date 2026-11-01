@@ -116,6 +116,8 @@ import Sync
         #expect(control(nil).accessibilityValue == "Off")
         #expect(control(PaneTypeFilter(families: [.images])).help == "Showing only Images. Click to change.")
         #expect(control(PaneTypeFilter(families: [.images])).accessibilityValue == "Images")
+        let allButImages = PaneTypeFilter(families: Set(FileTypeFamily.allCases).subtracting([.images]))
+        #expect(control(allButImages).help == "Showing all but Images. Click to change.")
     }
 }
 

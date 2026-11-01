@@ -91,9 +91,26 @@ import Foundation
         #expect(next == PaneTypeFilter(families: [.pdfs, .images]))
     }
 
+    /// **Every other kind, not every other kind present** (GR): a kind the walk has not reached
+    /// yet, or one arriving later, still shows. Named by what it leaves out.
     @Test func untickingAKindFromNoFilterKeepsEveryOtherKind() {
         let next = PaneTypeFilter.toggling(.archives, in: nil, census: Self.census)
-        #expect(next == PaneTypeFilter(families: [.images, .pdfs, .appsAndInstallers, .noExtension]))
+        #expect(next == PaneTypeFilter(families: Set(FileTypeFamily.allCases).subtracting([.archives])))
+        #expect(next?.matches(extension: "docx") == true, "a document found later is hidden")
+        #expect(next?.matches(extension: "zip") == false)
+        #expect(next?.summary == "All but Archives")
+        #expect(next?.showingPhrase == "all but Archives")
+    }
+
+    /// Unticking one extension from no filter leaves the rest of its kind ticked one by one, and
+    /// every other kind whole.
+    @Test func untickingAnExtensionFromNoFilterSaysWhichKindItSplit() {
+        let next = PaneTypeFilter.toggling(extension: "png", in: nil, census: Self.census)
+        #expect(next == PaneTypeFilter(families: Set(FileTypeFamily.allCases).subtracting([.images]),
+                                       extensions: ["jpg", "heic", "webp", "svg"]))
+        #expect(next?.matches(extension: "mp3") == true)
+        #expect(next?.matches(extension: "png") == false)
+        #expect(next?.summary == "All but some Images")
     }
 
     @Test func tickingEverythingIsNoFilter() {
@@ -114,6 +131,7 @@ import Foundation
         #expect(PaneTypeFilter(families: [.pdfs, .images]).summary == "Images, PDFs")
         #expect(PaneTypeFilter(extensions: ["png", "jpg"]).summary == ".jpg, .png")
         #expect(PaneTypeFilter(families: [.images, .pdfs, .archives, .audio]).summary == "Images, PDFs +2")
+        #expect(PaneTypeFilter(families: [.images]).showingPhrase == "only Images")
     }
 
     @Test func aFolderPillNamesTheKindOnlyWhenThereIsOne() {
@@ -285,6 +303,31 @@ import Foundation
         #expect(manager.leftTypeFilter == nil)
         manager.applyTab(parked, isLeft: true, currentProviderId: "icloud")
         #expect(manager.leftTypeFilter == PaneTypeFilter(families: [.pdfs]))
+    }
+
+    /// A folder open in the pane stays where it is while open, matches or not (GQ) — through a
+    /// filter change too, which clears what the pane wrote — and goes once it is closed.
+    @Test func anOpenFolderIsKeptUntilItCloses() async {
+        let manager = FileSyncManager()
+        manager.rawLeftTree = PaneTypeFilterPassTests.tree
+        manager.leftTypeFilter = PaneTypeFilter(families: [.images])
+        await manager.applyFilters()
+        // images/old holds only readme.txt.
+        #expect(manager.leftTree.findNodes(at: ["/Downloads/images/old"]).isEmpty)
+
+        manager.setTypeFilterOpenFolders(["/Downloads/images/old"], isLeft: true)
+        await manager.applyFilters()
+        let kept = manager.leftTree.findNodes(at: ["/Downloads/images/old"]).first
+        #expect(kept?.children == [], "the folder stays, and the filter still hides what is in it")
+        #expect(manager.leftTypeFilterFacts?.matchCounts["/Downloads/images/old"] == nil, "no count for no match")
+
+        manager.leftTypeFilter = PaneTypeFilter(families: [.pdfs])
+        await manager.applyFilters()
+        #expect(!manager.leftTree.findNodes(at: ["/Downloads/images/old"]).isEmpty, "a filter change keeps it")
+
+        manager.setTypeFilterOpenFolders([], isLeft: true)
+        await manager.applyFilters()
+        #expect(manager.leftTree.findNodes(at: ["/Downloads/images/old"]).isEmpty, "closed, it goes")
     }
 
     /// A filter left on is never saved (FH): the stored strip brings the tab back without it.

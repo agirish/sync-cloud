@@ -33,7 +33,7 @@ public struct PaneTypeFilterControl {
     /// The button's tooltip, which says the state (TE281).
     public var help: String {
         guard let active = filter.wrappedValue else { return "Filter by Type" }
-        return "Showing only \(active.summary). Click to change."
+        return "Showing \(active.showingPhrase). Click to change."
     }
 
     /// The button's VoiceOver value.

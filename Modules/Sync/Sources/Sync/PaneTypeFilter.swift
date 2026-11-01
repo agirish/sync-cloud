@@ -77,7 +77,7 @@ public struct PaneTypeFilter: Equatable, Hashable, Sendable {
     /// The filter after the kind's checkbox is clicked.
     public static func toggling(_ family: FileTypeFamily, in filter: PaneTypeFilter?,
                                 census: [String: Int]) -> PaneTypeFilter? {
-        var next = filter ?? everything(in: census)
+        var next = filter ?? everything
         let wasOn = tick(of: family, in: filter, census: census) == .on
         next.extensions = next.extensions.filter { FileTypeFamily.of(extension: $0) != family }
         if wasOn { next.families.remove(family) } else { next.families.insert(family) }
@@ -88,7 +88,7 @@ public struct PaneTypeFilter: Equatable, Hashable, Sendable {
     public static func toggling(extension ext: String, in filter: PaneTypeFilter?,
                                 census: [String: Int]) -> PaneTypeFilter? {
         let family = FileTypeFamily.of(extension: ext)
-        var next = filter ?? everything(in: census)
+        var next = filter ?? everything
         if next.matches(extension: ext) {
             if next.families.contains(family) {
                 // Unticking inside a whole kind: the kind becomes its present extensions minus this
@@ -119,10 +119,12 @@ public struct PaneTypeFilter: Equatable, Hashable, Sendable {
         normalized(PaneTypeFilter(extensions: [ext]), census: census)
     }
 
-    /// Every kind present, as a value — what an edit starts from when the pane had no filter.
-    static func everything(in census: [String: Int]) -> PaneTypeFilter {
-        PaneTypeFilter(families: Set(presentFamilies(in: census)))
-    }
+    /// Every kind, as a value — what an edit starts from when the pane had no filter. **Every kind,
+    /// not every kind present** (his call GR): unticking Images from no filter means "all but
+    /// Images", so a kind the walk has not reached yet, or a file of a new kind arriving later, still
+    /// shows. Ticking kinds one by one after Only is the other way to build a filter, and that one
+    /// stays a list of what is wanted.
+    static let everything = PaneTypeFilter(families: Set(FileTypeFamily.allCases))
 
     /// `nil` when `filter` shows every file `census` holds.
     static func normalized(_ filter: PaneTypeFilter, census: [String: Int]) -> PaneTypeFilter? {
@@ -133,8 +135,16 @@ public struct PaneTypeFilter: Equatable, Hashable, Sendable {
     // MARK: - Words
 
     /// The status-bar chip and VoiceOver value: "Images", "Images, PDFs", ".jpg, .png",
-    /// "Images, PDFs +2". Kinds in the list's order, then any loose extensions of each.
+    /// "Images, PDFs +2". Kinds in the list's order, then any loose extensions of each. A filter
+    /// that shows most kinds is named by what it leaves out (GR): "All but Images", and "All but
+    /// some Images" for a kind split into its extensions.
     public var summary: String {
+        if isExclusion {
+            let parts = FileTypeFamily.allCases.filter { !families.contains($0) }.map { family in
+                extensions.contains { FileTypeFamily.of(extension: $0) == family } ? "some \(family.title)" : family.title
+            }
+            return "All but " + Self.joined(parts)
+        }
         var parts: [String] = []
         for family in FileTypeFamily.allCases {
             if families.contains(family) {
@@ -145,8 +155,23 @@ public struct PaneTypeFilter: Equatable, Hashable, Sendable {
             }
         }
         if parts.isEmpty { return "Nothing ticked" }
-        return parts.count > 3 ? parts.prefix(2).joined(separator: ", ") + " +\(parts.count - 2)"
-                               : parts.joined(separator: ", ")
+        return Self.joined(parts)
+    }
+
+    /// "Showing only Images" or "Showing all but Images" — the button's tooltip and what Ask Claude
+    /// is told, which need the verb the summary leaves out.
+    public var showingPhrase: String {
+        isExclusion ? "all but " + summary.dropFirst("All but ".count) : "only \(summary)"
+    }
+
+    /// Most kinds wholly ticked, at least one not: read by what is left out.
+    var isExclusion: Bool {
+        families.count > FileTypeFamily.allCases.count / 2 && families.count < FileTypeFamily.allCases.count
+    }
+
+    private static func joined(_ parts: [String]) -> String {
+        parts.count > 3 ? parts.prefix(2).joined(separator: ", ") + " +\(parts.count - 2)"
+                        : parts.joined(separator: ", ")
     }
 
     /// The one kind this filter shows, when it shows only one — what a folder's pill names its
@@ -198,9 +223,10 @@ public enum PaneTypeFilterPass {
 
     /// The pruned tree plus its facts.
     ///
-    /// Kept: a file that matches or whose path is in `keep` (what this pane just made, TE277); a
-    /// package, judged as one file by its own extension and never entered (TE275); a folder that is
-    /// unexplored (TE270 — the filter cannot know what it holds), in `keep`, or left with any child.
+    /// Kept: a file that matches or whose path is in `keep` (what this pane just made, TE277, and
+    /// the folders open in it, GQ); a package, judged as one file by its own extension and never
+    /// entered (TE275); a folder that is unexplored (TE270 — the filter cannot know what it holds),
+    /// in `keep`, or left with any child.
     public static func apply(_ filter: PaneTypeFilter, to tree: [FileNode],
                              keep: Set<String> = []) -> (tree: [FileNode], facts: PaneTypeFilterFacts) {
         var walk = Walk(filter: filter, keep: keep)
