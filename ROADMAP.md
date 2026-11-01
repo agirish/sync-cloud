@@ -1002,8 +1002,13 @@ use, so it may land after the v7.0 cut.
    refuses stays skipped until it changes in iCloud (ES); an edit that keeps the size and date is
    caught by the change time the record now keeps (ET); Reverse moves a file moved in from an
    unsynced folder back (EU). An online-only Dropbox file still stops the sync (EV, left as is).
-   Meanwhile the watcher suggests a sync (FV, built): the pill counts what changed on either
-   side since the last Sync Now, judged against the record, and never syncs on its own.
+   Meanwhile the watcher suggests a sync (FV, `370857d07`): the pill counts what changed on either
+   side since the last Sync Now, judged against the record, and never syncs on its own. Not yet
+   seen with a real sync (none was set up on this Mac when it landed): his first use confirms the
+   count. Open: an answer in Activity ▸ Now never runs the Sync Now its code calls for (it calls
+   `syncNow()` while `isAnswering` is still set); an edit keeping size and date isn't counted (ET
+   still syncs it); a shared subfolder inside a synced folder is counted though never synced; the
+   first launch on a Mac already syncing shows "Changes may be waiting" until its next Sync Now.
 4. The watcher as the trigger, then unattended removals.
 
 **Not measured:** whether macOS reports a shared Dropbox folder as shared (decision DL asks at setup
