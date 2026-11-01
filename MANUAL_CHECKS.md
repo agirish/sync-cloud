@@ -534,3 +534,20 @@ and key refusals are tested; this is what is not.
 - [ ] **Close Tab from a menu.** With two tabs, right-click the pane header ▸ Close Tab → the strip
   stays, showing one tab, until the pointer moves out of where the menu was; then it slides away.
   Same from a row's right-click menu. ⌘W still collapses it at once.
+
+## Filter by Type (RD70, 2026-10-31)
+
+- [ ] **Images only, nested.** In Browse on iCloud ▸ Downloads, Filter ▸ Only beside Images → the
+  list keeps the folders holding images, each with a count ("6 images"); opening one shows only its
+  images; the status bar reads "N of M items" with an Images chip, and its ✕ shows everything again.
+- [ ] **A second extension adds a disclosure.** In a folder with .jpg and .png, Images has a ▸;
+  unticking .png leaves Images with a dash, and a .gif added later does not appear.
+- [ ] **New Folder while filtered.** With PDFs ticked, ⇧⌘N → the new folder stays in the list until
+  you leave the folder or change the filter.
+- [ ] **Trash prompt.** With Images ticked, select a folder that also holds a PDF and press Delete →
+  the prompt says "Includes 1 item the filter is hiding."
+- [ ] **Compare.** Each pane's Filter is its own; "Use on Both Panes" copies one to the other; the
+  differences list is unchanged by either.
+- [ ] **Narrow pane.** Narrow the pane until Filter folds into ⋯ → ⋯ ▸ Filter by Type lists the kinds
+  with checkmarks and Show All; View ▸ Filter by Type does the same.
+- [ ] **VoiceOver.** The button reads "Filter by type, Off" and then "Filter by type, Images".

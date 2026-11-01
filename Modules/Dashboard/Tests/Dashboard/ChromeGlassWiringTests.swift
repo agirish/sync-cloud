@@ -83,6 +83,6 @@ import Foundation
                 "the line after Preview's style is \(String(describing: after))")
         #expect(views.contains(".background(previewEnabled.wrappedValue ? AnyShapeStyle(glassHue.accentFillColor)"),
                 "Preview's ON fill is gone — under glass ON and OFF read the same")
-        #expect(Self.count(".paneNavGlass()", in: views) == 11, "every nav pill's button")
+        #expect(Self.count(".paneNavGlass()", in: views) == 12, "every nav pill's button")
     }
 }

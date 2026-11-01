@@ -412,7 +412,9 @@ extension ContentView {
             selection: PaneStatusFacts.Selection.make(nodes: paneSelectionNodes(isLeft: true),
                                                       isCloudOnly: CloudOnlyBadgeCache.cached),
             readAt: syncManager.leftTreeReadAt,
-            changedOnDisk: syncManager.leftChangedOnDisk)
+            changedOnDisk: syncManager.leftChangedOnDisk,
+            typeFilter: typeFilterStatus(isLeft: true),
+            onClearTypeFilter: { syncManager.leftTypeFilter = nil })
             .contentSurface(hue: glassHue, tint: surfaceTint)
             .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: true))
     }

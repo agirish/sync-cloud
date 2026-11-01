@@ -380,6 +380,7 @@ extension FileSyncManager {
         if isLeft {
             rawLeftTree = []
             if !leftTree.isEmpty { leftTree = [] }
+            leftTreeBeforeTypeFilter = []
             if leftItemCount != 0 { leftItemCount = 0 }
             lastLoadedLeftFocusPath = nil
             // The stamp described the tree that just went; leaving it would date the EMPTY pane by
@@ -392,6 +393,7 @@ extension FileSyncManager {
         } else {
             rawRightTree = []
             if !rightTree.isEmpty { rightTree = [] }
+            rightTreeBeforeTypeFilter = []
             if rightItemCount != 0 { rightItemCount = 0 }
             lastLoadedRightFocusPath = nil
             rightTreeReadAt = nil

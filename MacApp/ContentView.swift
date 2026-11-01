@@ -841,6 +841,10 @@ struct ContentView: View {
     /// the manager's own publish counters, so a stamp is only ever compared against its own pane's.
     @State var leftSearchGeneration = 0
     @State var rightSearchGeneration = 0
+    /// Each pane's file-type counts while it has no type filter, for the type list (RD70). With a
+    /// filter on, the manager's pass counts instead. See `ContentView+TypeFilter.swift`.
+    @State var leftTypeCensus: PaneTypeFilterFacts?
+    @State var rightTypeCensus: PaneTypeFilterFacts?
 
     /// Each pane's presentation, stored per side so one can be a deep tree while the other is
     /// flat. Defaults to Columns — which rests as a single full-pane column, so the pane opens
@@ -4323,7 +4327,8 @@ struct ContentView: View {
                     guard let registry = syncManager.filingPersonRegistry else { return nil }
                     return PersonSearchOffer.person(matching: query, registry: registry)
                 },
-                onAcceptPerson: { person in acceptPersonScope(person) }
+                onAcceptPerson: { person in acceptPersonScope(person) },
+                typeFilter: typeFilterControl(isLeft: isLeft)
             )
             // Cards gives the provider header its own card, so the chrome reads as a separate
             // object from the data — the same [toolbar][gap][content] rhythm the bottom workspace
@@ -5179,13 +5184,22 @@ struct ContentView: View {
             // rather than per workspace, deliberately: Browse, the lens rail and Compare's left are
             // all the LEFT pane, on one tree at one path, and a reader who opens a folder in one
             // should find it open in the others.
-            hostExpanded: pane.isLeft ? $leftTreeExpanded : $rightTreeExpanded
+            hostExpanded: pane.isLeft ? $leftTreeExpanded : $rightTreeExpanded,
+            typeFilter: typeFilterDecor(isLeft: pane.isLeft),
+            typeFilterEmptied: typeFilterEmptied(isLeft: pane.isLeft),
+            typeFilterFolderName: typeFilterFolderName(isLeft: pane.isLeft),
+            onClearTypeFilter: { typeFilterBinding(isLeft: pane.isLeft).wrappedValue = nil }
         )
         // The whole point of `FileTreeView: Equatable`. Without this the conformance is inert —
         // SwiftUI only consults a view's `==` through `EquatableView` — and this view is built
         // fresh on every one of `ContentView`'s renders, which any of the manager's ~56 published
         // properties can trigger. See the note on `FileTreeView`.
         .equatable()
+        // After `.equatable()`, which must sit on the pane itself. The type list's counts while this pane has no filter — once per publish, off-main.
+        .task(id: TypeFilterCensusKey(version: pane.tree.version,
+                                      filterOn: typeFilterBinding(isLeft: pane.isLeft).wrappedValue != nil)) {
+            await typeFilterCensusTask(isLeft: pane.isLeft)
+        }
         // The pane's scroll offsets, kept across it being rebuilt. The surface is the workspace AND
         // the side — unlike `hostExpanded` above, which is per side only — because the stack's
         // sideways offset depends on the pane's width, and Browse's pane is not the width of

@@ -156,6 +156,16 @@ public struct FileTreeView: View, Equatable {
     /// Stamped, not walked: a broad query fills three maps with thousands of entries and this is
     /// compared by `==` on every render. See `PaneSearchResults`.
     public let search: PaneSearchResults
+    /// The type filter's folder counts (RD70), or `nil` for a pane with no filter — which renders
+    /// exactly as it did before the filter existed.
+    public let typeFilter: PaneTypeFilterDecor?
+    /// The filter that left this folder showing nothing, for TE274's empty state, and the button
+    /// that clears it. `nil` unless the filter emptied the folder.
+    public let typeFilterEmptied: PaneTypeFilter?
+    /// What that empty state calls the folder ("No PDFs in Downloads"). The host's name for it: at a
+    /// provider's root the last path component is a container name nobody would recognize.
+    public let typeFilterFolderName: String?
+    public let onClearTypeFilter: (() -> Void)?
     /// Which hit ↩/⇧↩ have walked to. Revealing it is this view's job — expanding its ancestors and
     /// scrolling to it in Tree, opening the columns down to it in Columns — and it happens on
     /// ARRIVAL, per hit, never for every hit of the query at once.
@@ -355,7 +365,11 @@ public struct FileTreeView: View, Equatable {
     /// exists to stop. Named and non-private so `FileTreeViewPaneNameTests` can pin the choice.
     var badgeMemoRoot: String { currentPath }
 
-    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, search: PaneSearchResults? = nil, searchHitIndex: Int = 0, searchRevealNonce: Int = 0, rowReveal: PaneRowReveal? = nil, onRowRevealed: ((PaneRowReveal) -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault), childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onNeedChildren: ((String, Bool) -> Void)? = nil, graftsInFlight: Set<String> = [], sortOption: SortOption = .name, onBackgroundDeselect: ((Int?) -> Void)? = nil, onQuickLook: ((URL) -> Void)? = nil, downloadChannel: NotificationCenter = .default, hostExpanded: Binding<Set<String>>? = nil) {
+    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, search: PaneSearchResults? = nil, searchHitIndex: Int = 0, searchRevealNonce: Int = 0, rowReveal: PaneRowReveal? = nil, onRowRevealed: ((PaneRowReveal) -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault), childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onNeedChildren: ((String, Bool) -> Void)? = nil, graftsInFlight: Set<String> = [], sortOption: SortOption = .name, onBackgroundDeselect: ((Int?) -> Void)? = nil, onQuickLook: ((URL) -> Void)? = nil, downloadChannel: NotificationCenter = .default, hostExpanded: Binding<Set<String>>? = nil, typeFilter: PaneTypeFilterDecor? = nil, typeFilterEmptied: PaneTypeFilter? = nil, typeFilterFolderName: String? = nil, onClearTypeFilter: (() -> Void)? = nil) {
+        self.typeFilter = typeFilter
+        self.typeFilterEmptied = typeFilterEmptied
+        self.typeFilterFolderName = typeFilterFolderName
+        self.onClearTypeFilter = onClearTypeFilter
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -431,6 +445,10 @@ public struct FileTreeView: View, Equatable {
             && lhs.rootPath == rhs.rootPath
             && lhs.isSingleSource == rhs.isSingleSource
             && lhs.search == rhs.search
+            && lhs.typeFilter == rhs.typeFilter
+            && lhs.typeFilterEmptied == rhs.typeFilterEmptied
+            && lhs.typeFilterFolderName == rhs.typeFilterFolderName
+            && (lhs.onClearTypeFilter == nil) == (rhs.onClearTypeFilter == nil)
             && lhs.searchHitIndex == rhs.searchHitIndex
             // In the gate because the reveal listens to it: `.onChange` only observes values that
             // survive a re-render, and a nonce filtered out here would never fire one.
@@ -740,9 +758,12 @@ public struct FileTreeView: View, Equatable {
     /// One row's search decoration, in the Tree presentation. `isExpanded` is the outline's own
     /// answer, so a folder's “N matches” disappears the moment the reveal opens it.
     private func searchContext(for row: PaneRow) -> PaneSearchRowContext {
-        guard search.isActive else { return .none }
-        return PaneSearchRowContext(results: search, path: row.node.id,
-                                    isExpanded: expanded.contains(row.node.id))
+        let isExpanded = expanded.contains(row.node.id)
+        let phrase = row.node.isDirectory ? typeFilter?.phrase(forFolder: row.node.id) : nil
+        guard search.isActive else { return .typeFilter(phrase, isExpanded: isExpanded) }
+        var context = PaneSearchRowContext(results: search, path: row.node.id, isExpanded: isExpanded)
+        context.typeFilterPhrase = phrase
+        return context
     }
 
     /// Where the Tree says the pane is, translated back into a column stack — the return trip of
@@ -815,7 +836,8 @@ public struct FileTreeView: View, Equatable {
             isLoading: isLoading,
             providerIsEnabled: providerIsEnabled,
             rootIsValid: rootPathIsValid,
-            hasOnlyHiddenEntries: hasOnlyHiddenEntries
+            hasOnlyHiddenEntries: hasOnlyHiddenEntries,
+            typeFilterEmptied: typeFilterEmptied
         )
     }
 
@@ -914,6 +936,24 @@ public struct FileTreeView: View, Equatable {
                 // list underneath (the empty-area context menu).
                 .frame(maxWidth: 360)
                 .fixedSize(horizontal: false, vertical: true)
+            case .filteredOut(let filter):
+                // Its own state, never "Folder is empty": the folder has files, and an empty pane
+                // must not look like a missing folder (TE274).
+                VStack(spacing: 10) {
+                    EmptyStateView(
+                        icon: "line.3.horizontal.decrease.circle",
+                        title: PaneEmptyState.filteredOutTitle(
+                            filter, folder: typeFilterFolderName ?? (currentPath as NSString).lastPathComponent),
+                        caption: filter.isEmpty ? "Tick a type to see its files." : nil,
+                        layout: .compact
+                    )
+                    if let onClearTypeFilter {
+                        Button(filter.isEmpty ? "Show All" : "Clear Filter", action: onClearTypeFilter)
+                            .controlSize(.small)
+                    }
+                }
+                .frame(maxWidth: 360)
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             if case .chip(let backed) = busyIndicator {
@@ -963,6 +1003,7 @@ public struct FileTreeView: View, Equatable {
                 awaitingDownloads: downloads.requests,
                 fonts: rowFonts,
                 search: search,
+                typeFilter: typeFilter,
                 searchRevealTarget: search.hit(at: searchHitIndex)?.path,
                 rowReveal: rowReveal,
                 onRowRevealed: onRowRevealed,

@@ -2311,6 +2311,21 @@ import Sync
                 "the tab bar switch became a Show/Hide pair")
     }
 
+    /// View ▸ Filter by Type (RD70 TE280): a submenu right after Hidden Files — the two decide
+    /// which files a pane shows — reached through the menu bar the app really installs, with no
+    /// chord of its own. Registered is not reachable, so this walks `NSApp.mainMenu`.
+    @Test func theViewMenuCarriesFilterByTypeAfterHiddenFiles() throws {
+        let view = try #require(NSApp.mainMenu?.items.first { $0.title == "View" }?.submenu,
+                                "the app has no View menu")
+        let titles = view.items.map(\.title).filter { !$0.isEmpty }
+        let hidden = try #require(titles.firstIndex(of: "Hidden Files"))
+        let filter = try #require(titles.firstIndex(of: "Filter by Type"), "View ▸ Filter by Type is gone")
+        #expect(filter == hidden + 1, "Filter by Type sits right after Hidden Files: \(titles)")
+        let item = try #require(view.items.first { $0.title == "Filter by Type" })
+        #expect(item.submenu != nil, "Filter by Type is a submenu of kinds, not a single command")
+        #expect(item.keyEquivalent.isEmpty, "Filter by Type took a chord: \(item.keyEquivalent)")
+    }
+
     // MARK: The right-click routes
 
     /// **The pane's own background menu offers New Tab.** It is the only right-click route that

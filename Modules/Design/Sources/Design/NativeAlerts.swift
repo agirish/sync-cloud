@@ -16,25 +16,30 @@ public struct NativeAlerts {
     /// - Parameters:
     ///   - itemNames: The list of file or folder names selected for deletion.
     /// - Returns: True if the user confirmed the deletion.
-    public static func confirmDelete(for itemNames: [String]) -> Bool {
-        guard let alert = deleteAlert(for: itemNames) else { return false }
+    ///   - hiddenByFilter: Items inside the selected folders that the pane's type filter is hiding,
+    ///     which go to the Trash with them (RD70, FJ). Said in the body when above zero.
+    public static func confirmDelete(for itemNames: [String], hiddenByFilter: Int = 0) -> Bool {
+        guard let alert = deleteAlert(for: itemNames, hiddenByFilter: hiddenByFilter) else { return false }
         return alert.runModal() == .alertFirstButtonReturn
     }
 
     /// The alert `confirmDelete` presents, built but **not run** — internal so a test can pin its
     /// words and buttons without entering a modal session it cannot dismiss. `nil` for no items.
-    static func deleteAlert(for itemNames: [String]) -> NSAlert? {
+    static func deleteAlert(for itemNames: [String], hiddenByFilter: Int = 0) -> NSAlert? {
         guard !itemNames.isEmpty else { return nil }
+        let includes = hiddenByFilter > 0
+            ? "Includes \(hiddenByFilter == 1 ? "1 item" : "\(hiddenByFilter.formatted()) items") the filter is hiding. "
+            : ""
         if itemNames.count == 1, let first = itemNames.first {
             return destructiveAlert(
                 messageText: "Move “\(first)” to the Trash?",
-                informativeText: "You can put it back from the Trash.",
+                informativeText: includes + "You can put it back from the Trash.",
                 confirmTitle: "Move to Trash"
             )
         }
         return destructiveAlert(
             messageText: "Move \(itemNames.count.formatted()) items to the Trash?",
-            informativeText: "You can put them back from the Trash.",
+            informativeText: includes + "You can put them back from the Trash.",
             confirmTitle: "Move to Trash"
         )
     }

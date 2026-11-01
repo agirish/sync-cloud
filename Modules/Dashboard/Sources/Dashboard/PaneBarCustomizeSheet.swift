@@ -93,7 +93,7 @@ struct PaneBarCustomizeSheet: View {
     /// checks this against `PaneBarItem.allCases` so the next one cannot be forgotten quietly — it
     /// is what caught Delete's tile missing here.
     static let palette: [PaneBarItem] = [
-        .viewMode, .backForward, .newFolder, .sort, .hiddenFiles, .preview, .search, .delete,
+        .viewMode, .backForward, .newFolder, .sort, .hiddenFiles, .preview, .typeFilter, .search, .delete,
         .collapse, .scan, .space, .flexibleSpace
     ]
 

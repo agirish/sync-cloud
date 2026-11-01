@@ -126,6 +126,10 @@ public struct PaneHeader: View {
     public var personOffer: ((String) -> Person?)?
     /// Accepts the offer: the find becomes a gather.
     public var onAcceptPerson: ((Person) -> Void)?
+    /// The Filter button's state and counts (RD70). `nil` is a header with no Filter button — every
+    /// caller outside the app — so `availableItems`, the ladder and the snapshots stay as they were.
+    public var typeFilter: PaneTypeFilterControl?
+    @State private var typeFilterShown = false
     /// The breadcrumb falls back to its compact form when the whole trail does not fit — Edit's
     /// one-column pane (asked 2026-10-17). See `PaneBreadcrumb.compactsWhenNarrow`.
     public var compactsBreadcrumbWhenNarrow: Bool
@@ -199,8 +203,10 @@ public struct PaneHeader: View {
         searchMatchCount: Int = 0,
         onSearchAdvance: ((Bool) -> Void)? = nil,
         personOffer: ((String) -> Person?)? = nil,
-        onAcceptPerson: ((Person) -> Void)? = nil
+        onAcceptPerson: ((Person) -> Void)? = nil,
+        typeFilter: PaneTypeFilterControl? = nil
     ) {
+        self.typeFilter = typeFilter
         self.compactsBreadcrumbWhenNarrow = compactsBreadcrumbWhenNarrow
         self.title = title
         self.provider = provider
@@ -606,6 +612,8 @@ public struct PaneHeader: View {
         // so builds precisely the bar it built before search existed. That is what keeps every
         // existing header test, snapshot and ladder measurement untouched by this feature.
         if searchText != nil, searchIsExpanded != nil { available.append(.search) }
+        // Same gate, same reason: no control value, no Filter button.
+        if typeFilter != nil { available.append(.typeFilter) }
         return available
     }
 
@@ -969,7 +977,35 @@ public struct PaneHeader: View {
                 .help(ShortcutHint.tooltip("Find a file or folder in this pane", AppChord.findInPane.display))
                 .accessibilityLabel("Search this pane")
             }
+
+        case .typeFilter:
+            if let typeFilter {
+                typeFilterPill(typeFilter, controlSize: controlSize)
+            }
         }
+    }
+
+    /// The Filter button (RD70 TE266): a pill that opens the type list. The glyph fills and takes
+    /// the accent while a filter is on, so the state rides in the glyph the way Hidden's eye does,
+    /// and the tooltip and VoiceOver value say what it shows (TE281).
+    @ViewBuilder
+    private func typeFilterPill(_ control: PaneTypeFilterControl, controlSize: ControlSize) -> some View {
+        Button {
+            typeFilterShown.toggle()
+        } label: {
+            Image(systemName: control.isOn ? PaneBarItem.typeFilterSymbol + ".fill" : PaneBarItem.typeFilterSymbol)
+                .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize,
+                               ink: control.isOn ? glassHue.accentColor : nil)
+        }
+        .buttonStyle(navButtonStyle)
+        .paneNavGlass()
+        .popover(isPresented: $typeFilterShown, arrowEdge: .bottom) {
+            PaneTypeFilterPopover(control: control)
+                .presentedNativeControlAccent()
+        }
+        .help(control.help)
+        .accessibilityLabel("Filter by type")
+        .accessibilityValue(control.accessibilityValue)
     }
 
     /// The revealed field: Design's shared `ExpandingSearchField`, with Compare's own “N of M” in
@@ -1339,6 +1375,16 @@ public struct PaneHeader: View {
                 }
                 .disabled(selectionCount == 0)
                 .lockedDuringRun()
+            }
+        case .typeFilter:
+            // Folded, the list becomes a submenu: one checkmark per kind present, then Show All
+            // (TE280). A popover cannot hang off a pill that is not drawn.
+            if let typeFilter {
+                Menu {
+                    PaneTypeFilterMenuItems(control: typeFilter)
+                } label: {
+                    Label("Filter by Type", systemImage: PaneBarItem.typeFilterSymbol)
+                }
             }
         case .space, .flexibleSpace:
             EmptyView()

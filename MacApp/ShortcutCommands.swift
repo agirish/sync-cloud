@@ -785,6 +785,10 @@ private struct ShowHiddenFilesKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
 
+private struct PaneTypeFilterKey: FocusedValueKey {
+    typealias Value = PaneTypeFilterControl
+}
+
 private struct PreviewColumnKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
@@ -1089,6 +1093,12 @@ extension FocusedValues {
         set { self[ShowHiddenFilesKey.self] = newValue }
     }
 
+    /// The focused pane's type filter (RD70), for View ▸ Filter by Type. `nil` with no pane on screen.
+    var paneTypeFilter: PaneTypeFilterControl? {
+        get { self[PaneTypeFilterKey.self] }
+        set { self[PaneTypeFilterKey.self] = newValue }
+    }
+
     /// The Columns preview column — one preference shared by every pane. `nil` while the focused
     /// pane's view mode has no preview to toggle, matching the pill's own withholding.
     var previewColumn: Binding<Bool>? {
@@ -1309,6 +1319,8 @@ struct ShortcutValuePublisher: ViewModifier {
     /// on one window.
     let documentPrint: DocumentPrintActions?
     let hiddenFiles: Binding<Bool>
+    /// The focused pane's type filter, or nil with no pane on screen.
+    let typeFilter: PaneTypeFilterControl?
     let previewColumn: Binding<Bool>?
     let inspector: Binding<Bool>
     let differencesList: Binding<Bool>?
@@ -1432,6 +1444,7 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveCloseDocument: (() -> Void)? { suspended ? nil : closeDocument }
     var effectiveDocumentPrint: DocumentPrintActions? { suspended ? nil : documentPrint }
     var effectiveHiddenFiles: Binding<Bool>? { suspended ? nil : hiddenFiles }
+    var effectiveTypeFilter: PaneTypeFilterControl? { suspended ? nil : typeFilter }
     var effectivePreviewColumn: Binding<Bool>? { suspended ? nil : previewColumn }
     var effectiveInspector: Binding<Bool>? { suspended ? nil : inspector }
     var effectiveDifferencesList: Binding<Bool>? { suspended ? nil : differencesList }
@@ -1495,6 +1508,7 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.closeDocument, effectiveCloseDocument)     // File ▸ Close Document
             .focusedSceneValue(\.documentPrint, effectiveDocumentPrint)    // ⌘P, Export as PDF…
             .focusedSceneValue(\.showHiddenFiles, effectiveHiddenFiles)      // ⇧⌘.
+            .focusedSceneValue(\.paneTypeFilter, effectiveTypeFilter)       // View ▸ Filter by Type
             .focusedSceneValue(\.previewColumn, effectivePreviewColumn)      // ⇧⌘P
             .focusedSceneValue(\.infoInspector, effectiveInspector)          // ⌘I
             .focusedSceneValue(\.differencesListVisible, effectiveDifferencesList)  // ⌘D
@@ -1544,6 +1558,7 @@ extension ContentView {
             closeDocument: shortcutCloseDocument,
             documentPrint: shortcutDocumentPrint,
             hiddenFiles: $syncManager.showHiddenFiles,
+            typeFilter: panesHiddenForCurrentTab ? nil : typeFilterControl(isLeft: shortcutTabTargetIsLeft),
             previewColumn: shortcutPreviewColumn,
             inspector: shortcutInfoInspector,
             differencesList: shortcutDifferencesList,
@@ -2962,12 +2977,22 @@ struct OrganizeVerbCommands: View {
 
 struct ToggleHiddenFilesCommand: View {
     @FocusedValue(\.showHiddenFiles) private var showHiddenFiles
+    @FocusedValue(\.paneTypeFilter) private var typeFilter
 
     var body: some View {
         Toggle("Hidden Files", isOn: showHiddenFiles ?? .constant(false))
             .keyboardShortcut(AppChord.hiddenFiles.key, modifiers: AppChord.hiddenFiles.modifiers)
             .disabled(showHiddenFiles == nil)
+        // **Here, beside Hidden Files, as part of this one child**: the View builder is at
+        // SwiftUI's ten. Both decide which files a pane shows. No chord (TE280): ⌘F finds,
+        // ⇧⌘F folds Compare's folders, ⌃⌘F is the system's full screen, and no ⌥ chord is allowed.
+        Menu(Self.filterTitle) {
+            if let typeFilter { PaneTypeFilterMenuItems(control: typeFilter) }
+        }
+        .disabled(typeFilter == nil)
     }
+
+    static let filterTitle = "Filter by Type"
 }
 
 /// View ▸ File Preview, ⇧⌘P — the preview beside a file pane's list.

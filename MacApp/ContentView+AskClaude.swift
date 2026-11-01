@@ -285,6 +285,15 @@ extension ContentView {
 
     private var askClaudeInBrowse: Bool { selectedWorkspace == .browse }
 
+    /// The type filter, as Claude's view of the screen states it (FN): the rows it is given are the
+    /// whole folder, so it is told which of them the pane is showing — "these" means those.
+    private var askClaudeTypeFilterNote: String {
+        guard let filter = syncManager.leftTypeFilter else { return "" }
+        let total = syncManager.leftTypeFilterFacts?.itemCountBeforeFilter ?? syncManager.leftItemCount
+        return " · type filter on: the pane shows only \(filter.summary)"
+            + " (\(syncManager.leftItemCount.formatted()) of \(total.formatted()) items)"
+    }
+
     private var askClaudeRoot: String {
         (settings.rootPath(for: leftProviderId) as NSString).expandingTildeInPath
     }
@@ -335,6 +344,7 @@ extension ContentView {
             screen.openFile = AskClaudeDisk.node(atPath: open).map(AskClaudeBrowseTools.row)
         }
         screen.view = (paneDrawsColumns(isLeft: true) ? "columns" : "list") + " · hidden files " + (syncManager.showHiddenFiles ? "shown" : "hidden")
+            + askClaudeTypeFilterNote
         if paneDrawsColumns(isLeft: true) { screen.columns = askClaudeColumns(hidden: hidden) }
         return screen
     }
@@ -423,10 +433,20 @@ extension ContentView {
         // Looked up by the real spelling, the one the pane's tree holds (AskClaudePaths).
         let target = AskClaudePaths.canonical(absoluteFolder)
         let scope = AskClaudePaths.canonical(AskClaudeBrowseTools.absolute(syncManager.leftRelativePath, root: askClaudeRoot))
-        if target == scope { return syncManager.leftTree }
-        guard let node = syncManager.leftNodes(for: [target]).first ?? syncManager.leftNodes(for: [absoluteFolder]).first,
+        // The whole folder, past any type filter: Claude is told the filter is on (`screen.view`),
+        // and answers "what's in Downloads?" from everything in it (FN).
+        if target == scope { return syncManager.leftTreeBeforeTypeFilter }
+        guard let node = askClaudeNode(target) ?? askClaudeNode(absoluteFolder),
               node.isDirectory, node.isUnexplored != true else { return nil }
         return node.children ?? []
+    }
+
+    /// A node of the left pane's folder, filtered or not — the published index while the pane has
+    /// no type filter, and the tree before the filter while it does.
+    private func askClaudeNode(_ path: String) -> FileNode? {
+        guard syncManager.leftTypeFilter != nil else { return syncManager.leftNodes(for: [path]).first }
+        return syncManager.leftNodes(for: [path]).first
+            ?? syncManager.leftTreeBeforeTypeFilter.findNodes(at: [path]).first
     }
 
     /// Why Claude can’t move the view right now (decision EB): it never moves under a sheet, a
@@ -466,7 +486,7 @@ extension ContentView {
             folder: askClaudeFolder,
             sort: syncManager.sortOption,
             items: { askClaudeItems($0) },
-            node: { syncManager.leftNodes(for: [AskClaudePaths.canonical($0)]).first ?? syncManager.leftNodes(for: [$0]).first },
+            node: { askClaudeNode(AskClaudePaths.canonical($0)) ?? askClaudeNode($0) },
             selection: syncManager.selectedLeftPaths,
             busyReason: askClaudeBusyReason,
             // Navigation by the root's own spelling, which is what the palette's route resolves,
@@ -474,6 +494,9 @@ extension ContentView {
             // Compare can be the right one.
             goTo: { movePane(isLeft: true, providerId: nil, absolutePath: AskClaudePaths.spelled($0, root: askClaudeRoot)) },
             select: { paths in
+                // Selecting a row the type filter hides clears the filter first (FM), or the
+                // selection prune would take it straight back off.
+                for path in paths { syncManager.clearTypeFilterHiding(path, isLeft: true) }
                 syncManager.selectedLeftPaths = paths
                 if !syncManager.selectedRightPaths.isEmpty { syncManager.selectedRightPaths = [] }
             },

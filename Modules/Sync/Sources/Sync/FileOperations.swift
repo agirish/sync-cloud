@@ -318,6 +318,7 @@ extension FileSyncManager {
         fileManager fm: FileManaging
     ) async -> [FileNode] {
         let resolveCollision = collisionResolver
+        let hiddenByTypeFilter = itemsHiddenByTypeFilter(inside: nodes)
         // A merge's children are a batch of their own — several collisions, one gesture — so they
         // go through the bulk seam and its "apply to all", scoped to that one merge (RD23).
         let resolveMergeChildCollision = bulkCollisionResolver
@@ -808,6 +809,13 @@ extension FileSyncManager {
         }
         // **A merge that moved nothing out still put its emptied source in the Trash (U4)** — an
         // empty folder, or one holding only a `.DS_Store` — so that alone is a move ⌘Z must reverse.
+        // What landed stays visible through a type filter until the pane moves (TE277).
+        for item in transferred { noteOwnWrite(atPath: item.to.path) }
+        // A folder carries everything in it, filtered or not; say so when the filter hid some (FJ).
+        if hiddenByTypeFilter > 0, !transferred.isEmpty, banner == nil {
+            banner = .success("\(isMove ? "Moved" : "Copied") \(transferred.count == 1 ? "1 item" : "\(transferred.count.formatted()) items"),"
+                              + " including \(hiddenByTypeFilter.formatted()) the filter is hiding")
+        }
         if !transferred.isEmpty || (isMove && !result.trashedMergeSources.isEmpty) {
             progress?.markFinishing(isMove ? "the move" : "the copy")
             if isMove {
@@ -998,6 +1006,7 @@ extension FileSyncManager {
             present(.renameFailed(reason: err.localizedDescription, path: url.path))
         } else {
             Logger.shared.info("Renamed item to \(newName)")
+            noteOwnWrite(atPath: newURL.path)
             self.registerMoveUndo(items: [(from: url, to: newURL, overwritten: result.trashed)], actionName: "Rename Item", fileManager: fm)
         }
     }
@@ -1042,6 +1051,7 @@ extension FileSyncManager {
             present(.createFolderFailed(reason: err.localizedDescription, path: path))
         } else {
             Logger.shared.info("Created folder \(name) at \(path)")
+            noteOwnWrite(atPath: createdURL.path)
             self.registerCreateFolderUndo(url: createdURL, fileManager: fm)
         }
     }

@@ -34,6 +34,7 @@ import Foundation
             saveDocument: {}, newTextFile: {}, closeDocument: {},
             documentPrint: DocumentPrintActions(print: {}, export: {}),
             hiddenFiles: .constant(false),
+            typeFilter: PaneTypeFilterControl(filter: .constant(nil), facts: nil, folderName: "Downloads"),
             previewColumn: .constant(true),
             inspector: .constant(false),
             differencesList: .constant(true),
@@ -232,6 +233,7 @@ import Foundation
         #expect(publisher.effectiveCloseDocument == nil)
         #expect(publisher.effectiveDocumentPrint == nil)
         #expect(publisher.effectiveHiddenFiles == nil)
+        #expect(publisher.effectiveTypeFilter == nil)
         #expect(publisher.effectivePreviewColumn == nil)
         #expect(publisher.effectiveInspector == nil)
         #expect(publisher.effectiveDifferencesList == nil)
@@ -294,6 +296,7 @@ import Foundation
         #expect(publisher.effectiveCloseDocument != nil)
         #expect(publisher.effectiveDocumentPrint != nil)
         #expect(publisher.effectiveHiddenFiles != nil)
+        #expect(publisher.effectiveTypeFilter != nil)
         #expect(publisher.effectivePreviewColumn != nil)
         #expect(publisher.effectiveInspector != nil)
         #expect(publisher.effectiveDifferencesList != nil)

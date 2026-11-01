@@ -43,6 +43,22 @@ public struct PaneStatusFacts: Equatable {
     /// (`FileSyncManager.leftChangedOnDisk`) — the freshness segment then says so.
     public var changedOnDisk: Bool = false
 
+    /// The pane's type filter, when one is on (RD70 TE271): how many items there are before it, and
+    /// what it shows. `itemCount` is then the count after it, so the caption reads "28 of 52 items".
+    public var typeFilter: TypeFilter?
+
+    public struct TypeFilter: Equatable {
+        /// Every file and folder before the type filter.
+        public var totalCount: Int
+        /// The chip's words: "Images", "Images, PDFs".
+        public var summary: String
+
+        public init(totalCount: Int, summary: String) {
+            self.totalCount = totalCount
+            self.summary = summary
+        }
+    }
+
     /// The pane's selection, reduced to the three numbers the bar states.
     public struct Selection: Equatable {
         public var itemCount: Int
@@ -118,6 +134,9 @@ public struct PaneStatusFacts: Equatable {
     /// singular; `Empty` at zero, which says the same thing as "0 items" and reads as a state
     /// rather than as a measurement that failed.
     var itemsCaption: String {
+        if let typeFilter {
+            return "\(itemCount.formatted()) of \(typeFilter.totalCount.formatted()) items"
+        }
         switch itemCount {
         case 0: return "Empty"
         case 1: return "1 item"
@@ -165,7 +184,9 @@ public struct PaneStatusFacts: Equatable {
     /// Memberwise, spelled out because the compiler's is internal and the app composes this from
     /// another module. `now` defaults to *now*, so only a test placing the clock passes it.
     public init(itemCount: Int, selection: Selection? = nil, cloudOnlyCount: Int? = nil,
-                readAt: Date? = nil, changedOnDisk: Bool = false, now: Date = Date()) {
+                readAt: Date? = nil, changedOnDisk: Bool = false, now: Date = Date(),
+                typeFilter: TypeFilter? = nil) {
+        self.typeFilter = typeFilter
         self.itemCount = itemCount
         self.selection = selection
         self.cloudOnlyCount = cloudOnlyCount
@@ -187,6 +208,7 @@ public struct PaneStatusFacts: Equatable {
     /// goes in through `spoken`, which is the one place staleness is put into words.
     var accessibilityLabel: String {
         var parts = [itemsCaption]
+        if let typeFilter { parts.append("filtered to \(typeFilter.summary)") }
         if let selection { parts.append(Self.selectionCaption(selection)) }
         parts.append(cloudOnlyCaption)
         if let freshness { parts.append(freshness.spoken) }

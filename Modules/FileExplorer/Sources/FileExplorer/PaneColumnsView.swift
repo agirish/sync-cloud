@@ -94,6 +94,8 @@ struct PaneColumnsView: View {
     /// the same seam a click goes through. Defaulted to inactive, so a caller that never searches
     /// renders exactly the columns it rendered before.
     var search: PaneSearchResults = .empty(side: .left)
+    /// The type filter's folder counts, for the closed folders' pills. `nil` with no filter.
+    var typeFilter: PaneTypeFilterDecor?
     /// The path of the hit the walk is standing on, or `nil`. Only the column that lists it scrolls
     /// to it — see `revealRow`. Separate from `search` because the hit INDEX lives in `FileTreeView`
     /// and a column has no business resolving it.
@@ -1170,9 +1172,13 @@ struct PaneColumnsView: View {
             // A column's “expanded” is `isOnPath` — the folder you drilled THROUGH is the one whose
             // contents are already on screen, so it is the one whose “N matches” would be telling
             // you what the column to its right already shows.
-            searchContext: search.isActive
-                ? PaneSearchRowContext(results: search, path: node.id, isExpanded: isOnPath)
-                : .none,
+            searchContext: {
+                let phrase = node.isDirectory ? typeFilter?.phrase(forFolder: node.id) : nil
+                guard search.isActive else { return .typeFilter(phrase, isExpanded: isOnPath) }
+                var context = PaneSearchRowContext(results: search, path: node.id, isExpanded: isOnPath)
+                context.typeFilterPhrase = phrase
+                return context
+            }(),
             isLeftPane: isLeft,
             otherPaneName: otherPaneName,
             accent: glassHue.accentColor

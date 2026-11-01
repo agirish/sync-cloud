@@ -13385,3 +13385,20 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s run=%s watcher=%s\n' $l 
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No one-way sync, folder watcher or edge-sampled duplicate scan | RECORDED — not owed (new feature) |
+
+## Filter by Type (RD70) — main only
+
+2026-10-31, for v7.0. On `main`: the pane bar's Filter button shows only the file types ticked in
+its list, keeping every folder that holds one, per pane and per tab. A new feature, which only
+`main` has.
+
+```sh
+for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s filter=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/PaneTypeFilter.swift | wc -l | tr -d ' ')"; done
+# measured 2026-10-31, against origin, before this landed (the change reads filter=1 on main):
+# main / v6.x / v5.x / v4.x / v3.x / v2.x    filter=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No type filter at all | RECORDED — not owed (new feature) |

@@ -452,7 +452,7 @@ import Settings
             syncManager: manager,
             settings: makeSettings(providers: []),
             defaults: ScratchDefaults("FAH-del-cancel"), // unset key → confirm (default true)
-            deleteConfirmer: { names in
+            deleteConfirmer: { names, _ in
                 promptedNames = names
                 return false
             }
@@ -479,7 +479,7 @@ import Settings
             syncManager: manager,
             settings: makeSettings(providers: []),
             defaults: ScratchDefaults("FAH-del-confirm"),
-            deleteConfirmer: { _ in true }
+            deleteConfirmer: { _, _ in true }
         )
 
         handler.confirmDelete([FileNode(id: file.path, name: "trash-me.txt", isDirectory: false)])
@@ -514,7 +514,7 @@ import Settings
             syncManager: manager,
             settings: makeSettings(providers: []),
             defaults: defaults,
-            deleteConfirmer: { _ in
+            deleteConfirmer: { _, _ in
                 confirmerCalls += 1
                 return false // would cancel — must never be consulted
             }
@@ -556,7 +556,7 @@ import Settings
             syncManager: manager,
             settings: makeSettings(providers: []),
             defaults: defaults,
-            deleteConfirmer: { names in
+            deleteConfirmer: { names, _ in
                 promptedNames = names
                 return false
             }

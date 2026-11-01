@@ -112,6 +112,11 @@ Requires **macOS 26**, unchanged from v6.2.
   files change" (off by default) re-reads the pane instead, at most once in 30 seconds. SyncCloud's
   own changes don't count, nor does opening a file unless you sort by tags, and a pane on a
   network volume isn't watched.
+- **Filter a pane by file type.** The Filter button on the pane bar lists every type of file in the
+  folder and the folders inside it, grouped as Images, PDFs, Apps & installers, Archives and so on,
+  with counts. Tick the types to show, or click Only beside one. Folders that hold a match stay where
+  they are with a count beside them, and the rest are hidden. The status bar says how many items are
+  shown, with a chip that clears the filter. Each tab keeps its own filter until you quit.
 
 ### Large files
 

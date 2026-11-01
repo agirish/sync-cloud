@@ -1638,6 +1638,84 @@ public class FileSyncManager: ObservableObject {
         }
     }
     
+    /// Which file types the left pane shows (RD70), or `nil` for all of them. Per pane and per tab
+    /// (`PaneTab.typeFilter`), never saved across launches (FH): a filter left on from yesterday
+    /// makes files look missing.
+    ///
+    /// Unlike `showHiddenFiles`, a change keeps the prefetched walks — they are the unfiltered
+    /// listings and do not depend on it — and prunes the selection afterwards, so a row the filter
+    /// hides is never acted on unseen (TE276).
+    @Published public var leftTypeFilter: PaneTypeFilter? = nil {
+        didSet {
+            guard leftTypeFilter != oldValue else { return }
+            leftTypeFilterKeep = []
+            Task { await self.applyFilters(); self.scheduleSelectionPrune() }
+        }
+    }
+    /// Right-pane counterpart of `leftTypeFilter`.
+    @Published public var rightTypeFilter: PaneTypeFilter? = nil {
+        didSet {
+            guard rightTypeFilter != oldValue else { return }
+            rightTypeFilterKeep = []
+            Task { await self.applyFilters(); self.scheduleSelectionPrune() }
+        }
+    }
+    /// What each pane's type filter pass learned, or `nil` while that pane has no filter.
+    @Published public private(set) var leftTypeFilterFacts: PaneTypeFilterFacts?
+    @Published public private(set) var rightTypeFilterFacts: PaneTypeFilterFacts?
+    /// Each pane's tree after Hidden and before its type filter: the whole folder, for the census,
+    /// the Trash prompt's hidden count, Ask Claude, and telling a filtered-out row from a missing one.
+    public internal(set) var leftTreeBeforeTypeFilter: [FileNode] = []
+    public internal(set) var rightTreeBeforeTypeFilter: [FileNode] = []
+    /// Paths this app just wrote into a pane — a new folder, a rename, a copy or move, an editor
+    /// save — kept visible through the type filter until the pane moves or the filter changes
+    /// (TE277). Without it New Folder would make a folder that vanishes at once: it holds no matches.
+    internal var leftTypeFilterKeep: Set<String> = []
+    internal var rightTypeFilterKeep: Set<String> = []
+
+    /// Records that the app itself just wrote `path`, so a type filter does not hide it (TE277).
+    /// Both panes: either may be showing the folder it landed in, and a path the other pane does not
+    /// list matches nothing there. A no-op while neither pane is filtered.
+    public func noteOwnWrite(atPath path: String) {
+        if leftTypeFilter != nil { leftTypeFilterKeep.insert(path) }
+        if rightTypeFilter != nil { rightTypeFilterKeep.insert(path) }
+    }
+
+    /// Something asked the pane to show `path` — Reveal in Browse, a PDF banner, Ask Claude — and
+    /// only the type filter is hiding it: clears that pane's filter so the request can land, and
+    /// says so (FM). The file was asked for by name, so it outranks a filter set earlier. Returns
+    /// whether it cleared anything; a path the pane shows, or one it does not hold at all, is left
+    /// to the caller's own wait.
+    @discardableResult
+    public func clearTypeFilterHiding(_ path: String, isLeft: Bool) -> Bool {
+        guard (isLeft ? leftTypeFilter : rightTypeFilter) != nil else { return false }
+        let shown = isLeft ? leftTree : rightTree
+        let before = isLeft ? leftTreeBeforeTypeFilter : rightTreeBeforeTypeFilter
+        guard shown.findNodes(at: [path]).isEmpty, !before.findNodes(at: [path]).isEmpty else { return false }
+        if isLeft { leftTypeFilter = nil } else { rightTypeFilter = nil }
+        let name = (path as NSString).lastPathComponent
+        banner = .success("Filter cleared to show “\(name)”")
+        Logger.shared.info("[type-filter] Cleared the \(isLeft ? "left" : "right") pane's filter to show \(path)")
+        return true
+    }
+
+    /// How many items inside these folders a type filter is hiding (FJ): a selected folder still
+    /// carries everything in it to the Trash, a copy or a move, and this is the number the
+    /// confirmation and the result say out loud. `nodes` come from a pane's published tree, so
+    /// their children are the filtered ones; the tree before the filter holds the rest.
+    public func itemsHiddenByTypeFilter(inside nodes: [FileNode]) -> Int {
+        var hidden = 0
+        let sides = [(leftTypeFilter, leftTreeBeforeTypeFilter), (rightTypeFilter, rightTreeBeforeTypeFilter)]
+        for node in nodes where node.isDirectory {
+            for (filter, before) in sides where filter != nil {
+                guard let whole = before.findNodes(at: [node.id]).first else { continue }
+                hidden += Self.countItems(in: whole.children ?? []) - Self.countItems(in: node.children ?? [])
+                break
+            }
+        }
+        return max(0, hidden)
+    }
+
     /// Global toggle to show/hide hidden files (e.g. .DS_Store, .git)
     @Published public var showHiddenFiles: Bool = false {
         didSet {
@@ -2083,9 +2161,20 @@ public class FileSyncManager: ObservableObject {
     /// of them — lets the empty-pane placeholder point at the Hidden toggle. Not `@Published`:
     /// read during renders that `leftTree` (always published after the raw tree is set)
     /// already triggers.
-    public var leftTreeHasOnlyHiddenEntries: Bool { leftTree.isEmpty && !rawLeftTree.isEmpty }
+    ///
+    /// Read off the tree BEFORE the type filter: a folder the type filter emptied is not one that
+    /// only holds hidden items, and saying so would send the user to the wrong button (TE274).
+    public var leftTreeHasOnlyHiddenEntries: Bool { leftTreeBeforeTypeFilter.isEmpty && !rawLeftTree.isEmpty }
     /// Right-pane counterpart of `leftTreeHasOnlyHiddenEntries`.
-    public var rightTreeHasOnlyHiddenEntries: Bool { rightTree.isEmpty && !rawRightTree.isEmpty }
+    public var rightTreeHasOnlyHiddenEntries: Bool { rightTreeBeforeTypeFilter.isEmpty && !rawRightTree.isEmpty }
+    /// True when the left pane's folder has visible entries but its type filter shows none of them.
+    public var leftTreeIsEmptiedByTypeFilter: Bool {
+        leftTypeFilter != nil && leftTree.isEmpty && !leftTreeBeforeTypeFilter.isEmpty
+    }
+    /// Right-pane counterpart of `leftTreeIsEmptiedByTypeFilter`.
+    public var rightTreeIsEmptiedByTypeFilter: Bool {
+        rightTypeFilter != nil && rightTree.isEmpty && !rightTreeBeforeTypeFilter.isEmpty
+    }
     /// True while the left pane tree is being loaded from disk.
     @Published public var isLoadingLeftTree = false
     /// True while the right pane tree is being loaded from disk.
@@ -2591,9 +2680,14 @@ public class FileSyncManager: ObservableObject {
     /// This is the pane's comparison **scope**, not merely where it is looking: assigning it goes
     /// through `focusOn` → `syncPathsFromHistory` → `refreshSubject`, reloading the tree and
     /// re-running the scan. Where the pane is *browsing* inside that scope is `leftBrowsePath`.
-    @Published public var leftRelativePath: String = ""
+    @Published public var leftRelativePath: String = "" {
+        // What the pane just made is kept visible only until it leaves the folder (TE277).
+        didSet { if leftRelativePath != oldValue { leftTypeFilterKeep = [] } }
+    }
     /// Current subfolder path relative to the right pane root (empty = root).
-    @Published public var rightRelativePath: String = ""
+    @Published public var rightRelativePath: String = "" {
+        didSet { if rightRelativePath != oldValue { rightTypeFilterKeep = [] } }
+    }
 
     /// Where each pane's source **opens**, as a path relative to that pane's root — the origin its
     /// positions are quoted against once you stop assuming both panes share one.
@@ -2941,6 +3035,7 @@ public class FileSyncManager: ObservableObject {
     /// existed — `OutOfQueueWriteRereadTests` measures it.
     public func prepareReread(afterWritingAt path: String) {
         let folder = (path as NSString).deletingLastPathComponent
+        noteOwnWrite(atPath: path)
         let before = prefetchedTrees.count
         let dropped = dropPrefetchedTrees(holding: folder)
         noteScanConfigChanged()
@@ -3291,6 +3386,13 @@ public class FileSyncManager: ObservableObject {
         var leftItemCount: Int
         var rightItemCount: Int
         var differences: [FileDifference]
+        /// Each pane's tree after Hidden but before the type filter; the same array as the pane's
+        /// tree when it has no type filter.
+        var leftTreeBeforeTypeFilter: [FileNode] = []
+        var rightTreeBeforeTypeFilter: [FileNode] = []
+        /// `nil` for a pane with no type filter.
+        var leftTypeFilterFacts: PaneTypeFilterFacts? = nil
+        var rightTypeFilterFacts: PaneTypeFilterFacts? = nil
     }
 
     /// Reapplies `showHiddenFiles` and `ignoredPaths` to raw trees and differences, updating
@@ -3307,6 +3409,8 @@ public class FileSyncManager: ObservableObject {
         let rawRight = rawRightTree
         let rawDiffs = rawDifferences
         let showHidden = showHiddenFiles
+        let leftTypes = leftTypeFilter, rightTypes = rightTypeFilter
+        let leftKeep = leftTypeFilterKeep, rightKeep = rightTypeFilterKeep
         let ignored = effectiveIgnoredPaths
         let patterns = ignorePatterns
         let verifiedSame = verifiedSameDifferenceIds
@@ -3338,7 +3442,11 @@ public class FileSyncManager: ObservableObject {
                 ignorePatterns: patterns,
                 verifiedSameDifferenceIds: verifiedSame,
                 syncingDifferenceIds: syncingIds,
-                dropDriveDateNoise: dropDriveDateNoise
+                dropDriveDateNoise: dropDriveDateNoise,
+                leftTypeFilter: leftTypes,
+                rightTypeFilter: rightTypes,
+                leftTypeFilterKeep: leftKeep,
+                rightTypeFilterKeep: rightKeep
             )
             return (state,
                     state.leftTree != publishedLeft,
@@ -3401,6 +3509,10 @@ public class FileSyncManager: ObservableObject {
         }
         if self.leftItemCount != state.leftItemCount { self.leftItemCount = state.leftItemCount }
         if self.rightItemCount != state.rightItemCount { self.rightItemCount = state.rightItemCount }
+        self.leftTreeBeforeTypeFilter = state.leftTreeBeforeTypeFilter
+        self.rightTreeBeforeTypeFilter = state.rightTreeBeforeTypeFilter
+        if self.leftTypeFilterFacts != state.leftTypeFilterFacts { self.leftTypeFilterFacts = state.leftTypeFilterFacts }
+        if self.rightTypeFilterFacts != state.rightTypeFilterFacts { self.rightTypeFilterFacts = state.rightTypeFilterFacts }
         // The rows' deep compare, trusted from the detached pass on the same terms as the trees':
         // only while nothing wrote the published list since entry, AND while the reconcile pass
         // was skipped — because it is the skip that makes `reconciledDifferences` and
@@ -3447,10 +3559,20 @@ public class FileSyncManager: ObservableObject {
         ignorePatterns: [String] = [],
         verifiedSameDifferenceIds: Set<UUID>,
         syncingDifferenceIds: Set<UUID> = [],
-        dropDriveDateNoise: Bool
+        dropDriveDateNoise: Bool,
+        leftTypeFilter: PaneTypeFilter? = nil,
+        rightTypeFilter: PaneTypeFilter? = nil,
+        leftTypeFilterKeep: Set<String> = [],
+        rightTypeFilterKeep: Set<String> = []
     ) -> FilteredState {
-        let leftTree = filterTree(rawLeftTree, showHidden: showHidden)
-        let rightTree = filterTree(rawRightTree, showHidden: showHidden)
+        let leftBeforeType = filterTree(rawLeftTree, showHidden: showHidden)
+        let rightBeforeType = filterTree(rawRightTree, showHidden: showHidden)
+        // The type filter narrows what each pane SHOWS, and nothing else: it runs after Hidden, on
+        // each pane's tree alone, and never touches `differences` below (TE282). No filter, no pass.
+        let leftTyped = leftTypeFilter.map { PaneTypeFilterPass.apply($0, to: leftBeforeType, keep: leftTypeFilterKeep) }
+        let rightTyped = rightTypeFilter.map { PaneTypeFilterPass.apply($0, to: rightBeforeType, keep: rightTypeFilterKeep) }
+        let leftTree = leftTyped?.tree ?? leftBeforeType
+        let rightTree = rightTyped?.tree ?? rightBeforeType
 
         var filteredDifferences = rawDifferences
         if !showHidden {
@@ -3504,7 +3626,11 @@ public class FileSyncManager: ObservableObject {
             rightTree: rightTree,
             leftItemCount: countItems(in: leftTree),
             rightItemCount: countItems(in: rightTree),
-            differences: filteredDifferences
+            differences: filteredDifferences,
+            leftTreeBeforeTypeFilter: leftBeforeType,
+            rightTreeBeforeTypeFilter: rightBeforeType,
+            leftTypeFilterFacts: leftTyped?.facts,
+            rightTypeFilterFacts: rightTyped?.facts
         )
     }
 

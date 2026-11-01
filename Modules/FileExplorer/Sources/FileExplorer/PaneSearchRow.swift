@@ -27,6 +27,10 @@ struct PaneSearchRowContext: Equatable {
     /// Which side(s) this hit is on, or `nil` — for a non-hit, and on the single-source rail, where
     /// there is no second tree to be “only” with respect to.
     var side: PaneSearchSide?
+    /// The type filter's pill for a closed folder — "2 images", "9 files" — or nil (RD70 TE269).
+    /// Carried here rather than in a context of its own so the row keeps one trailing slot with one
+    /// precedence rule: a running search's count outranks it.
+    var typeFilterPhrase: String?
 
     /// No search running.
     static let none = PaneSearchRowContext()
@@ -40,12 +44,14 @@ struct PaneSearchRowContext: Equatable {
     /// go missing from the other.
     enum Annotation: Equatable {
         case containedMatches(Int)
+        case typeFilterMatches(String)
         case bothSides
         case thisSideOnly
     }
 
     var annotation: Annotation? {
         if showsContainedCount { return .containedMatches(containedMatchCount) }
+        if let typeFilterPhrase, !isExpanded { return .typeFilterMatches(typeFilterPhrase) }
         switch side {
         case .bothSides?: return .bothSides
         case .thisSideOnly?: return .thisSideOnly
@@ -66,6 +72,15 @@ struct PaneSearchRowContext: Equatable {
         self.containedMatchCount = results.containedMatchCount(forPath: path)
         self.isExpanded = isExpanded
         self.side = results.side(forPath: path)
+    }
+
+    /// A row of a pane with no search running, carrying only the type filter's pill.
+    static func typeFilter(_ phrase: String?, isExpanded: Bool) -> PaneSearchRowContext {
+        guard let phrase else { return .none }
+        var context = PaneSearchRowContext()
+        context.typeFilterPhrase = phrase
+        context.isExpanded = isExpanded
+        return context
     }
 
     private init() {}
@@ -175,6 +190,12 @@ struct PaneSearchAnnotation: View {
                 .foregroundStyle(accent)
                 .lineLimit(1)
                 .help("\(count) match\(count == 1 ? "" : "es") inside — press ↩ to go there")
+        case .typeFilterMatches(let phrase)?:
+            Text(phrase)
+                .font(fonts.countPill)
+                .foregroundStyle(accent)
+                .lineLimit(1)
+                .help("\(phrase) inside, shown by the filter")
         case .bothSides?:
             Text("both sides")
                 .font(fonts.countPill)

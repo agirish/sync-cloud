@@ -102,6 +102,9 @@ public struct PaneTab: Identifiable, Equatable, Sendable {
     /// showing), and `Sync` cannot see it. The host maps between them.
     public var searchQuery: String
     public var searchIsExpanded: Bool
+    /// This tab's type filter (RD70), or `nil` for none. Parked and restored like the search, and
+    /// for the search's reason never saved across launches: `PaneTabsStore.Entry` does not carry it.
+    public var typeFilter: PaneTypeFilter?
     /// Whether this tab is pinned to the leading end of the strip.
     ///
     /// Pinning is about **keeping a place reachable**, and that is all it is: a pinned tab sits
@@ -119,7 +122,9 @@ public struct PaneTab: Identifiable, Equatable, Sendable {
                 selection: Set<String> = [],
                 searchQuery: String = "",
                 searchIsExpanded: Bool = false,
+                typeFilter: PaneTypeFilter? = nil,
                 isPinned: Bool = false) {
+        self.typeFilter = typeFilter
         self.id = id
         self.providerId = providerId
         self.relativePath = relativePath

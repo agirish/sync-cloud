@@ -12,7 +12,7 @@ import Testing
     /// Every item a Compare pane in Columns mode can offer.
     private static let allAvailable: [PaneBarItem] =
         [.viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles, .preview,
-         .search, .delete]
+         .search, .delete, .typeFilter]
 
     // MARK: Persistence
 
@@ -30,9 +30,12 @@ import Testing
         // capsule held the row's leading edge and the bar had to be pushed past it; with the capsule
         // retired and the source picker folded into the breadcrumb's first crumb, the bar has the
         // whole row and starts where the breadcrumb below it starts.
+        //
+        // **Filter by Type** (RD70) is the third: just before Search, so Search keeps the trailing
+        // end it has always had and is still the first thing the ladder gives up.
         #expect(PaneBarArrangement.default.items == [
             .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles,
-            .preview, .delete, .search
+            .preview, .delete, .typeFilter, .search
         ])
     }
 

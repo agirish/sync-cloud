@@ -37,15 +37,16 @@ import EventsTestSupport
         let defaults = ScratchDefaults("PaneBarMigrationTests-gains")
         defaults.set("flexibleSpace,viewMode,backForward,scan,sort,hiddenFiles", forKey: PaneBar.arrangementKey)
 
-        #expect(PaneBarMigration.apply(defaults: defaults) == .rewritten(added: [.search], removed: []),
-                "the migration must report Search as what it added, or the launch line names the wrong control")
+        // A bar this old gains Filter by Type too (v2), just before the Search v1 put at the end.
+        #expect(PaneBarMigration.apply(defaults: defaults) == .rewritten(added: [.typeFilter, .search], removed: []),
+                "the migration must report what it added, or the launch line names the wrong control")
 
         let migrated = PaneBarArrangement(encoded: defaults.string(forKey: PaneBar.arrangementKey) ?? "")
         #expect(migrated.items.contains(.search))
         #expect(migrated.items.last == .search)
         // …and nothing else moved: a migration that reshuffles a bar someone arranged is worse than
         // the problem it fixes.
-        #expect(migrated.items.dropLast() == [.flexibleSpace, .viewMode, .backForward, .scan, .sort, .hiddenFiles])
+        #expect(migrated.items.dropLast(2) == [.flexibleSpace, .viewMode, .backForward, .scan, .sort, .hiddenFiles])
     }
 
     /// The half that makes stamping the right mechanism rather than a re-check: once migrated, a
@@ -159,15 +160,46 @@ import EventsTestSupport
     /// The stamp Search wrote is untouched: adding a control WITHOUT a migration step must not
     /// bump the version, or the next control to ship would find every bar already stamped past it
     /// and would silently never migrate.
-    @Test func testTheSearchStampIsUnchanged() {
-        #expect(PaneBarMigration.currentVersion == 1)
-        // A bar stamped at Search's version is current, and stays untouched — which is only true
-        // while `currentVersion` is still 1.
+    @Test func testTheFilterStampIsCurrent() {
+        #expect(PaneBarMigration.currentVersion == 2)
+        // A bar stamped at Filter by Type's version is current, and stays untouched — which is only
+        // true while `currentVersion` is still 2.
         let defaults = ScratchDefaults("PaneBarMigrationTests-stamp")
-        defaults.set(1, forKey: PaneBar.migrationKey)
+        defaults.set(2, forKey: PaneBar.migrationKey)
         defaults.set("flexibleSpace,scan,sort", forKey: PaneBar.arrangementKey)
         #expect(PaneBarMigration.apply(defaults: defaults) == .unchanged)
         #expect(defaults.string(forKey: PaneBar.arrangementKey) == "flexibleSpace,scan,sort")
+    }
+
+    /// Filter by Type's step (v2, RD70 FK): a bar migrated for Search gains it just before Search,
+    /// once, and nothing else moves.
+    @Test func testABarStampedForSearchGainsTheFilterBeforeIt() {
+        let defaults = ScratchDefaults("PaneBarMigrationTests-filter")
+        defaults.set(1, forKey: PaneBar.migrationKey)
+        defaults.set("backForward,scan,search,newFolder", forKey: PaneBar.arrangementKey)
+        #expect(PaneBarMigration.apply(defaults: defaults) == .rewritten(added: [.typeFilter], removed: []))
+        #expect(defaults.string(forKey: PaneBar.arrangementKey) == "backForward,scan,typeFilter,search,newFolder")
+        #expect(defaults.integer(forKey: PaneBar.migrationKey) == 2)
+    }
+
+    /// A bar that dropped Search gets the filter at its trailing end rather than not at all.
+    @Test func testABarWithoutSearchGainsTheFilterAtTheEnd() {
+        let defaults = ScratchDefaults("PaneBarMigrationTests-filter-nosearch")
+        defaults.set(1, forKey: PaneBar.migrationKey)
+        defaults.set("backForward,scan,sort", forKey: PaneBar.arrangementKey)
+        PaneBarMigration.apply(defaults: defaults)
+        #expect(defaults.string(forKey: PaneBar.arrangementKey) == "backForward,scan,sort,typeFilter")
+    }
+
+    /// Removing it afterwards sticks: the step runs once per bar, by the stamp.
+    @Test func testRemovingTheFilterAfterwardsSticks() {
+        let defaults = ScratchDefaults("PaneBarMigrationTests-filter-sticks")
+        defaults.set(1, forKey: PaneBar.migrationKey)
+        defaults.set("scan,search", forKey: PaneBar.arrangementKey)
+        PaneBarMigration.apply(defaults: defaults)
+        defaults.set("scan,search", forKey: PaneBar.arrangementKey)
+        #expect(PaneBarMigration.apply(defaults: defaults) == .unchanged)
+        #expect(defaults.string(forKey: PaneBar.arrangementKey) == "scan,search")
     }
 
     /// The blind spot this whole suite exists for, pointed at the new case: a bar stored before
@@ -440,9 +472,9 @@ import EventsTestSupport
         // derivation under test, and comparing it with itself would pass for any filter at all,
         // including one that returned its input.
         let shipped: [PaneBarItem] = [.viewMode, .collapse, .backForward, .scan, .newFolder, .sort,
-                                      .hiddenFiles, .preview, .delete, .search]
+                                      .hiddenFiles, .preview, .delete, .typeFilter, .search]
         #expect(PaneBarArrangement.default.encoded == "viewMode,collapse,backForward,"
-                + "scan,newFolder,sort,hiddenFiles,preview,delete,search",
+                + "scan,newFolder,sort,hiddenFiles,preview,delete,typeFilter,search",
                 "the shipped bar changed; the literal below is what this test is measuring against")
         let withNoRoutes = PaneBarMigration.controlsWithoutARoute(shipping: .default, routed: [])
         let namedInstead = "with no routes declared, every shipped control is stranded — this named "
@@ -663,9 +695,9 @@ import EventsTestSupport
         // this user to put it back, every launch, is advice about a decision rather than a defect.
         #expect(await log.entries.contains {
             $0.message == "[panebar] The stored pane-bar arrangement omits View, Collapse Pane, "
-                + "Back/Forward, New Folder, Hidden Files, Preview, Search"
+                + "Back/Forward, New Folder, Hidden Files, Preview, Filter by Type, Search"
                 + " — put back from Customize Pane Bar…"
-        }, "a launch on a bar missing seven shipped controls wrote nothing about it")
+        }, "a launch on a bar missing eight shipped controls wrote nothing about it")
     }
 
     /// **`apply` writes no report of its own**, which is the whole of the fix for a duplicated one.
@@ -692,7 +724,7 @@ import EventsTestSupport
         // …and the migrating path too, since a `defer` fires on every way out.
         let migrating = ScratchDefaults("PaneBarMigrationTests-reach-apply-migrating")
         migrating.set("flexibleSpace,scan,sort", forKey: PaneBar.arrangementKey)
-        #expect(PaneBarMigration.apply(defaults: migrating) == .rewritten(added: [.search], removed: []),
+        #expect(PaneBarMigration.apply(defaults: migrating) == .rewritten(added: [.typeFilter, .search], removed: []),
                 "the fixture must really migrate")
         // After both calls, so a capture that holds it was listening across them.
         let marker = "panebar-reach-not-from-apply-\(UUID().uuidString)"

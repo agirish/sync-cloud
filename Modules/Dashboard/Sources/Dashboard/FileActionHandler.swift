@@ -25,7 +25,7 @@ public class FileActionHandler {
     /// the real `NativeAlerts`; tests substitute closures because the real ones block on NSAlert.
     private let renamePrompter: (_ currentName: String, _ validate: (String) -> String?) -> String?
     private let newFolderPrompter: (_ validate: (String) -> String?) -> String?
-    private let deleteConfirmer: (_ itemNames: [String]) -> Bool
+    private let deleteConfirmer: (_ itemNames: [String], _ hiddenByFilter: Int) -> Bool
 
     public init(
         syncManager: FileSyncManager,
@@ -37,8 +37,8 @@ public class FileActionHandler {
             { NativeAlerts.promptForRename(currentName: $0, validate: $1) },
         newFolderPrompter: @escaping (_ validate: (String) -> String?) -> String? =
             { NativeAlerts.promptForNewFolder(validate: $0) },
-        deleteConfirmer: @escaping (_ itemNames: [String]) -> Bool =
-            { NativeAlerts.confirmDelete(for: $0) }
+        deleteConfirmer: @escaping (_ itemNames: [String], _ hiddenByFilter: Int) -> Bool =
+            { NativeAlerts.confirmDelete(for: $0, hiddenByFilter: $1) }
     ) {
         self.syncManager = syncManager
         self.settings = settings
@@ -447,7 +447,8 @@ public class FileActionHandler {
     public func confirmDelete(_ nodes: [FileNode], alwaysConfirm: Bool = false) {
         guard !refusedWhileRunning() else { return }
         if alwaysConfirm || GeneralSettings.shouldConfirmBeforeDelete(defaults) {
-            guard deleteConfirmer(nodes.map { $0.name }) else { return }
+            // A folder goes with everything in it, including what the type filter hides (FJ).
+            guard deleteConfirmer(nodes.map { $0.name }, syncManager.itemsHiddenByTypeFilter(inside: nodes)) else { return }
             Logger.shared.info("User confirmed deletion of \(nodes.count) item(s)")
         } else {
             Logger.shared.info("User deleted \(nodes.count) item(s) (confirmation disabled in Settings)")

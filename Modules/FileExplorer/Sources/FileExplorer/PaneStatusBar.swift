@@ -23,6 +23,9 @@ struct PaneStatusBar: View {
     var facts: PaneStatusFacts
     /// Forces a rung, for the tests that measure each one. `nil` picks by width.
     var forcedRung: PaneStatusFacts.Rung?
+    /// Clears the type filter — the ✕ on its chip. The chip is drawn whenever the facts carry a
+    /// filter, at every rung, so a narrow pane never hides that it is filtered (TE271).
+    var onClearTypeFilter: (() -> Void)? = nil
 
     var body: some View {
         Group {
@@ -51,6 +54,11 @@ struct PaneStatusBar: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(facts.accessibilityLabel)
+        .accessibilityActions {
+            if facts.typeFilter != nil, let onClearTypeFilter {
+                Button("Clear Filter", action: onClearTypeFilter)
+            }
+        }
     }
 
     /// One rung, measured at its ideal width so `ViewThatFits` can compare the four.
@@ -64,10 +72,37 @@ struct PaneStatusBar: View {
     /// words".
     private func strip(_ rung: PaneStatusFacts.Rung) -> some View {
         HStack(spacing: 14) {
-            ForEach(Array(facts.segments(rung).enumerated()), id: \.offset) { Text($0.element) }
+            ForEach(Array(facts.segments(rung).enumerated()), id: \.offset) { index, segment in
+                Text(segment)
+                // Right after the count it qualifies, so it is the last thing a narrowing pane keeps.
+                if index == 0, let filter = facts.typeFilter { typeFilterChip(filter) }
+            }
             Spacer(minLength: 8)
         }
         .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func typeFilterChip(_ filter: PaneStatusFacts.TypeFilter) -> some View {
+        HStack(spacing: 3) {
+            // Inked `.primary` on the accent's wash, never the accent on its own wash (DS1).
+            Text(filter.summary).fontWeight(.semibold).foregroundStyle(.primary)
+            if let onClearTypeFilter {
+                Button(action: onClearTypeFilter) {
+                    Image(systemName: "xmark")
+                        .scaledFont(.system(size: 7, weight: .bold))
+                        .frame(width: 12, height: 12)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Clear the filter")
+                .accessibilityLabel("Clear the filter")
+            }
+        }
+        .foregroundStyle(.secondary)
+        .padding(.leading, 7)
+        .padding(.trailing, onClearTypeFilter == nil ? 7 : 3)
+        .padding(.vertical, 1)
+        .background(Capsule().fill(LiquidGlassHue.stored().accentColor.opacity(0.16)))
     }
 }
 
@@ -81,14 +116,15 @@ struct PaneStatusBar: View {
 struct TickingPaneStatusBar: View {
 
     var facts: PaneStatusFacts
+    var onClearTypeFilter: (() -> Void)? = nil
 
     var body: some View {
         if let readAt = facts.readAt {
             TimelineView(.periodic(from: readAt, by: 30)) { context in
-                PaneStatusBar(facts: at(context.date))
+                PaneStatusBar(facts: at(context.date), onClearTypeFilter: onClearTypeFilter)
             }
         } else {
-            PaneStatusBar(facts: facts)
+            PaneStatusBar(facts: facts, onClearTypeFilter: onClearTypeFilter)
         }
     }
 
@@ -120,12 +156,18 @@ public struct BrowseStatusBar: View {
     var changedOnDisk: Bool
     /// Substituted by the tests, for the reason ``CloudOnlyCensus/count(in:stat:)`` gives.
     var stat: MaterializationStatus.StatFlags = MaterializationStatus.realStatFlags
+    /// The pane's type filter, for "28 of 52 items" and its chip (RD70 TE271).
+    var typeFilter: PaneStatusFacts.TypeFilter?
+    var onClearTypeFilter: (() -> Void)?
 
     @State private var cloudOnlyCount: Int?
 
     public init(itemCount: Int, tree: PaneTree, selection: PaneStatusFacts.Selection?,
                 readAt: Date?, changedOnDisk: Bool = false,
-                stat: @escaping MaterializationStatus.StatFlags = MaterializationStatus.realStatFlags) {
+                stat: @escaping MaterializationStatus.StatFlags = MaterializationStatus.realStatFlags,
+                typeFilter: PaneStatusFacts.TypeFilter? = nil, onClearTypeFilter: (() -> Void)? = nil) {
+        self.typeFilter = typeFilter
+        self.onClearTypeFilter = onClearTypeFilter
         self.itemCount = itemCount
         self.tree = tree
         self.selection = selection
@@ -139,7 +181,9 @@ public struct BrowseStatusBar: View {
                                                     selection: selection,
                                                     cloudOnlyCount: cloudOnlyCount,
                                                     readAt: readAt,
-                                                    changedOnDisk: changedOnDisk))
+                                                    changedOnDisk: changedOnDisk,
+                                                    typeFilter: typeFilter),
+                             onClearTypeFilter: onClearTypeFilter)
             .task(id: tree.version) {
                 // Back to `—` FIRST. Without this the previous tree's count sits under the new
                 // tree's rows for as long as the walk takes, which is the one thing the roadmap's

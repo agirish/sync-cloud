@@ -26,7 +26,8 @@ extension FileSyncManager {
                        history: isLeft ? leftHistory : rightHistory,
                        selection: isLeft ? selectedLeftPaths : selectedRightPaths,
                        searchQuery: search.query,
-                       searchIsExpanded: search.isExpanded)
+                       searchIsExpanded: search.isExpanded,
+                       typeFilter: isLeft ? leftTypeFilter : rightTypeFilter)
     }
 
     /// Writes a parked tab over the pane. **Does not reload — the caller owns that.**
@@ -98,6 +99,7 @@ extension FileSyncManager {
             leftHistory = tab.history
             leftBrowsePath = tab.browsePath
             selectedLeftPaths = tab.selection
+            leftTypeFilter = tab.typeFilter
             // From the tab's own history rather than its `relativePath`, which is the same value by
             // construction — every initializer seeds the history from the path, and a capture takes
             // both off a pane `syncPathsFromHistory` has already put in step. Taking it from the
@@ -107,6 +109,7 @@ extension FileSyncManager {
             rightHistory = tab.history
             rightBrowsePath = tab.browsePath
             selectedRightPaths = tab.selection
+            rightTypeFilter = tab.typeFilter
             if rightRelativePath != tab.history.current { rightRelativePath = tab.history.current }
         }
     }

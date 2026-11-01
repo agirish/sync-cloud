@@ -24,7 +24,7 @@ import Settings
         FileActionHandler(syncManager: manager, settings: scratchSettings(),
                           renamePrompter: { _, _ in asked.count += 1; return nil },
                           newFolderPrompter: { _ in asked.count += 1; return nil },
-                          deleteConfirmer: { _ in asked.count += 1; return false })
+                          deleteConfirmer: { _, _ in asked.count += 1; return false })
     }
 
     private func runningMerge() -> Progress {

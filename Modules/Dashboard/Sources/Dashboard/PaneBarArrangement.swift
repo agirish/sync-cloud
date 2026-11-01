@@ -39,6 +39,11 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
     /// bar someone had not opted into. The row menu's Delete and ⌘⌫ were reaching the same act all
     /// along, which is why this control can afford to wait to be added deliberately.
     case delete
+    /// Appended last, per the rule above. **Filter by Type** (RD70): the pane shows only the file
+    /// types ticked in its list, keeping every folder that holds one. Unlike Delete it IS migrated
+    /// onto bars arranged before it existed (`PaneBarMigration` v2, decision FK), for Search's
+    /// reason: it is a harmless way of looking, and a customized bar would otherwise never see it.
+    case typeFilter
 
     public var id: String { rawValue }
 
@@ -70,6 +75,7 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
         case .flexibleSpace: return "Flexible Space"
         case .search: return "Search"
         case .delete: return "Delete"
+        case .typeFilter: return "Filter by Type"
         }
     }
 
@@ -98,6 +104,7 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
         case .space, .flexibleSpace: return ""
         case .search: return "Search"
         case .delete: return "Delete"
+        case .typeFilter: return "Filter"
         }
     }
 
@@ -126,6 +133,10 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
     /// edge the pane folds into, and shares its silhouette with neither neighbour.
     public static let collapseSymbol = "arrow.left.to.line"
 
+    /// The Filter button's glyph; filled while a filter is on, so the state rides in the glyph the
+    /// way Hidden's eye does.
+    public static let typeFilterSymbol = "line.3.horizontal.decrease.circle"
+
     /// The palette tile's glyph. Paired items (View, Back/Forward) draw the first of their pair here;
     /// the bar itself draws both.
     public var paletteSymbol: String {
@@ -142,6 +153,7 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
         case .flexibleSpace: return "arrow.left.and.right"
         case .search: return "magnifyingglass"
         case .delete: return "trash"
+        case .typeFilter: return PaneBarItem.typeFilterSymbol
         }
     }
 
@@ -217,7 +229,7 @@ public struct PaneBarArrangement: Equatable, Sendable {
     /// equivalent — Delete's own chord (⌘⌫) is Compare-only, so it is not the cheapest to lose.
     public static let `default` = PaneBarArrangement([
         .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles,
-        .preview, .delete, .search
+        .preview, .delete, .typeFilter, .search
     ])
 
     /// Normalizes on the way in, so no other code has to defend against a malformed list:
@@ -455,7 +467,7 @@ public enum PaneBarLayout {
         // `ExpandingSearchToggle`, which sizes itself from a bare 13pt glyph. A pill among pills is
         // what the bar looks like, and it keeps this arithmetic one line instead of a second opinion
         // about a glyph's intrinsic width.
-        case .collapse, .scan, .newFolder, .sort, .hiddenFiles, .search, .delete:
+        case .collapse, .scan, .newFolder, .sort, .hiddenFiles, .search, .delete, .typeFilter:
             return pill.width
         }
     }
@@ -893,7 +905,7 @@ public enum PaneBar {
 /// migration and it stays removed; that is the whole point of stamping rather than checking.
 public enum PaneBarMigration {
     /// Bump this — and add a step below — whenever a control joins `PaneBarArrangement.default`.
-    public static let currentVersion = 1
+    public static let currentVersion = 2
 
     // MARK: The routes a shipped control has onto a customized bar
     //
@@ -923,7 +935,7 @@ public enum PaneBarMigration {
     ///
     /// A claim, not a mechanism — the steps are in `apply` and this list could disagree with them.
     /// It is bound to them behaviourally, one migration run per control, so it cannot.
-    public static let migratedControls: Set<PaneBarItem> = [.search]
+    public static let migratedControls: Set<PaneBarItem> = [.search, .typeFilter]
 
     /// Controls that ship on the default bar and **deliberately decline** a step.
     ///
@@ -1038,6 +1050,12 @@ public enum PaneBarMigration {
         // ladder gives it up first.
         if from < 1, !arrangement.items.contains(.search) {
             arrangement.insert(.search, at: arrangement.items.count)
+        }
+        // v2 — Filter by Type (RD70, FK). Just before Search, where the default carries it, or at
+        // the trailing end on a bar that has dropped Search.
+        if from < 2, !arrangement.items.contains(.typeFilter) {
+            let at = arrangement.items.firstIndex(of: .search) ?? arrangement.items.count
+            arrangement.insert(.typeFilter, at: at)
         }
         // **Compared, not assumed.** This used to set a `changed` flag beside the `insert` call, and
         // `PaneBarArrangement.insert` is allowed to refuse: a bar already at `maxItems` — reachable,

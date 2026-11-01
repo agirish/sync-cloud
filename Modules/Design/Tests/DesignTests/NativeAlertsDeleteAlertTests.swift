@@ -26,6 +26,17 @@ import Testing
         #expect(alert.buttons.map(\.title) == ["Move to Trash", "Cancel"])
     }
 
+    /// A folder goes to the Trash with everything in it, including what a type filter hides, and
+    /// the prompt says so (RD70, FJ).
+    @Test func aFolderWithFilteredItemsSaysTheyGoToo() throws {
+        let one = try #require(NativeAlerts.deleteAlert(for: ["photos"], hiddenByFilter: 3))
+        #expect(one.informativeText == "Includes 3 items the filter is hiding. You can put it back from the Trash.")
+        let single = try #require(NativeAlerts.deleteAlert(for: ["a", "b"], hiddenByFilter: 1))
+        #expect(single.informativeText == "Includes 1 item the filter is hiding. You can put them back from the Trash.")
+        let none = try #require(NativeAlerts.deleteAlert(for: ["photos"], hiddenByFilter: 0))
+        #expect(none.informativeText == "You can put it back from the Trash.")
+    }
+
     @Test func noItemsAsksNothing() {
         #expect(NativeAlerts.deleteAlert(for: []) == nil)
     }

@@ -2394,7 +2394,12 @@ extension ContentView {
             selection: syncManager.selectedLeftPaths,
             selectingOpens: selectedWorkspace == .editor && !panesHiddenForCurrentTab)
         switch decision {
-        case .nothing, .wait:
+        case .nothing:
+            return
+        case .wait:
+            // A row the type filter hides would leave this waiting forever: the file was asked for
+            // by name, so the filter gives way and the republish pays the debt (FM).
+            syncManager.clearTypeFilterHiding(owed.path, isLeft: true)
             return
         case .drop(let reason):
             editorPaneSelectionOwed = nil
