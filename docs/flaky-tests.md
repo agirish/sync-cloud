@@ -4871,3 +4871,45 @@ near 1,800 s means a release that never came.
 **Not changed:** Sync's own copy of the harness (`UnansweredListingTests`). It answers a
 `ParkGate`, whose bound counts scheduler turns ("A park's bound counted seconds while its release waited for scheduler turns"), so pool starvation already
 stretches it.
+
+### 51. A defaults suite named per test, not per run, is shared by the same test in another process — FIXED
+
+**Symptom.** Two Sync engine tests red together on spend, fast, with every other expectation
+green:
+
+```
+✘ Test spendIsRecordedPerRound() recorded an issue at AskClaudeTests.swift:737:9
+↳   abs(AskClaudeSpend.spent(in: defaults, now: day) - 0.0019) → 0.0019
+✘ Test aStoppedRoundsStreamedOutputIsBilled() recorded an issue …
+```
+
+The spend read is twice the round's: the test's own $0.0019 plus another process's. First seen
+2026-10-31 in a local gate at load 27, red after about 30 s each, while another worktree ran Sync's
+tests. Both passed alone in 1.6 s, and the full package passed on a rerun with nothing beside it.
+
+**Mechanism.** `AskClaudeTests`' `freshDefaults()` named each suite `AskClaudeTests.<test>`, with no
+UUID, and emptied it with `removePersistentDomain` first. cfprefsd serves a domain by name to every
+process on the Mac, so the same test in a second run, in another worktree or on the self-hosted CI
+runner, wrote into the same domain between this run's emptying and its read. This is "A named
+NSPasteboard is machine-global, so two test PROCESSES share it" for a defaults suite. A per-test
+name keeps a process's own suites apart, not the neighbours'. The fixed names also escaped "Leaked
+defaults suites": the shape sweep only matches a name ending in an uppercase UUID, so 16
+`AskClaudeTests.*.plist` sat in `~/Library/Preferences` for good.
+
+**Reproduced** with two `swiftpm-testing-helper` processes (launched as in "A named NSPasteboard is
+machine-global, so two test PROCESSES share it"), each running `--filter AskClaudeTests` 15 times
+back to back: 11 of the 30 runs red, every one in the process that started second, on one or both
+tests above. After the fix, 0 of 30.
+
+**Fix, 2026-10-31.** `freshDefaults()` returns a `ScratchDefaults` named for the test, which adds a
+UUID and wipes its domain and plist when the engine lets go of it. The leftover plists were
+deleted by hand once. `FilingRefineRejectionReadTests` had the same fixed name
+(`refineRejectionReads`) and now takes a UUID and a `wipeDefaultsSuite` too. No other Sync suite
+names a domain without a UUID.
+
+**It costs time.** `wipeDefaultsSuite` flushes cfprefsd's cache for the suite, about 87 ms per
+call here, and the engine tests wipe on the main actor one after another. The file's 51 tests went
+from 1.1 s to 2.7 s alone. Every other `ScratchDefaults` suite already pays this.
+
+**Tell.** A value off by exactly what the test itself writes, red only while a second test process
+runs on the Mac. Look for a `suiteName:` without a UUID in it.

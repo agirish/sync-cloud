@@ -760,7 +760,6 @@ private actor AsyncGate {
         init?(name: String, watching key: String) {
             self.watched = key
             super.init(suiteName: name)
-            removePersistentDomain(forName: name)
         }
         override func data(forKey defaultName: String) -> Data? {
             if defaultName == watched { lock.lock(); n += 1; lock.unlock() }
@@ -782,8 +781,9 @@ private actor AsyncGate {
         let fileCount = 25
         for i in 0..<fileCount { try write(root.appendingPathComponent("Downloads/mystery-\(i).pdf")) }
 
-        let counting = try #require(CountingDefaults(name: "refineRejectionReads",
-                                                     watching: FileSyncManager.rejectionsDefaultsKey))
+        let suite = "refineRejectionReads-\(UUID().uuidString)"
+        let counting = try #require(CountingDefaults(name: suite, watching: FileSyncManager.rejectionsDefaultsKey))
+        defer { wipeDefaultsSuite(suite) }
         let m = FileSyncManager()
         m.filingRuleDefaults = counting
         m.filingClassifier = { _, files, _ in

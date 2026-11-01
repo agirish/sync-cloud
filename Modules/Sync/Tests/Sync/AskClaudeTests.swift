@@ -79,13 +79,11 @@ private final class StubTools: AskClaudeToolRunning {
     }
 }
 
-/// One domain per test, named for it and emptied first, so runs reuse it rather than leaving a
-/// new preferences file behind every time.
-private func freshDefaults(_ test: String = #function) -> UserDefaults {
-    let name = "AskClaudeTests." + test.prefix { $0 != "(" }
-    let defaults = UserDefaults(suiteName: name)!
-    defaults.removePersistentDomain(forName: name)
-    return defaults
+/// One scratch domain per call, named for the test. The UUID is what keeps it to this process:
+/// cfprefsd serves a domain by name to every process on the Mac, so a name fixed per test shared
+/// its spend with the same test in another worktree's run, or the CI runner's.
+private func freshDefaults(_ test: String = #function) -> ScratchDefaults {
+    ScratchDefaults("AskClaudeTests." + test.prefix { $0 != "(" })
 }
 
 /// Two tool calls in one turn.
