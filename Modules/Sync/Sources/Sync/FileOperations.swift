@@ -1060,6 +1060,8 @@ extension FileSyncManager {
             Logger.shared.info("Created folder \(name) at \(path)")
             noteOwnWrite(atPath: createdURL.path)
             self.registerCreateFolderUndo(url: createdURL, fileManager: fm)
+            // In History, in the registration's own turn (FR26).
+            recordSyncHistory([SyncHistoryRecord(runId: UUID(), action: .newFolder, sourcePath: createdURL.path)])
         }
     }
 

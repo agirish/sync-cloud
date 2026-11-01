@@ -214,7 +214,11 @@ extension ContentView {
             guard let ask = askClaudeChat.plan(id)?.nextAsk else { return }
             askClaudeSend(ask)
         case .notNow:
-            askClaudeChat.updatePlan(id) { if $0.state == .proposed { $0.state = .declined } }
+            guard askClaudeChat.plan(id)?.state == .proposed else { return }
+            askClaudeChat.updatePlan(id) { $0.state = .declined }
+            if let title = askClaudeChat.plan(id)?.title {
+                askClaudeChat.tellClaude("They chose Not Now on your card “\(title)”; nothing changed.")
+            }
         case .undo:
             guard let plan = askClaudeChat.plan(id), let name = plan.undoName else { return }
             // Only while it is still the step on top: an Undo under something done since would
@@ -229,6 +233,7 @@ extension ContentView {
                 $0.state = .undone
                 $0.undoName = nil
             }
+            askClaudeChat.tellClaude("They undid your card “\(plan.title)”: everything it did is back where it was.")
         }
     }
 
@@ -248,6 +253,7 @@ extension ContentView {
             let outcome = await syncManager.applyPlan(rows, actionName: plan.title, isHidden: { hidden.isHidden($0) },
                                                       protected: protected)
             askClaudeChat.updatePlan(id) { $0.record(outcome) }
+            if let applied = askClaudeChat.plan(id) { askClaudeChat.tellClaude(AskClaudeChat.applyReport(applied)) }
         }
     }
 

@@ -13427,7 +13427,8 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s run=%s watcher=%s\n' $l 
 ## Rename and New Folder wait for Verify All; names over 255 units refused (TE262) — main only
 
 2026-10-31, for v7.0, found by TE262's plan. `FileSyncManager.renameItem` and `createFolder` had
-no Verify All guard (every other write has one), a rename wrote no History record, and
+no Verify All guard (every other write has one), a rename or a new folder wrote no History record
+(a new folder had no History kind until `SyncAction.newFolder`, added after), and
 `validateItemName` let through a name longer than APFS stores (255 UTF-16 units, decomposed), so
 it failed only when written. All three are fixed on `main`. Every line carries all three.
 

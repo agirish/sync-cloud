@@ -386,6 +386,19 @@ import EventsTestSupport
         #expect(one.actionSummary == "1 move to the Trash")
     }
 
+    /// TE262: a card that made a folder and moved a file in says both, and that the folder goes
+    /// only if empty.
+    @Test func confirmationDetailSaysANewFolderGoesOnlyIfEmpty() {
+        let run = UUID()
+        let recs = [SyncHistoryRecord(runId: run, action: .newFolder, sourcePath: "/d/Japan 2026"),
+                    SyncHistoryRecord(runId: run, action: .move, sourcePath: "/dl/JAL.pdf", destPath: "/d/Japan 2026/JAL.pdf")]
+        let preview = SyncRunUndoPreview(actionName: "Put the Tickets in Japan 2026", records: recs)
+        #expect(preview.actionSummary == "1 move, 1 new folder")
+        let detail = preview.confirmationDetail()
+        #expect(detail.contains("  •  Remove the folder “Japan 2026” if it’s empty"))
+        #expect(detail.contains("Moved files go back to where they were; folders it made are removed if they’re empty."))
+    }
+
     /// FR29: the closing note says what THIS run's undo does. A copy-only run used to be told
     /// "Files move back to where they were; deleted items are restored from the Trash" — and its
     /// undo moves nothing back: the copies go to the Trash.

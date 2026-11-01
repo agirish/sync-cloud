@@ -16,6 +16,9 @@ public enum SyncAction: String, Codable, Sendable, CaseIterable {
     /// "Copy to match dates" on a pair Verify All proved byte-identical (FR41): the destination
     /// file took the source's modification date, and no byte was copied.
     case matchDates
+    /// A folder made: by New Folder, or by a card of changes in Ask Claude (TE262). `sourcePath`
+    /// is the folder.
+    case newFolder
 
     /// A short human label for the UI ("Copy" / "Move" / "Move to Trash" / "Match Dates").
     ///
@@ -29,6 +32,7 @@ public enum SyncAction: String, Codable, Sendable, CaseIterable {
         case .move: return "Move"
         case .delete: return "Move to Trash"
         case .matchDates: return "Match Dates"
+        case .newFolder: return "New Folder"
         }
     }
 
@@ -39,6 +43,7 @@ public enum SyncAction: String, Codable, Sendable, CaseIterable {
         case .move: return "arrow.right.doc.on.clipboard"
         case .delete: return "trash"
         case .matchDates: return "calendar"
+        case .newFolder: return "folder.badge.plus"
         }
     }
 }

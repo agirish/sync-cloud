@@ -138,9 +138,11 @@ import Events
         defer { cleanUp() }
         _ = await apply([.rename(path: dir + "/Documents/Taxes/w2.pdf", to: "W2.pdf"),
                          .move(from: dir + "/Downloads/JAL Ticket.pdf", toFolder: dir + "/Documents/Travel"),
-                         .trash(path: dir + "/Downloads/old.txt")])
+                         .trash(path: dir + "/Downloads/old.txt"),
+                         .newFolder(in: dir + "/Documents", name: "Japan")])
         let records = store.lastRunId.map(store.recordsForRun) ?? []
-        #expect(records.map(\.action).sorted { $0.rawValue < $1.rawValue } == [.delete, .move, .move])
+        #expect(records.map(\.action).sorted { $0.rawValue < $1.rawValue } == [.delete, .move, .move, .newFolder])
+        #expect(records.contains { $0.action == .newFolder && $0.sourcePath == dir + "/Documents/Japan" })
         #expect(Set(records.map(\.runId)).count == 1)
         #expect(records.contains { $0.action == .move && $0.destPath == dir + "/Documents/Taxes/W2.pdf" })
         manager.undoManager?.undo()
@@ -190,5 +192,8 @@ import Events
         #expect(FileManager.default.fileExists(atPath: dir + "/b.txt"))
         #expect(store.records.map(\.action) == [.move])
         #expect(store.records.first?.sourcePath == dir + "/a.txt" && store.records.first?.destPath == dir + "/b.txt")
+        await manager.createFolder(named: "New", in: dir)
+        #expect(store.records.map(\.action) == [.move, .newFolder])
+        #expect(store.records.last?.sourcePath == dir + "/New")
     }
 }

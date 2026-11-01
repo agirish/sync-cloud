@@ -53,6 +53,7 @@ public struct SyncRunUndoPreview: Sendable {
             case .move: (singular, plural) = ("move", "moves")
             case .delete: (singular, plural) = ("move to the Trash", "moves to the Trash")
             case .matchDates: (singular, plural) = ("date match", "date matches")
+            case .newFolder: (singular, plural) = ("new folder", "new folders")
             }
             return "\(n) \(n == 1 ? singular : plural)"        // "2 copies", "3 moves to the Trash", "1 date match"
         }.joined(separator: ", ")
@@ -72,6 +73,8 @@ public struct SyncRunUndoPreview: Sendable {
             case .matchDates:
                 let dest = rec.destPath.map { ($0 as NSString).lastPathComponent } ?? src
                 lines.append("  •  Put back the date of “\(dest)”")
+            case .newFolder:
+                lines.append("  •  Remove the folder “\(src)” if it’s empty")
             case .copy, .move:
                 let destDir = rec.destPath.map { ((($0 as NSString).deletingLastPathComponent) as NSString).lastPathComponent } ?? ""
                 let where_ = destDir.isEmpty ? "" : " → \(destDir)"
@@ -106,6 +109,9 @@ public struct SyncRunUndoPreview: Sendable {
         }
         if present.contains(.matchDates) {
             clauses.append("files whose dates were matched get their own dates back, unless changed since")
+        }
+        if present.contains(.newFolder) {
+            clauses.append("folders it made are removed if they’re empty")
         }
         guard let first = clauses.first else { return "" }
         clauses[0] = first.prefix(1).uppercased() + first.dropFirst()

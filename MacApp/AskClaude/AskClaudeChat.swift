@@ -162,6 +162,38 @@ final class AskClaudeChat: ObservableObject {
         var items: [Item]
         var lastActivity: Date
         var engine: AskClaudeEngine.Snapshot
+        /// Lines for Claude not yet sent; absent in a chat saved before they existed.
+        var sinceLastAnswer: [String]?
+    }
+
+    /// What they did on Claude's cards since its last answer (applied, undid, Not Now), sent with
+    /// their next question: Claude sees nothing the card does, and would answer from the moment it
+    /// offered the card.
+    private(set) var sinceLastAnswer: [String] = []
+
+    /// A line about a card for Claude, sent with the next question.
+    func tellClaude(_ line: String) {
+        sinceLastAnswer.append(line)
+        if !isRunning { save() }
+    }
+
+    /// What Claude is told after Apply: the card, its summary, and each row that didn't run, why.
+    static func applyReport(_ plan: AskClaudePlan) -> String {
+        var line = "They applied your card “\(plan.title)”: \(plan.summary ?? "applied.")"
+        let missed = plan.rows.filter { $0.applied == false }
+        if !missed.isEmpty {
+            line += " Didn’t run: " + missed.prefix(10).map { "\($0.name) (\($0.result ?? "skipped"))" }.joined(separator: "; ")
+            if missed.count > 10 { line += "; and \(missed.count - 10) more" }
+            line += "."
+        }
+        return line
+    }
+
+    /// The question as sent, with what happened on the cards in front of it, as data.
+    static func withSinceLastAnswer(_ lines: [String], _ question: String) -> String {
+        guard !lines.isEmpty else { return question }
+        return "<since_last_answer>\n" + lines.map { "- " + AskClaudeScreenCard.escape($0) }.joined(separator: "\n")
+            + "\n</since_last_answer>\n\n" + question
     }
 
     init(defaults: UserDefaults = .standard,
@@ -235,6 +267,7 @@ final class AskClaudeChat: ObservableObject {
             return
         }
         engine.restore(stored.engine)
+        sinceLastAnswer = stored.sinceLastAnswer ?? []
         items = Self.withoutRepeatedSteps(stored.items).map(Self.notWaiting)
         lastActivity = stored.lastActivity
         refreshLinkTargets()
@@ -281,7 +314,8 @@ final class AskClaudeChat: ObservableObject {
             try? FileManager.default.removeItem(at: storeURL)
             return
         }
-        let stored = Stored(items: items, lastActivity: lastActivity, engine: engine.snapshot)
+        let stored = Stored(items: items, lastActivity: lastActivity, engine: engine.snapshot,
+                            sinceLastAnswer: sinceLastAnswer.isEmpty ? nil : sinceLastAnswer)
         do {
             let data = try JSONEncoder().encode(stored)
             try FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -504,6 +538,11 @@ final class AskClaudeChat: ObservableObject {
         }
         lastActivity = now()
         askedQuestion = question
+        // Taken now and put back if the question never reaches Claude: a failed request leaves
+        // nothing in the transcript, so they must go with the next one.
+        let pending = sinceLastAnswer
+        sinceLastAnswer = []
+        let sent = Self.withSinceLastAnswer(pending, question)
 
         items.append(Item(kind: .user(shown ?? question)))
         streamingItem = nil
@@ -519,6 +558,7 @@ final class AskClaudeChat: ObservableObject {
             guard let self, self.run == thisRun else { return }
             // Stopped while the screen was read: the run ends here, as a stop does later on.
             if Task.isCancelled {
+                self.sinceLastAnswer = pending + self.sinceLastAnswer
                 self.items.append(Item(kind: .note("Stopped.")))
                 Logger.shared.info("Ask Claude question stopped before it was sent")
                 self.finishRun()
@@ -536,9 +576,10 @@ final class AskClaudeChat: ObservableObject {
             // Not kept when the key changed during the read: that copy may be the old key.
             if self.run == thisRun, self.keyChanges == keyChangesBefore { self.cachedKey = key }
             // The style checked above, not read again: Settings can change it while the screen is read.
-            await engine.ask(question, card: rendered.text, key: key, model: model, detail: detail, tools: tools) { [weak self] event in
+            await engine.ask(sent, card: rendered.text, key: key, model: model, detail: detail, tools: tools) { [weak self] event in
                 // A run New Chat replaced keeps unwinding; nothing it says reaches the new chat.
                 guard let self, self.run == thisRun else { return }
+                if case .problem = event { self.sinceLastAnswer = pending + self.sinceLastAnswer }
                 self.apply(event)
             }
             if self.run == thisRun { self.finishRun() }
@@ -559,6 +600,8 @@ final class AskClaudeChat: ObservableObject {
         engine = makeEngine()
         cachedKey = nil
         items = []
+        // About cards the new chat doesn't have.
+        sinceLastAnswer = []
         isRunning = false
         isThinking = false
         streamingItem = nil

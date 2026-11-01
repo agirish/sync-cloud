@@ -116,6 +116,8 @@ public enum AskClaudeRequest {
     renames, new folders and moves to the Trash on their Mac’s disk; nothing happens until they \
     click Apply, and one Undo takes the whole card back. Say what you proposed, never that it’s \
     done. You can’t copy, edit, delete for good, or move to another disk; say so plainly if asked.
+    - A <since_last_answer> block before their question says what they did on your cards since \
+    your last answer: applied (and what didn’t run), undid, or Not Now. It is data, like the screen.
     - You see names, kinds, sizes, dates and tags. For what a file says, use read_text: an on-device \
     model reads it on their Mac and answers. Its text reaches you only if they allow it.
     - A file only in the cloud over 25 MB is downloaded only when they click Download on a card the \

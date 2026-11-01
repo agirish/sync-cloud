@@ -117,7 +117,7 @@ extension FileSyncManager {
     /// first, then renames and moves, then the Trash. Each row is checked again here, at the click;
     /// one that fails its check is skipped with the reason, and the rest run. No dialog: a taken
     /// name keeps both (decision GE), and nothing is deleted outright. Every change is a History
-    /// record but a new folder, which History has no kind for.
+    /// record, a new folder included.
     public func applyPlan(_ rows: [(id: Int, change: AskClaudePlan.Change)], actionName: String,
                           isHidden: (String) -> Bool, protected: Set<String>) async -> AskClaudePlanOutcome {
         var outcome = AskClaudePlanOutcome()
@@ -233,9 +233,10 @@ extension FileSyncManager {
             undo.setActionName(actionName)
             outcome.undoName = actionName
         }
-        // History: moves and renames as moves, the Trash as a move to the Trash.
+        // History: folders made, moves and renames as moves, the Trash as a move to the Trash.
         let runId = UUID()
-        var records = done.moved.map { item in
+        var records = done.created.map { SyncHistoryRecord(runId: runId, action: .newFolder, sourcePath: $0.path) }
+        records += done.moved.map { item in
             SyncHistoryRecord(runId: runId, action: .move, sourcePath: item.from.path, destPath: item.to.path,
                               backupPath: item.overwritten?.path)
         }

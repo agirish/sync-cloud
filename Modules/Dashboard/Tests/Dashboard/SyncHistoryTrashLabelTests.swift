@@ -10,7 +10,7 @@ import Events
 
     @Test func theActionFilterNamesTrashMoves() {
         #expect(SyncHistoryView.actionOptions.map(\.label)
-                == ["All Actions", "Copies", "Moves", "Moves to Trash & Deletes", "Date Matches"])
+                == ["All Actions", "Copies", "Moves", "Moves to Trash & Deletes", "Date Matches", "New Folders"])
         #expect(SyncHistoryView.actionOptions.first { $0.label == "Moves to Trash & Deletes" }?.action == .delete)
     }
 

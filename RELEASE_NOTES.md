@@ -37,7 +37,8 @@ Requires **macOS 26**, unchanged from v6.2.
   until you click Apply. Each change is checked again then; one that can't run is skipped with the
   reason, and nothing asks partway through. One Undo on the card, or Edit ▸ Undo, takes the whole card
   back, and every change is in History. Moves stay on this Mac's disk, and a move to the Trash starts
-  unticked. "Where should this go?" offers Move Here, and the loose-files card applies the same way.
+  unticked. Claude hears what you did with a card, applied, undone or Not Now, with your next
+  question. "Where should this go?" offers Move Here, and the loose-files card applies the same way.
 - **What's inside a file is read on this Mac.** An on-device model reads it and Claude gets a short
   answer. A passage of the file goes to Claude only when you click Send under the answer, or every
   time with Let Claude read files on.
@@ -187,7 +188,7 @@ Requires **macOS 26**, unchanged from v6.2.
   such letters failed with "the file name … is invalid", though Finder copies it.
 - **Rename and New Folder wait for Verify All**, and a name longer than the disk takes (255
   characters, an accented letter counting two) is refused when you type it, not when it's written.
-  A rename is now in History.
+  A rename or a new folder is now in History, which lists New Folders as an action of its own.
 
 ### Known limitations
 

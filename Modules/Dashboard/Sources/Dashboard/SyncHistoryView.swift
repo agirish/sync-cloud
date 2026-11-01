@@ -128,6 +128,7 @@ public struct SyncHistoryView: View {
         ("Moves", .move),
         ("Moves to Trash & Deletes", .delete),
         ("Date Matches", .matchDates),
+        ("New Folders", .newFolder),
     ]
 
     public var body: some View {
@@ -496,6 +497,8 @@ struct SyncHistoryRow: View {
         case .delete: return SemanticColor.error
         // Nothing was copied, moved or removed — only a date set — so informational blue.
         case .matchDates: return SemanticColor.info
+        // Nothing moved or removed: a folder made.
+        case .newFolder: return SemanticColor.info
         }
     }
 
