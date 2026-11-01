@@ -82,8 +82,17 @@ final class AskClaudeWindowController {
     var panelRect: CGRect = .zero { didSet { if panelRect != oldValue { place() } } }
     /// Out of the way while the main window is busy (Settings, Help, a sheet, a question): a
     /// child window would otherwise sit over them and keep the keyboard. It comes back after.
-    var isSuspended = false { didSet { if isSuspended != oldValue { applySuspension() } } }
+    ///
+    /// **It comes back as a new window, not the one that stepped aside.** Ordered out and back in,
+    /// the old one drew only its composer's field, blank everywhere else, until the panel was
+    /// closed and opened again (2026-10-31, after switching the model in Settings). So stepping
+    /// aside closes the window and the next `show` builds one, as ⌘J twice did; the thread, the
+    /// draft and the panel's place live outside it.
+    var isSuspended = false { didSet { if isSuspended && !oldValue { tearDown() } } }
     private var placed = false
+    /// The window stepped aside: the one built next is it coming back, and leaves the keyboard
+    /// where it is, as the old one did (the main window's, after a Save sheet or Settings).
+    private var returning = false
 
     var isShowing: Bool { window != nil }
 
@@ -96,6 +105,7 @@ final class AskClaudeWindowController {
             window?.onClose = onClose
             return
         }
+        guard !isSuspended else { return }
         let window = AskClaudePanelWindow(contentRect: NSRect(x: 0, y: 0, width: 372, height: 420),
                                           styleMask: [.borderless], backing: .buffered, defer: false)
         window.onClose = onClose
@@ -140,7 +150,6 @@ final class AskClaudeWindowController {
         placed = false
         place()
         Logger.shared.debug("[askclaude] panel window shown")
-        guard !isSuspended else { return }
         // A child window rides the main one: it moves and orders with it.
         parent.addChildWindow(window, ordered: .above)
         // After the parenting, which clears it (CommandPalettePanel.swift measured that): a panel
@@ -148,7 +157,8 @@ final class AskClaudeWindowController {
         // something in another app.
         window.hidesOnDeactivate = false
         // Key, so the composer takes the keyboard at once.
-        if activate { window.makeKeyAndOrderFront(nil) } else { window.orderFront(nil) }
+        if activate && !returning { window.makeKeyAndOrderFront(nil) } else { window.orderFront(nil) }
+        returning = false
     }
 
     /// Makes an open panel the key window, so its text box takes the keyboard (TE263).
@@ -158,29 +168,26 @@ final class AskClaudeWindowController {
     }
 
     func hide() {
+        returning = false
+        guard window != nil else { return }
+        tearDown()
+        Logger.shared.debug("[askclaude] panel window hidden")
+    }
+
+    private func tearDown() {
         guard let window else { return }
         let wasKey = window.isKeyWindow
         parent?.removeChildWindow(window)
         window.orderOut(nil)
         self.window = nil
         host = nil
-        Logger.shared.debug("[askclaude] panel window hidden")
+        if isSuspended {
+            returning = true
+            Logger.shared.debug("[askclaude] panel stepped aside: the window is busy")
+        }
         // The main window takes the keyboard back, as when a popover closes — only if the panel
         // had it, and never a window that is itself going away.
         if wasKey, let parent, parent.isVisible { parent.makeKey() }
-    }
-
-    private func applySuspension() {
-        guard let window, let parent else { return }
-        if isSuspended {
-            parent.removeChildWindow(window)
-            window.orderOut(nil)
-            Logger.shared.debug("[askclaude] panel stepped aside: the window is busy")
-        } else {
-            parent.addChildWindow(window, ordered: .above)
-            window.hidesOnDeactivate = false
-            window.orderFront(nil)
-        }
     }
 
     private func place() {

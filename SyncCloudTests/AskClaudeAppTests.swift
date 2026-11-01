@@ -1253,12 +1253,23 @@ private final class Counter: @unchecked Sendable {
         #expect(child?.canBecomeKey == true && child?.canBecomeMain == false)
         controller.panelRect = CGRect(x: 10, y: 8, width: 400, height: 500)
         #expect(child?.frame == NSRect(x: -30_000 + 10, y: -30_000 + 760 - 508, width: 400, height: 500))
-        // While the main window is busy (Settings, a sheet) it steps out of the way, and comes back.
+        // While the main window is busy (Settings, a sheet) it steps out of the way, and nothing
+        // the main window redraws meanwhile puts it back.
         controller.isSuspended = true
         #expect(parent.childWindows?.isEmpty ?? true)
         #expect(child?.isVisible == false)
+        #expect(!controller.isShowing)
+        controller.show(AnyView(Color.clear), over: parent, activate: false)
+        #expect(parent.childWindows?.isEmpty ?? true)
+        // It comes back as a new window where the old one was: the old one, ordered back in,
+        // drew blank but for its composer's field.
         controller.isSuspended = false
-        #expect(parent.childWindows?.first === child)
+        controller.show(AnyView(Color.clear), over: parent, activate: false)
+        let back = parent.childWindows?.first
+        #expect(back is AskClaudePanelWindow)
+        #expect(back !== child)
+        #expect(back?.alphaValue == 1)
+        #expect(back?.frame == NSRect(x: -30_000 + 10, y: -30_000 + 760 - 508, width: 400, height: 500))
         controller.hide()
         #expect(parent.childWindows?.isEmpty ?? true)
         #expect(!controller.isShowing)
