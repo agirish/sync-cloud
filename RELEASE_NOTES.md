@@ -72,6 +72,14 @@ Requires **macOS 26**, unchanged from v6.2.
   renamed folder moves once in Dropbox, with nothing uploaded again. An edit that keeps a downloaded
   file's size and date is copied too. A deletion is copied once the file has been gone 30 minutes and a
   later Sync Now still finds it gone.
+- **The pill says when there's something to sync.** SyncCloud watches the synced folders on both
+  sides. Once a file or folder there is added, edited, renamed, moved or deleted, in iCloud or
+  directly in Dropbox, the pill reads "3 changes since 14:02 · Sync Now" in the app's accent
+  colour, and the sync's row in Compare's sidebar shows 3. Each counts once, however often it
+  changes, and stops counting if it's put back as it was. Changes made while SyncCloud was closed
+  count from the next launch. Sync Now's own copies, opening a file, and iCloud downloading or
+  offloading one don't count. When SyncCloud can't tell what changed, the pill reads "Changes may
+  be waiting · Sync Now". Nothing syncs or notifies you until you click Sync Now.
 - **A file Dropbox won't take isn't counted as synced.** When Dropbox says so only after a sync,
   the next Sync Now hears it. It's listed as skipped in Activity ▸ Now, and the pill reads "Synced
   at 14:02 · 1 skipped · Sync Now"; Sync Now tries it again once it changes in iCloud.

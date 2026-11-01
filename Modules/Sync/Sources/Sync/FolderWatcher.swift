@@ -44,6 +44,12 @@ public struct FolderWatchEvent: Equatable, Sendable {
         public static let isDirectory = Change(rawValue: UInt32(kFSEventStreamEventFlagItemIsDir))
         public static let isSymlink = Change(rawValue: UInt32(kFSEventStreamEventFlagItemIsSymlink))
 
+        /// Nothing but extended attributes changed, whatever kind of item it is. Measured 31 Oct: a
+        /// "last opened" stamp, a quarantine mark and a Finder tag each arrive as exactly this.
+        public var isOnlyExtendedAttributes: Bool {
+            subtracting([.isFile, .isDirectory, .isSymlink]) == .extendedAttributes
+        }
+
         /// Every bit this type names — what an event's raw flags are masked to.
         static let all: Change = [.created, .removed, .renamed, .modified, .inodeMetadata, .finderInfo,
                                   .owner, .extendedAttributes, .isFile, .isDirectory, .isSymlink]

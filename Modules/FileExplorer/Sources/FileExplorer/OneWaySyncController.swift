@@ -11,6 +11,11 @@ public enum OneWaySyncLadder: Equatable, Sendable {
     case needsYou(Int)
     case paused(since: Date)
     case syncing(String)
+    /// FV: the folder watcher saw this many items change since the last sync, which it only suggests.
+    case changes(Int, since: Date)
+    /// FV: FSEvents couldn't say what changed since the last sync (its history lost, a synced
+    /// folder itself moved), so a number would claim more than it knows.
+    case changesMayBeWaiting(since: Date)
     case upToDate(asOf: Date, skipped: Int)
     case syncedByAnotherMac(lastSync: Date?)
     /// Set up, nothing synced yet.
@@ -29,6 +34,9 @@ public enum OneWaySyncLadder: Equatable, Sendable {
         case .needsYou(let count): return count == 1 ? "1 needs you" : "\(count) need you"
         case .paused(let since): return "Paused since \(Self.clock(since, now: now))"
         case .syncing(let what): return what
+        case .changes(let count, let since):
+            return (count == 1 ? "1 change" : "\(count.formatted()) changes") + " since \(Self.clock(since, now: now))"
+        case .changesMayBeWaiting: return "Changes may be waiting"
         case .upToDate(let asOf, let skipped):
             return "Up to date as of \(Self.clock(asOf, now: now))" + (skipped > 0 ? " · \(skipped) skipped" : "")
         case .syncedByAnotherMac(let last):
@@ -127,9 +135,9 @@ public struct OneWaySyncSetupDraft: Sendable {
 public final class OneWaySyncController: ObservableObject {
     public static let shared = OneWaySyncController()
 
-    @Published public private(set) var record: OneWaySyncRecord?
+    @Published public private(set) var record: OneWaySyncRecord? { didSet { if record != oldValue { judgeChangesAgain() } } }
     @Published public private(set) var state: OneWaySyncSavedState?
-    @Published public private(set) var exclusions = OneWaySyncExclusions()
+    @Published public private(set) var exclusions = OneWaySyncExclusions() { didSet { if exclusions != oldValue { judgeChangesAgain() } } }
     @Published public private(set) var firstRun: UUID?
     /// What stops the whole sync now, from the last pass or start check.
     @Published public internal(set) var stop: OneWaySyncStopReason?
@@ -154,6 +162,13 @@ public final class OneWaySyncController: ObservableObject {
     private var lock: OneWaySyncProcessLock?
     private var watcher: FolderWatcher?
     private var arrivals = OneWaySyncArrivals()
+    /// FV: what changed in the synced folders since the last completed sync, and the watcher on
+    /// both sides that feeds it (its own replay history, so a relaunch catches up).
+    public let changes: OneWaySyncChangeCount
+    @Published public private(set) var changeTally = OneWaySyncChangeCount.Tally()
+    private var changesWatcher: FolderWatcher?
+    /// The event id the running pass started at: what changed before it is that pass's to sync.
+    private var passStartedAt: UInt64 = 0
     private var running: Task<Void, Never>?
     /// Asked between a pass's steps, off the main thread: Pause and Stop reach a pass that writes.
     private let stopFlag = OneWaySyncStopFlag()
@@ -169,6 +184,8 @@ public final class OneWaySyncController: ObservableObject {
         self.center = center
         self.cloudApps = cloudApps
         self.refusal = refusal
+        changes = OneWaySyncChangeCount(fileURL: store?.changesURL)
+        changeTally = changes.tally
         // The ladder reads Now's rows: whoever shows it (the pill, and what the bar reserves for
         // it) hears a change of rows as a change of the controller.
         rowsWatch = center.$oneWaySync.dropFirst().sink { [weak self] _ in self?.objectWillChange.send() }
@@ -194,7 +211,12 @@ public final class OneWaySyncController: ObservableObject {
         if waiting > 0 { return .needsYou(waiting) }
         if let since = state?.pausedSince { return .paused(since: Date(timeIntervalSince1970: TimeInterval(since))) }
         if let activity { return .syncing(activity) }
-        if let last = state?.lastSyncAt { return .upToDate(asOf: Date(timeIntervalSince1970: TimeInterval(last)), skipped: skippedCount) }
+        if let last = state?.lastSyncAt {
+            let asOf = Date(timeIntervalSince1970: TimeInterval(last))
+            if changeTally.isUnknown { return .changesMayBeWaiting(since: asOf) }
+            if changeTally.count > 0 { return .changes(changeTally.count, since: asOf) }
+            return .upToDate(asOf: asOf, skipped: skippedCount)
+        }
         return .notYetSynced
     }
 
@@ -338,8 +360,10 @@ public final class OneWaySyncController: ObservableObject {
     }
 
     /// The Dropbox gate needs to know what is still arriving in the synced folders: a watcher on
-    /// them, its own replay history, from now. Not a trigger: nothing syncs because of it.
+    /// them, its own replay history, from now. Not a trigger: nothing syncs because of it. The
+    /// change count's watcher follows the same folders.
     func watchDropbox() {
+        watchChanges()
         watcher?.stop()
         watcher = nil
         guard refusal == nil, let record else { return }
@@ -350,6 +374,46 @@ public final class OneWaySyncController: ObservableObject {
         }
         watcher.watch(Set(folders.map(FolderWatchRoot.init)), replay: .none)
         self.watcher = watcher
+    }
+
+    /// FV: a watcher on the synced folders on both sides, replaying what changed while SyncCloud
+    /// was closed, whose batches the change count judges against the record. A suggestion only:
+    /// nothing syncs because of it (step 4 makes it the trigger). Added folders replay from the
+    /// stored history; a folder no longer synced stops; the others' streams are left alone.
+    func watchChanges() {
+        guard refusal == nil, let scope = changeScope else {
+            changesWatcher?.stop()
+            changesWatcher = nil
+            return
+        }
+        if changesWatcher == nil {
+            let changes = self.changes
+            changesWatcher = FolderWatcher(history: .userDefaults(.standard, key: "oneWaySyncChangesWatchHistory"), latency: 0.5) { [weak self] batch in
+                // Judged here, off the main thread: each item is read from disk.
+                guard changes.note(batch) else { return }
+                Task { @MainActor in self?.refreshChangeTally() }
+            }
+        }
+        changesWatcher?.watch(Set(scope.roots.map(FolderWatchRoot.init)), replay: .stored)
+    }
+
+    /// The record and the files you stopped syncing, as the change count compares against them.
+    var changeScope: OneWaySyncChangeScope? {
+        guard let record else { return nil }
+        let places = places(for: record)
+        return OneWaySyncChangeScope(record: record, exclusions: exclusions, iCloudParent: places.iCloudParent.path,
+                                     dropboxParent: places.dropboxParent.path)
+    }
+
+    /// The record or the files you stopped syncing changed: the count judges against them from now.
+    private func judgeChangesAgain() {
+        changes.use(changeScope)
+        refreshChangeTally()
+    }
+
+    func refreshChangeTally() {
+        let tally = changes.tally
+        if tally != changeTally { changeTally = tally }
     }
 
     // MARK: Places
@@ -377,10 +441,16 @@ public final class OneWaySyncController: ObservableObject {
             return
         }
         stopFlag.set(false)
+        // Before any check: a change made from here on may be after the look, and is read again
+        // against the record this pass saves.
+        passStartedAt = FolderWatcher.currentEventId()
+        // What this process writes into Dropbox meanwhile is the pass's own, not a change of yours.
+        changes.holdOwnWrites(on: .dropbox, until: .distantFuture)
         running = Task { [weak self] in
             await self?.pass()
             self?.running = nil
             self?.activity = nil
+            self?.releaseOwnWrites(on: .dropbox)
         }
     }
 
@@ -647,6 +717,10 @@ public final class OneWaySyncController: ObservableObject {
     private func finish(_ result: OneWaySyncRunResult) {
         reload()
         stop = nil
+        if let record {
+            changes.passCompleted(startedAt: passStartedAt, stopped: stopFlag.isSet, leftForLater: result.leftForLater(record: record))
+            refreshChangeTally()
+        }
         var look = result.look
         look.iCloud.skipped += result.refused
         lastLook = look
@@ -751,6 +825,26 @@ public final class OneWaySyncController: ObservableObject {
         return nil
     }
 
+    /// What a pass writes in Dropbox and Reverse in iCloud is SyncCloud's, not a change of yours:
+    /// the count holds this process's changes on that side while it writes, and for a while after,
+    /// for the watcher's delivery to catch up, then judges them against the record as it stands —
+    /// so what a pass recorded doesn't count, and what none did (it stopped early, or never ran)
+    /// does. An answer's writes count as they happen: the next sync carries them to the record.
+    func holdOwnICloudWrites() { changes.holdOwnWrites(on: .iCloud, until: .distantFuture) }
+    func releaseOwnICloudWrites() { releaseOwnWrites(on: .iCloud) }
+
+    func releaseOwnWrites(on side: OneWaySyncSide) {
+        changes.holdOwnWrites(on: side, until: Date().addingTimeInterval(Self.ownWriteGrace))
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.ownWriteGrace + 1))
+            guard let self, self.changes.settleHolds() else { return }
+            self.refreshChangeTally()
+        }
+    }
+    /// How long the hold outlasts the writes: the watcher's own delays (latency, quiet, at most
+    /// `maxDelay`) and fseventsd's, with room.
+    static let ownWriteGrace: TimeInterval = 10
+
     /// Saves a record an answer changed, keeping its first run.
     func save(_ record: OneWaySyncRecord) throws {
         // A pass saves the record it ends with: one saved under it would be lost, or undo it.
@@ -851,6 +945,9 @@ public final class OneWaySyncController: ObservableObject {
         exclusions = OneWaySyncExclusions()
         watcher?.stop()
         watcher = nil
+        watchChanges()
+        changes.reset(after: FolderWatcher.currentEventId())
+        refreshChangeTally()
         Logger.shared.info("One-way sync: turned off")
     }
 
@@ -989,6 +1086,9 @@ public final class OneWaySyncController: ObservableObject {
         if notify { UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in } }
         stop = nil
         otherMac = nil
+        // A new first run: whatever an earlier sync counted is that sync's.
+        changes.reset(after: FolderWatcher.currentEventId())
+        refreshChangeTally()
         reload()
         watchDropbox()
         Logger.shared.info("One-way sync: set up, \(record.syncedFolders.count) folders; first run starting")

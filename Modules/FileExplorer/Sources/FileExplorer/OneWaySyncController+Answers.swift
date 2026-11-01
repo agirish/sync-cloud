@@ -300,10 +300,12 @@ extension OneWaySyncController {
     public func reverse(_ chosen: [OneWaySyncReversal]) async -> [String] {
         guard let record else { return [] }
         let places = places(for: record)
+        holdOwnICloudWrites()
         let failed: [String] = await Task.detached(priority: .userInitiated) {
             guard let writer = try? OneWaySyncWriter(places: places) else { return ["SyncCloud’s staging folder isn’t usable"] }
             return OneWaySyncAnswers.reverse(chosen, writer: writer).map { "\($0.0.item): \($0.1)" }
         }.value
+        releaseOwnICloudWrites()
         Logger.shared.info("One-way sync: reversed \(chosen.count - failed.count) changes in iCloud"
                            + (failed.isEmpty ? "" : "; not: " + failed.joined(separator: "; ")))
         syncNow()

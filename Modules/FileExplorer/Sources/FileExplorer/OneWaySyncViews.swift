@@ -33,6 +33,8 @@ public struct OneWaySyncStatusPill: View {
     @ObservedObject var controller: OneWaySyncController
     @ObservedObject var center: ActivityCenter
     let onSetUp: () -> Void
+    /// The app's accent, for FV's suggestion to sync.
+    @AppStorage(LiquidGlass.hueKey) private var hueRaw: String = LiquidGlassHue.blue.rawValue
 
     /// The widest the pill draws at the app's own text size; longer words truncate, whole in the
     /// tooltip. What it says decides what the bar reserves (`width`), never this cap alone.
@@ -72,11 +74,18 @@ public struct OneWaySyncStatusPill: View {
     static func title(_ ladder: OneWaySyncLadder?) -> String {
         guard let ladder else { return "One-Way Sync: Off · Set Up…" }
         // Short: the bar is narrow, and the overview has the rest.
+        func day(_ date: Date) -> String {
+            Calendar.current.isDateInToday(date) ? date.formatted(date: .omitted, time: .shortened)
+                                                 : date.formatted(.dateTime.day().month(.abbreviated))
+        }
         switch ladder {
         case .upToDate(let asOf, let skipped):
-            let when = Calendar.current.isDateInToday(asOf) ? "at " + asOf.formatted(date: .omitted, time: .shortened)
-                                                           : asOf.formatted(.dateTime.day().month(.abbreviated))
+            let when = Calendar.current.isDateInToday(asOf) ? "at " + day(asOf) : day(asOf)
             return "Synced \(when)" + (skipped > 0 ? " · \(skipped) skipped" : "") + " · Sync Now"
+        // FV: the watcher suggests a sync; only the button runs one.
+        case .changes(let count, let since):
+            return (count == 1 ? "1 change" : "\(count.formatted()) changes") + " since \(day(since)) · Sync Now"
+        case .changesMayBeWaiting: return "Changes may be waiting · Sync Now"
         case .notYetSynced: return "Not synced yet · Sync Now"
         case .needsYou: return ladder.title() + " · Review…"
         default: return ladder.title()
@@ -88,6 +97,7 @@ public struct OneWaySyncStatusPill: View {
         case .none: return OneWaySyncPalette.copy
         case .stopped?, .needsYou?: return OneWaySyncPalette.hold
         case .upToDate?: return OneWaySyncPalette.ok
+        case .changes?, .changesMayBeWaiting?: return (LiquidGlassHue(rawValue: hueRaw) ?? .blue).accentColor
         default: return OneWaySyncPalette.copy
         }
     }
@@ -129,6 +139,7 @@ public struct OneWaySyncSidebarSection: View {
     @ObservedObject var controller: OneWaySyncController
     @ObservedObject var center: ActivityCenter
     let onSetUp: () -> Void
+    @AppStorage(LiquidGlass.hueKey) private var hueRaw: String = LiquidGlassHue.blue.rawValue
 
     public init(controller: OneWaySyncController = .shared, center: ActivityCenter = .shared, onSetUp: @escaping () -> Void) {
         self.controller = controller
@@ -164,6 +175,14 @@ public struct OneWaySyncSidebarSection: View {
                                     .scaledFont(.system(size: 11, weight: .semibold))
                                     .foregroundStyle(OneWaySyncPalette.hold)
                                     .monospacedDigit()
+                            } else if case .changes(let count, _)? = controller.ladder {
+                                // FV: what changed since the last sync, in the accent: a suggestion, not a problem.
+                                Text(count.formatted())
+                                    .scaledFont(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle((LiquidGlassHue(rawValue: hueRaw) ?? .blue).accentColor)
+                                    .monospacedDigit()
+                            } else if case .changesMayBeWaiting? = controller.ladder {
+                                Circle().fill((LiquidGlassHue(rawValue: hueRaw) ?? .blue).accentFillColor).frame(width: 6, height: 6)
                             } else if let ladder = controller.ladder {
                                 Circle().fill(ladder.isProblem ? OneWaySyncPalette.hold : OneWaySyncPalette.ok).frame(width: 6, height: 6)
                             }

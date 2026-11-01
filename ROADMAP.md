@@ -1002,6 +1002,8 @@ use, so it may land after the v7.0 cut.
    refuses stays skipped until it changes in iCloud (ES); an edit that keeps the size and date is
    caught by the change time the record now keeps (ET); Reverse moves a file moved in from an
    unsynced folder back (EU). An online-only Dropbox file still stops the sync (EV, left as is).
+   Meanwhile the watcher suggests a sync (FV, built): the pill counts what changed on either
+   side since the last Sync Now, judged against the record, and never syncs on its own.
 4. The watcher as the trigger, then unattended removals.
 
 **Not measured:** whether macOS reports a shared Dropbox folder as shared (decision DL asks at setup

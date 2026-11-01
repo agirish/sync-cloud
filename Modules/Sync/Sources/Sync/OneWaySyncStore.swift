@@ -40,6 +40,8 @@ public struct OneWaySyncStore: Sendable {
     public var exclusionsURL: URL { directory.appendingPathComponent("exclusions.json") }
     public var noticesURL: URL { directory.appendingPathComponent("notices.json") }
     public var outsideURL: URL { directory.appendingPathComponent("outside.json") }
+    /// What changed in the synced folders since the last completed Sync Now (FV).
+    public var changesURL: URL { directory.appendingPathComponent("changes.json") }
     public var historyDirectory: URL { directory.appendingPathComponent("History") }
     public var lockURL: URL { directory.appendingPathComponent("sync.lock") }
 

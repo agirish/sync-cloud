@@ -195,7 +195,7 @@ extension FileSyncManager {
     /// whatever the pane shows.
     /// Whether a change touched nothing but extended attributes (whatever kind of item it is).
     nonisolated static func onlyExtendedAttributes(_ change: FolderWatchEvent.Change) -> Bool {
-        change.subtracting([.isFile, .isDirectory, .isSymlink]) == .extendedAttributes
+        change.isOnlyExtendedAttributes
     }
 
     func absorbFolderChanges(_ batch: FolderWatchBatch) {

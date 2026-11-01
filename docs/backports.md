@@ -13402,3 +13402,24 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s filter=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No type filter at all | RECORDED — not owed (new feature) |
+
+## One-way sync's pill counts what changed since the last sync (RD67, FV) — main only
+
+2026-10-31, for v7.0. On `main`: a second folder watcher, on the synced folders of both sides,
+feeds a change count (`OneWaySyncChangeCount`) judged against the sync's record, and the pill
+reads "N changes since 14:02 · Sync Now" until a Sync Now completes. It only suggests a sync.
+Beside it, `FolderWatchEvent.Change.isOnlyExtendedAttributes` is the panes' attribute-only test,
+moved where both consumers read it. All of it in code only `main` has.
+
+```sh
+for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s run=%s watcher=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/OneWaySyncRun.swift | wc -l | tr -d ' ')" \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/FolderWatcher.swift | wc -l | tr -d ' ')"; done
+# measured 2026-10-31, against origin, before this landed:
+# main                                run=1 watcher=1
+# v6.x / v5.x / v4.x / v3.x / v2.x    run=0 watcher=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No one-way sync or folder watcher | RECORDED — not owed (new feature) |
