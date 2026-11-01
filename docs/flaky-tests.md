@@ -3775,14 +3775,15 @@ shape on another shared resource.
 2026-10-26, when it came back with one projection building and the lock below held.*
 
 **Symptom.** FileExplorer's test process exits with `signal code 6`. There is no `✘` and no
-`Test run with` line. A rerun passes. Seen three times; the first two in the first seconds of a full
-run, the third late in a test-shards chunk:
+`Test run with` line. A rerun passes. Seen four times; the first two in the first seconds of a full
+run, the last two in test-shards chunks:
 
 | When | Where | Seconds after launch | Test on the faulting thread |
 |---|---|---|---|
 | 2026-10-17 | CI run 39081784223, attempt 1, at `23e62ed1`, load about 15 | under 1 | `MarkdownProjectionTests.indentedCodeHtmlAndRulesAreNotText` |
 | 2026-10-26 07:58 | a local full run (`swiftpm-testing-helper-2026-10-26-075845.ips`) | 2.1 | `MarkdownProjectionOneAtATimeTests.aProjectionWaitsWhileAnotherIsBuilding`, projecting its `previous` note before it takes the lock itself |
 | 2026-10-31 00:23 | hosted CI run 41148828554 at `53e3e480`, `scripts/test-shards` chunk 5/6 (the other five passed) | about 99 | `MarkdownProjectionTests.indentedCodeStartingWithAFenceIsIndentedCode`; the same `readOnlyBlock` → `endBlock` → `addAttributes:range:` stack and nil-object exception |
+| 2026-10-31 22:54 | hosted CI run 41278385897 at `6d7f84f3c` (an app-only Ask Claude change), `scripts/test-shards` chunk 6/6 (the other five passed) | not known: a chunk's log prints when it ends | `MarkdownProjectionOneAtATimeTests.aProjectionWaitsWhileAnotherIsBuilding`, its `slice` and `reread` cases; the same `Builder.endBlock` stack under `oneAtATime`, and the same nil-object exception |
 
 Both reports have the same faulting stack:
 
