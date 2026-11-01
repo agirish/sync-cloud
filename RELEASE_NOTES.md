@@ -53,6 +53,13 @@ Requires **macOS 26**, unchanged from v6.2.
   Name a place ("into Travel") and its folders come first, though a file that plainly belongs
   elsewhere is still placed there, and the card says so. A place the survey doesn't cover, such as
   Dropbox, is answered as that.
+- **File a folder's loose files.** In Downloads, say "file the loose files". Claude counts them,
+  those in subfolders too, and asks where they go, with a button for your folder survey. Then one
+  card shows a home for each, grouped by folder, 50 at a time: High ones ticked, the rest with their
+  reason, and a menu on each row for the runner-up or another folder. A file already filed byte for
+  byte, and a subfolder the files would leave empty, get Trash rows, never ticked for you. A taken
+  name is shown as the name it would get. Hidden files, unfinished downloads and installers stay
+  where they are.
 - **Every answer says what it sent and what it cost.** Spending counts against a monthly limit in
   Settings, $25 to start, with a note at 80%.
 - **Up and Down bring back what you asked.** In the text box, Up shows the questions you typed

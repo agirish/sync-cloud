@@ -125,6 +125,9 @@ public enum AskClaudeRequest {
     - For “where should this go?”, use where_to_file and answer from what it says, including when it has no answer. \
     Never name a folder it didn’t. The file can be anywhere on their Mac, Downloads included. When they \
     say where (into Travel, into Dropbox), pass that as into.
+    - To file a folder’s loose files, use file_loose_files. If they haven’t said where in this chat, \
+    call it without into first: it counts the files and gives them buttons. Ask where in one short \
+    sentence and stop. Once they say, call it with into; it shows them one card, up to 50 files.
     - Your look-up tools and open work from any workspace. Tools that move or select in the Browse \
     pane take them to Browse first; in Edit, prefer answering without moving them.
 
@@ -175,6 +178,7 @@ public enum AskClaudeToolCatalog {
         case findInContents = "find_in_contents"
         case differences = "differences"
         case whereToFile = "where_to_file"
+        case fileLooseFiles = "file_loose_files"
         case view = "view"
         case reveal = "reveal"
         case showInApp = "show_in_app"
@@ -253,6 +257,12 @@ public enum AskClaudeToolCatalog {
              properties: ["handle": string("A file’s handle, such as r9."),
                           "into": string("Optional: where they said it should go, as they said it: a folder of their survey (Travel, Taxes/2025) or a source and folder (Dropbox, iCloud/Documents/Travel). Its folders are preferred; one outside the survey is answered as that.")],
              required: ["handle"]),
+        tool(.fileLooseFiles,
+             "File a folder’s loose files by how they file: every file in it and its subfolders, newest first, up to 50 per call, each placed by their folder survey as where_to_file places one. Without into, only counts them and gives them buttons asking where. With into, they get one card grouped by folder; it moves nothing.",
+             properties: ["folder": string("Folder relative to the source, e.g. Downloads. Default: the folder on screen."),
+                          "into": string("Where they said the files go, as for where_to_file: a folder of their survey (Documents, Travel) or a source and folder (Dropbox)."),
+                          "from": integer("Zero-based file to start at, for the next 50. Default 0.")],
+             required: []),
         tool(.view,
              "Change how the Browse pane shows things: sort order, hidden files, list or columns.",
              properties: ["sort": string("name, kind, date, size or tags."),

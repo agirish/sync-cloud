@@ -78,6 +78,10 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var whereToFile: (_ path: String, _ place: String?) async -> FilingHelpAnswer? = { _, _ in nil }
         /// A folder of the survey by what they called it ("Travel"), absolute; nil when it has none.
         var surveyFolder: (_ name: String) -> String? = { _ in nil }
+        /// The folder the survey covers, absolute; nil with no survey.
+        var surveyRoot: String?
+        /// Whether a file is only in the cloud, for the already-filed check, which never reads one.
+        var isCloudOnly: (_ path: String) -> Bool = { MaterializationStatus.isCloudOnlyIfKnown(atPath: $0) == true }
         /// Organize's Refine with Claude is set up, so the card may offer it (decision EY).
         var canRefineFiling = false
         /// The pane's Back (false) and Forward (true); false when there was nowhere to go.
@@ -187,7 +191,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         guard let movedToBrowse, outcome.movedView == nil else { return outcome }
         return AskClaudeToolOutcome(result: outcome.result, isError: outcome.isError, step: outcome.step,
                                     movedView: movedToBrowse, passage: outcome.passage, download: outcome.download,
-                                    filing: outcome.filing)
+                                    filing: outcome.filing, plan: outcome.plan, choices: outcome.choices)
     }
 
     /// What a Browse-pane call would refuse anyway (an unknown or hidden handle, a folder that isn't
@@ -317,6 +321,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         case .closeTabs: return closeTabs(call, ctx)
         case .differences: return await differences(call, ctx, &handles)
         case .whereToFile: return await whereToFile(call, ctx, handles)
+        case .fileLooseFiles: return await fileLooseFiles(call, ctx)
         case nil:
             return AskClaudeToolOutcome(result: "There is no tool called \(call.name).", isError: true,
                                         step: "Asked for an unknown tool")
@@ -1132,6 +1137,140 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             return folder.absolute
         }
         return ctx.surveyFolder(trimmed)
+    }
+
+    // MARK: Loose files (TE267)
+
+    /// Rows on one filing card (decision FC).
+    static let looseFilesPerCard = 50
+
+    private func fileLooseFiles(_ call: AskClaudeToolCall, _ ctx: Context) async -> AskClaudeToolOutcome {
+        guard let folder = Self.resolve(call.string("folder") ?? ctx.folder, root: ctx.root) else {
+            return badFolder(call.string("folder"))
+        }
+        if ctx.isHidden(folder.absolute) { return hiddenFolder() }
+        let shown = Self.breadcrumb(folder.absolute, sources: ctx.sources, fallback: folder.label)
+        guard let surveyRoot = ctx.surveyRoot else {
+            let card = AskClaudeFilingCard(fileName: shown, filePath: folder.absolute, kind: .noProfile)
+            return AskClaudeToolOutcome(result: AskClaudeFiling.result(card, readsFiles: ctx.readsFiles),
+                                        step: "No folder survey to go by", filing: card)
+        }
+        let surveyLabel = Self.breadcrumb(surveyRoot, sources: ctx.sources, fallback: (surveyRoot as NSString).lastPathComponent)
+        let surveyName = (surveyRoot as NSString).lastPathComponent
+        // Off the main thread: a cloud folder can be slow to list. The list's matcher is built
+        // there, since it reads the disk too.
+        let hiddenList = ctx.hidden
+        let found = await Task.detached(priority: .userInitiated) {
+            let matcher = AskClaudePrivacy.Matcher(hiddenList)
+            return AskClaudeLooseFiles.collect(in: folder.absolute, isHidden: { matcher.isHidden($0) })
+        }.value
+        let total = found.files.count
+        guard total > 0 else {
+            return AskClaudeToolOutcome(result: "\(AskClaudeScreenCard.escape(shown)) has no loose files to file\(found.installers.isEmpty ? "" : "; \(found.installers.count) apps or installers stay where they are").",
+                                        step: "No loose files in \(folder.label)")
+        }
+        let counted = Self.looseCount(found)
+        // Decision GB: without a place, they are asked, with buttons.
+        guard let into = call.string("into")?.trimmingCharacters(in: .whitespaces).nonEmpty else {
+            let choices = [AskClaudeChoice("Into \(surveyName), by how I file", sends: "Into \(surveyName), by how I file"),
+                           AskClaudeChoice("Somewhere else…", sends: nil)]
+            return AskClaudeToolOutcome(
+                result: "\(AskClaudeScreenCard.escape(shown)) has \(counted). Their folder survey covers \(AskClaudeScreenCard.escape(surveyLabel)). They have two buttons: “Into \(surveyName), by how I file” and “Somewhere else…”. Ask where these should go in one short sentence, with the count, and stop.",
+                step: "Counted \(total) loose file\(total == 1 ? "" : "s") in \(folder.label)", choices: choices)
+        }
+        guard let place = Self.place(into, ctx) else {
+            return AskClaudeToolOutcome(result: "There’s no folder called \(into) in their folder survey or their sources. Ask where they mean.",
+                                        isError: true, step: "No place called \(into)")
+        }
+        if ctx.isHidden(place) { return hiddenFolder() }
+        let placeLabel = Self.breadcrumb(place, sources: ctx.sources, fallback: (place as NSString).lastPathComponent)
+        // Decision FY: a place the survey doesn't cover is said, and the survey offered instead.
+        guard FileSyncManager.isAtOrUnderSurvey(place, root: surveyRoot) else {
+            let card = AskClaudeFilingCard(fileName: shown, filePath: folder.absolute, kind: .outside(surveyed: surveyLabel), place: placeLabel)
+            return AskClaudeToolOutcome(result: AskClaudeFiling.result(card, readsFiles: ctx.readsFiles),
+                                        step: "\(placeLabel) is outside the folder survey", filing: card,
+                                        choices: [AskClaudeChoice("Into \(surveyName), by how I file", sends: "Into \(surveyName), by how I file")])
+        }
+        let from = max(0, call.int("from") ?? 0)
+        let page = Array(found.files.dropFirst(from).prefix(Self.looseFilesPerCard))
+        guard !page.isEmpty else {
+            return AskClaudeToolOutcome(result: "There are only \(total) loose files; none from \(from).", isError: true,
+                                        step: "No loose files past \(total)")
+        }
+        let preferring = AskClaudeBrowseTools.samePath(place, surveyRoot) ? nil : place
+        var rows: [AskClaudePlan.Row] = []
+        var noHome = 0
+        for file in page {
+            guard let answer = await ctx.whereToFile(file.path, preferring), case .suggested(let list) = answer.outcome,
+                  let best = list.first else {
+                noHome += 1
+                continue
+            }
+            let choices = list.map { s in
+                AskClaudePlan.Choice(label: Self.breadcrumb(s.folder, sources: ctx.sources, fallback: s.relativePath),
+                                     path: s.folder, confidence: AskClaudeFiling.label(s.confidence),
+                                     reason: s.evidenceToken != nil && !ctx.readsFiles ? "Matched a word read from the file" : s.reason)
+            }
+            let label = choices[0].label
+            // Decision GF: the same bytes already in its home is a copy to put in the Trash.
+            let isCloudOnly = ctx.isCloudOnly
+            if let twin = await Task.detached(priority: .userInitiated, operation: {
+                AskClaudeLooseFiles.sameFile(as: file.path, in: best.folder, size: file.size, isCloudOnly: isCloudOnly)
+            }).value {
+                rows.append(AskClaudePlan.Row(id: rows.count, name: file.name, change: .trash(path: file.path), ticked: false,
+                                              reason: "The same file is in \(label)", note: (twin as NSString).lastPathComponent == file.name ? nil : "As \((twin as NSString).lastPathComponent)",
+                                              folderLabel: label, choices: choices, alreadyFiled: true))
+                continue
+            }
+            // Decision GE: a taken name is kept with a number, said before Apply.
+            let landing = AskClaudeLooseFiles.landingName(for: file.name, in: best.folder)
+            var notes: [String] = []
+            if landing != file.name { notes.append("Kept as \(landing): the name is taken") }
+            if best.outsidePlace { notes.append("Outside \((place as NSString).lastPathComponent)") }
+            rows.append(AskClaudePlan.Row(id: rows.count, name: file.name, change: .move(from: file.path, toFolder: best.folder),
+                                          ticked: best.confidence == .high, confidence: AskClaudeFiling.label(best.confidence),
+                                          reason: choices[0].reason, note: notes.isEmpty ? nil : notes.joined(separator: " · "),
+                                          folderLabel: label, choices: choices))
+        }
+        // Decision GA: subfolders these files would leave empty, as one unticked Trash row.
+        let emptied = AskClaudeLooseFiles.emptiedFolders(found, onCard: Set(rows.map(\.change.path)))
+        if !emptied.isEmpty {
+            let names = emptied.map { "“\(($0 as NSString).lastPathComponent)”" }
+            rows.append(AskClaudePlan.Row(id: rows.count, name: "Move \(emptied.count) emptied folder\(emptied.count == 1 ? "" : "s") to Trash",
+                                          change: .trashIfEmptied(folders: emptied), ticked: false,
+                                          reason: ListFormatter.localizedString(byJoining: names) + ", once their files are filed"))
+        }
+        var left: [String] = []
+        if !found.installers.isEmpty { left.append("\(found.installers.count) app\(found.installers.count == 1 ? "" : "s") or installer\(found.installers.count == 1 ? "" : "s")") }
+        if noHome > 0 { left.append("\(noHome) file\(noHome == 1 ? "" : "s") no folder fits") }
+        if found.unfinished > 0 { left.append("\(found.unfinished) unfinished download\(found.unfinished == 1 ? "" : "s")") }
+        let end = from + page.count
+        let more = end < total ? "\(from + 1)–\(end) of \(total) · \(total - end) more: ask for the next \(min(Self.looseFilesPerCard, total - end))" : nil
+        let files = rows.filter { !$0.isTrash || $0.alreadyFiled }.count
+        let plan = AskClaudePlan(title: "File \(files) Loose File\(files == 1 ? "" : "s")", subtitle: "into \(placeLabel)", rows: rows,
+                                 leftHere: left.isEmpty ? nil : "Left here: " + left.joined(separator: ", "), more: more)
+        Logger.shared.info("Ask Claude filing card: \(rows.count) rows from \(page.count) of \(total) loose files in \(folder.label), \(noHome) with no home")
+        let sure = rows.filter(\.ticked).count
+        return AskClaudeToolOutcome(result: AskClaudeLooseFiles.result(plan, leftHereCount: left.count, nextFrom: more == nil ? nil : end),
+                                    step: "Found homes for \(files - rows.filter(\.alreadyFiled).count) of \(page.count) files · \(sure) sure", plan: plan)
+    }
+
+    /// "132 loose files: 74 at the top level and 58 in 9 subfolders; 3 unfinished downloads skipped".
+    static func looseCount(_ found: AskClaudeLooseFiles.Found) -> String {
+        let total = found.files.count
+        var text = "\(total) loose file\(total == 1 ? "" : "s")"
+        let inSub = total - found.topLevel
+        if inSub > 0 {
+            text += ": \(found.topLevel) at the top level and \(inSub) in \(found.subfolders) subfolder\(found.subfolders == 1 ? "" : "s")"
+        }
+        if found.unfinished > 0 { text += "; \(found.unfinished) unfinished download\(found.unfinished == 1 ? "" : "s") skipped" }
+        if !found.installers.isEmpty { text += "; \(found.installers.count) apps or installers stay" }
+        if found.truncated { text += "; the folder holds more than SyncCloud looked through" }
+        return text
+    }
+
+    static func samePath(_ a: String, _ b: String) -> Bool {
+        URL(fileURLWithPath: a).resolvingSymlinksInPath().path == URL(fileURLWithPath: b).resolvingSymlinksInPath().path
     }
 
     /// "iCloud › Documents › Taxes", from the source holding `absolute`.

@@ -30,6 +30,10 @@ struct AskClaudePanel: View {
     var onDownloadCard: (UUID, AskClaudeDownloadAction) -> Void = { _, _ in }
     /// Filing help's card buttons (TE255).
     var onFilingCard: (AskClaudeFilingAction) -> Void = { _ in }
+    /// A card of changes: its ticks and row menus (TE267).
+    var onPlanCard: (UUID, AskClaudePlanAction) -> Void = { _, _ in }
+    /// A button under Claude's question (decision GB), by its place in the row.
+    var onChoice: (UUID, Int) -> Void = { _, _ in }
     /// Where the panel wants its window, top-left within `container` (AskClaudeWindow.swift).
     var onPlace: (CGRect) -> Void = { _ in }
 
@@ -300,6 +304,7 @@ struct AskClaudePanel: View {
                                            linkTargets: chat.linkTargets, onReveal: onReveal, onSendOffer: onSendOffer,
                                            onDownloadCard: onDownloadCard,
                                            onFilingCard: onFilingCard,
+                                           onPlanCard: onPlanCard, onChoice: onChoice,
                                            isLatestReceipt: item.id == latestReceipt, isRunning: chat.isRunning)
                             // Rows that didn't change aren't redrawn as each word streams in.
                             .equatable()
@@ -466,6 +471,8 @@ private struct AskClaudeThreadRow: View, Equatable {
     let onSendOffer: (UUID) -> Void
     let onDownloadCard: (UUID, AskClaudeDownloadAction) -> Void
     let onFilingCard: (AskClaudeFilingAction) -> Void
+    let onPlanCard: (UUID, AskClaudePlanAction) -> Void
+    let onChoice: (UUID, Int) -> Void
     /// The newest receipt shows its summary; older ones fold to an icon, so the thread doesn't
     /// repeat “Sent screen …” under every answer.
     var isLatestReceipt = false
@@ -564,6 +571,18 @@ private struct AskClaudeThreadRow: View, Equatable {
             downloadCard(download, state)
         case .filing(let card):
             filingCard(card)
+        case .plan(let plan):
+            planCard(plan)
+        case .choices(let choices, let used):
+            HStack(spacing: 6) {
+                ForEach(Array(choices.enumerated()), id: \.offset) { index, choice in
+                    Button(choice.label) { onChoice(item.id, index) }
+                        .controlSize(.small)
+                        .buttonStyle(.bordered)
+                        .help(choice.sends == nil ? "Say where in the text box." : "Answers with “\(choice.sends ?? "")”.")
+                }
+            }
+            .disabled(used || isRunning)
         case .problem(let problem):
             VStack(alignment: .leading, spacing: 6) {
                 Label(problem.message, systemImage: "exclamationmark.triangle")
@@ -697,6 +716,84 @@ private struct AskClaudeThreadRow: View, Equatable {
         .padding(10)
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.well))
         .accessibilityElement(children: .contain)
+    }
+
+    /// TE267: rows by the folder they go to, each with its tick and its folder's menu. Trash rows
+    /// are red and never ticked for them.
+    private func planCard(_ plan: AskClaudePlan) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(plan.title).font(.caption.weight(.semibold))
+                Spacer(minLength: 6)
+                Text(plan.subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+            }
+            ForEach(Array(plan.groups.enumerated()), id: \.offset) { _, entry in
+                VStack(alignment: .leading, spacing: 4) {
+                    if let heading = Self.heading(entry.group, count: entry.rows.count) {
+                        Text(heading).font(.caption2.weight(.semibold)).foregroundStyle(.secondary).lineLimit(2).truncationMode(.head)
+                    }
+                    ForEach(entry.rows) { row in planRow(row) }
+                }
+            }
+            if let left = plan.leftHere {
+                Text(left).font(.caption2).foregroundStyle(.secondary)
+            }
+            if let more = plan.more {
+                Text(more).font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .padding(10)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.well))
+        .accessibilityElement(children: .contain)
+    }
+
+    static func heading(_ group: AskClaudePlan.Group, count: Int) -> String? {
+        switch group {
+        case .folder(let label): return label.isEmpty ? nil : "→ \(label) · \(count)"
+        case .needsPick: return "Needs Your Pick · \(count)"
+        case .alreadyFiled: return "Already Filed · \(count)"
+        case .emptied: return nil
+        }
+    }
+
+    private func planRow(_ row: AskClaudePlan.Row) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Toggle(isOn: Binding(get: { row.ticked }, set: { onPlanCard(item.id, .tick(row.id, $0)) })) {
+                    Text(row.name)
+                        .font(.caption)
+                        .foregroundStyle(row.isTrash ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
+                        .lineLimit(2)
+                }
+                .toggleStyle(.checkbox)
+                Spacer(minLength: 4)
+                if let confidence = row.confidence, !row.isTrash {
+                    Text(confidence).font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+                } else if row.isTrash {
+                    Text("Trash").font(.caption2.weight(.medium)).foregroundStyle(.red)
+                }
+            }
+            HStack(spacing: 4) {
+                Text([row.reason, row.note].compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption2).foregroundStyle(.secondary)
+                if case .move = row.change {
+                    Menu {
+                        ForEach(Array(row.choices.enumerated()), id: \.offset) { _, choice in
+                            Button(choice.label) { onPlanCard(item.id, .choose(row.id, choice)) }
+                        }
+                        if !row.choices.isEmpty { Divider() }
+                        Button("Choose Folder…") { onPlanCard(item.id, .chooseFolder(row.id)) }
+                    } label: {
+                        Text(row.group == .needsPick ? "Choose" : (row.folderLabel.map { ($0 as NSString).lastPathComponent } ?? "Folder"))
+                            .font(.caption2)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .help("Where this file goes")
+                }
+            }
+            .padding(.leading, 20)
+        }
     }
 
     private func retry() -> some View {
@@ -855,6 +952,15 @@ struct AskClaudeResizeHandle: NSViewRepresentable {
 /// What a download card's button asks for (TE258).
 enum AskClaudeDownloadAction: Equatable {
     case download, stopWaiting, notNow, revealInFinder
+}
+
+/// What a card of changes asks for (TE267).
+enum AskClaudePlanAction: Equatable {
+    case tick(Int, Bool)
+    /// A row sent to one of its menu's folders.
+    case choose(Int, AskClaudePlan.Choice)
+    /// Choose Folder… on a row's menu.
+    case chooseFolder(Int)
 }
 
 /// What filing help's card asks for (TE255).

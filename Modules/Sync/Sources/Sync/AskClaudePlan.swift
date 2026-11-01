@@ -1,0 +1,180 @@
+import Foundation
+
+/// A card of changes in Ask Claude (TE267's filing card; TE262's plan card): rows the person
+/// reviews, ticks and changes. The card is local UI and is saved with the chat; what Claude is told
+/// about it is written by the tool that made it.
+public struct AskClaudePlan: Codable, Equatable, Sendable {
+
+    /// One change, by absolute path.
+    public enum Change: Codable, Equatable, Sendable {
+        /// Into `toFolder`, under its own name; the card says `landingName` when that name is
+        /// taken there (decision GE), and the name is found again when it runs.
+        case move(from: String, toFolder: String)
+        case rename(path: String, to: String)
+        case newFolder(in: String, name: String)
+        case trash(path: String)
+        /// Folders the card's moves leave empty (decision GA): each goes to the Trash only if,
+        /// once the moves have run, it holds nothing else.
+        case trashIfEmptied(folders: [String])
+
+        /// The item the change acts on.
+        public var path: String {
+            switch self {
+            case .move(let from, _): return from
+            case .rename(let path, _), .trash(let path): return path
+            case .newFolder(let parent, let name): return (parent as NSString).appendingPathComponent(name)
+            case .trashIfEmptied(let folders): return folders.first ?? ""
+            }
+        }
+    }
+
+    /// A folder a row may go to instead (decision GC: the runner-up), with its words.
+    public struct Choice: Codable, Equatable, Sendable {
+        /// "iCloud › Documents › Taxes › 2025".
+        public let label: String
+        /// Absolute. Never sent to Claude.
+        public let path: String
+        public let confidence: String?
+        public let reason: String?
+
+        public init(label: String, path: String, confidence: String? = nil, reason: String? = nil) {
+            self.label = label
+            self.path = path
+            self.confidence = confidence
+            self.reason = reason
+        }
+    }
+
+    /// Where a row is shown on the card.
+    public enum Group: Codable, Hashable, Sendable {
+        /// Into this folder, by its label.
+        case folder(String)
+        /// Unsure between folders: picked from its menu.
+        case needsPick
+        /// The same file is already filed (decision GF).
+        case alreadyFiled
+        /// Folders left empty (decision GA).
+        case emptied
+    }
+
+    public struct Row: Codable, Equatable, Sendable, Identifiable {
+        public let id: Int
+        /// The item's own name, as the card shows it.
+        public let name: String
+        public var change: Change
+        public var ticked: Bool
+        /// "High", "Medium" or "Needs your pick", To File's words; nil for a change no ranking made.
+        public var confidence: String?
+        public var reason: String?
+        /// A line about this row: "Kept as Ticket 2.pdf: the name is taken", "Outside Travel".
+        public var note: String?
+        /// The folder the move goes to, by label; nil for a row that isn't a move.
+        public var folderLabel: String?
+        /// The folders its menu offers, the one it goes to first (decision GD).
+        public var choices: [Choice]
+        /// Set when they picked a folder from its menu: it then counts as theirs, not unsure.
+        public var chosen: Bool
+        /// Shown in its own group, for a file already filed (decision GF).
+        public var alreadyFiled: Bool
+
+        public init(id: Int, name: String, change: Change, ticked: Bool, confidence: String? = nil, reason: String? = nil,
+                    note: String? = nil, folderLabel: String? = nil, choices: [Choice] = [], chosen: Bool = false,
+                    alreadyFiled: Bool = false) {
+            self.id = id
+            self.name = name
+            self.change = change
+            self.ticked = ticked
+            self.confidence = confidence
+            self.reason = reason
+            self.note = note
+            self.folderLabel = folderLabel
+            self.choices = choices
+            self.chosen = chosen
+            self.alreadyFiled = alreadyFiled
+        }
+
+        public var group: Group {
+            switch change {
+            case .trashIfEmptied: return .emptied
+            case .trash where alreadyFiled: return .alreadyFiled
+            case .move where confidence == AskClaudeFiling.label(.low) && !chosen: return .needsPick
+            default: return .folder(folderLabel ?? "")
+            }
+        }
+
+        /// Is a move to the Trash: drawn in red, never ticked for them.
+        public var isTrash: Bool {
+            switch change {
+            case .trash, .trashIfEmptied: return true
+            default: return false
+            }
+        }
+    }
+
+    /// "File 50 Loose Files".
+    public let title: String
+    /// "into iCloud › Documents".
+    public let subtitle: String
+    public var rows: [Row]
+    /// "Left here: 4 installers, 2 files no folder fits"; nil when none were.
+    public let leftHere: String?
+    /// "50 of 132 · 82 more: ask for the next 50"; nil when the card holds them all.
+    public let more: String?
+
+    public init(title: String, subtitle: String, rows: [Row], leftHere: String? = nil, more: String? = nil) {
+        self.title = title
+        self.subtitle = subtitle
+        self.rows = rows
+        self.leftHere = leftHere
+        self.more = more
+    }
+
+    /// The rows by group, in card order: folders with the most rows first (then by label), then
+    /// Needs Your Pick, Already Filed and the emptied folders.
+    public var groups: [(group: Group, rows: [Row])] {
+        var order: [Group] = []
+        var byGroup: [Group: [Row]] = [:]
+        for row in rows {
+            if byGroup[row.group] == nil { order.append(row.group) }
+            byGroup[row.group, default: []].append(row)
+        }
+        func rank(_ g: Group) -> Int {
+            switch g {
+            case .folder: return 0
+            case .needsPick: return 1
+            case .alreadyFiled: return 2
+            case .emptied: return 3
+            }
+        }
+        let sorted = order.sorted { a, b in
+            if rank(a) != rank(b) { return rank(a) < rank(b) }
+            if case .folder(let la) = a, case .folder(let lb) = b {
+                let (ca, cb) = (byGroup[a]?.count ?? 0, byGroup[b]?.count ?? 0)
+                return ca != cb ? ca > cb : la.localizedStandardCompare(lb) == .orderedAscending
+            }
+            return false
+        }
+        return sorted.map { ($0, byGroup[$0] ?? []) }
+    }
+
+    public var tickedCount: Int { rows.filter(\.ticked).count }
+
+    /// A row sent to another folder from its menu (decision GD): it moves to that folder's group
+    /// and is ticked.
+    public mutating func choose(_ choice: Choice, forRow id: Int) {
+        guard let index = rows.firstIndex(where: { $0.id == id }), case .move(let from, _) = rows[index].change else { return }
+        rows[index].change = .move(from: from, toFolder: choice.path)
+        rows[index].folderLabel = choice.label
+        rows[index].confidence = choice.confidence ?? rows[index].confidence
+        rows[index].reason = choice.reason ?? "Your pick"
+        // A note about the name in the old folder says nothing about the new one.
+        rows[index].note = nil
+        rows[index].chosen = true
+        rows[index].ticked = true
+    }
+
+    public mutating func setTicked(_ ticked: Bool, row id: Int) {
+        guard let index = rows.firstIndex(where: { $0.id == id }) else { return }
+        rows[index].ticked = ticked
+    }
+}

@@ -39,6 +39,11 @@ extension ContentView {
                            },
                            onDownloadCard: { askClaudeDownloadCard($0, $1) },
                            onFilingCard: { askClaudeFilingCard($0) },
+                           onPlanCard: { askClaudePlanCard($0, $1) },
+                           onChoice: { id, index in
+                               guard let choice = askClaudeChat.takeChoice(id, at: index) else { return }
+                               if let sends = choice.sends { askClaudeSend(sends) } else { askClaudeHolder.visibility.focusRequests += 1 }
+                           },
                            onPlace: onPlace)
     }
 
@@ -162,6 +167,35 @@ extension ContentView {
             }, fetch: { await AskClaudeBrowseTools.fetch($0) }, landed: { download in
                 askClaudeDownloaded(download)
             })
+        }
+    }
+
+    /// A card of changes (TE267): ticks, and a folder for a row from its menu or a folder picker.
+    func askClaudePlanCard(_ id: UUID, _ action: AskClaudePlanAction) {
+        switch action {
+        case .tick(let row, let ticked):
+            askClaudeChat.updatePlan(id) { $0.setTicked(ticked, row: row) }
+        case .choose(let row, let choice):
+            askClaudeChat.updatePlan(id) { $0.choose(choice, forRow: row) }
+        case .chooseFolder(let row):
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.prompt = "Choose"
+            panel.message = "Where this file goes"
+            if let root = syncManager.filingFolderProfile?.recordedFolderPath {
+                panel.directoryURL = URL(fileURLWithPath: root)
+            }
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            // Spelled as the panel gave it, which keeps a link's spelling (iCloud's Documents).
+            let path = url.path
+            guard !askClaudeIsHidden(path) else {
+                askClaudeChat.addNote("\(url.lastPathComponent) is hidden from Claude, so it can’t be chosen here.")
+                return
+            }
+            let label = AskClaudeBrowseTools.breadcrumb(path, sources: askClaudeSources, fallback: url.lastPathComponent)
+            askClaudeChat.updatePlan(id) { $0.choose(AskClaudePlan.Choice(label: label, path: path), forRow: row) }
         }
     }
 
@@ -572,6 +606,7 @@ extension ContentView {
                 return await syncManager.whereToFile(path, snippet: page, preferring: place, isHidden: { hidden.isHidden($0) })
             },
             surveyFolder: { syncManager.filingSurveyFolder(named: $0) },
+            surveyRoot: syncManager.filingFolderProfile?.recordedFolderPath,
             canRefineFiling: syncManager.filingHelpCanRefine,
             history: { forward in
                 let columns = paneDrawsColumns(isLeft: true)

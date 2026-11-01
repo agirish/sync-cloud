@@ -1630,3 +1630,107 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(out.result.contains("iCloud › Documents") && !out.result.contains(Self.root), "Claude was told \(out.result)")
     }
 }
+
+/// TE267: a folder's loose files on one card, asked where first, on a real folder.
+@MainActor
+@Suite struct AskClaudeLooseFilesToolTests {
+
+    private let dir: String
+
+    init() throws {
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent("loose-tool-\(UUID().uuidString)").path
+        for (path, text) in ["Downloads/JAL Ticket.pdf": "jal", "Downloads/Ticket.pdf": "boarding",
+                             "Downloads/W-2 2025.pdf": "w2", "Downloads/Statement.pdf": "statement",
+                             "Downloads/scan0042.pdf": "scan", "Downloads/JAL Itinerary/plan.pdf": "plan",
+                             "Downloads/Installer.dmg": "dmg", "Downloads/unknown.bin": "?",
+                             "Documents/Travel/Trips/Ticket.pdf": "older ticket", "Documents/Bank/Chase/Sep.pdf": "statement"] {
+            let full = dir + "/" + path
+            try FileManager.default.createDirectory(atPath: (full as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+            try Data(text.utf8).write(to: URL(fileURLWithPath: full))
+        }
+    }
+
+    private func s(_ rel: String, _ c: FilingConfidence) -> FilingHelpAnswer.Suggestion {
+        FilingHelpAnswer.Suggestion(folder: dir + "/Documents/" + rel, relativePath: rel, confidence: c,
+                                    reason: "Fits how this folder is used", evidenceToken: nil)
+    }
+
+    private func runner(survey: Bool = true) -> AskClaudeBrowseTools {
+        let dir = self.dir
+        let homes: [String: [FilingHelpAnswer.Suggestion]] = [
+            "JAL Ticket.pdf": [s("Travel/Trips", .high)], "Ticket.pdf": [s("Travel/Trips", .high)],
+            "W-2 2025.pdf": [s("Taxes/2025", .medium), s("Work", .medium)], "Statement.pdf": [s("Bank/Chase", .high)],
+            "scan0042.pdf": [s("Health", .low), s("Insurance", .low)], "plan.pdf": [s("Travel/Trips", .high)],
+        ]
+        return AskClaudeBrowseTools(context: {
+            var ctx = AskClaudeBrowseTools.Context(
+                inBrowse: true, sourceName: "Home", root: dir, folder: "Downloads", sort: .name,
+                items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+            ctx.sources = [.init(id: "home", name: "Home", root: dir), .init(id: "dropbox", name: "Dropbox", root: "/never-on-disk-dropbox")]
+            ctx.surveyRoot = survey ? dir + "/Documents" : nil
+            ctx.surveyFolder = { $0.lowercased() == "documents" ? dir + "/Documents" : nil }
+            ctx.isCloudOnly = { _ in false }
+            ctx.whereToFile = { path, _ in
+                let list = homes[(path as NSString).lastPathComponent]
+                return FilingHelpAnswer(outcome: list.map { .suggested($0) } ?? .noMatch, surveyedAt: nil)
+            }
+            return ctx
+        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+    }
+
+    private func call(_ input: [String: JSONFragment], _ runner: AskClaudeBrowseTools) async -> AskClaudeToolOutcome {
+        var handles = AskClaudeHandles()
+        return await runner.run(AskClaudeToolCall(id: "t", name: "file_loose_files", input: .object(input)), handles: &handles)
+    }
+
+    /// Decision GB: no place yet, so a count and two buttons, and no card.
+    @Test func withoutAPlaceItCountsAndOffersButtons() async throws {
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let out = await call([:], runner())
+        #expect(out.plan == nil && !out.isError)
+        #expect(out.choices == [AskClaudeChoice("Into Documents, by how I file", sends: "Into Documents, by how I file"),
+                                AskClaudeChoice("Somewhere else…", sends: nil)])
+        #expect(out.result.contains("7 loose files: 6 at the top level and 1 in 1 subfolder"))
+        #expect(out.result.contains("1 apps or installers stay"))
+    }
+
+    @Test func aPlaceOutsideTheSurveyOffersTheSurvey() async throws {
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let out = await call(["into": .string("Dropbox")], runner())
+        #expect(out.plan == nil && out.filing?.kind == .outside(surveyed: "Home › Documents"))
+        #expect(out.choices?.map(\.label) == ["Into Documents, by how I file"])
+        let none = await call(["into": .string("Documents")], runner(survey: false))
+        #expect(none.filing?.kind == .noProfile)
+    }
+
+    /// The card: High ticked (GC), a taken name said (GE), a copy already filed as an unticked
+    /// Trash row (GF), the folder its files empty (GA), installers and homeless files left here.
+    @Test func theCardGroupsTicksAndChecksEachRow() async throws {
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let out = await call(["into": .string("Documents")], runner())
+        let plan = try #require(out.plan)
+        func row(_ name: String) -> AskClaudePlan.Row? { plan.rows.first { $0.name == name } }
+        #expect(row("JAL Ticket.pdf")?.ticked == true && row("JAL Ticket.pdf")?.folderLabel == "Home › Documents › Travel › Trips")
+        #expect(row("Ticket.pdf")?.note == "Kept as Ticket 2.pdf: the name is taken")
+        #expect(row("W-2 2025.pdf")?.ticked == false && row("W-2 2025.pdf")?.choices.count == 2)
+        #expect(row("scan0042.pdf")?.group == .needsPick)
+        let statement = try #require(row("Statement.pdf"))
+        #expect(statement.change == .trash(path: dir + "/Downloads/Statement.pdf") && statement.alreadyFiled && !statement.ticked)
+        let emptied = try #require(plan.rows.first { if case .trashIfEmptied = $0.change { true } else { false } })
+        #expect(emptied.change == .trashIfEmptied(folders: [dir + "/Downloads/JAL Itinerary"]) && !emptied.ticked)
+        #expect(plan.leftHere == "Left here: 1 app or installer, 1 file no folder fits")
+        #expect(plan.subtitle == "into Home › Documents" && plan.more == nil)
+        #expect(!out.result.contains("Fits how this folder is used"), "a reason went to Claude")
+    }
+
+    /// Decision FC: 50 a card, the rest one call away.
+    @Test func aCardHoldsFiftyAndSaysWhatIsLeft() async throws {
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        for i in 0..<55 { try Data("\(i)".utf8).write(to: URL(fileURLWithPath: dir + "/Downloads/n\(i).txt")) }
+        let first = await call(["into": .string("Documents")], runner())
+        #expect(first.plan?.more == "1–50 of 62 · 12 more: ask for the next 12")
+        #expect(first.result.contains("call again with from 50"))
+        let second = await call(["into": .string("Documents"), "from": .integer(50)], runner())
+        #expect(second.plan?.more == nil)
+    }
+}

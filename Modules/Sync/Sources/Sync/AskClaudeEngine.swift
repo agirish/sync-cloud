@@ -60,10 +60,14 @@ public struct AskClaudeToolOutcome: Equatable, Sendable {
     public let download: AskClaudeDownload?
     /// Filing help's answer (TE255), shown as a card with Go to Folder.
     public let filing: AskClaudeFilingCard?
+    /// A card of changes to review (TE267).
+    public let plan: AskClaudePlan?
+    /// Buttons that answer Claude's question (decision GB).
+    public let choices: [AskClaudeChoice]?
 
     public init(result: String, isError: Bool = false, step: String, movedView: String? = nil,
                 passage: AskClaudePassage? = nil, download: AskClaudeDownload? = nil,
-                filing: AskClaudeFilingCard? = nil) {
+                filing: AskClaudeFilingCard? = nil, plan: AskClaudePlan? = nil, choices: [AskClaudeChoice]? = nil) {
         self.result = result
         self.isError = isError
         self.step = step
@@ -71,6 +75,20 @@ public struct AskClaudeToolOutcome: Equatable, Sendable {
         self.passage = passage
         self.download = download
         self.filing = filing
+        self.plan = plan
+        self.choices = choices
+    }
+}
+
+/// A button under Claude's question that answers it (decision GB): it sends `sends`, the same
+/// words they could type, or with nil puts the caret in the text box for them to say.
+public struct AskClaudeChoice: Codable, Equatable, Sendable {
+    public let label: String
+    public let sends: String?
+
+    public init(_ label: String, sends: String?) {
+        self.label = label
+        self.sends = sends
     }
 }
 
@@ -157,6 +175,10 @@ public enum AskClaudeEvent: Equatable, Sendable {
     case offerDownload(AskClaudeDownload)
     /// Filing help's card (TE255).
     case filing(AskClaudeFilingCard)
+    /// A card of changes (TE267).
+    case plan(AskClaudePlan)
+    /// Buttons answering Claude's question (decision GB).
+    case choices([AskClaudeChoice])
     /// One round trip finished: its usage and estimated cost.
     case round(AskClaudeUsage, costUSD: Double, model: String)
     case finished(stopReason: String?)
@@ -412,6 +434,8 @@ public final class AskClaudeEngine {
                 if let passage = outcome.passage { emit(.offer(passage)) }
                 if let download = outcome.download { emit(.offerDownload(download)) }
                 if let filing = outcome.filing { emit(.filing(filing)) }
+                if let plan = outcome.plan { emit(.plan(plan)) }
+                if let choices = outcome.choices { emit(.choices(choices)) }
                 results.append(Self.result(for: call, text: outcome.result, isError: outcome.isError))
             }
             if Task.isCancelled {

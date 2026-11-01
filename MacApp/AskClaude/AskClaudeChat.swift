@@ -44,6 +44,10 @@ final class AskClaudeChat: ObservableObject {
             case download(AskClaudeDownload, state: DownloadState)
             /// Filing help's answer (TE255): folders with Go to Folder.
             case filing(AskClaudeFilingCard)
+            /// A card of changes to review (TE267): rows ticked, sent elsewhere, untouched.
+            case plan(AskClaudePlan)
+            /// Buttons answering Claude's question (decision GB); used once one is clicked.
+            case choices([AskClaudeChoice], used: Bool)
         }
         var id = UUID()
         var kind: Kind
@@ -415,6 +419,29 @@ final class AskClaudeChat: ObservableObject {
         if !isRunning { save() }
     }
 
+    /// Changes a card's rows (a tick, a folder picked from a row's menu); nothing on disk.
+    func updatePlan(_ id: UUID, _ change: (inout AskClaudePlan) -> Void) {
+        guard let index = items.firstIndex(where: { $0.id == id }), case .plan(var plan) = items[index].kind else { return }
+        change(&plan)
+        items[index].kind = .plan(plan)
+        if !isRunning { save() }
+    }
+
+    func plan(_ id: UUID) -> AskClaudePlan? {
+        guard let item = items.first(where: { $0.id == id }), case .plan(let plan) = item.kind else { return nil }
+        return plan
+    }
+
+    /// A button under Claude's question, clicked: the buttons are used, and it is handed back to
+    /// send or to focus the box. Nil while a question runs, or once one was clicked.
+    func takeChoice(_ id: UUID, at index: Int) -> AskClaudeChoice? {
+        guard !isRunning, let i = items.firstIndex(where: { $0.id == id }),
+              case .choices(let choices, let used) = items[i].kind, !used, choices.indices.contains(index) else { return nil }
+        items[i].kind = .choices(choices, used: true)
+        save()
+        return choices[index]
+    }
+
     var model: AskClaudeModels.Option {
         AskClaudeModels.option(for: defaults.string(forKey: AskClaudeModels.defaultsKey))
     }
@@ -548,6 +575,12 @@ final class AskClaudeChat: ObservableObject {
         case .filing(let card):
             streamingItem = nil
             items.append(Item(kind: .filing(card)))
+        case .plan(let plan):
+            streamingItem = nil
+            items.append(Item(kind: .plan(plan)))
+        case .choices(let choices):
+            streamingItem = nil
+            items.append(Item(kind: .choices(choices, used: false)))
         case .movedView(let note):
             // The move says what the step said ("Opened Help" twice, 2026-10-30): it takes the
             // step's place rather than repeating it.

@@ -181,6 +181,11 @@ extension FileSyncManager {
         return nil
     }
 
+    /// `path` is the surveyed folder or inside it, either spelling of a link on the way.
+    public nonisolated static func isAtOrUnderSurvey(_ path: String, root: String) -> Bool {
+        relative(path, toRoot: root) != nil
+    }
+
     /// A folder of the survey by what they called it: its path from the surveyed folder ("Travel/
     /// Trips", with or without the surveyed folder's own name in front), else the shallowest
     /// folder with that name. Absolute; nil when the survey has none.
