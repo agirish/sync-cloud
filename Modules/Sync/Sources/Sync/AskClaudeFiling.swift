@@ -9,7 +9,7 @@ public struct AskClaudeFilingCard: Codable, Equatable, Sendable {
         case suggestions
         /// No Filing profile yet (decision EX): the card offers Setup.
         case noProfile
-        /// The place they named is outside the surveyed folder, which is named (TE266).
+        /// The place they named is outside the surveyed folder, which is named (TE284).
         case outside(surveyed: String)
         /// The profile has no folder that fits.
         case noMatch

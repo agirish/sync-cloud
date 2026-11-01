@@ -1,6 +1,6 @@
 import Foundation
 
-/// A folder's loose files for Ask Claude's filing card (TE267): which files count, and the checks
+/// A folder's loose files for Ask Claude's filing card (TE285): which files count, and the checks
 /// a row makes against the folder it would go to.
 ///
 /// **Loose** (decision FZ): every file in the folder and in its subfolders, each on its own.

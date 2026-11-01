@@ -74,7 +74,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         /// answered from; a test shortens it.
         var scanStartWait: Duration = .seconds(5)
         /// Where a file belongs by the Filing profile (TE255), preferring a place they named,
-        /// absolute (TE266); nil when filing help can't run.
+        /// absolute (TE284); nil when filing help can't run.
         var whereToFile: (_ path: String, _ place: String?) async -> FilingHelpAnswer? = { _, _ in nil }
         /// A folder of the survey by what they called it ("Travel"), absolute; nil when it has none.
         var surveyFolder: (_ name: String) -> String? = { _ in nil }
@@ -1130,7 +1130,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
     }
 
-    /// Where they said a file should go, absolute (TE266): a source and folder when the first
+    /// Where they said a file should go, absolute (TE284): a source and folder when the first
     /// part names a source ("Dropbox", "iCloud/Documents/Travel"), else a folder of their survey
     /// ("Travel", "Documents/Taxes/2025"). Nil when it is neither.
     static func place(_ into: String, _ ctx: Context) -> String? {
@@ -1253,7 +1253,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
     }
 
-    // MARK: Loose files (TE267)
+    // MARK: Loose files (TE285)
 
     /// Files on one filing card (decision GG, after his first use: 50 was too many to read).
     static let looseFilesPerCard = 10

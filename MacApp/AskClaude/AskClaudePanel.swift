@@ -31,7 +31,7 @@ struct AskClaudePanel: View {
     var onDownloadCard: (UUID, AskClaudeDownloadAction) -> Void = { _, _ in }
     /// Filing help's card buttons (TE255).
     var onFilingCard: (AskClaudeFilingAction) -> Void = { _ in }
-    /// A card of changes: its ticks and row menus (TE267).
+    /// A card of changes: its ticks and row menus (TE285).
     var onPlanCard: (UUID, AskClaudePlanAction) -> Void = { _, _ in }
     /// A button under Claude's question (decision GB), by its place in the row.
     var onChoice: (UUID, Int) -> Void = { _, _ in }
@@ -758,7 +758,7 @@ private struct AskClaudeThreadRow: View, Equatable {
         .accessibilityElement(children: .contain)
     }
 
-    /// A card of changes (TE267, TE262; redone after his first use, decision GG): one line per
+    /// A card of changes (TE285, TE262; redone after his first use, decision GG): one line per
     /// item, grouped by the folder it goes to, and a click opens a row's details. Text follows the
     /// app's text size. Every line is held to the card's width: a long name shortens in the
     /// middle, a long path wraps in the details, and nothing sizes the card from its own text.
@@ -1196,7 +1196,7 @@ enum AskClaudeDownloadAction: Equatable {
     case download, stopWaiting, notNow, revealInFinder
 }
 
-/// What a card of changes asks for (TE267).
+/// What a card of changes asks for (TE285).
 enum AskClaudePlanAction: Equatable {
     case tick(Int, Bool)
     /// A row sent to one of its menu's folders.

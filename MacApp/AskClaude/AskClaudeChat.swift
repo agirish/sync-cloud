@@ -44,7 +44,7 @@ final class AskClaudeChat: ObservableObject {
             case download(AskClaudeDownload, state: DownloadState)
             /// Filing help's answer (TE255): folders with Go to Folder.
             case filing(AskClaudeFilingCard)
-            /// A card of changes to review (TE267): rows ticked, sent elsewhere, untouched.
+            /// A card of changes to review (TE285): rows ticked, sent elsewhere, untouched.
             case plan(AskClaudePlan)
             /// Buttons answering Claude's question (decision GB); used once one is clicked.
             case choices([AskClaudeChoice], used: Bool)

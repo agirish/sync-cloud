@@ -1593,7 +1593,7 @@ private final class OffersADownload: AskClaudeToolRunning {
         return await runner.run(AskClaudeToolCall(id: "t", name: "where_to_file", input: .object(input)), handles: &handles)
     }
 
-    /// TE266: a place they name is found in their survey or their sources and handed over
+    /// TE284: a place they name is found in their survey or their sources and handed over
     /// absolute; one that is neither, or hidden, is refused before filing help runs.
     @Test func aNamedPlaceIsResolvedBySurveyOrSource() async throws {
         let asked = PlaceBox()
@@ -1667,7 +1667,7 @@ private final class OffersADownload: AskClaudeToolRunning {
     }
 }
 
-/// TE267: a folder's loose files on one card, asked where first, on a real folder.
+/// TE285: a folder's loose files on one card, asked where first, on a real folder.
 @MainActor
 @Suite struct AskClaudeLooseFilesToolTests {
 

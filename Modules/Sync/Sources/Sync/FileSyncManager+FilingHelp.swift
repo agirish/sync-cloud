@@ -17,7 +17,7 @@ public struct FilingHelpAnswer: Sendable, Equatable {
         /// No Filing profile: Setup's survey never ran.
         case noProfile
         /// The place they named isn't under the folder the profile surveyed, absolute: the caller
-        /// names it by source, as an answer to Claude never carries an absolute path (TE266). Where
+        /// names it by source, as an answer to Claude never carries an absolute path (TE284). Where
         /// the file itself sits doesn't matter: a file in Downloads is placed like any other.
         case outsideProfile(surveyed: String)
         /// The profile has no folder that fits this file.
@@ -75,7 +75,7 @@ public struct FilingHelpAnswer: Sendable, Equatable {
 extension FileSyncManager {
 
     /// Where `path` would go, from the active Filing profile. The file may be anywhere on this
-    /// Mac (TE266): only the destination has to be in the survey. `snippet` is page 1 as read on
+    /// Mac (TE284): only the destination has to be in the survey. `snippet` is page 1 as read on
     /// this Mac (nil ranks by name alone); `place`, absolute, is a folder they named ("into
     /// Travel"), whose folders are preferred (decision FX); `isHidden` is the Never show Claude list.
     ///

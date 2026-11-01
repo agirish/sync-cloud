@@ -170,7 +170,7 @@ extension ContentView {
         }
     }
 
-    /// A card of changes (TE267): ticks, and a folder for a row from its menu or a folder picker.
+    /// A card of changes (TE285): ticks, and a folder for a row from its menu or a folder picker.
     func askClaudePlanCard(_ id: UUID, _ action: AskClaudePlanAction) {
         switch action {
         case .tick(let row, let ticked):

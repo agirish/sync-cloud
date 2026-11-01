@@ -68,7 +68,7 @@ import Testing
         #expect(suggestions.allSatisfy { $0.confidence != .high })
     }
 
-    /// TE266: the file can sit anywhere on this Mac; only a place they name has to be surveyed.
+    /// TE284: the file can sit anywhere on this Mac; only a place they name has to be surveyed.
     @Test func aFileOutsideTheSurveyIsPlacedAndAPlaceOutsideItSaysSo() async {
         let bare = FileSyncManager()
         #expect(await bare.whereToFile("/x/a.pdf", snippet: nil, isHidden: { _ in false }).outcome == .noProfile)

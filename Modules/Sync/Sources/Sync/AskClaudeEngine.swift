@@ -60,7 +60,7 @@ public struct AskClaudeToolOutcome: Equatable, Sendable {
     public let download: AskClaudeDownload?
     /// Filing help's answer (TE255), shown as a card with Go to Folder.
     public let filing: AskClaudeFilingCard?
-    /// A card of changes to review (TE267).
+    /// A card of changes to review (TE285).
     public let plan: AskClaudePlan?
     /// Buttons that answer Claude's question (decision GB).
     public let choices: [AskClaudeChoice]?
@@ -175,7 +175,7 @@ public enum AskClaudeEvent: Equatable, Sendable {
     case offerDownload(AskClaudeDownload)
     /// Filing help's card (TE255).
     case filing(AskClaudeFilingCard)
-    /// A card of changes (TE267).
+    /// A card of changes (TE285).
     case plan(AskClaudePlan)
     /// Buttons answering Claude's question (decision GB).
     case choices([AskClaudeChoice])

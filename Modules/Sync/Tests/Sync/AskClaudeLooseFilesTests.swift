@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// A folder's loose files for Ask Claude's filing card (TE267), on a real folder.
+/// A folder's loose files for Ask Claude's filing card (TE285), on a real folder.
 @Suite struct AskClaudeLooseFilesTests {
 
     private func scratch() throws -> String {

@@ -1,6 +1,6 @@
 import Foundation
 
-/// A card of changes in Ask Claude (TE267's filing card; TE262's plan card): rows the person
+/// A card of changes in Ask Claude (TE285's filing card; TE262's plan card): rows the person
 /// reviews, ticks and changes. The card is local UI and is saved with the chat; what Claude is told
 /// about it is written by the tool that made it.
 public struct AskClaudePlan: Codable, Equatable, Sendable {
