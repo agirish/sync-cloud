@@ -111,7 +111,7 @@ import Foundation
                 == "/root/Documents/Vehicles")
 
         let one = FilingDestination(path: "/root/Documents/Vehicles/Tesla",
-                                    confidence: .medium, reasons: [], newSegments: ["Tesla"])
+                                    confidence: .high, reasons: [], newSegments: ["Tesla"])
         #expect(FileSyncManager.filingAnchor(for: one, under: "/root").path == "/root/Documents/Vehicles")
 
         let none = FilingDestination(path: "/root/Documents/Vehicles",
@@ -139,7 +139,7 @@ import Foundation
     /// easy to fall into. The anchor must simply stay unclamped.
     @Test func anEmptyProviderRootDoesNotClampTheAnchorToTheWorkingDirectory() {
         let dest = FilingDestination(path: "/root/Documents/Vehicles/Tesla",
-                                     confidence: .medium, reasons: [], newSegments: ["Tesla"])
+                                     confidence: .high, reasons: [], newSegments: ["Tesla"])
         let anchor = FileSyncManager.filingAnchor(for: dest, under: "")
         #expect(anchor.path == "/root/Documents/Vehicles")
         #expect(anchor.path.hasPrefix("/root"), "must never resolve against the CWD")
@@ -168,7 +168,7 @@ import Foundation
         let anchor = root.appendingPathComponent("Documents/Vehicles")   // never created
 
         let dest = FilingDestination(path: anchor.appendingPathComponent("Tesla").path,
-                                     confidence: .medium, reasons: [], newSegments: ["Tesla"])
+                                     confidence: .high, reasons: [], newSegments: ["Tesla"])
         let suggestions = [a, b].map {
             FilingSuggestion(filePath: $0.path, fileName: $0.lastPathComponent, size: 512,
                              modificationDate: nil, candidates: [dest], providerRoot: root.path)
@@ -199,7 +199,7 @@ import Foundation
         try write(anchor.appendingPathComponent(".keep"), bytes: 1)   // the ONLY difference
 
         let dest = FilingDestination(path: anchor.appendingPathComponent("Tesla").path,
-                                     confidence: .medium, reasons: [], newSegments: ["Tesla"])
+                                     confidence: .high, reasons: [], newSegments: ["Tesla"])
         let suggestions = [a, b].map {
             FilingSuggestion(filePath: $0.path, fileName: $0.lastPathComponent, size: 512,
                              modificationDate: nil, candidates: [dest], providerRoot: root.path)
@@ -236,7 +236,7 @@ import Foundation
         let suggestion = FilingSuggestion(filePath: src.path, fileName: "Report.pdf", size: 512,
                                           modificationDate: nil, candidates: [])
         let dest = FilingDestination(path: blocker.appendingPathComponent("Tesla").path,
-                                     confidence: .medium, reasons: [], newSegments: ["Tesla"])
+                                     confidence: .high, reasons: [], newSegments: ["Tesla"])
         manager.filingSuggestions = [suggestion]
 
         let result = await manager.applyFilingSuggestion(suggestion, to: dest)

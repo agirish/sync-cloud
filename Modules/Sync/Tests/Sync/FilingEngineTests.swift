@@ -35,12 +35,12 @@ import Testing
     @Test func matchesAnExistingFolderByName() throws {
         let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Vehicles",
                           [dir("/root/Documents/Vehicles/Tesla", [])])])]
-        let loose = [file("/root/Downloads/tesla registration card.pdf", modified: y2024)]
+        let loose = [file("/root/Downloads/tesla vehicles registration card.pdf", modified: y2024)]
 
         let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root").first?.best)
         #expect(best.path == "/root/Documents/Vehicles/Tesla")
         #expect(best.newSegments.isEmpty)
-        #expect(best.confidence == .high)
+        #expect(best.confidence == .high)   // two of the folder's words; one alone is Medium (GS)
     }
 
     // MARK: A package is a document, not a home (FR3)
@@ -97,7 +97,7 @@ import Testing
     // MARK: Universal rules
 
     @Test func photoIsFiledByYearUnderExistingPhotos() throws {
-        let taxonomy = [dir("/root/Photos", [])]
+        let taxonomy = [dir("/root/Photos", [dir("/root/Photos/2023", [])])]   // files by year (GS)
         let loose = [file("/root/Downloads/IMG_2831.HEIC", modified: y2024)]
         let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root").first?.best)
         #expect(best.path == "/root/Photos/2024")
@@ -180,7 +180,8 @@ import Testing
     }
 
     @Test func receiptIsFiledByYearUnderExistingReceipts() throws {
-        let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Receipts", [])])]
+        let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Receipts",
+                                                    [dir("/root/Documents/Receipts/2023", [])])])]
         let loose = [file("/root/Downloads/amazon order 114.pdf", modified: y2024)]
         let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root").first?.best)
         #expect(best.path == "/root/Documents/Receipts/2024")
@@ -329,9 +330,9 @@ import Testing
     }
 
     @Test func reasonIsNotContentWhenTokenIsAlsoInTheName() throws {
-        let taxonomy = [dir("/root/Insurance", [])]
-        let loose = [file("/root/Downloads/insurance.pdf", modified: y2024)]
-        let content = ["/root/Downloads/insurance.pdf": Set(["insurance"])]   // also in the name
+        let taxonomy = [dir("/root/Car Insurance", [])]
+        let loose = [file("/root/Downloads/car insurance.pdf", modified: y2024)]
+        let content = ["/root/Downloads/car insurance.pdf": Set(["car", "insurance"])]   // also in the name
         let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
                                                      providerRoot: "/root", contentTokens: content).first?.best)
         #expect(best.confidence == .high)                                     // name-derived → not capped

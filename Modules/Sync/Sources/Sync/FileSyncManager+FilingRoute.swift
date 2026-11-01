@@ -26,13 +26,25 @@ extension FileSyncManager {
         let before = filingSatelliteHomes
         refreshSatelliteHomes(providerRoot: providerRoot)
         if filingRouterIndex != nil, filingRouterIndexKey == destinations,
-           before == filingSatelliteHomes { return }
+           before == filingSatelliteHomes,
+           filingRouterIndexFiledGeneration == filingFiledSinceSurveyGeneration { return }
+        // What was filed here since the survey last read its documents (GW), folded in — and kept
+        // out of `filingRoutingFingerprint`, which is read from the survey's files on disk, so a
+        // filing does not throw away the Refine answers already paid for.
+        let filed = providerRoot.map { filedSinceSurvey(under: $0) } ?? [:]
+        var memory = filingRoutingMemory
+        if !filed.isEmpty {
+            memory = FilingSurvey.memory(memory ?? FilingMemory(profileId: filingRoutingProfile?.profileId ?? "",
+                                                                salt: "", folders: [:]),
+                                         addingFiled: filed)
+        }
         filingRouterIndex = FilingRouter.makeIndex(destinations: Array(destinations),
                                                    profile: filingRoutingProfile,
-                                                   memory: filingRoutingMemory,
+                                                   memory: memory,
                                                    registry: filingPersonRegistry,
                                                    satelliteHomes: filingSatelliteHomes)
         filingRouterIndexKey = destinations
+        filingRouterIndexFiledGeneration = filingFiledSinceSurveyGeneration
         filingRouterIndexBuilds += 1
     }
 
@@ -142,8 +154,9 @@ extension FileSyncManager {
     /// One file, and the only place the rules live — so the chunked driver and the batch helper
     /// cannot drift apart.
     ///
-    /// **Only upgrades, never demotes.** A router home leads a card when it is at least as confident
-    /// as what is already there, matching the rule the classifier overlay follows. Content-derived
+    /// **Outranks what was guessed, never what was taught.** A router home leads over a home the
+    /// keyword engine found, at any confidence (GT, GY); over a model's answer, or with no home at
+    /// all, it leads only when it is at least as confident. A rule or Automation is never touched. Content-derived
     /// homes are marked `fromContent`, which keeps them out of the blind "File recommended" batch on
     /// purpose: reading words out of a document is a weaker, less checkable signal than a filename,
     /// and that batch moves files nobody has looked at.
@@ -196,13 +209,26 @@ extension FileSyncManager {
         //
         // The router only ever names folders from the taxonomy, so this trade is always
         // existing-for-new, never the reverse.
-        let wouldCreateAFolder = s.best?.newSegments.isEmpty == false
-        if s.hasConfidentHome, !wouldCreateAFolder { return (s, false, shortlist) }
-        if wouldCreateAFolder {
-            // Still needs real evidence — an unsure ranking must not evict a home either.
-            guard confidence >= .medium else { return (s, false, shortlist) }
+        //
+        // **And a home found by matching words is a weaker claim than the survey's (GT).** The
+        // keyword engine's confidence is claimed; the router's is its calibrated margin. A FedEx
+        // courier invoice led with `Health/Medical/India`, High on the single word "india", and the
+        // old rule here — leave any confident home alone — meant nothing the survey knew could
+        // reach that card. So a home no one taught (not a rule, not an Automation: those returned
+        // above) gives way to the router's home, **at whatever confidence the router has (GY)**.
+        // Measured on the held-out fifth of the household's filed documents
+        // (`FilingCardReplayTests`): where the router was only Low against a keyword home, it was
+        // right 393 times in 1,274 and the keyword home 111. Leading with the router there takes
+        // cards right first time from 5% to 42%, and the badge then means what it says — High
+        // right 77% of the time, Medium 57%, Low 30%, against a keyword High right 4%.
+        if let current = s.best, current.path == providerRoot + "/" + best.relativePath {
+            // The two agree. Keep whichever claim is surer — the router taking over at a lower
+            // confidence would drop a name-derived High out of the blind batch for nothing.
+            guard confidence > current.confidence else { return (s, false, shortlist) }
+        } else if let current = s.best, !current.fromAI {
+            // A guess gives way to the measured signal, and the card carries its confidence.
         } else {
-            // The original rule, unchanged for the homeless case: only upgrades, never demotes.
+            // The homeless case, and a model's answer: only upgrades, never demotes.
             guard confidence >= (s.best?.confidence ?? .low) else { return (s, false, shortlist) }
         }
         let fromContent = best.evidenceToken != nil
@@ -225,6 +251,73 @@ extension FileSyncManager {
             evidenceToken: best.evidenceToken?.capitalized, neighborMatches: 0)
         let others = s.candidates.filter { $0.path != dest.path }
         return (s.replacingCandidates([dest] + others), true, shortlist)
+    }
+}
+
+// MARK: - Filed since the survey (GW)
+
+/// One document filed in SyncCloud since the survey last read its folder (GW): the folder, and the
+/// words it brought. Kept until a survey newer than it has read the folder for itself.
+public struct FilingFiledSinceSurvey: Codable, Sendable, Equatable {
+    /// Absolute path of the folder it was filed into.
+    public let folder: String
+    /// Page 1's readable words and the name's — see ``FilingSurvey/filedAnchors(fileName:page1:)``.
+    public let anchors: [String]
+    public let filedAt: Date
+
+    public init(folder: String, anchors: [String], filedAt: Date) {
+        self.folder = folder
+        self.anchors = anchors
+        self.filedAt = filedAt
+    }
+}
+
+extension FileSyncManager {
+
+    /// Where ``filingFiledSinceSurvey`` persists, beside the rejections.
+    public static let filedSinceSurveyDefaultsKey = "tidyFilingFiledSinceSurvey"
+    /// The newest this many are kept. A survey takes them in long before; the cap is for a tree
+    /// nobody ever re-surveys, where they would otherwise grow without end.
+    static let filedSinceSurveyCap = 500
+
+    public var filingFiledSinceSurvey: [FilingFiledSinceSurvey] {
+        get {
+            FileSyncManager.decodePersistedStore([FilingFiledSinceSurvey].self, from: filingRuleDefaults,
+                                                 key: Self.filedSinceSurveyDefaultsKey,
+                                                 describing: "documents filed since the survey") ?? []
+        }
+        set {
+            FileSyncManager.writePersistedStore(Array(newValue.suffix(Self.filedSinceSurveyCap)),
+                                                to: filingRuleDefaults,
+                                                key: Self.filedSinceSurveyDefaultsKey,
+                                                describing: "documents filed since the survey")
+        }
+    }
+
+    /// Teaches the router what `folder` now holds (GW): the next scan ranks by it, without waiting
+    /// for the survey. Called for every filing SyncCloud makes, whatever chose the folder.
+    func learnFromFiling(fileName: String, sourcePath: String, into folder: String, now: Date = Date()) {
+        let anchors = FilingSurvey.filedAnchors(fileName: fileName, page1: filingPageSamples[sourcePath])
+        guard !anchors.isEmpty else { return }
+        filingFiledSinceSurvey.append(FilingFiledSinceSurvey(folder: folder, anchors: anchors.sorted(),
+                                                             filedAt: now))
+        filingFiledSinceSurveyGeneration += 1
+    }
+
+    /// The filings under `providerRoot` the survey in use has not read yet, by folder relative to
+    /// it — the shape ``FilingSurvey/memory(_:addingFiled:)`` takes.
+    ///
+    /// "Not read yet" is newer than the survey's last look at documents: the primary survey's, or a
+    /// source's own once its documents were read. A survey that has looked since has the document
+    /// in its own corpus, and counting it twice would double its words.
+    func filedSinceSurvey(under providerRoot: String) -> [String: [Set<String>]] {
+        let lookedAt = filingSurveyInUse?.kind == .own ? filingSurveyInUse?.ownDocumentsReadAt : filingSurveyedAt
+        var out: [String: [Set<String>]] = [:]
+        for entry in filingFiledSinceSurvey where lookedAt.map({ entry.filedAt > $0 }) ?? true {
+            guard let relative = Self.relativePath(entry.folder, under: providerRoot) else { continue }
+            out[relative, default: []].append(Set(entry.anchors))
+        }
+        return out
     }
 }
 

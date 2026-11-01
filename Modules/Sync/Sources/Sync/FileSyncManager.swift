@@ -1553,6 +1553,12 @@ public class FileSyncManager: ObservableObject {
     /// count mismatch, and an exact comparison cannot collide into serving a stale index.
     var filingRouterIndex: FilingRouter.Index?
     var filingRouterIndexKey: Set<String>?
+    /// Bumped by every filing that teaches the router (GW), and recorded by the index it built
+    /// into: a filing changes no folder, so the destination key alone would serve the index from
+    /// before it. Separate from ``invalidateFilingRouterIndex()``, which drops the index — and with
+    /// it Read scan's routing, until the next scan.
+    var filingFiledSinceSurveyGeneration = 0
+    var filingRouterIndexFiledGeneration = 0
     /// Which survey the last To File scan placed its files with (GK–GN) — see
     /// ``FilingSurveyInUse``. Nil before the first scan. The header's survey menu reads it.
     @Published public internal(set) var filingSurveyInUse: FilingSurveyInUse?

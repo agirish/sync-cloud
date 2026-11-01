@@ -153,8 +153,9 @@ import Foundation
     @Test func filingBatchMovesOnlyTheFilteredSuggestions() async throws {
         let root = try makeCanonicalTempRoot(prefix: "BatchScopeFiling")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Documents/Invoices/.keep"), bytes: 1)
+        // Two words in common with each folder: one alone is Medium, and the batch takes High (GS).
+        try write(root.appendingPathComponent("Documents/Tesla Policy/.keep"), bytes: 1)
+        try write(root.appendingPathComponent("Documents/Invoices Q3/.keep"), bytes: 1)
         try write(root.appendingPathComponent("Downloads/Tesla Policy.pdf"))
         try write(root.appendingPathComponent("Downloads/Invoices Q3.pdf"))
 

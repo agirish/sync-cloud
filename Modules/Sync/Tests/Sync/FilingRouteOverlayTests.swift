@@ -100,12 +100,13 @@ import Testing
         #expect(out[0].best == taught)
     }
 
-    /// A weaker router answer must not displace a strong filename match.
+    /// A weaker router answer must not displace a strong MODEL answer — and, since GY, does
+    /// displace a word match, carrying its own Low onto the card.
     ///
     /// The fixture has to produce a *real but low-margin* candidate. An earlier version used a
     /// snippet matching nothing at all, so `rank` returned no candidate and the overlay bailed out
     /// one line above the guard being tested — deleting the guard left the test green.
-    @Test func aLowMarginRouteDoesNotDemoteAConfidentName() {
+    @Test func aLowMarginRouteDoesNotDemoteAConfidentModelAnswer() {
         // Both folders carry the same single anchor, so neither can win: the margin collapses and
         // the router reports `.low`.
         let tied = FilingRouterTests.index(memoryDocs: [
@@ -118,12 +119,22 @@ import Testing
         #expect(ranking.best != nil)              // there IS an answer to demote with
         #expect(ranking.confidence == .low)
 
-        let strong = Self.destination("Finance/US/Income Tax/2023", .high)
+        let strong = FilingDestination(path: "\(Self.root)/Finance/US/Income Tax/2023", confidence: .high,
+                                       reasons: ["Chosen by Claude"], newSegments: [], fromAI: true)
         let (out, routed, _) = FileSyncManager.applyRoutes(
             [Self.suggestion("ambiguous.pdf", best: strong)], index: tied,
             snippets: snippets, providerRoot: Self.root)
         #expect(routed == 0)
         #expect(out[0].best == strong)
+
+        // A word match is a guess the survey outranks at any confidence (GY).
+        let word = Self.destination("Finance/US/Income Tax/2023", .high)
+        let (led, ledCount, _) = FileSyncManager.applyRoutes(
+            [Self.suggestion("ambiguous.pdf", best: word)], index: tied,
+            snippets: snippets, providerRoot: Self.root)
+        #expect(ledCount == 1)
+        #expect(led[0].best?.confidence == .low)
+        #expect(led[0].candidates.contains(word), "the word match stays as a second choice")
     }
 
     /// The other half of the same rule: an equally confident router home *does* lead, or the
@@ -174,19 +185,22 @@ import Testing
         #expect(out[0].best == nil)
     }
 
-    /// **A file that already has a confident home is left alone.** Ranking it could only replace a
-    /// filename match with an equally confident content one — which flips `fromContent` and drops
-    /// the file out of the blind "File all N" batch for no accuracy gain.
-    @Test func aConfidentlyPlacedFileIsNotReRouted() {
+    /// **A confident word match gives way to the survey (GT, GY).** This was "a confidently placed
+    /// file is not re-routed" — on the grounds that a filename match was as good as a content one.
+    /// Measured on the household's filed documents it is not: a keyword High was right 4% of the
+    /// time against the router's 42% (`FilingCardReplayTests`). The batch loses the file, which is
+    /// right for a home read out of the document.
+    @Test func aConfidentWordMatchGivesWayToTheSurvey() {
         let strong = Self.destination("Finance/US/Income Tax/2023", .high)
         let s = [Self.suggestion("op.pdf", best: strong)]
         let (out, routed, _) = FileSyncManager.applyRoutes(
             s, index: Self.index,
             snippets: ["\(Self.root)/TODO/op.pdf": "perioperative anesthesia stoll"],
             providerRoot: Self.root)
-        #expect(routed == 0)
-        #expect(out[0].best == strong)
-        #expect(out[0].isBatchEligible)          // still auto-filable, which is the point
+        #expect(routed == 1)
+        #expect(out[0].best?.path == "\(Self.root)/Health/Medical/Kaiser/Surgery")
+        #expect(out[0].candidates.contains(strong))
+        #expect(!out[0].isBatchEligible, "a home read out of the document is never moved unseen")
     }
 
     /// The whole phase is gated on artifacts existing. An empty index must leave every suggestion
@@ -226,9 +240,9 @@ import Testing
         #expect(out.first?.best?.path != "/prov/Purchases/2025")
     }
 
-    /// The other half: a confident home that names a folder that already EXISTS is left alone, which
-    /// is the rule this carve-out must not swallow.
-    @Test func aRouterHomeStillLeavesAnExistingConfidentHomeAlone() {
+    /// The other half, since GT: a confident rule home that names a folder that already EXISTS gives
+    /// way too — the rule was the carve-out, and the survey now outranks every untaught guess.
+    @Test func aRouterHomeAlsoReplacesAnExistingKeywordHome() {
         let existing = FilingDestination(path: "/prov/Purchases/2025", confidence: .high,
                                          reasons: ["Receipt or invoice — filed by year"],
                                          newSegments: [], fromContent: false,
@@ -237,8 +251,8 @@ import Testing
         let (out, routed, shortlist) = FileSyncManager.applyRoutes(
             [s], index: FilingRouteOverlayTests.index, snippets: ["/prov/TODO/bill.pdf": "perioperative anesthesia stoll"],
             providerRoot: "/prov")
-        #expect(routed == 0)
-        #expect(out.first?.best?.path == "/prov/Purchases/2025")
+        #expect(routed == 1)
+        #expect(out.first?.best?.path != "/prov/Purchases/2025")
         #expect(shortlist["/prov/TODO/bill.pdf"]?.isEmpty == false, "it must still be ranked for the menu")
     }
 

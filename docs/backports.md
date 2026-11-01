@@ -13520,3 +13520,27 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude panel | CLOSED — does not apply |
+
+## To File's one-word Highs, and corrections that teach (GS–GZ) — main only
+
+2026-11-01, for v7.0. On `main`: one folder-name word shared with a file is at most Medium, and a
+by-year rule is High only where the folder already files by year (GS); the router's home leads over
+a keyword-only home at any confidence (GT, GY); on Refine, a verdict inside the router's shortlist
+leads (GT); File All Confident takes High only; Try Another and Choose a Folder record a word-level
+rejection (`FilingWordRejection`, GU, GV); every filing is folded into the router's memory until the
+survey reads it (`FilingFiledSinceSurvey`, GW); Refine downloads cloud-only files before reading
+them (`fetchCloudOnlyFiles`, GZ). Measured in `FilingCardReplayTests`.
+
+```sh
+for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s oneWordHigh=%s routerOnlyUpgrades=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FilingEngine.swift 2>/dev/null | grep -c 'categoryNameHits.isEmpty ? .high')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+FilingRoute.swift 2>/dev/null | grep -c 'only upgrades, never demotes')"; done
+# measured 2026-11-01, against origin, before this landed:
+# v6.x / v5.x / v4.x    oneWordHigh=1 routerOnlyUpgrades=1
+# v3.x / v2.x           oneWordHigh=1 routerOnlyUpgrades=0   (no router)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` | The one-word High and the router that cannot displace it | RECORDED — not owed |
+| `v3.x` / `v2.x` | The one-word High; no router | RECORDED — not owed |

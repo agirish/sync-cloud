@@ -152,7 +152,7 @@ private final class SnippetBox: @unchecked Sendable {
     @Test func applyRecommendedFilesConfidentOnlyLeavesTheRest() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
+        try write(root.appendingPathComponent("Documents/Tesla Policy/.keep"), bytes: 1)   // High: two words (GS)
         try write(root.appendingPathComponent("Downloads/Tesla Policy.pdf"))
         let junkPath = root.appendingPathComponent("Downloads/zxqw9.bin")
         try write(junkPath)
@@ -368,7 +368,9 @@ private final class SnippetBox: @unchecked Sendable {
     @Test func batchFilingIsASingleUndo() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
+        // Two words in common with each folder, so both are High and batched (GS).
+        try write(root.appendingPathComponent("Documents/Tesla Policy/.keep"), bytes: 1)
+        try write(root.appendingPathComponent("Documents/Toyota Registration/.keep"), bytes: 1)
         let tesla = root.appendingPathComponent("Downloads/Tesla Policy.pdf")
         let toyota = root.appendingPathComponent("Downloads/Toyota Registration.pdf")
         try write(tesla); try write(toyota)

@@ -60,7 +60,7 @@ public enum CloudFilingProtocol {
     public static let endpoint = "https://api.anthropic.com/v1/messages"
     public static let toolName = "file_placements"
 
-    private static let maxSnippetChars = 800
+    static let maxSnippetChars = 800
 
     /// Maps a stored model ID onto the currently offered model of the same family. A setting saved
     /// before a model refresh (say `claude-opus-4-8`) still names a real model, so nothing breaks —

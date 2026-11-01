@@ -160,6 +160,20 @@ Requires **macOS 26**, unchanged from v6.2.
 - **A folder To File hasn't read says so.** Pointing Organize at a folder showed "Nothing in" that
   folder when To File had last read a different one. It now says the folder hasn't been scanned and
   offers Scan.
+- **To File's suggestions are right far more often, and say how sure they are.** A file sharing one
+  word with a folder's name, such as "Sep" or "India", was suggested there at High, and neither the
+  folder survey nor Refine with Claude could replace it. Now the survey's pick leads, the name match
+  stays as a second choice, and one shared word is never more than Medium. Replayed over a fifth of
+  the documents already filed in a real tree, the first suggestion went from right 5% of the time to
+  42%, and a High card is right 77% of the time, up from 4%. File All Confident moves only High
+  cards. Refine with Claude now replaces a card's home when Claude picks a folder the survey
+  shortlisted, and downloads files that are only in the cloud first so Claude reads their first
+  page rather than their name; its cost prompt says how many will download, and they stay
+  downloaded.
+- **Corrections teach To File.** Try Another Folder, or putting a file somewhere else with Choose a
+  Folder, stops the words it shared with the suggested folder from sending other files there. A file
+  put away is learned at once, so the next one like it is suggested in the same folder, even one
+  that was empty, without waiting for the survey to read your documents again.
 
 ### Folders
 

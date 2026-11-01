@@ -90,9 +90,9 @@ enum CloudFilingClassifier {
         request.setValue(CloudFilingProtocol.apiVersion, forHTTPHeaderField: "anthropic-version")
         request.httpBody = httpBody
 
-        let excerptCount = files.filter {
-            ($0.contentSnippet?.isEmpty == false) && !FilingEngine.canRemember(fileName: $0.fileName)
-        }.count
+        // Every file whose page goes out, named or not: the request sends them all, and counting
+        // only the nameless ones logged "0 with content excerpt" over a request that carried pages.
+        let excerptCount = files.filter { $0.contentSnippet?.isEmpty == false }.count
         let cappedNote = allFiles.count > files.count ? " (capped from \(allFiles.count))" : ""
         Logger.shared.info("Cloud Filing → \(model): \(files.count) file(s)\(cappedNote), \(excerptCount) with content excerpt")
 

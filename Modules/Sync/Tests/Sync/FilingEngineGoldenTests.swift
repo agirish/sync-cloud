@@ -44,9 +44,10 @@ import Testing
     @Test func filingSnapshotIsStable() {
         let taxonomy = [
             dir("/root/Documents", [dir("/root/Documents/Vehicles", [dir("/root/Documents/Vehicles/Tesla")])]),
-            dir("/root/Photos"),
+            // Photos and Receipts already file by year, so their by-year rules may claim High (GS).
+            dir("/root/Photos", [dir("/root/Photos/2022")]),
             dir("/root/Finance"),
-            dir("/root/Receipts"),
+            dir("/root/Receipts", [dir("/root/Receipts/2022")]),
             // Two same-year folders: a bare year must not stand up a confident, batch-eligible home.
             dir("/root/Archive", [dir("/root/Archive/2024")]),
             dir("/root/Projects", [dir("/root/Projects/2024")]),
@@ -107,13 +108,15 @@ import Testing
         //    gopro_hawaii_2023 keep their real filename years (the latter pins the gopr regex fix);
         //  · scan0001.pdf finds a home ONLY via a content token: medium-capped, marked `content`,
         //    and NOT batch — a content match must never join the blind batch;
-        //  · 2024-overview (bare year) and blorf.xyz still have no confident home.
+        //  · 2024-overview (bare year) and blorf.xyz still have no confident home;
+        //  · GS: the blind batch takes High only, so every Medium line lost `batch`, and tesla
+        //    registration card — one word in common with Vehicles/Tesla — is Medium.
         // Re-bless only after confirming an intentional change to the filing heuristic is correct.
         let expected = """
-        1099-INT 2023.pdf -> /root/Documents/Taxes/2023 [medium, batch]
-        1099-INT 2024.pdf -> /root/Documents/Taxes/2024 [medium, batch]
-        1099-INT.pdf -> /root/Documents/Taxes/2024 [medium, batch]
-        2021-2022 tax summary.pdf -> /root/Documents/Taxes/2024 [medium, batch]
+        1099-INT 2023.pdf -> /root/Documents/Taxes/2023 [medium]
+        1099-INT 2024.pdf -> /root/Documents/Taxes/2024 [medium]
+        1099-INT.pdf -> /root/Documents/Taxes/2024 [medium]
+        2021-2022 tax summary.pdf -> /root/Documents/Taxes/2024 [medium]
         2024-overview.pdf -> (no confident home)
         DSC_1995.jpg -> /root/Photos/2024 [high, batch]
         GOPR0001.MP4 -> /root/Photos/2024 [high, batch]
@@ -123,11 +126,11 @@ import Testing
         Wedding 2023.jpg -> /root/Photos/2023 [high, batch]
         amazon order receipt.pdf -> /root/Receipts/2024 [high, batch]
         blorf.xyz -> (no confident home)
-        chase statement 2023.pdf -> /root/Finance/2023 [medium, batch]
+        chase statement 2023.pdf -> /root/Finance/2023 [medium]
         gopro_hawaii_2023.mp4 -> /root/Photos/2023 [high, batch]
-        honda geico insurance.pdf -> /root/Documents/Vehicles/Honda/Insurance [medium, batch]
+        honda geico insurance.pdf -> /root/Documents/Vehicles/Honda/Insurance [medium]
         scan0001.pdf -> /root/Receipts/2024 [medium, content]
-        tesla registration card.pdf -> /root/Documents/Vehicles/Tesla [high, batch]
+        tesla registration card.pdf -> /root/Documents/Vehicles/Tesla [medium]
         """
         #expect(snapshot(suggestions) == expected)
     }

@@ -313,6 +313,12 @@ struct SyncOperationAlerts {
         var text = "Estimated cost: \(FilingSpendFormat.cost(p.estCostUSD)) "
             + "(\(FilingSpendFormat.tokens(p.estInputTokens)) in / \(FilingSpendFormat.tokens(p.estOutputTokens)) out). "
             + "The exact cost is billed to your Anthropic API key and known only after the call."
+        if p.downloadCount > 0 {
+            let n = p.downloadCount
+            text += "\n\n\(n) of these \(n == 1 ? "file is" : "files are") only in the cloud. "
+                + "\(n == 1 ? "It downloads" : "They download") first so Claude can read page 1, "
+                + "and \(n == 1 ? "stays" : "stay") downloaded."
+        }
         if p.monthlyCapUSD > 0 {
             text += "\n\nThis month: \(FilingSpendFormat.cost(p.monthlySpentUSD)) of \(FilingSpendFormat.cost(p.monthlyCapUSD)) monthly cap."
         }

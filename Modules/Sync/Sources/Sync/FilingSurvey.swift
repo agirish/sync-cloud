@@ -477,6 +477,95 @@ public enum FilingSurvey {
         return FilingMemory(profileId: profileId ?? corpus.profileId, salt: corpus.salt, folders: entries)
     }
 
+    /// `memory` with documents filed since the survey last looked folded into their folders (GW).
+    ///
+    /// **Per folder, not a rebuild.** The survey's corpus is the full record and rebuilding from it
+    /// is the honest way to learn, but it is the survey's job and it runs on its own schedule; what
+    /// this answers is "the user just filed a FedEx courier invoice into an empty `Shipments`
+    /// folder — does the next one go there?" So only the folders filed into are touched, and only
+    /// by the builder's own rules: the counts each kept token stands for are read back from its
+    /// recorded share, the new documents are added, and ``rank`` selects again under the same
+    /// recurrence floor and cap.
+    ///
+    /// A kept token keeps its stored weight. A new one is priced by `foldersWith` — how many
+    /// folders' documents carry it, which ``folderFrequency(_:)`` reads off the survey's corpus —
+    /// and, without one, from the memory itself: the folders whose kept anchors include it. That
+    /// can only under-count, so a common word that is nobody's top anchor (`page`, `total`) reads
+    /// as rare, and a folder taught one document starts winning other folders' files on it.
+    ///
+    /// `filed` maps a folder (relative, as the memory keys it) to one anchor set per document.
+    /// Identifiers are not carried: they are kept hashed under the survey's salt, and a raw
+    /// account number has no business being persisted to wait for one.
+    public static func memory(_ memory: FilingMemory, addingFiled filed: [String: [Set<String>]],
+                              foldersWith counted: (folders: Int, perToken: [String: Int])? = nil) -> FilingMemory {
+        let incoming = filed.filter { !$0.value.isEmpty }
+        guard !incoming.isEmpty else { return memory }
+        var foldersWith: [String: Int] = counted?.perToken ?? [:]
+        if counted == nil {
+            for entry in memory.folders.values {
+                for t in entry.anchors { foldersWith[t.token, default: 0] += 1 }
+            }
+        }
+        let folderCount = max(counted?.folders ?? 0, Set(memory.folders.keys).union(incoming.keys).count)
+        var folders = memory.folders
+        for (folder, documents) in incoming {
+            let existing = memory.folders[folder]
+            let kept = Dictionary(existing?.anchors.map { ($0.token, $0.weight) } ?? [],
+                                  uniquingKeysWith: { a, b in max(a, b) })
+            let before = existing?.docs ?? 0
+            var counts: [String: Int] = [:]
+            for t in existing?.anchors ?? [] {
+                counts[t.token] = max(1, Int(((t.docFrequency ?? 1) * Double(before)).rounded()))
+            }
+            for anchors in documents {
+                for t in anchors { counts[t, default: 0] += 1 }
+            }
+            let docs = before + documents.count
+            let idf: (String) -> Double = { token in
+                kept[token] ?? log(Double(folderCount + 1) / Double((foldersWith[token] ?? 0) + 1))
+            }
+            folders[folder] = FilingMemoryEntry(
+                docs: docs,
+                anchors: rank(counts, documents: docs, minimumCount: docs >= 3 ? 2 : 1,
+                              limit: maxAnchors, idf: idf, dropBareNumbers: true),
+                idHashes: existing?.idHashes ?? [], folderModified: existing?.folderModified)
+        }
+        return FilingMemory(profileId: memory.profileId, salt: memory.salt, folders: folders)
+    }
+
+    /// How many folders' documents carry each anchor, and how many folders hold documents — the
+    /// rarity ``buildMemory(corpus:folderModified:profileId:)`` prices every token by, for
+    /// ``memory(_:addingFiled:foldersWith:)`` to price a newly filed word the same way.
+    public static func folderFrequency(_ corpus: FilingCorpus) -> (folders: Int, perToken: [String: Int]) {
+        var tokensIn: [String: Set<String>] = [:]
+        for (path, doc) in corpus.documents where !doc.isBlank {
+            let folder = (path as NSString).deletingLastPathComponent
+            guard !folder.isEmpty else { continue }
+            let stem = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+            var anchors = Set(doc.anchors)
+            for token in FilingRouter.tokenize(stem)
+            where !FilingRouter.isIdentifier(token) && !token.allSatisfy(\.isNumber) {
+                anchors.insert(token)
+            }
+            tokensIn[folder, default: []].formUnion(anchors)
+        }
+        var perToken: [String: Int] = [:]
+        for tokens in tokensIn.values { for t in tokens { perToken[t, default: 0] += 1 } }
+        return (tokensIn.count, perToken)
+    }
+
+    /// The anchors one filed document contributes — page 1 as the survey reads it, plus the name's
+    /// stem as ``buildMemory(corpus:folderModified:profileId:)`` adds it, without identifiers.
+    public static func filedAnchors(fileName: String, page1: String?) -> Set<String> {
+        var anchors = Set(page1.map { document(fromPage1: $0, stamp: Stamp(size: 0, modified: 0), salt: "").anchors } ?? [])
+        let stem = (fileName as NSString).deletingPathExtension
+        for token in FilingRouter.tokenize(stem)
+        where !FilingRouter.isIdentifier(token) && !token.allSatisfy(\.isNumber) {
+            anchors.insert(token)
+        }
+        return anchors
+    }
+
     /// The builder's selection rule for one folder's token counter.
     ///
     /// **What is sorted on and what is stored are different numbers**, and that is the builder's

@@ -366,6 +366,7 @@ extension FileSyncManager {
                 .union(filingSessionRejections[f.id] ?? [])
             if !paths.isEmpty { rejectedByFile[f.id] = paths }
         }
+        let rejectedWords = filingRejectedWords(under: providerRoot)
         // What the taxonomy says, worked out once and off the main actor: the classifier's capped
         // folder list, the uncapped set, and every folder's profile. Sorting and tokenizing a
         // 12,000-folder tree held the window for most of a second, and the profiles were rebuilt
@@ -405,7 +406,8 @@ extension FileSyncManager {
                                  identity: personIdentity,
                                  providerName: providerName,
                                  automationSnippets: snippetsForRules, now: scanClock,
-                                 rejectedByFile: rejections, options: scanOptions)
+                                 rejectedByFile: rejections, rejectedWords: rejectedWords,
+                                 options: scanOptions)
         }.value
         if Task.isCancelled { return }
         // **What each card is about, recorded once phase 1 has built the cards (FR45)** — after
@@ -513,7 +515,8 @@ extension FileSyncManager {
                                              identity: personIdentity,
                                              providerName: providerName,
                                              automationSnippets: snippetsForRules, now: scanClock,
-                                             rejectedByFile: rejections, options: scanOptions)
+                                             rejectedByFile: rejections,
+                                             rejectedWords: rejectedWords, options: scanOptions)
                     }.value
                         // The identity too: `suggest` builds cards without one, and a card
                         // without one is filed with no "changed since the scan" check at all.
@@ -557,9 +560,11 @@ extension FileSyncManager {
                 if Task.isCancelled { return }
                 suggestions = routed
                 routerShortlists = shortlists
+                // Of every card, not of the homeless ones: since GT/GY the router also replaces a
+                // home found by matching words, and "placed 8 of 7" counted those against the rest.
                 if count > 0 {
-                    Logger.shared.info("Filing: the folder profile placed \(count) of \(unsure.count) "
-                                       + "file(s) with no confident home, without a model call")
+                    Logger.shared.info("Filing: the folder profile placed \(count) of \(suggestions.count) "
+                                       + "file(s), \(unsure.count) of which had no confident home, without a model call")
                 }
             }
         }
@@ -871,8 +876,9 @@ extension FileSyncManager {
     /// ``filingCloudRefineAvailable`` is not the question either — it answers "is a key stored"
     /// cheaply enough to ask per render, which is deliberately weaker than "will this be billed".
     /// Money reads ``filingRoutesToCloud(_:)``, which resolves the route for real.
-    func cloudSpendAllows(files: [FilingCandidateFile], taxonomyFolders: [String]) -> Bool {
-        switch filingSpendGate(files: files, taxonomyFolders: taxonomyFolders) {
+    func cloudSpendAllows(files: [FilingCandidateFile], taxonomyFolders: [String],
+                          downloading: Int = 0) -> Bool {
+        switch filingSpendGate(files: files, taxonomyFolders: taxonomyFolders, downloading: downloading) {
         case .notBilled:
             return true
         case .blocked:
@@ -948,8 +954,8 @@ extension FileSyncManager {
         case billable(FilingSpendPreflight)
     }
 
-    private func filingSpendGate(files: [FilingCandidateFile],
-                                 taxonomyFolders: [String]) -> FilingSpendGate {
+    private func filingSpendGate(files: [FilingCandidateFile], taxonomyFolders: [String],
+                                 downloading: Int = 0) -> FilingSpendGate {
         guard filingRoutesToCloud(.refine) else { return .notBilled }
         // Resolve the same way the classifier does, so the cost the user confirms is priced for the
         // model the call will actually name.
@@ -1003,7 +1009,7 @@ extension FileSyncManager {
             fileCount: files.count, model: model,
             estInputTokens: estTokens.input, estOutputTokens: estTokens.output,
             estCostUSD: estCost, monthlySpentUSD: monthlySpent, monthlyCapUSD: monthlyCap,
-            totalSpentUSD: totalSpent, totalCapUSD: totalCap))
+            totalSpentUSD: totalSpent, totalCapUSD: totalCap, downloadCount: downloading))
     }
 
     static func modificationYear(_ date: Date?) -> String? {
@@ -1345,6 +1351,31 @@ extension FileSyncManager {
         }
     }
 
+    /// Where the word-level rejections (GU) are persisted, beside the whole-name ones.
+    public static let wordRejectionsDefaultsKey = "tidyFilingWordRejections"
+
+    /// The words the user has said are no reason for a folder — see ``FilingWordRejection``.
+    public var filingWordRejections: [FilingWordRejection] {
+        get {
+            FileSyncManager.decodePersistedStore([FilingWordRejection].self, from: filingRuleDefaults,
+                                                 key: Self.wordRejectionsDefaultsKey,
+                                                 describing: "remembered filing word rejections") ?? []
+        }
+        set {
+            FileSyncManager.writePersistedStore(newValue, to: filingRuleDefaults,
+                                                key: Self.wordRejectionsDefaultsKey,
+                                                describing: "remembered filing word rejections")
+        }
+    }
+
+    /// Word rejections for folders inside `providerRoot`, as the engine reads them: folder → words.
+    func filingRejectedWords(under providerRoot: URL) -> [String: Set<String>] {
+        let root = providerRoot.path
+        return filingWordRejections.reduce(into: [:]) { out, r in
+            if PathBoundary.contains(r.path, under: root) { out[r.path, default: []].insert(r.word) }
+        }
+    }
+
     /// Rejections whose folder lives inside `providerRoot`.
     func filingRejections(under providerRoot: URL) -> [FilingRejection] {
         let root = providerRoot.path
@@ -1364,8 +1395,23 @@ extension FileSyncManager {
     }
 
     /// Records that the user rejected `destinationPath` for a file like `fileName`.
+    ///
+    /// With `providerRoot`, also records the words the file's name shares with that folder's path,
+    /// plus `evidenceWord` (the word a content match was read on), as no reason for it (GU) — the
+    /// lesson that reaches other files. Without it, only the whole-name rejection is kept.
     @discardableResult
-    public func rememberFilingRejection(fileName: String, destinationPath: String) -> Bool {
+    public func rememberFilingRejection(fileName: String, destinationPath: String,
+                                        providerRoot: String? = nil,
+                                        evidenceWord: String? = nil) -> Bool {
+        if let providerRoot {
+            var words = FilingEngine.sharedNameWords(fileName: fileName, folderPath: destinationPath,
+                                                     providerRoot: providerRoot)
+            if let evidenceWord { words.formUnion(FilingEngine.nameTokens(evidenceWord)) }
+            let fresh = words.sorted().map { FilingWordRejection(word: $0, path: destinationPath) }
+            let known = filingWordRejections
+            let added = fresh.filter { !known.contains($0) }
+            if !added.isEmpty { filingWordRejections = known + added }
+        }
         let tokens = FilingEngine.salientTokens(ofFileNamed: fileName)
         guard !tokens.isEmpty else { return false }
         let rejection = FilingRejection(tokens: tokens, path: destinationPath)
@@ -1376,7 +1422,10 @@ extension FileSyncManager {
         return true
     }
 
-    public func clearFilingRejections() { filingRejections = [] }
+    public func clearFilingRejections() {
+        filingRejections = []
+        filingWordRejections = []
+    }
 
     /// Absolute folder path → relative to `root`, or nil if not STRICTLY under it. Thin wrapper
     /// over ``PathBoundary/relativize(_:under:)`` that keeps this call's historical exact-match
@@ -1413,7 +1462,9 @@ extension FileSyncManager {
         // The persisted (token-keyed) rejection is best-effort — token-less filenames can't store
         // one. The session set, keyed by file path, is what guarantees the click always takes
         // effect: the rejected folder never comes back for this file, whatever its name.
-        rememberFilingRejection(fileName: suggestion.fileName, destinationPath: rejected.path)
+        rememberFilingRejection(fileName: suggestion.fileName, destinationPath: rejected.path,
+                                providerRoot: suggestion.providerRoot,
+                                evidenceWord: rejected.evidenceToken)
         filingSessionRejections[suggestion.filePath, default: []].insert(rejected.path)
 
         // Every folder rejected for this file (this session's + persisted).
@@ -1727,6 +1778,17 @@ extension FileSyncManager {
                 remembered = rememberAutomationRule(fileName: suggestion.fileName,
                                                     destinationPath: destination.path) != nil
             }
+            // **Filing somewhere else says the suggestion was wrong (GV)** — the same lesson as
+            // Try another, which until now was the only way to teach it: a FedEx invoice filed
+            // into `Immigration/Customs/USA/Shipments` past a suggested `Health/Medical/India`
+            // left "india" pointing at Medical for the next one. A folder inside the suggested
+            // one is a more specific answer, not a correction, and teaches nothing here.
+            if let suggested = suggestion.best,
+               !PathBoundary.contains(destination.path, under: suggested.path) {
+                rememberFilingRejection(fileName: suggestion.fileName, destinationPath: suggested.path,
+                                        providerRoot: suggestion.providerRoot,
+                                        evidenceWord: suggested.evidenceToken)
+            }
             registerMoveUndo(items: [move], actionName: "File \(suggestion.fileName)", fileManager: fileManager)
             let folderName = (destination.path as NSString).lastPathComponent
             banner = .success("Filed “\(suggestion.fileName)” → \(folderName)", undoable: true)
@@ -1993,6 +2055,8 @@ extension FileSyncManager {
             return .failed
         case .moved(let dst, let overwritten):
             filingSuggestions.removeAll { $0.id == suggestion.id }
+            learnFromFiling(fileName: suggestion.fileName, sourcePath: suggestion.filePath,
+                            into: dst.deletingLastPathComponent().path)
             return .moved((from: src, to: dst, overwritten: overwritten))
         }
     }

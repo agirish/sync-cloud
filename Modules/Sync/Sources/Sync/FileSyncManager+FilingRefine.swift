@@ -168,6 +168,8 @@ extension FileSyncManager {
 
         // Split against the cache first — see the doc above for why this precedes the pre-flight.
         let identity = resolvedFilingVerdictIdentity(for: .refine)
+        let downloadsBeforeAsking = filingReadsContents && filingSnippetExtractor != nil
+            && filingRoutesToCloud(.refine)
         var keysByFile: [String: FilingVerdictKey] = [:]
         var cachedVerdicts: [String: FilingVerdict] = [:]
         var misses = eligible
@@ -193,7 +195,10 @@ extension FileSyncManager {
                     continue
                 }
                 keysByFile[s.filePath] = key
-                if let hit = cache.verdict(for: key, providerRoot: root,
+                // A cloud-only file's cached answer was given from its name alone; this pass is
+                // about to read it (GZ), so it is asked again rather than answered from that.
+                if !(downloadsBeforeAsking && filingNotDownloaded.contains(s.filePath)),
+                   let hit = cache.verdict(for: key, providerRoot: root,
                                            existingRelative: existingRelative) {
                     cachedVerdicts[s.filePath] = hit
                 } else {
@@ -212,56 +217,76 @@ extension FileSyncManager {
             snippets = await Self.extractSnippets(for: misses.map { $0.filePath }, using: extractor)
             if Task.isCancelled { return nil }
         }
-        let files = misses.map { s in
-            FilingCandidateFile(filePath: s.filePath, fileName: s.fileName,
-                                ext: (s.fileName as NSString).pathExtension.lowercased(),
-                                year: Self.modificationYear(s.modificationDate),
-                                contentSnippet: snippets[s.filePath],
-                                excludedRelativePaths: excludedByFile[s.filePath] ?? [])
-        }
-
         var verdicts = cachedVerdicts
         var classifiedCount = 0
-        // **Estimate the request that will actually be sent.** The classifier is handed
-        // `context.destinations`, which drops inbox folders; estimating against the unfiltered
-        // taxonomy priced a longer prompt than the one that goes out, and an over-estimate does not
-        // just misquote — it can trip the spend cap and refuse a pass that was within budget.
-        // The same folder menu the scan builds — the router's shortlist for these very files ahead
-        // of the shallow structural list. Ranking here rather than reusing the scan's shortlists is
-        // deliberate: a refine pass runs on a scoped handful of files, minutes after the scan and
-        // against rejections the scan never saw, so a few milliseconds each buys a current answer.
-        // `preferredFolders` is called whether or not the router has an index, because its
-        // documented fallback is the card's OWN candidates — "the homes the earlier phases already
-        // proposed… the best evidence there is about it". Calling it only inside the `if let` meant
-        // an unsurveyed tree sent the paid model a shallowest-first list capped at 250, with the
-        // answer the free pass had already found not on it: the free scan hands those candidates
-        // over and the paid pass did not.
-        var preferred: [String] = []
-        var shortlists: [String: [String]] = [:]
-        if let index = filingRouterIndex {
-            // **Through the peer-name rerank, because the scan is.** The sentence above says "the
-            // same folder menu the scan builds", and the scan's menu comes out of `Self.route`,
-            // which reranks. Ranking raw here made that sentence false in the one case the rerank
-            // exists for — a folder against its own subfolder, a percent apart — so the scan
-            // shortlisted the child first and a refine of the same unchanged file shortlisted the
-            // parent, handing the paid classifier a differently ordered menu for one question.
-            let peerNames = peerNameLookup()
-            shortlists = Dictionary(uniqueKeysWithValues: misses.map { s in
-                let ranked = FilingRouter.rank(fileName: s.fileName, contentSnippet: snippets[s.filePath],
-                                               index: index,
-                                               excluding: Set(excludedByFile[s.filePath] ?? []),
-                                               limit: 8)
-                let ranking = FilingRouter.rerankedByPeerNames(ranked, fileName: s.fileName) { relative in
-                    peerNames(root + "/" + relative)
-                }
-                return (s.filePath, ranking.candidates.map(\.relativePath))
-            })
+        /// The request this pass would send, from the pages in hand — built twice when cloud-only
+        /// files are downloaded after the price is agreed (GZ).
+        func request(_ snippets: [String: String]) -> (files: [FilingCandidateFile],
+                                                       shortlists: [String: [String]],
+                                                       context: FilingContext) {
+            let files = misses.map { s in
+                FilingCandidateFile(filePath: s.filePath, fileName: s.fileName,
+                                    ext: (s.fileName as NSString).pathExtension.lowercased(),
+                                    year: Self.modificationYear(s.modificationDate),
+                                    contentSnippet: snippets[s.filePath],
+                                    excludedRelativePaths: excludedByFile[s.filePath] ?? [])
+            }
+
+            // **Estimate the request that will actually be sent.** The classifier is handed
+            // `context.destinations`, which drops inbox folders; estimating against the unfiltered
+            // taxonomy priced a longer prompt than the one that goes out, and an over-estimate does not
+            // just misquote — it can trip the spend cap and refuse a pass that was within budget.
+            // The same folder menu the scan builds — the router's shortlist for these very files ahead
+            // of the shallow structural list. Ranking here rather than reusing the scan's shortlists is
+            // deliberate: a refine pass runs on a scoped handful of files, minutes after the scan and
+            // against rejections the scan never saw, so a few milliseconds each buys a current answer.
+            // `preferredFolders` is called whether or not the router has an index, because its
+            // documented fallback is the card's OWN candidates — "the homes the earlier phases already
+            // proposed… the best evidence there is about it". Calling it only inside the `if let` meant
+            // an unsurveyed tree sent the paid model a shallowest-first list capped at 250, with the
+            // answer the free pass had already found not on it: the free scan hands those candidates
+            // over and the paid pass did not.
+            var preferred: [String] = []
+            var shortlists: [String: [String]] = [:]
+            if let index = filingRouterIndex {
+                // **Through the peer-name rerank, because the scan is.** The sentence above says "the
+                // same folder menu the scan builds", and the scan's menu comes out of `Self.route`,
+                // which reranks. Ranking raw here made that sentence false in the one case the rerank
+                // exists for — a folder against its own subfolder, a percent apart — so the scan
+                // shortlisted the child first and a refine of the same unchanged file shortlisted the
+                // parent, handing the paid classifier a differently ordered menu for one question.
+                let peerNames = peerNameLookup()
+                shortlists = Dictionary(uniqueKeysWithValues: misses.map { s in
+                    let ranked = FilingRouter.rank(fileName: s.fileName, contentSnippet: snippets[s.filePath],
+                                                   index: index,
+                                                   excluding: Set(excludedByFile[s.filePath] ?? []),
+                                                   limit: 8)
+                    let ranking = FilingRouter.rerankedByPeerNames(ranked, fileName: s.fileName) { relative in
+                        peerNames(root + "/" + relative)
+                    }
+                    return (s.filePath, ranking.candidates.map(\.relativePath))
+                })
+            }
+            preferred = Self.preferredFolders(for: files, shortlists: shortlists,
+                                              in: eligible, providerRoot: root)
+            let context = filingContext(
+                taxonomyFolders: FilingEngine.classifierFolders(preferred: preferred,
+                                                                fallback: taxonomyFolders))
+            return (files, shortlists, context)
         }
-        preferred = Self.preferredFolders(for: files, shortlists: shortlists,
-                                          in: eligible, providerRoot: root)
-        let context = filingContext(
-            taxonomyFolders: FilingEngine.classifierFolders(preferred: preferred,
-                                                            fallback: taxonomyFolders))
+        // **Cloud-only files are downloaded, after the price is agreed (GZ).** The extractor never
+        // fetches, so a file only in iCloud reached Opus as its name — 19 Downloads files at 45
+        // tokens each, "placed 6/19", 0 homes changed, the JAL eTicket judged on "Sep". The quote
+        // prices their first pages as though read and says how many will download; nothing is
+        // fetched before the user agrees, nor when the pass is not going to Claude at all.
+        let cloudOnly = downloadsBeforeAsking
+            ? misses.filter { filingNotDownloaded.contains($0.filePath) && snippets[$0.filePath] == nil }
+            : []
+        var priced = snippets
+        for s in cloudOnly {
+            priced[s.filePath] = String(repeating: "x ", count: CloudFilingProtocol.maxSnippetChars / 2)
+        }
+        var (files, shortlists, context) = request(priced)
         // **Whether the pass was declined, not just whether it ran.** `cloudSpendAllows` returns
         // false for both refusals — Cancel, and the over-cap dialog whose only button is "Use
         // On-Device Instead" — and nothing downstream could tell that apart from "there was
@@ -269,8 +294,33 @@ extension FileSyncManager {
         // no better homes: a green banner for a thing that did not happen.
         var declined = false
         if !files.isEmpty {
-            declined = !cloudSpendAllows(files: files, taxonomyFolders: context.destinations)
+            declined = !cloudSpendAllows(files: files, taxonomyFolders: context.destinations,
+                                         downloading: cloudOnly.count)
         }
+        if !declined, !cloudOnly.isEmpty, let extractor = filingSnippetExtractor {
+            isDownloadingFilingFiles = true
+            let (landed, pending, refused) = await fetchCloudOnlyFiles(cloudOnly)
+            isDownloadingFilingFiles = false
+            filingNotDownloaded.subtract(landed)
+            snippets.merge(await Self.extractSnippets(for: landed, using: extractor)) { _, new in new }
+            if Task.isCancelled { return nil }
+            // The survey reads the page too, as Download and Read would have: a card the model
+            // leaves alone should not go on saying it was placed by name.
+            if filingSuggestionsGeneration == preAwaitGeneration, filingLastProviderRoot == root,
+               let index = filingRouterIndex {
+                for path in landed {
+                    guard let text = snippets[path],
+                          let live = filingSuggestions.first(where: { $0.filePath == path }),
+                          let best = routeWithPage(live, text: text, providerRoot: root, index: index).best
+                    else { continue }
+                    replaceFilingSuggestion(live.id, candidates: [best])
+                }
+            }
+            Logger.shared.info("Filing: refine downloaded \(landed.count) of \(cloudOnly.count) cloud-only file(s) to read page 1"
+                + (pending.isEmpty ? "" : ", \(pending.count) still downloading")
+                + (refused == 0 ? "" : ", \(refused) refused"))
+        }
+        (files, shortlists, context) = request(snippets)
         // What a classifier actually saw, whichever one it was. Separate from `classifiedCount`
         // because they answer different questions and the log asks this one: a downgraded pass
         // classifies every file on-device while `classifiedCount` — "sent to Claude", the billable
@@ -329,6 +379,11 @@ extension FileSyncManager {
                                                  providerRoot: root, nameProvider: filingLastNameProvider,
                                                  rejectedByFile: rejectedByFile,
                                                  contentBlind: contentBlind,
+                                                 // The shortlists this pass ranked and showed the
+                                                 // model, so an answer from them can lead (GT) —
+                                                 // and one past them cannot, as on the scan.
+                                                 routerShortlists: shortlists,
+                                                 shortlistVerdictsLead: true,
                                                  satelliteHomes: filingSatelliteHomes,
                                                  profile: filingRoutingProfile,
                                                  registry: filingPersonRegistry,

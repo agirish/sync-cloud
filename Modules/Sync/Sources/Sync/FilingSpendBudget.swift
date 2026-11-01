@@ -27,10 +27,14 @@ public struct FilingSpendPreflight: Sendable, Equatable {
     /// refine. The dialog pluralises it; a prompt claiming "24 files" over a payload of 24 names
     /// would misstate exactly the thing a payment prompt exists to state.
     public let unit: String
+    /// How many of the files are only in the cloud and will be downloaded — and kept — so their
+    /// first page can be read (GZ). The estimate already prices their pages.
+    public let downloadCount: Int
 
     public init(fileCount: Int, model: String, estInputTokens: Int, estOutputTokens: Int,
                 estCostUSD: Double, monthlySpentUSD: Double, monthlyCapUSD: Double,
-                totalSpentUSD: Double, totalCapUSD: Double, unit: String = "file") {
+                totalSpentUSD: Double, totalCapUSD: Double, unit: String = "file",
+                downloadCount: Int = 0) {
         self.fileCount = fileCount
         self.model = model
         self.estInputTokens = estInputTokens
@@ -41,6 +45,7 @@ public struct FilingSpendPreflight: Sendable, Equatable {
         self.totalSpentUSD = totalSpentUSD
         self.totalCapUSD = totalCapUSD
         self.unit = unit
+        self.downloadCount = downloadCount
     }
 
     /// True when the monthly cap is set (> 0) and running this call would push the month's spend past it.

@@ -43,34 +43,7 @@ extension FileSyncManager {
         defer { isDownloadingFilingFiles = false }
         let generation = filingSuggestionsGeneration
 
-        let downloader = filingDownloader
-        var pending: Set<String> = []
-        var refused = 0
-        for target in targets {
-            do {
-                try downloader(target.filePath)
-                pending.insert(target.filePath)
-            } catch {
-                refused += 1
-                Logger.shared.warning("Filing: “\(target.fileName)” could not be downloaded: \(error.localizedDescription)")
-            }
-        }
-
-        // Watched with `isCloudOnlyIfKnown`, not the two-way form: "has it arrived?" must not read
-        // a file that cannot be statted — deleted mid-download — as arrived.
-        let statFlags = filingStatFlags
-        let wait = filingDownloadWait
-        var landed: [String] = []
-        for check in 0..<max(wait.checks, 1) {
-            let watching = pending
-            let arrived = await Task.detached(priority: .userInitiated) {
-                watching.filter { MaterializationStatus.isCloudOnlyIfKnown(atPath: $0, statFlags: statFlags) == false }
-            }.value
-            pending.subtract(arrived)
-            landed.append(contentsOf: arrived.sorted())
-            if pending.isEmpty || Task.isCancelled || check == wait.checks - 1 { break }
-            try? await Task.sleep(for: wait.interval)
-        }
+        let (landed, pending, refused) = await fetchCloudOnlyFiles(targets)
 
         var homed = 0
         var read = 0
@@ -102,6 +75,41 @@ extension FileSyncManager {
         banner = Self.downloadAndReadBanner(asked: targets.count, landed: landed.count, homed: homed,
                                             stillDownloading: pending.count, refused: refused)
         return homed
+    }
+
+    /// Asks the provider for each of `targets` and waits up to ``filingDownloadWait`` for them to
+    /// land — the download half of ``downloadAndReadFiling(_:)``, shared with Refine with Claude,
+    /// which fetches its scope's cloud-only files before reading them (GZ). Reads nothing.
+    func fetchCloudOnlyFiles(_ targets: [FilingSuggestion]) async -> (landed: [String], pending: Set<String>, refused: Int) {
+        let downloader = filingDownloader
+        var pending: Set<String> = []
+        var refused = 0
+        for target in targets {
+            do {
+                try downloader(target.filePath)
+                pending.insert(target.filePath)
+            } catch {
+                refused += 1
+                Logger.shared.warning("Filing: “\(target.fileName)” could not be downloaded: \(error.localizedDescription)")
+            }
+        }
+
+        // Watched with `isCloudOnlyIfKnown`, not the two-way form: "has it arrived?" must not read
+        // a file that cannot be statted — deleted mid-download — as arrived.
+        let statFlags = filingStatFlags
+        let wait = filingDownloadWait
+        var landed: [String] = []
+        for check in 0..<max(wait.checks, 1) {
+            let watching = pending
+            let arrived = await Task.detached(priority: .userInitiated) {
+                watching.filter { MaterializationStatus.isCloudOnlyIfKnown(atPath: $0, statFlags: statFlags) == false }
+            }.value
+            pending.subtract(arrived)
+            landed.append(contentsOf: arrived.sorted())
+            if pending.isEmpty || Task.isCancelled || check == wait.checks - 1 { break }
+            try? await Task.sleep(for: wait.interval)
+        }
+        return (landed, pending, refused)
     }
 
     /// What a Download and Read says when it finishes. Static so the wording can be asserted.

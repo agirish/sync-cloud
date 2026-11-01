@@ -250,8 +250,13 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
     /// the user looking, and the one thing they cannot review afterwards is a second copy they did
     /// not know was a copy: it lands under a name of its own, in a folder that legitimately fits,
     /// and nothing about it says it is a duplicate. Filing it is not undone by moving it back.
+    ///
+    /// **High only (GS).** It took Medium too, and Medium is where a one-shared-word match now sits
+    /// — `Health/Medical/India` for a FedEx invoice on "india" — along with every other claim the
+    /// card itself calls unsure. Measured on the household's filed documents, a Medium home is
+    /// right 57% of the time and a High one 85%; only the second is one to move unseen.
     public var isBatchEligible: Bool {
-        hasConfidentHome && best?.fromContent == false && best?.fromAI == false && !isAlreadyFiled
+        best?.confidence == .high && best?.fromContent == false && best?.fromAI == false && !isAlreadyFiled
     }
 
     public init(filePath: String, fileName: String, size: Int, modificationDate: Date?,
@@ -382,6 +387,7 @@ public enum FilingEngine {
         automationSnippets: [String: String] = [:],
         now: Date = Date(),
         rejectedByFile: [String: Set<String>] = [:],
+        rejectedWords: [String: Set<String>] = [:],
         options: FilingOptions = .init()
     ) -> [FilingSuggestion] {
         suggest(looseFiles: looseFiles,
@@ -389,7 +395,7 @@ public enum FilingEngine {
                 providerRoot: providerRoot, contentTokens: contentTokens, rules: rules,
                 automations: automations, registry: registry, identity: identity,
                 providerName: providerName, automationSnippets: automationSnippets, now: now,
-                rejectedByFile: rejectedByFile, options: options)
+                rejectedByFile: rejectedByFile, rejectedWords: rejectedWords, options: options)
     }
 
     /// What ``suggest(looseFiles:taxonomy:providerRoot:contentTokens:rules:automations:registry:identity:providerName:automationSnippets:now:rejectedByFile:options:)``
@@ -431,10 +437,15 @@ public enum FilingEngine {
         automationSnippets: [String: String] = [:],
         now: Date = Date(),
         rejectedByFile: [String: Set<String>] = [:],
+        rejectedWords: [String: Set<String>] = [:],
         options: FilingOptions = .init()
     ) -> [FilingSuggestion] {
         let profiles = learned.profiles
         let existingPaths = learned.existingPaths
+        // Folders that already file by year — a parent of some `…/2024`. Once per scan, not per file.
+        let filesByYear = Set(existingPaths.compactMap { path -> String? in
+            isYear((path as NSString).lastPathComponent) ? (path as NSString).deletingLastPathComponent : nil
+        })
         // Which rules are allowed to act does not depend on the file, so it is decided once for
         // the scan rather than once per loose file — the shared eligibility bar, one array.
         let actingAutomations = AutomationRuleSet.eligible(automations)
@@ -464,10 +475,13 @@ public enum FilingEngine {
                                                providerRoot: providerRoot, providerName: providerName,
                                                existingPaths: existingPaths, now: now,
                                                registry: registry, identity: identity)
-            candidates += taxonomyCandidates(tokens: tokens, nameTokens: nameToks, contentTokens: content, profiles: profiles)
+            candidates += taxonomyCandidates(tokens: tokens, nameTokens: nameToks, contentTokens: content,
+                                             profiles: profiles, rejectedWords: rejectedWords,
+                                             words: wordGroups(file.name))
             candidates += ruleCandidates(tokens: tokens, nameTokens: nameToks, contentTokens: content,
                                          nameLower: file.name.lowercased(), ext: ext, year: year,
-                                         profiles: profiles, existingPaths: existingPaths, providerRoot: providerRoot)
+                                         profiles: profiles, existingPaths: existingPaths,
+                                         filesByYear: filesByYear, providerRoot: providerRoot)
 
             // A file already sitting in a suggested folder shouldn't be told to move to where it is.
             // Case-folded on a case-insensitive volume: a rule destination spelled in a different
@@ -535,8 +549,12 @@ public enum FilingEngine {
     }
 
     /// Existing folders whose profile overlaps the file's tokens, as ranked destinations.
+    /// `rejectedWords` maps a folder's absolute path to the words the user has said are no reason
+    /// for it (GU); a match on that folder resting on those words alone is not offered.
     private static func taxonomyCandidates(tokens: Set<String>, nameTokens: Set<String>,
-                                           contentTokens: Set<String>, profiles: [FolderProfile]) -> [FilingDestination] {
+                                           contentTokens: Set<String>, profiles: [FolderProfile],
+                                           rejectedWords: [String: Set<String>] = [:],
+                                           words: [Set<String>] = []) -> [FilingDestination] {
         guard !tokens.isEmpty else { return [] }
         var out: [FilingDestination] = []
         for p in profiles {
@@ -558,8 +576,20 @@ public enum FilingEngine {
             // name-derived (and thus batch-eligible). Compare the category hits to the real
             // filename tokens, so a token in BOTH name and content counts as from the name.
             let categoryHits = categoryNameHits.union(categoryContentHits)
+            if let refused = rejectedWords[p.path], categoryHits.isSubset(of: refused) { continue }
             let fromContent = categoryHits.isDisjoint(with: nameTokens) && !categoryHits.isDisjoint(with: contentTokens)
-            let base: FilingConfidence = !categoryNameHits.isEmpty ? .high : .medium
+            // **One shared word is a lead, not a home (GS).** A folder name's single word, with
+            // nothing else in common, was `.high` — so `Duplicate Files Report - Sep 2026.md` led
+            // with `Immigration/Reference/H-1B Policy Posts – Sep 2025` on "sep", and a FedEx
+            // invoice with `Health/Medical/India` on "india", both batch-eligible. High needs the
+            // folder's name AND a second word the file shares with it or with the files already
+            // in it; one word alone stays Medium, where the survey and Refine can displace it.
+            //
+            // Counted in the file's own WORDS: "FedEx" tokenizes to `fed` and `ex`, and two halves of
+            // one word are still one word — `FedEx invoice.pdf` against `Purchases/US/FedEx`.
+            let wordsHit = words.filter { !$0.isDisjoint(with: categoryHits) }.count
+                + categoryHits.subtracting(words.reduce(into: Set<String>()) { $0.formUnion($1) }).count
+            let base: FilingConfidence = !categoryNameHits.isEmpty && wordsHit >= 2 ? .high : .medium
             if fromContent {
                 // Surface the single strongest evidence word (prefer a sibling-content hit, which
                 // carries a neighbor count) plus how many files already in the target share it —
@@ -726,9 +756,19 @@ public enum FilingEngine {
 
     private static func ruleCandidates(
         tokens: Set<String>, nameTokens: Set<String>, contentTokens: Set<String>, nameLower: String,
-        ext: String, year: String?, profiles: [FolderProfile], existingPaths: Set<String>, providerRoot: String
+        ext: String, year: String?, profiles: [FolderProfile], existingPaths: Set<String>,
+        filesByYear: Set<String> = [], providerRoot: String
     ) -> [FilingDestination] {
         var out: [FilingDestination] = []
+        // **"Filed by year" is a claim about the tree, so the tree has to make it.** These rules
+        // name a `<year>` folder under whatever receipts or taxes folder exists, and were High
+        // whether or not that folder files by year: `Mint Order - 2026.pdf` led with a NEW
+        // `Purchases/2026` in a `Purchases` that sorts by country and vendor (`US/Amazon`,
+        // `IN/…`) and holds no year at all. Where the folder already keeps a year, the claim
+        // stands; where it does not, it is a proposal for a new shape, at Medium.
+        func byYear(_ anchor: String, _ base: FilingConfidence) -> FilingConfidence {
+            filesByYear.contains(anchor) ? base : min(base, .medium)
+        }
         // A signal is "from content" when none of its tokens appear in the filename. Content-derived
         // matches are capped to medium (a common word in a document is weaker than a filename) and
         // get a "(read from the file)" note, which also keeps them out of the blind batch apply.
@@ -742,7 +782,7 @@ public enum FilingEngine {
         // Photos → <Photos folder>/<year>, or a proposed Photos/<year> at the root (extension-based).
         if photoExtensions.contains(ext), let year {
             if let photos = existingFolder(named: ["photos", "pictures", "images", "camera roll"], in: profiles) {
-                rule(photos, [year], .high, "Photo — filed by capture year", signal: [])
+                rule(photos, [year], byYear(photos, .high), "Photo — filed by capture year", signal: [])
             } else {
                 rule(providerRoot, ["Photos", year], .medium, "Photo — suggested Photos/\(year)", signal: [])
             }
@@ -765,7 +805,7 @@ public enum FilingEngine {
         let receiptSig = tokens.intersection(receiptTokens)
         if !receiptSig.isEmpty, let year {
             if let receipts = existingFolder(named: ["receipts", "invoices", "purchases", "orders"], in: profiles) {
-                rule(receipts, [year], .high, "Receipt or invoice — filed by year", signal: receiptSig)
+                rule(receipts, [year], byYear(receipts, .high), "Receipt or invoice — filed by year", signal: receiptSig)
             } else if let finance = existingFolder(named: ["finance", "documents", "financial"], in: profiles) {
                 rule(finance, ["Receipts", year], .medium, "Receipt or invoice — suggested Receipts/\(year)", signal: receiptSig)
             }
@@ -779,7 +819,7 @@ public enum FilingEngine {
         if !taxSig.isEmpty || taxFromName, let year {
             let taxSignal: Set<String> = taxFromName ? [] : taxSig
             if let taxes = existingFolder(named: ["taxes", "tax"], in: profiles) {
-                rule(taxes, [year], .high, "Tax document — filed by year", signal: taxSignal)
+                rule(taxes, [year], byYear(taxes, .high), "Tax document — filed by year", signal: taxSignal)
             } else if let finance = existingFolder(named: ["finance", "documents", "financial"], in: profiles) {
                 rule(finance, ["Taxes", year], .medium, "Tax document — suggested Taxes/\(year)", signal: taxSignal)
             }
@@ -942,6 +982,25 @@ public enum FilingEngine {
     /// so it generalizes to files with the same distinctive words.
     public static func salientTokens(ofFileNamed fileName: String) -> [String] {
         fileTokens(fileName).filter { !isYear($0) }.sorted()
+    }
+
+    /// The file name's words, each as the tokens it yields — so a camelCase word split into two
+    /// tokens (`FedEx` → `fed`, `ex`) can still be counted as the one word it is.
+    static func wordGroups(_ fileName: String) -> [Set<String>] {
+        let stem = (fileName as NSString).deletingPathExtension
+        return stem.split(whereSeparator: { !($0.isLetter || $0.isNumber) })
+            .map { nameTokens(String($0)) }.filter { $0.count > 1 }
+    }
+
+    /// The non-year words a file's name shares with a folder's path below `providerRoot` — what a
+    /// keyword match on that folder rests on, and so what rejecting it teaches (GU). Tokenized as
+    /// ``taxonomyCandidates`` tokenizes, so the words recorded are the words it will compare.
+    public static func sharedNameWords(fileName: String, folderPath: String,
+                                       providerRoot: String) -> Set<String> {
+        let relative = PathBoundary.relativize(folderPath, under: providerRoot) ?? folderPath
+        let folderWords = relative.split(separator: "/")
+            .reduce(into: Set<String>()) { $0.formUnion(nameTokens(String($1))) }
+        return Set(salientTokens(ofFileNamed: fileName)).intersection(folderWords)
     }
 
     /// Builds a remembered rule from a correction: the file the user just filed and where they put
@@ -1146,6 +1205,7 @@ public enum FilingEngine {
                                      rejectedByFile: [String: Set<String>] = [:],
                                      contentBlind: Set<String> = [],
                                      routerShortlists: [String: [String]] = [:],
+                                     shortlistVerdictsLead: Bool = false,
                                      satelliteHomes: [String: Set<String>] = [:],
                                      profile: Sync.FolderProfile? = nil,
                                      registry: PersonRegistry? = nil,
@@ -1209,8 +1269,8 @@ public enum FilingEngine {
             // home is not on the table — a document really can belong in a petition packet.
             //
             // Asked of the suggestion's OWN candidates rather than of `routerShortlists`, and that
-            // is load-bearing rather than tidy: the refine pass ranks its own shortlists and does
-            // not pass them here at all, so a rule keyed on them would be silently off on the one
+            // is load-bearing rather than tidy: the refine pass ranks its own shortlists and passed
+            // none here until GT, so a rule keyed on them would have been silently off on the one
             // pass that reaches the cloud model — the pass that produced the wrong answer this was
             // written for. The candidates are on both paths by construction.
             if let homes = satelliteHomes[Self.relative(rawDest.path, under: providerRoot)] {
@@ -1272,7 +1332,17 @@ public enum FilingEngine {
             // and, because the promoted candidate is `fromAI`, drop the file out of the blind
             // "File recommended" batch. When the model is less sure than the heuristic, keep the
             // heuristic home untouched (its alternates already include what the model might pick).
-            guard dest.confidence >= (s.best?.confidence ?? .low) else { return s }
+            //
+            // **Except a paid answer the survey vouched for (GT).** On Refine, a verdict that names
+            // one of the router's own shortlisted folders is a re-ranking of homes the measured
+            // signal already proposed, by the backend the user chose to pay for — and requiring it
+            // to out-confide a keyword engine's claimed High is what let `Health/Medical/India`
+            // survive Opus on the word "india". It leads when it read the document and is at least
+            // Medium; anything else keeps the confidence rule. A taught home returned above.
+            let vouched = shortlistVerdictsLead && !contentBlind.contains(s.filePath)
+                && dest.confidence >= .medium
+                && routerShortlists[s.filePath]?.contains(Self.relative(rawDest.path, under: providerRoot)) == true
+            guard vouched || dest.confidence >= (s.best?.confidence ?? .low) else { return s }
             let others = s.candidates.filter { $0.path != dest.path }
             return s.replacingCandidates([dest] + others)
         }

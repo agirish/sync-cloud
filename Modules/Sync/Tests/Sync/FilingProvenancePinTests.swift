@@ -26,16 +26,18 @@ import Testing
     /// Taxonomy site. A CONTENT token matching a folder's NAME earns base `.high` (a real
     /// folder-name hit) — the cap is the only thing that brings it to `.medium`, so this fixture
     /// discriminates "capped" from "not capped" rather than agreeing with both.
+    ///
+    /// Two words, since GS: one shared word is born `.medium` and could not tell the two apart.
     @Test func aContentTokenMatchingAFolderNameIsCappedToMedium() throws {
-        let taxonomy = [dir("/root/Receipts", [])]
+        let taxonomy = [dir("/root/Medical Receipts", [])]
         // "scan" is a stopword and "0071" a bare number, so the filename contributes no tokens:
-        // the deciding signal can only be the content token.
+        // the deciding signal can only be the content tokens.
         let loose = [file("/root/inbox/scan0071.pdf", modified: y2024)]
         let s = try #require(FilingEngine.suggest(
             looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root",
-            contentTokens: ["/root/inbox/scan0071.pdf": ["receipts"]]).first)
+            contentTokens: ["/root/inbox/scan0071.pdf": ["medical", "receipts"]]).first)
         let best = try #require(s.best)
-        #expect(best.path == "/root/Receipts")
+        #expect(best.path == "/root/Medical Receipts")
         #expect(best.confidence == .medium)
         #expect(best.fromContent)
         #expect(!s.isBatchEligible)
@@ -44,12 +46,12 @@ import Testing
     /// Same site, name-derived control: the identical hit from the FILENAME keeps `.high` and the
     /// blind-batch door open — proving the fixture above was capped, not merely born `.medium`.
     @Test func theSameFolderNameHitFromTheFilenameStaysHigh() throws {
-        let taxonomy = [dir("/root/Receipts", [])]
+        let taxonomy = [dir("/root/Medical Receipts", [])]
         let s = try #require(FilingEngine.suggest(
-            looseFiles: [file("/root/inbox/receipts march.pdf", modified: y2024)],
+            looseFiles: [file("/root/inbox/medical receipts march.pdf", modified: y2024)],
             taxonomy: taxonomy, providerRoot: "/root").first)
         let best = try #require(s.best)
-        #expect(best.path == "/root/Receipts")
+        #expect(best.path == "/root/Medical Receipts")
         #expect(best.confidence == .high)
         #expect(!best.fromContent)
         #expect(s.isBatchEligible)
@@ -137,15 +139,28 @@ import Testing
         #expect(!s.isBatchEligible)
     }
 
+    /// Where Receipts already files by year — the tree makes the rule's claim (GS).
     @Test func aReceiptWordInTheFilenameKeepsTheHighReceiptRule() throws {
         let s = try #require(FilingEngine.suggest(
             looseFiles: [file("/root/inbox/invoice march.pdf", modified: y2024)],
-            taxonomy: [dir("/root/Receipts", [])], providerRoot: "/root").first)
+            taxonomy: [dir("/root/Receipts", [dir("/root/Receipts/2023", [])])], providerRoot: "/root").first)
         let best = try #require(s.best)
         #expect(best.path == "/root/Receipts/2024")
         #expect(best.confidence == .high)
         #expect(!best.fromContent)
         #expect(s.isBatchEligible)
+    }
+
+    /// …and where it does not, a new year folder is a proposal, at Medium: `Mint Order - 2026.pdf`
+    /// led High with a NEW `Purchases/2026` in a `Purchases` that sorts by country and vendor.
+    @Test func aByYearRuleIsMediumWhereTheFolderKeepsNoYears() throws {
+        let s = try #require(FilingEngine.suggest(
+            looseFiles: [file("/root/inbox/Mint Order - 2026.pdf", modified: y2024)],
+            taxonomy: [dir("/root/Purchases", [dir("/root/Purchases/US", [dir("/root/Purchases/US/Amazon", [])])])],
+            providerRoot: "/root").first)
+        let year = try #require(s.candidates.first { $0.path == "/root/Purchases/2026" })
+        #expect(year.confidence == .medium)
+        #expect(year.isNew)
     }
 
     /// The AI construction site deliberately BYPASSES the cap: a verdict's confidence is the
@@ -257,7 +272,7 @@ import Testing
 
     @Test func batchEligibilityTruthTable() {
         #expect(sugg(dest(.high)).isBatchEligible)
-        #expect(sugg(dest(.medium)).isBatchEligible)
+        #expect(!sugg(dest(.medium)).isBatchEligible, "the batch takes High only (GS)")
         #expect(!sugg(dest(.low)).isBatchEligible)
         #expect(!sugg(dest(.high, fromContent: true)).isBatchEligible)
         #expect(!sugg(dest(.high, fromAI: true)).isBatchEligible)
