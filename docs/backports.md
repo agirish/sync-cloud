@@ -13781,3 +13781,14 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s toolbar:%s calls:%s\n' $
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` | The unchecked keycap measure, in the main window's first layout pass | RECORDED — not owed |
 | `v3.x` / `v2.x` | One unchecked call, `ScaledFont.nsFont`'s monospaced branch; not traced to launch | RECORDED — not owed |
+## A catalog of every Settings control (TE290 step 1) — main only
+
+2026-11-02, for v7.0. On `main`: `SettingsCatalog` lists every control in Settings, and One-Way
+Sync's, as data — stable id, label, stored key and default, choices, who may change it from Ask
+Claude, what Claude may be told of it, and Settings' own help text — with tests holding it to the
+views (`SettingsCatalogTests`). Nothing reads it yet; Ask Claude's settings tool will (TE290).
+No behaviour changes, so the maintenance lines are owed nothing.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No catalog | CLOSED — nothing to send |
