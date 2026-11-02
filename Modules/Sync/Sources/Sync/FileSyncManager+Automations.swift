@@ -48,9 +48,11 @@ public struct AutomationRuleSet: Sendable {
     /// Automations preview so a rule gives one answer on both surfaces. (Each pass evaluates
     /// against its own fixed clock, captured once per pass.)
     public func contentCouldStillDecide(_ facts: AutomationFileFacts, now: Date) -> Bool {
-        rules.contains { $0.requiresContent
-            && !AutomationEvaluator.matches($0, facts, now: now)
-            && AutomationEvaluator.couldMatchPendingContent($0, facts, now: now) }
+        rules.contains { rule in
+            guard rule.requiresContent, AutomationEvaluator.couldMatchPendingContent(rule, facts, now: now) else { return false }
+            // A rule that already matches by name still needs the text when page 1 names its folder.
+            return rule.destinationReadsContent || !AutomationEvaluator.matches(rule, facts, now: now)
+        }
     }
 
     /// The first acting rule, in user order, whose conditions match.
@@ -177,7 +179,7 @@ extension FileSyncManager {
     private static let corruptStoreKeysWarned = OneShotKeySet()
 
     /// The persisted rules, decoded from defaults. A corrupt/absent value decodes to `[]`.
-    private var persistedAutomationRules: [AutomationRule] {
+    var persistedAutomationRules: [AutomationRule] {
         get {
             FileSyncManager.decodePersistedStore([AutomationRule].self, from: filingRuleDefaults,
                                                  key: Self.automationRulesDefaultsKey,
@@ -409,7 +411,15 @@ extension FileSyncManager {
                                                       providerName: providerName, now: now) {
         case .unresolved(let token):
             return (.needsAttention("needs \(token), which this file doesn’t have"), nil, nil)
-        case .resolved(let resolvedDestination):
+        case .resolved(var resolvedDestination):
+            // A month folder already there in another spelling is the one used (decision HI).
+            if !resolvedDestination.hasPrefix("/") {
+                resolvedDestination = AutomationTravelDate.adoptingExistingMonth(
+                    resolvedDestination, template: rule.destinationTemplate) { parent in
+                        let dir = parent.isEmpty ? destinationRoot : destinationRoot.appendingPathComponent(parent)
+                        return (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+                    }
+            }
             // An absolute destination (a migrated F3 rule) names its folder directly; a relative one
             // anchors at the provider root. Provider-inert absolute rules were filtered out before
             // matching, so an absolute path here is inside this provider.

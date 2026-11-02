@@ -44,6 +44,7 @@ extension ContentView {
                                guard let choice = askClaudeChat.takeChoice(id, at: index) else { return }
                                if let sends = choice.sends { askClaudeSend(sends) } else { askClaudeHolder.visibility.focusRequests += 1 }
                            },
+                           onRuleCard: { askClaudeRuleCard($0, save: $1) },
                            onPlace: onPlace)
     }
 
@@ -171,6 +172,21 @@ extension ContentView {
     }
 
     /// A card of changes (TE285): ticks, and a folder for a row from its menu or a folder picker.
+    /// TE286: Save stores the rule only now, on his click; Not Now stores nothing. Claude is told
+    /// either way, with the next question.
+    func askClaudeRuleCard(_ id: UUID, save: Bool) {
+        guard !askClaudeChat.isRunning, let card = askClaudeChat.offeredRule(id) else { return }
+        if save {
+            syncManager.saveCorrectionRule(card.correction)
+            askClaudeChat.answerRule(id, .saved)
+            askClaudeChat.tellClaude("They saved your rule “\(card.rule.name)”.")
+        } else {
+            askClaudeChat.answerRule(id, .declined)
+            Logger.shared.info("Ask Claude rule card: Not Now on “\(card.rule.name)”")
+            askClaudeChat.tellClaude("They chose Not Now on your rule “\(card.rule.name)”; nothing was saved.")
+        }
+    }
+
     func askClaudePlanCard(_ id: UUID, _ action: AskClaudePlanAction) {
         switch action {
         case .tick(let row, let ticked):
@@ -673,6 +689,9 @@ extension ContentView {
                 let page = fetches ? nil : await syncManager.filingHelpPage(path)
                 let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
                 return await syncManager.whereToFile(path, snippet: page, preferring: place, isHidden: { hidden.isHidden($0) })
+            },
+            ruleFromCorrection: { path, folder, name, words, also, page in
+                syncManager.ruleFromCorrection(path, into: folder, name: name, phrases: words, also: also, pageSample: page)
             },
             surveyFolder: { syncManager.filingSurveyFolder(named: $0) },
             surveyRoot: syncManager.filingFolderProfile?.recordedFolderPath,

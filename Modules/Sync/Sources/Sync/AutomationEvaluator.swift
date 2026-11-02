@@ -252,6 +252,13 @@ public enum AutomationEvaluator {
             let trigger = Set(tokens.map { $0.lowercased() }.filter { !$0.isEmpty })
             guard !trigger.isEmpty else { return false }
             return trigger.isSubset(of: facts.nameTokens.union(facts.contentTokens))
+        case .mentionsAny(let phrases):
+            // Each phrase as `mentionsAll` matches its tokens: "japan airlines" needs both words.
+            let words = facts.nameTokens.union(facts.contentTokens)
+            return phrases.contains { phrase in
+                let trigger = Set(phrase.lowercased().split(separator: " ").map(String.init))
+                return !trigger.isEmpty && trigger.isSubset(of: words)
+            }
         case .personIs(let id):
             // Resolved onto the facts by the caller (see `attributing`). With no roster this is
             // empty and the rule simply never fires, rather than matching everything.
@@ -304,7 +311,8 @@ public enum AutomationEvaluator {
 
     /// The tokens a destination template understands, for the editor's insert menu.
     public static let supportedTokens = ["{year}", "{month}", "{yyyy-mm}", "{kind}", "{ext}",
-                                         "{provider}", "{person}"]
+                                         "{provider}", "{person}",
+                                         AutomationTravelDate.yearToken, AutomationTravelDate.monthToken]
 
     /// Expands a destination template against a file. Each token resolves from the file's own
     /// local metadata; an unfillable token yields ``DestinationResolution/unresolved(token:)`` so
@@ -374,6 +382,14 @@ public enum AutomationEvaluator {
             return "\(mtimeYear)-\(String(format: "%02d", cal.component(.month, from: d)))"
         }
 
+        var travelDay: AutomationTravelDate.Day??
+        func travel() -> AutomationTravelDate.Day? {
+            if let travelDay { return travelDay }
+            let day = facts.snippet.flatMap(AutomationTravelDate.first(in:))
+            travelDay = .some(day)
+            return day
+        }
+
         // Ordered so a failed lookup can report the exact token. Each replacement is skipped (left in
         // place) when it can't resolve; the leftover-token sweep below then flags it.
         let substitutions: [(token: String, value: String?)] = [
@@ -387,7 +403,10 @@ public enum AutomationEvaluator {
             // person's card into their own folder, and a rule taught on one of them covers the
             // household. nil — and therefore `.unresolved`, never a guess — when the document
             // names nobody, or names two people and so has no single folder to go to.
-            ("{person}", facts.personFolderName?.trimmingCharacters(in: .whitespaces).nilIfEmpty)
+            ("{person}", facts.personFolderName?.trimmingCharacters(in: .whitespaces).nilIfEmpty),
+            // The trip's date from page 1 (TE286, decision HI); unresolved when page 1 wasn't read.
+            (AutomationTravelDate.yearToken, travel().map { String($0.year) }),
+            (AutomationTravelDate.monthToken, travel()?.monthName),
         ]
         for (token, value) in substitutions {
             guard result.contains(token) else { continue }

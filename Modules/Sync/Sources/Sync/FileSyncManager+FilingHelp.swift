@@ -98,6 +98,13 @@ extension FileSyncManager {
         } else {
             placeRelative = nil
         }
+        // His saved rules lead, as they do in To File (GT; TE286): a rule taught in this chat
+        // answers the next file like it.
+        if let ruled = ruleAnswer(path, snippet: snippet, root: root, profile: profile, isHidden: isHidden),
+           placeRelative.map({ Self.isAtOrUnder(ruled.relativePath, $0) }) ?? true {
+            Logger.shared.info("Filing help: “\((path as NSString).lastPathComponent)” → \(ruled.relativePath) by a saved rule")
+            return FilingHelpAnswer(outcome: .suggested([ruled]), surveyedAt: surveyedAt)
+        }
         let memory = survey.memory, registry = filingPersonRegistry
         // The satellite map is the primary survey's tree; a source's own survey has none.
         let satellites = survey.profile.profileId == filingFolderProfile?.profileId ? filingSatelliteHomes : [:]

@@ -76,6 +76,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         /// Where a file belongs by the Filing profile (TE255), preferring a place they named,
         /// absolute (TE284); nil when filing help can't run.
         var whereToFile: (_ path: String, _ place: String?) async -> FilingHelpAnswer? = { _, _ in nil }
+        /// The rule a correction teaches (TE286), from page 1; nil when the folder isn't in a survey.
+        var ruleFromCorrection: (_ path: String, _ folder: String, _ name: String, _ words: [String], _ also: [String],
+                                 _ page: String?) -> Result<AutomationRuleProposer.Correction, AutomationRuleProposer.CorrectionRefusal>? = { _, _, _, _, _, _ in nil }
         /// A folder of the survey by what they called it ("Travel"), absolute; nil when it has none.
         var surveyFolder: (_ name: String) -> String? = { _ in nil }
         /// The folder the survey covers, absolute; nil with no survey.
@@ -326,6 +329,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         case .whereToFile: return await whereToFile(call, ctx, handles)
         case .fileLooseFiles: return await fileLooseFiles(call, ctx)
         case .proposeChanges: return proposeChanges(call, ctx, handles)
+        case .offerRule: return await offerRule(call, ctx, handles)
         case nil:
             return AskClaudeToolOutcome(result: "There is no tool called \(call.name).", isError: true,
                                         step: "Asked for an unknown tool")
@@ -1127,6 +1131,43 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             return AskClaudeFilingCard(fileName: node.name, filePath: node.id, kind: .suggestions, folders: folders,
                                        staleDays: answer.isStale(now: ctx.now()) ? answer.surveyAgeDays(now: ctx.now()) : nil,
                                        canRefine: ctx.canRefineFiling && list.first?.confidence != .high, place: placeLabel)
+        }
+    }
+
+    // MARK: Rules from corrections (TE286)
+
+    /// A correction offered as a rule. Page 1 is read here, on this Mac, so the year and month
+    /// folders can be checked; a file only in the cloud over the download limit is offered by name.
+    private func offerRule(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: AskClaudeHandles) async -> AskClaudeToolOutcome {
+        guard let handle = call.string("handle"), let path = handles.path(for: handle) else {
+            return unknownHandle(call.string("handle"))
+        }
+        guard let node = ctx.node(path) ?? statDisk(path), !node.isDirectory else {
+            return AskClaudeToolOutcome(result: "\(handle) isn’t a file that’s still there; a rule is taught by a file.", isError: true,
+                                        step: "A rule needs a file")
+        }
+        let into = call.string("folder")?.trimmingCharacters(in: .whitespaces) ?? ""
+        guard !into.isEmpty, let folder = Self.place(into, ctx) else {
+            return AskClaudeToolOutcome(result: "There’s no folder called \(into) in their folder survey or their sources. Ask where they mean.",
+                                        isError: true, step: "No folder called \(into)")
+        }
+        if ctx.isHidden(folder) { return hiddenFolder() }
+        let words = call.input["words"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        let also = call.input["also"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        let page = largeCloudOnly(node, path) == nil ? await extract(path)?.first : nil
+        guard let answer = ctx.ruleFromCorrection(path, folder, call.string("name") ?? "", words, also, page) else {
+            return AskClaudeToolOutcome(result: "Rules file into their folder survey, and \(into) isn’t in it. Offer no rule.",
+                                        isError: true, step: "\(into) is outside the folder survey")
+        }
+        switch answer {
+        case .failure(let refusal):
+            let covered: Bool
+            if case .covered = refusal { covered = true } else { covered = false }
+            return AskClaudeToolOutcome(result: AskClaudeRuleCard.refusal(refusal), isError: !covered,
+                                        step: covered ? "A saved rule already files \(node.name) there" : "No rule offered")
+        case .success(let correction):
+            let card = AskClaudeRuleCard(fileName: node.name, correction: correction)
+            return AskClaudeToolOutcome(result: AskClaudeRuleCard.result(card), step: "Offered a rule: \(card.rule.name)", rule: card)
         }
     }
 

@@ -48,6 +48,8 @@ final class AskClaudeChat: ObservableObject {
             case plan(AskClaudePlan)
             /// Buttons answering Claude's question (decision GB); used once one is clicked.
             case choices([AskClaudeChoice], used: Bool)
+            /// A rule offered from a correction (TE286): Save or Not Now.
+            case rule(AskClaudeRuleCard)
         }
         var id = UUID()
         var kind: Kind
@@ -486,6 +488,20 @@ final class AskClaudeChat: ObservableObject {
         if !isRunning { save() }
     }
 
+    /// The rule card `id`, while it is still offered.
+    func offeredRule(_ id: UUID) -> AskClaudeRuleCard? {
+        guard let item = items.first(where: { $0.id == id }), case .rule(let card) = item.kind, card.state == .offered else { return nil }
+        return card
+    }
+
+    /// A rule card answered: saved or Not Now.
+    func answerRule(_ id: UUID, _ state: AskClaudeRuleCard.State) {
+        guard let index = items.firstIndex(where: { $0.id == id }), case .rule(var card) = items[index].kind else { return }
+        card.state = state
+        items[index].kind = .rule(card)
+        if !isRunning { save() }
+    }
+
     func plan(_ id: UUID) -> AskClaudePlan? {
         guard let item = items.first(where: { $0.id == id }), case .plan(let plan) = item.kind else { return nil }
         return plan
@@ -649,6 +665,9 @@ final class AskClaudeChat: ObservableObject {
         case .choices(let choices):
             streamingItem = nil
             items.append(Item(kind: .choices(choices, used: false)))
+        case .rule(let card):
+            streamingItem = nil
+            items.append(Item(kind: .rule(card)))
         case .movedView(let note):
             // The move says what the step said ("Opened Help" twice, 2026-10-30): it takes the
             // step's place rather than repeating it.

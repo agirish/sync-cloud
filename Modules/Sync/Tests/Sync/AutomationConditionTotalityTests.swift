@@ -17,6 +17,7 @@ import Testing
     private static let readsText: [AutomationCondition] = [
         .contentContains("invoice"),
         .mentionsAll(["tesla"]),
+        .mentionsAny(["tesla motors"]),
     ]
     private static let doesNot: [AutomationCondition] = [
         .folderNamed("Downloads"),

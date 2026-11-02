@@ -40,6 +40,16 @@ import Testing
         #expect(AutomationRuleEditor.canonicalized(.contentContains("Final Draft")) == .contentContains("Final Draft"))
     }
 
+    /// TE286: "Mentions any of" keeps each comma-separated phrase whole, in the order typed, so
+    /// "Japan Airlines" needs both words and "JAL" alone is enough.
+    @Test func mentionsAnyCanonicalizesEachPhrase() {
+        #expect(AutomationRuleEditor.canonicalized(.mentionsAny(["JAL, Japan Airlines,  ,Air-India, jal"]))
+                == .mentionsAny(["jal", "japan airlines", "air india"]))
+        #expect(AutomationRuleEditor.isUnmatchableMentions(.mentionsAny(["the, draft, 3"])))
+        #expect(!AutomationRuleEditor.isUnmatchableMentions(.mentionsAny(["a, JAL"])))
+        #expect(ConditionType.addable(hasPeople: false).contains(.mentionsAny))
+    }
+
     @Test func saveGateBlocksAnUnmatchableMentionsRowEvenWhenOtherConditionsRun() {
         // The gate the warning row promises. The dangerous shape is an ALL-OF rule where a
         // complete second condition makes the rule runnable while the mentions row would

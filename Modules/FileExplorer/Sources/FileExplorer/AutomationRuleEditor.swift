@@ -14,7 +14,7 @@ import Sync
 /// reachable from a render (a `Menu`'s contents do not paint until it is opened) or from anything
 /// else in this module.
 enum ConditionType: String, CaseIterable, Identifiable {
-    case folderNamed, nameMatches, kindIs, mentionsAll, personIs, largerThanMB,
+    case folderNamed, nameMatches, kindIs, mentionsAll, mentionsAny, personIs, largerThanMB,
          untouchedForDays, contentContains
     /// Written by a newer build; shown so it can be seen and removed, never offered as a new row.
     case unrecognized
@@ -29,6 +29,7 @@ enum ConditionType: String, CaseIterable, Identifiable {
         case .untouchedForDays: return "Not modified in"
         case .contentContains: return "Text contains"
         case .mentionsAll: return "Mentions the words"
+        case .mentionsAny: return "Mentions any of"
         case .personIs: return "Is this person’s"
         case .unrecognized: return "From a newer version"
         }
@@ -49,6 +50,7 @@ enum ConditionType: String, CaseIterable, Identifiable {
         case .untouchedForDays: self = .untouchedForDays
         case .contentContains: self = .contentContains
         case .mentionsAll: self = .mentionsAll
+        case .mentionsAny: self = .mentionsAny
         case .personIs: self = .personIs
         case .unrecognized: self = .unrecognized
         }
@@ -64,6 +66,7 @@ enum ConditionType: String, CaseIterable, Identifiable {
         case .untouchedForDays: return .untouchedForDays(365)
         case .contentContains: return .contentContains("invoice")
         case .mentionsAll: return .mentionsAll(["invoice"])
+        case .mentionsAny: return .mentionsAny(["invoice"])
         // Empty, so the row is incomplete until a person is chosen — the editor cannot know which
         // member of a household a new rule is about, and defaulting to the first would save a rule
         // about somebody the user never picked.
@@ -141,9 +144,21 @@ struct AutomationRuleEditor: View {
     /// dropped, sorted). Editing keeps the raw text; only the saved rule is canonical, so an entry
     /// like "Tesla-Model-3" can never save in a form that silently never fires. `internal` so tests
     /// can pin it.
+    ///
+    /// A `mentionsAny` row's comma-separated phrases each become canonical words in the order
+    /// typed ("Japan Airlines" → "japan airlines"), as a rule taught in chat stores them (TE286).
     nonisolated static func canonicalized(_ condition: AutomationCondition) -> AutomationCondition {
-        guard case .mentionsAll(let tokens) = condition else { return condition }
-        return .mentionsAll(FilingEngine.nameTokens(tokens.joined(separator: " ")).sorted())
+        switch condition {
+        case .mentionsAll(let tokens):
+            return .mentionsAll(FilingEngine.nameTokens(tokens.joined(separator: " ")).sorted())
+        case .mentionsAny(let phrases):
+            var seen = Set<String>()
+            return .mentionsAny(phrases.flatMap { $0.split(separator: ",") }
+                .map { AutomationRuleProposer.canonicalPhrase(String($0)) }
+                .filter { !$0.isEmpty && seen.insert($0).inserted })
+        default:
+            return condition
+        }
     }
 
     /// A `mentionsAll` row whose visible text canonicalizes to NOTHING (all stopwords / bare
@@ -151,11 +166,17 @@ struct AutomationRuleEditor: View {
     /// all-of rule that *broadens* the rule to whatever the other conditions match — so Save is
     /// blocked and the row explains itself instead. `internal` so tests can pin it.
     nonisolated static func isUnmatchableMentions(_ condition: AutomationCondition) -> Bool {
-        guard case .mentionsAll(let tokens) = condition else { return false }
+        let tokens: [String]
+        switch condition {
+        case .mentionsAll(let t), .mentionsAny(let t): tokens = t
+        default: return false
+        }
         let hasVisibleText = tokens.contains { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         guard hasVisibleText else { return false }   // a blank row is plain "incomplete", not a trap
-        if case .mentionsAll(let canonical) = Self.canonicalized(condition) { return canonical.isEmpty }
-        return false
+        switch Self.canonicalized(condition) {
+        case .mentionsAll(let canonical), .mentionsAny(let canonical): return canonical.isEmpty
+        default: return false
+        }
     }
 
     private var hasUnmatchableMentionsRow: Bool {
@@ -360,6 +381,18 @@ struct AutomationRuleEditor: View {
                     .help("The file must mention every word — in its name or its text. Separate with commas.")
                 if Self.isUnmatchableMentions(condition.wrappedValue) {
                     // A sentence, so it takes the readable ink rather than raw orange (DS2).
+                    Text("These words are too generic to match on — add a distinctive word (a vendor, topic, or year).")
+                        .scaledFont(.system(size: 11))
+                        .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.warning))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        case .mentionsAny:
+            VStack(alignment: .leading, spacing: 3) {
+                TextField("JAL, Japan Airlines, Air India", text: tokensBinding(condition))
+                    .textFieldStyle(.roundedBorder).controlSize(.small)
+                    .help("The file must mention one of these, in its name or its text. Separate with commas; a phrase needs all its words.")
+                if Self.isUnmatchableMentions(condition.wrappedValue) {
                     Text("These words are too generic to match on — add a distinctive word (a vendor, topic, or year).")
                         .scaledFont(.system(size: 11))
                         .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.warning))
@@ -624,12 +657,17 @@ struct AutomationRuleEditor: View {
     private func tokensBinding(_ condition: Binding<AutomationCondition>) -> Binding<String> {
         Binding(
             get: {
-                if case .mentionsAll(let tokens) = condition.wrappedValue { return tokens.joined(separator: ", ") }
-                return ""
+                switch condition.wrappedValue {
+                case .mentionsAll(let tokens), .mentionsAny(let tokens): return tokens.joined(separator: ", ")
+                default: return ""
+                }
             },
             set: { newValue in
-                guard case .mentionsAll = condition.wrappedValue else { return }
-                condition.wrappedValue = .mentionsAll([newValue])
+                switch condition.wrappedValue {
+                case .mentionsAll: condition.wrappedValue = .mentionsAll([newValue])
+                case .mentionsAny: condition.wrappedValue = .mentionsAny([newValue])
+                default: return
+                }
             }
         )
     }

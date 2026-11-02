@@ -64,10 +64,13 @@ public struct AskClaudeToolOutcome: Equatable, Sendable {
     public let plan: AskClaudePlan?
     /// Buttons that answer Claude's question (decision GB).
     public let choices: [AskClaudeChoice]?
+    /// A rule offered from a correction (TE286).
+    public let rule: AskClaudeRuleCard?
 
     public init(result: String, isError: Bool = false, step: String, movedView: String? = nil,
                 passage: AskClaudePassage? = nil, download: AskClaudeDownload? = nil,
-                filing: AskClaudeFilingCard? = nil, plan: AskClaudePlan? = nil, choices: [AskClaudeChoice]? = nil) {
+                filing: AskClaudeFilingCard? = nil, plan: AskClaudePlan? = nil, choices: [AskClaudeChoice]? = nil,
+                rule: AskClaudeRuleCard? = nil) {
         self.result = result
         self.isError = isError
         self.step = step
@@ -77,6 +80,7 @@ public struct AskClaudeToolOutcome: Equatable, Sendable {
         self.filing = filing
         self.plan = plan
         self.choices = choices
+        self.rule = rule
     }
 }
 
@@ -179,6 +183,8 @@ public enum AskClaudeEvent: Equatable, Sendable {
     case plan(AskClaudePlan)
     /// Buttons answering Claude's question (decision GB).
     case choices([AskClaudeChoice])
+    /// A rule offered from a correction (TE286).
+    case rule(AskClaudeRuleCard)
     /// One round trip finished: its usage and estimated cost.
     case round(AskClaudeUsage, costUSD: Double, model: String)
     case finished(stopReason: String?)
@@ -436,6 +442,7 @@ public final class AskClaudeEngine {
                 if let filing = outcome.filing { emit(.filing(filing)) }
                 if let plan = outcome.plan { emit(.plan(plan)) }
                 if let choices = outcome.choices { emit(.choices(choices)) }
+                if let rule = outcome.rule { emit(.rule(rule)) }
                 results.append(Self.result(for: call, text: outcome.result, isError: outcome.isError))
             }
             if Task.isCancelled {

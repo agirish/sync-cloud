@@ -35,6 +35,8 @@ struct AskClaudePanel: View {
     var onPlanCard: (UUID, AskClaudePlanAction) -> Void = { _, _ in }
     /// A button under Claude's question (decision GB), by its place in the row.
     var onChoice: (UUID, Int) -> Void = { _, _ in }
+    /// A rule card's Save (true) or Not Now (TE286).
+    var onRuleCard: (UUID, Bool) -> Void = { _, _ in }
     /// Where the panel wants its window, top-left within `container` (AskClaudeWindow.swift).
     var onPlace: (CGRect) -> Void = { _ in }
 
@@ -347,7 +349,7 @@ struct AskClaudePanel: View {
                                            linkTargets: chat.linkTargets, onReveal: onReveal, onSendOffer: onSendOffer,
                                            onDownloadCard: onDownloadCard,
                                            onFilingCard: onFilingCard,
-                                           onPlanCard: onPlanCard, onChoice: onChoice,
+                                           onPlanCard: onPlanCard, onChoice: onChoice, onRuleCard: onRuleCard,
                                            isLatestReceipt: item.id == latestReceipt, isRunning: chat.isRunning)
                             // Rows that didn't change aren't redrawn as each word streams in.
                             .equatable()
@@ -541,6 +543,7 @@ private struct AskClaudeThreadRow: View, Equatable {
     let onFilingCard: (AskClaudeFilingAction) -> Void
     let onPlanCard: (UUID, AskClaudePlanAction) -> Void
     let onChoice: (UUID, Int) -> Void
+    let onRuleCard: (UUID, Bool) -> Void
     /// A card applies only once the question that offered it has finished.
     /// The newest receipt shows its summary; older ones fold to an icon, so the thread doesn't
     /// repeat “Sent screen …” under every answer.
@@ -644,6 +647,8 @@ private struct AskClaudeThreadRow: View, Equatable {
             filingCard(card)
         case .plan(let plan):
             planCard(plan)
+        case .rule(let card):
+            ruleCard(card)
         case .choices(let choices, let used):
             HStack(spacing: 6) {
                 ForEach(Array(choices.enumerated()), id: \.offset) { index, choice in
@@ -790,6 +795,59 @@ private struct AskClaudeThreadRow: View, Equatable {
             }
         }
         .padding(10)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.well))
+        .accessibilityElement(children: .contain)
+    }
+
+    /// TE286: a correction offered as a rule — its words, its folder and where this file goes.
+    /// Saved only on the click (decision GX).
+    private func ruleCard(_ card: AskClaudeRuleCard) -> some View {
+        let added = Set(card.added)
+        let words = card.words.enumerated().reduce(Text("")) { text, entry in
+            let word = Text(entry.element)
+            let shown = added.contains(entry.element) ? word.bold().foregroundColor(accent) : word
+            return entry.offset == 0 ? shown : text + Text(" · ") + shown
+        }
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(card.title).scaledFont(.headline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(card.also.isEmpty ? "Mentions any of" : "Mentions any of these, and also “\(card.also.joined(separator: "” and “"))”")
+                .scaledFont(.footnote).foregroundStyle(.secondary)
+            words.scaledFont(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+            Label(card.destination, systemImage: "folder")
+                .scaledFont(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("\(card.fileName) goes to \(AskClaudeRuleCard.readable(card.example))"
+                 + (card.checkedDate ? "." : ". Page 1 wasn’t read, so the year and month weren’t checked."))
+                .scaledFont(.footnote).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            switch card.state {
+            case .offered:
+                HStack(spacing: 8) {
+                    Text(isRunning ? "Save waits for Claude to finish." : "Runs free on your Mac, in To File and Ask Claude.")
+                        .scaledFont(.footnote).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button("Not Now") { onRuleCard(item.id, false) }
+                    Button(card.added.isEmpty ? "Save Rule" : "Add Words") { onRuleCard(item.id, true) }
+                        .buttonStyle(.borderedProminent)
+                        .accentedProminent()
+                        .disabled(isRunning)
+                        .help("Saves the rule. Edit it or switch it off in Organize ▸ Rules.")
+                }
+                .controlSize(.small)
+                .padding(.top, 4)
+            case .saved:
+                Label("Saved “\(card.rule.name)”. Edit it in Organize ▸ Rules.", systemImage: "checkmark.circle")
+                    .scaledFont(.callout).foregroundStyle(.green)
+                    .fixedSize(horizontal: false, vertical: true)
+            case .declined:
+                Text("Not saved.").scaledFont(.callout).foregroundStyle(.secondary)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.well))
         .accessibilityElement(children: .contain)
     }

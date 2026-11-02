@@ -24,6 +24,8 @@ import Testing
 
     private func manager(_ id: String, root: String, anchors: [String: [String]]) -> FileSyncManager {
         let m = FileSyncManager()
+        // Its own rules store: filing help reads saved rules first (TE286).
+        m.filingRuleDefaults = ScratchDefaults("FilingHelp-\(id)")
         m.filingFolderProfile = Self.profile(id, root: root, Array(anchors.keys))
         m.filingMemory = Self.memory(id, anchors)
         return m

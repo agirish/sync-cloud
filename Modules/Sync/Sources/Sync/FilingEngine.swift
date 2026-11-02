@@ -670,23 +670,66 @@ public enum FilingEngine {
         var out: [FilingDestination] = []
         for rule in automations.rules {
             guard AutomationEvaluator.matches(rule, facts, now: now) else { continue }
-            guard case .resolved(let resolved) = AutomationEvaluator.resolveDestination(
-                rule.destinationTemplate, for: facts, providerName: providerName, now: now) else { continue }
-            guard let destination = AutomationEvaluator.absoluteDestination(resolved, providerRoot: providerRoot) else { continue }
+            guard let placed = ruleDestination(rule, facts: facts, providerRoot: providerRoot,
+                                               providerName: providerName, now: now,
+                                               children: { parent in childNames(of: parent, providerRoot: providerRoot, existingPaths: existingPaths) })
+            else { continue }
+            let destination = placed.path
             let fromContent = ruleMatchIsContentDerived(rule, facts: facts, nameOnlyFacts: nameOnlyFacts, now: now)
             let label = rule.name.trimmingCharacters(in: .whitespaces)
             let shown = label.isEmpty ? rule.summary : label
-            let reason = fromContent
+            let reason = placed.needsPage
+                ? "Your rule “\(shown)” files this here; " + (facts.snippet == nil ? "read the file for its month" : "its first page names no date")
+                : fromContent
                 ? "Your rule “\(shown)” files this here (read from the file)"
                 : "Your rule “\(shown)” files this here"
             out.append(FilingDestination(
                 path: destination,
-                base: .high, evidence: fromContent ? .content : .name,   // user-written ⇒ high, capped like any content signal
+                // user-written ⇒ high, capped like any content signal; a folder short of the month
+                // page 1 would name is a start, not the answer.
+                base: placed.needsPage ? .medium : .high, evidence: fromContent ? .content : .name,
                 reasons: [reason],
                 newSegments: missingSegments(of: destination, existingPaths: existingPaths),
                 remembered: true))
         }
         return out
+    }
+
+    /// Where a matched rule files this file, absolute, inside `providerRoot`; nil when it resolves
+    /// nowhere there. A `{travel-month}` segment takes the spelling of a month folder already there
+    /// (decision HI). When page 1 wasn't read, or names no date, a rule whose folder it names files
+    /// into the part before that token, flagged `needsPage`: Travel/Trips/IN-US for a ticket only in
+    /// the cloud, until Download and Read finds the month.
+    public static func ruleDestination(_ rule: AutomationRule, facts: AutomationFileFacts, providerRoot: String,
+                                       providerName: String?, now: Date,
+                                       children: (String) -> [String]) -> (path: String, needsPage: Bool)? {
+        var template = rule.destinationTemplate
+        var needsPage = false
+        var resolution = AutomationEvaluator.resolveDestination(template, for: facts, providerName: providerName, now: now)
+        if case .unresolved(let token) = resolution,
+           token == AutomationTravelDate.yearToken || token == AutomationTravelDate.monthToken {
+            let segments = template.split(separator: "/").map(String.init)
+            guard let first = segments.firstIndex(where: AutomationTravelDate.isUsed(in:)), first > 0 else { return nil }
+            template = segments[..<first].joined(separator: "/")
+            needsPage = true
+            resolution = AutomationEvaluator.resolveDestination(template, for: facts, providerName: providerName, now: now)
+        }
+        guard case .resolved(var resolved) = resolution else { return nil }
+        if !needsPage, !resolved.hasPrefix("/") {
+            resolved = AutomationTravelDate.adoptingExistingMonth(resolved, template: template, children: children)
+        }
+        guard let path = AutomationEvaluator.absoluteDestination(resolved, providerRoot: providerRoot) else { return nil }
+        return (path, needsPage)
+    }
+
+    /// A folder's subfolder names from the walked tree, `parent` relative to the root.
+    static func childNames(of parent: String, providerRoot: String, existingPaths: Set<String>) -> [String] {
+        let base = parent.isEmpty ? providerRoot : providerRoot + "/" + parent
+        return existingPaths.compactMap { path in
+            guard path.hasPrefix(base + "/") else { return nil }
+            let rest = path.dropFirst(base.count + 1)
+            return rest.contains("/") ? nil : String(rest)
+        }
     }
 
     /// The evaluator facts for a loose file in an Organize scan. Shared with the manager's

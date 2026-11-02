@@ -68,6 +68,15 @@ Requires **macOS 26**, unchanged from v6.2.
   byte, and a subfolder the files would leave empty, get Trash rows, never ticked for you. A taken
   name is shown as the name it would get. Hidden files, unfinished downloads and installers stay
   where they are. Apply moves what's ticked, with one Undo.
+- **Correct Claude, and it offers a rule.** Tell Claude a file goes somewhere else ("no, JAL tickets
+  go in Travel/Trips") and it offers to save a rule for every file of that kind. It works out the
+  kind (JAL is an airline, so any airline's ticket) and the card shows the words, the folder, and
+  where this file goes. Nothing is saved until you click Save Rule. Year and month folders are
+  filled in from the first travel date on the file's first page, in the spelling of a month folder
+  already there. A later correction adds words to your closest rule when its folder fits, or offers
+  a rule beside it for another folder. Rules run free on this Mac, in To File and in "Where should
+  this go?", and you can edit them in Organize ▸ Rules, where Mentions any of is a new
+  condition.
 - **Every answer says what it sent and what it cost.** Spending counts against a monthly limit in
   Settings, $25 to start, with a note at 80%.
 - **Up and Down bring back what you asked.** In the text box, Up shows the questions you typed

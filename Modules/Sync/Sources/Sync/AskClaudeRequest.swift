@@ -128,6 +128,11 @@ public enum AskClaudeRequest {
     - For “where should this go?”, use where_to_file and answer from what it says, including when it has no answer. \
     Never name a folder it didn’t. The file can be anywhere on their Mac, Downloads included. When they \
     say where (into Travel, into Dropbox), pass that as into.
+    - When they correct where a file goes, a folder other than the one where_to_file or you \
+    suggested, propose the move as usual and call offer_rule too, once per correction. Generalize \
+    from the file to its kind: a JAL ticket is an airline ticket, so give the main airlines’ names \
+    and words such tickets carry, not JAL alone. The folder is where this file goes, with its year \
+    and month folders when they named them. The rule is saved only if they click Save.
     - To file a folder’s loose files, use file_loose_files. If they haven’t said where in this chat, \
     call it without into first: it counts the files and gives them buttons. Ask where in one short \
     sentence and stop. Once they say, call it with into; it shows them one card, up to 50 files.
@@ -183,6 +188,7 @@ public enum AskClaudeToolCatalog {
         case whereToFile = "where_to_file"
         case fileLooseFiles = "file_loose_files"
         case proposeChanges = "propose_changes"
+        case offerRule = "offer_rule"
         case view = "view"
         case reveal = "reveal"
         case showInApp = "show_in_app"
@@ -284,6 +290,17 @@ public enum AskClaudeToolCatalog {
                     "additionalProperties": .bool(false),
                 ]), "description": .string("The changes, in the order they make sense.")]),
              ], required: ["changes"]),
+        tool(.offerRule,
+             "Offer them a card to save a filing rule taught by their correction: files that mention any of the words go to the folder from now on, in To File and in where_to_file. Free, on their Mac. The rule is checked against this file, updates their closest rule when its folder fits, and is saved only if they click Save.",
+             properties: [
+                "handle": string("The file they corrected, such as r9."),
+                "folder": string("Where this file goes, as they said it: a folder of their survey (Travel/Trips/IN-US/2026/Sep) or a source and folder."),
+                "name": string("A short name for the kind of file, in Title Case: Airline Tickets."),
+                "words": .object(["type": .string("array"), "items": .object(["type": .string("string")]),
+                                  "description": .string("Names and words that mark the kind, generalized from this file: for a JAL ticket, JAL, Japan Airlines, Air India, United, Emirates and so on, and e-ticket. A phrase needs all its words. At least one must be in this file.")]),
+                "also": .object(["type": .string("array"), "items": .object(["type": .string("string")]),
+                                 "description": .string("Optional words this file must also have, to tell it from files their other rule sends elsewhere: a destination, an airport code.")]),
+             ], required: ["handle", "folder", "name", "words"]),
         tool(.view,
              "Change how the Browse pane shows things: sort order, hidden files, list or columns.",
              properties: ["sort": string("name, kind, date, size or tags."),

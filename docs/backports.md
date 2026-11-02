@@ -13586,3 +13586,21 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s prefixOnly=%s linkTable=
 |---|---|---|
 | `v6.x` / `v5.x` | Documents unreachable from the iCloud picker; none of the redesign | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No linked root, so not the defect; none of the redesign | CLOSED — does not apply |
+
+## Ask Claude offers a rule from a correction; Mentions any of; travel-date folders (TE286) — main only
+
+2026-11-01, for v7.0 (decisions HF–HI). On `main`: Ask Claude's `offer_rule` turns a correction in
+chat into an Automation he saves with a click (`AutomationRuleProposer.correction`, which updates
+the closest rule or offers a sibling); Automations gain the `mentionsAny` condition and the
+`{travel-year}` / `{travel-month}` destination tokens (`AutomationTravelDate`); filing help answers
+from saved rules first (`FileSyncManager.ruleAnswer`). A feature, not a defect fix:
+
+```sh
+for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/Automations.swift 2>/dev/null | grep -c 'case mentionsAny')"; done
+# measured 2026-11-01, against origin, before this landed: every line 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No `mentionsAny`, no travel tokens, no Ask Claude | CLOSED — does not apply |

@@ -2040,3 +2040,90 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(sent.components(separatedBy: "</since_last_answer>").count == 2, "a file name closed the block")
     }
 }
+
+/// TE286: a correction in chat offered as a rule — the tool, the card, and what Claude is told.
+@MainActor
+@Suite struct AskClaudeRuleToolTests {
+
+    private static let root = "/never-on-disk-icloud"
+    private let file = FileNode(id: root + "/Downloads/JAL eTicket.pdf", name: "JAL eTicket.pdf", isDirectory: false, fileSize: 90_000)
+    static let page = "JAPAN AIRLINES e-Ticket\nDate of Issue: 15JUL26\nJL 0754  23SEP  NRT - BLR"
+
+    final class Asked: @unchecked Sendable { var calls: [(folder: String, words: [String], page: String?)] = [] }
+
+    private func runner(_ asked: Asked, rules: [AutomationRule] = []) -> AskClaudeBrowseTools {
+        let file = self.file
+        return AskClaudeBrowseTools(context: {
+            var ctx = AskClaudeBrowseTools.Context(
+                inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Downloads", sort: .name,
+                items: { _ in nil }, node: { $0 == file.id ? file : nil }, selection: [], busyReason: nil,
+                goTo: { _ in }, select: { _ in })
+            ctx.sources = [.init(id: "icloud", name: "iCloud", root: Self.root)]
+            let documents = Self.root + "/Documents"
+            ctx.surveyFolder = { name in name.hasPrefix("Travel") ? documents + "/" + name : nil }
+            ctx.hidden = [documents + "/Private"]
+            ctx.ruleFromCorrection = { path, folder, name, words, also, page in
+                asked.calls.append((folder, words, page))
+                guard folder.hasPrefix(documents + "/") else { return nil }
+                return AutomationRuleProposer.correction(
+                    fileName: (path as NSString).lastPathComponent, destinationRelativePath: String(folder.dropFirst(documents.count + 1)),
+                    name: name, phrases: words, also: also, pageSample: page, modificationDate: nil, existingRules: rules)
+            }
+            return ctx
+        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
+           extract: { _ in [Self.page] }, isCloudOnly: { _ in false })
+    }
+
+    private func offer(_ runner: AskClaudeBrowseTools, folder: String = "Travel/Trips/IN-US/2026/Sep",
+                       words: [String] = ["JAL", "Japan Airlines", "Air India"]) async -> AskClaudeToolOutcome {
+        var handles = AskClaudeHandles()
+        let handle = handles.handle(for: file.id)
+        let input: [String: JSONFragment] = ["handle": .string(handle), "folder": .string(folder), "name": .string("Airline Tickets"),
+                                             "words": .array(words.map(JSONFragment.string))]
+        return await runner.run(AskClaudeToolCall(id: "t", name: "offer_rule", input: .object(input)), handles: &handles)
+    }
+
+    @Test func aCorrectionIsOfferedAsARuleCardWithPageOneRead() async throws {
+        let asked = Asked()
+        let out = await offer(runner(asked))
+        let card = try #require(out.rule)
+        #expect(!out.isError)
+        #expect(asked.calls.first?.folder == Self.root + "/Documents/Travel/Trips/IN-US/2026/Sep")
+        #expect(asked.calls.first?.page == Self.page)
+        #expect(card.kind == .new && card.state == .offered)
+        #expect(card.title == "Save a rule? Airline Tickets")
+        #expect(card.words == ["jal", "japan airlines", "air india"])
+        #expect(card.destination == "Travel › Trips › IN-US › year of travel › month of travel")
+        #expect(card.checkedDate)
+        #expect(out.result.contains("Nothing is saved until they click"))
+        // Claude gets the words and folders, never text from the file.
+        #expect(!out.result.contains("15JUL") && !out.result.lowercased().contains("nrt"))
+    }
+
+    @Test func aRefusedOfferTellsClaudeWhy() async throws {
+        let none = await offer(runner(Asked()), words: ["Lufthansa"])
+        #expect(none.isError && none.rule == nil)
+        #expect(none.result.contains("None of those words is in the file"))
+        let saved = try AutomationRuleProposer.correction(
+            fileName: "JAL eTicket.pdf", destinationRelativePath: "Travel/Trips/IN-US/2026/Sep", name: "Airline Tickets",
+            phrases: ["JAL"], pageSample: Self.page, modificationDate: nil, existingRules: []).get().rule
+        let covered = await offer(runner(Asked(), rules: [saved]))
+        #expect(!covered.isError && covered.rule == nil)
+        #expect(covered.step == "A saved rule already files JAL eTicket.pdf there")
+        let hidden = await offer(runner(Asked()), folder: "iCloud/Documents/Private")
+        #expect(hidden.isError && hidden.rule == nil)
+        let outside = await offer(runner(Asked()), folder: "Narnia")
+        #expect(outside.isError && outside.step == "No folder called Narnia")
+    }
+
+    /// The card is kept with the chat between launches, and Save stores what it offered.
+    @Test func theCardKeepsItsRuleAcrossARelaunch() async throws {
+        let out = await offer(runner(Asked()))
+        let card = try #require(out.rule)
+        let item = AskClaudeChat.Item(kind: .rule(card))
+        let back = try JSONDecoder().decode(AskClaudeChat.Item.self, from: JSONEncoder().encode(item))
+        #expect(back == item)
+        guard case .rule(let kept) = back.kind else { Issue.record("not a rule card"); return }
+        #expect(kept.correction.rule == card.rule && kept.correction.kind == .new)
+    }
+}

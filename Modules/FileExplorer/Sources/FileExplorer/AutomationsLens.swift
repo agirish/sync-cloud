@@ -27,6 +27,7 @@ func automationConditionIcon(_ condition: AutomationCondition) -> String {
     case .untouchedForDays: return "clock"
     case .contentContains: return "text.magnifyingglass"
     case .mentionsAll: return "memories"
+    case .mentionsAny: return "list.bullet"
     case .personIs: return "person"
     case .unrecognized: return "questionmark.circle"
     }
@@ -57,6 +58,11 @@ func automationConditionChipText(_ condition: AutomationCondition) -> String {
         guard !cleaned.isEmpty else { return "mentions …" }
         let shown = cleaned.prefix(3).joined(separator: " + ")
         return "mentions " + shown + (cleaned.count > 3 ? " +\(cleaned.count - 3)" : "")
+    case .mentionsAny(let phrases):
+        let cleaned = phrases.filter { !$0.isEmpty }
+        guard !cleaned.isEmpty else { return "any of …" }
+        let shown = cleaned.prefix(3).joined(separator: " / ")
+        return "any of " + shown + (cleaned.count > 3 ? " +\(cleaned.count - 3)" : "")
     case .personIs(let id): return id.isEmpty ? "person …" : id
     case .unrecognized(let name, _): return name
     }

@@ -652,8 +652,9 @@ import Testing
         // A tripwire, so the scan cannot pass on files that no longer hold the buttons. 25 on
         // 2026-10-20: 23 outside Edit, and Edit's Save Filled Copy and Save Reordered Copy; 26 from
         // 2026-10-21 with the empty page's New Note (TE58); 27 from 2026-10-31 with Ask Claude's
-        // Apply on a card of changes (TE262).
-        #expect(prominent == 27, "expected 27 .borderedProminent buttons in the app, found \(prominent)")
+        // Apply on a card of changes (TE262); 28 from 2026-11-01 with Save Rule on Ask Claude's
+        // rule card (TE286).
+        #expect(prominent == 28, "expected 28 .borderedProminent buttons in the app, found \(prominent)")
     }
 
     // MARK: Rule 6 — every root sets the native controls' accent (DS4)

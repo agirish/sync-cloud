@@ -95,6 +95,11 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
     /// are produced by ``FilingEngine/nameTokens(_:)`` (lowercased, stopwords dropped) and matching
     /// is a subset test against the file's name ∪ content tokens, exactly as F3 matched.
     case mentionsAll([String])
+    /// The file mentions **any one of these phrases** — each phrase being canonical tokens joined by
+    /// a space ("japan airlines"), matched as ``mentionsAll`` matches its tokens. A rule taught from
+    /// a chat correction (TE286, decision HF) keys on this: JAL is one airline, and the rule is for
+    /// every airline's ticket.
+    case mentionsAny([String])
     /// The document is **about this person** — the household member whose registry id this is.
     ///
     /// Keyed on the id rather than on a name, deliberately: `Person.id` survives a rename and the
@@ -133,7 +138,7 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
     /// condition from a newer build never reaches this question in production.
     public var requiresContent: Bool {
         switch self {
-        case .contentContains, .mentionsAll: return true
+        case .contentContains, .mentionsAll, .mentionsAny: return true
         case .folderNamed, .nameMatches, .kindIs, .largerThanMB, .untouchedForDays,
              .personIs, .unrecognized: return false
         }
@@ -158,6 +163,10 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
             let cleaned = tokens.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
             guard !cleaned.isEmpty else { return "mentions …" }
             return "mentions " + cleaned.map { "“\($0)”" }.joined(separator: " and ")
+        case .mentionsAny(let phrases):
+            let cleaned = phrases.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            guard !cleaned.isEmpty else { return "mentions any of …" }
+            return "mentions any of " + cleaned.map { "“\($0)”" }.joined(separator: ", ")
         case .personIs(let id):
             // The id, not a display name: this type has no roster to look one up in, and a
             // summary that guessed would go stale the moment a person was renamed. The editor and
@@ -190,6 +199,8 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
         case .kindIs: return true
         case .mentionsAll(let tokens):
             return tokens.contains { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        case .mentionsAny(let phrases):
+            return phrases.contains { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         case .personIs(let id): return !id.trimmingCharacters(in: .whitespaces).isEmpty
         // Never complete, so a rule carrying one can be seen and edited but can never quietly
         // match a file on a condition this build does not understand.
@@ -208,6 +219,7 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
         case .untouchedForDays: return "untouchedForDays"
         case .contentContains: return "contentContains"
         case .mentionsAll: return "mentionsAll"
+        case .mentionsAny: return "mentionsAny"
         case .personIs: return "personIs"
         case .unrecognized(let name, _): return name
         }
@@ -275,6 +287,7 @@ extension AutomationCondition {
         case "untouchedForDays": return .untouchedForDays(try payload.decode(Int.self, forKey: ._0))
         case "contentContains": return .contentContains(try payload.decode(String.self, forKey: ._0))
         case "mentionsAll": return .mentionsAll(try payload.decode([String].self, forKey: ._0))
+        case "mentionsAny": return .mentionsAny(try payload.decode([String].self, forKey: ._0))
         case "personIs": return .personIs(try payload.decode(String.self, forKey: ._0))
         default: return nil
         }
@@ -294,6 +307,7 @@ extension AutomationCondition {
         case .untouchedForDays(let v): try write(v, "untouchedForDays")
         case .contentContains(let v): try write(v, "contentContains")
         case .mentionsAll(let v): try write(v, "mentionsAll")
+        case .mentionsAny(let v): try write(v, "mentionsAny")
         case .personIs(let v): try write(v, "personIs")
         case .unrecognized(let name, let payload):
             try c.encode(RawPayload(data: payload), forKey: AnyKey(stringValue: name))
@@ -403,10 +417,15 @@ public struct AutomationRule: Sendable, Equatable, Codable, Identifiable, Hashab
     /// sends the user hunting for something that is not missing.
     public var hasUnreadableValues: Bool { !unreadableFields.isEmpty }
 
-    /// True when any (complete) condition reads file text — the preview then fetches a snippet.
+    /// True when any (complete) condition reads file text — the preview then fetches a snippet —
+    /// or the destination is named from page 1 (`{travel-month}`, TE286).
     public var requiresContent: Bool {
-        conditions.contains { $0.requiresContent && $0.isComplete }
+        conditions.contains { $0.requiresContent && $0.isComplete } || destinationReadsContent
     }
+
+    /// The destination is named from page 1, so a file the rule matches by name alone still needs
+    /// its text read to know where it goes.
+    public var destinationReadsContent: Bool { AutomationTravelDate.isUsed(in: destinationTemplate) }
 
     /// A one-line plain-words summary, e.g. "PDF · text contains “invoice” → Documents/Invoices/{year}".
     public var summary: String {
