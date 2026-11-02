@@ -799,12 +799,17 @@ public struct DestinationPicker: View {
 
     /// The column stack that shows `path`, given the root it is under. Anything outside the root
     /// rests at the root, which is the only stack that can honestly be drawn for it.
-    static func browsePath(for path: String, under root: String) -> PaneBrowsePath {
+    ///
+    /// Inside means `PathBoundary`'s inside, links included: an iCloud item lives at
+    /// `~/Documents/…`, which iCloud Drive reaches through its `Documents` link. A plain prefix test
+    /// called that outside, so the picker opened at the bare iCloud root for every item in Documents.
+    static func browsePath(for path: String, under root: String,
+                           links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> PaneBrowsePath {
         let normalizedRoot = PaneBrowsePath.normalized(root)
         let normalized = PaneBrowsePath.normalized(path)
-        guard normalized != normalizedRoot,
-              normalized.hasPrefix(normalizedRoot + "/") else { return PaneBrowsePath() }
-        return PaneBrowsePath(relativePath: String(normalized.dropFirst(normalizedRoot.count + 1)))
+        guard let relative = PathBoundary.relativize(normalized, under: normalizedRoot, links: links),
+              !relative.isEmpty else { return PaneBrowsePath() }
+        return PaneBrowsePath(relativePath: relative)
     }
 }
 

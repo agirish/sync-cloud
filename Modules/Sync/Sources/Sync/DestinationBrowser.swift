@@ -13,6 +13,13 @@ public struct DestinationFolder: Identifiable, Hashable, Sendable {
         self.path = PaneBrowsePath.normalized(path)
         self.name = (self.path as NSString).lastPathComponent
     }
+
+    /// A folder shown under a name that is not its own last component: a folder a root only links
+    /// to, listed under the link's name (`Documents` in iCloud Drive) at its real path.
+    public init(path: String, name: String) {
+        self.path = PaneBrowsePath.normalized(path)
+        self.name = name
+    }
 }
 
 /// One column's worth of subfolders, and whether the folder could be read at all.
@@ -167,10 +174,19 @@ public enum DestinationBrowser {
     /// cost memory proportional to the files to answer a question about the folders. That is the
     /// same reasoning `childCount` and the sidebar's size walk already state for not using
     /// `listing(of:)` at all, and this is the site where it had not been applied.
+    ///
+    /// **A root's linked folders are listed as the real folders they point at** — iCloud Drive's
+    /// `Desktop` and `Documents` under Desktop & Documents syncing (`PathBoundary.LinkedFolders`).
+    /// macOS flags both links hidden, so `.skipsHiddenFiles` dropped them and the picker could not
+    /// reach Documents at all: its iCloud root column read only Downloads and Word (seen 2026-11-01).
+    /// Listed at the real path (`~/Documents`), because that is the spelling every node, the pane's
+    /// columns and the selection's own paths use; under the link's name, because that is what the
+    /// next column's `PaneBrowsePath.step` looks up.
     public static func listSubfolders(
         of path: String,
         showHidden: Bool = false,
-        fileManager: FileManaging
+        fileManager: FileManaging,
+        links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders
     ) -> DestinationFolderListing {
         let root = PaneBrowsePath.normalized(path)
         // Not a disk failure: there is no folder to read. `.listed` keeps the empty-state wording
@@ -193,7 +209,19 @@ public enum DestinationBrowser {
         case .unreadable:
             return DestinationFolderListing(folders: [], outcome: .unreadable)
         case .listed, .listedWithUnreadableDescendants:
-            let folders = listing.urls.map { DestinationFolder(path: $0.path) }
+            var folders = listing.urls.map { DestinationFolder(path: $0.path) }
+            let linked = PathBoundary.linkedFolders(atRoot: root, in: links)
+            if !linked.isEmpty {
+                // With hidden files shown the link itself is listed too, in its own spelling:
+                // the same folder twice. The real path replaces it.
+                folders.removeAll { linked[$0.name] != nil }
+                for (name, target) in linked {
+                    var isDirectory: ObjCBool = false
+                    guard fileManager.fileExists(atPath: target, isDirectory: &isDirectory),
+                          isDirectory.boolValue else { continue }
+                    folders.append(DestinationFolder(path: target, name: name))
+                }
+            }
             return DestinationFolderListing(
                 folders: folders.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
                 outcome: listing.outcome)
@@ -210,13 +238,14 @@ public enum DestinationBrowser {
     public static func listSubfoldersSuspending(
         of path: String,
         showHidden: Bool = false,
-        fileManager: FileManaging
+        fileManager: FileManaging,
+        links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders
     ) async -> DestinationFolderListing {
         let root = PaneBrowsePath.normalized(path)
         if !root.isEmpty {
             _ = await fileManager.waitForContents(of: URL(fileURLWithPath: root))
         }
-        return listSubfolders(of: path, showHidden: showHidden, fileManager: fileManager)
+        return listSubfolders(of: path, showHidden: showHidden, fileManager: fileManager, links: links)
     }
 
     /// Folders under `root` whose name contains `query`, breadth-first.
@@ -271,6 +300,7 @@ public enum DestinationBrowser {
         maxDepth: Int = 6,
         maxListings: Int = 3000,
         fileManager: FileManaging,
+        links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders,
         isCancelled: () -> Bool = { false }
     ) -> DestinationSearchOutcome {
         let needle = query.trimmingCharacters(in: .whitespaces)
@@ -304,7 +334,8 @@ public enum DestinationBrowser {
                 guard visited.insert(identity(of: directory, using: fileManager)).inserted else { continue }
                 if listings >= maxListings { return outcome(stoppedEarly: true) }
                 listings += 1
-                let listing = listSubfolders(of: directory, showHidden: showHidden, fileManager: fileManager)
+                let listing = listSubfolders(of: directory, showHidden: showHidden, fileManager: fileManager,
+                                             links: links)
                 switch listing.outcome {
                 case .listed:
                     break
@@ -400,20 +431,21 @@ public enum DestinationBrowser {
     /// that explicitly rather than letting it fall through to the outside-the-root branch, which
     /// answered with the root's own ancestors — `trail(of: "~/Dropbox", under: "~/Dropbox")` came
     /// back as `["Users", "father"]`, and `crumbs` then read "Dropbox › father › Dropbox".
-    public static func trail(of path: String, under root: String) -> [String] {
+    ///
+    /// A folder under one the root links to (`~/Documents/Travel` under iCloud Drive) is under the
+    /// root, through the link's name — `PathBoundary.relativize` — or the footer read
+    /// “Users › abhishek › Documents › Travel” for an iCloud folder.
+    public static func trail(of path: String, under root: String,
+                             links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> [String] {
         let normalizedPath = PaneBrowsePath.normalized(path)
         let normalizedRoot = PaneBrowsePath.normalized(root)
         if normalizedPath == normalizedRoot { return [] }
         let parent = (normalizedPath as NSString).deletingLastPathComponent
 
-        guard !normalizedRoot.isEmpty else {
+        guard !normalizedRoot.isEmpty,
+              let relative = PathBoundary.relativize(parent, under: normalizedRoot, links: links) else {
             return parent.split(separator: "/").map(String.init)
         }
-        if parent == normalizedRoot { return [(normalizedRoot as NSString).lastPathComponent] }
-        guard parent.hasPrefix(normalizedRoot + "/") else {
-            return parent.split(separator: "/").map(String.init)
-        }
-        let relative = String(parent.dropFirst(normalizedRoot.count + 1))
         return [(normalizedRoot as NSString).lastPathComponent] + relative.split(separator: "/").map(String.init)
     }
 
@@ -424,7 +456,8 @@ public enum DestinationBrowser {
     /// Composed here rather than in the view because it is string arithmetic with a boundary case
     /// at each end (the root itself, and a folder outside the root reached through `Other…`), and
     /// arithmetic with boundary cases belongs somewhere it can be asserted.
-    public static func crumbs(for path: String, under root: String, providerName: String) -> [String] {
+    public static func crumbs(for path: String, under root: String, providerName: String,
+                              links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> [String] {
         let normalizedPath = PaneBrowsePath.normalized(path)
         guard !normalizedPath.isEmpty else { return [] }
         let normalizedRoot = PaneBrowsePath.normalized(root)
@@ -432,12 +465,13 @@ public enum DestinationBrowser {
         if normalizedPath == normalizedRoot { return [providerName] }
 
         let leaf = (normalizedPath as NSString).lastPathComponent
-        let levels = trail(of: normalizedPath, under: normalizedRoot)
+        let levels = trail(of: normalizedPath, under: normalizedRoot, links: links)
         // Under the root, `trail` leads with the root's own folder name — drop it and let the
         // provider's display name stand there instead. Outside it (the `Other…` escape) there is no
         // such leading component to drop, and the provider's name would be a lie, so the path
         // speaks for itself.
-        let isUnderRoot = !normalizedRoot.isEmpty && normalizedPath.hasPrefix(normalizedRoot + "/")
+        let isUnderRoot = !normalizedRoot.isEmpty
+            && PathBoundary.relativize(normalizedPath, under: normalizedRoot, links: links) != nil
         return isUnderRoot ? [providerName] + levels.dropFirst() + [leaf] : levels + [leaf]
     }
 

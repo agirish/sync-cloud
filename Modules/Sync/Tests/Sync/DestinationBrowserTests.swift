@@ -844,4 +844,52 @@ import Foundation
                                               isCancelled: { false })
         #expect(Set(found.matches.map(\.path)) == ["/p/Health/Medical/Kaiser/Son", "/p/School/Son"])
     }
+
+    // MARK: - Folders a root links to (iCloud Drive's Documents)
+
+    /// iCloud Drive with Desktop & Documents syncing: the container's `Documents` is a hidden link
+    /// to `~/Documents`, so the enumerator never lists it. The fixture models that by leaving the
+    /// link out of the container altogether, and hands the table in, as `PathBoundary` would.
+    private func linkedFixture() throws -> (MockFileManager, PathBoundary.LinkedFolders) {
+        let fm = MockFileManager()
+        for dir in ["/icloud", "/icloud/Downloads", "/icloud/Word",
+                    "/home/Documents", "/home/Documents/Travel", "/home/Documents/Travel/Trips"] {
+            try fm.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: true)
+        }
+        // `Desktop` is in the table but missing on disk: it must not be offered.
+        return (fm, ["/icloud": ["Documents": "/home/Documents", "Desktop": "/home/Desktop"]])
+    }
+
+    /// The root column lists Documents, at its real path, under the link's name. Before this the
+    /// iCloud root read only Downloads and Word, and nothing in Documents could be reached.
+    @Test func testARootListsTheFoldersItLinksTo() throws {
+        let (fm, links) = try linkedFixture()
+        let folders = DestinationBrowser.listSubfolders(of: "/icloud", fileManager: fm, links: links).folders
+        #expect(folders.map(\.name) == ["Documents", "Downloads", "Word"])
+        #expect(folders.first?.path == "/home/Documents")
+        // Control: one level down is an ordinary listing, untouched by the table.
+        let travel = DestinationBrowser.listSubfolders(of: "/home/Documents/Travel", fileManager: fm, links: links)
+        #expect(travel.folders.map(\.path) == ["/home/Documents/Travel/Trips"])
+    }
+
+    /// Search starts from the root listing, so it reaches into Documents too.
+    @Test func testSearchReachesThroughALinkedFolder() throws {
+        let (fm, links) = try linkedFixture()
+        let found = DestinationBrowser.search("Trips", under: "/icloud", fileManager: fm, links: links)
+        #expect(found.matches.map(\.path) == ["/home/Documents/Travel/Trips"])
+    }
+
+    /// The footer reads from the provider down, through the link's name, never from `/Users`.
+    @Test func testCrumbsForALinkedFolderReadFromTheProvider() throws {
+        let (_, links) = try linkedFixture()
+        let trips = "/home/Documents/Travel/Trips"
+        #expect(DestinationBrowser.trail(of: trips, under: "/icloud", links: links) == ["icloud", "Documents", "Travel"])
+        #expect(DestinationBrowser.crumbs(for: trips, under: "/icloud", providerName: "iCloud", links: links)
+                == ["iCloud", "Documents", "Travel", "Trips"])
+        #expect(DestinationBrowser.crumbs(for: "/home/Documents", under: "/icloud", providerName: "iCloud", links: links)
+                == ["iCloud", "Documents"])
+        // Control: with no table the same path is outside the root and speaks for itself.
+        #expect(DestinationBrowser.crumbs(for: trips, under: "/icloud", providerName: "iCloud", links: [:])
+                == ["home", "Documents", "Travel", "Trips"])
+    }
 }

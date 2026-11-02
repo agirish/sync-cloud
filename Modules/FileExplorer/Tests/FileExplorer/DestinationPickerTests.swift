@@ -38,6 +38,18 @@ import Sync
         #expect(DestinationPicker.browsePath(for: "/pictures/Deep", under: "/p").isEmpty)
     }
 
+    /// An iCloud item lives at `~/Documents/…`, which iCloud Drive reaches through its hidden
+    /// `Documents` link. The picker must open down that stack, not at the bare root (2026-11-01:
+    /// it opened on iCloud's root with only Downloads and Word showing).
+    @Test func testAFolderUnderALinkedFolderOpensThroughTheLink() {
+        let links: PathBoundary.LinkedFolders = ["/icloud": ["Documents": "/home/Documents"]]
+        let path = DestinationPicker.browsePath(for: "/home/Documents/Travel/Trips", under: "/icloud", links: links)
+        #expect(path.components == ["Documents", "Travel", "Trips"])
+        #expect(path.columnDirectories(treeRoot: "/icloud", links: links).last == "/home/Documents/Travel/Trips")
+        // Control: without the table it is outside the root.
+        #expect(DestinationPicker.browsePath(for: "/home/Documents/Travel/Trips", under: "/icloud", links: [:]).isEmpty)
+    }
+
     // MARK: - Round trip
 
     /// Every folder under the root resolves back to itself through the stack, which is what makes
