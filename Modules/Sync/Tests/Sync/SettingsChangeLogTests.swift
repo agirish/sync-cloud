@@ -26,16 +26,22 @@ import Testing
         #expect(SettingsChangeLog(fileURL: url).changes.isEmpty)
     }
 
-    @Test func itKeepsNinetyDaysAndFiveHundredAtMost() {
+    @Test func itKeepsNinetyDaysAndFiveHundredAtMost() throws {
         let url = file(); defer { try? FileManager.default.removeItem(at: url) }
         let log = SettingsChangeLog(fileURL: url)
         let now = Date()
         log.record(change("Old", at: now.addingTimeInterval(-91 * 86_400)))
         log.record(change("Recent", at: now.addingTimeInterval(-89 * 86_400)))
         #expect(log.changes.map(\.name) == ["Recent"])
-        for index in 0..<SettingsChangeLog.maxChanges { log.record(change("\(index)", at: now)) }
-        #expect(log.changes.count == SettingsChangeLog.maxChanges)
-        #expect(log.changes.first?.name == "0")
+        // A full record seeded in one write: recording 500 one by one rewrites the file 500 times
+        // on the main actor, long enough on CI's 3 cores to starve other suites' waits.
+        let full = (0..<SettingsChangeLog.maxChanges).map { change("\($0)", at: now) }
+        try JSONEncoder().encode(full).write(to: url)
+        let reloaded = SettingsChangeLog(fileURL: url)
+        reloaded.record(change("Newest", at: now))
+        #expect(reloaded.changes.count == SettingsChangeLog.maxChanges)
+        #expect(reloaded.changes.first?.name == "1")
+        #expect(reloaded.changes.last?.name == "Newest")
     }
 
     @Test func oneUnreadableChangeIsLeftOutNotTheRecord() throws {
