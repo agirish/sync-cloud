@@ -4941,3 +4941,37 @@ from 1.1 s to 2.7 s alone. Every other `ScratchDefaults` suite already pays this
 
 **Tell.** A value off by exactly what the test itself writes, red only while a second test process
 runs on the Mac. Look for a `suiteName:` without a UUID in it.
+
+### 52. A cancel that lands before the caller has installed its handler reaches a detached read late — FIXED
+
+**Symptom.** `FileContentVerifierTests.cancellingTheCallerStopsTheReadAtTheNextChunk` red once on
+hosted CI (run 41398007119, 2026-11-01, push of `ccb4ff8b4`, a MacApp-only change), in one of the
+Sync job's repeated passes: `asked.withLock { $0 } == 2` was 3. The read made one more chunk check
+after the caller was cancelled before it stopped. The other passes, and the next 12 hosted runs,
+were green.
+
+**Mechanism.** A real defect in `FileContentVerifier.hashOutcome`, not in the test.
+It spawned its detached read and only then entered `withTaskCancellationHandler { await
+work.value } onCancel: { work.cancel() }`. A handler forwards a cancel synchronously, inside
+`Task.cancel()`, but only once it is installed. If the caller's thread is descheduled between the
+spawn and the handler (on a 3-vCPU runner, "An await on a task that has already finished does not
+suspend" turns on the same pause), the read runs ahead: the test cancels from its second check,
+finds no handler, and the cancel waits for the caller to be scheduled again, see itself already
+cancelled on entry and forward it then. The read meanwhile reads a chunk and asks a third time. In
+the app the same window lets a Stop arrive a chunk or more late. `edgeSample` had the same shape.
+
+**Reproduced** with a 50 ms `usleep` between the spawn and the handler: 3 of 3 rounds red beside 14 `yes`
+spinners, one at the CI line (`asked == 2` false) and two hashing the whole file before the
+cancel arrived. The same pause after the spawn in the fixed code, where the handler already exists:
+0 of 3 rounds, 60 iterations, green. Without the pause,
+neither reproduces on this Mac: about 5,000 iterations of the old code beside 14 `yes` spinners
+under `build-slot --exclusive` were all green.
+
+**Fix, 2026-11-01.** `FileContentVerifier.onHashLane` enters `withTaskCancellationHandler` first
+and spawns the read inside it. The handler sets a lock-held flag that the read asks before the open
+and before every chunk, so the check after `Task.cancel()` returns sees it, whenever the caller runs
+next. The test's count of exactly 2 is the contract and stays.
+
+**Tell.** A count of checks or chunks one past a cancel, red alone and once, where the code awaits
+a task it detached *before* entering `withTaskCancellationHandler`. Ask whether the handler exists
+yet at the moment the test cancels.

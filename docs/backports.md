@@ -13792,3 +13792,22 @@ No behaviour changes, so the maintenance lines are owed nothing.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No catalog | CLOSED — nothing to send |
+
+## A Stop reaches a content hash at its next chunk under load too — main only
+
+2026-11-01, for v7.0. On `main`: `FileContentVerifier.hashOutcome` and `edgeSample` install their
+cancellation handler before they spawn the detached read (`onHashLane`), so cancelling the caller
+stops the read at its next chunk even when the caller is descheduled right after the spawn, where
+it could read a chunk or more past the Stop. The maintenance lines forward no cancellation to the
+hash at all; their reads are capped at 100 MB and run to the end (see "Content hashing covers files
+of any size"):
+
+```sh
+for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileContentVerifier.swift 2>/dev/null | grep -c withTaskCancellationHandler)"; done
+# measured 2026-11-01, against origin, before this landed: main 2, every other line 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No forwarded cancel to fix | CLOSED — does not apply |

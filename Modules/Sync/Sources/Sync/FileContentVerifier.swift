@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import os
 
 /// On-demand content verification for files that differ by date but have the same size.
 /// Uses SHA-256 over the whole file, of any size; skips directories and cloud-only placeholders.
@@ -63,7 +64,7 @@ public enum FileContentVerifier {
     /// tests (the flag is provider-set).
     ///
     /// **Cancellable mid-file, two ways.** Cancelling the calling task reaches the read through
-    /// the detached task below, and `isCancelled` is asked before every chunk for a caller whose
+    /// ``onHashLane``, and `isCancelled` is asked before every chunk for a caller whose
     /// stop is a `Progress` rather than a task (Verify All). Either way the read stops within one
     /// chunk and answers `.cancelled`. Without it, a 5 GB file would read to its end after Stop.
     ///
@@ -78,10 +79,7 @@ public enum FileContentVerifier {
         isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) },
         isCancelled: @escaping @Sendable () -> Bool = { false }
     ) async -> HashOutcome {
-        // Detached so the blocking read leaves the caller's actor (most callers are the main
-        // actor), and so its priority is the hash lane's, not the caller's. Detached tasks do not
-        // inherit cancellation, so it is forwarded by hand.
-        let work = Task.detached(priority: .utility) { () -> HashOutcome in
+        await onHashLane { callerCancelled -> HashOutcome in
             // ONE `attributesOfItem` for a non-symlink, where there used to be three. `fileExists`
             // asked about existence and directory-ness, a discarded `attributesOfItem` asked
             // about the link type, and a second one asked for size and mtime — and
@@ -113,7 +111,7 @@ public enum FileContentVerifier {
             // symlink would actually open), and only after the cache: a hit needs no read, and
             // eviction doesn't change content.
             if isCloudOnly(statPath) { return .skippedCloudOnly }
-            if Task.isCancelled || isCancelled() { return .cancelled }
+            if callerCancelled() || isCancelled() { return .cancelled }
             guard let handle = FileHandle(forReadingAtPath: path) else { return .unverifiable }
             defer { try? handle.close() }
 
@@ -138,7 +136,7 @@ public enum FileContentVerifier {
             var hasher = SHA256()
             var totalBytes = 0
             while true {
-                if Task.isCancelled || isCancelled() { return .cancelled }
+                if callerCancelled() || isCancelled() { return .cancelled }
                 // read(upToCount:) bridges each chunk through an autoreleased NSData; without a
                 // per-iteration pool they accumulate until the closure returns, letting peak
                 // memory approach the whole file again. nil = unverifiable, false = end-of-file.
@@ -181,7 +179,29 @@ public enum FileContentVerifier {
             }
             return .hashed(hex)
         }
-        return await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
+    }
+
+    /// Runs `body` on the hash lane: a `.utility` detached task, so blocking reads leave the
+    /// caller's actor (most callers are the main actor) and run at the lane's priority, not the
+    /// caller's. Detached tasks do not inherit cancellation, so it is forwarded by hand, as
+    /// `callerCancelled`, which `body` asks before each read.
+    ///
+    /// **The handler is in place before the task exists.** Cancelling the caller flips the flag
+    /// inside `Task.cancel()` itself, so the read's next check sees it. Spawning first and then
+    /// entering `withTaskCancellationHandler` left a window: a cancel landing before the caller
+    /// got back to install the handler reached the read only once the caller was scheduled again,
+    /// and on a loaded machine the read went on a chunk or more past it (CI run 41398007119).
+    private static func onHashLane<T: Sendable>(
+        _ body: @escaping @Sendable (_ callerCancelled: @escaping @Sendable () -> Bool) async -> T
+    ) async -> T {
+        let cancelled = OSAllocatedUnfairLock(initialState: false)
+        return await withTaskCancellationHandler {
+            await Task.detached(priority: .utility) {
+                await body { cancelled.withLock { $0 } }
+            }.value
+        } onCancel: {
+            cancelled.withLock { $0 = true }
+        }
     }
 
     /// The stat a hash of `path` rests on: the path it reads (a symlink's target), that path's
@@ -253,12 +273,12 @@ public enum FileContentVerifier {
         size: Int,
         isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
     ) async -> String? {
-        let work = Task.detached(priority: .utility) { () -> String? in
+        await onHashLane { callerCancelled -> String? in
             // The path ``hashOutcome`` asks about: a symlink's target, else the path as given.
             // Resolving every path would not do — it rewrites `/private/var/…` to `/var/…`.
             let isLink = (try? FileManager.default.destinationOfSymbolicLink(atPath: path)) != nil
             let checkPath = isLink ? (path as NSString).resolvingSymlinksInPath : path
-            if isCloudOnly(checkPath) || Task.isCancelled { return nil }
+            if isCloudOnly(checkPath) || callerCancelled() { return nil }
             guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
             defer { try? handle.close() }
             guard let opened = Self.descriptorStat(handle), Int(opened.st_size) == size else { return nil }
@@ -283,7 +303,6 @@ public enum FileContentVerifier {
                 return HexEncoding.string(hasher.finalize())
             }
         }
-        return await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
     }
 
     /// Whether two `fstat`s of the same descriptor, taken before and after the read, describe the

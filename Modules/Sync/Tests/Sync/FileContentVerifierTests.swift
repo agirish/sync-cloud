@@ -222,7 +222,9 @@ import CryptoKit
     /// Cancelling the CALLING task reaches the read, though it runs on a detached task that does
     /// not inherit cancellation. Deterministic: the task is cancelled from inside its own second
     /// chunk check, and the next check must see it through the forwarded cancellation alone — the
-    /// closure keeps answering no. Without the forwarding the whole file is hashed.
+    /// closure keeps answering no. Without the forwarding the whole file is hashed. Exactly the
+    /// next check, under any load, because the forwarding's handler is in place before the read
+    /// starts (`onHashLane`); spawning the read first let this count reach 3 on a loaded runner.
     @Test func cancellingTheCallerStopsTheReadAtTheNextChunk() async throws {
         let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
