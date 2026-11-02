@@ -877,7 +877,7 @@ import FileExplorer
         let handle = handles.handle(for: path)
         let question = call("read_text", ["handle": .string(handle), "question": .string("What was the total due?")])
         let off = await runner(readsFiles: false, scanned).run(question, handles: &handles)
-        #expect(off.result.contains("Pages 1–2 of 34 have no text layer, so they were read by OCR on this Mac: a word may be misread. OCR stopped at its 10-page limit, so pages 3–34 weren’t read."))
+        #expect(off.result.contains("Pages 1–2 of 34 have little or no text layer, so they were read by OCR on this Mac: a word may be misread. OCR stopped at its 10-page limit, so pages 3–34 weren’t read."))
         #expect(!off.result.contains("tent"))
         #expect(off.passage?.whereInFile == "pages 1–2" && off.passage?.text.hasPrefix("Total due: $84.10 for the tent") == true)
         #expect(off.step == "Read Receipt REI 2025.pdf on this Mac, 2 pages by OCR")
@@ -890,7 +890,12 @@ import FileExplorer
         // A scan whose time ran out before any page is an error that says why.
         let late = AskClaudeReading.Read(pages: ["", ""], pageCount: 2, unread: [0, 1], stoppedBy: .time(seconds: 30))
         let none = await runner(readsFiles: false, late).run(question, handles: &handles)
-        #expect(none.isError && none.result == "Receipt REI 2025.pdf has no text read yet. Pages 1–2 of 2 have no text layer, and OCR stopped after 30 seconds, before reading them.")
+        #expect(none.isError && none.result == "No text was read from Receipt REI 2025.pdf. Pages 1–2 of 2 have little or no text layer, and OCR stopped after 30 seconds, before reading them. Text recognition can take a minute or two the first time it runs, so asking again shortly may work.")
+        // A locked PDF says so, and a PDF that can't be read at all says why, not "no text".
+        let locked = await runner(readsFiles: false, AskClaudeReading.Read(pages: [""], pageCount: 1, locked: true)).run(question, handles: &handles)
+        #expect(locked.isError && locked.result == "Receipt REI 2025.pdf is locked with a password, so its text can’t be read here.")
+        let unopened = await runner(readsFiles: false, nil).run(question, handles: &handles)
+        #expect(unopened.isError && unopened.result == "Receipt REI 2025.pdf couldn’t be read here: it doesn’t open as a PDF, or reading it took over 30 seconds.")
     }
 
     @Test func pageListsNameRunsAndSayWhenTimeRanOut() {
@@ -899,7 +904,7 @@ import FileExplorer
         #expect(AskClaudeReading.pages([6, 1, 3, 4, 5]) == "pages 2 and 4–7")
         #expect(AskClaudeReading.pages([0, 2, 5, 6]) == "pages 1, 3 and 6–7")
         let late = AskClaudeReading.Read(pages: [], pageCount: 80, recognized: [0], unread: Array(1..<60), stoppedBy: .time(seconds: 1))
-        #expect(late.ocrNote == "Page 1 of 80 has no text layer, so it was read by OCR on this Mac: a word may be misread. OCR stopped after 1 second, so pages 2–60 weren’t read, nor anything past page 60.")
+        #expect(late.ocrNote == "Page 1 of 80 has little or no text layer, so it was read by OCR on this Mac: a word may be misread. OCR stopped after 1 second, so pages 2–60 weren’t read, nor anything past page 60.")
         #expect(AskClaudeReading.Read(pages: ["x"], pageCount: 1).ocrNote == nil)
         // A scanner's name over the picture is not the page's words; a short real line is.
         #expect(AskClaudeReading.isNearEmpty("  Scanned by Scanbot \n 3 "))

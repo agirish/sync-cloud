@@ -13998,9 +13998,10 @@ question. Ask Claude exists only on `main` (see step 0b).
 ## Ask Claude reads scanned PDFs by OCR (TE264) — main only
 
 2026-11-02, for v7.0. On `main`: Ask Claude's `read_text` reads a PDF page whose text layer is
-empty or all but by OCR — the first 10 such pages, within 30 seconds, read on the CPU first — and
-tells Claude which pages came from OCR and which it didn't reach. `PictureText` gains a CPU-first
-entry point for it; Save as PDF reads as before. Ask Claude exists only on `main`.
+empty or all but by OCR — the first 10 such pages, within 30 seconds, inside the crop box, in the
+language Vision detects — and tells Claude which pages came from OCR, which held no words or
+failed, and which it didn't reach. `PictureText` gains an entry point for it, and its bitmap a crop
+box and a size cap; Save as PDF reads as before. Ask Claude exists only on `main`.
 
 | Line | Carries | Status |
 |---|---|---|

@@ -1174,12 +1174,18 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             return offerDownload(node, path, handle: handle, size: size, purpose: .read, ctx)
         }
         guard let reading = await read(path) else {
-            let why = AskClaudeReading.isPaged(path) ? "from its text layer or by OCR" : "(pictures aren’t read yet)"
-            return AskClaudeToolOutcome(result: "\(node.name) has no text this version can read \(why).",
-                                        isError: true, step: "No readable text in \(node.name)")
+            let why = AskClaudeReading.isPaged(path)
+                ? "couldn’t be read here: it doesn’t open as a PDF, or reading it took over \(AskClaudeReading.extractTimeout.components.seconds) seconds."
+                : "has no text this version can read (pictures aren’t read yet)."
+            return AskClaudeToolOutcome(result: "\(node.name) \(why)", isError: true, step: "No readable text in \(node.name)")
+        }
+        if reading.locked {
+            return AskClaudeToolOutcome(result: "\(node.name) is locked with a password, so its text can’t be read here.",
+                                        isError: true, step: "\(node.name) is locked")
         }
         guard reading.hasText else {
-            return AskClaudeToolOutcome(result: "\(node.name) has no text read yet. " + (reading.ocrNote ?? ""),
+            // `read` gives a PDF without text only with a note saying why.
+            return AskClaudeToolOutcome(result: "No text was read from \(node.name). " + (reading.ocrNote ?? ""),
                                         isError: true, step: "No readable text in \(node.name)")
         }
         let pages = reading.pages

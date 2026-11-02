@@ -38,24 +38,32 @@ enum AskClaudeReading {
     /// Pages read by OCR from one PDF. A scanned page holds about 2,000–3,000 characters, so ten
     /// more than fill `onDeviceChars`, and the passage that answers is chosen from them.
     static let maxOCRPages = 10
-    /// How long OCR may run, after the text layer is read: the pages read by then are used. About
-    /// 0.15–0.3 s a page on the CPU (2026-11-02), so the time runs out only on a loaded Mac.
+    /// How long OCR may run, after the text layer is read: the pages read by then are used. A warm
+    /// Vision reads a page in 0.1–0.5 s (2026-11-02), but its first request under a new bundle id,
+    /// or after macOS recompiles its models, waits 60–90 s; that question is told to ask again.
     static let ocrTimeout: Duration = .seconds(30)
     /// A page whose text layer has fewer letters and digits than this is read by OCR: a scanner
     /// may lay its own name, or a page number, over the picture.
     static let nearEmptyCharacters = 20
 
-    /// A file's text for `read_text`, and which of its pages were read by OCR.
+    /// A file's text for `read_text`, and what OCR did with the pages that had little or no text
+    /// layer. A page OCR read no better than its layer is in none of the lists: its layer stands.
     struct Read: Equatable, Sendable {
         var pages: [String]
         /// The file's pages, which can be more than `pages` holds (`maxPages`).
         var pageCount: Int
-        /// The pages read by OCR, counted from 0.
+        /// The pages whose text came from OCR, counted from 0.
         var recognized: [Int] = []
-        /// The pages with no text layer that OCR didn't reach, counted from 0.
+        /// The pages OCR read and found no words on.
+        var blank: [Int] = []
+        /// The pages that didn't draw, or that Vision failed on with both processors.
+        var failed: [Int] = []
+        /// The pages with little or no text layer that OCR didn't reach.
         var unread: [Int] = []
         /// Why OCR didn't reach `unread`.
         var stoppedBy: Stop?
+        /// Locked with a password: nothing in it can be read.
+        var locked = false
 
         enum Stop: Equatable, Sendable { case pageLimit, time(seconds: Int64) }
 
@@ -64,20 +72,25 @@ enum AskClaudeReading {
         /// What Claude is told about OCR, or nil when no page needed it.
         var ocrNote: String? {
             func have(_ pages: [Int]) -> String { pages.count == 1 ? "has" : "have" }
+            func named(_ pages: [Int]) -> String { AskClaudeReading.pages(pages) }
             var sentences: [String] = []
             if !recognized.isEmpty {
-                sentences.append("\(AskClaudeReading.pages(recognized).capitalizedFirst) of \(pageCount) \(have(recognized)) no text layer, so \(recognized.count == 1 ? "it was" : "they were") read by OCR on this Mac: a word may be misread.")
+                sentences.append("\(named(recognized).capitalizedFirst) of \(pageCount) \(have(recognized)) little or no text layer, so \(recognized.count == 1 ? "it was" : "they were") read by OCR on this Mac: a word may be misread.")
             }
+            if !blank.isEmpty { sentences.append("OCR found no words on \(named(blank)).") }
+            if !failed.isEmpty { sentences.append("Text recognition failed on \(named(failed)).") }
             if let stoppedBy, !unread.isEmpty {
-                let why: String
-                switch stoppedBy {
-                case .pageLimit: why = "at its \(AskClaudeReading.maxOCRPages)-page limit"
-                case .time(let seconds): why = "after \(seconds) second\(seconds == 1 ? "" : "s")"
-                }
                 let past = pageCount > AskClaudeReading.maxPages ? ", nor anything past page \(AskClaudeReading.maxPages)" : ""
-                sentences.append(recognized.isEmpty
-                    ? "\(AskClaudeReading.pages(unread).capitalizedFirst) of \(pageCount) \(have(unread)) no text layer, and OCR stopped \(why), before reading \(unread.count == 1 ? "it" : "them")\(past)."
-                    : "OCR stopped \(why), so \(AskClaudeReading.pages(unread)) \(unread.count == 1 ? "wasn’t" : "weren’t") read\(past).")
+                switch stoppedBy {
+                case .pageLimit:
+                    sentences.append("OCR stopped at its \(AskClaudeReading.maxOCRPages)-page limit, so \(named(unread)) \(unread.count == 1 ? "wasn’t" : "weren’t") read\(past).")
+                case .time(let seconds) where recognized.isEmpty && blank.isEmpty && failed.isEmpty:
+                    // Nothing finished: most likely Vision's first request, which keeps going and
+                    // leaves it ready for the next one.
+                    sentences.append("\(named(unread).capitalizedFirst) of \(pageCount) \(have(unread)) little or no text layer, and OCR stopped after \(seconds) second\(seconds == 1 ? "" : "s"), before reading \(unread.count == 1 ? "it" : "them")\(past). Text recognition can take a minute or two the first time it runs, so asking again shortly may work.")
+                case .time(let seconds):
+                    sentences.append("OCR stopped after \(seconds) second\(seconds == 1 ? "" : "s"), so \(named(unread)) \(unread.count == 1 ? "wasn’t" : "weren’t") read\(past).")
+                }
             }
             return sentences.isEmpty ? nil : sentences.joined(separator: " ")
         }
@@ -132,13 +145,15 @@ enum AskClaudeReading {
         }
     }
 
-    /// A file's text for `read_text`: `extract`'s, and for a PDF, pages without a text layer read
-    /// by OCR — the first `maxOCRPages` of them, within `ocrTimeout`. Nil as `extract` is.
+    /// A file's text for `read_text`: `extract`'s, and for a PDF, pages with little or no text
+    /// layer read by OCR — the first `maxOCRPages` of them, within `ocrTimeout`. Nil when the file
+    /// can't be read at all, as `extract` is; a PDF OCR found nothing in comes back with no text,
+    /// saying why.
     ///
     /// `ocrWithin` and `recognize` are for tests: a time limit that can run out, and a reading
-    /// that can be slow.
+    /// that can be slow, fail (nil) or find nothing.
     nonisolated static func read(_ path: String, ocrWithin limit: Duration = ocrTimeout,
-                                 recognize: @escaping @Sendable (CGImage) -> String = { PictureText.text(in: $0, reader: "Ask Claude") }) async -> Read? {
+                                 recognize: @escaping @Sendable (CGImage) -> String? = { PictureText.text(in: $0, reader: "Ask Claude") }) async -> Read? {
         guard isPaged(path) else { return await extract(path).map { Read(pages: $0, pageCount: $0.count) } }
         let url = URL(fileURLWithPath: path)
         let layer = await bounded(extractTimeout, work: { await textLayer(url) }) {
@@ -146,8 +161,10 @@ enum AskClaudeReading {
             return nil
         }
         guard let layer else { return nil }
-        let scanned = layer.locked ? [] : layer.pages.indices.filter { isNearEmpty(layer.pages[$0]) }
         var read = Read(pages: layer.pages, pageCount: layer.pageCount)
+        // A locked PDF's pages draw blank, so OCR would only say it found nothing.
+        if layer.locked { read.locked = true; return read }
+        let scanned = layer.pages.indices.filter { isNearEmpty(layer.pages[$0]) }
         if !scanned.isEmpty {
             let reading = Array(scanned.prefix(maxOCRPages))
             let progress = OCRProgress()
@@ -155,11 +172,17 @@ enum AskClaudeReading {
                 for index in reading {
                     guard !progress.isStopped else { return false }
                     // Drawn on the lane, read off it: Vision is not PDFKit, and a lane held across
-                    // it would stall every other PDF read behind this one.
+                    // it would stall every other PDF read behind this one. The crop box, as the
+                    // text layer and every viewer show the page; capped, for a page laid out one
+                    // picture pixel to a point.
                     let image = await PDFKitSerialAccess.perform {
-                        CGPDFDocument(url as CFURL)?.page(at: index + 1).flatMap(PictureText.bitmap(of:)).map(SendableImage.init)
+                        CGPDFDocument(url as CFURL)?.page(at: index + 1)
+                            .flatMap { PictureText.bitmap(of: $0, box: .cropBox, longestSide: PictureText.readSize) }
+                            .map(SendableImage.init)
                     }
-                    let text = await offTaskThreads { image.map { recognize($0.image) } ?? "" }
+                    // A page that waited out the time on the lane isn't read.
+                    guard !progress.isStopped else { return false }
+                    let text = await offTaskThreads { image.flatMap { recognize($0.image) } }
                     progress.add(index, text)
                 }
                 return true
@@ -170,15 +193,21 @@ enum AskClaudeReading {
             if !finished {
                 Logger.shared.warning("Ask Claude: OCR of \(url.lastPathComponent) took over \(limit); using the pages it read")
             }
-            let recognized = progress.texts
-            for (index, text) in recognized where text.count > layer.pages[index].count { read.pages[index] = text }
-            read.recognized = recognized.keys.sorted()
-            read.unread = scanned.filter { recognized[$0] == nil }
+            let results = progress.texts
+            for index in scanned {
+                guard let result = results[index] else { continue }
+                guard let text = result?.trimmingCharacters(in: .whitespacesAndNewlines) else { read.failed.append(index); continue }
+                if text.isEmpty { read.blank.append(index) }
+                else if text.count > layer.pages[index].trimmingCharacters(in: .whitespacesAndNewlines).count {
+                    read.pages[index] = text
+                    read.recognized.append(index)
+                }
+            }
+            // By key: a page Vision failed on holds nil, and was read.
+            read.unread = scanned.filter { !results.keys.contains($0) }
             if !read.unread.isEmpty { read.stoppedBy = finished ? .pageLimit : .time(seconds: limit.components.seconds) }
         }
-        // A scan whose time ran out is still answered, so Claude can say why it has no text.
-        if case .time = read.stoppedBy { return read }
-        return read.hasText ? read : nil
+        return read.hasText || read.ocrNote != nil ? read : nil
     }
 
     private struct TextLayer: Sendable {
@@ -378,16 +407,17 @@ enum AskClaudeReading {
     }
 }
 
-/// The pages OCR has read so far, and whether the time for it ran out.
+/// The pages OCR has read so far — each one's text, or nil where Vision failed — and whether the
+/// time for it ran out.
 private final class OCRProgress: @unchecked Sendable {
     private let lock = NSLock()
-    private var read: [Int: String] = [:]
+    private var read: [Int: String?] = [:]
     private var stopped = false
 
-    var texts: [Int: String] { lock.withLock { read } }
+    var texts: [Int: String?] { lock.withLock { read } }
     var isStopped: Bool { lock.withLock { stopped } }
     /// Kept only while there is time: a page read after it ran out is not counted as read.
-    func add(_ index: Int, _ text: String) { lock.withLock { if !stopped { read[index] = text } } }
+    func add(_ index: Int, _ text: String?) { lock.withLock { if !stopped { read[index] = text } } }
     func stop() { lock.withLock { stopped = true } }
 }
 
