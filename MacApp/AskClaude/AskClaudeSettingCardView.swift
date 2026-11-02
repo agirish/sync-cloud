@@ -136,6 +136,7 @@ struct AskClaudeSettingCardView: View {
                 ForEach(choices, id: \.value) { Text($0.label).tag($0.value) }
             }
             .pickerStyle(.segmented)
+            .accentedSegments(hue)
             .labelsHidden()
             .controlSize(.small)
             .fixedSize()
