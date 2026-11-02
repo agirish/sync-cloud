@@ -1,6 +1,7 @@
 import SwiftUI
 import Foundation
 import Events
+import FileExplorer
 import Sync
 
 /// One jump target within a provider pane: a folder to hop to, identified by its path relative to
@@ -146,6 +147,7 @@ public final class FolderJumpStore: ObservableObject {
     @Published public private(set) var favoriteOrder: [String] = []
 
     private let defaults: UserDefaults
+    nonisolated(unsafe) private var change: NSObjectProtocol?
     static let pinnedKey = "folderJumpPinnedByRoot"
     static let recentsKey = "folderJumpRecentsByRoot"
     /// How many recents are kept **per root**, and — since v4.4 — how many the sidebar's one global
@@ -257,6 +259,19 @@ public final class FolderJumpStore: ObservableObject {
         // existed. Seeding it here would mean writing to defaults during a read, which is exactly
         // how a misread destroys the thing it misread (see `storedMap`'s three states).
         favoriteOrder = defaults.stringArray(forKey: Self.favoriteOrderKey) ?? []
+        // **Reset All Settings takes recents and stays while the app runs** (it keeps pins and
+        // their order). Held here, they went back to disk with the next folder visited.
+        change = observeDefaultsChanges(of: defaults) { [weak self] in self?.forgetWhatWasRemoved() }
+    }
+
+    deinit { if let change { NotificationCenter.default.removeObserver(change) } }
+
+    /// Drops a list whose key has gone while this store holds it. Nothing here removes either key —
+    /// an empty list is written, not removed — so a key gone under a held list was taken from
+    /// outside, and writing it back would undo that.
+    private func forgetWhatWasRemoved() {
+        if !recentsByRoot.isEmpty, defaults.object(forKey: Self.recentsKey) == nil { recentsByRoot = [:] }
+        if !staysByRoot.isEmpty, defaults.object(forKey: Self.staysKey) == nil { staysByRoot = [:] }
     }
 
     /// The composite key one favorite is identified by across the whole section.

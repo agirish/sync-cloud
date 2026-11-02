@@ -151,6 +151,9 @@ import Sync
         defaults.set("cursive", forKey: "editorPDFSignatureFace")
         defaults.set("claude-opus-4-1", forKey: "askClaudeModel")
         defaults.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
+        defaults.set(Data("[]".utf8), forKey: FileSyncManager.rejectionsDefaultsKey)
+        defaults.set(["a"], forKey: "folderJumpPinnedByRoot")
+        defaults.set(Data("{}".utf8), forKey: "folderJumpRecentsByRoot")
         defaults.set(RootsMigration.currentStamp, forKey: RootsMigration.stampKey)
         defaults.set(["iCloud"], forKey: RootsMigration.handledProviderIdsKey)
         defaults.set(RootsMigration.iCloudRootMoveStamp, forKey: RootsMigration.iCloudRootMoveStampKey)
@@ -159,8 +162,9 @@ import Sync
         let kept = Set((defaults.persistentDomain(forName: test.suiteName) ?? [:]).keys)
             .filter(SettingsResetKeeps.keeps)
         // The hidden list, three limits, this month's Ask Claude spend, Refine's history, totals, last,
-        // both rule stores and their flag, the signatures, and the three roots marks.
-        #expect(kept.count == 15, "\(kept.sorted())")
+        // both rule stores and their flag, the signatures, the rejections, the pins, and the three
+        // roots marks.
+        #expect(kept.count == 17, "\(kept.sorted())")
 
         // Key by key, so the hidden list is there at every change the reset makes — a reader on
         // another thread never sees it gone. Removing the domain and writing it back would not be.
@@ -194,6 +198,7 @@ import Sync
         #expect(defaults.bool(forKey: FileSyncManager.filingRulesMigratedKey))
         #expect(defaults.data(forKey: "editorPDFSavedSignatures") != nil)
         #expect(defaults.string(forKey: "editorPDFSignatureFace") == nil)
+        #expect(defaults.object(forKey: "folderJumpRecentsByRoot") == nil)
         #expect(defaults.string(forKey: "askClaudeModel") == nil)
         #expect(defaults.object(forKey: FileSyncManager.usesCloudDefaultsKey) == nil)
         #expect(settings.dateToleranceSeconds == 1)
@@ -211,7 +216,7 @@ import Sync
         let parts = AdvancedSettingsTab.resetAllExplanation.components(separatedBy: "Kept:")
         try #require(parts.count == 2)
         // "Rules", the name Organize shows; "Automations" is a retired workspace name.
-        for phrase in ["Rules", "saved signatures", "folders you hid from Claude", "spending limits",
+        for phrase in ["Rules", "saved signatures", "Favorites and pins", "folders you hid from Claude", "spending limits",
                        "what it has cost", "API key", "files on disk"] {
             #expect(parts[1].contains(phrase), "\(phrase)")
             #expect(!parts[0].contains(phrase), "\(phrase) is also named as removed")

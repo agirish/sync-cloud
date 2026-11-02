@@ -13627,19 +13627,23 @@ A re-tune of what every Clear install looks like, so main-only on the Tint-slide
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The 0.55 scrim at Clear | RECORDED — not owed |
 
-## Reset All Settings keeps the Never show Claude list, spending limits, spend records, Rules, saved signatures and migration marks — main only
+## Reset All Settings keeps the Never show Claude list, spending limits, spend records, what he made by hand and migration marks — main only
 
 2026-11-01, for v7.0. On `main`: Reset All Settings clears the defaults domain key by key and leaves
 what `SettingsResetKeeps` names — `askClaudeHiddenFolders`, the three spending limits
 (`askClaudeMonthlyLimitUSD`, `tidyFilingMonthlyBudgetUSD`, `tidyFilingTotalBudgetUSD`), Ask Claude's
 `askClaudeSpend.<month>` totals, Refine's `tidyFilingSpend{History,Totals,Last}`, Automations
 (`automationRules`), the legacy `tidyFilingRules` with `tidyFilingRulesMigratedToAutomations`, the
-`.unreadable` copies of those stores, `editorPDFSavedSignatures`, and the migration marks
+`.unreadable` copies of those stores, `editorPDFSavedSignatures`, what else he made by hand
+(`tidyFilingRejections`, `tidyFilingWordRejections`, `tidyIgnoredGroupKeys`, `keptRiskyNames_v1`,
+`personVetoLog_v1`, `browseSidebarFavoritePlaces`, `folderJumpPinnedByRoot`, `folderJumpFavoriteOrder`,
+and their `.unreadable` copies), and the migration marks
 (`rootsModelStamp`, `rootsModelHandledProviderIds`, `iCloudRootMoveStamp`, `organizeScopePathStamp`,
 `paneBarArrangementMigration`, `browseSidebarFavoritePlacesMigration`, `paneColumnWidthFloorLifted`).
 Before, `removePersistentDomain` took them all, and with the roots marks gone the next launch would
 move the tabs the app had written since a second time (`RootsMigration.stampKey`'s note: a second
-pass prepends again, `Documents/Documents/…`). Every line still removes the whole domain, so Refine's spend record and caps and the
+pass prepends again, `Documents/Documents/…`). Jump's recents and stays and Edit's recent files
+still reset, and their stores now drop a list removed under them instead of writing it back. Every line still removes the whole domain, so Refine's spend record and caps and the
 Automations go with a reset there (and `v6.x`'s saved signatures); none has Ask Claude:
 
 ```sh

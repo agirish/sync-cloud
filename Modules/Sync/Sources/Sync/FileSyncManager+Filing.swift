@@ -1335,7 +1335,7 @@ extension FileSyncManager {
     // MARK: Rejections + "Try another" (negative feedback)
 
     /// Where remembered rejections are persisted (JSON, in `filingRuleDefaults`).
-    public static let rejectionsDefaultsKey = "tidyFilingRejections"
+    public nonisolated static let rejectionsDefaultsKey = "tidyFilingRejections"
 
     /// Folders the user has rejected for files, so suggestions never re-offer them.
     public var filingRejections: [FilingRejection] {
@@ -1352,7 +1352,7 @@ extension FileSyncManager {
     }
 
     /// Where the word-level rejections (GU) are persisted, beside the whole-name ones.
-    public static let wordRejectionsDefaultsKey = "tidyFilingWordRejections"
+    public nonisolated static let wordRejectionsDefaultsKey = "tidyFilingWordRejections"
 
     /// The words the user has said are no reason for a folder — see ``FilingWordRejection``.
     public var filingWordRejections: [FilingWordRejection] {

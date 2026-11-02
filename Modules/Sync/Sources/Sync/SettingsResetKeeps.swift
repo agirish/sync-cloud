@@ -9,10 +9,13 @@ import Foundation
 /// - **The spend records** — Ask Claude's per-month totals, and Refine's history, lifetime totals,
 ///   last scan and the `.unreadable` copies of a history or total that failed to read. They are what
 ///   the limits count against: wiped, this month's limit started again from nothing.
-/// - **Rules and saved signatures** — rules and signatures he made, not settings he chose. The
-///   legacy filing rules go with their "migrated" flag: under a reset flag, the next launch would
-///   migrate them again, bringing back any legacy rule he had since deleted or changed. The Add
-///   Signature sheet's last face, pen and smoothing reset.
+/// - **What he made by hand** — Rules, saved signatures, Organize's "not here" corrections, the
+///   duplicate groups he kept separate, the risky names he kept, the people he said a file was not
+///   about, and his sidebar Favorites, Jump pins and their order. Choices about his files, not
+///   settings. The legacy filing rules go with their "migrated" flag: under a reset flag, the next
+///   launch would migrate them again, bringing back any legacy rule he had since deleted or changed.
+///   What he only passed through resets: Jump recents and stays, recent files, the Add Signature
+///   sheet's last face, pen and smoothing.
 /// - **Migration marks.** What the running app writes after a reset — its tabs, at once — is in the
 ///   current shape, so a reset that dropped the mark had the next launch migrate it again — and the
 ///   roots moves are not idempotent: `RootsMigration.stampKey`'s note says a second pass prepends
@@ -37,10 +40,22 @@ public enum SettingsResetKeeps {
         FileSyncManager.rulesDefaultsKey,
         FileSyncManager.rulesDefaultsKey + ".unreadable",
         FileSyncManager.filingRulesMigratedKey,
+        FileSyncManager.rejectionsDefaultsKey,
+        FileSyncManager.rejectionsDefaultsKey + ".unreadable",
+        FileSyncManager.wordRejectionsDefaultsKey,
+        FileSyncManager.wordRejectionsDefaultsKey + ".unreadable",
+        FileSyncManager.ignoreDefaultsKey,
+        KeptNamesStore.defaultsKey,
+        PersonVetoLog.defaultsKey,
         OrganizeScopeDefaults.stampKey,
         // Keys of packages this one cannot see, by their strings; Dashboard's tests, which see them
         // all, pin that each still agrees with its owner.
         "editorPDFSavedSignatures",             // EditorPDFSignatureStore.key
+        "browseSidebarFavoritePlaces",          // SidebarFavoritePlaces.storageKey
+        "browseSidebarFavoritePlaces.unreadable", // SidebarFavoritePlaces.salvageKey
+        "folderJumpPinnedByRoot",               // FolderJumpStore.pinnedKey
+        "folderJumpPinnedByRoot.unreadable",    // FolderJumpStore.salvageKey(for: pinnedKey)
+        "folderJumpFavoriteOrder",              // FolderJumpStore.favoriteOrderKey
         "rootsModelStamp",                      // RootsMigration.stampKey
         "rootsModelHandledProviderIds",         // RootsMigration.handledProviderIdsKey
         "iCloudRootMoveStamp",                  // RootsMigration.iCloudRootMoveStampKey

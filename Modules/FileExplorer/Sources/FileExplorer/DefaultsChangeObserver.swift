@@ -19,7 +19,7 @@ import Foundation
 /// signature store's decodes every saved signature's strokes. The flag is released before the
 /// reread reads, so a write landing after the read schedules the next one, and the reread always
 /// reads what is stored now — the last write is never lost.
-func observeDefaultsChanges(of defaults: UserDefaults,
+public func observeDefaultsChanges(of defaults: UserDefaults,
                             _ reread: @escaping @MainActor @Sendable () -> Void) -> NSObjectProtocol {
     let scheduled = DefaultsRereadPending()
     return NotificationCenter.default.addObserver(

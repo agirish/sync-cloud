@@ -38,7 +38,7 @@ public final class KeptNamesStore: ObservableObject {
 
     /// Versioned so a future change of key shape (should keeping ever become provider-scoped) can
     /// tell an old set from a new one instead of silently reinterpreting it.
-    static let defaultsKey = "keptRiskyNames_v1"
+    nonisolated static let defaultsKey = "keptRiskyNames_v1"
 
     public init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults

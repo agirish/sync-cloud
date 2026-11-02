@@ -64,6 +64,19 @@ import Testing
         #expect(!SettingsResetKeeps.keeps(AskClaudePrivacy.readsFilesKey))
     }
 
+    /// What he made by hand, through the stores that write it.
+    @MainActor
+    @Test func theChoicesHeMadeByHandAreKept() {
+        let (defaults, name) = suite()
+        defer { wipeDefaultsSuite(name) }
+        KeptNamesStore(userDefaults: defaults).keep("CON.txt")
+        defaults.set(["group-key"], forKey: FileSyncManager.ignoreDefaultsKey)
+        defaults.set(Data("[]".utf8), forKey: PersonVetoLog.defaultsKey)
+        let keys = storedKeys(name, defaults)
+        #expect(keys.count == 3, "\(keys.sorted())")
+        for key in keys { #expect(SettingsResetKeeps.keeps(key), "\(key) would be reset") }
+    }
+
     /// The marks that say which shape stored data is in. Without them the next launch migrates what
     /// the app wrote after the reset a second time.
     @Test func theMigrationMarksAreKept() {
@@ -87,7 +100,8 @@ import Testing
         let (defaults, name) = suite()
         defer { wipeDefaultsSuite(name) }
         let corrupt = Data("[{\"id\": \"x".utf8)
-        for key in [FileSyncManager.automationRulesDefaultsKey, FileSyncManager.rulesDefaultsKey] {
+        for key in [FileSyncManager.automationRulesDefaultsKey, FileSyncManager.rulesDefaultsKey,
+                    FileSyncManager.rejectionsDefaultsKey, FileSyncManager.wordRejectionsDefaultsKey] {
             defaults.set(corrupt, forKey: key)
             _ = FileSyncManager.decodePersistedStore([AutomationRule].self, from: defaults, key: key,
                                                      describing: "rules")
@@ -95,8 +109,8 @@ import Testing
         defaults.set(true, forKey: FileSyncManager.filingRulesMigratedKey)
 
         let keys = storedKeys(name, defaults)
-        // Both stores, both set-aside copies, and the flag.
-        #expect(keys.count == 5, "\(keys.sorted())")
+        // Four stores, their set-aside copies, and the flag.
+        #expect(keys.count == 9, "\(keys.sorted())")
         for key in keys { #expect(SettingsResetKeeps.keeps(key), "\(key) would be reset") }
     }
 
@@ -106,7 +120,8 @@ import Testing
         // may ride the prefix.
         for key in ["askClaudeModel", "askClaudeReadsFiles", "askClaudePanelWidth", "askClaudeAnswers",
                     "tidyFilingUseCloud", "tidyFilingCloudModel", "tidyFilingReadContents",
-                    "tidyFilingRejections", "editorPDFSignatureFace", "editorPDFSignaturePen",
+                    "folderJumpRecentsByRoot", "folderJumpStaysByRoot", "editorRecentFiles",
+                    "ignoredItems_v1_iCloud", "editorPDFSignatureFace", "editorPDFSignaturePen",
                     "editorPDFSignatureSmoothing", "folderSources", "sourceOrder", "appearanceMode",
                     "hasCompletedSetup", "hasSeenFirstRunWelcome", "setupPrimarySourceId", "browseTabs",
                     "organizeScopePath", "root_override_iCloud", "askClaudeSpend"] {

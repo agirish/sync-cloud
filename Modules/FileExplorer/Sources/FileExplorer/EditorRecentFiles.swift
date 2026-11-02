@@ -89,6 +89,8 @@ public final class EditorRecentFiles: ObservableObject {
     private var missing: Set<String> = []
     /// The shared list's activation observer, held for the app's life.
     private var activation: NSObjectProtocol?
+    /// Follows the domain, for a reset.
+    nonisolated(unsafe) private var change: NSObjectProtocol?
     /// Which look at the disk is the latest, so an older one finishing late cannot write over it.
     private var generation = 0
     /// The newest look whose answer has landed.
@@ -102,6 +104,22 @@ public final class EditorRecentFiles: ObservableObject {
         shown = Self.shown(stored, missing: [])
         // The first look at the disk, so a file deleted while the app was not running is not listed.
         Task { await refreshShown() }
+        // **Reset All Settings takes the list while the app runs.** Held here, it went back to disk
+        // with the next file opened, and stayed in File ▸ Open Recent until then.
+        if let defaults {
+            change = observeDefaultsChanges(of: defaults) { [weak self] in self?.forgetIfRemoved() }
+        }
+    }
+
+    deinit { if let change { NotificationCenter.default.removeObserver(change) } }
+
+    /// Drops the list when its key has gone while this store holds it. Nothing here removes the key —
+    /// an emptied list is written as `[]` — so a key gone under a held list was taken from outside.
+    private func forgetIfRemoved() {
+        guard let defaults, !stored.isEmpty, defaults.object(forKey: Self.key) == nil else { return }
+        stored = []
+        missing = []
+        shown = []
     }
 
     // MARK: - Changes

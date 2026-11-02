@@ -517,7 +517,7 @@ extension FileSyncManager {
 
     // MARK: Keep separate (persistent ignore)
 
-    private static let ignoreDefaultsKey = "tidyIgnoredGroupKeys"
+    nonisolated static let ignoreDefaultsKey = "tidyIgnoredGroupKeys"
 
     /// The set of duplicate-group keys the user has chosen to keep separate (persisted).
     public var ignoredDuplicateKeys: Set<String> {

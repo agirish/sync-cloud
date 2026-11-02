@@ -309,4 +309,31 @@ import FileExplorerTestSupport
         guard a.bytes.count == b.bytes.count else { return .max }
         return zip(a.bytes, b.bytes).reduce(0) { $0 + ($1.0 == $1.1 ? 0 : 1) }
     }
+
+    // MARK: Reset All Settings
+
+    /// **Reset All Settings takes the list while the app runs.** The store held it in memory, so it
+    /// stayed in File ▸ Open Recent and went back to disk with the next file opened.
+    @Test func aListRemovedFromTheDomainIsNotWrittenBack() throws {
+        let defaults = ScratchDefaults("EditorRecentFilesReset")
+        let recents = store(defaults)
+        recents.record(path: "/n/old.md", kind: .text, at: t0)
+        try #require(recents.stored.count == 1)
+        defaults.removeObject(forKey: EditorRecentFiles.key)
+        #expect(recents.stored.isEmpty && recents.shown.isEmpty, "the removed list is still offered")
+        recents.record(path: "/n/new.md", kind: .text, at: t0.addingTimeInterval(1))
+        let written = try JSONDecoder().decode([EditorRecentFile].self,
+                                               from: try #require(defaults.data(forKey: EditorRecentFiles.key)))
+        #expect(written.map(\.path) == ["/n/new.md"], "the removed list was written back")
+    }
+
+    /// Emptied by the person, the list is written as `[]`, not removed — so nothing here reads its
+    /// own Remove as a reset.
+    @Test func removingTheLastFileWritesAnEmptyList() {
+        let defaults = ScratchDefaults("EditorRecentFilesEmptied")
+        let recents = store(defaults)
+        recents.record(path: "/n/one.md", kind: .text, at: t0)
+        recents.remove(path: "/n/one.md")
+        #expect(defaults.object(forKey: EditorRecentFiles.key) != nil)
+    }
 }

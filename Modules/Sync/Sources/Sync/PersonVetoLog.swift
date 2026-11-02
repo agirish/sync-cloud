@@ -60,7 +60,7 @@ public final class PersonVetoLog: ObservableObject {
 
     /// Enough to show a per-person count and a recent example without becoming a diary.
     static let capacity = 60
-    static let defaultsKey = "personVetoLog_v1"
+    nonisolated static let defaultsKey = "personVetoLog_v1"
 
     private let userDefaults: UserDefaults
 
