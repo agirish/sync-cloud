@@ -46,18 +46,20 @@ public enum DestinationSuggestions {
     ///   - parent: the folder they are in.
     ///   - siblingFolders: names of the folders in `parent`, the items' own included or not.
     public static func yearFolder(for itemPaths: [String], in parent: String,
-                                  siblingFolders: [String]) -> DestinationSuggestion? {
+                                  siblingFolders: [String],
+                                  latestYear: Int = Calendar.current.component(.year, from: Date()) + 5) -> DestinationSuggestion? {
         let itemNames = itemPaths.map { (PaneBrowsePath.normalized($0) as NSString).lastPathComponent }
         guard !itemNames.isEmpty, !parent.isEmpty else { return nil }
         let peers = siblingFolders.filter { !itemNames.contains($0) }
-        let yearPeers = Set(peers.filter { isYear($0) })
+        let yearPeers = Set(peers.filter { isYear($0, latestYear: latestYear) })
         guard yearPeers.count >= minimumYearPeers, yearPeers.count * 2 > peers.count else { return nil }
 
         var year: String?
         for name in itemNames {
-            guard !isYear(name) else { return nil }
-            let stem = (name as NSString).deletingPathExtension
-            let found = Set(years(in: stem.isEmpty ? name : stem))
+            guard !isYear(name, latestYear: latestYear) else { return nil }
+            // The whole name, extension and all: "16.09.2026" and "Trip.2026" keep their year after
+            // the last dot, and no file extension is a year standing alone.
+            let found = Set(years(in: name, latestYear: latestYear))
             guard found.count == 1, let only = found.first else { return nil }
             if let year, year != only { return nil }
             year = only
@@ -71,25 +73,43 @@ public enum DestinationSuggestions {
             reason: exists ? "Like the years beside it" : "New, like the years beside it")
     }
 
-    /// A folder named exactly as a year: four digits, 1900–2099.
-    static func isYear(_ name: String) -> Bool {
-        name.count == 4 && years(in: name) == [name]
+    /// A folder named exactly as a year.
+    static func isYear(_ name: String, latestYear: Int) -> Bool {
+        name.count == 4 && years(in: name, latestYear: latestYear) == [name]
     }
 
-    /// Four-digit years in `text`, 1900–2099, not part of a longer number — "Sep 2026" yields 2026,
-    /// "ai-9N8Z26-1756449254992" yields nothing.
-    static func years(in text: String) -> [String] {
+    /// **The years `text` names, as words on their own** — 1900 to `latestYear`, four ASCII digits
+    /// with no letter, digit or underscore against either side. "Sep 2026", "16.09.2026" and
+    /// "2026-09-16" name 2026; a camera's "IMG_2047", "DSC_1999", "1920x1080", a flight "AI2016"
+    /// and a PNR's digits name none — a counter that happens to fall in range is not a year, and a
+    /// suggestion offered on one would be confidently wrong.
+    ///
+    /// A span written "2025-26" (a fiscal year, a season) names BOTH years, so it never has one
+    /// home: the two-digit tail is read as the next year when it is exactly that.
+    static func years(in text: String, latestYear: Int) -> [String] {
+        guard latestYear >= 1900 else { return [] }   // an empty range would trap below
         let chars = Array(text)
+        func isWordCharacter(_ c: Character?) -> Bool {
+            guard let c else { return false }
+            return c.isLetter || c.isNumber || c == "_"
+        }
         var found: [String] = []
         var index = 0
         while index + 4 <= chars.count {
             let window = chars[index..<index + 4]
-            let before = index > 0 ? chars[index - 1] : nil
-            let after = index + 4 < chars.count ? chars[index + 4] : nil
             if window.allSatisfy(\.isASCIIDigitCharacter),
-               !(before?.isASCIIDigitCharacter ?? false), !(after?.isASCIIDigitCharacter ?? false),
-               let value = Int(String(window)), (1900...2099).contains(value) {
+               !isWordCharacter(index > 0 ? chars[index - 1] : nil),
+               !isWordCharacter(index + 4 < chars.count ? chars[index + 4] : nil),
+               let value = Int(String(window)), (1900...latestYear).contains(value) {
                 found.append(String(window))
+                // "2025-26": a dash, then exactly two digits that are the next year's last two.
+                let tail = index + 5
+                if tail + 2 <= chars.count, chars[index + 4] == "-" || chars[index + 4] == "–",
+                   chars[tail..<tail + 2].allSatisfy(\.isASCIIDigitCharacter),
+                   !isWordCharacter(tail + 2 < chars.count ? chars[tail + 2] : nil),
+                   Int(String(chars[tail..<tail + 2])) == (value + 1) % 100 {
+                    found.append(String(value + 1))
+                }
                 index += 4
             } else {
                 index += 1

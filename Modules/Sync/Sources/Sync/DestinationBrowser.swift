@@ -442,11 +442,14 @@ public enum DestinationBrowser {
         if normalizedPath == normalizedRoot { return [] }
         let parent = (normalizedPath as NSString).deletingLastPathComponent
 
+        // Relativized as the PATH, not its parent: a linked folder's own parent is `~`, which is in
+        // no root, so asking about the parent sent `~/Documents` to the escape below and the footer
+        // read "iCloud › abhishek › Documents".
         guard !normalizedRoot.isEmpty,
-              let relative = PathBoundary.relativize(parent, under: normalizedRoot, links: links) else {
+              let relative = PathBoundary.relativize(normalizedPath, under: normalizedRoot, links: links) else {
             return parent.split(separator: "/").map(String.init)
         }
-        return [(normalizedRoot as NSString).lastPathComponent] + relative.split(separator: "/").map(String.init)
+        return [(normalizedRoot as NSString).lastPathComponent] + relative.split(separator: "/").dropLast().map(String.init)
     }
 
     /// The chosen folder as breadcrumb components, with `providerName` standing in for the root's

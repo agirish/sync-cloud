@@ -1062,11 +1062,12 @@ import EventsTestSupport
         let returned = try #require(maker.range(of: "return created"))
         #expect(told.lowerBound < returned.lowerBound)
         let create = code[try #require(code.range(of: "private func createFolderAndCommit() {")).upperBound...]
-        let made = try #require(create.range(of: "makeFolder(named: name, in: newFolderParent)"))
+        // Bound by `guard let`: a call whose nil result were ignored would commit after a failure.
+        let made = try #require(create.range(of: "guard let created = makeFolder(named: name, in: newFolderParent) else { return }"))
         let commit = try #require(create.range(of: "onCommit(created)"))
         #expect(made.lowerBound < commit.lowerBound)
         let suggested = code[try #require(code.range(of: "private func commit() {")).upperBound...]
-        let madeSuggested = try #require(suggested.range(of: "makeFolder(named: name, in: parent)"))
+        let madeSuggested = try #require(suggested.range(of: "guard makeFolder(named: name, in: parent) != nil else { return }"))
         let commitSuggested = try #require(suggested.range(of: "onCommit(highlighted)\n"))
         #expect(madeSuggested.lowerBound < commitSuggested.lowerBound)
     }

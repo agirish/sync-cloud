@@ -892,4 +892,17 @@ import Foundation
         #expect(DestinationBrowser.crumbs(for: trips, under: "/icloud", providerName: "iCloud", links: [:])
                 == ["home", "Documents", "Travel", "Trips"])
     }
+
+    /// **The linked folder itself, under a real home path.** Its parent is the home folder, which no
+    /// root holds, so a trail built from the parent read "iCloud › Users › me › Documents" (the
+    /// footer showed "iCloud › me › Documents"). A one-component home hid it: `dropFirst` removed
+    /// the only wrong crumb. Found in review, 2026-11-01.
+    @Test func testTheLinkedFolderItselfReadsFromTheProvider() {
+        let links: PathBoundary.LinkedFolders = ["/icloud": ["Documents": "/Users/me/Documents"]]
+        #expect(DestinationBrowser.trail(of: "/Users/me/Documents", under: "/icloud", links: links) == ["icloud"])
+        #expect(DestinationBrowser.crumbs(for: "/Users/me/Documents", under: "/icloud", providerName: "iCloud", links: links)
+                == ["iCloud", "Documents"])
+        #expect(DestinationBrowser.crumbs(for: "/Users/me/Documents/Travel", under: "/icloud", providerName: "iCloud",
+                                          links: links) == ["iCloud", "Documents", "Travel"])
+    }
 }

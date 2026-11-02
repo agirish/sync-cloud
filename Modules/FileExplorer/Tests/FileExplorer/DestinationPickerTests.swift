@@ -82,7 +82,7 @@ import Sync
     @Test func theRailDrawsTheParentAndTheFullPath() throws {
         let picker = try OrganizeScopeCallSiteTests.source("DestinationPicker.swift")
         let rail = try OrganizeScopeCallSiteTests.body(of: "private var shortcutsRail: some View {", in: picker)
-        #expect(rail.contains("detail: Self.recentDetail(for: path, among: recents, under: requestRoot,"),
+        #expect(rail.contains("detail: Self.recentDetail(for: path, among: moves, under: requestRoot,"),
                 "the rail's recents no longer carry their parent")
         #expect(picker.contains(".help((path as NSString).abbreviatingWithTildeInPath)"),
                 "the rail's rows lost their full-path tooltip")
@@ -93,18 +93,22 @@ import Sync
     /// The item's own folder, then up one, then up two — the short moves, first in the rail.
     @Test func testHereRowsClimbFromTheItemsFolder() {
         let rows = DestinationPicker.hereRows(itemFolder: "/p/Travel/Trips/IN-US", root: "/p", rootName: "iCloud", links: [:])
-        #expect(rows.map(\.name) == ["IN-US", "Trips", "Travel"])
-        #expect(rows.map(\.path) == ["/p/Travel/Trips/IN-US", "/p/Travel/Trips", "/p/Travel"])
-        #expect(rows.map(\.detail) == ["now here", "up one", "up two"])
+        #expect(rows.map(\.name) == ["IN-US", "Trips", "Travel", "iCloud"])
+        #expect(rows.map(\.path) == ["/p/Travel/Trips/IN-US", "/p/Travel/Trips", "/p/Travel", "/p"])
+        #expect(rows.map(\.detail) == ["now here", "up one", "up two", "top"])
     }
 
     /// The climb stops at the root, which reads as the provider.
     @Test func testHereRowsStopAtTheRoot() {
-        #expect(DestinationPicker.hereRows(itemFolder: "/p/Travel", root: "/p", rootName: "iCloud", links: [:])
-            .map(\.name) == ["Travel", "iCloud"])
-        #expect(DestinationPicker.hereRows(itemFolder: "/p", root: "/p", rootName: "iCloud", links: [:])
-            .map(\.name) == ["iCloud"])
-        #expect(DestinationPicker.hereRows(itemFolder: "/elsewhere/x", root: "/p", rootName: "iCloud", links: [:]).isEmpty)
+        let travel = DestinationPicker.hereRows(itemFolder: "/p/Travel", root: "/p", rootName: "iCloud", links: [:])
+        #expect(travel.map(\.name) == ["Travel", "iCloud"])
+        #expect(travel.map(\.detail) == ["now here", "up one"])
+        let atRoot = DestinationPicker.hereRows(itemFolder: "/p", root: "/p", rootName: "iCloud", links: [:])
+        #expect(atRoot.map(\.name) == ["iCloud"])
+        #expect(atRoot.map(\.detail) == ["now here"])
+        // Outside the root: the root row alone, so the provider is always one click away.
+        #expect(DestinationPicker.hereRows(itemFolder: "/elsewhere/x", root: "/p", rootName: "iCloud", links: [:])
+            .map(\.path) == ["/p"])
     }
 
     /// Above `~/Documents` the real parent is the home folder, which is not in iCloud Drive; through
@@ -145,5 +149,74 @@ import Sync
         // Already there (made by hand since): drawn once, as itself.
         let made = folders + [DestinationFolder(path: "/p/2026")]
         #expect(DestinationColumn.entries(made, ghost: ghost).count == made.count)
+    }
+
+    // MARK: - Review fixes, 2026-11-01
+
+    /// Items not in the opening folder (a Downloads file filed into iCloud; a selection from two
+    /// folders): nothing claims "now here" — the root row alone, with no rung named.
+    @Test func testHereClaimsNothingWhenTheItemsAreElsewhere() {
+        let rows = DestinationPicker.hereRows(itemFolder: "/p", root: "/p", rootName: "iCloud", itemsAreHere: false, links: [:])
+        #expect(rows.map(\.name) == ["iCloud"])
+        #expect(rows.map(\.detail) == [nil])
+        #expect(DestinationPicker.railFocus(highlighted: "", itemFolder: "/p", itemsAreHere: false) == "")
+        #expect(DestinationPicker.railFocus(highlighted: "", itemFolder: "/p", itemsAreHere: true) == "/p")
+        #expect(DestinationPicker.railFocus(highlighted: "/p/A", itemFolder: "/p", itemsAreHere: true) == "/p/A")
+    }
+
+    /// Create and Move only for the suggestion that is new AND picked.
+    @Test func testANewFolderIsMadeOnlyForThePickedNewSuggestion() {
+        let new = DestinationSuggestion(path: "/p/2026", name: "2026", isNew: true, reason: "")
+        let made = DestinationSuggestion(path: "/p/2026", name: "2026", isNew: false, reason: "")
+        #expect(DestinationPicker.picksNewFolder(highlighted: "/p/2026", suggestion: new))
+        #expect(!DestinationPicker.picksNewFolder(highlighted: "/p/2025", suggestion: new))
+        #expect(!DestinationPicker.picksNewFolder(highlighted: "", suggestion: new))
+        #expect(!DestinationPicker.picksNewFolder(highlighted: "/p/2026", suggestion: made))
+        #expect(!DestinationPicker.picksNewFolder(highlighted: "/p/2026", suggestion: nil))
+    }
+
+    /// A destination spelled through iCloud's link is the `~/Documents` folder every node names.
+    @Test func testALinkSpelledDestinationIsReadTheRealWay() {
+        let links: PathBoundary.LinkedFolders = ["/icloud": ["Documents": "/home/Documents"]]
+        #expect(DestinationPicker.canonical("/icloud/Documents/Travel", under: "/icloud", links: links) == "/home/Documents/Travel")
+        #expect(DestinationPicker.canonical("/home/Documents/Travel/", under: "/icloud", links: links) == "/home/Documents/Travel")
+        #expect(DestinationPicker.canonical("/icloud/Downloads", under: "/icloud", links: links) == "/icloud/Downloads")
+        #expect(DestinationPicker.canonical("/elsewhere", under: "/icloud", links: links) == "/elsewhere")
+    }
+
+    /// A folder source inside Documents is its own place, not iCloud's through the link.
+    @Test func testAPlaceBelongsToTheSourceThatHoldsItMostClosely() {
+        let links: PathBoundary.LinkedFolders = ["/icloud": ["Documents": "/home/Documents"]]
+        let sources = [(name: "iCloud", root: "/icloud"), (name: "Clients", root: "/home/Documents/Clients")]
+        #expect(DestinationPlace.closestOwner(of: "/home/Documents/Clients", among: sources, links: links)?.name == "Clients")
+        #expect(DestinationPlace.closestOwner(of: "/home/Documents/Clients/Acme", among: sources, links: links)?.name == "Clients")
+        #expect(DestinationPlace.closestOwner(of: "/home/Documents/Travel", among: sources, links: links)?.name == "iCloud")
+        #expect(DestinationPlace.closestOwner(of: "/home/Downloads", among: sources, links: links) == nil)
+        // A root that normalized to nothing (the startup disk) owns nothing.
+        #expect(DestinationPlace.closestOwner(of: "/home/x", among: [(name: "Mac", root: "")], links: links) == nil)
+    }
+
+    /// Each folder once across the rail, where it first appears; emptied sections go.
+    @Test func testEachFolderAppearsOnceInTheRail() {
+        func place(_ path: String) -> DestinationPlace { DestinationPlace(name: path, path: path, root: "/p", rootName: "P") }
+        let sections = [DestinationPlaceSection(title: "Favorites", places: [place("/p/A"), place("/p/B"), place("/p/A")]),
+                        DestinationPlaceSection(title: "Locations", places: [place("/p/B")]),
+                        DestinationPlaceSection(title: "Recents", places: [place("/p/C"), place("/p/Here")])]
+        let out = DestinationPlaceSection.deduplicated(sections, excluding: ["/p/Here"])
+        #expect(out.map(\.title) == ["Favorites", "Recents"])
+        #expect(out.map { $0.places.map(\.path) } == [["/p/A", "/p/B"], ["/p/C"]])
+    }
+
+    /// The column scroll lands on a column boundary: as many whole columns as fit, ending at the last.
+    @Test func testTheColumnsOpenOnWholeColumns() {
+        #expect(DestinationPicker.firstWholeColumn(count: 5, width: 540, columnWidth: 211) == 3)   // 2 fit
+        #expect(DestinationPicker.firstWholeColumn(count: 5, width: 640, columnWidth: 211) == 2)   // 3 fit
+        #expect(DestinationPicker.firstWholeColumn(count: 2, width: 900, columnWidth: 211) == 0)   // all fit
+        #expect(DestinationPicker.firstWholeColumn(count: 3, width: 100, columnWidth: 211) == 2)   // narrower than one
+        #expect(DestinationPicker.firstWholeColumn(count: 0, width: 500, columnWidth: 211) == 0)
+        // The slack past the last column is what lets the leading edge land on a boundary.
+        #expect(DestinationPicker.trailingSlack(width: 540, columnWidth: 211) == 118)
+        #expect(DestinationPicker.trailingSlack(width: 422, columnWidth: 211) == 0)
+        #expect(DestinationPicker.trailingSlack(width: 0, columnWidth: 211) == 0)
     }
 }

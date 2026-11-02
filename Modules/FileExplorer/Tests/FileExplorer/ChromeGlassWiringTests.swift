@@ -118,7 +118,10 @@ import Foundation
         // Since TE289 nothing is picked at open and the rail rests on the item's own folder ("now
         // here"), which `railFocus` derives from the request — still at rest from the first frame.
         #expect(picker.contains("_highlighted = State(initialValue: \"\")"))
-        #expect(picker.contains("private var railFocus: String { highlighted.isEmpty ? itemFolder : highlighted }"))
+        #expect(picker.contains("highlighted.isEmpty ? (itemsAreHere ? itemFolder : \"\") : highlighted"))
+        // Hosted on the scroll view's content, with the region it shows, as the sidebar's lenses are.
+        #expect(picker.contains("visibleRegion: railVisibleRegion)"))
+        #expect(picker.contains(".selectionLensTracksVisibleRegion(railVisibleRegion)"))
     }
 
     @Test func organizesRailHostReadsWhatTheRailShows() throws {

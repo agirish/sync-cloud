@@ -3003,7 +3003,8 @@ struct ContentView: View {
             places: pendingPlaces,
             showHidden: syncManager.showHiddenFiles,
             onCommit: { destination in
-                DestinationRecents.record(destination, providerRoot: pending.request.providerRoot)
+                DestinationRecents.record(destination, providerRoot: destinationRecentsRoot(
+                    for: destination, requestRoot: pending.request.providerRoot))
                 pending.onCommit(destination)
                 pendingDestination = nil
             },

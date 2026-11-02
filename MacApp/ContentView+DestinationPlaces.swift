@@ -3,53 +3,63 @@ import Dashboard
 import FileExplorer
 import Sync
 
-/// **The window sidebar's lists, handed to the Move picker** — Favorites, Recents, Locations, in
-/// the sidebar's own order and from the very rows it draws (`folderSidebarRows`,
+/// **The window sidebar's lists, handed to the Move picker** — Favorites, Locations and Recents,
+/// in the sidebar's own section order and from the very rows it draws (`folderSidebarRows`,
 /// `folderSidebarShortcutRows`, `folderSidebarLocationRows`), so the picker never offers a
 /// different list from the one beside it. FileExplorer cannot read Dashboard's stores itself.
 extension ContentView {
     func destinationPlaceSections() -> [DestinationPlaceSection] {
-        let providers = folderSidebarProviders
-        let favorites = folderSidebarShortcutRows.compactMap(place(for:))
-            + FolderSidebarModel.rows(folderSidebarRows, in: .pinned).map { place(for: $0, providers: providers) }
-        let recents = FolderSidebarModel.rows(folderSidebarRows, in: .recents).map { place(for: $0, providers: providers) }
+        let sources = destinationPlaceSources()
+        let favorites = folderSidebarShortcutRows.compactMap { place(for: $0, sources: sources) }
+            + FolderSidebarModel.rows(folderSidebarRows, in: .pinned).compactMap { place(for: $0, sources: sources) }
         // The Trash is a place to look, not a place to file into.
-        let locations = folderSidebarLocationRows.filter { $0.band != .trash }.compactMap(place(for:))
-        return [DestinationPlaceSection(title: "Favorites", places: favorites),
-                DestinationPlaceSection(title: "Recents", places: recents),
-                DestinationPlaceSection(title: "Locations", places: locations)]
-            .filter { !$0.places.isEmpty }
+        let locations = folderSidebarLocationRows.filter { $0.band != .trash }.compactMap { place(for: $0, sources: sources) }
+        let recents = FolderSidebarModel.rows(folderSidebarRows, in: .recents).compactMap { place(for: $0, sources: sources) }
+        // Headed as the sidebar heads it: Recents, or Revisited / Frequent in those modes, which
+        // show a different list under the same section.
+        return DestinationPlaceSection.deduplicated([
+            DestinationPlaceSection(title: "Favorites", places: favorites),
+            DestinationPlaceSection(title: "Locations", places: locations),
+            DestinationPlaceSection(title: folderSidebarRecentsMode.rawValue, places: recents),
+        ])
+    }
+
+    /// Every source the picker can root at, expanded. A source whose root is the startup disk ("/")
+    /// is left out: "/" normalizes to no root at all, and as an owner it would claim every folder
+    /// on the Mac and re-root the columns at nothing.
+    func destinationPlaceSources() -> [(name: String, root: String)] {
+        folderSidebarProviders
+            .map { (name: $0.displayName, root: PaneBrowsePath.normalized(($0.rootPath as NSString).expandingTildeInPath)) }
+            .filter { !$0.root.isEmpty }
     }
 
     /// A favorite or recent folder: its root is the source it was visited in, joined through
     /// `PathBoundary` so an iCloud folder under Documents comes back in `~/Documents` spelling.
-    private func place(for row: FolderSidebarRow, providers: [CloudProvider]) -> DestinationPlace {
-        let provider = providers.first {
-            FolderJumpStore.key(forRoot: ($0.rootPath as NSString).expandingTildeInPath) == row.root
-        }
-        let root = provider.map { ($0.rootPath as NSString).expandingTildeInPath } ?? row.root
+    private func place(for row: FolderSidebarRow, sources: [(name: String, root: String)]) -> DestinationPlace? {
+        guard let source = sources.first(where: { FolderJumpStore.key(forRoot: $0.root) == row.root }) else { return nil }
         return DestinationPlace(name: row.name,
-                                path: PathBoundary.join(root: root, relative: row.relativePath),
-                                root: root,
-                                rootName: provider?.displayName ?? (root as NSString).lastPathComponent,
-                                detail: row.detail ?? row.sourceName,
-                                symbol: "folder")
+                                path: PathBoundary.join(root: source.root, relative: row.relativePath),
+                                root: source.root, rootName: source.name,
+                                detail: row.detail ?? row.sourceName, symbol: "folder")
     }
 
-    /// A location or a standard place. It browses under the source that holds it (Documents under
-    /// iCloud), or as its own root when no source does. The startup disk is left out: its root,
-    /// "/", is no root the picker's columns can draw.
-    private func place(for row: SidebarSourceRow) -> DestinationPlace? {
+    /// A location or a standard place. It browses under the source that holds it most closely — its
+    /// own, when it is a source's root (a folder source at `~/Documents/Clients` is Clients, not
+    /// iCloud through the link) — or as its own root when no source holds it.
+    private func place(for row: SidebarSourceRow, sources: [(name: String, root: String)]) -> DestinationPlace? {
         let path = PaneBrowsePath.normalized(row.absolutePath)
         guard !path.isEmpty, row.isAvailable else { return nil }
-        let owner = folderSidebarProviders
-            .map { (name: $0.displayName, root: ($0.rootPath as NSString).expandingTildeInPath) }
-            .filter { PathBoundary.relativize(path, under: $0.root) != nil }
-            .max { $0.root.count < $1.root.count }
+        let owner = DestinationPlace.closestOwner(of: path, among: sources)
         return DestinationPlace(name: row.name, path: path,
-                                root: owner?.root ?? path,
-                                rootName: owner?.name ?? row.name,
-                                detail: nil,
-                                symbol: row.symbol)
+                                root: owner?.root ?? path, rootName: owner?.name ?? row.name,
+                                detail: nil, symbol: row.symbol)
+    }
+
+    /// The source a move's destination belongs to, for its Recent Moves: the picker now reaches
+    /// every source, and recording a Dropbox destination under the iCloud item's provider was
+    /// refused outright (`DestinationRecents.record` keeps only folders inside the root it is given).
+    func destinationRecentsRoot(for destination: String, requestRoot: String) -> String {
+        DestinationPlace.closestOwner(of: PaneBrowsePath.normalized(destination), among: destinationPlaceSources())?.root
+            ?? requestRoot
     }
 }

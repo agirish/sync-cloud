@@ -354,8 +354,10 @@ import Sync
         let defaults = ScratchDefaults("SelectionLensCallSiteTests-picker")
         defaults.set(LiquidGlassHue.blue.rawValue, forKey: LiquidGlass.hueKey)
         let picker = DestinationPicker(
-            request: DestinationRequest(sourcePaths: ["/x/a.txt"], firstItemName: "a.txt", isMove: true,
-                                        providerRoot: dir.path, providerName: "Projects", openAt: dir.path),
+            // The item in the folder the card opens on, so the "now here" row is the highlighted one;
+            // an item from elsewhere opens with nothing highlighted.
+            request: DestinationRequest(sourcePaths: [dir.appendingPathComponent("a.txt").path], firstItemName: "a.txt",
+                                        isMove: true, providerRoot: dir.path, providerName: "Projects", openAt: dir.path),
             availableSize: CGSize(width: 700, height: 540), recents: [],
             onCommit: { _ in }, onChooseOther: {}, onCancel: {})
             .defaultAppStorage(defaults)
