@@ -53,6 +53,13 @@ struct AskClaudeSettingsBridge {
     /// A folder setting's Choose… (TE290 step 9): the panel opens; Claude never fills a path in.
     var chooseFolder: @MainActor (_ item: UUID, _ row: Int) -> Void = { _, _ in }
     var resetOpenAt: @MainActor (_ item: UUID, _ row: Int) -> Void = { _, _ in }
+    /// People (TE290 step 9, part 2): why they can't be changed, if they can't; a person by id; and
+    /// a person's fields saved, moved, or added from the card.
+    var peopleRefusal: @MainActor () -> String? = { nil }
+    var person: @MainActor (_ id: String) -> Person? = { _ in nil }
+    var savePerson: @MainActor (_ item: UUID, _ row: Int, _ person: Person) -> Void = { _, _, _ in }
+    var movePerson: @MainActor (_ item: UUID, _ row: Int, _ up: Bool) -> Void = { _, _, _ in }
+    var addPerson: @MainActor (_ item: UUID, _ row: Int, _ person: Person) -> Void = { _, _, _ in }
 }
 
 /// What a change does beyond its value, shown beside it on a card (TE290 step 6): judged from the
@@ -115,6 +122,9 @@ struct AskClaudeSettingCardView: View {
     @State private var typedItems: [Int: String] = [:]
     /// The row whose text field has the caret, so leaving one saves it.
     @FocusState private var focusedField: Int?
+    /// A person's fields as typed, by row and field, until they're saved.
+    @State private var personDrafts: [Int: [PersonField: String]] = [:]
+    @FocusState private var personFocus: PersonFocus?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -218,6 +228,16 @@ struct AskClaudeSettingCardView: View {
     @ViewBuilder
     private func belowControl(_ index: Int, _ entry: SettingEntry, _ current: SettingValue?, _ pick: SettingValue?,
                               _ suggesting: Bool) -> some View {
+        if entry.id == "people.edit" || entry.id == "people.add" {
+            peopleControl(index, entry, pick)
+        } else {
+            controlBelow(index, entry, current, pick, suggesting)
+        }
+    }
+
+    @ViewBuilder
+    private func controlBelow(_ index: Int, _ entry: SettingEntry, _ current: SettingValue?, _ pick: SettingValue?,
+                              _ suggesting: Bool) -> some View {
         switch entry.control {
         case .secret:
             keyControl(index)
@@ -304,6 +324,106 @@ struct AskClaudeSettingCardView: View {
                 .controlSize(.small)
                 .help("Claude’s suggestion")
         }
+    }
+
+    // MARK: People
+
+    enum PersonField: CaseIterable {
+        case name, relationship, fullNames, aliases
+
+        var title: String {
+            switch self {
+            case .name: "Name"
+            case .relationship: "Relationship"
+            case .fullNames: "Full names, comma-separated"
+            case .aliases: "Also called, comma-separated"
+            }
+        }
+    }
+
+    struct PersonFocus: Hashable {
+        let row: Int
+        let field: PersonField
+    }
+
+    /// A person's fields, as Settings' editor has them, saved on Return or on leaving a field; or
+    /// Add Person's, in the card rather than a sheet, so the chat stays where it is.
+    @ViewBuilder
+    private func peopleControl(_ index: Int, _ entry: SettingEntry, _ pick: SettingValue?) -> some View {
+        let row = card.rows[index]
+        if let refusal = bridge.peopleRefusal() {
+            Label(refusal, systemImage: "lock").scaledFont(.footnote).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if entry.id == "people.add" {
+            let suggested: String? = { if case .string(let x)? = pick { x } else { nil } }()
+            let blank = Person(id: "", displayName: suggested ?? "")
+            personFields(index, blank, commits: false)
+            Button("Add Person") { bridge.addPerson(itemID, index, draftPerson(index, blank)); personDrafts[index] = nil }
+                .controlSize(.small)
+                .disabled(draftPerson(index, blank).displayName.trimmingCharacters(in: .whitespaces).isEmpty)
+        } else if let target = row.target, let person = bridge.person(target) {
+            personFields(index, person, commits: true)
+            HStack(spacing: 6) {
+                Button("Move Up") { bridge.movePerson(itemID, index, true) }.controlSize(.small)
+                Button("Move Down") { bridge.movePerson(itemID, index, false) }.controlSize(.small)
+            }
+        } else {
+            Text("That person isn’t in the list any more.").scaledFont(.footnote).foregroundStyle(.secondary)
+        }
+        if let outcome = row.outcome {
+            HStack(spacing: 4) {
+                Label(outcome, systemImage: "checkmark.circle").foregroundStyle(.green)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 4)
+                if bridge.offersUndo(itemID, index) {
+                    Button("Undo") { bridge.undo(itemID, index) }.controlSize(.small)
+                }
+            }
+            .scaledFont(.footnote)
+        }
+    }
+
+    @ViewBuilder
+    private func personFields(_ index: Int, _ person: Person, commits: Bool) -> some View {
+        ForEach(PersonField.allCases, id: \.self) { field in
+            TextField(field.title, text: Binding(get: { personDrafts[index]?[field] ?? Self.text(field, of: person) },
+                                                 set: { personDrafts[index, default: [:]][field] = $0 }))
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+                .focused($personFocus, equals: PersonFocus(row: index, field: field))
+                .onSubmit { if commits { commitPerson(index, person) } }
+                .accessibilityLabel(field.title)
+        }
+        .onChange(of: personFocus) { was, now in
+            if commits, was?.row == index, now?.row != index { commitPerson(index, person) }
+        }
+    }
+
+    static func text(_ field: PersonField, of person: Person) -> String {
+        switch field {
+        case .name: person.displayName
+        case .relationship: person.relationship ?? ""
+        case .fullNames: person.fullNames.joined(separator: ", ")
+        case .aliases: person.aliases.joined(separator: ", ")
+        }
+    }
+
+    /// The person with what's typed in place of their fields.
+    private func draftPerson(_ index: Int, _ person: Person) -> Person {
+        let draft = personDrafts[index] ?? [:]
+        let list = { (field: PersonField, now: [String]) in
+            draft[field].map { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } } ?? now
+        }
+        return Person(id: person.id, displayName: draft[.name] ?? person.displayName,
+                      relationship: draft[.relationship].map { $0.isEmpty ? nil : $0 } ?? person.relationship,
+                      fullNames: list(.fullNames, person.fullNames), aliases: list(.aliases, person.aliases))
+    }
+
+    private func commitPerson(_ index: Int, _ person: Person) {
+        guard personDrafts[index] != nil else { return }
+        let edited = draftPerson(index, person)
+        personDrafts[index] = nil
+        if edited != person { bridge.savePerson(itemID, index, edited) }
     }
 
     // MARK: Text and folders

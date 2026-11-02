@@ -335,10 +335,11 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
     }
 
-    /// Whether `entry` can be a card in this version: its control can, and it isn't one of
-    /// People's, which come with their own fields (TE290 step 9, part 2).
+    /// Whether `entry` can be a card in this version: its control can, it is one of the lists, or
+    /// it is a person or Add Person, which bring their own fields (TE290 step 9).
     static func cardHolds(_ entry: SettingEntry) -> Bool {
-        (cardHolds(entry.control) || SettingsLists.ids.contains(entry.id)) && !entry.id.hasPrefix("people.")
+        if entry.id.hasPrefix("people.") { return entry.id == "people.edit" || entry.id == "people.add" }
+        return cardHolds(entry.control) || SettingsLists.ids.contains(entry.id)
     }
 
     /// Puts a card of settings in the chat. Every item is checked first — a setting that exists,
@@ -418,6 +419,17 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     /// nil for an app-wide setting.
     private static func target(_ given: String?, of entry: SettingEntry, _ lookup: SettingsLookup) -> Result<String?, Refused> {
         guard entry.target != .app else { return .success(nil) }
+        if entry.target == .person {
+            let people = lookup.people()
+            guard let given, let person = people.first(where: { $0.id == given })
+                    ?? people.first(where: { $0.displayName.compare(given, options: .caseInsensitive) == .orderedSame }) else {
+                return .failure(Refused(outcome: AskClaudeToolOutcome(
+                    result: people.isEmpty ? "There are no people to edit yet. Show people.add for Add Person."
+                        : "\(entry.label) is for one person: give target, one of " + people.map(\.displayName).joined(separator: ", ") + ".",
+                    isError: true, step: "Which person?")))
+            }
+            return .success(person.id)
+        }
         let sources = lookup.settings?.availableProviders ?? []
         guard let given, let source = sources.first(where: { $0.id == given || $0.displayName == given }) else {
             return .failure(Refused(outcome: AskClaudeToolOutcome(

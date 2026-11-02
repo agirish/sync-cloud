@@ -182,7 +182,7 @@ import FileExplorer
         defer { wipeDefaultsSuite(suite) }
         let lookup = SettingsLookup(defaults: defaults, settings: SettingsManager(userDefaults: defaults),
                                     keyIsSaved: { false }, hiddenCount: { 0 }, isHidden: { _ in false },
-                                    loginItemIsOn: { false })
+                                    loginItemIsOn: { false }, people: { [Person(id: "jane", displayName: "Jane")] })
         let runner = tools(settingsLookup: lookup)
         var handles = AskClaudeHandles()
         func show(_ items: [[String: JSONFragment]], title: String? = nil) async -> AskClaudeToolOutcome {
@@ -224,7 +224,11 @@ import FileExplorer
         let inbox = await show([["id": .string("organize.inbox"), "pick": .string("To File")]])
         #expect(!inbox.isError && inbox.settings?.rows.first?.pick == "To File")
         #expect(await show([["id": .string("organize.inbox"), "pick": .string("To\u{202E}File")]]).isError)
-        #expect(await show([["id": .string("people.add")]]).result.contains("can’t be a card in this version"))
+        #expect(!(await show([["id": .string("people.add"), "pick": .string("Jane")]])).isError)
+        #expect(await show([["id": .string("people.edit")]]).result.contains("one of Jane"))
+        let jane = await show([["id": .string("people.edit"), "target": .string("jane")]])
+        #expect(!jane.isError && jane.settings?.rows == [AskClaudeSettingCard.Row(id: "people.edit", target: "jane")])
+        #expect(await show([["id": .string("people.remove"), "target": .string("Jane")]]).isError)
     }
 
     @Test func aFolderArgumentCannotClimbOutOfTheSource() {

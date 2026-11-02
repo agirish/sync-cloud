@@ -38,11 +38,15 @@ public struct SettingsLookup {
     public var loginItemIsOn: () async -> Bool
     /// Changed from Chat (TE290 step 5), newest first and through the hidden filter.
     public var changesFromChat: () -> [SettingsChange]
+    /// The people a People card can name (TE290 step 9).
+    public var people: () -> [Person]
 
     public init(defaults: UserDefaults, settings: SettingsManager?, keyIsSaved: @escaping () -> Bool,
                 hiddenCount: @escaping () -> Int, isHidden: @escaping (String) -> Bool,
                 loginItemIsOn: @escaping () async -> Bool,
-                changesFromChat: @escaping () -> [SettingsChange] = { [] }) {
+                changesFromChat: @escaping () -> [SettingsChange] = { [] },
+                people: @escaping () -> [Person] = { [] }) {
+        self.people = people
         self.defaults = defaults
         self.settings = settings
         self.keyIsSaved = keyIsSaved

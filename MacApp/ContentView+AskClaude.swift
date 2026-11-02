@@ -802,7 +802,7 @@ extension ContentView {
                 SettingsChangeLog.shared.visible(hiding: AskClaudePrivacy.hiddenFolders(in: .standard).map {
                     ($0 as NSString).lastPathComponent
                 })
-            })
+            }, people: { syncManager.filingPeopleStore?.people ?? [] })
     }
 
     /// What a settings card reads and does (TE290 step 4a), and the chat's undo of it (4b).
@@ -811,12 +811,16 @@ extension ContentView {
         let undo = askClaudeChat.settingsUndo
         let chat = askClaudeChat
         let lists = askClaudeLists
-        // A list's step is one item in or out (TE290 step 8): its target is the item.
+        let people = askClaudePeople
+        // A list's step is one item in or out (TE290 step 8): its target is the item. A person's
+        // is the whole person, and the order's every id in order (step 9).
         undo.read = { key in
+            if key.id.hasPrefix("people.") { return people.value(key.id, target: key.target) }
             if SettingsLists.ids.contains(key.id) { return lists.contains(key.id, scoped: key.target ?? "").map(SettingValue.bool) }
             return SettingsCatalog.entry(key.id).flatMap { lookup.currentValue($0, target: key.target) }
         }
         undo.write = { key, value in
+            if key.id.hasPrefix("people.") { return people.set(key.id, target: key.target, value) == .done }
             if SettingsLists.ids.contains(key.id) { return lists.set(key.id, scoped: key.target ?? "", present: value == .bool(true)) == .done }
             let done = SettingsWriter(defaults: .standard, settings: settings).write(key.id, value, target: key.target) == .done
             if done, SettingsWriter.appliedByDiscovery.contains(key.id) {
@@ -831,7 +835,7 @@ extension ContentView {
         AskClaudePanelWindow.settingsUndo = { [weak chat] in chat?.settingsUndo }
         return AskClaudeSettingsBridge(
             read: { lookup.currentValue($0, target: $1) },
-            targetName: { id in settings.availableProviders.first { $0.id == id }?.displayName ?? id },
+            targetName: { id in settings.availableProviders.first { $0.id == id }?.displayName ?? people.person(named: id)?.displayName ?? id },
             change: { askClaudeSettingChange($0, $1, $2) },
             openSettings: { _ = askClaudeToolsContext().showPlace("settings", $0.label, true) },
             offersUndo: { undo.offersUndo($0, row: $1) },
@@ -860,7 +864,15 @@ extension ContentView {
             resetOpenAt: { id, row in
                 guard let target = askClaudeChat.settingCard(id)?.rows[row].target else { return }
                 askClaudeSettingChange(id, row, nil) { settings.resetOpenAt(for: target); return .done }
-            })
+            },
+            peopleRefusal: { people.refusal },
+            person: { people.person(named: $0) },
+            savePerson: { id, row, person in askClaudePeopleEdit(id, row, key: .init(id: "people.edit", target: person.id), name: person.displayName) { people.update(person) } },
+            movePerson: { id, row, up in
+                guard let target = askClaudeChat.settingCard(id)?.rows[row].target, let person = people.person(named: target) else { return }
+                askClaudePeopleEdit(id, row, key: .init(id: "people.edit", target: nil), name: person.displayName, moved: up) { people.move(person.id, up: up) }
+            },
+            addPerson: { id, row, person in askClaudeAddPerson(id, row, person) })
     }
 
     /// A value in words for Claude: a folder setting's path is left out when it names something
@@ -913,6 +925,63 @@ extension ContentView {
         SettingsChangeLog.shared.record(SettingsChange(setting: entry.id, name: "Local folders", from: nil, to: nil,
                                                        fromLabel: nil, toLabel: "added \(name)", how: .card))
         askClaudeChat.tellClaude(hidden ? "They added a folder hidden from you as a source." : "They added \(name) as a folder source.")
+    }
+
+    /// People, through the store Settings edits (TE290 step 9).
+    var askClaudePeople: SettingsPeople { SettingsPeople(store: syncManager.filingPeopleStore) }
+
+    /// A person's fields saved, or a move, from a card: the step holds the person (or the order)
+    /// before and after, so Undo puts back exactly that while nothing has changed it since.
+    func askClaudePeopleEdit(_ id: UUID, _ index: Int, key: AskClaudeSettingsLedger.Key, name: String, moved up: Bool? = nil,
+                             _ write: () -> SettingsWriter.Outcome) {
+        let people = askClaudePeople
+        guard let before = people.value(key.id, target: key.target) else { return }
+        let outcome = write()
+        guard outcome == .done, let after = people.value(key.id, target: key.target), after != before else {
+            if case .refused(let why) = outcome { askClaudeChat.updateSettingCard(id) { $0.rows[index].refusal = why } }
+            return
+        }
+        let undo = askClaudeChat.settingsUndo
+        undo.record(AskClaudeSettingsStep(card: id, rows: [index],
+                                          changes: [.init(key: key, before: before, after: after, token: undo.token(key))],
+                                          name: "People", cardOnly: false))
+        let words: String
+        if let up {
+            words = "moved \(name) \(up ? "up" : "down")"
+        } else if case .string(let now) = after {
+            words = "saved \(SettingsPeople.words(now))"
+        } else {
+            words = "changed \(name)"
+        }
+        askClaudeChat.updateSettingCard(id) { card in
+            card.rows[index].refusal = nil
+            card.rows[index].outcome = words.prefix(1).uppercased() + words.dropFirst() + "."
+        }
+        SettingsChangeLog.shared.record(SettingsChange(setting: "people.edit", target: key.target, name: "People",
+                                                       from: before.stored, to: after.stored, fromLabel: nil, toLabel: words, how: .card))
+        askClaudeChat.tellClaude("They \(words) in People on your card.")
+    }
+
+    /// Add Person, from the card's own fields.
+    func askClaudeAddPerson(_ id: UUID, _ index: Int, _ person: Person) {
+        let added = askClaudePeople.add(name: person.displayName, relationship: person.relationship,
+                                        fullNames: person.fullNames, aliases: person.aliases)
+        guard let new = added.person else {
+            askClaudeChat.updateSettingCard(id) { $0.rows[index].refusal = added.refusal }
+            return
+        }
+        let key = AskClaudeSettingsLedger.Key(id: "people.add", target: new.id)
+        let undo = askClaudeChat.settingsUndo
+        let now = SettingValue.string(SettingsPeople.encode(new))
+        undo.record(AskClaudeSettingsStep(card: id, rows: [index], changes: [.init(key: key, before: .string(""), after: now, token: undo.token(key))],
+                                          name: "Add Person", cardOnly: false))
+        askClaudeChat.updateSettingCard(id) { card in
+            card.rows[index].refusal = nil
+            card.rows[index].outcome = "Added \(new.displayName)."
+        }
+        SettingsChangeLog.shared.record(SettingsChange(setting: "people.add", target: new.id, name: "People", from: "", to: now.stored,
+                                                       fromLabel: nil, toLabel: "added \(SettingsPeople.words(now.stored))", how: .card))
+        askClaudeChat.tellClaude("They added \(SettingsPeople.words(now.stored)) in People on your card.")
     }
 
     /// The four lists a card edits (TE290 step 8), through Settings' owners.
@@ -1012,6 +1081,20 @@ extension ContentView {
     func askClaudeSettingsStepped(_ step: AskClaudeSettingsStep, undone: Bool) {
         for change in step.changes {
             guard let entry = SettingsCatalog.entry(change.key.id) else { continue }
+            if entry.id.hasPrefix("people.") {
+                // A person, or the order: in words, never as stored JSON.
+                let now = undone ? change.before : change.after
+                let words: String = {
+                    guard case .string(let text) = now else { return "changed People" }
+                    if change.key.target == nil { return "put People back in their earlier order" }
+                    return text.isEmpty ? "removed the person they added" : "made it \(SettingsPeople.words(text))"
+                }()
+                SettingsChangeLog.shared.record(SettingsChange(setting: entry.id, target: change.key.target, name: "People",
+                                                               from: (undone ? change.after : change.before).stored, to: now.stored,
+                                                               fromLabel: nil, toLabel: words, how: undone ? .undo : .redo))
+                askClaudeChat.tellClaude("With \(undone ? "Undo" : "Redo"), they \(words) in People.")
+                continue
+            }
             if SettingsLists.ids.contains(entry.id), let scoped = change.key.target {
                 let present = (undone ? change.before : change.after) == .bool(true)
                 askClaudeRecordListEdit(entry, scoped: scoped, present: present, how: undone ? .undo : .redo)

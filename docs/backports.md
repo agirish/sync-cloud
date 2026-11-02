@@ -14089,3 +14089,16 @@ each holds the value that landed. Ask Claude exists only on `main` (see step 0b)
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## People on Ask Claude's cards (TE290 step 9, part 2) — main only
+
+2026-11-02, for v7.0. On `main`: a person in People can be a card with their name, relationship,
+full names and other names, plus Move Up and Move Down, and Add Person puts the same fields in the
+card instead of Settings' sheet. Each saves on Return or on leaving a field, through the
+`PeopleStore` Settings edits, with Undo; the card is read-only, in Settings' words, when there is
+no survey yet or people.json can't be read or repeats an ID. Ask Claude exists only on `main`
+(see step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

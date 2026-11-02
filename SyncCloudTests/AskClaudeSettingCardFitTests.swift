@@ -114,6 +114,21 @@ import Sync
         #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
     }
 
+    /// TE290 step 9, part 2: a person's fields and moves, Add Person, and a read-only roster.
+    @Test(arguments: [("people.edit", false), ("people.add", false), ("people.edit", true)])
+    func peopleCardsFit240(id: String, readOnly: Bool) {
+        var card = AskClaudeSettingCard(rows: [.init(id: id, target: id == "people.edit" ? "mother" : nil)])
+        card.rows[0].outcome = "Saved Mother Inlaw Maiden · mother-in-law · Mother I Maiden, Mother Father · also Mom."
+        let person = Person(id: "mother", displayName: "Mother Inlaw Maiden", relationship: "mother-in-law",
+                            fullNames: ["Mother I Maiden", "Mother Father Long Surname"], aliases: ["Mom", "Mother"])
+        let bridge = AskClaudeSettingsBridge(targetName: { _ in person.displayName }, offersUndo: { _, _ in true },
+                                             peopleRefusal: { readOnly ? "Can’t change people: people.json repeats an ID." : nil },
+                                             person: { _ in person })
+        let host = NSHostingController(rootView: AskClaudeSettingCardView(itemID: UUID(), card: card, bridge: bridge,
+                                                                          accent: .blue, hue: .blue))
+        #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
+    }
+
     @Test func aCardOfSeveralWithATitleFits240() {
         let card = AskClaudeSettingCard(title: "Hide Identical Files in Compare", rows: [
             .init(id: "sync.verifySameSize", pick: "true"),
