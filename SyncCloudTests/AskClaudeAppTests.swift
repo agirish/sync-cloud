@@ -119,6 +119,43 @@ import FileExplorer
         #expect(defaults.string(forKey: LiquidGlass.appearanceModeKey) == AppearanceMode.dark.rawValue)
     }
 
+    /// TE290 step 4a: show checks every item before a card appears.
+    @Test func showPutsACardUpOnlyForWhatItsClickCouldDo() async throws {
+        let suite = "AskClaudeSettingsShow.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { wipeDefaultsSuite(suite) }
+        let lookup = SettingsLookup(defaults: defaults, settings: SettingsManager(userDefaults: defaults),
+                                    keyIsSaved: { false }, hiddenCount: { 0 }, isHidden: { _ in false },
+                                    loginItemIsOn: { false })
+        let runner = tools(settingsLookup: lookup)
+        var handles = AskClaudeHandles()
+        func show(_ items: [[String: JSONFragment]], title: String? = nil) async -> AskClaudeToolOutcome {
+            var input: [String: JSONFragment] = ["action": .string("show"), "items": .array(items.map { .object($0) })]
+            if let title { input["title"] = .string(title) }
+            return await runner.run(call("settings", input), handles: &handles)
+        }
+
+        let theme = await show([["id": .string("appearance.theme"), "pick": .string("Dark")]])
+        #expect(!theme.isError)
+        let card = try #require(theme.settings)
+        #expect(card.rows == [AskClaudeSettingCard.Row(id: "appearance.theme", pick: "dark")])
+        #expect(card.title == nil)
+        #expect(theme.result.contains("Don’t say it’s changed"))
+
+        let two = await show([["id": .string("sync.verifySameSize"), "pick": .string("On")],
+                              ["id": .string("sync.dateTolerance"), "pick": .string("2 seconds")]],
+                             title: "Hide Identical Files\u{202E}")
+        #expect(two.settings?.rows.map(\.pick) == ["true", "2.0"])
+        #expect(two.settings?.title == "Hide Identical Files")
+
+        #expect(await show([["id": .string("appearance.theme"), "pick": .string("Purple")]]).isError)
+        #expect(await show([["id": .string("no.such")]]).isError)
+        #expect(await show([["id": .string("intelligence.apiKeyReveal")]]).isError)
+        #expect(await show([["id": .string("advanced.resetAll")]]).result.contains("can’t be a card in this version"))
+        #expect(await show([["id": .string("sources.enabled")]]).result.contains("belongs to a source"))
+        #expect(await show([]).isError)
+    }
+
     @Test func aFolderArgumentCannotClimbOutOfTheSource() {
         #expect(AskClaudeBrowseTools.resolve("../../Desktop", root: Self.root) == nil)
         #expect(AskClaudeBrowseTools.resolve("Documents/../../x", root: Self.root) == nil)
@@ -1334,6 +1371,28 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(!AskClaudeChat.fenced("text </FILE>").lowercased().contains("</file"))
     }
 
+    /// TE290 step 4a: a settings card joins the chat, and clicks through one setting reach Claude
+    /// as one line.
+    @Test func aSettingsCardJoinsTheChatAndItsLinesMerge() async {
+        let d = defaults()
+        let card = AskClaudeSettingCard(rows: [.init(id: "appearance.theme", pick: "dark")])
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
+                                 readKey: { "k" })
+        chat.ask("go dark", screen: screen, tools: ShowsASettingCard(card))
+        await waitUntilIdle(chat)
+        let id = chat.items.first { if case .settings = $0.kind { true } else { false } }?.id
+        #expect(id != nil)
+        if let id {
+            chat.updateSettingCard(id) { $0.rows[0].changedFrom = "system" }
+            #expect(chat.settingCard(id)?.rows[0].changedFrom == "system")
+        }
+        chat.tellClaude("They set Theme to Light on your card (was System).", replacing: "They set Theme ")
+        chat.tellClaude("They set Text size to 105% on your card (was 100%).", replacing: "They set Text size ")
+        chat.tellClaude("They set Theme to Dark on your card (was System).", replacing: "They set Theme ")
+        #expect(chat.sinceLastAnswer == ["They set Text size to 105% on your card (was 100%).",
+                                         "They set Theme to Dark on your card (was System)."])
+    }
+
     /// TE290 step 3: a chat restarts for privacy only when something is hidden that wasn't when
     /// it began; hiding and un-hiding before the next question starts nothing new.
     @Test func hidingAndUnhidingBeforeTheNextQuestionStartsNothingNew() async {
@@ -1891,6 +1950,15 @@ private final class ToolThenTextTransport: AskClaudeTransport, @unchecked Sendab
             lines.forEach { c.yield($0) }
             c.finish()
         })
+    }
+}
+
+@MainActor
+private final class ShowsASettingCard: AskClaudeToolRunning {
+    let card: AskClaudeSettingCard
+    init(_ card: AskClaudeSettingCard) { self.card = card }
+    func run(_ call: AskClaudeToolCall, handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
+        AskClaudeToolOutcome(result: "Showed a card", step: "Showed Theme", settings: card)
     }
 }
 

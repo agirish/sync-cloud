@@ -13881,3 +13881,16 @@ only on `main` (see step 0b).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Ask Claude shows settings as cards you click to change (TE290 step 4a) — main only
+
+2026-11-02, for v7.0. On `main`: the settings tool's show puts a card in the chat for each setting —
+its real control (switch, segmented, menu, stepper or slider) at the live value — and a click
+changes the setting through its owner (`SettingsWriter`), with the side effect Settings' own control
+has. Claude's pick is marked, with a Use button on menus; the card says what it changed from and
+tells Claude one line per setting. Settings Claude can't show yet still open Settings at the
+control. Ask Claude exists only on `main` (see step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

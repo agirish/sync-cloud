@@ -48,6 +48,7 @@ extension ContentView {
                                if let sends = choice.sends { askClaudeSend(sends) } else { askClaudeHolder.visibility.focusRequests += 1 }
                            },
                            onRuleCard: { askClaudeRuleCard($0, save: $1) },
+                           settingsBridge: askClaudeSettingsBridge,
                            onPlace: onPlace)
     }
 
@@ -756,16 +757,65 @@ extension ContentView {
                 }
                 return true
             },
-            settingsLookup: SettingsLookup(
-                defaults: .standard, settings: settings,
-                keyIsSaved: { AnthropicKeychain.isConfigured },
-                hiddenCount: { AskClaudePrivacy.hiddenFolders(in: .standard).count },
-                isHidden: { AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard)).isHidden($0) },
-                loginItemIsOn: {
-                    // macOS holds this one; read it fresh rather than trust a value nobody has read yet.
-                    await LoginItemController.shared.refresh().value
-                    return LoginItemController.shared.isOn
-                }))
+            settingsLookup: askClaudeSettingsLookup)
+    }
+
+    /// The settings tool's reads (TE290), over this window's SettingsManager.
+    var askClaudeSettingsLookup: SettingsLookup {
+        SettingsLookup(
+            defaults: .standard, settings: settings,
+            keyIsSaved: { AnthropicKeychain.isConfigured },
+            hiddenCount: { AskClaudePrivacy.hiddenFolders(in: .standard).count },
+            isHidden: { AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard)).isHidden($0) },
+            loginItemIsOn: {
+                // macOS holds this one; read it fresh rather than trust a value nobody has read yet.
+                await LoginItemController.shared.refresh().value
+                return LoginItemController.shared.isOn
+            })
+    }
+
+    /// What a settings card reads and does (TE290 step 4a).
+    var askClaudeSettingsBridge: AskClaudeSettingsBridge {
+        let lookup = askClaudeSettingsLookup
+        return AskClaudeSettingsBridge(
+            read: { lookup.currentValue($0, target: $1) },
+            targetName: { id in settings.availableProviders.first { $0.id == id }?.displayName ?? id },
+            change: { askClaudeSettingChange($0, $1, $2) },
+            openSettings: { _ = askClaudeToolsContext().showPlace("settings", $0.label, true) })
+    }
+
+    /// A click on a settings card: written through the setting's owner, remembered on the card as
+    /// "was", and told to Claude as one line per setting (TE290 step 4a).
+    func askClaudeSettingChange(_ id: UUID, _ index: Int, _ value: SettingValue) {
+        guard let card = askClaudeChat.settingCard(id), card.rows.indices.contains(index),
+              let entry = SettingsCatalog.entry(card.rows[index].id) else { return }
+        let row = card.rows[index]
+        let lookup = askClaudeSettingsLookup
+        let before = lookup.currentValue(entry, target: row.target)
+        guard before != value else { return }
+        let name = row.target.map { id in
+            "\(entry.label) for \(settings.availableProviders.first { $0.id == id }?.displayName ?? id)"
+        } ?? entry.label
+        let label = { (v: SettingValue?) in v.map { SettingsLookup.label($0, entry) } ?? "unknown" }
+        let prefix = "They set \(name) "
+        switch SettingsWriter(defaults: .standard, settings: settings).write(entry.id, value, target: row.target) {
+        case .done:
+            askClaudeChat.updateSettingCard(id) { card in
+                if card.rows[index].changedFrom == nil { card.rows[index].changedFrom = before?.stored }
+                card.rows[index].refusal = nil
+            }
+            let first = askClaudeChat.settingCard(id)?.rows[index].changedFrom
+                .flatMap { SettingsCatalog.value($0, for: entry) ?? AskClaudeSettingCardView.storedValue($0, like: value) } ?? before
+            if first == value {
+                askClaudeChat.tellClaude(prefix + "back to \(label(value)) on your card.", replacing: prefix)
+            } else {
+                let raises = entry.raises(from: first, to: value) ? " This raises Claude’s spending or access." : ""
+                askClaudeChat.tellClaude(prefix + "to \(label(value)) on your card (was \(label(first))).\(raises)", replacing: prefix)
+            }
+        case .refused(let why):
+            askClaudeChat.updateSettingCard(id) { $0.rows[index].refusal = why }
+            askClaudeChat.tellClaude(prefix + "to \(label(value)) on your card, and it wasn’t changed: \(why)", replacing: prefix)
+        }
     }
 }
 

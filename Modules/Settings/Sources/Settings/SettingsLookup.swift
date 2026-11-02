@@ -111,7 +111,25 @@ public struct SettingsLookup {
 
     // MARK: - Reading
 
-    func read(_ entry: SettingEntry) async -> Reading {
+    /// The value a card's control shows now, for `target` when the setting belongs to one. Read on
+    /// every draw, never stored: nil when the setting has no single value to show.
+    public func currentValue(_ entry: SettingEntry, target: String? = nil) -> SettingValue? {
+        if entry.id == "general.launchAtLogin" { return .bool(LoginItemController.shared.isOn) }
+        switch readNow(entry) {
+        case .value(let value):
+            return value
+        case .targets(let targets):
+            guard let target, let settings else { return nil }
+            if entry.id == "sources.enabled" { return .bool(settings.isEnabled(target)) }
+            let name = settings.availableProviders.first { $0.id == target }?.displayName
+            return targets.first { $0.name == name || $0.name == target }?.value
+        default:
+            return nil
+        }
+    }
+
+    /// `read` without the login item's fresh read, which is the one value that needs a wait.
+    func readNow(_ entry: SettingEntry) -> Reading {
         switch entry.storage {
         case .appStorage(let key, _, _):
             guard let base = entry.defaultValue else { return .notReadable }
@@ -124,6 +142,15 @@ public struct SettingsLookup {
             }
         case .settingsManager:
             return readManaged(entry)
+        default:
+            return .notReadable
+        }
+    }
+
+    func read(_ entry: SettingEntry) async -> Reading {
+        switch entry.storage {
+        case .appStorage, .settingsManager:
+            return readNow(entry)
         case .owner:
             switch entry.id {
             case "general.launchAtLogin": return .value(.bool(await loginItemIsOn()))
@@ -227,7 +254,7 @@ public struct SettingsLookup {
     }
 
     /// A value as Settings shows it: a choice's label when it is one.
-    static func label(_ value: SettingValue, _ entry: SettingEntry) -> String {
+    public static func label(_ value: SettingValue, _ entry: SettingEntry) -> String {
         switch entry.control {
         case .menu(let choices), .segmented(let choices), .swatches(let choices):
             if let choice = choices.first(where: { $0.value == value }) { return choice.label }

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Settings
 import Sync
 import Design
 import UniformTypeIdentifiers
@@ -42,6 +43,8 @@ struct AskClaudePanel: View {
     var onChoice: (UUID, Int) -> Void = { _, _ in }
     /// A rule card's Save (true) or Not Now (TE286).
     var onRuleCard: (UUID, Bool) -> Void = { _, _ in }
+    /// What a settings card reads and does (TE290).
+    var settingsBridge = AskClaudeSettingsBridge()
     /// Where the panel wants its window, top-left within `container` (AskClaudeWindow.swift).
     var onPlace: (CGRect) -> Void = { _ in }
 
@@ -366,6 +369,7 @@ struct AskClaudePanel: View {
                                            onDownloadCard: onDownloadCard,
                                            onFilingCard: onFilingCard,
                                            onPlanCard: onPlanCard, onChoice: onChoice, onRuleCard: onRuleCard,
+                                           settingsBridge: settingsBridge,
                                            isLatestReceipt: item.id == latestReceipt, isRunning: chat.isRunning)
                             // Rows that didn't change aren't redrawn as each word streams in.
                             .equatable()
@@ -596,6 +600,7 @@ private struct AskClaudeThreadRow: View, Equatable {
     let onPlanCard: (UUID, AskClaudePlanAction) -> Void
     let onChoice: (UUID, Int) -> Void
     let onRuleCard: (UUID, Bool) -> Void
+    let settingsBridge: AskClaudeSettingsBridge
     /// A card applies only once the question that offered it has finished.
     /// The newest receipt shows its summary; older ones fold to an icon, so the thread doesn't
     /// repeat “Sent screen …” under every answer.
@@ -704,6 +709,8 @@ private struct AskClaudeThreadRow: View, Equatable {
             planCard(plan)
         case .rule(let card):
             ruleCard(card)
+        case .settings(let card):
+            AskClaudeSettingCardView(itemID: item.id, card: card, bridge: settingsBridge, accent: accent, hue: hue)
         case .choices(let choices, let used):
             HStack(spacing: 6) {
                 ForEach(Array(choices.enumerated()), id: \.offset) { index, choice in

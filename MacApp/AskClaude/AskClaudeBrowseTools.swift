@@ -200,7 +200,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         guard let movedToBrowse, outcome.movedView == nil else { return outcome }
         return AskClaudeToolOutcome(result: outcome.result, isError: outcome.isError, step: outcome.step,
                                     movedView: movedToBrowse, passage: outcome.passage, download: outcome.download,
-                                    filing: outcome.filing, plan: outcome.plan, choices: outcome.choices)
+                                    filing: outcome.filing, plan: outcome.plan, choices: outcome.choices,
+                                    rule: outcome.rule, settings: outcome.settings)
     }
 
     /// What a Browse-pane call would refuse anyway (an unknown or hidden handle, a folder that isn't
@@ -308,13 +309,87 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                         step: ids.count == 1 ? "Read a setting" : "Read \(ids.count) settings")
         case "changed":
             return AskClaudeToolOutcome(result: await lookup.changed(), step: "Listed changed settings")
-        case "show", "set":
+        case "show":
+            return showSettings(call, lookup)
+        case "set":
             return AskClaudeToolOutcome(
-                result: "Not in this version yet. Open Settings at the setting with show_in_app (place settings, tab: the setting’s name) and say which choice to pick.",
-                isError: true, step: "Settings can’t be changed from chat yet")
+                result: "Not in this version yet. Show a card for it with show; their click changes it.",
+                isError: true, step: "Claude can’t change settings itself yet")
         default:
             return AskClaudeToolOutcome(result: "action is find, get, changed, show or set.", isError: true, step: "No such settings action")
         }
+    }
+
+    /// The controls a card can hold in this version (TE290 step 4a); the rest open Settings.
+    static func cardHolds(_ control: SettingControl) -> Bool {
+        switch control {
+        case .toggle, .segmented, .menu, .stepper, .slider, .swatches: true
+        default: false
+        }
+    }
+
+    /// Puts a card of settings in the chat. Every item is checked first — a setting that exists,
+    /// can be a card, has its target, and a pick that is one of its own values — so a card never
+    /// offers something its click couldn't do.
+    private func showSettings(_ call: AskClaudeToolCall, _ lookup: SettingsLookup) -> AskClaudeToolOutcome {
+        let given = call.input["items"]?.arrayValue ?? []
+        guard !given.isEmpty else {
+            return AskClaudeToolOutcome(result: "Give items: each an id, and a target and pick when needed.", isError: true,
+                                        step: "No settings to show")
+        }
+        var rows: [AskClaudeSettingCard.Row] = []
+        var shown: [String] = []
+        for item in given {
+            guard let id = item["id"]?.stringValue, let entry = SettingsCatalog.entry(id) else {
+                return AskClaudeToolOutcome(result: "\(item["id"]?.stringValue ?? "An item") isn’t a setting id. Use find.", isError: true,
+                                            step: "No such setting")
+            }
+            guard entry.tier != .notInChat, entry.tier != .readOnly, entry.tier != .viewTools else {
+                return AskClaudeToolOutcome(result: "\(entry.label) isn’t offered on a card.", isError: true, step: "Not a card")
+            }
+            guard Self.cardHolds(entry.control) else {
+                return AskClaudeToolOutcome(
+                    result: "\(entry.label) can’t be a card in this version. Open Settings at it with show_in_app (place settings, tab: \(entry.label)).",
+                    isError: true, step: "\(entry.label) isn’t a card yet")
+            }
+            let target = item["target"]?.stringValue
+            if entry.target != .app {
+                let sources = lookup.settings?.availableProviders ?? []
+                guard let target, sources.contains(where: { $0.id == target || $0.displayName == target }) else {
+                    return AskClaudeToolOutcome(result: "\(entry.label) belongs to a source: give target, one of "
+                                                + sources.map(\.displayName).joined(separator: ", ") + ".",
+                                                isError: true, step: "Which source?")
+                }
+            }
+            let targetID = target.flatMap { name in
+                lookup.settings?.availableProviders.first { $0.id == name || $0.displayName == name }?.id
+            }
+            var pick: SettingValue?
+            if let text = item["pick"]?.stringValue {
+                guard let value = SettingsCatalog.value(text, for: entry) else {
+                    return AskClaudeToolOutcome(result: "“\(text)” isn’t one of \(entry.label)’s choices. get it for its choices.",
+                                                isError: true, step: "Not a choice for \(entry.label)")
+                }
+                pick = value
+            }
+            rows.append(AskClaudeSettingCard.Row(id: entry.id, target: targetID, pick: pick?.stored))
+            shown.append(entry.label + (pick.map { " (suggested \(SettingsLookup.label($0, entry)))" } ?? ""))
+        }
+        let title = call.string("title").map(Self.cardTitle).flatMap { $0.isEmpty ? nil : $0 }
+        let card = AskClaudeSettingCard(title: rows.count > 1 ? title : nil, rows: rows)
+        return AskClaudeToolOutcome(
+            result: "Showed a card: \(shown.joined(separator: "; ")). Their click on it changes the setting, and what they do reaches you with their next question. Don’t say it’s changed.",
+            step: rows.count == 1 ? "Showed \(shown[0])" : "Showed \(rows.count) settings", settings: card)
+    }
+
+    /// Claude's card title, held to what a title should be: one short line, no control or
+    /// direction-changing characters.
+    static func cardTitle(_ text: String) -> String {
+        let cleaned = text.unicodeScalars.filter { scalar in
+            !CharacterSet.controlCharacters.contains(scalar) && !(0x202A...0x202E).contains(scalar.value)
+                && !(0x2066...0x2069).contains(scalar.value)
+        }
+        return String(String.UnicodeScalarView(cleaned)).trimmingCharacters(in: .whitespaces).prefix(64).description
     }
 
     private func dispatch(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {

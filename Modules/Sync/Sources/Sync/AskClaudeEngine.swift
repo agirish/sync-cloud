@@ -66,11 +66,13 @@ public struct AskClaudeToolOutcome: Equatable, Sendable {
     public let choices: [AskClaudeChoice]?
     /// A rule offered from a correction (TE286).
     public let rule: AskClaudeRuleCard?
+    /// A card of settings with their real controls (TE290).
+    public let settings: AskClaudeSettingCard?
 
     public init(result: String, isError: Bool = false, step: String, movedView: String? = nil,
                 passage: AskClaudePassage? = nil, download: AskClaudeDownload? = nil,
                 filing: AskClaudeFilingCard? = nil, plan: AskClaudePlan? = nil, choices: [AskClaudeChoice]? = nil,
-                rule: AskClaudeRuleCard? = nil) {
+                rule: AskClaudeRuleCard? = nil, settings: AskClaudeSettingCard? = nil) {
         self.result = result
         self.isError = isError
         self.step = step
@@ -81,6 +83,7 @@ public struct AskClaudeToolOutcome: Equatable, Sendable {
         self.plan = plan
         self.choices = choices
         self.rule = rule
+        self.settings = settings
     }
 }
 
@@ -196,6 +199,8 @@ public enum AskClaudeEvent: Equatable, Sendable {
     case choices([AskClaudeChoice])
     /// A rule offered from a correction (TE286).
     case rule(AskClaudeRuleCard)
+    /// A card of settings (TE290).
+    case settings(AskClaudeSettingCard)
     /// The question joined the transcript with this model and style (TE292); `previous` is the
     /// last question's, nil in a new chat.
     case kept(previous: AskClaudeKeptSetting?, now: AskClaudeKeptSetting)
@@ -496,6 +501,7 @@ public final class AskClaudeEngine {
                 if let plan = outcome.plan { emit(.plan(plan)) }
                 if let choices = outcome.choices { emit(.choices(choices)) }
                 if let rule = outcome.rule { emit(.rule(rule)) }
+                if let settings = outcome.settings { emit(.settings(settings)) }
                 results.append(Self.result(for: call, text: outcome.result, isError: outcome.isError))
             }
             if Task.isCancelled {

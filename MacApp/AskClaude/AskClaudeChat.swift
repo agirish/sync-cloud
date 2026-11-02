@@ -50,6 +50,8 @@ final class AskClaudeChat: ObservableObject {
             case choices([AskClaudeChoice], used: Bool)
             /// A rule offered from a correction (TE286): Save or Not Now.
             case rule(AskClaudeRuleCard)
+            /// Settings with their real controls (TE290); a click changes one.
+            case settings(AskClaudeSettingCard)
         }
         var id = UUID()
         var kind: Kind
@@ -247,6 +249,13 @@ final class AskClaudeChat: ObservableObject {
     func tellClaude(_ line: String) {
         sinceLastAnswer.append(line)
         if !isRunning { save() }
+    }
+
+    /// A line that replaces an unsent one starting `prefix`: five clicks through a setting reach
+    /// Claude as one line, first value to last (TE290).
+    func tellClaude(_ line: String, replacing prefix: String) {
+        sinceLastAnswer.removeAll { $0.hasPrefix(prefix) }
+        tellClaude(line)
     }
 
     /// What Claude is told after Apply: the card, its summary, and each row that didn't run, why.
@@ -557,6 +566,20 @@ final class AskClaudeChat: ObservableObject {
         if !isRunning { save() }
     }
 
+    /// The settings card `id` (TE290).
+    func settingCard(_ id: UUID) -> AskClaudeSettingCard? {
+        guard let item = items.first(where: { $0.id == id }), case .settings(let card) = item.kind else { return nil }
+        return card
+    }
+
+    /// Changes the settings card `id` in place: what it changed from, a refusal.
+    func updateSettingCard(_ id: UUID, _ change: (inout AskClaudeSettingCard) -> Void) {
+        guard let index = items.firstIndex(where: { $0.id == id }), case .settings(var card) = items[index].kind else { return }
+        change(&card)
+        items[index].kind = .settings(card)
+        if !isRunning { save() }
+    }
+
     /// The rule card `id`, while it is still offered.
     func offeredRule(_ id: UUID) -> AskClaudeRuleCard? {
         guard let item = items.first(where: { $0.id == id }), case .rule(let card) = item.kind, card.state == .offered else { return nil }
@@ -777,6 +800,9 @@ final class AskClaudeChat: ObservableObject {
         case .rule(let card):
             streamingItem = nil
             items.append(Item(kind: .rule(card)))
+        case .settings(let card):
+            streamingItem = nil
+            items.append(Item(kind: .settings(card)))
         case .kept(let previous, let now):
             // A switch is noted once it reached Claude, at the question that made it (TE292). A
             // question that failed, was declined or stopped before joining the chat notes nothing,
