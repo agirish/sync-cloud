@@ -13695,3 +13695,22 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do n=0; for f in Modules/Design/Sources/
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Escape does nothing in its Cancel-is-default alerts | RECORDED — not owed |
+
+## Overlay cards are thinner at Clear (TE293, C) — main only
+
+2026-11-01, for v7.0. On `main`: at the Clear glass level, the ground under the overlay cards'
+content is 0.45 opaque (`GlassLevel.groundedBackingOpacity`), where every level used 0.85, so
+Settings reads as clear beside the Activity window instead of as Frosted. Frosted and Solid keep
+0.85. It follows the lighter Clear scrim above. Every line has the single 0.85:
+
+```sh
+for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
+  "$(git show origin/$l:Modules/Design/Sources/Design/LiquidGlassStyle.swift 2>/dev/null | grep -o 'backingOpacity: Double = 0\.[0-9]*' | head -1)"; done
+# measured 2026-11-01, against origin, before this landed: every line backingOpacity: Double = 0.85
+```
+
+A re-tune of what every Clear install looks like, so main-only on the Tint-slider precedent.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | 0.85 backing at every level | RECORDED — not owed |

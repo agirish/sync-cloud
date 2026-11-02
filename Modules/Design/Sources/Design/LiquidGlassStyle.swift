@@ -245,6 +245,14 @@ public enum GlassLevel: String, CaseIterable, Identifiable, Sendable {
         self == .clear ? 0.20 : 0.35
     }
 
+    /// How opaque `groundedGlassCard`'s ground is under the card's content. 0.85 was walked up
+    /// from 0 against a real window: below ~0.6 the content behind stayed legible *through* the
+    /// card. Clear takes 0.45 anyway, so the card reads as clear like the Activity window rather
+    /// than as Frosted — judged on his machine over a full column view and kept (TE293, variant C).
+    public var groundedBackingOpacity: Double {
+        self == .clear ? 0.45 : 0.85
+    }
+
     /// Strength of the app background gradient, 0...1. `.frosted` keeps 0.65 — the old intensity
     /// slider's default — so migrating installs see an unchanged background. `.clear` drops the
     /// wash (nothing frosts it, so it would read as flat color), `.solid` maxes it (only the
@@ -650,13 +658,13 @@ public extension View {
     /// level, and the level still decides the material's character — its tint, its edge, how the
     /// background reads through the margins — while the text always has something to sit on.
     ///
-    /// `backingOpacity` is the one knob. It was walked from 0 up against a real window: below ~0.6
-    /// the content behind stays legible *through* the card, which is not glass character but two
-    /// screens occupying the same pixels. `controlBackgroundColor` rather than a hardcoded grey so
-    /// it follows light/dark, and the same colour `lensCard` fills with, so a card is a card
-    /// wherever it appears.
-    func groundedGlassCard(level: GlassLevel, backingOpacity: Double = 0.85) -> some View {
-        modifier(GroundedGlassCard(level: level, backingOpacity: backingOpacity))
+    /// `backingOpacity` is the one knob, and it defaults to the level's
+    /// `groundedBackingOpacity`. `controlBackgroundColor` rather than a hardcoded grey so it
+    /// follows light/dark, and the same colour `lensCard` fills with, so a card is a card wherever
+    /// it appears.
+    func groundedGlassCard(level: GlassLevel, backingOpacity: Double? = nil) -> some View {
+        modifier(GroundedGlassCard(level: level,
+                                   backingOpacity: backingOpacity ?? level.groundedBackingOpacity))
     }
 
     /// Lighter glass style for bars and inline panels. These sit over the window's own background

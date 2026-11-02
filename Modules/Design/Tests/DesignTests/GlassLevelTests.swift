@@ -54,6 +54,14 @@ struct GlassLevelTests {
         #expect(GlassLevel.frosted.overlayScrimOpacity == GlassLevel.solid.overlayScrimOpacity)
     }
 
+    @Test func clearThinsTheGroundedCardBacking() {
+        // At Clear the card has to read as clear, or the setting looks broken (TE293). Thinner,
+        // but never gone: the ground is what keeps the card's text off the window behind it.
+        #expect(GlassLevel.clear.groundedBackingOpacity < GlassLevel.frosted.groundedBackingOpacity)
+        #expect(GlassLevel.clear.groundedBackingOpacity > 0)
+        #expect(GlassLevel.frosted.groundedBackingOpacity == GlassLevel.solid.groundedBackingOpacity)
+    }
+
     // MARK: - Background intensity
 
     @Test func frostedKeepsTheRetiredSliderDefault() {
