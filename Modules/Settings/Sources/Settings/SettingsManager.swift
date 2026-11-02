@@ -688,8 +688,11 @@ public class SettingsManager: ObservableObject {
     /// the hidden list would be absent, and a reader on another thread would show Claude every
     /// folder in it.
     public func resetAllSettings() {
-        let domainName = overridesDomainName ?? Self.appSuiteName
-        let stored = userDefaults.persistentDomain(forName: domainName) ?? [:]
+        // Listed from the store the keys are removed from. With no domain name that is every key the
+        // store answers for; removing one it only inherits (the global domain, registered defaults)
+        // changes nothing. Listing the app's own domain instead left a key only this store held.
+        let stored = overridesDomainName.map { userDefaults.persistentDomain(forName: $0) ?? [:] }
+            ?? userDefaults.dictionaryRepresentation()
         let kept = stored.keys.filter(SettingsResetKeeps.keeps).sorted()
         Logger.shared.info("User reset all settings to defaults, keeping \(kept.isEmpty ? "nothing" : kept.joined(separator: ", "))")
         for key in stored.keys where !SettingsResetKeeps.keeps(key) {

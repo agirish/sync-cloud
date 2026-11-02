@@ -211,6 +211,23 @@ import Sync
         #expect(privacyPosts.count == 1)
     }
 
+    /// Given a store but no domain name, the reset clears that store's keys. It listed the app's
+    /// own domain instead and removed those names from the store, so a key the store alone held stayed.
+    @MainActor
+    @Test func testResetAllSettingsWithNoDomainNameClearsTheStoreItWasGiven() {
+        let test = TestDefaults()
+        let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults,
+                                       cloudStorageLister: { .read([]) })
+        let defaults = test.defaults
+        AskClaudePrivacy.hide("/Users/u/Documents/Medical", in: defaults)
+        defaults.set("cursive", forKey: "resetAllTest.onlyInThisStore")
+
+        settings.resetAllSettings()
+
+        #expect(defaults.object(forKey: "resetAllTest.onlyInThisStore") == nil)
+        #expect(AskClaudePrivacy.hiddenFolders(in: defaults) == ["/Users/u/Documents/Medical"])
+    }
+
     /// The confirmation says what stays, not only what goes.
     @Test func testTheResetConfirmationNamesWhatItKeeps() throws {
         let parts = AdvancedSettingsTab.resetAllExplanation.components(separatedBy: "Kept:")

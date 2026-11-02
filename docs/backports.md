@@ -13670,6 +13670,11 @@ The roots marks (`rootsModelStamp` from `v4.x`, `iCloudRootMoveStamp` from `v5.x
 `Modules/Settings/Sources/Settings/RootsMigration.swift`; that a reset there re-runs the move is read
 from the code, not reproduced on those lines.
 
+2026-11-02: on `main`, a manager given a store but no domain name lists that store's keys
+(`dictionaryRepresentation()`) instead of the app domain's, which left a key only the store held.
+Not owed: every line removes `overridesDomainName ?? appSuiteName` whole, so there is no list to
+mismatch, and the app and CLI both pass a name.
+
 ## Five Settings controls ask before they remove (HR) — main only
 
 2026-11-01, for v7.0 (decision HR). On `main`: a folder source's Remove…, Sync's ignored items
