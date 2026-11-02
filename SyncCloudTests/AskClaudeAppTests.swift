@@ -1449,6 +1449,27 @@ private final class NoTools: AskClaudeToolRunning {
                                          "They set Theme to Dark on your card (was System)."])
     }
 
+    /// TE290 step 6: at the monthly limit the panel shows Monthly limit as a card, saved with the
+    /// chat and keeping the question for Ask Again, in place of the problem line.
+    @Test func atTheLimitTheChatShowsTheLimitItself() async throws {
+        let d = defaults()
+        d.set(5.0, forKey: AskClaudeSpend.limitDefaultsKey)
+        AskClaudeSpend.record(6, in: d)
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "hi"), defaults: d) },
+                                 readKey: { "k" })
+        chat.ask("which folders changed most?", screen: screen, tools: NoTools())
+        await waitUntilIdle(chat)
+        #expect(!chat.items.contains { if case .problem = $0.kind { true } else { false } })
+        let card = try #require(chat.items.lazy.compactMap { item -> AskClaudeSettingCard? in
+            if case .settings(let card) = item.kind { card } else { nil }
+        }.first)
+        #expect(card.rows == [.init(id: "intelligence.monthlyLimit")])
+        #expect(card.askAgain == "which folders changed most?")
+        #expect(card.notice?.hasPrefix("You’ve used $6 of this month’s $5, so this wasn’t sent.") == true)
+        let saved = try JSONDecoder().decode(AskClaudeSettingCard.self, from: JSONEncoder().encode(card))
+        #expect(saved == card)
+    }
+
     /// TE290 step 5: a Revert in Activity reaches an open chat with its next question, and an empty
     /// chat hears nothing.
     @Test func aRevertInActivityIsToldToAnOpenChat() async {

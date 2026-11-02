@@ -37,9 +37,27 @@ public struct AskClaudeSettingCard: Codable, Equatable, Sendable {
     /// A short title for a card of several settings; nil for one.
     public let title: String?
     public var rows: [Row]
+    /// The panel's own words above the rows, for a card the panel put up itself rather than
+    /// Claude: the at-limit card (TE290 step 6). Nothing was sent for it.
+    public let notice: String?
+    /// The question the limit stopped, for Ask Again once the limit is raised; nil after it is
+    /// asked, and on every card Claude showed.
+    public var askAgain: String?
 
-    public init(title: String? = nil, rows: [Row]) {
+    public init(title: String? = nil, rows: [Row], notice: String? = nil, askAgain: String? = nil) {
         self.title = title
         self.rows = rows
+        self.notice = notice
+        self.askAgain = askAgain
+    }
+
+    /// The card the panel shows in place of the at-limit problem: Monthly limit, with the stopped
+    /// question kept for Ask Again.
+    public static func atLimit(spent: Double, limit: Double, resets: Date, question: String?) -> AskClaudeSettingCard {
+        let day = resets.formatted(.dateTime.month(.wide).day())
+        return AskClaudeSettingCard(
+            rows: [Row(id: "intelligence.monthlyLimit")],
+            notice: "You’ve used \(AskClaudeSpend.format(spent)) of this month’s \(AskClaudeSpend.format(limit)), so this wasn’t sent. Questions start again on \(day), or raise the limit.",
+            askAgain: question)
     }
 }

@@ -820,7 +820,22 @@ extension ContentView {
             change: { askClaudeSettingChange($0, $1, $2) },
             openSettings: { _ = askClaudeToolsContext().showPlace("settings", $0.label, true) },
             offersUndo: { undo.offersUndo($0, row: $1) },
-            undo: { undo.undoCard($0, row: $1) })
+            undo: { undo.undoCard($0, row: $1) },
+            canAskAgain: { [weak chat] in
+                guard let chat, !chat.isRunning else { return false }
+                if case .overLimit = AskClaudeSpend.state(in: .standard) { return false }
+                return true
+            },
+            askAgain: { id in askClaudeAskAgain(id) })
+    }
+
+    /// The at-limit card's Ask Again (TE290 step 6): the question the limit stopped, once, now
+    /// that the limit lets it through.
+    func askClaudeAskAgain(_ id: UUID) {
+        guard !askClaudeChat.isRunning, let question = askClaudeChat.settingCard(id)?.askAgain else { return }
+        if case .overLimit = AskClaudeSpend.state(in: .standard) { return }
+        askClaudeChat.updateSettingCard(id) { $0.askAgain = nil }
+        askClaudeAsk(question, shown: nil, attached: [])
     }
 
     /// A settings step undone or redone, from a card or Edit ▸ Undo: told to Claude in the line
@@ -869,11 +884,13 @@ extension ContentView {
             }
             let first = askClaudeChat.settingCard(id)?.rows[index].changedFrom
                 .flatMap { SettingsCatalog.value($0, for: entry) ?? AskClaudeSettingCardView.storedValue($0, like: value) } ?? before
+            // The at-limit card is the panel's, not Claude's.
+            let whose = card.notice == nil ? "your card" : "the panel’s limit card"
             if first == value {
-                askClaudeChat.tellClaude(prefix + "back to \(label(value)) on your card.", replacing: prefix)
+                askClaudeChat.tellClaude(prefix + "back to \(label(value)) on \(whose).", replacing: prefix)
             } else {
                 let raises = entry.raises(from: first, to: value) ? " This raises Claude’s spending or access." : ""
-                askClaudeChat.tellClaude(prefix + "to \(label(value)) on your card (was \(label(first))).\(raises)", replacing: prefix)
+                askClaudeChat.tellClaude(prefix + "to \(label(value)) on \(whose) (was \(label(first))).\(raises)", replacing: prefix)
             }
         case .refused(let why):
             askClaudeChat.updateSettingCard(id) { $0.rows[index].refusal = why }

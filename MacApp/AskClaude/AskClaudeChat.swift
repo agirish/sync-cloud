@@ -857,6 +857,13 @@ final class AskClaudeChat: ObservableObject {
         case .problem(let problem):
             // A key that failed is read again next time: it may have just been fixed in Settings.
             if problem.kind == .keyRejected || problem.kind == .noKey { cachedKey = nil }
+            // At the limit, the panel shows the limit itself (TE290 step 6): raising it there
+            // offers Ask Again with the question.
+            if problem.kind == .limitReached, case .overLimit(let spent, let limit) = AskClaudeSpend.state(in: defaults, now: now()) {
+                items.append(Item(kind: .settings(.atLimit(spent: spent, limit: limit,
+                                                           resets: AskClaudeSpend.resetDate(after: now()), question: askedQuestion))))
+                break
+            }
             items.append(Item(kind: .problem(problem)))
         }
     }

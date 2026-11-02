@@ -33,6 +33,53 @@ struct AskClaudeSettingsBridge {
     /// a newer one (TE290 step 4b).
     var offersUndo: @MainActor (_ item: UUID, _ row: Int) -> Bool = { _, _ in false }
     var undo: @MainActor (_ item: UUID, _ row: Int) -> Void = { _, _ in }
+    /// The at-limit card's Ask Again (TE290 step 6): offered once the limit no longer stops a
+    /// question, and sends the one it stopped.
+    var canAskAgain: @MainActor () -> Bool = { false }
+    var askAgain: @MainActor (_ item: UUID) -> Void = { _ in }
+}
+
+/// What a change does beyond its value, shown beside it on a card (TE290 step 6): judged from the
+/// old value to the new, so the same table badges a click, a suggestion and an Undo.
+enum AskClaudeSettingBadge: String, CaseIterable {
+    case raises = "↑ Raises"
+    case lessSafe = "⚠ Less safe"
+    case tightens = "↓ Tightens"
+    case rescans = "Rescans"
+    case nextLaunch = "Next launch"
+
+    var help: String {
+        switch self {
+        case .raises: "Raises Claude’s spending or access"
+        case .lessSafe: "Removes a safeguard"
+        case .tightens: "Lowers Claude’s spending or access; Claude may make this change itself"
+        case .rescans: "Both panes rescan once"
+        case .nextLaunch: "Takes effect when SyncCloud next opens"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .raises: .orange
+        case .lessSafe: .red
+        case .tightens: .green
+        case .rescans, .nextLaunch: .secondary
+        }
+    }
+
+    /// The badges for changing `entry` from `old` to `new`, in the order a card shows them.
+    @MainActor static func badges(_ entry: SettingEntry, from old: SettingValue?, to new: SettingValue) -> [Self] {
+        guard old != new else { return [] }
+        var badges: [Self] = []
+        if entry.raises(from: old, to: new) { badges.append(.raises) }
+        if entry.isLessSafe(from: old, to: new) { badges.append(.lessSafe) }
+        if entry.tier == .directWhenTightening, entry.raises(from: new, to: old ?? new), !entry.raises(from: old, to: new) {
+            badges.append(.tightens)
+        }
+        if entry.effects.contains(.rescans) { badges.append(.rescans) }
+        if entry.effects.contains(.nextLaunch) { badges.append(.nextLaunch) }
+        return badges
+    }
 }
 
 /// A card of settings (TE290 step 4a): each row is the setting's real control at its live value,
@@ -54,6 +101,12 @@ struct AskClaudeSettingCardView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.bottom, 6)
             }
+            if let notice = card.notice {
+                Label(notice, systemImage: "exclamationmark.triangle")
+                    .scaledFont(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 8)
+            }
             ForEach(Array(card.rows.enumerated()), id: \.offset) { index, row in
                 if index > 0 { Divider().padding(.vertical, 8) }
                 if let entry = SettingsCatalog.entry(row.id) {
@@ -62,6 +115,14 @@ struct AskClaudeSettingCardView: View {
                     // A later build dropped this id.
                     Text("This setting no longer exists.").scaledFont(.callout).foregroundStyle(.secondary)
                 }
+            }
+            if card.askAgain != nil, bridge.canAskAgain() {
+                Button("Ask Again") { bridge.askAgain(itemID) }
+                    .buttonStyle(.borderedProminent)
+                    .accentedProminent(hue)
+                    .controlSize(.small)
+                    .help("Sends the question the limit stopped")
+                    .padding(.top, 8)
             }
         }
         .padding(10)
@@ -229,7 +290,6 @@ struct AskClaudeSettingCardView: View {
             HStack(spacing: 4) {
                 Label("\(changed) · was \(SettingsLookup.label(before, entry))", systemImage: "checkmark.circle")
                     .foregroundStyle(.green)
-                badges(entry, from: before, to: current)
                 Spacer(minLength: 4)
                 if bridge.offersUndo(itemID, index) {
                     // Undoing a change that tightened Claude's reach raises it again: badged, and
@@ -242,23 +302,27 @@ struct AskClaudeSettingCardView: View {
             }
             .scaledFont(.footnote)
             .fixedSize(horizontal: false, vertical: true)
+            badges(entry, from: before, to: current)
         } else if let pick, pick != current {
-            HStack(spacing: 4) {
-                Text("Claude suggests \(SettingsLookup.label(pick, entry))").foregroundStyle(.secondary)
-                badges(entry, from: current, to: pick)
-            }
-            .scaledFont(.footnote)
-            .fixedSize(horizontal: false, vertical: true)
+            Text("Claude suggests \(SettingsLookup.label(pick, entry))").foregroundStyle(.secondary)
+                .scaledFont(.footnote)
+                .fixedSize(horizontal: false, vertical: true)
+            badges(entry, from: current, to: pick)
         }
     }
 
+    /// The change's badges on a line of their own, under what changed, so a card with several
+    /// still fits 240 pt.
     @ViewBuilder
     private func badges(_ entry: SettingEntry, from old: SettingValue?, to new: SettingValue) -> some View {
-        if entry.raises(from: old, to: new) {
-            Text("↑ Raises").foregroundStyle(.orange).help("Raises Claude’s spending or access")
-        }
-        if entry.isLessSafe(from: old, to: new) {
-            Text("⚠ Less safe").foregroundStyle(.red).help("Removes a safeguard")
+        let badges = AskClaudeSettingBadge.badges(entry, from: old, to: new)
+        if !badges.isEmpty {
+            HStack(spacing: 6) {
+                ForEach(badges, id: \.self) { badge in
+                    Text(badge.rawValue).foregroundStyle(badge.color).help(badge.help)
+                }
+            }
+            .scaledFont(.footnote)
         }
     }
 

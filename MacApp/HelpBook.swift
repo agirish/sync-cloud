@@ -326,7 +326,7 @@ enum HelpBook {
                         "The menu under the text box picks the model — Sonnet 5.5, Opus 5.5 or Haiku 5.5 — and Brief or Detailed answers, for your next question. The chat carries on, with a line where it changed, and the pick becomes the one Settings ▸ Intelligence shows. Switching mid-chat, the new model reads the chat once first, and the menu says what that costs.",
                         "In the text box, Up brings back the questions you typed before, newest first — the last 10, kept across a relaunch — and Down comes back to what you had typed and not sent.",
                         "The chat stays for an hour, across a relaunch. New Chat starts a fresh one and clears the remembered questions.",
-                        "Every answer says what it sent and what it cost. Spending counts against a monthly limit in Settings ▸ Intelligence, $25 to start, with a note at 80%.",
+                        "Every answer says what it sent and what it cost. Spending counts against a monthly limit in Settings ▸ Intelligence, $25 to start, with a note at 80%. At the limit a question isn’t sent: the chat shows the limit instead, and once you raise it there, Ask Again sends the question.",
                     ]),
                     .tip("Claude can’t copy, edit or delete for good, or move anything to another disk. What it changes, it proposes on a card you apply — or, for how SyncCloud looks and to lower its own spending or access, changes itself, with Undo on its card."),
                 ],
@@ -367,7 +367,7 @@ enum HelpBook {
                     .bullets([
                         "A card holds the setting’s own control at its live value — a switch, segments, a menu, a stepper or a slider — and your click changes it, as Settings would. Claude’s pick is marked on it, the card says what it changed from, and Accent color shows its swatches. A setting a card can’t show yet opens Settings at its control.",
                         "Claude changes how SyncCloud looks when you ask, and can lower its own spending or access — turn Let Claude read files off, or lower the monthly limit — but never raise either, and never set a limit at or below what this month has already spent. Its card reads Changed by Claude, with what the setting was. Anything else waits for your click on a card, and while Settings or a sheet covers the chat Claude changes nothing itself.",
-                        "A row that would raise Claude’s spending or access is marked ↑ Raises, and one that removes a safeguard ⚠ Less safe.",
+                        "A change that would raise Claude’s spending or access is marked ↑ Raises, one that removes a safeguard ⚠ Less safe, and one that lowers Claude’s reach ↓ Tightens. Rescans and Next launch say when it takes effect.",
                         "Undo on the card puts a setting back, and so does Edit ▸ Undo with the chat in front — “Undo Theme”, say. An undo that would raise Claude’s spending or access is on the card only, so ⌘Z can’t quietly turn it back on. Once the setting is changed anywhere else, the card stops offering Undo. New Chat clears the undo steps and keeps the changes.",
                         "Every setting changed from the chat, and every rule saved from a card, is listed under Changed from Chat, in the Activity window’s History tab, for 90 days, after the chat is gone. Revert puts a value back while the setting still holds what was set there; one that raises Claude’s spending or access asks first. Clear… empties the list.",
                     ]),

@@ -55,11 +55,24 @@ import Sync
         ("intelligence.monthlyLimit", "0.0", SettingValue.double(5)),
         ("intelligence.readsFiles", "true", SettingValue.bool(false)),
         ("readability.columnWidths", "each", SettingValue.string("all")),
+        // Two badges on their own line: ↑ Raises and Next launch.
+        ("general.showHiddenByDefault", "false", SettingValue.bool(true)),
     ])
     func aChangeClaudeMadeFits240(id: String, was: String, now: SettingValue) {
         let card = AskClaudeSettingCard(rows: [.init(id: id, changedFrom: was, byClaude: true)])
         let bridge = AskClaudeSettingsBridge(read: { entry, _ in entry.id == id ? now : entry.defaultValue },
                                              offersUndo: { _, _ in true })
+        let host = NSHostingController(rootView: AskClaudeSettingCardView(itemID: UUID(), card: card, bridge: bridge,
+                                                                          accent: .blue, hue: .blue))
+        #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
+    }
+
+    /// TE290 step 6: the at-limit card, raised, with Ask Again and its badge line.
+    @Test func theAtLimitCardFits240() {
+        var card = AskClaudeSettingCard.atLimit(spent: 25.4, limit: 25, resets: Date(), question: "which folders changed most?")
+        card.rows[0].changedFrom = "25.0"
+        let bridge = AskClaudeSettingsBridge(read: { entry, _ in entry.id == "intelligence.monthlyLimit" ? .double(100) : entry.defaultValue },
+                                             offersUndo: { _, _ in true }, canAskAgain: { true })
         let host = NSHostingController(rootView: AskClaudeSettingCardView(itemID: UUID(), card: card, bridge: bridge,
                                                                           accent: .blue, hue: .blue))
         #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)

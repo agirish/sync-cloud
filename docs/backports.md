@@ -13982,3 +13982,15 @@ are new features, so the maintenance lines are owed nothing.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Combine or Split | CLOSED — new feature |
+
+## Settings cards' badges and the at-limit card (TE290 step 6) — main only
+
+2026-11-02, for v7.0. On `main`: a settings card badges what a change does beyond its value, on a
+line of its own — ↑ Raises, ⚠ Less safe, ↓ Tightens, Rescans, Next launch — from one table judged
+old value to new. A question stopped at Ask Claude's monthly limit shows Monthly limit as a card in
+place of the problem line, saved with the chat; once the limit is raised there, Ask Again sends the
+question. Ask Claude exists only on `main` (see step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
