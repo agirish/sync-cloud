@@ -330,7 +330,7 @@ enum HelpBook {
                     ]),
                     .tip("Claude can’t copy, edit or delete for good, or move anything to another disk. What it changes, it proposes on a card you apply — or, for how SyncCloud looks and to lower its own spending or access, changes itself, with Undo on its card."),
                 ],
-                related: ["ask-claude-privacy", "ask-claude-changes", "ask-claude-settings", "ask-claude-where", "intelligence"]
+                related: ["ask-claude-privacy", "ask-claude-changes", "ask-claude-settings", "ask-claude-pdf", "ask-claude-where", "intelligence"]
             )),
             Topic(id: "ask-claude-privacy", title: "What Claude sees", systemImage: "eye", article: Article(
                 intro: "Claude sees a description of the screen, not your files: the names, kinds, sizes, dates and tags of what is shown, with paths relative to their source — and only when you send a question.",
@@ -357,9 +357,23 @@ enum HelpBook {
                         "Claude hears what you did with a card — applied, undone or Not Now — with your next question.",
                         "“Where should this go?” answers offer Move Here, and the loose-files card applies the same way, with the same Undo.",
                     ]),
-                    .tip("Claude can’t copy, edit a file, or delete anything for good. Its cards are the only way it moves a file, and every one waits for your click."),
+                    .tip("Claude can’t copy a file, change what’s written in one, or delete anything for good. Its cards are the only way it moves a file, and every one waits for your click. Its PDF cards make a new file and leave the original as it was."),
                 ],
-                related: ["ask-claude", "ask-claude-where", "ask-claude-settings", "undo-redo", "sync-history"]
+                related: ["ask-claude", "ask-claude-where", "ask-claude-settings", "ask-claude-pdf", "undo-redo", "sync-history"]
+            )),
+            Topic(id: "ask-claude-pdf", title: "PDFs from the chat", systemImage: "doc.richtext", article: Article(
+                intro: "Ask Claude to save a document as a PDF, make a PDF smaller, put a password on it, take pages out, split it or combine several, and it shows a card that runs SyncCloud’s own PDF tool when you click.",
+                blocks: [
+                    .bullets([
+                        "The card reads the files first and says what the new file will lose — Compress turns every page into a picture, so its text can’t be selected or searched — and its button waits until it has.",
+                        "Each new file is saved next to its original, named the way PDF Tools names its copies: “Lease.pdf”, “Scan (compressed).pdf”, “Statement (pages 3–5).pdf”. Nothing is ever written over a file, and the original never changes.",
+                        "A password is typed on the card and goes nowhere else: not to Claude, and not into the saved chat.",
+                        "The card checks each file again when you click. One that has changed since is read again, and the card asks you to click once more.",
+                        "Undo on the card moves the files it made to the Trash, while they are as it made them; Edit ▸ Undo does too, while it is the latest step.",
+                        "To fill in or sign a form, Claude opens it in Edit with Fill & Sign on; you type and sign there.",
+                    ]),
+                ],
+                related: ["ask-claude", "ask-claude-changes", "pdf-workspace", "browse-workspace"]
             )),
             Topic(id: "ask-claude-settings", title: "Settings from the chat", systemImage: "gearshape", article: Article(
                 intro: "Ask about a setting and Claude answers from Settings: its value, its default, its choices and what it affects. Ask for a change and it shows a card holding the setting’s real control — or, for how SyncCloud looks, makes the change itself.",

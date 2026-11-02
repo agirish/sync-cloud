@@ -43,6 +43,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var switchWorkspace: (_ name: String) -> Bool = { _ in false }
         /// Opens a file in the Edit workspace.
         var openInEdit: (_ absolutePath: String) -> EditOutcome = { _ in .notNow }
+        /// Opens a PDF form in Edit with Fill & Sign on, once it has loaded (TE294).
+        var openForFill: (_ absolutePath: String) async -> FillOutcome = { _ in .notNow }
         /// The Never show Claude list, absolute (TE246).
         var hidden: [String] = []
         /// Built from `hidden` at first use and kept with this context, so a folder's rows share
@@ -498,6 +500,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         case .fileLooseFiles: return await fileLooseFiles(call, ctx)
         case .proposeChanges: return proposeChanges(call, ctx, handles)
         case .offerRule: return await offerRule(call, ctx, handles)
+        case .pdf: return await pdf(call, ctx, handles)
         case nil:
             return AskClaudeToolOutcome(result: "There is no tool called \(call.name).", isError: true,
                                         step: "Asked for an unknown tool")

@@ -624,6 +624,9 @@ public final class EditorPDFFillSign: ObservableObject {
 
     /// Whether the palette is up.
     @Published public private(set) var isOn = false
+    /// Told of each filled copy saved, original then copy — so Ask Claude can tell Claude about the
+    /// form it opened (TE294). Nil unless the app sets it.
+    public var didSave: (@MainActor (_ original: String, _ copy: String) -> Void)?
     @Published public private(set) var items: [EditorPDFFillItem] = []
     @Published public var selection: UUID?
     /// What the next click places, or `nil`.
@@ -2235,6 +2238,7 @@ public final class EditorPDFFillSign: ObservableObject {
                 }
             }
         }
+        if case .wrote(let copy) = outcome, let path { didSave?(path, copy) }
         return outcome
     }
 

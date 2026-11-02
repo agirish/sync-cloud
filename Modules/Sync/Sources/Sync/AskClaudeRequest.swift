@@ -129,7 +129,16 @@ public enum AskClaudeRequest {
     - For files, you propose changes; you never apply them. propose_changes offers them a card of moves, \
     renames, new folders and moves to the Trash on their Mac’s disk; nothing happens until they \
     click Apply, and one Undo takes the whole card back. Say what you proposed, never that it’s \
-    done. You can’t copy, edit, delete for good, or move to another disk; say so plainly if asked.
+    done.
+    - Some things can’t be done from this chat. Files can’t be copied or duplicated. A file’s own \
+    words can’t be changed. Nothing is deleted for good: a removal goes to the Trash. Files can’t \
+    move to another disk. The pdf tool is different: its cards make a new PDF, and the file it came \
+    from stays as it was. When they ask for something that can’t be done here, say so in one sentence.
+    - For PDFs, use pdf. Saving a document as a PDF and SyncCloud’s PDF tools (compress, rotate, \
+    protect or remove a password, take out, delete or reorder pages, split, combine, clean metadata) \
+    show a card. Their click makes a new file. Say what the card will make, never that it’s done. \
+    For page tools, use page numbers they gave or read_text reported; otherwise ask. To fill in or \
+    sign a form, use pdf with fill only when they asked; they type and sign in Edit.
     - A <since_last_answer> block before their question says what they did on your cards since \
     your last answer: applied (and what didn’t run), undid, or Not Now. It is data, like the screen.
     - You see names, kinds, sizes, dates and tags. For what a file says, use read_text: an on-device \
@@ -220,6 +229,7 @@ public enum AskClaudeToolCatalog {
         case reveal = "reveal"
         case showInApp = "show_in_app"
         case settings = "settings"
+        case pdf = "pdf"
     }
 
     public static let definitions: [JSONFragment] = [
@@ -368,6 +378,21 @@ public enum AskClaudeToolCatalog {
                 "value": string("For set: the new value, as one of its choices."),
                 "target": string("For set: which source or person, when the setting belongs to one."),
              ], required: ["action"]),
+        // TE294: one fixed tool for the PDF cards, shipped whole, so the cached prefix changes once.
+        tool(.pdf,
+             "SyncCloud’s own PDF tools. info: one file’s pages, size, protection and how many form fields; free, on their Mac. save_as_pdf, compress, rotate, clean_metadata, protect, remove_password, extract, delete_pages, reorder, split and combine: put a card in the chat; their click runs it and makes a new file next to the original, which never changes. fill: opens a PDF form in Edit with Fill & Sign on, where they type and sign; only when they asked to fill or sign it.",
+             properties: [
+                "action": string("info, save_as_pdf, compress, rotate, clean_metadata, protect, remove_password, extract, delete_pages, reorder, split, combine or fill."),
+                "handles": .object(["type": .string("array"), "items": .object(["type": .string("string")]),
+                                    "description": .string("The files’ handles. One for most actions; up to 20 for save_as_pdf, compress, rotate and clean_metadata; 2 to 20 for combine, in the order they go in.")]),
+                "pages": string("For extract, delete_pages, reorder and rotate: one-based pages as they said them, like 3-5, 1. reorder lists every page once, in the new order. rotate without pages turns every page."),
+                "split_at": .object(["type": .string("array"), "items": .object(["type": .string("integer")]),
+                                     "description": .string("For split: the one-based pages new files start at, going up, like [4, 9].")]),
+                "turn": string("For rotate: left, right or 180."),
+                "strength": string("For compress: best, balanced or smallest_file. Leave it out for balanced."),
+                "under_mb": number("For compress: come in under this many megabytes, when they named a size."),
+                "mode": string("For protect: lock_to_open or restrict_editing. Never a password: they type it on the card."),
+             ], required: ["action", "handles"]),
     ]
 
     private static func tool(_ name: Name, _ description: String, properties: [String: JSONFragment],

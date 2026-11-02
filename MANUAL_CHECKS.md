@@ -558,3 +558,30 @@ and key refusals are tested; this is what is not.
 - [ ] **Narrow pane.** Narrow the pane until Filter folds into ⋯ → ⋯ ▸ Filter by Type lists the kinds
   with checkmarks and Show All; View ▸ Filter by Type does the same.
 - [ ] **VoiceOver.** The button reads "Filter by type, Off" and then "Filter by type, Images".
+
+## Ask Claude's PDF cards (TE294, 2026-11-02)
+
+Run in the installed app before the `pdf` tool is trusted. The live check covers what Claude
+says (`ASK_CLAUDE_LIVE_KEY=… swift test --package-path Modules/Sync --filter AskClaudeLivePDFTests`);
+these cover what only a person at the app can see.
+
+- [ ] **Save as PDF, four files, Stop between files.** The card shows progress and Stop; the files
+  written stay. A deck whose slides are pictures carries the banner's second sentence on the card.
+- [ ] **Compress while a duplicate scan holds the PDF reader.** The card says "Checking the file…",
+  fills in late, and its button stays off until it has.
+- [ ] **Edit the file between the offer and the click.** The card reads it again and asks for a
+  second click.
+- [ ] **Click while Claude is answering.** The button is greyed: "Waits for Claude to finish."
+- [ ] **Close the panel mid-run and reopen it.** The result is on the card. ⌘Q mid-run asks first,
+  and after relaunch the card says SyncCloud quit while it ran.
+- [ ] **Undo from the card, then Edit ▸ Undo with the main window in front.** The new file goes to
+  the Trash; Finder's Put Back returns it.
+- [ ] **Undo after iCloud or Dropbox has uploaded the copy.** The card still offers Undo.
+- [ ] **A file only in the cloud.** The card's Download row, then its run button.
+- [ ] **Choose Folder… for a read-only folder, and for a folder hidden from Claude.** Claude is
+  told only that the file is in a hidden folder.
+- [ ] **Protect.** Return in a password field doesn't send a question; closing the panel clears the
+  fields; the password is in neither `chat.json`, `prompts.json` nor `~/sync-cloud.log`.
+- [ ] **Combine with ↑ and ↓**, and two files of one name in different folders show their folders.
+- [ ] **"Fill in the W-9" while Edit holds unsaved work.** Edit asks its own question first; then
+  the form opens with Fill & Sign on, and saving a filled copy is told to Claude.

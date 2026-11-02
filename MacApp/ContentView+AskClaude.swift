@@ -646,6 +646,7 @@ extension ContentView {
                 case .opened, .alreadyOpen: return editorOpenPath.map { AskClaudePaths.same($0, path) } == true ? .opened : .refused
                 }
             },
+            openForFill: { await askClaudeOpenForFill($0) },
             hidden: AskClaudePrivacy.hiddenFolders(in: .standard),
             readsFiles: AskClaudePrivacy.readsFiles(in: .standard),
             tabs: askClaudeTabs,

@@ -10,6 +10,65 @@ import Sync
 /// (step 4), so the cached prefix and every saved chat are untouched until then.
 extension AskClaudeBrowseTools {
 
+    /// How opening a form for Fill & Sign went.
+    enum FillOutcome: Equatable {
+        /// Open in Edit with Fill & Sign on; how many form fields it has, when it was read.
+        case opened(fields: Int?)
+        /// Open in Edit, but it hadn't loaded in time to turn Fill & Sign on.
+        case openedWithoutFillSign
+        case refused
+        /// Edit is waiting on a question about the open document, or it was canceled.
+        case notNow
+    }
+
+    /// **The `pdf` tool** (TE294): `info` reads one file, `fill` opens a form in Edit, and every
+    /// other action offers a card.
+    func pdf(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: AskClaudeHandles) async -> AskClaudeToolOutcome {
+        let action = call.string("action")?.lowercased() ?? ""
+        guard action == "info" || action == "fill" else { return pdfCard(call, ctx, handles) }
+        func refuse(_ why: String) -> AskClaudeToolOutcome {
+            AskClaudeToolOutcome(result: why, isError: true, step: action == "info" ? "Couldn’t read that PDF" : "Didn’t open that form")
+        }
+        let given = call.strings("handles") ?? []
+        guard given.count == 1, let path = handles.path(for: given[0]) else {
+            return refuse("\(action) needs one handle from this chat, such as r9.")
+        }
+        guard !ctx.isHidden(path) else { return refuse("That file is in a folder they hid from you.") }
+        let name = (path as NSString).lastPathComponent
+        guard EditableText.isPDF(path: path) else { return refuse("\(name) isn’t a PDF.") }
+        if action == "info" {
+            switch await PDFCardFactsReader.read(path, for: .extract([0])) {
+            case .facts(let facts):
+                var parts = [facts.protection == .locked ? "locked with a password, so its pages can’t be counted until it’s unlocked"
+                                                         : (facts.pageCount == 1 ? "1 page" : "\(facts.pageCount) pages"),
+                             FileSyncManager.formatBytes(facts.bytes)]
+                if facts.protection == .restricted { parts.append("its owner restricts editing") }
+                parts.append(facts.fieldCount == 0 ? "no form fields" : "a form with \(facts.fieldCount) field\(facts.fieldCount == 1 ? "" : "s")")
+                return AskClaudeToolOutcome(result: "“\(AskClaudeScreenCard.escape(name))”: " + parts.joined(separator: ", ") + ".",
+                                            step: "Read \(name)’s pages")
+            case .cloudOnly:
+                return refuse("\(name) is only in the cloud. It isn’t read until it’s downloaded; a card offers Download.")
+            case .gone: return refuse("\(name) is gone; it may have moved or been renamed. Look again.")
+            case .unreadable: return refuse("\(name) can’t be read as a PDF.")
+            case .busy: return refuse("The PDF reader is busy with other work. Try again in a moment.")
+            }
+        }
+        if let busy = ctx.busyReason { return refuse("Can’t open it right now: \(busy).") }
+        switch await ctx.openForFill(AskClaudePaths.canonical(path)) {
+        case .opened(let fields):
+            let count = fields.map { $0 == 0 ? " It has no form fields: they place text and signatures on the page." : " It has \($0) form field\($0 == 1 ? "" : "s")." } ?? ""
+            return AskClaudeToolOutcome(result: "Opened \(name) in Edit with Fill & Sign on.\(count) They type and sign there; Save Filled Copy writes a copy next to it, and you’re told when they save. Say so in a line and stop.",
+                                        step: "Opened \(name) in Fill & Sign", movedView: "Moved you to Edit")
+        case .openedWithoutFillSign:
+            return AskClaudeToolOutcome(result: "Opened \(name) in Edit, but it took too long to load to turn Fill & Sign on: they click Fill & Sign above it.",
+                                        step: "Opened \(name) in Edit", movedView: "Moved you to Edit")
+        case .refused:
+            return refuse("Edit couldn’t show \(name). Edit says why.")
+        case .notNow:
+            return refuse("\(name) didn’t open in Edit yet: Edit is waiting on a question about the open document, or it was canceled.")
+        }
+    }
+
     /// The actions a card runs, by the name Claude calls them.
     static let pdfActions: [String: AskClaudePDFCard.Action] = [
         "save_as_pdf": .saveAsPDF, "compress": .compress, "rotate": .rotate, "clean_metadata": .cleanMetadata,

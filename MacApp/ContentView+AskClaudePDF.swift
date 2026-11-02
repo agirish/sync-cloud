@@ -470,6 +470,38 @@ extension ContentView {
         askClaudeChat.tellClaude(line)
     }
 
+    // MARK: Fill
+
+    /// **Opens a form in Edit with Fill & Sign on** (TE294 step 4), once it has loaded — waited
+    /// for, at most 10 s — and has its filled copies told to Claude while this chat lasts, unless a
+    /// copy is saved into a folder hidden from it.
+    func askClaudeOpenForFill(_ path: String) async -> AskClaudeBrowseTools.FillOutcome {
+        switch handOffToEditor(path) {
+        case .cancelled: return .notNow
+        case .opened, .alreadyOpen:
+            guard editorOpenPath.map({ AskClaudePaths.same($0, path) }) == true else { return .refused }
+        }
+        func loaded() -> Bool { editorPDF.phase == .open && editorPDF.path.map { AskClaudePaths.same($0, path) } == true }
+        for _ in 0..<100 where !loaded() { try? await Task.sleep(for: .milliseconds(100)) }
+        guard loaded() else { return .openedWithoutFillSign }
+        if !editorPDF.fill.isOn { editorPDF.fill.toggle() }
+        let chat = askClaudeChat
+        chat.fillOpened = path
+        editorPDF.fill.didSave = { original, copy in
+            guard let opened = chat.fillOpened, AskClaudePaths.same(original, opened) else { return }
+            let form = "“\((original as NSString).lastPathComponent)”"
+            if AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard)).isHidden(copy) {
+                chat.tellClaude("They saved a filled copy of \(form) from Fill & Sign, in a folder hidden from you.")
+            } else {
+                chat.tellClaude("They saved “\((copy as NSString).lastPathComponent)” \(AskClaudeChat.fileMark(copy)) from Fill & Sign on \(form).")
+            }
+        }
+        if case .facts(let facts) = await PDFCardFactsReader.read(path, for: .extract([0])) {
+            return .opened(fields: facts.fieldCount)
+        }
+        return .opened(fields: nil)
+    }
+
     // MARK: Doors
 
     func askClaudePDFDownload(_ id: UUID, _ path: String) {

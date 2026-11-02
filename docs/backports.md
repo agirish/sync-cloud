@@ -14038,3 +14038,17 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude, no `show` | CLOSED — does not apply |
+
+## Ask Claude runs SyncCloud's PDF tools (TE294 step 4) — main only
+
+2026-11-02, for v7.0. On `main`: Ask Claude's `pdf` tool, turning on the cards step 3 built. Claude
+can save a document as a PDF, compress, rotate, clean the metadata of, protect or unlock a PDF,
+take out, delete or reorder its pages, split it or combine several — each a card that runs on the
+person's click and makes a new file next to the original — read a PDF's pages and form fields,
+and open a form in Edit with Fill & Sign on. Its instructions say what can't be done from the chat
+one limit to a sentence. The fixed text and tool list changed, so saved chats start over once. Ask
+Claude exists only on `main`.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

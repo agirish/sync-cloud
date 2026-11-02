@@ -44,6 +44,12 @@ Requires **macOS 26**, unchanged from v6.2.
   back, and every change is in History. Moves stay on this Mac's disk, and a move to the Trash starts
   unticked. Claude hears what you did with a card, applied, undone or Not Now, with your next
   question. "Where should this go?" offers Move Here, and the loose-files card applies the same way.
+- **PDFs from the chat.** Ask Claude to save a document as a PDF, compress a PDF, put a password on
+  it or take it off, take pages out, delete or reorder them, split it or combine several, and it
+  shows a card that runs SyncCloud's own PDF tool when you click. The card says what the new file will
+  lose before you click, the new file goes next to the original, and the original never changes.
+  A password is typed on the card and never reaches Claude. Undo on the card moves what it made to
+  the Trash. To fill in a form, Claude opens it in Edit with Fill & Sign on.
 - **What's inside a file is read on this Mac.** An on-device model reads it and Claude gets a short
   answer. A passage of the file goes to Claude only when you click Send under the answer, or every
   time with Let Claude read files on.

@@ -144,6 +144,9 @@ final class AskClaudeChat: ObservableObject {
     /// undo manager that holds it. Kept alive here — an undo manager doesn't retain its targets —
     /// for as long as the chat; a relaunch or New Chat drops them, and the card's Undo with them.
     var pdfUndoSteps: [UUID: (target: AnyObject, manager: UndoManager)] = [:]
+    /// The form `pdf` with fill opened, while this chat lasts: only its filled copies are told to
+    /// Claude (TE294).
+    var fillOpened: String?
     /// Called with each PDF card as it joins the chat, and with each open one restored, so the
     /// window reads its files for it (TE294).
     var pdfCardOffered: ((UUID) -> Void)? {
@@ -836,6 +839,7 @@ final class AskClaudeChat: ObservableObject {
         pdfThumbnails = [:]
         for step in pdfUndoSteps.values { step.manager.removeAllActions(withTarget: step.target) }
         pdfUndoSteps = [:]
+        fillOpened = nil
         // About cards the new chat doesn't have, unless the caller carries them on.
         sinceLastAnswer = lines
         isRunning = false

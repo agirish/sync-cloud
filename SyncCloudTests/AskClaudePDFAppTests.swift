@@ -97,6 +97,56 @@ import Sync
         #expect(combine.options.name == "Scan (combined).pdf")
     }
 
+    // MARK: The tool, turned on (step 4)
+
+    private func realPDF(_ name: String, pages: Int) -> String {
+        let path = (folder as NSString).appendingPathComponent(name)
+        var box = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let context = CGContext(URL(fileURLWithPath: path) as CFURL, mediaBox: &box, nil)!
+        for _ in 0..<pages { context.beginPDFPage(nil); context.endPDFPage() }
+        context.closePDF()
+        return path
+    }
+
+    private func run(_ input: [String: JSONFragment], paths: [String],
+                     openForFill: @escaping (String) async -> AskClaudeBrowseTools.FillOutcome = { _ in .notNow })
+    async -> AskClaudeToolOutcome {
+        var handles = AskClaudeHandles()
+        var input = input
+        input["handles"] = .array(paths.map { .string(handles.handle(for: $0)) })
+        var ctx = context()
+        ctx.openForFill = openForFill
+        let fixed = ctx
+        let runner = AskClaudeBrowseTools(context: { fixed }, statDisk: { _ in nil })
+        return await runner.run(AskClaudeToolCall(id: "t", name: "pdf", input: .object(input)), handles: &handles)
+    }
+
+    /// **The `pdf` name reaches the runner**: a card action offers a card, `info` reads the file.
+    @Test func thePDFToolRunsThroughTheRunner() async throws {
+        let statement = realPDF("Statement.pdf", pages: 8)
+        let card = await run(["action": .string("extract"), "pages": .string("3-5")], paths: [statement])
+        #expect(card.pdf?.action == .extract, "\(card.result)")
+        let info = await run(["action": .string("info")], paths: [statement])
+        #expect(!info.isError, "\(info.result)")
+        #expect(info.result.hasPrefix("“Statement.pdf”: 8 pages, "), "\(info.result)")
+        #expect(info.result.hasSuffix("no form fields."), "\(info.result)")
+    }
+
+    /// **fill opens the form and says so, in each way it can end** — moved to Edit when it opened.
+    @Test func fillSaysHowOpeningTheFormWent() async throws {
+        let form = realPDF("W-9.pdf", pages: 1)
+        let opened = await run(["action": .string("fill")], paths: [form], openForFill: { _ in .opened(fields: 11) })
+        #expect(opened.result.contains("Fill & Sign on. It has 11 form fields."), "\(opened.result)")
+        #expect(opened.movedView == "Moved you to Edit")
+        let slow = await run(["action": .string("fill")], paths: [form], openForFill: { _ in .openedWithoutFillSign })
+        #expect(slow.result.contains("they click Fill & Sign"), "\(slow.result)")
+        let waiting = await run(["action": .string("fill")], paths: [form], openForFill: { _ in .notNow })
+        #expect(waiting.isError)
+        let doc = try file("Letter.docx")
+        let notPDF = await run(["action": .string("fill")], paths: [doc], openForFill: { _ in .opened(fields: 1) })
+        #expect(notPDF.isError && notPDF.result.contains("isn’t a PDF"))
+    }
+
     // MARK: Handles, minted as the line is sent
 
     /// **A file a line names gets its handle when the line is sent** — the same handle every time
