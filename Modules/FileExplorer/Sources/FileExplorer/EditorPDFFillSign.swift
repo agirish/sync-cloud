@@ -580,9 +580,9 @@ public final class EditorPDFSignatureStore: ObservableObject {
     /// Whether adding one more of `kind` lets the oldest go.
     public func isFull(_ kind: EditorPDFSignature.Kind) -> Bool { saved(kind).count >= Self.limit }
 
-    /// Newest first. **Built on what is stored, not on what was read at launch**: Settings ▸ Reset
-    /// All Settings empties the domain under a store that is already up, and the next add wrote the
-    /// signatures it had just removed back with the new one.
+    /// Newest first. **Built on what is stored, not on what was read at launch**: when Settings ▸
+    /// Reset All Settings still emptied the domain under a store that was already up (it keeps them
+    /// now), the next add wrote the signatures it had just removed back with the new one.
     public func add(_ signature: EditorPDFSignature) {
         var next = [signature] + Self.read(defaults).filter { $0.id != signature.id }
         let overflow = next.filter { $0.kind == signature.kind }.dropFirst(Self.limit).map(\.id)

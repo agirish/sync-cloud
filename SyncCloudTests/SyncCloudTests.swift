@@ -420,7 +420,7 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     @MainActor
     @Test func testResetAllSettingsWipesDefaultsResetsTheLogGateAndClearsIgnores() throws {
         let test = TestDefaults()
-        // A key nothing re-writes on reset, so its disappearance proves the domain was wiped.
+        // A key nothing re-writes on reset, so its disappearance proves the domain was cleared.
         test.defaults.set(true, forKey: "openSettingsOnLaunch")
 
         let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults,
@@ -442,7 +442,7 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
             logLevels.append((level, settings.ignorePatterns.isEmpty))
         }
 
-        // 1. The defaults domain is gone (and the manager republished at its defaults).
+        // 1. The defaults domain is cleared (and the manager republished at its defaults).
         #expect(test.defaults.object(forKey: "openSettingsOnLaunch") == nil)
         #expect(settings.ignorePatterns.isEmpty)
         #expect(settings.conflictPolicy == .ask)

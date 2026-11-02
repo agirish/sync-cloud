@@ -37,7 +37,7 @@ let package = Package(
             dependencies: [
                 // FileExplorer for `EditHeaderMatchesPaneHeaderTests`, which lays Edit's document
                 // header out beside the real `PaneHeader` — the one place both views can be seen.
-                "Dashboard", "Sync", "Events", "Design", "FileExplorer",
+                "Dashboard", "Sync", "Events", "Design", "FileExplorer", "Settings",
                 .product(name: "FileExplorerTestSupport", package: "FileExplorer"),
                 .product(name: "EventsTestSupport", package: "Events"),
                 .product(name: "TestProcessTextChecking", package: "Design"),

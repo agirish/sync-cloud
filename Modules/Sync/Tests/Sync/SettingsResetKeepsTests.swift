@@ -3,8 +3,8 @@ import Testing
 @testable import Sync
 
 /// What Reset All Settings keeps (`SettingsResetKeeps`): the Never show Claude list, the spending
-/// limits, every spend record, Automations and saved signatures — read off the keys the owners
-/// really write, so a new key that the list does not name goes red here.
+/// limits, every spend record, Rules, saved signatures and migration marks. The spend stores are
+/// read off the keys they really write, so a new spend key the list does not name goes red here.
 @Suite struct SettingsResetKeepsTests {
 
     private func suite() -> (UserDefaults, String) {
@@ -64,6 +64,16 @@ import Testing
         #expect(!SettingsResetKeeps.keeps(AskClaudePrivacy.readsFilesKey))
     }
 
+    /// The marks that say which shape stored data is in. Without them the next launch migrates what
+    /// the app wrote after the reset a second time.
+    @Test func theMigrationMarksAreKept() {
+        for key in [FileSyncManager.filingRulesMigratedKey, OrganizeScopeDefaults.stampKey, "rootsModelStamp",
+                    "rootsModelHandledProviderIds", "iCloudRootMoveStamp", "paneBarArrangementMigration",
+                    "browseSidebarFavoritePlacesMigration", "paneColumnWidthFloorLifted"] {
+            #expect(SettingsResetKeeps.keeps(key), "\(key)")
+        }
+    }
+
     @Test func theSpendingLimitsAreKept() {
         #expect(SettingsResetKeeps.keeps("askClaudeMonthlyLimitUSD"))
         #expect(SettingsResetKeeps.keeps("tidyFilingMonthlyBudgetUSD"))
@@ -92,11 +102,14 @@ import Testing
 
     /// Settings and records that are not money, privacy or his own rules and signatures go with the reset.
     @Test func everythingElseIsReset() {
+        // Real keys of the domain, and the month prefix without its dot: only `askClaudeSpend.<month>`
+        // may ride the prefix.
         for key in ["askClaudeModel", "askClaudeReadsFiles", "askClaudePanelWidth", "askClaudeAnswers",
-                    "tidyFilingUseCloud", "tidyFilingCloudModel", "tidyFilingRejections",
-                    "editorPDFSignatureFace", "editorPDFSignaturePen", "editorPDFSignatureSmoothing",
-                    "folderSources", "appearanceMode", "hasCompletedSetup",
-                    "askClaudeSpendNotice", "tidyFilingSpend"] {
+                    "tidyFilingUseCloud", "tidyFilingCloudModel", "tidyFilingReadContents",
+                    "tidyFilingRejections", "editorPDFSignatureFace", "editorPDFSignaturePen",
+                    "editorPDFSignatureSmoothing", "folderSources", "sourceOrder", "appearanceMode",
+                    "hasCompletedSetup", "hasSeenFirstRunWelcome", "setupPrimarySourceId", "browseTabs",
+                    "organizeScopePath", "root_override_iCloud", "askClaudeSpend"] {
             #expect(!SettingsResetKeeps.keeps(key), "\(key) would be kept")
         }
     }

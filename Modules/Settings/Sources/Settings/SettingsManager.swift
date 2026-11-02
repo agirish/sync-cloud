@@ -693,9 +693,10 @@ public class SettingsManager: ObservableObject {
         for key in stored.keys where !SettingsResetKeeps.keeps(key) {
             userDefaults.removeObject(forKey: key)
         }
-        // `askClaudeReadsFiles` is reset, and the views and chats that cache what Claude may see
-        // re-read it on this. They observe any sender; the store as the sender lets a test tell
-        // this reset's notice from another's.
+        // What may reach Claude changed: `askClaudeReadsFiles` is reset. Its views read it through
+        // `@AppStorage` and the chat reads it live, so today the observers only re-read the hidden
+        // list, which is kept; posted so a cache of either can't be left behind. They observe any
+        // sender; the store as the sender lets a test tell this reset's notice from another's.
         NotificationCenter.default.post(name: AskClaudePrivacy.didChange, object: userDefaults)
         // Re-seed the LIVE log level from the (now-cleared) persisted value, exactly as launch does.
         // The reset drops the persisted `logMinimumLevel`, but the running Logger keeps
@@ -710,6 +711,8 @@ public class SettingsManager: ObservableObject {
         conflictPolicy = .ask
         defaultSortOption = .name
         disabledProviderIds = []
+        // Its key went with the domain; the order dragged in the list stayed in memory until relaunch.
+        sourceOrder = []
         // The curated folder list goes with the domain. The reset above has already taken
         // it; this republishes the emptiness so the UI and `availableProviders` agree without
         // waiting for a relaunch. The confirmation names it — "files on disk are untouched" is true

@@ -117,7 +117,7 @@ import Sync
         #expect(settings.disabledProviderIds.isEmpty)
         // Foreign keys in the same domain (the @AppStorage-backed toggles) are wiped too.
         #expect(GeneralSettings.shouldConfirmBeforeDelete(test.defaults))
-        #expect(test.defaults.string(forKey: "path_override_iCloud") == nil)
+        #expect(test.defaults.string(forKey: "root_override_iCloud") == nil)
     }
 
     /// The reset keeps what `SettingsResetKeeps` names — the Never show Claude list, the spending
@@ -151,12 +151,27 @@ import Sync
         defaults.set("cursive", forKey: "editorPDFSignatureFace")
         defaults.set("claude-opus-4-1", forKey: "askClaudeModel")
         defaults.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
+        defaults.set(RootsMigration.currentStamp, forKey: RootsMigration.stampKey)
+        defaults.set(["iCloud"], forKey: RootsMigration.handledProviderIdsKey)
+        defaults.set(RootsMigration.iCloudRootMoveStamp, forKey: RootsMigration.iCloudRootMoveStampKey)
         settings.dateToleranceSeconds = 60
+        settings.setSourceOrder(["Dropbox", "iCloud"])
         let kept = Set((defaults.persistentDomain(forName: test.suiteName) ?? [:]).keys)
             .filter(SettingsResetKeeps.keeps)
         // The hidden list, three limits, this month's Ask Claude spend, Refine's history, totals, last,
-        // both rule stores and their flag, and the signatures.
-        #expect(kept.count == 12, "\(kept.sorted())")
+        // both rule stores and their flag, the signatures, and the three roots marks.
+        #expect(kept.count == 15, "\(kept.sorted())")
+
+        // Key by key, so the hidden list is there at every change the reset makes — a reader on
+        // another thread never sees it gone. Removing the domain and writing it back would not be.
+        let hiddenMissing = CallCounter()
+        let changes = CallCounter()
+        let watcher = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: defaults, queue: nil) { _ in
+            changes.increment()
+            if AskClaudePrivacy.hiddenFolders(in: defaults).isEmpty { hiddenMissing.increment() }
+        }
+        defer { NotificationCenter.default.removeObserver(watcher) }
 
         let privacyPosts = CallCounter()
         let observer = NotificationCenter.default.addObserver(
@@ -182,6 +197,10 @@ import Sync
         #expect(defaults.string(forKey: "askClaudeModel") == nil)
         #expect(defaults.object(forKey: FileSyncManager.usesCloudDefaultsKey) == nil)
         #expect(settings.dateToleranceSeconds == 1)
+        #expect(settings.sourceOrder.isEmpty)
+        #expect(defaults.object(forKey: "sourceOrder") == nil)
+        #expect(changes.count > 1)
+        #expect(hiddenMissing.count == 0)
         // The read switch changed, so whatever caches what Claude may see is told — by this reset:
         // the other tests' resets, running beside this one, post for their own stores.
         #expect(privacyPosts.count == 1)
@@ -191,11 +210,16 @@ import Sync
     @Test func testTheResetConfirmationNamesWhatItKeeps() throws {
         let parts = AdvancedSettingsTab.resetAllExplanation.components(separatedBy: "Kept:")
         try #require(parts.count == 2)
-        for phrase in ["Automations", "saved signatures", "folders you hid from Claude", "spending limits",
-                       "what it has cost", "Files on disk are not affected"] {
+        // "Rules", the name Organize shows; "Automations" is a retired workspace name.
+        for phrase in ["Rules", "saved signatures", "folders you hid from Claude", "spending limits",
+                       "what it has cost", "API key", "files on disk"] {
             #expect(parts[1].contains(phrase), "\(phrase)")
             #expect(!parts[0].contains(phrase), "\(phrase) is also named as removed")
         }
         #expect(parts[0].contains("Folders you added as sources"))
+        // Setup offers itself again only where no folder profile exists, so the alert does not
+        // promise it will.
+        #expect(parts[0].contains("forgets that setup has run"))
+        #expect(!AdvancedSettingsTab.resetAllExplanation.contains("offer itself"))
     }
 }

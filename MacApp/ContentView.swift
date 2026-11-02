@@ -2820,9 +2820,11 @@ struct ContentView: View {
         (setLogLevel ?? { Logger.shared.minimumLevel = $0 })(.debug)
         syncManager.clearAllIgnoredItems()
         // **The one thing the defaults domain does not carry.** `resetAllSettings()` drops all
-        // three setup flags with the rest of the domain, so the alert's "Setup will offer itself
-        // again" needs no code behind it — but the draft is a file beside the profiles, and a reset
-        // that left it would have setup open on a fresh machine with a household already in it.
+        // three setup flags with the rest of the domain, so the alert's "SyncCloud forgets that
+        // setup has run" needs no code behind it (setup then offers itself only where no folder
+        // profile exists, `SetupFlow.shouldAutoShow`) — but the draft is a file beside the
+        // profiles, and a reset that left it would have setup open on a fresh machine with a
+        // household already in it.
         if let draft = SetupDraftStore.defaultURL() { SetupDraftStore.clear(at: draft) }
     }
 

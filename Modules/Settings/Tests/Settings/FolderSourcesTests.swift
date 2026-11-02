@@ -400,7 +400,7 @@ import Sync
 
     // MARK: Reset All Settings
 
-    /// `resetAllSettings` removes the whole defaults domain, which takes the curated folder list
+    /// `resetAllSettings` clears the defaults domain but what `SettingsResetKeeps` names, which takes the curated folder list
     /// with it. That is defensible, and the confirmation now says so — what must not happen is the
     /// list surviving in memory while its persistence is gone, which would resurrect the folders
     /// on the next write and lose them on the next launch.

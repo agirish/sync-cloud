@@ -178,7 +178,7 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     }
 
     /// Marks that `liftColumnWidthOffTheFloor` has run, so it can only ever run once.
-    static let columnWidthFloorLiftKey = "paneColumnWidthFloorLifted"
+    public static let columnWidthFloorLiftKey = "paneColumnWidthFloorLifted"
 
     /// One-time repair for installs left pinned at `minimumColumnWidth`.
     ///
