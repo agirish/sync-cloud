@@ -1098,14 +1098,7 @@ struct ReadabilitySettingsTab: View {
     static func chooseResizeMode(_ raw: String, mode: inout String,
                                  overrides: inout ColumnWidthOverrides,
                                  confirm: () -> Bool) -> Bool {
-        guard raw == ColumnResizeMode.allColumns.rawValue, !overrides.widths.isEmpty else {
-            mode = raw
-            return true
-        }
-        return RemovalPrompt.actIfConfirmed(confirm: confirm) {
-            mode = raw
-            overrides = ColumnWidthOverrides()
-        }
+        ColumnResizeChoice.choose(raw, mode: &mode, overrides: &overrides, confirm: confirm)
     }
 
     /// The resolved text size. `FontSize.init(percent:)` clamps, so a value stored before the
@@ -3937,7 +3930,7 @@ struct AdvancedSettingsTab: View {
                     .labelsHidden()
                     .fixedSize()
                     .onChange(of: minimumLevelRaw) { _, raw in
-                        Logger.shared.minimumLevel = LogLevel(rawValue: raw) ?? .debug
+                        LogLevelSetting.applyRunning(raw: raw)
                     }
                     .help("Which messages the log keeps: the chosen level and everything more severe. Debug keeps everything.")
                 }

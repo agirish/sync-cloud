@@ -364,16 +364,14 @@ struct CloudKeyRow: View {
     ///
     /// `isConfigured`, not `hasKey`: confirming the item is gone must not ask for the secret.
     private func removeKey() {
-        let status = AnthropicKeychain.delete()
+        let refusal = APIKeyRemoval.remove()
         apiKeyField = ""
         revealedKey = nil
         isReplacingKey = false
-        hasStoredKey = AnthropicKeychain.isConfigured
+        hasStoredKey = refusal != nil
         // `.invalid` renders its message verbatim; `.failed` would prefix "Couldn't reach
         // Anthropic" and misattribute a local refusal to the network. Same choice as `saveTypedKey`.
-        keyTestResult = hasStoredKey
-            ? .invalid("The Keychain refused to delete the key (status \(status)). It is still stored. Unlock your login keychain and try again.")
-            : nil
+        keyTestResult = refusal.map { .invalid($0) }
     }
 
     /// Reads the secret — the one place in Settings that deliberately does, and so the one place

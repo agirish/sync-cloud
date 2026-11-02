@@ -13720,3 +13720,17 @@ A re-tune of what every Clear install looks like, so main-only on the Tint-slide
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | 0.85 backing at every level | RECORDED — not owed |
+
+## Settings side effects moved out of their views (TE290 step 0a) — main only
+
+2026-11-02, for v7.0. On `main`: launch at login's round-trip lives in `LoginItemController.shared`
+instead of `LaunchAtLoginRow`'s `@State`, and the notification-permission request, the running log
+level, the API key's confirmed removal and the Column widths rule are callable owners
+(`SettingsOwners.swift`); `RemovalPrompt` is public. A refactor with no behaviour change, done so
+Ask Claude's settings cards (TE290) can make the same changes without mounting the views. Setup's
+and Settings' launch-at-login rows now share one echo guard instead of running one each. The
+maintenance lines are owed nothing: no behaviour moves.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The side effects inside their views | CLOSED — refactor, nothing to send |

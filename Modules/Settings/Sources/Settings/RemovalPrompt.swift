@@ -11,15 +11,16 @@ import Foundation
 /// the same way.
 ///
 /// The words live here, beside one another, so the five read as one voice; each control's gate is
-/// beside the control.
-struct RemovalPrompt: Equatable {
-    let messageText: String
-    let informativeText: String
-    let confirmTitle: String
+/// beside the control. Public so a control outside Settings — an Ask Claude card (TE290) — asks
+/// in the same words and gates on the same rule.
+public struct RemovalPrompt: Equatable, Sendable {
+    public let messageText: String
+    public let informativeText: String
+    public let confirmTitle: String
 
     /// The standard alert: Cancel is the default, and the destructive button takes no Return key —
     /// the same alert Reset All Settings… and Clear Log ask with.
-    @MainActor func ask() -> Bool {
+    @MainActor public func ask() -> Bool {
         NativeAlerts.confirmIrreversible(messageText: messageText,
                                          informativeText: informativeText,
                                          confirmTitle: confirmTitle)
@@ -29,7 +30,7 @@ struct RemovalPrompt: Equatable {
     /// test — a button's closure is not — and keeps a control from acting by forgetting to ask.
     /// - Returns: Whether `act` ran.
     @discardableResult
-    static func actIfConfirmed(confirm: () -> Bool, act: () -> Void) -> Bool {
+    public static func actIfConfirmed(confirm: () -> Bool, act: () -> Void) -> Bool {
         guard confirm() else { return false }
         act()
         return true
@@ -38,7 +39,7 @@ struct RemovalPrompt: Equatable {
     // MARK: The five questions
 
     /// Sources ▸ a folder source ▸ Remove.
-    static func removeFolderSource(named name: String) -> RemovalPrompt {
+    public static func removeFolderSource(named name: String) -> RemovalPrompt {
         RemovalPrompt(
             messageText: "Remove “\(name)” from your sources?",
             informativeText: "SyncCloud stops showing this folder and forgets any name you gave it "
@@ -48,7 +49,7 @@ struct RemovalPrompt: Equatable {
     }
 
     /// Sync ▸ Ignored items ▸ Clear All.
-    static func clearIgnoredItems(count: Int) -> RemovalPrompt {
+    public static func clearIgnoredItems(count: Int) -> RemovalPrompt {
         RemovalPrompt(
             messageText: count == 1 ? "Stop ignoring 1 item?" : "Stop ignoring all \(count) items?",
             informativeText: "Everything you ignored between these two sources comes back in "
@@ -58,7 +59,7 @@ struct RemovalPrompt: Equatable {
     }
 
     /// Organize ▸ Kept names ▸ Clear All.
-    static func clearKeptNames(count: Int) -> RemovalPrompt {
+    public static func clearKeptNames(count: Int) -> RemovalPrompt {
         RemovalPrompt(
             messageText: count == 1 ? "Stop keeping 1 name?" : "Stop keeping all \(count) names?",
             informativeText: "SyncCloud flags each of these names again, on its row and in "
@@ -69,7 +70,7 @@ struct RemovalPrompt: Equatable {
 
     /// Intelligence ▸ Saved suggestions ▸ Clear. Says the cost, because that is the part of this
     /// clear nobody would guess: the next Refine pays Claude again for every file.
-    static func clearSavedSuggestions(count: Int) -> RemovalPrompt {
+    public static func clearSavedSuggestions(count: Int) -> RemovalPrompt {
         RemovalPrompt(
             messageText: count == 1 ? "Clear 1 saved suggestion?" : "Clear \(count) saved suggestions?",
             informativeText: "The next scan asks the on-device model about every file again, and "
@@ -79,7 +80,7 @@ struct RemovalPrompt: Equatable {
     }
 
     /// Readability ▸ Column widths ▸ All columns, when some columns were sized on their own.
-    static func releaseColumnWidths(count: Int) -> RemovalPrompt {
+    public static func releaseColumnWidths(count: Int) -> RemovalPrompt {
         RemovalPrompt(
             messageText: "Put every column back to one width?",
             informativeText: count == 1
