@@ -13939,3 +13939,18 @@ Claude exists only on `main` (see step 0b).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## PDF tools and Save as PDF run from a request (TE294 step 1) — main only
+
+2026-11-02, for v7.0. On `main`: the PDF tools, a batch of them, and Save as PDF can be started
+with their options already chosen — `PanePDFTools.startFromChat`, `startBatchFromChat`,
+`PaneSaveAsPDF.startFromChat` — with no sheet and no alert, and hand back how they ended as data
+(`PDFRunResult`): every file written with the stamp of the file the writer made, every file left
+out and why, and the banner's own words. A file that changed since it was chosen is left alone; a
+copy can go into a chosen folder, where the keep-both rule still holds. Nothing calls them yet;
+Ask Claude's PDF cards will (TE294). The menus' runs are unchanged, so the maintenance lines are
+owed nothing.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No request entry points | CLOSED — nothing to send |

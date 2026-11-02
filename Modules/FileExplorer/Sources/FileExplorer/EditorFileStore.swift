@@ -31,6 +31,14 @@ public enum EditorFileStore {
         public var size: Int
         /// `.systemFileNumber` — the inode. Zero when the filesystem did not report one.
         public var fileID: Int = 0
+
+        /// Public so a stamp kept elsewhere — an Ask Claude card's saved copy — can be compared
+        /// with a fresh one.
+        public init(modifiedAt: Date?, size: Int, fileID: Int = 0) {
+            self.modifiedAt = modifiedAt
+            self.size = size
+            self.fileID = fileID
+        }
     }
 
     /// **The path the editor actually reads and writes**, with any symlinks along it resolved.

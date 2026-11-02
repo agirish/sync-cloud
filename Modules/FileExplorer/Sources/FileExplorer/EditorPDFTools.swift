@@ -283,6 +283,21 @@ public final class EditorPDFTools: ObservableObject {
         self.confirmDiscardWithAlert(quitting: $0)
     }
 
+    /// **Where the copy goes when the original's folder is not the place** — set by a request
+    /// that chose a folder (``PanePDFTools/startFromChat(_:path:folder:expecting:writer:allow:completion:)``).
+    /// `nil` writes beside the original, as every menu does.
+    var destinationFolder: String?
+    /// **Whether a run's ending is left off ``banner``** — for a run a request made, whose asker
+    /// reads ``lastReport`` and ``lastWrite`` instead, so the pane never shows it a second time.
+    var quiet = false
+    /// The last ending a run reported, said or not.
+    private(set) var lastReport: EditorPDFToolBanner?
+    /// The copy the last run wrote, with the stamp of the file the writer created.
+    public private(set) var lastWrite: PDFWrittenFile?
+    /// What a run says when the file changed since it was read — Edit's sentence, which promises a
+    /// reload; a request that read the file itself says its own.
+    var changedMessage: (String) -> String = { EditorPDFTools.changedReason($0) }
+
     private var cancelFlag: CancelFlag?
     private var generation = 0
     /// Every progress report that has reached the main actor — the tests' way to see it did.
@@ -530,6 +545,8 @@ public final class EditorPDFTools: ObservableObject {
         // the reader sees.
         let input = URL(fileURLWithPath: EditorFileStore.resolved(path))
         let name = (path as NSString).lastPathComponent
+        let folder = destinationFolder
+        lastWrite = nil
 
         // The sizes the success banner quotes, known once the bytes are in hand.
         var sizes: (before: Int?, after: Int)?
@@ -548,18 +565,18 @@ public final class EditorPDFTools: ObservableObject {
                 // was used, not one dragged since.
                 if case .arranged(let order, _) = tool, arrangement == order { arrangement = nil }
                 let copyName = (copy as NSString).lastPathComponent
-                banner = EditorPDFToolBanner(
+                report(EditorPDFToolBanner(
                     message: wroteMessage(copyName, tool: tool, before: sizes?.before, after: sizes?.after)
                         + (wroteNote.map { ". " + $0 } ?? ""),
-                    kind: .wrote(copy))
+                    kind: .wrote(copy)))
             case .nothingWritten(let message):
-                banner = EditorPDFToolBanner(message: message, kind: .note)
+                report(EditorPDFToolBanner(message: message, kind: .note))
             case .cancelled:
                 Logger.shared.info("\(writer) cancelled \(tool.title.lowercased()) of \(logName) — nothing written")
-                banner = EditorPDFToolBanner(message: "\(Running(tool).sentence) was canceled — nothing was written.",
-                                             kind: .note)
+                report(EditorPDFToolBanner(message: "\(Running(tool).sentence) was canceled — nothing was written.",
+                                           kind: .note))
             case .failed(let message):
-                if bannerFailures { banner = EditorPDFToolBanner(message: message, kind: .failure, download: download) }
+                if bannerFailures { report(EditorPDFToolBanner(message: message, kind: .failure, download: download)) }
             case .declined:
                 break
             }
@@ -585,7 +602,7 @@ public final class EditorPDFTools: ObservableObject {
         // refused. Asked again after it, since the file can change while the question is up.
         if let shownStamp, EditorFileStore.stamp(ofPath: path) != shownStamp {
             Logger.shared.info("\(writer) refused \(tool.logDetail) of \(logName) — it changed on disk since it was read")
-            return end(.failed(Self.changedReason(name)))
+            return end(.failed(changedMessage(name)))
         }
         running = Running(tool)
         progress = nil
@@ -603,7 +620,7 @@ public final class EditorPDFTools: ObservableObject {
         let before = EditorFileStore.stamp(ofPath: path)
         if let shownStamp, before != shownStamp {
             Logger.shared.info("\(writer) refused \(tool.logDetail) of \(logName) — it changed on disk since it was read")
-            return end(.failed(Self.changedReason(name)))
+            return end(.failed(changedMessage(name)))
         }
         let hook = laneProgressHook
         let result = await EditorPDFToolEngine.run(
@@ -639,7 +656,7 @@ public final class EditorPDFTools: ObservableObject {
             return end(.cancelled)
         case .failure(let error) where error is EditorPDFToolEngine.ChangedOnDisk:
             Logger.shared.info("\(writer) refused \(tool.logDetail) of \(logName) — it changed on disk while the run waited for its turn")
-            return end(.failed(Self.changedReason(name)))
+            return end(.failed(changedMessage(name)))
         case .failure(let error) where error is EditorPDFToolEngine.CloudOnly:
             Logger.shared.info("\(writer) refused \(tool.logDetail) of \(logName) — it went cloud-only while the run waited for its turn")
             return end(.failed(Self.cloudOnlyReason(name)), download: path)
@@ -657,7 +674,7 @@ public final class EditorPDFTools: ObservableObject {
             let suffix = tool.suffix
             writeStartedHook?()
             let written = await Task.detached(priority: .userInitiated) {
-                Result { try EditorPDFCopyWriter.writeStamped(data, besides: path, suffix: suffix) }
+                Result { try EditorPDFCopyWriter.writeStamped(data, besides: path, suffix: suffix, into: folder) }
             }.value
             if case .success(let landed) = written { writeLandedHook?(landed.path) }
             // **Cancel, or a leave, pressed while the copy was being written still means "write
@@ -682,6 +699,11 @@ public final class EditorPDFTools: ObservableObject {
                                    + tool.logDetail + (quoted.map { ", \($0)" } ?? "")
                                    + Self.commentsLogClause(comments, fellBack: note != nil))
                 wroteNote = note
+                if case .success(let landed) = written {
+                    lastWrite = PDFWrittenFile(source: path, path: copy, stamp: landed.stamp, bytes: data.count,
+                                               // A file locked to open has no count until it is unlocked.
+                                               pageCount: pageCount > 0 ? tool.pagesInCopy(of: pageCount) : nil)
+                }
                 host.didWrite(copy)
                 return end(.wrote(copy))
             }
@@ -712,6 +734,12 @@ public final class EditorPDFTools: ObservableObject {
     /// The button beside that sentence — on the banner and in a tool's sheet (TE185).
     static let downloadTitle = "Download"
     static let downloadHelp = "Download the file from the cloud, then try again"
+
+    /// An ending, onto ``banner`` unless the run is ``quiet``.
+    private func report(_ ending: EditorPDFToolBanner) {
+        lastReport = ending
+        if !quiet { banner = ending }
+    }
 
     static func changedReason(_ name: String) -> String {
         "“\(name)” changed on disk since it was opened, so nothing was written. It reloads in a moment — then try again."

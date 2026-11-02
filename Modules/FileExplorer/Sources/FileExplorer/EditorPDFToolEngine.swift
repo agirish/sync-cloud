@@ -173,6 +173,16 @@ public enum EditorPDFTool: Equatable, Sendable {
         }
     }
 
+    /// How many pages the copy has, from the original's `pageCount`.
+    func pagesInCopy(of pageCount: Int) -> Int {
+        switch self {
+        case .extract(let pages): return pages.count
+        case .deletePages(let pages): return pageCount - Set(pages).count
+        case .arranged(_, let then): return then.pagesInCopy(of: pageCount)
+        default: return pageCount
+        }
+    }
+
     /// The leave question's sentence for a run still in flight — "The pages are still being rotated."
     public var stillRunning: String {
         switch self {
@@ -427,8 +437,11 @@ enum EditorPDFCopyName {
     /// **A Delete word taken off says "pages", whatever this run removed** (F-E3): deleting one page
     /// from "Lease (pages removed).pdf" has removed at least two from the file the name started as,
     /// and "Lease (page removed).pdf" said one.
-    static func firstChoice(for original: String, suffix: String) -> String {
-        let folder = (original as NSString).deletingLastPathComponent
+    ///
+    /// `into` names another folder for the copy — one a request chose because the original's
+    /// cannot be written to. The name is the same either way.
+    static func firstChoice(for original: String, suffix: String, into: String? = nil) -> String {
+        let folder = into ?? (original as NSString).deletingLastPathComponent
         let named = ((original as NSString).lastPathComponent as NSString).deletingPathExtension
         var base = withoutSuffix(named, suffix)
         let said = base == named ? suffix : plural(suffix)
@@ -504,10 +517,10 @@ enum EditorPDFCopyWriter {
     /// The same, with the stamp of the file it created — so a run cancelled while the copy was
     /// being written can take back exactly that file, and nothing that has replaced it since.
     nonisolated static func writeStamped(
-        _ data: Data, besides original: String, suffix: String,
+        _ data: Data, besides original: String, suffix: String, into folder: String? = nil,
         chooseName: (URL, Set<String>) -> URL = { FileSyncManager.generateUniqueURL(for: $0, reserved: $1) }
     ) throws -> (path: String, stamp: EditorFileStore.Stamp) {
-        try writeStamped(data, wanting: EditorPDFCopyName.firstChoice(for: original, suffix: suffix),
+        try writeStamped(data, wanting: EditorPDFCopyName.firstChoice(for: original, suffix: suffix, into: folder),
                          chooseName: chooseName)
     }
 

@@ -166,9 +166,7 @@ public final class PanePDFTools: ObservableObject {
                       probe: EditorPDFToolEngine.Probe) {
         let name = (path as NSString).lastPathComponent
         guard case .facts(let pageCount, let encryption, let droppedParts) = probe else {
-            tools.banner = EditorPDFToolBanner(message: "Couldn’t read “\(name)” as a PDF, so no tool can run on it. "
-                                               + "It may be damaged — Preview may still open it.",
-                                               kind: .failure)
+            tools.banner = EditorPDFToolBanner(message: unreadableReason(name), kind: .failure)
             return
         }
         tools.attach(path: path, pageCount: pageCount, encryption: encryption, droppedParts: droppedParts)
@@ -193,6 +191,176 @@ public final class PanePDFTools: ObservableObject {
                 refuse("“\(name)” has no password to remove.")
             }
         }
+    }
+
+    // MARK: From a request (TE294)
+
+    /// **A whole tool, asked for with its options already chosen** — by an Ask Claude card, with
+    /// no menu, no sheet and no alert. The same probe, the same instance kind and the same run as a
+    /// menu's, on ``current``, so it is busy, in the capsule and asked about at ⌘Q like any other.
+    ///
+    /// What the menu's ``offer(_:on:path:probe:)`` refuses is refused here too, in its words: the
+    /// run itself does not check a file's protection. `expecting` is the stamp the asker read: a
+    /// file that changed since is refused, in words that promise no reload. `allow` answers the
+    /// form question the alert would have asked — whether the loss the run found is the one the
+    /// asker showed. The copy goes into `folder` when given, else beside the original.
+    ///
+    /// The ending never reaches ``PanePDFSingleLayer``: it goes to `completion`. A menu request
+    /// while this runs is refused in the pane, as it is during any run.
+    public func startFromChat(_ tool: EditorPDFTool, path: String, folder: String? = nil,
+                              expecting: EditorFileStore.Stamp?, writer: String,
+                              allow: @escaping @MainActor (OutputFidelityWarning) -> Bool,
+                              completion: @escaping @MainActor (PDFRunResult) -> Void) {
+        guard !isBusy else {
+            completion(.busy)
+            return
+        }
+        let tools = EditorPDFTools()
+        tools.writer = writer
+        tools.isCloudOnly = isCloudOnly
+        tools.quiet = true
+        tools.destinationFolder = folder
+        tools.confirm = { warning, _ in allow(warning) }
+        tools.changedMessage = Self.changedSinceAskedReason
+        let host = self.host
+        tools.host = EditorPDFToolHost(didWrite: host.didWrite, open: host.open, reveal: { host.reveal([$0]) },
+                                       download: host.download)
+        current = .single(tools)
+        let name = (path as NSString).lastPathComponent
+        if isCloudOnly(MaterializationStatus.linkTarget(of: path)) {
+            completion(PDFRunResult(outcome: .failed, message: EditorPDFTools.cloudOnlyReason(name), download: path))
+            return
+        }
+        preparing = true
+        work = Task { @MainActor in
+            let probe = await EditorPDFToolEngine.probe(URL(fileURLWithPath: EditorFileStore.resolved(path)))
+            preparing = false
+            guard case .facts(let pageCount, let encryption, let droppedParts) = probe else {
+                completion(PDFRunResult(outcome: .failed, message: Self.unreadableReason(name)))
+                return
+            }
+            tools.attach(path: path, pageCount: pageCount, encryption: encryption, droppedParts: droppedParts)
+            if let refusal = Self.refusal(tool, on: tools, name: name) {
+                completion(PDFRunResult(outcome: .failed, message: refusal))
+                return
+            }
+            tools.shownStamp = expecting
+            let outcome = await tools.run(tool)
+            completion(Self.result(outcome, tools: tools, path: path))
+        }
+    }
+
+    /// **Several files, one whole-file tool** — a batch asked for by a request, as
+    /// ``startFromChat(_:path:folder:expecting:writer:allow:completion:)`` is for one. `expecting`
+    /// holds each file's stamp as the asker read it; `allow` answers the batch's one form question.
+    public func startBatchFromChat(_ tool: EditorPDFBatchTool, paths: [String], folder: String? = nil,
+                                   expecting: [String: EditorFileStore.Stamp], writer: String,
+                                   allow: @escaping @MainActor (EditorPDFBatchWarning) -> Bool,
+                                   completion: @escaping @MainActor (PDFRunResult) -> Void) {
+        guard !isBusy else {
+            completion(.busy)
+            return
+        }
+        let kind: EditorPDFBatchKind
+        switch tool {
+        case .rotate(let turns): kind = .rotate(quarterTurns: turns)
+        case .compress: kind = .compress
+        case .cleanMetadata: kind = .cleanMetadata
+        }
+        let batch = EditorPDFBatch(kind: kind, paths: paths, writer: writer)
+        batch.host = host
+        batch.isCloudOnly = isCloudOnly
+        batch.quiet = true
+        batch.destinationFolder = folder
+        batch.expected = expecting
+        batch.confirm = allow
+        current = .batch(batch)
+        // Busy from now, as a menu's Rotate is: no sheet is up to say so.
+        preparing = true
+        work = Task { @MainActor in
+            preparing = false
+            let outcome = await batch.run(tool)
+            completion(Self.result(outcome, batch: batch))
+        }
+    }
+
+    /// What the menu's ``offer(_:on:path:probe:)`` refuses, for a whole tool on an attached file —
+    /// `nil` when it may run. Fill & Sign is Edit's alone: it is never asked for from a request.
+    static func refusal(_ tool: EditorPDFTool, on tools: EditorPDFTools, name: String) -> String? {
+        switch tool {
+        case .rotate, .deletePages, .reorder, .extract, .compress, .arranged:
+            return tools.offersPageTools ? nil : tools.disabledReason ?? "“\(name)” has no pages."
+        case .cleanMetadata:
+            return tools.offersMetadata ? nil : tools.disabledReason ?? EditorPDFTools.metadataEncryptedReason
+        case .protect:
+            return tools.offersProtect ? nil : tools.disabledReason ?? "“\(name)” already has a password. Remove it first."
+        case .removePassword:
+            return tools.offersRemovePassword ? nil : "“\(name)” has no password to remove."
+        case .fillAndSign, .fillForm:
+            return "Fill & Sign runs only in Edit."
+        }
+    }
+
+    /// Edit's sentence promises a reload; a request's file is not open anywhere.
+    static func changedSinceAskedReason(_ name: String) -> String {
+        "“\(name)” changed since it was chosen, so nothing was written."
+    }
+
+    static func unreadableReason(_ name: String) -> String {
+        "Couldn’t read “\(name)” as a PDF, so no tool can run on it. It may be damaged — Preview may still open it."
+    }
+
+    static func result(_ outcome: EditorPDFToolOutcome, tools: EditorPDFTools, path: String) -> PDFRunResult {
+        let said = tools.lastReport
+        switch outcome {
+        case .wrote:
+            return PDFRunResult(outcome: .wrote, written: tools.lastWrite.map { [$0] } ?? [],
+                                message: said?.message ?? "", detail: said?.detail)
+        case .nothingWritten(let message):
+            return PDFRunResult(outcome: .nothingWritten, message: message)
+        case .cancelled:
+            return PDFRunResult(outcome: .cancelled, message: said?.message ?? "Canceled — nothing was written.")
+        case .declined:
+            return PDFRunResult(outcome: .declined, message: "What this copy would lose has changed, so nothing was written.")
+        case .failed(let message):
+            return PDFRunResult(outcome: .failed, message: message, download: said?.download)
+        }
+    }
+
+    static func result(_ outcome: EditorPDFBatch.Outcome, batch: EditorPDFBatch) -> PDFRunResult {
+        switch outcome {
+        case .busy: return .busy
+        case .declined:
+            return PDFRunResult(outcome: .declined, message: "What these copies would lose has changed, so nothing was written.")
+        case .finished: break
+        }
+        var skipped: [PDFRunResult.Skipped] = []
+        var failed = false, cancelled = false, small = 0
+        for file in batch.files {
+            switch file.status {
+            case .wrote, .waiting, .running: break
+            case .skipped(let skip):
+                if skip == .cancelled { cancelled = true }
+                if skip == .alreadySmall { small += 1 }
+                skipped.append(.init(path: file.path, reason: skip.reason))
+            case .failed(let reason):
+                failed = true
+                skipped.append(.init(path: file.path, reason: reason))
+            }
+        }
+        let written = batch.written
+        let kind: PDFRunResult.Outcome
+        if !written.isEmpty {
+            kind = skipped.isEmpty ? .wrote : .partlyWrote
+        } else if cancelled {
+            kind = .cancelled
+        } else if failed {
+            kind = .failed
+        } else {
+            kind = small == skipped.count ? .nothingWritten : .failed
+        }
+        return PDFRunResult(outcome: kind, written: written, skipped: skipped,
+                            message: batch.lastReport?.message ?? "", detail: batch.lastReport?.detail)
     }
 
     // MARK: Several files

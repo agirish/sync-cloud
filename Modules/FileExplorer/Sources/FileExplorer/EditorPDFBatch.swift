@@ -152,6 +152,19 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
     /// app, a canned answer in a test.
     var confirm: @MainActor (EditorPDFBatchWarning) -> Bool = { EditorPDFBatch.confirmWithAlert($0) }
 
+    /// Where the copies go instead of beside their originals — set by a request that chose a
+    /// folder (TE294). `nil` for every menu.
+    var destinationFolder: String?
+    /// **The stamp each file had when it was chosen**, by path — a request's: a file that changed
+    /// since is failed, not run on pages nobody looked at. Empty for a menu, which checks nothing.
+    var expected: [String: EditorFileStore.Stamp] = [:]
+    /// Whether the ending is left off ``banner``, for a run a request made — see ``EditorPDFTools/quiet``.
+    var quiet = false
+    /// The last ending, said or not.
+    private(set) var lastReport: EditorPDFToolBanner?
+    /// Every copy the last run wrote, with the stamp of the file the writer created.
+    public private(set) var written: [PDFWrittenFile] = []
+
     private var cancelFlag: CancelFlag?
     /// Copies this run wrote from a restricted original that came out unrestricted.
     private var unrestrictedCopies = 0
@@ -189,6 +202,7 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         progress = nil
         banner = nil
         unrestrictedCopies = 0
+        written = []
         for index in files.indices { files[index].status = .waiting }
         defer {
             isRunning = false
@@ -225,6 +239,7 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         if isCloudOnly(MaterializationStatus.linkTarget(of: path)) { return .skipped(.inTheCloud) }
         // Moved or deleted since it was chosen: said as such, not as a file PDFKit couldn't read.
         if EditorFileStore.stamp(ofPath: path) == nil { return .failed(Self.goneReason) }
+        if changedSinceChosen(path) { return .failed(Self.changedReason) }
         if case .compress(.target(let bytes)) = tool, let size = EditorFileStore.stamp(ofPath: path)?.size,
            size <= bytes {
             return .skipped(.alreadySmall)
@@ -253,10 +268,13 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         case .output(.noGain, _):
             return .skipped(.alreadySmall)
         case .output(.bytes(let data, _, _), let unrestricted):
+            // Asked again with the bytes in hand: the lane turn may have waited a long while.
+            if changedSinceChosen(path) { return .failed(Self.changedReason) }
             let suffix = tool.tool(pageCount: 0).suffix
+            let folder = destinationFolder
             writeStartedHook?()
             let written = await Task.detached(priority: .userInitiated) {
-                Result { try EditorPDFCopyWriter.writeStamped(data, besides: path, suffix: suffix) }
+                Result { try EditorPDFCopyWriter.writeStamped(data, besides: path, suffix: suffix, into: folder) }
             }.value
             // **Cancel pressed while the copy was being written still means "write nothing for
             // it"**, as one file's run already holds: the copy is taken back, if it is still the
@@ -267,10 +285,12 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
                 }
                 return .skipped(.cancelled)
             }
-            switch written.map(\.path) {
+            switch written {
             case .failure(let error):
                 return .failed("Couldn’t write the copy — \(error.localizedDescription)")
-            case .success(let copy):
+            case .success(let landed):
+                let copy = landed.path
+                self.written.append(PDFWrittenFile(source: path, path: copy, stamp: landed.stamp, bytes: data.count))
                 if unrestricted { unrestrictedCopies += 1 }
                 let sizes: String? = if case .compress = tool {
                     EditorPDFTools.sizes(before: before, after: data.count)
@@ -284,6 +304,13 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
 
     /// A file moved or deleted after it was chosen.
     nonisolated static let goneReason = "it is no longer there — it was moved or deleted"
+    /// A file a request chose that has changed since (``expected``).
+    nonisolated static let changedReason = "it changed since it was chosen, so it was left alone"
+
+    private func changedSinceChosen(_ path: String) -> Bool {
+        guard let want = expected[path] else { return false }
+        return EditorFileStore.stamp(ofPath: path) != want
+    }
 
     /// What one file's lane turn came back with.
     enum Turn: Sendable {
@@ -408,8 +435,10 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         case 1: kind = .wrote(copies[0])
         default: kind = .wroteSeveral(copies)
         }
-        banner = EditorPDFToolBanner(message: message, kind: kind,
-                                     detail: Self.reasons(files.map { ($0.name, $0.status) }))
+        let ending = EditorPDFToolBanner(message: message, kind: kind,
+                                         detail: Self.reasons(files.map { ($0.name, $0.status) }))
+        lastReport = ending
+        if !quiet { banner = ending }
         // The sheet goes; the reasons its rows showed stay in the banner's detail.
         showsSheet = false
     }

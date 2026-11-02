@@ -87,6 +87,16 @@ public final class PaneSaveAsPDF: ObservableObject {
     private(set) var work: Task<Void, Never>?
     private var stopRequested = false
 
+    /// **A run a request asked for** (TE294): where each file's PDF goes when its own folder can't
+    /// be written to, the stamp each file had when it was chosen, and who hears the ending — which
+    /// then never reaches ``banner``.
+    private struct Request {
+        var folders: [String: String]
+        var expected: [String: EditorFileStore.Stamp]
+        var completion: @MainActor (PDFRunResult) -> Void
+    }
+    private var request: Request?
+
     /// A test's to answer: whether a file is still only in the cloud, asked again as its turn comes.
     var isCloudOnly: (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
     /// A test's to answer: whether the original's folder takes a new file.
@@ -117,6 +127,27 @@ public final class PaneSaveAsPDF: ObservableObject {
         work = Task { @MainActor in await run(paths, writer: writer) }
     }
 
+    /// **Save as PDF asked for by a request** — an Ask Claude card (TE294). The same run as a
+    /// menu's, with two differences: nothing asks where to save — `folders` already says, by
+    /// original, for a file whose own folder can't be written to, and a chosen folder gets the
+    /// keep-both rule too, so nothing is replaced there — and the ending goes to `completion`,
+    /// not the pane. A file that changed since its stamp in `expecting` is left alone.
+    public func startFromChat(paths: [String], folders: [String: String] = [:],
+                              expecting: [String: EditorFileStore.Stamp], writer: String,
+                              completion: @escaping @MainActor (PDFRunResult) -> Void) {
+        guard !isRunning else {
+            completion(.busy)
+            return
+        }
+        let paths = paths.filter { SaveAsPDFKind.of(path: $0) != nil }
+        guard !paths.isEmpty else {
+            completion(PDFRunResult(outcome: .failed, message: "Nothing here can be saved as PDF."))
+            return
+        }
+        request = Request(folders: folders, expected: expecting, completion: completion)
+        start(paths: paths, writer: writer)
+    }
+
     /// Stop after the file in hand. Its PDF, and every one before it, stays.
     public func stop() {
         stopRequested = true
@@ -144,7 +175,13 @@ public final class PaneSaveAsPDF: ObservableObject {
         }
         progress = nil
         busyNote = nil
-        banner = SaveAsPDFSummary.banner(total: paths.count, saved: saved, failed: failed, stoppedBefore: stoppedBefore)
+        let ending = SaveAsPDFSummary.banner(total: paths.count, saved: saved, failed: failed, stoppedBefore: stoppedBefore)
+        if let asked = request {
+            request = nil
+            asked.completion(SaveAsPDFSummary.result(ending, paths: paths, saved: saved, failed: failed))
+        } else {
+            banner = ending
+        }
     }
 
     /// One file: rendered, then written. Answers why it was not saved, or `nil` when it was.
@@ -153,10 +190,19 @@ public final class PaneSaveAsPDF: ObservableObject {
         // Evicted since the menu was built: reading the placeholder would download it, which nobody
         // asked for.
         if isCloudOnly(MaterializationStatus.linkTarget(of: path)) { return "it isn’t downloaded" }
-        let wanted = SaveAsPDFName.firstChoice(for: path)
+        if let want = request?.expected[path], EditorFileStore.stamp(ofPath: path) != want {
+            return "it changed since it was chosen"
+        }
+        var wanted = SaveAsPDFName.firstChoice(for: path)
+        if let folder = request?.folders[path] {
+            wanted = (folder as NSString).appendingPathComponent((wanted as NSString).lastPathComponent)
+        }
         // Asked before the render, so a cancelled panel costs nothing.
         var chosen: String?
-        if !folderIsWritable(path) {
+        if request != nil {
+            // A request's folder is settled already; nobody is asked mid-run.
+            if request?.folders[path] == nil, !folderIsWritable(path) { return "its folder can’t be written to" }
+        } else if !folderIsWritable(path) {
             guard let answer = host.chooseDestination(path, (wanted as NSString).lastPathComponent) else {
                 return "its folder can’t be written to"
             }
@@ -167,15 +213,19 @@ public final class PaneSaveAsPDF: ObservableObject {
         do {
             let output = try await SaveAsPDFRender.render(path, settings: settings)
             let copy: String
+            var stamp: EditorFileStore.Stamp?
             if let chosen {
                 // The panel asked about replacing; this is a save to where the reader said.
                 try EditorFileStore.write(output.data, toPath: chosen)
                 copy = chosen
             } else {
-                copy = try EditorPDFCopyWriter.write(output.data, wanting: wanted)
+                let landed = try EditorPDFCopyWriter.writeStamped(output.data, wanting: wanted)
+                copy = landed.path
+                stamp = landed.stamp
             }
             saved.append(.init(name: name, copy: copy, pageCount: output.pageCount,
-                               picturePages: output.picturePages, isRecognised: output.isRecognised))
+                               picturePages: output.picturePages, isRecognised: output.isRecognised,
+                               source: path, stamp: stamp, bytes: output.data.count))
             Logger.shared.info("\(writer) saved \(name) as \((copy as NSString).lastPathComponent) — "
                                + "\(output.pageCount) page\(output.pageCount == 1 ? "" : "s")"
                                + (output.isPictures ? ", slides as pictures"
@@ -201,6 +251,10 @@ enum SaveAsPDFSummary {
         /// Slides that were pictures — all of them, some, or none.
         var picturePages: Int
         var isRecognised: Bool
+        /// The original, the written file's stamp and its size — what a request's result carries.
+        var source: String?
+        var stamp: EditorFileStore.Stamp?
+        var bytes: Int?
 
         var isPictures: Bool { pageCount > 0 && picturePages == pageCount }
     }
@@ -211,6 +265,26 @@ enum SaveAsPDFSummary {
     }
 
     static func pages(_ count: Int) -> String { count == 1 ? "1 page" : "\(count) pages" }
+
+    /// A request's ending as data, with the banner's own words (TE294).
+    static func result(_ ending: SaveAsPDFBanner, paths: [String], saved: [Saved], failed: [Failed]) -> PDFRunResult {
+        let written = saved.compactMap { one -> PDFWrittenFile? in
+            guard let source = one.source, let stamp = one.stamp else { return nil }
+            return PDFWrittenFile(source: source, path: one.copy, stamp: stamp, bytes: one.bytes ?? 0,
+                                  pageCount: one.pageCount)
+        }
+        let done = Set(saved.compactMap(\.source))
+        let reasons = Dictionary(failed.map { ($0.name, $0.reason) }, uniquingKeysWith: { first, _ in first })
+        let skipped = paths.filter { !done.contains($0) }.map { path in
+            let name = (path as NSString).lastPathComponent
+            return PDFRunResult.Skipped(path: path, reason: reasons[name] ?? "stopped before it")
+        }
+        let outcome: PDFRunResult.Outcome = written.isEmpty
+            ? (failed.isEmpty ? .cancelled : .failed)
+            : (skipped.isEmpty ? .wrote : .partlyWrote)
+        return PDFRunResult(outcome: outcome, written: written, skipped: skipped,
+                            message: ending.message, detail: ending.detail)
+    }
 
     /// “A”, “A” and “B”, “A”, “B” and “C”, or “A”, “B”, “C” and 2 more.
     static func names(_ names: [String]) -> String {
