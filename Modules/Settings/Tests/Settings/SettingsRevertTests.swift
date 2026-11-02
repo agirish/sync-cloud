@@ -80,6 +80,34 @@ import Sync
         #expect(rig.defaults.bool(forKey: AskClaudePrivacy.readsFilesKey))
     }
 
+    /// TE290 step 8: a list edit goes back one item at a time, while the item still is (or
+    /// isn't) there; putting back a hidden folder's unhide asks first.
+    @Test func aListEditIsRevertedWhileItStillApplies() {
+        let rig = Rig(#function); defer { rig.done() }
+        let settings = SettingsManager(userDefaults: rig.defaults)
+        let lists = SettingsLists(settings: settings, sync: nil, defaults: rig.defaults)
+        #expect(lists.add("sync.ignorePatterns", "~$*") == .done)
+        let added = SettingsChange(setting: "sync.ignorePatterns", target: "~$*", name: "Ignored name patterns",
+                                   from: "false", to: "true", fromLabel: nil, toLabel: "added ~$*", how: .card)
+        #expect(SettingsRevert.state(added, lookup: rig.lookup, lists: lists) == .ready(raises: false))
+        #expect(SettingsRevert.state(added, lookup: rig.lookup) == .none)
+        #expect(SettingsRevert.revert(added, lookup: rig.lookup, writer: rig.writer, lists: lists, log: rig.log,
+                                      center: rig.center, confirmRaising: { _ in Issue.record("asked"); return false }) == .done)
+        #expect(!settings.ignorePatterns.contains("~$*"))
+        #expect(rig.log.changes.last?.toLabel == "removed ~$*")
+        #expect(SettingsRevert.state(added, lookup: rig.lookup, lists: lists) == .changedSince)
+
+        #expect(lists.add("intelligence.hidden", "/Users/me/Medical") == .done)
+        let hid = SettingsChange(setting: "intelligence.hidden", target: "/Users/me/Medical", name: "Hidden from Claude",
+                                 from: "false", to: "true", fromLabel: nil, toLabel: "hid a folder", how: .card)
+        #expect(SettingsRevert.state(hid, lookup: rig.lookup, lists: lists) == .ready(raises: true))
+        var asked: [String] = []
+        #expect(SettingsRevert.revert(hid, lookup: rig.lookup, writer: rig.writer, lists: lists, log: rig.log, center: rig.center,
+                                      confirmRaising: { asked.append($0); return false }) != .done)
+        #expect(asked == ["Hidden from Claude: unhid a folder? That raises Claude’s spending or access."])
+        #expect(AskClaudePrivacy.hiddenFolders(in: rig.defaults) == ["/Users/me/Medical"])
+    }
+
     @Test func aSavedRuleHasNoRevert() {
         let rig = Rig(#function); defer { rig.done() }
         let rule = SettingsChange(setting: "organize.rules", name: "Rule “Tickets”", from: nil, to: nil,

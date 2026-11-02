@@ -14,6 +14,8 @@ public struct ChangedFromChatRows: View {
     let writer: () -> SettingsWriter
     /// The names hidden from Claude, whose changes are listed without their words.
     let hiddenNames: () -> [String]
+    /// The lists a list edit's Revert puts an item back in or takes it out of (TE290 step 8).
+    let lists: () -> SettingsLists?
     /// A Revert that raises Claude's spending or access asks once more.
     let confirmRaising: @MainActor (String) -> Bool
     let confirmClear: @MainActor () -> Bool
@@ -27,12 +29,14 @@ public struct ChangedFromChatRows: View {
 
     public init(log: SettingsChangeLog = .shared, lookup: @escaping () -> SettingsLookup,
                 writer: @escaping () -> SettingsWriter, hiddenNames: @escaping () -> [String],
+                lists: @escaping () -> SettingsLists? = { nil },
                 confirmRaising: @escaping @MainActor (String) -> Bool = ChangedFromChatRows.ask,
                 confirmClear: @escaping @MainActor () -> Bool = ChangedFromChatRows.askToClear) {
         self.log = log
         self.lookup = lookup
         self.writer = writer
         self.hiddenNames = hiddenNames
+        self.lists = lists
         self.confirmRaising = confirmRaising
         self.confirmClear = confirmClear
     }
@@ -56,9 +60,10 @@ public struct ChangedFromChatRows: View {
                 .padding(.top, 10)
                 .padding(.bottom, 4)
                 let lookup = self.lookup()
+                let lists = self.lists()
                 ForEach(showsAll ? changes : Array(changes.prefix(Self.firstShown))) { change in
                     Divider().padding(.leading, 12)
-                    row(change, SettingsRevert.state(change, lookup: lookup))
+                    row(change, SettingsRevert.state(change, lookup: lookup, lists: lists))
                 }
                 if !showsAll, changes.count > Self.firstShown {
                     Button("Show \(changes.count - Self.firstShown) Older") { showsAll = true }
@@ -76,6 +81,12 @@ public struct ChangedFromChatRows: View {
         } message: {
             Text(refusal ?? "")
         }
+    }
+
+    /// Whether an item names something hidden from Claude, for the words a Revert tells Claude.
+    private func isHidden(_ item: String) -> Bool {
+        let names = Set(hiddenNames())
+        return item.split(separator: "/").contains { names.contains(String($0)) }
     }
 
     /// "System → Dark · by Claude · 2 Nov 2026, 10:14"
@@ -96,7 +107,7 @@ public struct ChangedFromChatRows: View {
             switch state {
             case .ready(let raises):
                 Button(raises ? "Revert ↑" : "Revert") {
-                    if case .refused(let why) = SettingsRevert.revert(change, lookup: lookup(), writer: writer(),
+                    if case .refused(let why) = SettingsRevert.revert(change, lookup: lookup(), writer: writer(), lists: lists(), isHidden: isHidden,
                                                                      log: log, confirmRaising: confirmRaising),
                        why != "Not changed: you chose Cancel." {
                         refusal = why

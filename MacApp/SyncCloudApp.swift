@@ -1760,7 +1760,7 @@ private struct ActivityWindowHost: View {
             // One-way sync's History entries (RD67), with Reverse in iCloud…, above Sync History.
             OneWaySyncHistoryHost()
             // Settings changed from Ask Claude's chat (TE290 step 5), with Revert.
-            ChangedFromChatHost(settings: settings)
+            ChangedFromChatHost(settings: settings, syncManager: syncManager)
             SyncHistoryView(
                 store: .shared,
                 runFilter: Binding(get: { ActivityCenter.shared.historyRun },
@@ -1783,6 +1783,7 @@ private struct ActivityWindowHost: View {
 private struct ChangedFromChatHost: View {
     @ObservedObject var log = SettingsChangeLog.shared
     let settings: SettingsManager
+    let syncManager: FileSyncManager
 
     var body: some View {
         if !log.changes.isEmpty {
@@ -1793,7 +1794,8 @@ private struct ChangedFromChatHost: View {
                                        hiddenCount: { 0 }, isHidden: { _ in false }, loginItemIsOn: { LoginItemController.shared.isOn })
                     },
                     writer: { SettingsWriter(defaults: .standard, settings: settings) },
-                    hiddenNames: { AskClaudePrivacy.hiddenFolders(in: .standard).map { ($0 as NSString).lastPathComponent } })
+                    hiddenNames: { AskClaudePrivacy.hiddenFolders(in: .standard).map { ($0 as NSString).lastPathComponent } },
+                    lists: { SettingsLists(settings: settings, sync: syncManager, defaults: .standard) })
             }
             .frame(maxHeight: 200)
             .fixedSize(horizontal: false, vertical: true)

@@ -14061,3 +14061,18 @@ told. Ask Claude exists only on `main` (see step 0b).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Lists edited from Ask Claude's cards (TE290 step 8) — main only
+
+2026-11-02, for v7.0. On `main`: Ignored name patterns, Ignored items, Kept names and Hidden from
+Claude can each be a card: its items with a remove beside each, the first eight shown. Claude may
+suggest a pattern, as a switch, and the card has a field for typing one; Hidden from Claude adds
+only through Add…, a folder chooser. Each edit is one item in or out, through Settings' own
+owners, with its own Undo and a Changed from Chat row whose Revert works while the item still is
+(or isn't) there. An ignored item keeps to the pair of sources it was edited under. Nothing hidden
+from Claude is named to it, and a hidden folder's path is never written into the chat. Ask Claude
+exists only on `main` (see step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

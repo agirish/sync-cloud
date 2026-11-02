@@ -89,6 +89,18 @@ import Sync
         #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
     }
 
+    /// TE290 step 8: a full list — its first rows, the rest counted, Claude's pattern as a switch,
+    /// the field — and the status of a few edits.
+    @Test func aListCardFits240() {
+        var card = AskClaudeSettingCard(rows: [.init(id: "sync.ignorePatterns", pick: "~$*")])
+        card.rows[0].listEdits = [.init(item: "Thumbs.db", present: false), .init(item: "*.photoslibrary/resources/derivatives", present: true)]
+        let items = (1...12).map { "very-long-pattern-number-\($0)-*.tmp" }
+        let bridge = AskClaudeSettingsBridge(offersUndo: { _, _ in true }, listItems: { _ in items })
+        let host = NSHostingController(rootView: AskClaudeSettingCardView(itemID: UUID(), card: card, bridge: bridge,
+                                                                          accent: .blue, hue: .blue))
+        #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
+    }
+
     @Test func aCardOfSeveralWithATitleFits240() {
         let card = AskClaudeSettingCard(title: "Hide Identical Files in Compare", rows: [
             .init(id: "sync.verifySameSize", pick: "true"),

@@ -9,6 +9,19 @@ import Foundation
 /// itself did: the value it found before its first change, so it can say "was X".
 public struct AskClaudeSettingCard: Codable, Equatable, Sendable {
 
+    /// One item a card put in a list or took out of it (TE290 step 8).
+    public struct ListEdit: Codable, Equatable, Sendable {
+        /// The item as its undo and record hold it; nil on Hidden from Claude, whose paths are
+        /// never written into the chat.
+        public let item: String?
+        public let present: Bool
+
+        public init(item: String?, present: Bool) {
+            self.item = item
+            self.present = present
+        }
+    }
+
     public struct Row: Codable, Equatable, Sendable {
         /// The catalog id (`SettingsCatalog`), stable across label changes.
         public let id: String
@@ -25,6 +38,8 @@ public struct AskClaudeSettingCard: Codable, Equatable, Sendable {
         /// The API key card saved a key to the Keychain (TE290 step 7). The key itself is never
         /// kept on the card.
         public var keySaved: Bool?
+        /// What this card put in or took out of a list, in order; nil for a setting that isn't one.
+        public var listEdits: [ListEdit]?
 
         public init(id: String, target: String? = nil, pick: String? = nil, changedFrom: String? = nil,
                     refusal: String? = nil, byClaude: Bool? = nil) {

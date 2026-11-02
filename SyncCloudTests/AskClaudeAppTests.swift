@@ -210,6 +210,13 @@ import FileExplorer
         #expect(await show([["id": .string("advanced.resetAll")]]).result.contains("can’t be a card in this version"))
         #expect(await show([["id": .string("sources.enabled")]]).result.contains("belongs to a source"))
         #expect(await show([]).isError)
+
+        // TE290 step 8: a list's pick is an item to add, and only a pattern may be Claude's.
+        let patterns = await show([["id": .string("sync.ignorePatterns"), "pick": .string("  ~$*  ")]])
+        #expect(!patterns.isError && patterns.settings?.rows == [AskClaudeSettingCard.Row(id: "sync.ignorePatterns", pick: "~$*")])
+        #expect(!(await show([["id": .string("organize.keptNames")]])).isError)
+        #expect(await show([["id": .string("organize.keptNames"), "pick": .string("Report .pdf")]]).isError)
+        #expect(await show([["id": .string("intelligence.hidden"), "pick": .string("/Users/me/Medical")]]).isError)
     }
 
     @Test func aFolderArgumentCannotClimbOutOfTheSource() {

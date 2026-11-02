@@ -44,6 +44,12 @@ struct AskClaudeSettingsBridge {
     var hasCaughtKey: @MainActor (_ item: UUID) -> Bool = { _ in false }
     var saveCaughtKey: @MainActor (_ item: UUID, _ row: Int) -> Void = { _, _ in }
     var editCaught: @MainActor (_ item: UUID) -> Void = { _ in }
+    /// A list's rows (TE290 step 8): what is in it now, an item put in or taken out, Hidden from
+    /// Claude's Add… (a folder chooser), and whether an item would be hidden from Claude.
+    var listItems: @MainActor (_ entry: SettingEntry) -> [String]? = { _ in nil }
+    var setListItem: @MainActor (_ item: UUID, _ row: Int, _ value: String, _ present: Bool) -> Void = { _, _, _, _ in }
+    var chooseHidden: @MainActor (_ item: UUID, _ row: Int) -> Void = { _, _ in }
+    var isHiddenItem: @MainActor (_ value: String) -> Bool = { _ in false }
 }
 
 /// What a change does beyond its value, shown beside it on a card (TE290 step 6): judged from the
@@ -102,6 +108,8 @@ struct AskClaudeSettingCardView: View {
     @StateObject private var ticker = AskClaudeSettingsTicker()
     /// What is typed in an API key field, by row: the view's alone, never the card's.
     @State private var typedKeys: [Int: String] = [:]
+    /// A pattern being typed into a list's field, by row.
+    @State private var typedItems: [Int: String] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -144,7 +152,8 @@ struct AskClaudeSettingCardView: View {
     @ViewBuilder
     private func rowView(_ index: Int, _ row: AskClaudeSettingCard.Row, _ entry: SettingEntry) -> some View {
         let current = bridge.read(entry, row.target)
-        let pick = row.pick.flatMap { SettingsCatalog.value($0, for: entry) }
+        // A list's pick is an item to add, as Claude wrote it (a pattern), not one of its choices.
+        let pick = entry.control == .list ? row.pick.map(SettingValue.string) : row.pick.flatMap { SettingsCatalog.value($0, for: entry) }
         let suggesting = pick != nil && pick != current
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 8) {
@@ -207,6 +216,8 @@ struct AskClaudeSettingCardView: View {
         switch entry.control {
         case .secret:
             keyControl(index)
+        case .list:
+            listControl(index, entry, pick)
         case .segmented(let choices):
             Picker(entry.label, selection: Binding(get: { current ?? choices[0].value },
                                                    set: { bridge.change(itemID, index, $0) })) {
@@ -286,6 +297,93 @@ struct AskClaudeSettingCardView: View {
         }
     }
 
+    // MARK: Lists
+
+    /// How many of a list's items a card shows; the rest are in Settings.
+    static let listShown = 8
+
+    /// A list's rows (TE290 step 8): each item with its remove, an item this card took out struck
+    /// through with a way back, Claude's suggested pattern as a switch, and a field to add one.
+    /// Hidden from Claude adds only through Add…, a folder chooser.
+    @ViewBuilder
+    private func listControl(_ index: Int, _ entry: SettingEntry, _ pick: SettingValue?) -> some View {
+        let items = bridge.listItems(entry) ?? []
+        let removedHere = (card.rows[index].listEdits ?? []).compactMap { edit -> String? in
+            guard !edit.present, let item = edit.item else { return nil }
+            let shown = SettingsLists.shown(entry.id, item)
+            return items.contains(shown) ? nil : shown
+        }
+        VStack(alignment: .leading, spacing: 4) {
+            if items.isEmpty, removedHere.isEmpty {
+                Text("Nothing here yet.").scaledFont(.footnote).foregroundStyle(.secondary)
+            }
+            ForEach(Array(items.prefix(Self.listShown)), id: \.self) { item in
+                listItemRow(entry.id == "intelligence.hidden" ? (item as NSString).lastPathComponent : item, struck: false) {
+                    bridge.setListItem(itemID, index, item, false)
+                }
+                .help(item)
+            }
+            if items.count > Self.listShown {
+                Text("and \(items.count - Self.listShown) more, in Settings ▸ \(entry.tabName)")
+                    .scaledFont(.footnote).foregroundStyle(.secondary)
+            }
+            ForEach(removedHere, id: \.self) { item in
+                listItemRow(item, struck: true) { bridge.setListItem(itemID, index, item, true) }
+            }
+            if case .string(let suggested)? = pick, SettingsLists.takesClaudesPick(entry.id) {
+                Toggle(isOn: Binding(get: { items.contains(suggested) },
+                                     set: { bridge.setListItem(itemID, index, suggested, $0) })) {
+                    Text("Ignore names matching \(suggested)").scaledFont(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .accessibilityHint(items.contains(suggested) ? "" : "Claude suggests On")
+            }
+            if entry.id == "sync.ignorePatterns" {
+                HStack(spacing: 6) {
+                    TextField("*.tmp, .DS_Store", text: Binding(get: { typedItems[index] ?? "" }, set: { typedItems[index] = $0 }))
+                        .textFieldStyle(.roundedBorder)
+                        .controlSize(.small)
+                        .onSubmit { addTyped(index) }
+                        .accessibilityLabel("New pattern")
+                    Button("Add") { addTyped(index) }
+                        .controlSize(.small)
+                        .disabled(IgnoreRules.normalized(typedItems[index] ?? "") == nil)
+                }
+            }
+            if entry.id == "intelligence.hidden" {
+                Button("Add…") { bridge.chooseHidden(itemID, index) }
+                    .controlSize(.small)
+                    .help("Choose a folder to hide from Claude. Your next question starts a new chat.")
+            }
+        }
+    }
+
+    private func listItemRow(_ shown: String, struck: Bool, _ action: @escaping () -> Void) -> some View {
+        HStack(spacing: 4) {
+            Text(shown)
+                .scaledFont(.system(.callout, design: .monospaced))
+                .strikethrough(struck)
+                .foregroundStyle(struck ? .secondary : .primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 4)
+            Button(action: action) {
+                Image(systemName: struck ? "arrow.uturn.backward.circle" : "xmark.circle.fill").hoverInk()
+            }
+            .buttonStyle(.hoverAffordance(.inline))
+            .help(struck ? "Put \(shown) back" : "Remove \(shown)")
+            .accessibilityLabel(struck ? "Put \(shown) back" : "Remove \(shown)")
+        }
+    }
+
+    private func addTyped(_ index: Int) {
+        guard let pattern = IgnoreRules.normalized(typedItems[index] ?? "") else { return }
+        bridge.setListItem(itemID, index, pattern, true)
+        typedItems[index] = nil
+    }
+
     // MARK: API key
 
     /// The API key row: 16 dots for a saved key, as Settings shows it, and a field for a new one.
@@ -358,6 +456,30 @@ struct AskClaudeSettingCardView: View {
             Label(refusal, systemImage: "exclamationmark.circle")
                 .scaledFont(.footnote).foregroundStyle(.red)
                 .fixedSize(horizontal: false, vertical: true)
+        } else if let edits = row.listEdits, !edits.isEmpty {
+            let words = edits.suffix(3).map { edit in
+                SettingsLists.edit(entry.id, edit.item.map { SettingsLists.shown(entry.id, $0) } ?? "", present: edit.present,
+                                   isHidden: bridge.isHiddenItem)
+            }
+            let more = edits.count > 3 ? " · and \(edits.count - 3) more" : ""
+            HStack(spacing: 4) {
+                Label("Changed · " + words.joined(separator: " · ") + more, systemImage: "checkmark.circle")
+                    .foregroundStyle(.green)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 4)
+                if bridge.offersUndo(itemID, index), let last = edits.last {
+                    let raises = SettingsLists.raises(entry.id, present: !last.present)
+                    Button(raises ? "Undo ↑" : "Undo") { bridge.undo(itemID, index) }
+                        .controlSize(.small)
+                        .help(raises ? "Undoing this raises Claude’s spending or access" : "Undoes the last change here")
+                }
+            }
+            .scaledFont(.footnote)
+            if entry.id == "intelligence.hidden", edits.last?.present == true {
+                Text("Hidden. Your next question starts a new chat, and the cards above lose their Undo. Their changes stay, in Activity.")
+                    .scaledFont(.footnote).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         } else if row.keySaved == true {
             Label("Saved to your Keychain. Ask Claude and Refine use it from now on.", systemImage: "checkmark.circle")
                 .scaledFont(.footnote).foregroundStyle(.green)
@@ -380,7 +502,7 @@ struct AskClaudeSettingCardView: View {
             .scaledFont(.footnote)
             .fixedSize(horizontal: false, vertical: true)
             badges(entry, from: before, to: current)
-        } else if let pick, pick != current {
+        } else if let pick, pick != current, entry.control != .list {
             Text("Claude suggests \(SettingsLookup.label(pick, entry))").foregroundStyle(.secondary)
                 .scaledFont(.footnote)
                 .fixedSize(horizontal: false, vertical: true)

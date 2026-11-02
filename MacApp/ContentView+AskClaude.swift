@@ -810,9 +810,15 @@ extension ContentView {
         let lookup = askClaudeSettingsLookup
         let undo = askClaudeChat.settingsUndo
         let chat = askClaudeChat
-        undo.read = { key in SettingsCatalog.entry(key.id).flatMap { lookup.currentValue($0, target: key.target) } }
+        let lists = askClaudeLists
+        // A list's step is one item in or out (TE290 step 8): its target is the item.
+        undo.read = { key in
+            if SettingsLists.ids.contains(key.id) { return lists.contains(key.id, scoped: key.target ?? "").map(SettingValue.bool) }
+            return SettingsCatalog.entry(key.id).flatMap { lookup.currentValue($0, target: key.target) }
+        }
         undo.write = { key, value in
-            SettingsWriter(defaults: .standard, settings: settings).write(key.id, value, target: key.target) == .done
+            if SettingsLists.ids.contains(key.id) { return lists.set(key.id, scoped: key.target ?? "", present: value == .bool(true)) == .done }
+            return SettingsWriter(defaults: .standard, settings: settings).write(key.id, value, target: key.target) == .done
         }
         undo.didStep = { step, undone in askClaudeSettingsStepped(step, undone: undone) }
         AskClaudePanelWindow.settingsUndo = { [weak chat] in chat?.settingsUndo }
@@ -838,7 +844,71 @@ extension ContentView {
                 guard let key = chat?.caughtKey(id) else { return }
                 if askClaudeSaveKey(id, row, key) { chat?.forgetCaughtKey(id) }
             },
-            editCaught: { [weak chat] id in chat?.editCaught(id) })
+            editCaught: { [weak chat] id in chat?.editCaught(id) },
+            listItems: { lists.items($0.id) },
+            setListItem: { id, row, item, present in askClaudeListEdit(id, row, item, present: present) },
+            chooseHidden: { id, row in askClaudeChooseHidden(id, row) },
+            isHiddenItem: askClaudeNamesHidden)
+    }
+
+    /// The four lists a card edits (TE290 step 8), through Settings' owners.
+    var askClaudeLists: SettingsLists {
+        SettingsLists(settings: settings, sync: syncManager, defaults: .standard)
+    }
+
+    /// Whether an ignored item or a kept name sits in, or is, a folder hidden from Claude: then it
+    /// is never named to Claude, in the record, or on the card's status.
+    var askClaudeNamesHidden: (String) -> Bool {
+        let names = Set(AskClaudePrivacy.hiddenFolders(in: .standard).map { ($0 as NSString).lastPathComponent })
+        return { item in item.split(separator: "/").contains { names.contains(String($0)) } }
+    }
+
+    /// One item put in a list or taken out from a card (TE290 step 8): written through its owner,
+    /// remembered on the card, undoable, recorded, and told to Claude without a hidden name.
+    func askClaudeListEdit(_ id: UUID, _ index: Int, _ item: String, present: Bool) {
+        guard let card = askClaudeChat.settingCard(id), card.rows.indices.contains(index),
+              let entry = SettingsCatalog.entry(card.rows[index].id), SettingsLists.ids.contains(entry.id) else { return }
+        let lists = askClaudeLists
+        let scoped = lists.scoped(entry.id, item)
+        let outcome = present ? lists.add(entry.id, item) : lists.remove(entry.id, item)
+        guard outcome == .done else {
+            if case .refused(let why) = outcome { askClaudeChat.updateSettingCard(id) { $0.rows[index].refusal = why } }
+            return
+        }
+        // Hidden from Claude's paths never go into the chat's file.
+        let kept = entry.id == "intelligence.hidden" ? nil : scoped
+        askClaudeChat.updateSettingCard(id) { card in
+            card.rows[index].refusal = nil
+            card.rows[index].listEdits = (card.rows[index].listEdits ?? []) + [.init(item: kept, present: present)]
+        }
+        let undo = askClaudeChat.settingsUndo
+        let key = AskClaudeSettingsLedger.Key(id: entry.id, target: scoped)
+        undo.record(AskClaudeSettingsStep(
+            card: id, rows: [index], changes: [.init(key: key, before: .bool(!present), after: .bool(present), token: undo.token(key))],
+            name: entry.label, cardOnly: SettingsLists.raises(entry.id, present: !present)))
+        askClaudeRecordListEdit(entry, scoped: scoped, present: present, how: .card)
+        let raises = SettingsLists.raises(entry.id, present: present) ? " This raises Claude’s spending or access." : ""
+        askClaudeChat.tellClaude("They \(SettingsLists.edit(entry.id, item, present: present, isHidden: askClaudeNamesHidden)) in \(entry.label) on your card.\(raises)")
+    }
+
+    /// Changed from Chat's line for a list edit: the item, never the list.
+    func askClaudeRecordListEdit(_ entry: SettingEntry, scoped: String, present: Bool, how: SettingsChange.How) {
+        let words = SettingsLists.edit(entry.id, SettingsLists.shown(entry.id, scoped), present: present, isHidden: askClaudeNamesHidden)
+        SettingsChangeLog.shared.record(SettingsChange(
+            setting: entry.id, target: scoped, name: entry.label, from: present ? "false" : "true", to: present ? "true" : "false",
+            fromLabel: nil, toLabel: words, how: how))
+    }
+
+    /// Hidden from Claude ▸ Add… on a card: a folder from the chooser, never a path Claude names.
+    func askClaudeChooseHidden(_ id: UUID, _ index: Int) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Hide"
+        panel.message = "A folder to hide from Claude"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        askClaudeListEdit(id, index, url.path, present: true)
     }
 
     /// An API key from a card (TE290 step 7), to the Keychain as Settings saves it. The card,
@@ -878,6 +948,26 @@ extension ContentView {
     func askClaudeSettingsStepped(_ step: AskClaudeSettingsStep, undone: Bool) {
         for change in step.changes {
             guard let entry = SettingsCatalog.entry(change.key.id) else { continue }
+            if SettingsLists.ids.contains(entry.id), let scoped = change.key.target {
+                let present = (undone ? change.before : change.after) == .bool(true)
+                askClaudeRecordListEdit(entry, scoped: scoped, present: present, how: undone ? .undo : .redo)
+                // The card's status follows: Undo takes its edit off, Redo puts it back.
+                let edit = AskClaudeSettingCard.ListEdit(item: entry.id == "intelligence.hidden" ? nil : scoped,
+                                                         present: change.after == .bool(true))
+                askClaudeChat.updateSettingCard(step.card) { card in
+                    for row in step.rows where card.rows.indices.contains(row) {
+                        if undone {
+                            if let at = card.rows[row].listEdits?.lastIndex(of: edit) { card.rows[row].listEdits?.remove(at: at) }
+                        } else {
+                            card.rows[row].listEdits = (card.rows[row].listEdits ?? []) + [edit]
+                        }
+                    }
+                }
+                let words = SettingsLists.edit(entry.id, SettingsLists.shown(entry.id, scoped), present: present, isHidden: askClaudeNamesHidden)
+                let raises = SettingsLists.raises(entry.id, present: present) ? " This raises Claude’s spending or access." : ""
+                askClaudeChat.tellClaude("With \(undone ? "Undo" : "Redo"), they \(words) in \(entry.label).\(raises)")
+                continue
+            }
             let name = askClaudeSettingName(entry, target: change.key.target)
             askClaudeRecordChange(entry, target: change.key.target, from: undone ? change.after : change.before,
                                   to: undone ? change.before : change.after, how: undone ? .undo : .redo)

@@ -354,7 +354,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             guard entry.tier != .notInChat, entry.tier != .readOnly, entry.tier != .viewTools else {
                 return AskClaudeToolOutcome(result: "\(entry.label) isn’t offered on a card.", isError: true, step: "Not a card")
             }
-            guard Self.cardHolds(entry.control) else {
+            guard Self.cardHolds(entry.control) || SettingsLists.ids.contains(entry.id) else {
                 return AskClaudeToolOutcome(
                     result: "\(entry.label) can’t be a card in this version. Open Settings at it with show_in_app (place settings, tab: \(entry.label)).",
                     isError: true, step: "\(entry.label) isn’t a card yet")
@@ -365,7 +365,16 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             case .failure(let refused): return refused.outcome
             }
             var pick: SettingValue?
-            if let text = item["pick"]?.stringValue {
+            if let text = item["pick"]?.stringValue, SettingsLists.ids.contains(entry.id) {
+                // A list's pick is an item to add, and only a pattern may come from Claude: it
+                // never sees the paths and names the other lists hold.
+                guard SettingsLists.takesClaudesPick(entry.id), let pattern = IgnoreRules.normalized(text) else {
+                    return AskClaudeToolOutcome(
+                        result: SettingsLists.takesClaudesPick(entry.id) ? "“\(text)” isn’t a name pattern." : "Only they can add to \(entry.label); show it without a pick.",
+                        isError: true, step: "Not a pick for \(entry.label)")
+                }
+                pick = .string(pattern)
+            } else if let text = item["pick"]?.stringValue {
                 guard let value = SettingsCatalog.value(text, for: entry) else {
                     return AskClaudeToolOutcome(result: "“\(text)” isn’t one of \(entry.label)’s choices. get it for its choices.",
                                                 isError: true, step: "Not a choice for \(entry.label)")
