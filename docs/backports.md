@@ -13836,3 +13836,14 @@ A re-tune of what every dark install looks like, so main-only on the Tint-slider
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Neutral charcoal ground under dark glass panels | RECORDED — not owed |
+## Ask Claude can look up settings (TE290 step 2) — main only
+
+2026-11-02, for v7.0. On `main`: Ask Claude has a `settings` tool. It finds a setting by the words
+someone would use, reads its value, default, choices, help text and who may change it, and lists
+what differs from the defaults (`SettingsLookup`, over `SettingsCatalog`). The API key is only
+"saved" or not, and Hidden from Claude only a count. Show and set say they aren't here yet. The
+instructions change, so a saved chat restarts once. Ask Claude exists only on `main` (see step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

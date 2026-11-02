@@ -755,7 +755,17 @@ extension ContentView {
                     return false
                 }
                 return true
-            })
+            },
+            settingsLookup: SettingsLookup(
+                defaults: .standard, settings: settings,
+                keyIsSaved: { AnthropicKeychain.isConfigured },
+                hiddenCount: { AskClaudePrivacy.hiddenFolders(in: .standard).count },
+                isHidden: { AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard)).isHidden($0) },
+                loginItemIsOn: {
+                    // macOS holds this one; read it fresh rather than trust a value nobody has read yet.
+                    await LoginItemController.shared.refresh().value
+                    return LoginItemController.shared.isOn
+                }))
     }
 }
 

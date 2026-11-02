@@ -53,7 +53,7 @@ import FileExplorer
     private func tools(inBrowse: Bool = true, busy: String? = nil, folder: String = "Documents/Taxes",
                        root: String = AskClaudeBrowseToolsTests.root, recorder: Recorder = Recorder(),
                        disk: [String: [FileNode]] = [:], spotlight: [String]? = nil, extra: [FileNode] = [],
-                       moveAfter: Duration? = nil) -> AskClaudeBrowseTools {
+                       moveAfter: Duration? = nil, settingsLookup: SettingsLookup? = nil) -> AskClaudeBrowseTools {
         var map: [String: FileNode] = [:]
         Self.index(Self.tree + extra, into: &map)
         let scope = root
@@ -78,13 +78,45 @@ import FileExplorer
                         recorder.folder = relative
                     }
                 },
-                select: { recorder.selected.append($0) })
+                select: { recorder.selected.append($0) },
+                settingsLookup: settingsLookup)
         }, listDisk: { disk[$0] }, searchNames: { _, _ in spotlight }, statDisk: { _ in nil },
            openFile: { recorder.opened.append($0); return true })
     }
 
     private func call(_ name: String, _ input: [String: JSONFragment]) -> AskClaudeToolCall {
         AskClaudeToolCall(id: "t", name: name, input: .object(input))
+    }
+
+    /// TE290 step 2: the settings tool answers find, get and changed through the runner, and says
+    /// plainly that show and set aren't here yet.
+    @Test func theSettingsToolFindsReadsAndListsWhatChanged() async {
+        let suite = "AskClaudeSettingsTool.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { wipeDefaultsSuite(suite) }
+        defaults.set(AppearanceMode.dark.rawValue, forKey: LiquidGlass.appearanceModeKey)
+        let lookup = SettingsLookup(defaults: defaults, settings: SettingsManager(userDefaults: defaults),
+                                    keyIsSaved: { true }, hiddenCount: { 0 }, isHidden: { _ in false },
+                                    loginItemIsOn: { false })
+        let runner = tools(settingsLookup: lookup)
+        var handles = AskClaudeHandles()
+
+        let found = await runner.run(call("settings", ["action": .string("find"), "words": .string("dark mode")]), handles: &handles)
+        #expect(!found.isError)
+        #expect(found.result.hasPrefix("appearance.theme · Theme (Appearance): Dark"))
+
+        let read = await runner.run(call("settings", ["action": .string("get"), "ids": .array([.string("intelligence.apiKey")])]),
+                                    handles: &handles)
+        #expect(read.result.contains("value: a key is saved"))
+
+        let changed = await runner.run(call("settings", ["action": .string("changed")]), handles: &handles)
+        #expect(changed.result == "Theme (Appearance): Dark — default System")
+
+        let set = await runner.run(call("settings", ["action": .string("set"), "id": .string("appearance.theme"),
+                                                      "value": .string("light")]), handles: &handles)
+        #expect(set.isError)
+        #expect(set.result.hasPrefix("Not in this version yet"))
+        #expect(defaults.string(forKey: LiquidGlass.appearanceModeKey) == AppearanceMode.dark.rawValue)
     }
 
     @Test func aFolderArgumentCannotClimbOutOfTheSource() {

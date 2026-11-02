@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import Settings
 import Sync
 import UniformTypeIdentifiers
 import Events
@@ -100,6 +101,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var setMode: (_ name: String) -> Bool = { _ in false }
         /// Opens settings (and a tab), activity, help or the Trash; false for a place that isn't one.
         var showPlace: (_ place: String, _ tab: String?, _ visible: Bool) -> Bool = { _, _, _ in false }
+        /// The settings tool's answers (TE290); nil where there is no app to read.
+        var settingsLookup: SettingsLookup?
     }
 
     struct Tab: Equatable {
@@ -289,6 +292,31 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
     }
 
+    /// SyncCloud's own settings (TE290 step 2): find, get and changed. Show and set come with the
+    /// cards; until then they say so and point at the place in Settings, which is still the way.
+    private func settings(_ call: AskClaudeToolCall, _ ctx: Context) async -> AskClaudeToolOutcome {
+        guard let lookup = ctx.settingsLookup else {
+            return AskClaudeToolOutcome(result: "Settings can’t be looked up here.", isError: true, step: "Couldn’t look up settings")
+        }
+        switch (call.string("action") ?? "").lowercased() {
+        case "find":
+            let words = call.string("words") ?? ""
+            return AskClaudeToolOutcome(result: await lookup.find(words), step: "Looked up settings for “\(words)”")
+        case "get":
+            let ids = call.strings("ids") ?? call.string("id").map { [$0] } ?? []
+            return AskClaudeToolOutcome(result: await lookup.get(ids),
+                                        step: ids.count == 1 ? "Read a setting" : "Read \(ids.count) settings")
+        case "changed":
+            return AskClaudeToolOutcome(result: await lookup.changed(), step: "Listed changed settings")
+        case "show", "set":
+            return AskClaudeToolOutcome(
+                result: "Not in this version yet. Open Settings at the setting with show_in_app (place settings, tab: the setting’s name) and say which choice to pick.",
+                isError: true, step: "Settings can’t be changed from chat yet")
+        default:
+            return AskClaudeToolOutcome(result: "action is find, get, changed, show or set.", isError: true, step: "No such settings action")
+        }
+    }
+
     private func dispatch(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
         // The Never show Claude list (TE246): a hidden item can't be named into any tool.
         let named = ([call.string("handle")].compactMap { $0 } + (call.strings("handles") ?? [])).compactMap { handles.path(for: $0) }
@@ -317,6 +345,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             }
             let label = place == "settings" ? "Settings" + (call.string("tab").map { " ▸ \($0.capitalized)" } ?? "") : place.capitalized
             return AskClaudeToolOutcome(result: "Opened \(label).", step: "Opened \(label)", movedView: "Opened \(label)")
+        case .settings: return await settings(call, ctx)
         case .listFolder: return await listFolder(call, ctx, &handles)
         case .findByName: return await findByName(call, ctx, &handles)
         case .fileDetails: return fileDetails(call, ctx, handles)
