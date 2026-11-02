@@ -741,7 +741,7 @@ showed the test was blind to WHICH guard dropped the second run: with the re-ent
 `syncingDifferenceIds` refused it and every assertion still passed. It now asserts the drop is
 silent (`banner == nil`), and that mutation turns it red.
 
-#### Seen: `AskClaudeChatTests.aReceiptNamesTheModelOnlyWhenItChangesAndMarksAFallback`, 2026-11-02
+#### Seen: `AskClaudeChatTests.aReceiptNamesTheModelOnlyWhenItChangesAndMarksAFallback`, 2026-11-02 — FIXED
 
 Red once in a full local app-target run (`xcodebuild test`) at load 25, green alone in under 3 s
 and in the next full run. Question two's receipt read Opus 5.5, with its model shown, when it
@@ -749,9 +749,13 @@ should have read Sonnet 5.5 with no model shown: `[false, true, true]` against
 `[false, false, true]`. The suite's `waitUntilIdle` is a fixed pump, `for _ in 0..<200 where
 chat.isRunning { sleep 10 ms }`, that returns without a word when it gives up. Under load it gave
 up with question two still running. The test then switched the model to Opus, and question two's
-receipt was written after the switch. Two copies of that helper are in `AskClaudeAppTests.swift`.
-The fix is the shared `waitUntil(...) { !chat.isRunning }`, which is turn-bounded and fails
-when it gives up, rather than a larger count.
+receipt was written after the switch.
+
+Fixed the same day: both copies of the helper, and the four inline copies of the same pump in that
+file (three on `isRunning`, one on a download's state), now call the app target's shared
+`waitUntil(…, timeout: 30)`. It is bounded by polls as well as seconds and fails at the call site
+when it gives up. Mutated to a wait that never ends, the test now fails by name, "the chat
+finishes its question — still false after 50 polls", where the old pump returned in silence.
 
 ### 3. Process-wide state, and suites running in parallel
 
@@ -1041,16 +1045,20 @@ then symbolicates, and the watch stops it after `sampleSeconds + sampleGrace` (2
 process, so no test-side wait can close it. If it repeats, the assertion should accept a stopped
 `sample` (the watch's own documented outcome) rather than the grace being raised.
 
-#### Seen: `ObservedCopyTests.bulkSyncCancelledInsideAnItemReportsNoFailureAndKeepsTheRow`, 2026-11-02
+#### Seen: `ObservedCopyTests.bulkSyncCancelledInsideAnItemReportsNoFailureAndKeepsTheRow`, 2026-11-02 — FIXED
 
 Red once on hosted CI at `d73036172`, a comments-only commit. `Modules/Sync` was the same tree hash
 at the green base `18ef781cb`, and a rerun of the job passed. `/dst/big.txt` was copied when Cancel
 should have abandoned it, and the test took 34.4 s. The fake, `ScriptedObservedCopy` (`.pressCancel`),
 waits on the copy thread for the test to hand it the run's `Progress`. That wait is a plain
 `Date().addingTimeInterval(30)`: when the test's main actor did not get to `installProgress` within
-30 s, the fake found no `Progress`, cancelled nothing, and copied the file. The fix, when it is
-next touched, is a `TurnDeadline` in place of the `Date`, as `ParkGate` and `waitUntil` use, so a
-starved run stops that clock instead of spending it.
+30 s, the fake found no `Progress`, cancelled nothing, and copied the file.
+
+Fixed the same day: the fake's bound is now `TurnDeadline(seconds: 30, turns: parkTurnFloor)`, as
+`ParkGate` uses, so a starved run stops that clock instead of spending it. The fake also records
+when it gives up, and the test requires that it did not: "Cancel was never pressed" no longer
+reads as "Cancel did nothing". Mutated so the test never hands over the `Progress`, it now fails
+on `!fm.gaveUpWaitingForProgress` rather than on the copied file.
 
 ### 6. Load-scaled benchmarks
 

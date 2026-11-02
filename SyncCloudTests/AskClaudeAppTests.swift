@@ -1232,8 +1232,11 @@ private final class NoTools: AskClaudeToolRunning {
     private let screen = AskClaudeScreen(workspace: "Browse", source: "iCloud Drive", folder: "Documents", sort: "Name",
                                          rows: [], selection: [], toolsAvailable: true)
 
-    private func waitUntilIdle(_ chat: AskClaudeChat) async {
-        for _ in 0..<200 where chat.isRunning { try? await Task.sleep(for: .milliseconds(10)) }
+    /// Waits for the question to finish, and fails at the call if it never does. A fixed pump here
+    /// gave up in silence at load 25, and the test went on to change the model while the question
+    /// was still running (docs/flaky-tests.md, "Fixed pumps and fixed sleeps").
+    private func waitUntilIdle(_ chat: AskClaudeChat, sourceLocation: SourceLocation = #_sourceLocation) async {
+        await waitUntil("the chat finishes its question", timeout: 30, sourceLocation: sourceLocation) { !chat.isRunning }
     }
 
     @Test func anAnswerLandsUnderTheQuestionWithItsReceipt() async {
@@ -1665,7 +1668,7 @@ private final class Counter: @unchecked Sendable {
                                   readKey: { "k" }, now: { clock }, storeURL: store)
         first.ask("remember me", screen: AskClaudeScreen(workspace: "Browse", source: "iCloud", folder: "", sort: "Name",
                                                          rows: [], selection: [], toolsAvailable: true), tools: NoTools())
-        for _ in 0..<200 where first.isRunning { try? await Task.sleep(for: .milliseconds(10)) }
+        await waitUntil("the chat finishes its question", timeout: 30) { !first.isRunning }
         clock = clock.addingTimeInterval(600)
         let again = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
                                   readKey: { "k" }, now: { clock }, storeURL: store)
@@ -1690,7 +1693,7 @@ private final class Counter: @unchecked Sendable {
                                   readKey: { "k" }, now: { clock }, storeURL: store)
         first.ask("remember me", screen: AskClaudeScreen(workspace: "Browse", source: "iCloud", folder: "", sort: "Name",
                                                          rows: [], selection: [], toolsAvailable: true), tools: NoTools())
-        for _ in 0..<200 where first.isRunning { try? await Task.sleep(for: .milliseconds(10)) }
+        await waitUntil("the chat finishes its question", timeout: 30) { !first.isRunning }
         let saved = first.items.map(\.kind)
         #expect(saved.first == .user("remember me"))
 
@@ -2127,13 +2130,13 @@ private final class OffersADownload: AskClaudeToolRunning {
                                  readKey: { "k" })
         chat.ask("What’s the rent?", screen: AskClaudeScreen(workspace: "Browse", source: "iCloud", folder: "", sort: "Name",
                                                             rows: [], selection: [], toolsAvailable: true), tools: OffersADownload())
-        for _ in 0..<200 where chat.isRunning { try? await Task.sleep(for: .milliseconds(10)) }
+        await waitUntil("the chat finishes its question", timeout: 30) { !chat.isRunning }
         let id = chat.items.first { if case .download = $0.kind { true } else { false } }?.id ?? UUID()
         return (chat, id)
     }
 
     private func settle(_ chat: AskClaudeChat, _ id: UUID) async {
-        for _ in 0..<200 where chat.downloadState(id) == .downloading { try? await Task.sleep(for: .milliseconds(10)) }
+        await waitUntil("the download settles", timeout: 30) { chat.downloadState(id) != .downloading }
     }
 
     @Test func aToolsOfferBecomesACardThatDownloadsThenAsksAgain() async throws {
@@ -2599,8 +2602,11 @@ private final class OffersADownload: AskClaudeToolRunning {
     /// Wiped with its plist once the chat lets go: each question records its spend here.
     private func scratch() -> UserDefaults { ScratchDefaults("AskClaudeSinceLastAnswerTests") }
 
-    private func waitUntilIdle(_ chat: AskClaudeChat) async {
-        for _ in 0..<300 where chat.isRunning { try? await Task.sleep(for: .milliseconds(10)) }
+    /// Waits for the question to finish, and fails at the call if it never does. A fixed pump here
+    /// gave up in silence at load 25, and the test went on to change the model while the question
+    /// was still running (docs/flaky-tests.md, "Fixed pumps and fixed sleeps").
+    private func waitUntilIdle(_ chat: AskClaudeChat, sourceLocation: SourceLocation = #_sourceLocation) async {
+        await waitUntil("the chat finishes its question", timeout: 30, sourceLocation: sourceLocation) { !chat.isRunning }
     }
 
     @Test func aCardsOutcomeGoesWithTheNextQuestionOnly() async {

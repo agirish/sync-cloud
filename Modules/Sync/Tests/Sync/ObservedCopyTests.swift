@@ -257,6 +257,11 @@ final class ScriptedObservedCopy: FileManaging, @unchecked Sendable {
     private let trigger: String
     private let script: Script
     private let progressBox = LockedBox<Progress?>(nil)
+    private let gaveUpBox = LockedBox(false)
+
+    /// True if `.pressCancel` stopped waiting for `installProgress` and copied the file uncancelled.
+    /// Without it, "Cancel was never pressed" reads exactly like "Cancel did nothing".
+    var gaveUpWaitingForProgress: Bool { gaveUpBox.withLock { $0 } }
 
     init(inner: MockFileManager, trigger: String, script: Script) {
         self.inner = inner; self.trigger = trigger; self.script = script
@@ -268,8 +273,12 @@ final class ScriptedObservedCopy: FileManaging, @unchecked Sendable {
         guard s.lastPathComponent == trigger else { return try inner.copyItem(at: s, to: d) }
         switch script {
         case .pressCancel:
-            let deadline = Date().addingTimeInterval(30)   // bounded: a mis-wire fails, never hangs
-            while progressBox.withLock({ $0 }) == nil, Date() < deadline { Thread.sleep(forTimeInterval: 0.005) }
+            // Bounded, so a mis-wire fails rather than hangs; by turns as well as seconds, so a
+            // starved main actor stops this clock instead of spending it (docs/flaky-tests.md,
+            // mechanism 5: a plain 30 s ran out before the test could install the Progress).
+            let deadline = TurnDeadline(seconds: 30, turns: parkTurnFloor)
+            while progressBox.withLock({ $0 }) == nil, !deadline.hasPassed { Thread.sleep(forTimeInterval: 0.005) }
+            if progressBox.withLock({ $0 }) == nil { gaveUpBox.withLock { $0 = true } }
             progressBox.withLock { $0 }?.cancel()
             guard observer.shouldContinue() else { throw CocoaError(.userCancelled) }
             try inner.copyItem(at: s, to: d)
@@ -338,6 +347,7 @@ final class ScriptedObservedCopy: FileManaging, @unchecked Sendable {
         await waitUntil("the run publishes a cancellable Progress") { m.activeProgress != nil }
         fm.installProgress(try #require(m.activeProgress))
         await run.value
+        try #require(!fm.gaveUpWaitingForProgress, "the fake gave up before Cancel was pressed")
 
         #expect(m.currentError == nil)
         #expect(disk.virtualDisk["/dst/big.txt"] == nil)
