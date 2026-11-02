@@ -67,6 +67,54 @@ final class AskClaudePanelWindow: NSPanel {
     override func cancelOperation(_ sender: Any?) {
         onClose()
     }
+
+    // MARK: Undo (TE290 step 4b)
+
+    /// The chat's settings steps. One chat for the app, so one provider: set when the panel is built.
+    static var settingsUndo: @MainActor () -> AskClaudeSettingsUndo? = { nil }
+
+    /// Whether Undo belongs to the draft being typed: a text field has the keyboard, holds text, and
+    /// has typing to undo. Otherwise it goes to the chat's settings steps — which outlive this
+    /// window, torn down whenever the panel closes or steps aside, where typing's steps don't need to.
+    private var typingTakesUndo: Bool {
+        guard let text = firstResponder as? NSTextView, !text.string.isEmpty else { return false }
+        return undoManager?.canUndo == true
+    }
+
+    private var typingTakesRedo: Bool {
+        guard let text = firstResponder as? NSTextView, !text.string.isEmpty else { return false }
+        return undoManager?.canRedo == true
+    }
+
+    @objc func undo(_ sender: Any?) {
+        if !typingTakesUndo, let settings = Self.settingsUndo(), settings.canUndo { settings.undo() } else { undoManager?.undo() }
+    }
+
+    @objc func redo(_ sender: Any?) {
+        if !typingTakesRedo, let settings = Self.settingsUndo(), settings.canRedo { settings.redo() } else { undoManager?.redo() }
+    }
+
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        let menuItem = item as? NSMenuItem
+        switch item.action {
+        case #selector(undo(_:)):
+            if !typingTakesUndo, let settings = Self.settingsUndo(), let title = settings.undoTitle {
+                menuItem?.title = title
+                return true
+            }
+            menuItem?.title = undoManager?.undoMenuItemTitle ?? "Undo"
+            return undoManager?.canUndo == true
+        case #selector(redo(_:)):
+            if !typingTakesRedo, let settings = Self.settingsUndo(), let title = settings.redoTitle {
+                menuItem?.title = title
+                return true
+            }
+            menuItem?.title = undoManager?.redoMenuItemTitle ?? "Redo"
+            return undoManager?.canRedo == true
+        default:
+            return super.validateUserInterfaceItem(item)
+        }
+    }
 }
 
 /// Shows the panel in a child window over the area it may move in (`container`, in screen

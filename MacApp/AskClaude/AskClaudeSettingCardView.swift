@@ -29,6 +29,10 @@ struct AskClaudeSettingsBridge {
     var targetName: @MainActor (_ target: String) -> String = { $0 }
     var change: @MainActor (_ item: UUID, _ row: Int, _ value: SettingValue) -> Void = { _, _, _ in }
     var openSettings: @MainActor (_ entry: SettingEntry) -> Void = { _ in }
+    /// Whether this card's row made the latest change to its setting, so its Undo can't overwrite
+    /// a newer one (TE290 step 4b).
+    var offersUndo: @MainActor (_ item: UUID, _ row: Int) -> Bool = { _, _ in false }
+    var undo: @MainActor (_ item: UUID, _ row: Int) -> Void = { _, _ in }
 }
 
 /// A card of settings (TE290 step 4a): each row is the setting's real control at its live value,
@@ -89,7 +93,7 @@ struct AskClaudeSettingCardView: View {
                 Text(help).scaledFont(.footnote).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            status(row, entry, current, pick)
+            status(index, row, entry, current, pick)
         }
     }
 
@@ -195,7 +199,7 @@ struct AskClaudeSettingCardView: View {
     // MARK: Status
 
     @ViewBuilder
-    private func status(_ row: AskClaudeSettingCard.Row, _ entry: SettingEntry, _ current: SettingValue?,
+    private func status(_ index: Int, _ row: AskClaudeSettingCard.Row, _ entry: SettingEntry, _ current: SettingValue?,
                         _ pick: SettingValue?) -> some View {
         let before = row.changedFrom.flatMap { SettingsCatalog.value($0, for: entry) ?? Self.storedValue($0, like: current) }
         if let refusal = row.refusal {
@@ -207,6 +211,15 @@ struct AskClaudeSettingCardView: View {
                 Label("Changed · was \(SettingsLookup.label(before, entry))", systemImage: "checkmark.circle")
                     .foregroundStyle(.green)
                 badges(entry, from: before, to: current)
+                Spacer(minLength: 4)
+                if bridge.offersUndo(itemID, index) {
+                    // Undoing a change that tightened Claude's reach raises it again: badged, and
+                    // only here — Edit ▸ Undo passes over it.
+                    let raises = entry.raises(from: current, to: before)
+                    Button(raises ? "Undo ↑" : "Undo") { bridge.undo(itemID, index) }
+                        .controlSize(.small)
+                        .help(raises ? "Undoing this raises Claude’s spending or access" : "Puts \(entry.label) back to \(SettingsLookup.label(before, entry))")
+                }
             }
             .scaledFont(.footnote)
             .fixedSize(horizontal: false, vertical: true)

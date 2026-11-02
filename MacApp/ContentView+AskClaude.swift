@@ -774,14 +774,40 @@ extension ContentView {
             })
     }
 
-    /// What a settings card reads and does (TE290 step 4a).
+    /// What a settings card reads and does (TE290 step 4a), and the chat's undo of it (4b).
     var askClaudeSettingsBridge: AskClaudeSettingsBridge {
         let lookup = askClaudeSettingsLookup
+        let undo = askClaudeChat.settingsUndo
+        let chat = askClaudeChat
+        undo.read = { key in SettingsCatalog.entry(key.id).flatMap { lookup.currentValue($0, target: key.target) } }
+        undo.write = { key, value in
+            SettingsWriter(defaults: .standard, settings: settings).write(key.id, value, target: key.target) == .done
+        }
+        undo.didStep = { step, undone in askClaudeSettingsStepped(step, undone: undone) }
+        AskClaudePanelWindow.settingsUndo = { [weak chat] in chat?.settingsUndo }
         return AskClaudeSettingsBridge(
             read: { lookup.currentValue($0, target: $1) },
             targetName: { id in settings.availableProviders.first { $0.id == id }?.displayName ?? id },
             change: { askClaudeSettingChange($0, $1, $2) },
-            openSettings: { _ = askClaudeToolsContext().showPlace("settings", $0.label, true) })
+            openSettings: { _ = askClaudeToolsContext().showPlace("settings", $0.label, true) },
+            offersUndo: { undo.offersUndo($0, row: $1) },
+            undo: { undo.undoCard($0, row: $1) })
+    }
+
+    /// A settings step undone or redone, from a card or Edit ▸ Undo: told to Claude in the line
+    /// the card's own change would have used (TE290 step 4b).
+    func askClaudeSettingsStepped(_ step: AskClaudeSettingsStep, undone: Bool) {
+        for change in step.changes {
+            guard let entry = SettingsCatalog.entry(change.key.id) else { continue }
+            let name = change.key.target.map { id in
+                "\(entry.label) for \(settings.availableProviders.first { $0.id == id }?.displayName ?? id)"
+            } ?? entry.label
+            let now = SettingsLookup.label(undone ? change.before : change.after, entry)
+            let raises = entry.raises(from: undone ? change.after : change.before, to: undone ? change.before : change.after)
+                ? " This raises Claude’s spending or access." : ""
+            askClaudeChat.tellClaude("They set \(name) back with \(undone ? "Undo" : "Redo"): now \(now).\(raises)",
+                                     replacing: "They set \(name) ")
+        }
     }
 
     /// A click on a settings card: written through the setting's owner, remembered on the card as
@@ -803,6 +829,14 @@ extension ContentView {
             askClaudeChat.updateSettingCard(id) { card in
                 if card.rows[index].changedFrom == nil { card.rows[index].changedFrom = before?.stored }
                 card.rows[index].refusal = nil
+            }
+            if let before {
+                let undo = askClaudeChat.settingsUndo
+                let key = AskClaudeSettingsLedger.Key(id: entry.id, target: row.target)
+                undo.record(AskClaudeSettingsStep(
+                    card: id, rows: [index],
+                    changes: [.init(key: key, before: before, after: value, token: undo.token(key))],
+                    name: entry.label, cardOnly: entry.raises(from: value, to: before)))
             }
             let first = askClaudeChat.settingCard(id)?.rows[index].changedFrom
                 .flatMap { SettingsCatalog.value($0, for: entry) ?? AskClaudeSettingCardView.storedValue($0, like: value) } ?? before

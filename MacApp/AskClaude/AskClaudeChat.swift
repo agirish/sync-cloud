@@ -245,6 +245,9 @@ final class AskClaudeChat: ObservableObject {
     /// offered the card.
     private(set) var sinceLastAnswer: [String] = []
 
+    /// The settings cards' undo and redo (TE290 step 4b): the chat's, so they outlive the panel.
+    let settingsUndo = AskClaudeSettingsUndo()
+
     /// A line about a card for Claude, sent with the next question.
     func tellClaude(_ line: String) {
         sinceLastAnswer.append(line)
@@ -757,6 +760,8 @@ final class AskClaudeChat: ObservableObject {
         linkTargets = [:]
         hiddenSinceStart = false
         hiddenAtStart = Set(AskClaudePrivacy.hiddenFolders(in: defaults))
+        // The cards are gone; so are their undo steps. Their changes stay.
+        settingsUndo.clear()
         save()
     }
 

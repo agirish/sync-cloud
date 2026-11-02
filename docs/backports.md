@@ -13894,3 +13894,17 @@ control. Ask Claude exists only on `main` (see step 0b).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Undo for settings changed from Ask Claude cards (TE290 step 4b) — main only
+
+2026-11-02, for v7.0. On `main`: a change made on a settings card can be undone and redone — from
+the card's Undo, or Edit ▸ Undo and ⌘Z with the chat in front ("Undo Theme"). The steps belong to
+the chat, not the panel's window, so they survive the panel closing or stepping aside for
+Settings; typing in the message box keeps its own undo. A step whose setting has changed since,
+anywhere, is dropped rather than overwriting the newer value, and the card stops offering Undo.
+An undo that would raise Claude's spending or access is only on the card, badged. Ask Claude exists
+only on `main` (see step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
