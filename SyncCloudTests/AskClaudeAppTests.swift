@@ -2129,10 +2129,8 @@ private final class OffersADownload: AskClaudeToolRunning {
     private let screen = AskClaudeScreen(workspace: "Browse", source: "iCloud", folder: "Downloads", sort: "Name",
                                          rows: [], selection: [], toolsAvailable: true)
 
-    private func scratch() -> UserDefaults {
-        let name = "AskClaudeSinceLastAnswerTests-\(UUID().uuidString)"
-        return UserDefaults(suiteName: name)!
-    }
+    /// Wiped with its plist once the chat lets go: each question records its spend here.
+    private func scratch() -> UserDefaults { ScratchDefaults("AskClaudeSinceLastAnswerTests") }
 
     private func waitUntilIdle(_ chat: AskClaudeChat) async {
         for _ in 0..<300 where chat.isRunning { try? await Task.sleep(for: .milliseconds(10)) }
