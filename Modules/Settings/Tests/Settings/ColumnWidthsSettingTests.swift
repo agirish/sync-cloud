@@ -96,6 +96,12 @@ import SwiftUI
         let control = try #require(picker(), "no segmented control offering All columns")
         #expect(control.selectedSegment == 0)
 
+        // A write of the same value is still a defaults change other windows react to.
+        var writes = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: test.defaults, queue: nil) { _ in writes += 1 }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
         control.selectedSegment = 1
         _ = control.sendAction(control.action, to: control.target)
         for _ in 0..<10 {
@@ -104,6 +110,7 @@ import SwiftUI
         }
 
         #expect(asked == [2], "All columns did not ask about the two columns sized on their own: \(asked)")
+        #expect(writes == 0, "a declined All columns wrote the settings back \(writes) time(s)")
         #expect(test.defaults.string(forKey: ColumnResizeMode.defaultsKey) == ColumnResizeMode.eachColumn.rawValue,
                 "a declined All columns changed the setting")
         #expect(test.defaults.string(forKey: PaneViewMode.columnWidthOverridesDefaultsKey)

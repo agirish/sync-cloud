@@ -67,23 +67,19 @@ public enum APIKeyRemoval {
 
 /// Readability ▸ Column widths. **Asks first when "All columns" would release columns sized on
 /// their own** — their widths are erased, and choosing "Each column" again does not bring them
-/// back. Declined, nothing changes: the mode stays where it was. With nothing sized on its own
-/// there is nothing to lose, so it does not ask. The rule `ReadabilitySettingsTab` applies, here so
-/// a control outside the tab applies it too.
+/// back. With nothing sized on its own there is nothing to lose, so it does not ask. The rule
+/// `ReadabilitySettingsTab` applies, here so a control outside the tab applies it too.
 public enum ColumnResizeChoice {
 
-    /// - Returns: Whether the mode was written.
-    @discardableResult
-    public static func choose(_ raw: String, mode: inout String,
-                              overrides: inout ColumnWidthOverrides,
-                              confirm: () -> Bool) -> Bool {
+    /// What to store, decided before anything is: write the result only when it is non-nil.
+    /// Taking the stored values `inout` wrote both back even on Cancel — a write of the same value
+    /// is still a defaults change other windows react to.
+    /// - Returns: The mode and widths to store, or nil when declined.
+    public static func choose(_ raw: String, overrides: ColumnWidthOverrides,
+                              confirm: () -> Bool) -> (mode: String, overrides: ColumnWidthOverrides)? {
         guard raw == ColumnResizeMode.allColumns.rawValue, !overrides.widths.isEmpty else {
-            mode = raw
-            return true
+            return (raw, overrides)
         }
-        return RemovalPrompt.actIfConfirmed(confirm: confirm) {
-            mode = raw
-            overrides = ColumnWidthOverrides()
-        }
+        return confirm() ? (raw, ColumnWidthOverrides()) : nil
     }
 }

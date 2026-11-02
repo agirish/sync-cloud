@@ -155,16 +155,16 @@ import Sync
     // MARK: - Column widths
 
     @Test func theColumnRuleOutsideTheTabIsTheTabsRule() {
-        var mode = ColumnResizeMode.eachColumn.rawValue
         var overrides = ColumnWidthOverrides()
         overrides.widths[2] = 180
 
         let declined = ColumnResizeChoice.choose(ColumnResizeMode.allColumns.rawValue,
-                                                 mode: &mode, overrides: &overrides,
-                                                 confirm: { false })
+                                                 overrides: overrides, confirm: { false })
+        #expect(declined == nil, "a declined All columns still produced something to store")
 
-        #expect(!declined)
-        #expect(mode == ColumnResizeMode.eachColumn.rawValue)
-        #expect(overrides.widths[2] == 180)
+        let confirmed = ColumnResizeChoice.choose(ColumnResizeMode.allColumns.rawValue,
+                                                  overrides: overrides, confirm: { true })
+        #expect(confirmed?.mode == ColumnResizeMode.allColumns.rawValue)
+        #expect(confirmed?.overrides.widths.isEmpty == true)
     }
 }

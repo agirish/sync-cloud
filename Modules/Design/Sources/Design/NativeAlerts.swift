@@ -101,7 +101,8 @@ public struct NativeAlerts {
                                                      confirmTitle: confirmTitle)) == .alertFirstButtonReturn
     }
 
-    /// Runs `alert` modally, with Escape answering `cancel`.
+    /// Runs `alert` modally, with Escape pressing the button that answers Return — Cancel, in every
+    /// alert that needs this.
     ///
     /// **An alert whose Cancel takes Return loses Escape.** NSAlert gives a button titled "Cancel"
     /// the Escape key, and making Cancel the default replaces it with Return — one key equivalent
@@ -109,24 +110,32 @@ public struct NativeAlerts {
     /// 2026-11-01 on this alert's exact buttons, with a key event through `NSApp.sendEvent`:
     /// Escape left the alert up, Return cancelled. A local monitor runs inside the modal session,
     /// so it can answer Escape without taking Return from Cancel.
-    /// - Parameter cancel: what Escape answers; the second button for a confirm-then-Cancel alert.
-    public static func runModalCancellingOnEscape(
-        _ alert: NSAlert, cancel: NSApplication.ModalResponse = .alertSecondButtonReturn
-    ) -> NSApplication.ModalResponse {
-        let window = alert.window
+    ///
+    /// The button is found by its key rather than by its place, so the answer is whatever Return
+    /// would have given — the alert's own response, with no order assumed.
+    public static func runModalCancellingOnEscape(_ alert: NSAlert) -> NSApplication.ModalResponse {
         let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard isPlainEscape(event, in: window) else { return event }
-            NSApp.stopModal(withCode: cancel)
+            guard let button = escapeAnswer(for: event, window: alert.window, buttons: alert.buttons)
+            else { return event }
+            button.performClick(nil)
             return nil
         }
         defer { if let monitor { NSEvent.removeMonitor(monitor) } }
         return alert.runModal()
     }
 
-    /// Escape, with no modifier, aimed at `window` — the key the monitor above answers.
-    static func isPlainEscape(_ event: NSEvent, in window: NSWindow) -> Bool {
-        event.type == .keyDown && event.keyCode == 53 && event.window === window
-            && event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty
+    /// The button Escape presses: the one that answers Return, for a plain, first press of Escape
+    /// aimed at the alert's window — nil for anything else, which the monitor passes on. A repeat
+    /// is passed on so a held key cannot press the button again after the alert has answered.
+    ///
+    /// The window and buttons are taken apart because a test cannot stage them together: ordering
+    /// an alert's window in outside `runModal` clears its buttons' keys (measured 2026-11-01).
+    static func escapeAnswer(for event: NSEvent, window: NSWindow, buttons: [NSButton]) -> NSButton? {
+        guard event.type == .keyDown, event.keyCode == 53, !event.isARepeat,
+              event.window === window,
+              event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty
+        else { return nil }
+        return buttons.first { $0.keyEquivalent == "\r" }
     }
 
     /// The alert `confirmIrreversible` presents, built but **not run** — internal so a test can

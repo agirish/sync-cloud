@@ -42,9 +42,9 @@ public struct RemovalPrompt: Equatable, Sendable {
     public static func removeFolderSource(named name: String) -> RemovalPrompt {
         RemovalPrompt(
             messageText: "Remove “\(name)” from your sources?",
-            informativeText: "SyncCloud stops showing this folder and forgets any name you gave it "
-                + "and whether it was switched off. Adding the folder again starts it under its "
-                + "own name. The folder and its files stay where they are.",
+            informativeText: "SyncCloud stops showing this folder and forgets any name you gave it, "
+                + "whether it was switched off, and what you ignored while comparing it. Adding the "
+                + "folder again starts it afresh. The folder and its files stay where they are.",
             confirmTitle: "Remove")
     }
 
@@ -52,7 +52,7 @@ public struct RemovalPrompt: Equatable, Sendable {
     public static func clearIgnoredItems(count: Int) -> RemovalPrompt {
         RemovalPrompt(
             messageText: count == 1 ? "Stop ignoring 1 item?" : "Stop ignoring all \(count) items?",
-            informativeText: "Everything you ignored between these two sources comes back in "
+            informativeText: "Everything you ignored for the folders you’re comparing comes back in "
                 + "Differences, and ignoring it again is one item at a time. Files on disk aren’t "
                 + "affected.",
             confirmTitle: "Clear All")
@@ -62,9 +62,9 @@ public struct RemovalPrompt: Equatable, Sendable {
     public static func clearKeptNames(count: Int) -> RemovalPrompt {
         RemovalPrompt(
             messageText: count == 1 ? "Stop keeping 1 name?" : "Stop keeping all \(count) names?",
-            informativeText: "SyncCloud flags each of these names again, on its row and in "
-                + "Organize, until you choose Always Allow This Name for it again. No file is "
-                + "renamed.",
+            informativeText: "SyncCloud flags each of these names again — on its row at once, and in "
+                + "Organize from the next scan — until you choose Always Allow This Name for it "
+                + "again. No file is renamed.",
             confirmTitle: "Clear All")
     }
 

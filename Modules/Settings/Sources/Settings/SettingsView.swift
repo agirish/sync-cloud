@@ -1080,25 +1080,30 @@ struct ReadabilitySettingsTab: View {
         Binding(
             get: { columnResizeModeRaw },
             set: { raw in
-                // Counted before the call: the gate holds the widths `inout` while it asks.
-                let sizedOnTheirOwn = columnWidthOverrides.widths.count
-                let written = Self.chooseResizeMode(
-                    raw, mode: &columnResizeModeRaw, overrides: &columnWidthOverrides,
-                    confirm: { confirmReleasingColumnWidths(sizedOnTheirOwn) })
-                if !written { declinedResizeChoices += 1 }
+                let overrides = columnWidthOverrides
+                guard let choice = Self.chooseResizeMode(
+                    raw, overrides: overrides,
+                    confirm: { confirmReleasingColumnWidths(overrides.widths.count) })
+                else {
+                    declinedResizeChoices += 1
+                    return
+                }
+                // Written only after the answer, and only what changed: passing the stored values
+                // `inout` wrote both back even on Cancel, and a write is a defaults change other
+                // windows react to.
+                columnResizeModeRaw = choice.mode
+                if choice.overrides != overrides { columnWidthOverrides = choice.overrides }
             })
     }
 
     /// The setter's rule, reachable without mounting the tab. **Asks first when "All columns" would
     /// release columns sized on their own** — their widths are erased, and choosing "Each column"
-    /// again does not bring them back. Declined, nothing changes: the mode stays where it was.
-    /// With nothing sized on its own there is nothing to lose, so it does not ask.
-    /// - Returns: Whether the mode was written.
-    @discardableResult
-    static func chooseResizeMode(_ raw: String, mode: inout String,
-                                 overrides: inout ColumnWidthOverrides,
-                                 confirm: () -> Bool) -> Bool {
-        ColumnResizeChoice.choose(raw, mode: &mode, overrides: &overrides, confirm: confirm)
+    /// again does not bring them back. With nothing sized on its own there is nothing to lose, so
+    /// it does not ask. The rule is `ColumnResizeChoice`'s, so a control outside the tab applies it too.
+    /// - Returns: The mode and widths to store, or nil when declined — nothing is written then.
+    static func chooseResizeMode(_ raw: String, overrides: ColumnWidthOverrides,
+                                 confirm: () -> Bool) -> (mode: String, overrides: ColumnWidthOverrides)? {
+        ColumnResizeChoice.choose(raw, overrides: overrides, confirm: confirm)
     }
 
     /// The resolved text size. `FontSize.init(percent:)` clamps, so a value stored before the

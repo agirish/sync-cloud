@@ -144,65 +144,45 @@ import Testing
 
     private let sized = ColumnWidthOverrides(widths: [1: 480, 3: 300])
 
-    @Test func decliningAllColumnsKeepsEachColumnAndItsWidths() {
-        var mode = ColumnResizeMode.eachColumn.rawValue
-        var overrides = sized
+    /// Declined, the gate answers nil: the setter then writes neither setting.
+    @Test func decliningAllColumnsWritesNothing() {
         var asked = 0
-
-        let written = ReadabilitySettingsTab.chooseResizeMode(
-            ColumnResizeMode.allColumns.rawValue, mode: &mode, overrides: &overrides,
+        let choice = ReadabilitySettingsTab.chooseResizeMode(
+            ColumnResizeMode.allColumns.rawValue, overrides: sized,
             confirm: { asked += 1; return false })
-
-        #expect(!written)
+        #expect(choice == nil, "a declined All columns still produced something to store")
         #expect(asked == 1, "All columns did not ask")
-        #expect(mode == ColumnResizeMode.eachColumn.rawValue, "a declined All columns changed the mode")
-        #expect(overrides == sized, "a declined All columns erased the widths")
     }
 
-    @Test func confirmingAllColumnsReleasesTheWidths() {
-        var mode = ColumnResizeMode.eachColumn.rawValue
-        var overrides = sized
+    @Test func confirmingAllColumnsReleasesTheWidths() throws {
         var asked = 0
-
-        // The question's place before the erase is `RemovalPrompt.actIfConfirmed`'s; the confirmer
-        // cannot look at `overrides` itself while the gate holds it `inout`.
-        let written = ReadabilitySettingsTab.chooseResizeMode(
-            ColumnResizeMode.allColumns.rawValue, mode: &mode, overrides: &overrides,
-            confirm: { asked += 1; return true })
-
-        #expect(written)
+        let choice = try #require(ReadabilitySettingsTab.chooseResizeMode(
+            ColumnResizeMode.allColumns.rawValue, overrides: sized,
+            confirm: { asked += 1; return true }))
         #expect(asked == 1)
-        #expect(mode == ColumnResizeMode.allColumns.rawValue)
-        #expect(overrides.widths.isEmpty)
+        #expect(choice.mode == ColumnResizeMode.allColumns.rawValue)
+        #expect(choice.overrides.widths.isEmpty)
     }
 
     /// Nothing sized on its own means nothing to lose, so there is nothing to ask.
     @Test func allColumnsDoesNotAskWhenNoColumnWasSizedOnItsOwn() {
-        var mode = ColumnResizeMode.eachColumn.rawValue
-        var overrides = ColumnWidthOverrides()
         var asked = 0
-
-        ReadabilitySettingsTab.chooseResizeMode(
-            ColumnResizeMode.allColumns.rawValue, mode: &mode, overrides: &overrides,
+        let choice = ReadabilitySettingsTab.chooseResizeMode(
+            ColumnResizeMode.allColumns.rawValue, overrides: ColumnWidthOverrides(),
             confirm: { asked += 1; return false })
-
         #expect(asked == 0)
-        #expect(mode == ColumnResizeMode.allColumns.rawValue)
+        #expect(choice?.mode == ColumnResizeMode.allColumns.rawValue)
     }
 
     /// Each column keeps the widths, so choosing it never asks and never touches them.
     @Test func eachColumnNeverAsksAndKeepsTheWidths() {
-        var mode = ColumnResizeMode.allColumns.rawValue
-        var overrides = sized
         var asked = 0
-
-        ReadabilitySettingsTab.chooseResizeMode(
-            ColumnResizeMode.eachColumn.rawValue, mode: &mode, overrides: &overrides,
+        let choice = ReadabilitySettingsTab.chooseResizeMode(
+            ColumnResizeMode.eachColumn.rawValue, overrides: sized,
             confirm: { asked += 1; return false })
-
         #expect(asked == 0)
-        #expect(mode == ColumnResizeMode.eachColumn.rawValue)
-        #expect(overrides == sized)
+        #expect(choice?.mode == ColumnResizeMode.eachColumn.rawValue)
+        #expect(choice?.overrides == sized)
     }
 
     // MARK: The words
@@ -214,6 +194,8 @@ import Testing
         #expect(source.messageText == "Remove “Work” from your sources?")
         #expect(source.informativeText.contains("name you gave it"))
         #expect(source.informativeText.contains("switched off"))
+        #expect(source.informativeText.contains("what you ignored while comparing it"),
+                "Remove orphans the source's ignored items, and the question does not say so")
         #expect(source.informativeText.contains("its files stay where they are"))
         #expect(source.confirmTitle == "Remove")
 
@@ -225,6 +207,8 @@ import Testing
         #expect(RemovalPrompt.clearKeptNames(count: 2).messageText == "Stop keeping all 2 names?")
         #expect(RemovalPrompt.clearKeptNames(count: 1).messageText == "Stop keeping 1 name?")
         #expect(RemovalPrompt.clearKeptNames(count: 2).informativeText.contains("No file is renamed"))
+        // Withdrawing a keep brings the badge back at once but Organize's row only with a scan.
+        #expect(RemovalPrompt.clearKeptNames(count: 2).informativeText.contains("in Organize from the next scan"))
         #expect(RemovalPrompt.clearKeptNames(count: 2).confirmTitle == "Clear All")
 
         let suggestions = RemovalPrompt.clearSavedSuggestions(count: 40)
@@ -288,15 +272,19 @@ import Testing
         #expect(settings.contains("Self.clearSavedSuggestionsIfConfirmed("),
                 "saved suggestions' Clear no longer asks")
         #expect(settings.contains("confirm: RemovalPrompt.clearSavedSuggestions("))
-        #expect(!settings.contains("syncManager?.clearFilingVerdictCache()"),
-                "saved suggestions are cleared without asking somewhere in Settings")
+        // Counted, not spelled: one call in Settings, and it is the gated one.
+        #expect(settings.components(separatedBy: "clearFilingVerdictCache(").count - 1 == 1,
+                "saved suggestions are cleared somewhere in Settings besides the gated Clear")
+        #expect(settings.contains("clear: { syncManager.clearFilingVerdictCache() }"))
 
-        #expect(settings.contains("raw, mode: &columnResizeModeRaw, overrides: &columnWidthOverrides,"),
+        #expect(settings.contains("guard let choice = Self.chooseResizeMode("),
                 "the Column widths picker no longer goes through its gate")
         #expect(settings.contains("RemovalPrompt.releaseColumnWidths(count: $0).ask()"),
                 "the Column widths picker no longer asks with the standard alert")
-        #expect(settings.contains("confirm: { confirmReleasingColumnWidths(sizedOnTheirOwn) }"))
-        #expect(!settings.contains("columnWidthOverrides = ColumnWidthOverrides()"),
-                "the column widths are erased without asking somewhere in Settings")
+        #expect(settings.contains("confirm: { confirmReleasingColumnWidths(overrides.widths.count) }"))
+        // The widths are written in one place, from the gate's answer.
+        #expect(settings.components(separatedBy: "columnWidthOverrides = ").count - 1 == 1,
+                "the column widths are written somewhere in Settings besides the gated setter")
+        #expect(settings.contains("columnWidthOverrides = choice.overrides"))
     }
 }

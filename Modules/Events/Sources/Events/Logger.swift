@@ -569,18 +569,29 @@ public class Logger: ObservableObject {
     }
 
     /// `NativeAlerts.runModalCancellingOnEscape`, which this package cannot import: Return on
-    /// Cancel takes Escape from it, so a local monitor answers Escape with Cancel instead.
+    /// Cancel takes Escape from it, so a local monitor has Escape press the Return button instead.
     private static func runModalCancellingOnEscape(_ alert: NSAlert) -> NSApplication.ModalResponse {
-        let window = alert.window
         let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard event.keyCode == 53, event.window === window,
-                  event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty
+            guard let button = escapeAnswer(for: event, window: alert.window, buttons: alert.buttons)
             else { return event }
-            NSApp.stopModal(withCode: .alertSecondButtonReturn)
+            button.performClick(nil)
             return nil
         }
         defer { if let monitor { NSEvent.removeMonitor(monitor) } }
         return alert.runModal()
+    }
+
+    /// `NativeAlerts.escapeAnswer`, for the same reason: the Return button, for a plain first
+    /// Escape at the alert's window.
+    ///
+    /// The window and buttons are taken apart because a test cannot stage them together: ordering
+    /// an alert's window in outside `runModal` clears its buttons' keys (measured 2026-11-01).
+    static func escapeAnswer(for event: NSEvent, window: NSWindow, buttons: [NSButton]) -> NSButton? {
+        guard event.type == .keyDown, event.keyCode == 53, !event.isARepeat,
+              event.window === window,
+              event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty
+        else { return nil }
+        return buttons.first { $0.keyEquivalent == "\r" }
     }
     
     /// Synchronously drains the disk writer's background queue so every line enqueued before this

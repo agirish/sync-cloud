@@ -1,4 +1,5 @@
 import Testing
+import AppKit
 import Foundation
 @testable import Events
 
@@ -62,6 +63,37 @@ import Foundation
 
         #expect(entriesWhenAsked == 1)
         #expect(logger.entries.isEmpty)
+    }
+
+    /// **Escape cancels Clear Log.** Its Cancel answers Return, which takes Escape from it, so the
+    /// alert runs with a key monitor; this pins the monitor's choice on real key events against
+    /// an alert with Clear Log's buttons. `NativeAlerts.escapeAnswer` is the same rule in Design.
+    @Test func escapePressesCancelAndNothingElse() throws {
+        let alert = NSAlert()
+        alert.addButton(withTitle: Logger.clearLogName)
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.keyEquivalent = ""
+        alert.buttons.last?.keyEquivalent = "\r"
+        // A stand-in window: ordering the alert's own in outside `runModal` clears its buttons' keys.
+        let standIn = NSWindow(contentRect: NSRect(x: -4000, y: -4000, width: 10, height: 10),
+                               styleMask: [.titled], backing: .buffered, defer: false)
+        standIn.isReleasedWhenClosed = false
+        standIn.orderFrontRegardless()
+        defer { standIn.orderOut(nil) }
+        try #require(standIn.windowNumber > 0, "no window number — the events would name no window")
+        func key(_ characters: String, _ code: UInt16, repeat isARepeat: Bool = false) throws -> NSEvent {
+            try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                          windowNumber: standIn.windowNumber, context: nil,
+                                          characters: characters, charactersIgnoringModifiers: characters,
+                                          isARepeat: isARepeat, keyCode: code))
+        }
+        func answer(_ event: NSEvent) -> NSButton? {
+            Logger.escapeAnswer(for: event, window: standIn, buttons: alert.buttons)
+        }
+
+        #expect(answer(try key("\u{1b}", 53))?.title == "Cancel")
+        #expect(answer(try key("\r", 36)) == nil)
+        #expect(answer(try key("\u{1b}", 53, repeat: true)) == nil)
     }
 
     /// One name for the control, wherever it is spelled. Pinned as a literal so a rename is a
