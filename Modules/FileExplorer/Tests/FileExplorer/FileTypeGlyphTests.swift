@@ -2,6 +2,7 @@ import Testing
 import Foundation
 import AppKit
 import SwiftUI
+import Design
 @testable import FileExplorer
 
 /// The medium classification behind the shared row glyph. The rule that could rot: an unknown
@@ -74,9 +75,9 @@ import SwiftUI
 @MainActor
 @Suite struct FileTypeGlyphContrastTests {
 
-    /// The card these glyphs are drawn on. `groundedGlassCard` documents
-    /// `controlBackgroundColor` as "the same colour `lensCard` fills with, so a card is a card
-    /// wherever it appears", which makes it the one honest surface to measure against.
+    /// The card these glyphs are drawn on: `controlBackgroundColor`, which `lensCard` fills with,
+    /// and `groundedGlassCard` too in light and at Solid. In dark at Frosted and Clear a floating
+    /// panel's ground is the window's tinted one instead, held to this card's contrast below.
     private static func cardFill(_ appearance: NSAppearance.Name) -> NSColor {
         var resolved = NSColor.controlBackgroundColor
         NSAppearance(named: appearance)?.performAsCurrentDrawingAppearance {
@@ -135,6 +136,61 @@ import SwiftUI
             }
             #expect(measured == 8, "measured \(measured) tints, not the eight this vocabulary mints")
         }
+    }
+
+    /// **The tinted dark ground costs no glyph any contrast** (HZ). In dark at Frosted the Go To
+    /// results draw these glyphs on `glassPanelGround`, the window's own dark ground in the accent,
+    /// where they used to sit on the charcoal. Over the window's background, on every accent at
+    /// Tint 0 and his 12%, the worst glyph on the new ground must read at least as well as the worst
+    /// did on the charcoal. The full diagonal and glow took it from 2.63:1 to about 2.3.
+    ///
+    /// Relative, not 3:1: offscreen there is no material, so the window background behind the
+    /// panel renders brighter than it is, and the charcoal itself measures under 3:1 here. Frosted
+    /// only: at Clear the desktop behind decides, and nothing offscreen can render it.
+    @Test(.machinePinned(.pixelSampling)) func theDarkPanelGroundLowersNoGlyphsContrast() throws {
+        for tint in [0.0, 0.12] {
+            // `.solid` is the charcoal: `glassPanelGround` keeps `controlBackgroundColor` there.
+            let charcoal = try Self.worstGlyphContrast(groundLevel: .solid, tint: tint)
+            let tinted = try Self.worstGlyphContrast(groundLevel: .frosted, tint: tint)
+            #expect(charcoal > 1.5 && charcoal < 5, "the charcoal measured \(charcoal):1 — the harness is off")
+            #expect(tinted >= charcoal,
+                    "at Tint \(tint) the worst glyph is \(String(format: "%.2f", tinted)):1 on the tinted ground, \(String(format: "%.2f", charcoal)):1 on the charcoal")
+        }
+    }
+
+    /// The lowest contrast any identity tint has against the brightest point of a dark Frosted
+    /// panel's ground, across every accent, over the window background it floats on.
+    private static func worstGlyphContrast(groundLevel: GlassLevel, tint: Double) throws -> CGFloat {
+        var worst = CGFloat.infinity
+        for hue in LiquidGlassHue.allCases {
+            let size = CGSize(width: 372, height: 600)
+            let host = NSHostingView(rootView: Color.clear
+                .glassPanelGround(level: groundLevel, hue: hue, tint: tint,
+                                  opacity: GlassLevel.frosted.groundedBackingOpacity, cornerRadius: 0)
+                .frame(width: size.width, height: size.height)
+                .background(Color.clear.liquidGlassAppBackground(level: .frosted, hue: hue, tint: tint)))
+            host.frame = CGRect(origin: .zero, size: size)
+            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.appearance = NSAppearance(named: .darkAqua)
+            window.colorSpace = .sRGB
+            window.contentView = host
+            host.layoutSubtreeIfNeeded()
+            let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            var brightest = NSColor.black
+            for x in stride(from: 4, to: rep.pixelsWide - 4, by: 16) {
+                for y in stride(from: 4, to: rep.pixelsHigh - 4, by: 16) {
+                    let c = try #require(rep.colorAt(x: x, y: y))
+                    if luminance(c) > luminance(brightest) { brightest = c }
+                }
+            }
+            for kind in FileTypeGlyph.Kind.allCases {
+                guard let ink = FileTypeGlyph.tint(for: kind) else { continue }
+                worst = min(worst, contrast(NSColor(ink), on: brightest))
+            }
+        }
+        return worst
     }
 
     /// **No two mediums share a shape.** A vocabulary whose premise is that the symbol names the

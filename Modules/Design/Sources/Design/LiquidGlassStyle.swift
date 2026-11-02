@@ -324,6 +324,16 @@ public extension LiquidGlass {
     /// window background reads as the accent at any level — the difference between them is how much
     /// shows through, not what colour it is.
     static let clearAccentStrength: Double = 0.5
+
+    /// How much of the accent diagonal a floating panel's dark ground takes (`glassPanelGround`).
+    /// The window sees its diagonal through a material; a panel's ground has none there, and the
+    /// full diagonal plus the glow made the ground several times as bright as the charcoal it
+    /// replaced (L 0.040 against 0.013 on Cyan at Tint 0), so the Go To results' file-type glyphs
+    /// lost contrast. Over the window's own background, the worst glyph on any accent measured
+    /// 2.67:1 on the charcoal at Tint 0 and 2.63 at 12%; at 0.4 it is 2.77 and 2.68, and at 0.5 it
+    /// fell to 2.60. So 0.4 is the most the hue can take without a glyph reading worse than it did
+    /// on the charcoal; `FileTypeGlyphContrastTests` holds it there.
+    static let panelGroundAccentScale: Double = 0.4
 }
 
 // MARK: - The "None" white ground
@@ -646,8 +656,8 @@ public extension View {
         }
     }
 
-    /// `glassCardStyle`'s chrome at the level's **face value**, with a neutral ground under the
-    /// content instead of a floor over the level.
+    /// `glassCardStyle`'s chrome at the level's **face value**, with a ground under the content
+    /// instead of a floor over the level.
     ///
     /// `glassCardStyle` applies `flooredForChrome`, which turns Clear into Frosted for any card
     /// sitting over live app content. That solves legibility by throwing the setting away: Clear
@@ -669,13 +679,14 @@ public extension View {
     /// The ground under a floating panel's text, `opacity` thick, between the text and the
     /// panel's glass (`groundedGlassCard`, Ask Claude).
     ///
-    /// In light, and at Solid, `controlBackgroundColor` — the colour `lensCard` fills with, so a
-    /// card is a card wherever it appears. In dark at Frosted and Clear, the window's own dark
-    /// ground instead: its deep base, accent diagonal and glow in `hue` at `tint` (HZ). Neutral
-    /// charcoal there read as a grey panel on an accent-tinted window — on Purple at Tint 12%,
-    /// dark Frosted, Ask Claude measured (36,35,40) beside panes at (25,25,42), and (34,32,58)
-    /// on this ground beside panes at (32,33,51). Solid's panels are
-    /// opaque `controlBackgroundColor` already, which is what the panes there are too.
+    /// In light, and at Solid, `controlBackgroundColor`, the colour `lensCard` fills with. In dark
+    /// at Frosted and Clear, the window's own dark ground instead: its deep base and a share of its
+    /// accent diagonal in `hue` at `tint` (HZ; `LiquidGlass.panelGroundAccentScale` says how much).
+    /// Neutral charcoal there read as a grey panel on an accent-tinted window — on Purple at Tint
+    /// 12%, dark Frosted, Ask Claude measured (36,35,40) beside panes at (25,25,42); on this ground
+    /// it is (33,33,53) beside panes at (33,34,54). Solid's panels are opaque
+    /// `controlBackgroundColor` already, which is what the panes there are too. `lensCard` keeps
+    /// charcoal in dark: it sits on a pane, not over the window.
     func glassPanelGround(level: GlassLevel, hue: LiquidGlassHue, tint: Double, opacity: Double,
                           cornerRadius: CGFloat) -> some View {
         modifier(GlassPanelGround(level: level, hue: hue, tint: tint, opacity: opacity,
@@ -1033,8 +1044,10 @@ private struct GlassSurface: ViewModifier {
 /// deep moody glass over the desktop rather than a pale wash.
 ///
 /// **`panelGround`** paints only the window's own dark ground — the deep base, opaque at every
-/// level, the accent diagonal and the glow — for `glassPanelGround` to lay under a floating panel's
-/// text (HZ). Nothing behind-window: `BehindWindowGlass` sets its window's `isOpaque` and
+/// level, and the accent diagonal at `LiquidGlass.panelGroundAccentScale` — for `glassPanelGround`
+/// to lay under a floating panel's text (HZ). No glow: it pools at the top, where a panel's first
+/// rows sit, and lifted them past the contrast the charcoal gave.
+/// Nothing behind-window: `BehindWindowGlass` sets its window's `isOpaque` and
 /// `backgroundColor` even when disabled, which squares a borderless panel's corners. No material
 /// and no Clear veils either: the panel's own glass stands in for those. Dark only.
 private struct LiquidGlassBackground: ViewModifier {
@@ -1067,7 +1080,7 @@ private struct LiquidGlassBackground: ViewModifier {
             ? [0.19 + 0.28 * accentT, 0.15 + 0.23 * accentT, 0.10 + 0.16 * accentT]
             : [0.06 + 0.16 * accentT, 0.05 + 0.14 * accentT, 0.04 + 0.10 * accentT]
         let gradientColors = zip(hue.gradientColors, opacities)
-            .map { $0.0.opacity($0.1 * hueStrength) }
+            .map { $0.0.opacity($0.1 * hueStrength * (panelGround ? LiquidGlass.panelGroundAccentScale : 1)) }
 
         content.background {
             ZStack {
@@ -1166,8 +1179,8 @@ private struct LiquidGlassBackground: ViewModifier {
                 // Dark accent glow: a soft pool of the hue at the top so the accent reads. Fires at
                 // every dark level now, `.clear` included — there at a lower strength, since it sits
                 // over the veil + desktop rather than an opaque material. `.none` opts out (it defers
-                // to the system accent).
-                if dark && hue != .none {
+                // to the system accent), and so does a panel's ground (see `panelGround`).
+                if dark && hue != .none && !panelGround {
                     RadialGradient(
                         colors: [hue.accentColor.opacity((seeThrough ? 0.18 : 0.26 + 0.10 * t) * hueStrength), .clear],
                         center: .top,

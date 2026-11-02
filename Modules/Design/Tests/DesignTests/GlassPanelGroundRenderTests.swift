@@ -58,9 +58,13 @@ import SwiftUI
     @Test(arguments: [GlassLevel.frosted, .clear])
     func darkGlassTakesTheWindowsTintedGround(level: GlassLevel) throws {
         let purple = try middle(ground(level, dark: true))
+        let none = try middle(ground(level, hue: .none, dark: true))
         let neutral = try middle(controlBackground(level, dark: true))
-        // Purple's diagonal and glow lean it blue-violet; the old charcoal is grey.
-        #expect(purple.b - purple.g > 0.03, "dark \(level) on Purple painted \(purple)")
+        // The cool base leans blue; Purple's share of the diagonal adds red and blue on top of it.
+        // The old charcoal is grey.
+        #expect(purple.b > purple.g, "dark \(level) on Purple painted \(purple)")
+        #expect(purple.r > none.r && purple.b > none.b,
+                "dark \(level) on Purple \(purple) carries no more of its hue than None \(none)")
         #expect(abs(neutral.b - neutral.g) < 0.01, "the neutral reference is \(neutral)")
     }
 
@@ -77,7 +81,7 @@ import SwiftUI
     @Test func theGroundFollowsTheTint() throws {
         let low = try middle(ground(.frosted, tint: 0, dark: true))
         let high = try middle(ground(.frosted, tint: 1, dark: true))
-        #expect(high.b - high.g > low.b - low.g + 0.02, "Tint 0 \(low), Tint 1 \(high)")
+        #expect(high.b > low.b + 0.02, "Tint 0 \(low), Tint 1 \(high)")
     }
 
     @Test(arguments: GlassLevel.allCases)

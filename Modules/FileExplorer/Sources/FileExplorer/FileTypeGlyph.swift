@@ -82,9 +82,11 @@ enum FileTypeGlyph {
     /// Eight fixed sRGB tints minted outside `Design` is exactly the shape that produced the
     /// `ChromeInk` hazard — an ink tuned on a light card, drawn at 13–17pt on a dark one, that
     /// nobody measured until a screenshot. So they are measured. The surface is
-    /// `NSColor.controlBackgroundColor`, which is what `groundedGlassCard` and `lensCard` fill a
-    /// card with (rgb 0.118 in dark, white in light), and the floor is the 3:1 a graphical object
-    /// carrying meaning needs. Contrast of the tint against that fill, dark then light:
+    /// `NSColor.controlBackgroundColor`, which is what `lensCard` fills a card with (rgb 0.118 in
+    /// dark, white in light), and `groundedGlassCard` too in light and at Solid; the floor is the
+    /// 3:1 a graphical object carrying meaning needs. In dark at Frosted and Clear a floating
+    /// panel's ground is the window's tinted one (`glassPanelGround`), tuned so that no glyph reads
+    /// worse on it than on this charcoal. Contrast of the tint against that fill, dark then light:
     ///
     /// | kind | dark | light |
     /// |---|---|---|

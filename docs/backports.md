@@ -13824,8 +13824,9 @@ after TE292 took HS–HX.
 2026-11-01, for v7.0. On `main`: in dark at Frosted and Clear, the ground under a floating panel's
 text (`groundedGlassCard` — Settings, Help, Setup, Go To results, the destination picker, the
 compare overlays — and Ask Claude) is the window's own dark ground in the stored accent and Tint
-(`glassPanelGround`), where it was neutral `controlBackgroundColor`: on Purple the panels read grey
-on a violet window. Light and Solid are unchanged. Ask Claude's ground takes `groundedBackingOpacity` (0.45 at Clear) in place
+(`glassPanelGround`: its deep base and 0.4 of its accent diagonal, no glow, so no file-type glyph
+reads worse than it did), where it was neutral `controlBackgroundColor`: on Purple the panels read
+grey on a violet window. Light and Solid are unchanged. Ask Claude's ground takes `groundedBackingOpacity` (0.45 at Clear) in place
 of its own 0.6. Every line has the neutral ground:
 
 ```sh
