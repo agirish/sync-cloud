@@ -245,7 +245,7 @@ import Testing
     @Test func readabilityFitsASmallDisplayAtEveryTextSize() async throws {
         let fitting = FontSize.allCases.filter { size in
             let height = laidOutHeight(
-                ReadabilitySettingsTab(),
+                ReadabilitySettingsTab(confirmReleasingColumnWidths: { _ in false }),
                 width: SettingsSheetMetrics.contentWidth(textScale: size.scale,
                                                         available: Self.smallDisplayWindow),
                 scale: size.scale)
@@ -480,7 +480,7 @@ import Testing
         // them — which is how Advanced's reset section went unmeasured for as long as it did.
         [(.general, AnyView(GeneralSettingsTab(onRunSetup: {}).environmentObject(settings))),
          (.appearance, AnyView(AppearanceSettingsTab())),
-         (.readability, AnyView(ReadabilitySettingsTab())),
+         (.readability, AnyView(ReadabilitySettingsTab(confirmReleasingColumnWidths: { _ in false }))),
          (.sync, AnyView(SyncSettingsTab(syncManager: nil).environmentObject(settings))),
          (.duplicates, AnyView(DuplicatesSettingsTab())),
          (.advanced, AnyView(AdvancedSettingsTab(syncManager: nil, onResetAllSettings: {},
@@ -1198,7 +1198,7 @@ import Testing
 
             // And the tab lays out rather than trapping or measuring nothing on such a value.
             let height = laidOutHeight(
-                ReadabilitySettingsTab().defaultAppStorage(test.defaults), width: Self.contentWidth)
+                ReadabilitySettingsTab(confirmReleasingColumnWidths: { _ in false }).defaultAppStorage(test.defaults), width: Self.contentWidth)
             #expect(height > 0, "Readability laid out to nothing with \(stored) stored")
         }
 

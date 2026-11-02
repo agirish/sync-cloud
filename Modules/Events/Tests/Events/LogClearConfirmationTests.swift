@@ -79,10 +79,11 @@ import Foundation
                                styleMask: [.titled], backing: .buffered, defer: false)
         standIn.isReleasedWhenClosed = false
         standIn.orderFrontRegardless()
-        defer { standIn.orderOut(nil) }
+        defer { standIn.close() }
         try #require(standIn.windowNumber > 0, "no window number — the events would name no window")
-        func key(_ characters: String, _ code: UInt16, repeat isARepeat: Bool = false) throws -> NSEvent {
-            try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+        func key(_ characters: String, _ code: UInt16, modifiers: NSEvent.ModifierFlags = [],
+                 repeat isARepeat: Bool = false) throws -> NSEvent {
+            try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
                                           windowNumber: standIn.windowNumber, context: nil,
                                           characters: characters, charactersIgnoringModifiers: characters,
                                           isARepeat: isARepeat, keyCode: code))
@@ -94,6 +95,22 @@ import Foundation
         #expect(answer(try key("\u{1b}", 53))?.title == "Cancel")
         #expect(answer(try key("\r", 36)) == nil)
         #expect(answer(try key("\u{1b}", 53, repeat: true)) == nil)
+        #expect(answer(try key("\u{1b}", 53, modifiers: .option)) == nil)
+        #expect(answer(try key(".", 47, modifiers: .command))?.title == "Cancel", "⌘. does not cancel")
+        let elsewhere = NSWindow(contentRect: NSRect(x: -4000, y: -4000, width: 10, height: 10),
+                                 styleMask: [.titled], backing: .buffered, defer: false)
+        elsewhere.isReleasedWhenClosed = false
+        elsewhere.orderFrontRegardless()
+        defer { elsewhere.close() }
+        let aimedElsewhere = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: elsewhere.windowNumber, context: nil, characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
+        #expect(answer(aimedElsewhere) == nil, "Escape at another window cancelled Clear Log")
+        // Never the confirm: with a button holding Escape, the monitor stays out.
+        alert.buttons.last?.keyEquivalent = "\u{1b}"
+        alert.buttons.first?.keyEquivalent = "\r"
+        #expect(answer(try key("\u{1b}", 53)) == nil, "Escape pressed Clear Log's confirm")
     }
 
     /// One name for the control, wherever it is spelled. Pinned as a literal so a rename is a

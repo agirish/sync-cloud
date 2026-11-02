@@ -70,7 +70,7 @@ import Testing
             return window
         }
         let standIn = offscreen(), other = offscreen()
-        defer { standIn.orderOut(nil); other.orderOut(nil) }
+        defer { standIn.close(); other.close() }
         try #require(standIn.windowNumber > 0 && other.windowNumber > 0,
                      "no window numbers — the events below would name no window and prove nothing")
         func answer(_ event: NSEvent) -> NSButton? {
@@ -87,9 +87,34 @@ import Testing
                 "Return is Cancel's own key; the monitor must leave it to the button")
         #expect(answer(try key("\u{1b}", code: 53, in: other)) == nil,
                 "Escape aimed at another window cancelled the alert")
-        #expect(answer(try key("\u{1b}", code: 53, in: standIn, modifiers: .command)) == nil)
+        for modifier: NSEvent.ModifierFlags in [.command, .option, .control, .shift] {
+            #expect(answer(try key("\u{1b}", code: 53, in: standIn, modifiers: modifier)) == nil,
+                    "Escape with a modifier (\(modifier.rawValue)) pressed a button")
+        }
         #expect(answer(try key("\u{1b}", code: 53, in: standIn, repeat: true)) == nil,
                 "a held Escape pressed the button again")
+        // ⌘. is the other cancel key an alert honours.
+        #expect(answer(try key(".", code: 47, in: standIn, modifiers: .command)) === alert.buttons.last,
+                "⌘. does not cancel")
+        #expect(answer(try key(".", code: 47, in: standIn)) == nil, "a plain period cancelled the alert")
+
+        // **By key, not by place.** Cancel first and holding Return: Escape presses it, not the
+        // last button.
+        let cancelFirst = NSAlert()
+        cancelFirst.addButton(withTitle: "Cancel").keyEquivalent = "\r"
+        cancelFirst.addButton(withTitle: "Clear").keyEquivalent = ""
+        #expect(NativeAlerts.escapeAnswer(for: escape, window: standIn, buttons: cancelFirst.buttons)
+                    === cancelFirst.buttons.first, "Escape pressed the button by its place")
+
+        // **Never the confirm.** Where the confirm takes Return, Cancel still holds Escape and
+        // answers it itself; the monitor must stay out, or Escape would mean yes.
+        let confirmTakesReturn = NativeAlerts.changeAlert(messageText: "Switch?", informativeText: "",
+                                                          confirmTitle: "Switch")
+        try #require(confirmTakesReturn.buttons.contains { $0.keyEquivalent == "\u{1b}" },
+                     "the change alert's Cancel no longer holds Escape — this case tests nothing")
+        #expect(NativeAlerts.escapeAnswer(for: escape, window: standIn,
+                                          buttons: confirmTakesReturn.buttons) == nil,
+                "Escape pressed the confirm of an alert whose Cancel holds Escape")
     }
 
     /// Every alert whose Cancel answers Return runs through an Escape monitor — one call per such
@@ -112,7 +137,7 @@ import Testing
                 guard !path.contains("/.build/"), !path.contains("/Tests/") else { continue }
                 let code = try String(contentsOf: url, encoding: .utf8)
                     .split(separator: "\n", omittingEmptySubsequences: false)
-                    .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                    .map(Self.withoutComment)
                 scanned += 1
                 let returns = code.filter { line in
                     let compact = line.replacingOccurrences(of: " ", with: "")
@@ -132,5 +157,25 @@ import Testing
         }
         try #require(scanned > 100, "scanned \(scanned) files — the walk is not reading the app")
         #expect(cancelTakesReturn >= 5, "found \(cancelTakesReturn) Cancel-takes-Return alerts — the pattern moved")
+    }
+
+    /// A line with its `//` comment removed, whole or trailing, string literals respected — so a
+    /// call named in a comment cannot stand in for the call.
+    static func withoutComment(_ line: Substring) -> Substring {
+        var inString = false
+        var previous: Character = " "
+        for index in line.indices {
+            let character = line[index]
+            if character == "\"" && previous != "\\" { inString.toggle() }
+            if !inString, character == "/", previous == "/" { return line[..<line.index(before: index)] }
+            previous = character
+        }
+        return line
+    }
+
+    @Test func aTrailingCommentCannotStandInForTheCall() {
+        #expect(!Self.withoutComment("alert.runModal() // runModalCancellingOnEscape(alert)")
+                    .contains("runModalCancellingOnEscape("))
+        #expect(Self.withoutComment("let u = \"http://x\"") == "let u = \"http://x\"")
     }
 }

@@ -27,7 +27,9 @@ public final class IgnoredItemsStore: ObservableObject {
     @Published public private(set) var rootRelativePaths: Set<String> = []
 
     private let userDefaults: UserDefaults
-    private(set) var activeKey: String?
+    /// The pair whose ignores `rootRelativePaths` holds. Public so a control that asks before
+    /// clearing can tell whether the pair changed while it asked.
+    public private(set) var activeKey: String?
 
     public init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults

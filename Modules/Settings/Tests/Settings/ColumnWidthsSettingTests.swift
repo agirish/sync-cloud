@@ -128,7 +128,7 @@ import SwiftUI
         let tinyWindow = CGSize(width: SettingsSheetMetrics.floorSize.width + SettingsSheetMetrics.hostMargin,
                                 height: SettingsSheetMetrics.floorSize.height + SettingsSheetMetrics.hostMargin)
         let column = SettingsSheetMetrics.contentWidth(textScale: FontSize.extraLarge.scale, available: tinyWindow)
-        let host = NSHostingView(rootView: ReadabilitySettingsTab()
+        let host = NSHostingView(rootView: ReadabilitySettingsTab(confirmReleasingColumnWidths: { _ in false })
             .appFontSize(.extraLarge)
             .defaultAppStorage(test.defaults))
         host.frame = NSRect(x: 0, y: 0, width: column, height: 1600)

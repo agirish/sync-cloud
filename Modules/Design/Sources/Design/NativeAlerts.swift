@@ -124,17 +124,23 @@ public struct NativeAlerts {
         return alert.runModal()
     }
 
-    /// The button Escape presses: the one that answers Return, for a plain, first press of Escape
-    /// aimed at the alert's window — nil for anything else, which the monitor passes on. A repeat
-    /// is passed on so a held key cannot press the button again after the alert has answered.
+    /// The button Escape presses: the one that answers Return, for a first press of Escape or ⌘.
+    /// aimed at the alert's window — nil for anything else, which the monitor passes on, and nil
+    /// when a button already holds Escape. A repeat is passed on so a held key cannot press the
+    /// button again after the alert has answered.
     ///
     /// The window and buttons are taken apart because a test cannot stage them together: ordering
     /// an alert's window in outside `runModal` clears its buttons' keys (measured 2026-11-01).
     static func escapeAnswer(for event: NSEvent, window: NSWindow, buttons: [NSButton]) -> NSButton? {
-        guard event.type == .keyDown, event.keyCode == 53, !event.isARepeat,
-              event.window === window,
-              event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty
-        else { return nil }
+        guard event.type == .keyDown, !event.isARepeat, event.window === window else { return nil }
+        let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        // Escape, or ⌘. — macOS's other cancel key, which an alert sends to its Escape button.
+        let isEscape = event.keyCode == 53 && modifiers.isEmpty
+        let isCommandPeriod = event.charactersIgnoringModifiers == "." && modifiers == .command
+        guard isEscape || isCommandPeriod else { return nil }
+        // An alert with a button still holding Escape answers it itself, and there the Return
+        // button is the confirm: pressing it would turn Escape into yes.
+        guard !buttons.contains(where: { $0.keyEquivalent == "\u{1b}" }) else { return nil }
         return buttons.first { $0.keyEquivalent == "\r" }
     }
 

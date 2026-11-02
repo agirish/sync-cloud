@@ -19,7 +19,7 @@ import AppKit
         defaults.set(density.rawValue, forKey: ListDensity.defaultsKey)
 
         let host = NSHostingView(rootView:
-            ReadabilitySettingsTab()
+            ReadabilitySettingsTab(confirmReleasingColumnWidths: { _ in false })
                 .defaultAppStorage(defaults)
                 .appFontSize(size)
                 .frame(width: 547)

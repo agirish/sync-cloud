@@ -5,14 +5,14 @@ import Foundation
 ///
 /// **Five controls did it on one click**: a folder source's Remove, the ignored items' and the kept
 /// names' Clear All, the saved suggestions' Clear, and choosing "All columns" for column widths.
-/// None of them touches a file, but each forgets choices that are only rebuilt by making them again
-/// one at a time — and clearing the saved suggestions also means paying Claude again for every file
-/// the next Refine reads. Reset Setup, Reset All Settings and Clear Log already asked; these ask
-/// the same way.
+/// None of them touches the user's files. Four forget choices made by hand, which come back only
+/// by making them again; the saved suggestions come back on their own, but the next Refine pays
+/// Claude again for every file to get them. Reset Setup, Reset All Settings and Clear Log already
+/// asked; these ask the same way.
 ///
 /// The words live here, beside one another, so the five read as one voice; each control's gate is
 /// beside the control. Public so a control outside Settings — an Ask Claude card (TE290) — asks
-/// in the same words and gates on the same rule.
+/// in the same words; of the gates, only Column widths' (`ColumnResizeChoice`) is public so far.
 public struct RemovalPrompt: Equatable, Sendable {
     public let messageText: String
     public let informativeText: String
@@ -43,25 +43,27 @@ public struct RemovalPrompt: Equatable, Sendable {
         RemovalPrompt(
             messageText: "Remove “\(name)” from your sources?",
             informativeText: "SyncCloud stops showing this folder and forgets any name you gave it, "
-                + "whether it was switched off, and what you ignored while comparing it. Adding the "
-                + "folder again starts it afresh. The folder and its files stay where they are.",
+                + "where it opens, whether it was switched off, and what you ignored while comparing "
+                + "it. Adding the folder again starts it afresh. The folder and its files stay where "
+                + "they are.",
             confirmTitle: "Remove")
     }
 
     /// Sync ▸ Ignored items ▸ Clear All.
     public static func clearIgnoredItems(count: Int) -> RemovalPrompt {
         RemovalPrompt(
-            messageText: count == 1 ? "Stop ignoring 1 item?" : "Stop ignoring all \(count) items?",
+            messageText: count == 1 ? "Stop ignoring 1 item?"
+                : "Stop ignoring all \(count.formatted()) items?",
             informativeText: "Everything you ignored for the folders you’re comparing comes back in "
-                + "Differences, and ignoring it again is one item at a time. Files on disk aren’t "
-                + "affected.",
+                + "Differences, until you ignore it again. Your files aren’t affected.",
             confirmTitle: "Clear All")
     }
 
     /// Organize ▸ Kept names ▸ Clear All.
     public static func clearKeptNames(count: Int) -> RemovalPrompt {
         RemovalPrompt(
-            messageText: count == 1 ? "Stop keeping 1 name?" : "Stop keeping all \(count) names?",
+            messageText: count == 1 ? "Stop keeping 1 name?"
+                : "Stop keeping all \(count.formatted()) names?",
             informativeText: "SyncCloud flags each of these names again — on its row at once, and in "
                 + "Organize from the next scan — until you choose Always Allow This Name for it "
                 + "again. No file is renamed.",
@@ -72,10 +74,11 @@ public struct RemovalPrompt: Equatable, Sendable {
     /// clear nobody would guess: the next Refine pays Claude again for every file.
     public static func clearSavedSuggestions(count: Int) -> RemovalPrompt {
         RemovalPrompt(
-            messageText: count == 1 ? "Clear 1 saved suggestion?" : "Clear \(count) saved suggestions?",
+            messageText: count == 1 ? "Clear 1 saved suggestion?"
+                : "Clear \(count.formatted()) saved suggestions?",
             informativeText: "The next scan asks the on-device model about every file again, and "
-                + "the next Refine sends every file to Claude again — and pays for each one. Files "
-                + "on disk aren’t affected.",
+                + "the next Refine sends every file to Claude again — and pays for each one. Your "
+                + "files aren’t affected.",
             confirmTitle: "Clear Suggestions")
     }
 
@@ -86,7 +89,7 @@ public struct RemovalPrompt: Equatable, Sendable {
             informativeText: count == 1
                 ? "The column you sized on its own goes back to the width every column shares. "
                     + "Choosing Each column again doesn’t bring its width back."
-                : "The \(count) columns you sized on their own go back to the width every column "
+                : "The \(count.formatted()) columns you sized on their own go back to the width every column "
                     + "shares. Choosing Each column again doesn’t bring their widths back.",
             confirmTitle: "Use All Columns")
     }

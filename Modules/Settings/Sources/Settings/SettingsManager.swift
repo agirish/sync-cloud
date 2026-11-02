@@ -552,6 +552,9 @@ public class SettingsManager: ObservableObject {
     private func forgetKeys(ofRemovedSources ids: [String]) {
         for id in ids {
             userDefaults.removeObject(forKey: "\(Self.nameOverrideKeyPrefix)\(id)")
+            // Where it opens goes too: the Remove question says so, and the key named an id that
+            // nothing will ever use again.
+            userDefaults.removeObject(forKey: "\(Self.openAtOverrideKeyPrefix)\(id)")
         }
         var droppedADisabledId = false
         for id in ids where disabledProviderIds.remove(id) != nil {

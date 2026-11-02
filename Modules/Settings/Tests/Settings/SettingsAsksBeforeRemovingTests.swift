@@ -35,6 +35,7 @@ import Testing
         await settings.discoverProviders()
         settings.setCustomName("Work", for: id)
         settings.setEnabled(false, for: id)
+        defaults.defaults.set("Clients", forKey: "openAt_override_\(id)")
         var asked = 0
 
         let removed = ProviderSettingsSection.removeFolderSourceIfConfirmed(
@@ -48,6 +49,8 @@ import Testing
                 "a declined Remove lost the name given to the source")
         #expect(settings.disabledProviderIds.contains(id),
                 "a declined Remove lost the source's switched-off state")
+        #expect(defaults.defaults.string(forKey: "openAt_override_\(id)") == "Clients",
+                "a declined Remove lost where the source opens")
     }
 
     @Test func confirmingRemoveAsksBeforeRemoving() async {
@@ -55,6 +58,7 @@ import Testing
         let settings = folderManager(defaults)
         let id = settings.addFolderSource(path: "/Users/u/Projects")
         await settings.discoverProviders()
+        defaults.defaults.set("Clients", forKey: "openAt_override_\(id)")
         var sourcesWhenAsked = -1
 
         let removed = ProviderSettingsSection.removeFolderSourceIfConfirmed(
@@ -64,6 +68,9 @@ import Testing
         #expect(removed)
         #expect(sourcesWhenAsked == 1, "the source went before the question")
         #expect(settings.folderSources.isEmpty)
+        // The question says where it opens is forgotten; the key used to outlive the source.
+        #expect(defaults.defaults.string(forKey: "openAt_override_\(id)") == nil,
+                "Remove left where the source opens behind")
     }
 
     // MARK: Sync ▸ Ignored items ▸ Clear All
@@ -90,6 +97,28 @@ import Testing
 
         #expect(done)
         #expect(order == ["ask", "clear"], "the ignored items went before the question: \(order)")
+    }
+
+    /// **Clears the pair it asked about, or nothing.** The comparison can move to another pair
+    /// while the alert is up (a source removed meanwhile); a yes must not clear that pair instead.
+    @Test func clearAllDoesNothingWhenTheComparedPairChangedWhileItAsked() {
+        let store = IgnoredItemsStore(userDefaults: ScratchDefaults("AskFirst-ignored-pair"))
+        store.activate(pairKey: IgnoredItemsStore.pairKey("a", "b"))
+        store.add(["x.txt"])
+        var cleared = 0
+        let list = IgnoredItemsList(store: store, onRemove: { _ in }, onClear: { cleared += 1 })
+
+        let done = list.clearAll(confirm: {
+            store.activate(pairKey: IgnoredItemsStore.pairKey("a", "c"))
+            return true
+        })
+
+        #expect(!done)
+        #expect(cleared == 0, "a yes cleared the ignores of a pair the question never named")
+
+        // Unmoved, the same yes clears.
+        #expect(list.clearAll(confirm: { true }))
+        #expect(cleared == 1)
     }
 
     // MARK: Organize ▸ Kept names ▸ Clear All
@@ -194,6 +223,7 @@ import Testing
         #expect(source.messageText == "Remove “Work” from your sources?")
         #expect(source.informativeText.contains("name you gave it"))
         #expect(source.informativeText.contains("switched off"))
+        #expect(source.informativeText.contains("where it opens"))
         #expect(source.informativeText.contains("what you ignored while comparing it"),
                 "Remove orphans the source's ignored items, and the question does not say so")
         #expect(source.informativeText.contains("its files stay where they are"))
@@ -202,6 +232,13 @@ import Testing
         #expect(RemovalPrompt.clearIgnoredItems(count: 3).messageText == "Stop ignoring all 3 items?")
         #expect(RemovalPrompt.clearIgnoredItems(count: 1).messageText == "Stop ignoring 1 item?")
         #expect(RemovalPrompt.clearIgnoredItems(count: 3).informativeText.contains("Differences"))
+        // Ignore works on a whole selection, so it is not "one item at a time" to undo.
+        #expect(!RemovalPrompt.clearIgnoredItems(count: 3).informativeText.contains("one item at a time"))
+        // Counts read the way the rest of the app writes them.
+        #expect(RemovalPrompt.clearIgnoredItems(count: 1_234).messageText
+                    == "Stop ignoring all \(1_234.formatted()) items?")
+        #expect(RemovalPrompt.clearSavedSuggestions(count: 4_000).messageText
+                    == "Clear \(4_000.formatted()) saved suggestions?")
         #expect(RemovalPrompt.clearIgnoredItems(count: 3).confirmTitle == "Clear All")
 
         #expect(RemovalPrompt.clearKeptNames(count: 2).messageText == "Stop keeping all 2 names?")
@@ -247,8 +284,9 @@ import Testing
                 try? String(contentsOf: sources.appendingPathComponent(name), encoding: .utf8),
                 "cannot read \(name) — the checks below would be vacuous")
             try #require(text.count > 1_000, "\(name) is implausibly short")
-            return text
+            return Self.withoutComments(text)
         }
+        func count(_ needle: String, in text: String) -> Int { text.components(separatedBy: needle).count - 1 }
         let settings = try source("SettingsView.swift")
         let prompt = try source("RemovalPrompt.swift")
 
@@ -256,35 +294,64 @@ import Testing
         #expect(prompt.contains("NativeAlerts.confirmIrreversible("),
                 "the questions no longer ask with the standard irreversible alert")
 
-        #expect(settings.contains("Self.removeFolderSourceIfConfirmed("),
-                "a folder source's Remove no longer asks")
+        // **Each deletion is called once in Settings, from inside its gate.** Counted rather than
+        // spelled, so a second, unasked call is caught however it is written.
+        #expect(count("removeFolderSource(id:", in: settings) == 1)
+        #expect(settings.contains("RemovalPrompt.actIfConfirmed(confirm: confirm) { settings.removeFolderSource(id: id) }"))
+        #expect(settings.contains("Self.removeFolderSourceIfConfirmed("), "a folder source's Remove no longer asks")
         #expect(settings.contains("confirm: RemovalPrompt.removeFolderSource(named: provider.displayName).ask"))
-        #expect(!settings.contains("Button(\"Remove\", role: .destructive) { settings.removeFolderSource("),
-                "a folder source's Remove deletes on one click again")
 
+        #expect(count("clearAllIgnoredItems()", in: settings) == 1)
+        #expect(count("onClear()", in: settings) == 1, "the ignored items are cleared outside the gate")
+        #expect(!settings.contains("action: onClear"), "ignored items' Clear All clears on one click again")
         #expect(settings.contains("clearAll(confirm: RemovalPrompt.clearIgnoredItems("),
                 "ignored items' Clear All no longer asks")
+
+        #expect(count("stopKeepingAll()", in: settings) == 1)
+        #expect(settings.contains("RemovalPrompt.actIfConfirmed(confirm: confirm) { store.stopKeepingAll() }"))
         #expect(settings.contains("clearAll(confirm: RemovalPrompt.clearKeptNames("),
                 "kept names' Clear All no longer asks")
-        #expect(!settings.contains("action: onClear)") && !settings.contains("action: clearAll)"),
-                "a Clear All clears on one click again")
 
-        #expect(settings.contains("Self.clearSavedSuggestionsIfConfirmed("),
-                "saved suggestions' Clear no longer asks")
-        #expect(settings.contains("confirm: RemovalPrompt.clearSavedSuggestions("))
-        // Counted, not spelled: one call in Settings, and it is the gated one.
-        #expect(settings.components(separatedBy: "clearFilingVerdictCache(").count - 1 == 1,
-                "saved suggestions are cleared somewhere in Settings besides the gated Clear")
+        #expect(count("clearFilingVerdictCache(", in: settings) == 1)
         #expect(settings.contains("clear: { syncManager.clearFilingVerdictCache() }"))
+        #expect(settings.contains("Self.clearSavedSuggestionsIfConfirmed("), "saved suggestions' Clear no longer asks")
+        #expect(settings.contains("confirm: RemovalPrompt.clearSavedSuggestions("))
 
+        #expect(count("columnWidthOverrides = ", in: settings) == 1,
+                "the column widths are written somewhere in Settings besides the gated setter")
+        #expect(settings.contains("columnWidthOverrides = choice.overrides"))
         #expect(settings.contains("guard let choice = Self.chooseResizeMode("),
                 "the Column widths picker no longer goes through its gate")
         #expect(settings.contains("RemovalPrompt.releaseColumnWidths(count: $0).ask()"),
                 "the Column widths picker no longer asks with the standard alert")
         #expect(settings.contains("confirm: { confirmReleasingColumnWidths(overrides.widths.count) }"))
-        // The widths are written in one place, from the gate's answer.
-        #expect(settings.components(separatedBy: "columnWidthOverrides = ").count - 1 == 1,
-                "the column widths are written somewhere in Settings besides the gated setter")
-        #expect(settings.contains("columnWidthOverrides = choice.overrides"))
+    }
+
+    /// The source with every `//` comment removed — whole lines and trailing ones — so a call named
+    /// in a comment cannot stand in for the call. String literals are respected.
+    static func withoutComments(_ text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: false).map { line -> Substring in
+            var inString = false
+            var previous: Character = " "
+            for index in line.indices {
+                let character = line[index]
+                if character == "\"" && previous != "\\" { inString.toggle() }
+                if !inString, character == "/", previous == "/" {
+                    return line[..<line.index(before: index)]
+                }
+                previous = character
+            }
+            return line
+        }.joined(separator: "\n")
+    }
+
+    @Test func commentsAreStrippedAndStringsKept() {
+        let stripped = Self.withoutComments("""
+            a() // b()
+            // c()
+            let url = "http://x" // d()
+            """)
+        #expect(stripped.contains("a()") && stripped.contains("\"http://x\""))
+        #expect(!stripped.contains("b()") && !stripped.contains("c()") && !stripped.contains("d()"))
     }
 }

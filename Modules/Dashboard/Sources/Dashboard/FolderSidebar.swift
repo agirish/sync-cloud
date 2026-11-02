@@ -766,7 +766,7 @@ public struct FolderSidebarView: View {
         var message: String {
             switch self {
             case .removeSource(let row):
-                return "\(row.name) is removed from SyncCloud. The folder itself is not deleted, and you can add it again — but the name you gave the source, where it opens, and whether it was switched off are not kept."
+                return "\(row.name) is removed from SyncCloud. The folder itself is not deleted, and you can add it again — but the name you gave the source, where it opens, whether it was switched off, and what you ignored while comparing it are not kept."
             case .eject(let row, let losesItsSource):
                 let system = "\(row.name) is unmounted from macOS, not just from SyncCloud — it leaves Finder and every other app until you plug it in again. Nothing on it is changed."
                 guard losesItsSource else { return system }

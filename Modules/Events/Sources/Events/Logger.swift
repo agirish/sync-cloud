@@ -581,16 +581,21 @@ public class Logger: ObservableObject {
         return alert.runModal()
     }
 
-    /// `NativeAlerts.escapeAnswer`, for the same reason: the Return button, for a plain first
-    /// Escape at the alert's window.
+    /// `NativeAlerts.escapeAnswer`, for the same reason: the Return button, for a first Escape or
+    /// ⌘. at the alert's window, unless a button already holds Escape.
     ///
     /// The window and buttons are taken apart because a test cannot stage them together: ordering
     /// an alert's window in outside `runModal` clears its buttons' keys (measured 2026-11-01).
     static func escapeAnswer(for event: NSEvent, window: NSWindow, buttons: [NSButton]) -> NSButton? {
-        guard event.type == .keyDown, event.keyCode == 53, !event.isARepeat,
-              event.window === window,
-              event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty
-        else { return nil }
+        guard event.type == .keyDown, !event.isARepeat, event.window === window else { return nil }
+        let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        // Escape, or ⌘. — macOS's other cancel key, which an alert sends to its Escape button.
+        let isEscape = event.keyCode == 53 && modifiers.isEmpty
+        let isCommandPeriod = event.charactersIgnoringModifiers == "." && modifiers == .command
+        guard isEscape || isCommandPeriod else { return nil }
+        // An alert with a button still holding Escape answers it itself, and there the Return
+        // button is the confirm: pressing it would turn Escape into yes.
+        guard !buttons.contains(where: { $0.keyEquivalent == "\u{1b}" }) else { return nil }
         return buttons.first { $0.keyEquivalent == "\r" }
     }
     

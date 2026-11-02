@@ -1063,6 +1063,9 @@ struct ReadabilitySettingsTab: View {
     /// lit otherwise: the setter wrote nothing, so SwiftUI has no change to redraw the control from,
     /// and the picker would show "All columns" over a setting still at "Each column".
     @State private var declinedResizeChoices = 0
+    /// Whether keyboard focus is on the picker. The decline's rebuild drops focus with the old
+    /// control, so a keyboard or VoiceOver user is put back where they were.
+    @FocusState private var resizePickerFocused: Bool
 
     /// The app takes the standard alert; a test that drives the picker passes its own answer, since
     /// a modal alert in a test process blocks its main thread with nothing to dismiss it.
@@ -1085,7 +1088,10 @@ struct ReadabilitySettingsTab: View {
                     raw, overrides: overrides,
                     confirm: { confirmReleasingColumnWidths(overrides.widths.count) })
                 else {
+                    let hadFocus = resizePickerFocused
                     declinedResizeChoices += 1
+                    // Next turn, once the rebuilt picker exists to take it.
+                    if hadFocus { DispatchQueue.main.async { resizePickerFocused = true } }
                     return
                 }
                 // Written only after the answer, and only what changed: passing the stored values
@@ -1296,8 +1302,9 @@ struct ReadabilitySettingsTab: View {
                     .labelsHidden()
                     .accentedSegments(selectedHue)
                     .fixedSize()
+                    .focused($resizePickerFocused)
                     .id(declinedResizeChoices)
-                    .help("What dragging a divider in Columns resizes: Each column resizes that column, All columns resizes every column. Hold ⌥ for the other.")
+                    .help("What dragging a divider in Columns resizes: Each column resizes that column, All columns resizes every column. Hold ⌥ for the other. All columns asks first when a column was sized on its own.")
                 }
                 .padding(.top, 10)
 
@@ -2337,15 +2344,28 @@ struct IgnoredItemsList: View {
                         count: store.rootRelativePaths.count).ask)
                 }
                 .controlSize(.small)
+                .help("Stops ignoring every item listed, so each comes back in Differences. Asks first.")
             }
         }
     }
 
-    /// Clear All asks first: every ignore made one item at a time goes at once.
+    /// Clear All asks first: every ignore goes at once.
+    ///
+    /// **Clears the pair it asked about, or nothing.** The store holds whichever pair is being
+    /// compared, and the app keeps running while the alert is up: a source removed meanwhile (an
+    /// unmounted card, say) moves the comparison to another pair, and a yes would then clear that
+    /// pair's ignores, which the question never named.
     /// - Returns: Whether the list was cleared.
     @discardableResult
     func clearAll(confirm: () -> Bool) -> Bool {
-        RemovalPrompt.actIfConfirmed(confirm: confirm, act: onClear)
+        let askedAbout = store.activeKey
+        guard confirm() else { return false }
+        guard store.activeKey == askedAbout else {
+            Logger.shared.info("Clear All for ignored items not applied: the folders being compared changed while it asked")
+            return false
+        }
+        onClear()
+        return true
     }
 }
 
@@ -2817,14 +2837,21 @@ struct IntelligenceSettingsTab: View {
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
                         // Asks first: the next Refine pays Claude again for every file.
-                        Button("Clear…") {
+                        Button("Clear…", role: .destructive) {
                             guard let syncManager else { return }
-                            Self.clearSavedSuggestionsIfConfirmed(
-                                confirm: RemovalPrompt.clearSavedSuggestions(count: savedSuggestionCount).ask,
-                                clear: { syncManager.clearFilingVerdictCache() })
-                            // The non-awaiting read: `clearFilingVerdictCache` has just written the
-                            // memo, so this cannot be the first load and cannot decode anything.
+                            // Counted at the click, not when the tab opened: a scan since then has
+                            // saved more, and the question names what goes. The non-awaiting read is
+                            // free — the button stays disabled until the awaited count has loaded
+                            // the memo — and stays so after `clearFilingVerdictCache` writes it.
                             savedSuggestionCount = syncManager.filingVerdictCacheCountNow
+                            // Cleared elsewhere meanwhile: nothing to ask about, and the button
+                            // disables on the count just read.
+                            guard savedSuggestionCount > 0 else { return }
+                            if Self.clearSavedSuggestionsIfConfirmed(
+                                confirm: RemovalPrompt.clearSavedSuggestions(count: savedSuggestionCount).ask,
+                                clear: { syncManager.clearFilingVerdictCache() }) {
+                                savedSuggestionCount = syncManager.filingVerdictCacheCountNow
+                            }
                         }
                         .disabled(savedSuggestionCount == 0)
                         .help("Forgets every saved suggestion. The next scan asks the on-device model about each file again, and the next Refine asks — and pays — Claude again. Asks first.")
@@ -3011,6 +3038,7 @@ struct KeptNamesList: View {
                     clearAll(confirm: RemovalPrompt.clearKeptNames(count: store.names.count).ask)
                 }
                 .controlSize(.small)
+                .help("Stops keeping every name listed, so each is flagged again. Asks first.")
             }
         }
     }
