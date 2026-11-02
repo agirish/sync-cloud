@@ -741,6 +741,18 @@ showed the test was blind to WHICH guard dropped the second run: with the re-ent
 `syncingDifferenceIds` refused it and every assertion still passed. It now asserts the drop is
 silent (`banner == nil`), and that mutation turns it red.
 
+#### Seen: `AskClaudeChatTests.aReceiptNamesTheModelOnlyWhenItChangesAndMarksAFallback`, 2026-11-02
+
+Red once in a full local app-target run (`xcodebuild test`) at load 25, green alone in under 3 s
+and in the next full run. Question two's receipt read Opus 5.5, with its model shown, when it
+should have read Sonnet 5.5 with no model shown: `[false, true, true]` against
+`[false, false, true]`. The suite's `waitUntilIdle` is a fixed pump, `for _ in 0..<200 where
+chat.isRunning { sleep 10 ms }`, that returns without a word when it gives up. Under load it gave
+up with question two still running. The test then switched the model to Opus, and question two's
+receipt was written after the switch. Two copies of that helper are in `AskClaudeAppTests.swift`.
+The fix is the shared `waitUntil(...) { !chat.isRunning }`, which is turn-bounded and fails
+when it gives up, rather than a larger count.
+
 ### 3. Process-wide state, and suites running in parallel
 
 **Symptom.** A suite fails only when a specific other suite runs; two suites pass alone and fail
@@ -1017,6 +1029,28 @@ the cheaper hypothesis. Check the machine before the diff.
 The change under test that day touched only a new `@Published` flag neither suite reads, which is
 what made the environmental read easy to confirm. When it is not that clear, interleave the arms as
 mechanism 6 describes.
+
+#### Seen: `MainThreadStallWatchTests` "An idle queue yields nothing; a 3 s stall yields one line and one stack of it", 2026-11-02
+
+Red once on hosted CI at `290e3d7c2` on `stack.contains("Call graph")`, "sample's report is
+missing". `Modules/FileExplorer` was the same tree hash at the green base `6b66464d7`, and a rerun
+of the job passed. The stall file held the in-process half in full (33 samples) and ended
+`---- /usr/bin/sample did not finish in time and was stopped ----`. `/usr/bin/sample` records 2 s,
+then symbolicates, and the watch stops it after `sampleSeconds + sampleGrace` (2 + 30 s); on the
+3-vCPU VM it ran past that, and the test took 41.7 s. The window is wall clock in a separate
+process, so no test-side wait can close it. If it repeats, the assertion should accept a stopped
+`sample` (the watch's own documented outcome) rather than the grace being raised.
+
+#### Seen: `ObservedCopyTests.bulkSyncCancelledInsideAnItemReportsNoFailureAndKeepsTheRow`, 2026-11-02
+
+Red once on hosted CI at `d73036172`, a comments-only commit. `Modules/Sync` was the same tree hash
+at the green base `18ef781cb`, and a rerun of the job passed. `/dst/big.txt` was copied when Cancel
+should have abandoned it, and the test took 34.4 s. The fake, `ScriptedObservedCopy` (`.pressCancel`),
+waits on the copy thread for the test to hand it the run's `Progress`. That wait is a plain
+`Date().addingTimeInterval(30)`: when the test's main actor did not get to `installProgress` within
+30 s, the fake found no `Progress`, cancelled nothing, and copied the file. The fix, when it is
+next touched, is a `TurnDeadline` in place of the `Date`, as `ParkGate` and `waitUntil` use, so a
+starved run stops that clock instead of spending it.
 
 ### 6. Load-scaled benchmarks
 
@@ -1666,6 +1700,16 @@ only the second shape reaches a starvation this deep.
 them registered as known — it just cannot know whether a registered line owes a reservation. The
 list-based scan is the one that answers that, and a list matched by name is one typo from a hole
 that reports itself as covered.
+
+#### Seen: `ScanShownTests.aScanStillRunningWhenTheWaitEndsIsShownUntilItEnds`, 2026-11-02
+
+Red once on hosted CI at `290e3d7c2`, a Help-and-docs commit. `Modules/Sync` was the same tree hash
+at its base `6b66464d7`, which went green, and a rerun of the failed job passed. The test took
+19.6 s. Its `ParkGate` gave up at its 10 s bound (`!gate.releasedByTimeout` failed). The check
+before it, `waitUntil("a scan running past its wait is shown")`, gave up after 293 polls in 5.0 s.
+So the wait itself was not starved; the walk had already been let go, the scan had finished, and
+there was no running scan left to show. The 10 s went on the steps before `latch.end()`.
+Not reproduced; the base-SHA tree hash is the proof it is not the change.
 
 ---
 
