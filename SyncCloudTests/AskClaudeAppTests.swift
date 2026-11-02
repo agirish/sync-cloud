@@ -1221,6 +1221,39 @@ private final class Counter: @unchecked Sendable {
         #expect(later.items.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: store.path))
     }
+
+    /// TE290 step 0b: a saved card this build can't read costs a note, not the chat. Two unknown
+    /// cards side by side make one note; the rest comes back in order.
+    @Test func aCardThisBuildCantReadBecomesANoteAndTheChatComesBack() async throws {
+        let store = FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudeStore-\(UUID().uuidString)/chat.json")
+        defer { try? FileManager.default.removeItem(at: store.deletingLastPathComponent()) }
+        let name = "AskClaudeChatStoreTests.aCardThisBuildCantRead"
+        let d = UserDefaults(suiteName: name)!
+        d.removePersistentDomain(forName: name)
+        let clock = Date(timeIntervalSince1970: 1_792_000_000)
+        let first = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
+                                  readKey: { "k" }, now: { clock }, storeURL: store)
+        first.ask("remember me", screen: AskClaudeScreen(workspace: "Browse", source: "iCloud", folder: "", sort: "Name",
+                                                         rows: [], selection: [], toolsAvailable: true), tools: NoTools())
+        for _ in 0..<200 where first.isRunning { try? await Task.sleep(for: .milliseconds(10)) }
+        let saved = first.items.map(\.kind)
+        #expect(saved.first == .user("remember me"))
+
+        // Two cards of a kind from a later build, after his question.
+        var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: store)) as? [String: Any])
+        var items = try #require(json["items"] as? [Any])
+        let future: [String: Any] = ["id": UUID().uuidString, "kind": ["settingFromALaterBuild": ["id": "theme"]]]
+        items.insert(future, at: 1)
+        items.insert(future.merging(["id": UUID().uuidString]) { $1 }, at: 1)
+        json["items"] = items
+        try JSONSerialization.data(withJSONObject: json).write(to: store)
+
+        let again = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
+                                  readKey: { "k" }, now: { clock }, storeURL: store)
+        var expected = saved
+        expected.insert(.note(AskClaudeChat.TolerantItems.unreadableNote), at: 1)
+        #expect(again.items.map(\.kind) == expected)
+    }
 }
 
 @Suite struct AskClaudeDiskTests {

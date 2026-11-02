@@ -166,6 +166,58 @@ final class AskClaudeChat: ObservableObject {
         var engine: AskClaudeEngine.Snapshot
         /// Lines for Claude not yet sent; absent in a chat saved before they existed.
         var sinceLastAnswer: [String]?
+
+        init(items: [Item], lastActivity: Date, engine: AskClaudeEngine.Snapshot, sinceLastAnswer: [String]?) {
+            self.items = items
+            self.lastActivity = lastActivity
+            self.engine = engine
+            self.sinceLastAnswer = sinceLastAnswer
+        }
+
+        /// Items one at a time, so one that won't decode costs a note rather than the whole chat
+        /// (TE290 step 0b). A card kind this build doesn't know, from a newer build or a later
+        /// change to its fields, used to fail the decode of everything, and he lost the chat over it.
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            items = try container.decode(TolerantItems.self, forKey: .items).items
+            lastActivity = try container.decode(Date.self, forKey: .lastActivity)
+            engine = try container.decode(AskClaudeEngine.Snapshot.self, forKey: .engine)
+            sinceLastAnswer = try container.decodeIfPresent([String].self, forKey: .sinceLastAnswer)
+        }
+    }
+
+    /// The saved items, each decoded on its own. A run of unreadable ones becomes one note in
+    /// their place, so the chat reads as it did with a gap he can see.
+    struct TolerantItems: Decodable {
+        static let unreadableNote = "A card here couldn’t be read by this version of SyncCloud, so it isn’t shown."
+
+        let items: [Item]
+
+        init(from decoder: Decoder) throws {
+            var container = try decoder.unkeyedContainer()
+            var items: [Item] = []
+            var skipped = 0
+            while !container.isAtEnd {
+                if let item = try? container.decode(Item.self) {
+                    items.append(item)
+                } else {
+                    // A failed decode doesn't advance the container; this does.
+                    _ = try container.decode(Skipped.self)
+                    skipped += 1
+                    if case .note(Self.unreadableNote)? = items.last?.kind { continue }
+                    items.append(Item(kind: .note(Self.unreadableNote)))
+                }
+            }
+            if skipped > 0 {
+                Logger.shared.warning("Ask Claude: \(skipped) saved card\(skipped == 1 ? "" : "s") couldn’t be read and \(skipped == 1 ? "is" : "are") shown as a note")
+            }
+            self.items = items
+        }
+
+        /// Any one JSON value, read and thrown away.
+        private struct Skipped: Decodable {
+            init(from decoder: Decoder) throws {}
+        }
     }
 
     /// What they did on Claude's cards since its last answer (applied, undid, Not Now), sent with
