@@ -14,6 +14,11 @@ struct AskClaudePanel: View {
     let accent: Color
     let accentFill: Color
     let onAccent: Color
+    /// The window's accent, Tint and glass level (TE291). The panel is a window of its own, so it
+    /// paints a pane's surface itself — a gray popover read as a system popup over the app.
+    var hue: LiquidGlassHue = .none
+    var tint: Double = 0
+    var level: GlassLevel = .frosted
     let onAsk: (String) -> Void
     let onClose: () -> Void
     let onOpenSettings: () -> Void
@@ -47,6 +52,7 @@ struct AskClaudePanel: View {
     @AppStorage(AskClaudePrivacy.readsFilesKey) private var readsFiles = false
     @State private var showsPlace = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
 
     static let width: CGFloat = 372
     static let margin: CGFloat = 10
@@ -57,6 +63,13 @@ struct AskClaudePanel: View {
     static let startHeight: CGFloat = 420
     /// How close to a side of the window a drop docks the panel there.
     static let snapZone: CGFloat = 56
+    /// How much of the text's ground covers the glass: `groundedGlassCard`'s 0.85, as the other
+    /// panels floating over the window's content have — but thinner at Clear (decision HW), where
+    /// 0.85 left a near-white card on a see-through window. 0.6 is the floor `groundedGlassCard`
+    /// names: below it, what is behind stays legible through the text.
+    static func glassBacking(_ level: GlassLevel) -> Double {
+        level == .clear ? 0.6 : 0.85
+    }
 
     // TE248, round 3: docked right (the default), docked left, or floating where it was dropped;
     // TE288 adds the two bottom corners, where the panel grows upward from the window's bottom.
@@ -137,18 +150,25 @@ struct AskClaudePanel: View {
         VStack(spacing: 0) {
             VStack(spacing: 0) {
                 header
-                Divider().opacity(0.5)
+                hairline
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { top = $0 }
             thread
             VStack(spacing: 0) {
-                Divider().opacity(0.5)
+                hairline
                 composer
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { bottom = $0 }
         }
         .frame(width: size.width, height: size.height)
-        // The frosted backdrop and the shadow are its window's (AskClaudeWindow.swift).
+        // A pane's surface and accent wash (TE291), so the panel reads as part of the window at
+        // every accent and Tint, over a ground for its text as the other floating panels have
+        // (`groundedGlassCard`). Solid is opaque, like the panes; Frosted and Clear keep their
+        // glass, the window's content showing blurred through the backdrop (AskClaudeWindow.swift),
+        // which also owns the rounding and the shadow.
+        .contentSurface(hue: hue, tint: tint)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(Self.glassBacking(level)))
+        .glassSurface(level, cornerRadius: Radius.card)
         .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).strokeBorder(.separator.opacity(0.6)))
         .overlay { resizeHandles }
         .onChange(of: CGRect(origin: origin, size: size), initial: true) { _, frame in onPlace(frame) }
@@ -341,11 +361,12 @@ struct AskClaudePanel: View {
                         Text("Ask about your files, or tell me what to open: a folder, a file, a tab, another cloud, or a place in SyncCloud. I can look things up and move your view, and propose changes, which happen only when you click Apply.")
                             .foregroundStyle(.secondary)
                             .padding(10)
-                            .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: Radius.card))
+                            .background(AskClaudeTint.bubble(hue, accent: accent, dark: colorScheme == .dark),
+                                        in: RoundedRectangle(cornerRadius: Radius.card))
                     }
                     let latestReceipt = chat.items.last { if case .receipt = $0.kind { true } else { false } }?.id
                     ForEach(chat.items) { item in
-                        AskClaudeThreadRow(item: item, accent: accent, accentFill: accentFill, onAccent: onAccent, onOpenSettings: onOpenSettings,
+                        AskClaudeThreadRow(item: item, accent: accent, accentFill: accentFill, onAccent: onAccent, hue: hue, onOpenSettings: onOpenSettings,
                                            linkTargets: chat.linkTargets, onReveal: onReveal, onSendOffer: onSendOffer,
                                            onDownloadCard: onDownloadCard,
                                            onFilingCard: onFilingCard,
@@ -415,9 +436,17 @@ struct AskClaudePanel: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(.background.opacity(0.7), in: RoundedRectangle(cornerRadius: Radius.well))
-            .overlay(RoundedRectangle(cornerRadius: Radius.well).strokeBorder(.separator.opacity(0.6)))
+            .overlay(RoundedRectangle(cornerRadius: Radius.well)
+                .strokeBorder(AskClaudeTint.hairline(hue, accent: accent, dark: colorScheme == .dark, neutral: 0.6)))
         }
         .padding(12)
+    }
+
+    /// The divider under the header and over the composer, in the accent (TE291).
+    private var hairline: some View {
+        Rectangle()
+            .fill(AskClaudeTint.hairline(hue, accent: accent, dark: colorScheme == .dark, neutral: 0.5))
+            .frame(height: 1)
     }
 
     /// What the next question is about (TE263): a chip per row attached from its menu, each with ✕.
@@ -529,12 +558,28 @@ final class AskClaudeComposerCaret {
     }
 }
 
+/// The panel's accent paints over its window ground (TE291). None has no hue of its own — its
+/// accent is the system's, which would repaint the panel in a colour nobody picked — so it keeps
+/// the stock grays.
+enum AskClaudeTint {
+    /// A divider or a field's edge. `neutral` is the separator's opacity under None.
+    static func hairline(_ hue: LiquidGlassHue, accent: Color, dark: Bool, neutral: Double) -> AnyShapeStyle {
+        hue == .none ? AnyShapeStyle(.separator.opacity(neutral)) : AnyShapeStyle(accent.opacity(dark ? 0.28 : 0.26))
+    }
+
+    /// Claude's bubbles and the opening note.
+    static func bubble(_ hue: LiquidGlassHue, accent: Color, dark: Bool) -> AnyShapeStyle {
+        hue == .none ? AnyShapeStyle(.quaternary.opacity(0.7)) : AnyShapeStyle(accent.opacity(dark ? 0.16 : 0.11))
+    }
+}
+
 /// One entry in the thread.
 private struct AskClaudeThreadRow: View, Equatable {
     let item: AskClaudeChat.Item
     let accent: Color
     let accentFill: Color
     let onAccent: Color
+    let hue: LiquidGlassHue
     let onOpenSettings: () -> Void
     let linkTargets: [String: String]
     let onReveal: (String) -> Void
@@ -553,11 +598,13 @@ private struct AskClaudeThreadRow: View, Equatable {
     @State private var showsSent = false
     /// The card row whose details are open; one at a time.
     @State private var openRow: Int?
+    @Environment(\.colorScheme) private var colorScheme
 
     /// What the row draws from; the closures never change what it shows.
     static func == (a: Self, b: Self) -> Bool {
         a.item == b.item && a.linkTargets == b.linkTargets && a.isLatestReceipt == b.isLatestReceipt
             && a.isRunning == b.isRunning && a.accent == b.accent && a.accentFill == b.accentFill && a.onAccent == b.onAccent
+            && a.hue == b.hue
     }
 
     static let revealScheme = "synccloud-askclaude"
@@ -611,7 +658,8 @@ private struct AskClaudeThreadRow: View, Equatable {
                 })
                 .textSelection(.enabled)
                 .padding(.horizontal, 11).padding(.vertical, 7)
-                .background(.quaternary.opacity(0.7), in: RoundedRectangle(cornerRadius: Radius.card))
+                .background(AskClaudeTint.bubble(hue, accent: accent, dark: colorScheme == .dark),
+                            in: RoundedRectangle(cornerRadius: Radius.card))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityLabel("Claude: \(text)")
         case .step(let label, let isError):

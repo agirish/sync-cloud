@@ -129,8 +129,9 @@ final class AskClaudeWindowController {
         window.collectionBehavior = [.fullScreenAuxiliary]
         // Invisible until placed: an unplaced window draws for a frame at the screen's corner.
         window.alphaValue = 0
-        // A popover's frosted backdrop, blending with what is behind the window, rounded like the
-        // app's cards; the SwiftUI panel draws over it.
+        // A frosted backdrop, blending with what is behind the window, rounded like the app's
+        // cards. The SwiftUI panel paints a pane's surface and accent over it (TE291): opaque at
+        // Solid, so only Frosted and Clear show this blur.
         let backdrop = NSVisualEffectView()
         backdrop.material = .popover
         backdrop.blendingMode = .behindWindow
