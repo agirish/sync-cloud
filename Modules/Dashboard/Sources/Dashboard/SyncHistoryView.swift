@@ -78,7 +78,7 @@ public struct SyncHistoryView: View {
             clearButton.keyEquivalent = ""
         }
         alert.buttons.last?.keyEquivalent = "\r"
-        return alert.runModal() == .alertFirstButtonReturn
+        return NativeAlerts.runModalCancellingOnEscape(alert) == .alertFirstButtonReturn
     }
 
     /// The action gate — nil is "All actions".

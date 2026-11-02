@@ -565,7 +565,22 @@ public class Logger: ObservableObject {
             clearButton.keyEquivalent = ""
         }
         alert.buttons.last?.keyEquivalent = "\r"
-        return alert.runModal() == .alertFirstButtonReturn
+        return runModalCancellingOnEscape(alert) == .alertFirstButtonReturn
+    }
+
+    /// `NativeAlerts.runModalCancellingOnEscape`, which this package cannot import: Return on
+    /// Cancel takes Escape from it, so a local monitor answers Escape with Cancel instead.
+    private static func runModalCancellingOnEscape(_ alert: NSAlert) -> NSApplication.ModalResponse {
+        let window = alert.window
+        let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.keyCode == 53, event.window === window,
+                  event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty
+            else { return event }
+            NSApp.stopModal(withCode: .alertSecondButtonReturn)
+            return nil
+        }
+        defer { if let monitor { NSEvent.removeMonitor(monitor) } }
+        return alert.runModal()
     }
     
     /// Synchronously drains the disk writer's background queue so every line enqueued before this

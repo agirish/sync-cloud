@@ -4107,7 +4107,7 @@ struct AdvancedSettingsTab: View {
             resetButton.keyEquivalent = ""
         }
         alert.buttons.last?.keyEquivalent = "\r"
-        if alert.runModal() == .alertFirstButtonReturn {
+        if NativeAlerts.runModalCancellingOnEscape(alert) == .alertFirstButtonReturn {
             reset()
         }
     }
@@ -4133,7 +4133,7 @@ struct AdvancedSettingsTab: View {
             resetButton.keyEquivalent = ""
         }
         alert.buttons.last?.keyEquivalent = "\r"
-        if alert.runModal() == .alertFirstButtonReturn {
+        if NativeAlerts.runModalCancellingOnEscape(alert) == .alertFirstButtonReturn {
             reset()
         }
     }

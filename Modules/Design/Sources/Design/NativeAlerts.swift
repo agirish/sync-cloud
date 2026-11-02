@@ -96,8 +96,37 @@ public struct NativeAlerts {
     /// - Returns: True if the user chose the confirm button.
     public static func confirmIrreversible(messageText: String, informativeText: String,
                                            confirmTitle: String) -> Bool {
-        irreversibleAlert(messageText: messageText, informativeText: informativeText,
-                          confirmTitle: confirmTitle).runModal() == .alertFirstButtonReturn
+        runModalCancellingOnEscape(irreversibleAlert(messageText: messageText,
+                                                     informativeText: informativeText,
+                                                     confirmTitle: confirmTitle)) == .alertFirstButtonReturn
+    }
+
+    /// Runs `alert` modally, with Escape answering `cancel`.
+    ///
+    /// **An alert whose Cancel takes Return loses Escape.** NSAlert gives a button titled "Cancel"
+    /// the Escape key, and making Cancel the default replaces it with Return — one key equivalent
+    /// per button — so Escape did nothing at all in every Cancel-is-default alert. Measured
+    /// 2026-11-01 on this alert's exact buttons, with a key event through `NSApp.sendEvent`:
+    /// Escape left the alert up, Return cancelled. A local monitor runs inside the modal session,
+    /// so it can answer Escape without taking Return from Cancel.
+    /// - Parameter cancel: what Escape answers; the second button for a confirm-then-Cancel alert.
+    public static func runModalCancellingOnEscape(
+        _ alert: NSAlert, cancel: NSApplication.ModalResponse = .alertSecondButtonReturn
+    ) -> NSApplication.ModalResponse {
+        let window = alert.window
+        let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard isPlainEscape(event, in: window) else { return event }
+            NSApp.stopModal(withCode: cancel)
+            return nil
+        }
+        defer { if let monitor { NSEvent.removeMonitor(monitor) } }
+        return alert.runModal()
+    }
+
+    /// Escape, with no modifier, aimed at `window` — the key the monitor above answers.
+    static func isPlainEscape(_ event: NSEvent, in window: NSWindow) -> Bool {
+        event.type == .keyDown && event.keyCode == 53 && event.window === window
+            && event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty
     }
 
     /// The alert `confirmIrreversible` presents, built but **not run** — internal so a test can

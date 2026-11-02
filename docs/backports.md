@@ -13673,3 +13673,25 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do t=$(git show origin/$l:$F 2>/dev/null
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Whichever of the five it has acts on one click | RECORDED — not owed |
+
+## Escape cancels the Cancel-is-default alerts — main only
+
+2026-11-01, for v7.0 (adversarial review of HR). On `main`: every alert whose Cancel answers Return
+— the irreversible confirmations (`NativeAlerts.confirmIrreversible`), Reset Setup, Reset All,
+Sync History's Clear History and Clear Log — also cancels on Escape, through a local key monitor
+(`NativeAlerts.runModalCancellingOnEscape`, and a private copy in `Logger`). Giving Cancel Return
+took the Escape key NSAlert gives it, so Escape did nothing. Every line has such alerts:
+
+```sh
+for l in main v6.x v5.x v4.x v3.x v2.x; do n=0; for f in Modules/Design/Sources/Design/NativeAlerts.swift \
+  Modules/Settings/Sources/Settings/SettingsView.swift Modules/Dashboard/Sources/Dashboard/SyncHistoryView.swift \
+  Modules/Events/Sources/Events/Logger.swift; do
+  c=$(git show origin/$l:$f 2>/dev/null | grep -cE 'buttons.last\?.keyEquivalent = "\\r"|cancel.keyEquivalent = "\\r"'); n=$((n+c)); done
+  printf '%-5s cancelTakesReturn=%s\n' $l $n; done
+# measured 2026-11-01, against origin, before this landed:
+# main / v6.x 5 · v5.x 3 · v4.x / v3.x / v2.x 2 — none answers Escape
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Escape does nothing in its Cancel-is-default alerts | RECORDED — not owed |
