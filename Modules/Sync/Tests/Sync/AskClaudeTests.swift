@@ -602,6 +602,37 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
         #expect(!events.contains { if case .problem = $0 { return true }; return false })
     }
 
+    @Test func askSaysWhetherTheQuestionJoinedTheTranscript() async {
+        let thinkingOnly = sse(#"{"type":"message_start","message":{"model":"claude-sonnet-5-5","usage":{"input_tokens":5}}}"#)
+            + sse(#"{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}"#)
+            + sse(#"{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"s"}}"#)
+            + sse(#"{"type":"content_block_stop","index":0}"#)
+            + sse(#"{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}"#)
+            + sse(#"{"type":"message_stop"}"#)
+        let transport = ScriptedTransport([
+            .init(status: 200, lines: thinkingOnly),
+            .init(status: 200, lines: toolResponse(id: "toolu_j", name: "list_folder", inputJSON: #"{"folder":""}"#)),
+            .init(status: 500, lines: []),
+        ])
+        let engine = AskClaudeEngine(transport: transport, defaults: freshDefaults(), now: { day })
+        var empty: [AskClaudeEvent] = []
+        #expect(await engine.ask("x", card: "c", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) { empty.append($0) } == false)
+        #expect(empty.last == .finished(stopReason: "end_turn"), "an empty turn ends quietly, yet Claude got nothing")
+        var failed: [AskClaudeEvent] = []
+        #expect(await engine.ask("y", card: "c", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) { failed.append($0) })
+        #expect(failed.contains { if case .problem = $0 { return true }; return false }, "round 2 failed after round 1 joined")
+        #expect(await engine.ask("z", card: "c", key: nil, model: AskClaudeModels.sonnet, tools: StubTools()) { _ in } == false)
+
+        let lines = textResponse("Two files.").prefix(9)
+        let stopping = AskClaudeEngine(transport: HangingTransport(Array(lines)), defaults: freshDefaults(), now: { day })
+        let run = Task { @MainActor in
+            await stopping.ask("x", card: "c", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) { event in
+                if case .text = event { withUnsafeCurrentTask { $0?.cancel() } }
+            }
+        }
+        #expect(await run.value == false, "stopped mid-stream: the question never joined")
+    }
+
     @Test func stoppingDuringAToolRoundRunsNoMoreOfItsCalls() async throws {
         let transport = ScriptedTransport([.init(status: 200, lines: twoToolResponse()), .init(status: 200, lines: textResponse("ok"))])
         let tools = StoppingTools()

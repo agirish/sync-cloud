@@ -265,9 +265,13 @@ public final class AskClaudeEngine {
     }
 
     /// Runs one question. `card` is the rendered screen; `onEvent` hears progress on the main actor.
+    /// Returns whether the question joined the transcript, which is whether Claude has it. Not read
+    /// from how it ended: a stop or an empty first turn ends quietly with nothing kept, and a
+    /// problem after the first round comes once the question is in.
+    @discardableResult
     public func ask(_ question: String, card: String, key: String?, model: AskClaudeModels.Option,
                     detail chosenDetail: AskClaudeDetail? = nil,
-                    tools: AskClaudeToolRunning, onEvent: (AskClaudeEvent) -> Void) async {
+                    tools: AskClaudeToolRunning, onEvent: (AskClaudeEvent) -> Void) async -> Bool {
         // Every problem and the way the question ended go in the log as well as the panel: a
         // question that failed used to leave a summary line that read like a success.
         var ended = "none"
@@ -285,13 +289,13 @@ public final class AskClaudeEngine {
         }
         guard let key, !key.isEmpty else {
             emit(.problem(AskClaudeProblem(.noKey, "Add your Claude API key in Settings ▸ Intelligence to ask questions.")))
-            return
+            return false
         }
         if case .overLimit(let spent, let limit) = AskClaudeSpend.state(in: defaults, now: now()) {
             let reset = AskClaudeSpend.resetDate(after: now()).formatted(.dateTime.month(.wide).day())
             emit(.problem(AskClaudeProblem(.limitReached,
                 "Ask Claude has used \(AskClaudeSpend.format(spent)) of its \(AskClaudeSpend.format(limit)) monthly limit. It resets on \(reset), or you can raise the limit in Settings ▸ Intelligence.")))
-            return
+            return false
         }
 
         let screen = screenBlock(for: card)
@@ -306,6 +310,7 @@ public final class AskClaudeEngine {
             ]),
         ])
         var round = 0
+        var joined = false
         let askedAt = Date()
         var spent = 0.0
         var used = AskClaudeUsage()
@@ -351,7 +356,7 @@ public final class AskClaudeEngine {
                 } else {
                     emit(.problem(AskClaudeProblem.from(error)))
                 }
-                return
+                return joined
             }
 
             let served = AskClaudeModels.price(forServedModel: accumulator.model, requested: model)
@@ -376,7 +381,7 @@ public final class AskClaudeEngine {
                 if round > 1 { owedResults = pending["content"]?.arrayValue ?? [] }
                 emit(.retractAnswer)
                 emit(.problem(AskClaudeProblem(.declined, "Claude declined to answer this one. Try asking it another way.")))
-                return
+                return joined
             }
             // An empty turn can't be sent back (the API refuses empty content and empty text), so it
             // doesn't join the transcript: an empty text block is dropped, and a turn left with only
@@ -386,13 +391,14 @@ public final class AskClaudeEngine {
             guard content.contains(where: { !["thinking", "redacted_thinking"].contains($0["type"]?.stringValue ?? "") }) else {
                 if round > 1 { owedResults = pending["content"]?.arrayValue ?? [] }
                 emit(.finished(stopReason: accumulator.stopReason))
-                return
+                return joined
             }
             if round == 1 {
                 lastCard = card
                 owedResults = []
             }
             transcript.append(pending)
+            joined = true
             transcript.append(.object(["role": .string("assistant"), "content": .array(content)]))
 
             let calls = accumulator.toolCalls
@@ -401,14 +407,14 @@ public final class AskClaudeEngine {
                 // API wants each answered before anything else.
                 owedResults = calls.map { Self.result(for: $0, text: "Not run: the answer was cut off before this call finished.", isError: true) }
                 emit(.finished(stopReason: accumulator.stopReason))
-                return
+                return joined
             }
             // The budget answer went back once and Claude still wants tools: stop here rather than
             // pay for more rounds that can only be refused.
             if round > Self.maxToolRounds + 1 {
                 owedResults = calls.map { Self.result(for: $0, text: "Stopped: the tool limit for that question was reached.", isError: true) }
                 emit(.problem(AskClaudeProblem(.failed, "Claude kept looking past the tool limit for one question. Try a narrower question.")))
-                return
+                return joined
             }
             // Every result goes back in one user turn, as the API expects for parallel calls.
             var results: [JSONFragment] = []
@@ -448,7 +454,7 @@ public final class AskClaudeEngine {
             if Task.isCancelled {
                 owedResults = results
                 emit(.finished(stopReason: "canceled"))
-                return
+                return joined
             }
             pending = .object(["role": .string("user"), "content": .array(results)])
         }

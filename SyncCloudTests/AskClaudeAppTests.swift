@@ -936,6 +936,67 @@ private final class RecordingTransport: AskClaudeTransport, @unchecked Sendable 
     }
 }
 
+/// Plays one reply per request, in order, and keeps each request's body.
+private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendable {
+    enum Reply {
+        case text(String)
+        /// The first words of an answer, then silence until the question is stopped.
+        case hang
+        /// A turn of only thinking: empty, so it can't join the transcript.
+        case onlyThinking
+        /// One read_text call.
+        case toolCall
+        case status(Int)
+    }
+
+    private let lock = NSLock()
+    private var replies: [Reply]
+    private var _bodies: [String] = []
+    var bodies: [String] { lock.withLock { _bodies } }
+
+    init(_ replies: [Reply]) { self.replies = replies }
+
+    func send(_ request: URLRequest) async throws -> AskClaudeTransportResponse {
+        let reply = lock.withLock {
+            _bodies.append(String(decoding: request.httpBody ?? Data(), as: UTF8.self))
+            return replies.isEmpty ? Reply.status(500) : replies.removeFirst()
+        }
+        let start = #"data: {"type":"message_start","message":{"model":"claude-sonnet-5-5","usage":{"input_tokens":300}}}"#
+        let lines: [String]
+        switch reply {
+        case .text(let text):
+            return try await OneLineTransport(text: text).send(request)
+        case .hang:
+            return AskClaudeTransportResponse(status: 200, retryAfter: nil, lines: AsyncThrowingStream { c in
+                c.yield(start)
+                c.yield(#"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#)
+                c.yield(#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Partly"}}"#)
+            })
+        case .onlyThinking:
+            lines = [start,
+                     #"data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}"#,
+                     #"data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Hm."}}"#,
+                     #"data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig"}}"#,
+                     #"data: {"type":"content_block_stop","index":0}"#,
+                     #"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}"#,
+                     #"data: {"type":"message_stop"}"#]
+        case .toolCall:
+            lines = [start,
+                     #"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"read_text","input":{}}}"#,
+                     #"data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"handle\":\"f1\"}"}}"#,
+                     #"data: {"type":"content_block_stop","index":0}"#,
+                     #"data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":20}}"#,
+                     #"data: {"type":"message_stop"}"#]
+        case .status(let status):
+            return AskClaudeTransportResponse(status: status, retryAfter: nil, lines: AsyncThrowingStream { $0.finish() })
+        }
+        return AskClaudeTransportResponse(status: 200, retryAfter: nil, lines: AsyncThrowingStream { c in
+            lines.forEach { c.yield($0) }
+            c.finish()
+        })
+    }
+}
+
 @MainActor
 private final class NoTools: AskClaudeToolRunning {
     func run(_ call: AskClaudeToolCall, handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
@@ -2021,6 +2082,57 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(chat.sinceLastAnswer == ["They undid your card “T”."])
         chat.startOver()
         #expect(chat.sinceLastAnswer.isEmpty, "a new chat has no cards to report on")
+    }
+
+    /// How many times a request's body holds the card line: once in the replayed turn, or once
+    /// with the question, never both.
+    private func times(_ body: String?) -> Int { (body?.components(separatedBy: "They undid your card").count ?? 1) - 1 }
+
+    @Test func aQuestionStoppedWhileItsAnswerStreamsKeepsThem() async {
+        let d = scratch()
+        let transport = ScriptedChatTransport([.hang, .text("ok")])
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: transport, defaults: d) }, readKey: { "k" })
+        chat.tellClaude("They undid your card “T”.")
+        chat.ask("one", screen: screen, tools: NoTools())
+        for _ in 0..<300 where !chat.items.contains(where: { if case .assistant = $0.kind { true } else { false } }) {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        chat.stop()
+        await waitUntilIdle(chat)
+        #expect(chat.sinceLastAnswer == ["They undid your card “T”."], "the stopped question never joined the transcript")
+        chat.ask("two", screen: screen, tools: NoTools())
+        await waitUntilIdle(chat)
+        #expect(transport.bodies.count == 2)
+        #expect(times(transport.bodies.last) == 1)
+    }
+
+    @Test func aQuestionWhoseAnswerWasEmptyKeepsThem() async {
+        let d = scratch()
+        let transport = ScriptedChatTransport([.onlyThinking, .text("ok")])
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: transport, defaults: d) }, readKey: { "k" })
+        chat.tellClaude("They undid your card “T”.")
+        chat.ask("one", screen: screen, tools: NoTools())
+        await waitUntilIdle(chat)
+        #expect(chat.sinceLastAnswer == ["They undid your card “T”."], "an empty turn joins nothing")
+        chat.ask("two", screen: screen, tools: NoTools())
+        await waitUntilIdle(chat)
+        #expect(transport.bodies.count == 2)
+        #expect(times(transport.bodies.last) == 1)
+    }
+
+    @Test func aQuestionThatFailedAfterReachingClaudeDoesntSendThemTwice() async {
+        let d = scratch()
+        let transport = ScriptedChatTransport([.toolCall, .status(500), .text("ok")])
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: transport, defaults: d) }, readKey: { "k" })
+        chat.tellClaude("They undid your card “T”.")
+        chat.ask("one", screen: screen, tools: NoTools())
+        await waitUntilIdle(chat)
+        #expect(chat.items.contains { if case .problem = $0.kind { true } else { false } })
+        #expect(chat.sinceLastAnswer.isEmpty, "the first round took them to Claude")
+        chat.ask("two", screen: screen, tools: NoTools())
+        await waitUntilIdle(chat)
+        #expect(transport.bodies.count == 3)
+        #expect(times(transport.bodies.last) == 1, "replayed with the first turn, not sent again")
     }
 
     @Test func theApplyReportNamesWhatDidntRun() {

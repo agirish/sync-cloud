@@ -554,8 +554,8 @@ final class AskClaudeChat: ObservableObject {
         }
         lastActivity = now()
         askedQuestion = question
-        // Taken now and put back if the question never reaches Claude: a failed request leaves
-        // nothing in the transcript, so they must go with the next one.
+        // Taken now and put back if the question never joins the transcript (a failed or stopped
+        // request, an empty answer): Claude didn't get them, so they go with the next one.
         let pending = sinceLastAnswer
         sinceLastAnswer = []
         let sent = Self.withSinceLastAnswer(pending, question)
@@ -592,13 +592,17 @@ final class AskClaudeChat: ObservableObject {
             // Not kept when the key changed during the read: that copy may be the old key.
             if self.run == thisRun, self.keyChanges == keyChangesBefore { self.cachedKey = key }
             // The style checked above, not read again: Settings can change it while the screen is read.
-            await engine.ask(sent, card: rendered.text, key: key, model: model, detail: detail, tools: tools) { [weak self] event in
+            let joined = await engine.ask(sent, card: rendered.text, key: key, model: model, detail: detail,
+                                          tools: tools) { [weak self] event in
                 // A run New Chat replaced keeps unwinding; nothing it says reaches the new chat.
                 guard let self, self.run == thisRun else { return }
-                if case .problem = event { self.sinceLastAnswer = pending + self.sinceLastAnswer }
                 self.apply(event)
             }
-            if self.run == thisRun { self.finishRun() }
+            guard self.run == thisRun else { return }
+            // Claude has them only if the question joined the transcript: a stop or an empty turn
+            // ends without a problem and keeps nothing, and a problem in a later round comes after.
+            if !joined { self.sinceLastAnswer = pending + self.sinceLastAnswer }
+            self.finishRun()
         }
     }
 
