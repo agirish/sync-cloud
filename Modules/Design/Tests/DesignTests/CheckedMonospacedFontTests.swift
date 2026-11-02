@@ -19,7 +19,10 @@ import Testing
         #expect(font.isFixedPitch)
         #expect(font.pointSize == 13)
         // What crashed: measuring with it. A nil here throws inside CoreText and kills the process.
+        // The reference is AppKit's own answer, which can be that nil too: it took down a full
+        // Design run on 2026-11-02, so it is checked before anything measures with it.
         let real = NSFont.monospacedSystemFont(ofSize: 13, weight: .semibold)
+        try #require(unsafeBitCast(real, to: NSFont?.self) != nil, "AppKit answered nil for the reference face")
         for key in ["⌘K", "esc"] {
             #expect((key as NSString).size(withAttributes: [.font: font]).width
                     == (key as NSString).size(withAttributes: [.font: real]).width, "\(key)")
