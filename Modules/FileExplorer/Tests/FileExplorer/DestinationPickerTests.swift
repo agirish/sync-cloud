@@ -82,9 +82,68 @@ import Sync
     @Test func theRailDrawsTheParentAndTheFullPath() throws {
         let picker = try OrganizeScopeCallSiteTests.source("DestinationPicker.swift")
         let rail = try OrganizeScopeCallSiteTests.body(of: "private var shortcutsRail: some View {", in: picker)
-        #expect(rail.contains("detail: Self.recentDetail(for: path, among: recents, under: root,"),
+        #expect(rail.contains("detail: Self.recentDetail(for: path, among: recents, under: requestRoot,"),
                 "the rail's recents no longer carry their parent")
         #expect(picker.contains(".help((path as NSString).abbreviatingWithTildeInPath)"),
                 "the rail's rows lost their full-path tooltip")
+    }
+
+    // MARK: - Here rows
+
+    /// The item's own folder, then up one, then up two — the short moves, first in the rail.
+    @Test func testHereRowsClimbFromTheItemsFolder() {
+        let rows = DestinationPicker.hereRows(itemFolder: "/p/Travel/Trips/IN-US", root: "/p", rootName: "iCloud", links: [:])
+        #expect(rows.map(\.name) == ["IN-US", "Trips", "Travel"])
+        #expect(rows.map(\.path) == ["/p/Travel/Trips/IN-US", "/p/Travel/Trips", "/p/Travel"])
+        #expect(rows.map(\.detail) == ["now here", "up one", "up two"])
+    }
+
+    /// The climb stops at the root, which reads as the provider.
+    @Test func testHereRowsStopAtTheRoot() {
+        #expect(DestinationPicker.hereRows(itemFolder: "/p/Travel", root: "/p", rootName: "iCloud", links: [:])
+            .map(\.name) == ["Travel", "iCloud"])
+        #expect(DestinationPicker.hereRows(itemFolder: "/p", root: "/p", rootName: "iCloud", links: [:])
+            .map(\.name) == ["iCloud"])
+        #expect(DestinationPicker.hereRows(itemFolder: "/elsewhere/x", root: "/p", rootName: "iCloud", links: [:]).isEmpty)
+    }
+
+    /// Above `~/Documents` the real parent is the home folder, which is not in iCloud Drive; through
+    /// the link it is iCloud Drive itself.
+    @Test func testHereRowsClimbThroughALinkedFolder() {
+        let links: PathBoundary.LinkedFolders = ["/icloud": ["Documents": "/home/Documents"]]
+        let rows = DestinationPicker.hereRows(itemFolder: "/home/Documents/Travel", root: "/icloud",
+                                              rootName: "iCloud", links: links)
+        #expect(rows.map(\.name) == ["Travel", "Documents", "iCloud"])
+        #expect(rows.map(\.path) == ["/home/Documents/Travel", "/home/Documents", "/icloud"])
+    }
+
+    // MARK: - Preview
+
+    /// The item lands where it will sort, with its neighbours either side and the rest folded.
+    @Test func testThePreviewShowsWhereTheItemLands() {
+        let years = ["2012", "2013", "2014", "2015", "2017", "2018", "2020", "2022", "2023", "2024", "2025"]
+        let rows = DestinationPicker.previewRows(existing: years + ["Family"], moving: ["2026 Sep"], context: 2)
+        #expect(rows == [.more(9, 9), .folder("2024"), .folder("2025"), .moving("2026 Sep"), .folder("Family")])
+        // Sorted as the columns sort: "16. Sep 2026" is a number, 16, before 2012.
+        let first = DestinationPicker.previewRows(existing: years, moving: ["16. Sep 2026"], context: 1)
+        #expect(first == [.moving("16. Sep 2026"), .folder("2012"), .more(10, 12)])
+    }
+
+    /// An empty destination (a new folder) shows only what lands in it.
+    @Test func testThePreviewOfAnEmptyFolderIsTheItem() {
+        #expect(DestinationPicker.previewRows(existing: [], moving: ["a.pdf", "b.pdf"]) == [.moving("a.pdf"), .moving("b.pdf")])
+    }
+
+    // MARK: - Column
+
+    /// A suggested folder not yet made is drawn where it will sort once it is.
+    @Test func testANewFolderIsDrawnWhereItWillSort() {
+        let folders = ["2024", "2025", "Family"].map { DestinationFolder(path: "/p/\($0)") }
+        let ghost = DestinationSuggestion(path: "/p/2026", name: "2026", isNew: true, reason: "")
+        let entries = DestinationColumn.entries(folders, ghost: ghost).map(\.id)
+        #expect(entries == ["/p/2024", "/p/2025", "new:/p/2026", "/p/Family"])
+        // Already there (made by hand since): drawn once, as itself.
+        let made = folders + [DestinationFolder(path: "/p/2026")]
+        #expect(DestinationColumn.entries(made, ghost: ghost).count == made.count)
     }
 }

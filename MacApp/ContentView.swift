@@ -925,6 +925,9 @@ struct ContentView: View {
     /// render. The list also must not shift under the user mid-decision — recording a destination
     /// happens on commit, by which point the card is gone.
     @State var pendingRecents: [String] = []
+    /// The sidebar's Favorites, Recents and Locations the on-screen picker was opened with,
+    /// snapshotted with the recents and for the same reason.
+    @State var pendingPlaces: [DestinationPlaceSection] = []
 
     /// Raises the picker, whoever asked for it. The one place `pendingDestination` is set, so the
     /// recents snapshot can never drift out of step with the request it belongs to.
@@ -941,6 +944,7 @@ struct ContentView: View {
         // invert the ownership silently. `toggleCommandPalette` blocks the other order.
         palettePanel.dismiss()
         pendingRecents = DestinationRecents.load(providerRoot: pending.request.providerRoot)
+        pendingPlaces = destinationPlaceSections()
         pendingDestination = pending
     }
 
@@ -2997,6 +3001,7 @@ struct ContentView: View {
             request: pending.request,
             availableSize: available,
             recents: pendingRecents,
+            places: pendingPlaces,
             showHidden: syncManager.showHiddenFiles,
             onCommit: { destination in
                 DestinationRecents.record(destination, providerRoot: pending.request.providerRoot)

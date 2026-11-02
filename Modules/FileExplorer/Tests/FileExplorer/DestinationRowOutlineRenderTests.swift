@@ -289,7 +289,9 @@ import Sync
         // `shape:`; `declaration` is the positive control that the constant is still there to hand.
         let sites: [(path: String, declaration: String, expected: String, sites: Int)] = [
             ("Modules/FileExplorer/Sources/FileExplorer/DestinationPicker.swift",
-             "static let kind = HoverAffordanceShape.", "shape: DestinationRowShape.kind", 3),
+             // 5 since 2026-11-01: the preview's actions and the new-folder row joined the
+             // three rows, both audited — they hand the same constant their grounds use.
+             "static let kind = HoverAffordanceShape.", "shape: DestinationRowShape.kind", 5),
             ("Modules/FileExplorer/Sources/FileExplorer/PaneTabStrip.swift",
              "static let chipShape = HoverAffordanceShape.", "shape: Self.chipShape", 1),
         ]

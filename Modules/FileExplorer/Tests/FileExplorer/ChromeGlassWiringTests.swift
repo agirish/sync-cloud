@@ -112,10 +112,13 @@ import Foundation
 
     @Test func theDestinationRailHostsALens() throws {
         let picker = try Self.source("DestinationPicker.swift")
-        #expect(picker.contains(".selectionLensHost(Self.railLensChannel, selected: isSearching ? nil : highlighted"))
+        #expect(picker.contains(".selectionLensHost(Self.railLensChannel, selected: isSearching ? nil : railFocus"))
         #expect(picker.contains(".selectionLensStop(Self.railLensChannel, id: PaneBrowsePath.normalized(path))"))
         // Seeded at init, so opening the picker shows the highlight at rest rather than growing it in.
-        #expect(picker.contains("_highlighted = State(initialValue: highlighted)"))
+        // Since TE289 nothing is picked at open and the rail rests on the item's own folder ("now
+        // here"), which `railFocus` derives from the request — still at rest from the first frame.
+        #expect(picker.contains("_highlighted = State(initialValue: \"\")"))
+        #expect(picker.contains("private var railFocus: String { highlighted.isEmpty ? itemFolder : highlighted }"))
     }
 
     @Test func organizesRailHostReadsWhatTheRailShows() throws {

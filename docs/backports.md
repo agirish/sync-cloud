@@ -13563,3 +13563,26 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do s=$(git show origin/$l:$F 2>/dev/null
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The old order, transfers in a section of their own | RECORDED — not owed |
+
+## The Move picker reaches iCloud's Documents, and starts where the item is (TE289) — main only
+
+2026-11-01, for v7.0. On `main`: the Move/Copy picker lists a root's linked folders (iCloud Drive's
+hidden `Documents` and `Desktop` links) at their real paths, and its columns, breadcrumbs and search
+go through `PathBoundary` — before this, an item in iCloud ▸ Documents opened the picker on the bare
+iCloud root showing only Downloads and Word, with Documents unreachable. Also new on `main`: it opens
+on the item's own folder with nothing picked, Here rows, the sidebar's Favorites/Recents/Locations,
+the year-folder suggestion (`DestinationSuggestions.yearFolder`) and a destination preview.
+
+```sh
+for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s prefixOnly=%s linkTable=%s\n' $l \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DestinationPicker.swift 2>/dev/null | grep -c 'normalized.hasPrefix(normalizedRoot')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/PathBoundary.swift 2>/dev/null | grep -c 'iCloudDriveContainer')"; done
+# measured 2026-11-01, against origin, before this landed:
+# v6.x / v5.x           prefixOnly=1 linkTable=3   (iCloud root above Documents: the defect)
+# v4.x / v3.x / v2.x    prefixOnly=1 linkTable=0   (iCloud's root is Documents itself: no link to miss)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` | Documents unreachable from the iCloud picker; none of the redesign | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No linked root, so not the defect; none of the redesign | CLOSED — does not apply |

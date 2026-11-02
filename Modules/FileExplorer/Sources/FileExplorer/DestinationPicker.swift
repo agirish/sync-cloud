@@ -101,6 +101,9 @@ public struct DestinationPicker: View {
     let availableSize: CGSize
     /// Recently used destinations for this provider, most recent first.
     let recents: [String]
+    /// The window sidebar's own lists — Favorites, Recents, Locations — in its order, snapshotted
+    /// by the host when the card is raised. This module cannot read the sidebar's stores itself.
+    let places: [DestinationPlaceSection]
     /// Whether the picker offers hidden folders, matching the pane's own setting.
     let showHidden: Bool
     /// Runs the transfer into the chosen folder.
@@ -121,7 +124,7 @@ public struct DestinationPicker: View {
 
     /// The size the card opens at, remembered between uses. Folder names run long and trees run
     /// deep; a picker that reset to one shape every time would be re-dragged every time.
-    @AppStorage("destinationPickerWidth") private var storedWidth: Double = 860
+    @AppStorage("destinationPickerWidth") private var storedWidth: Double = 1000
     @AppStorage("destinationPickerHeight") private var storedHeight: Double = 620
     /// The size mid-drag, and the size the drag started from.
     ///
@@ -131,9 +134,15 @@ public struct DestinationPicker: View {
     @State private var dragSize: CGSize?
     @State private var dragAnchor: CGSize?
 
-    /// Where the columns are, relative to the provider root.
+    /// Where the columns are, relative to `browseRoot`.
     @State private var browsePath = PaneBrowsePath()
-    /// The folder the footer names and Move commits to. Starts at `openAt`, then follows clicks.
+    /// The source the columns browse. The request's provider until a place from another source is
+    /// picked from the sidebar lists, which re-roots the columns there.
+    @State private var browseRoot: String
+    @State private var browseRootName: String
+    /// The folder the footer names and Move commits to. **Empty until one is picked**: the card
+    /// opens on the item's own folder (`openAt`), which is where it is, not where it goes — taking
+    /// it as the pick greeted every move with "already there" beside a greyed Move.
     @State private var highlighted: String
     @State private var query = ""
     /// The last completed walk. Kept whole rather than unpacked into a `[DestinationFolder]` plus
@@ -157,6 +166,7 @@ public struct DestinationPicker: View {
     @State private var collidingNames: [String] = []
 
     public init(request: DestinationRequest, availableSize: CGSize, recents: [String],
+                places: [DestinationPlaceSection] = [],
                 showHidden: Bool = false,
                 onCommit: @escaping (String) -> Void,
                 onChooseOther: @escaping () -> Void,
@@ -166,18 +176,24 @@ public struct DestinationPicker: View {
         self.request = request
         self.availableSize = availableSize
         self.recents = recents
+        self.places = places
         self.showHidden = showHidden
         self.onCommit = onCommit
         self.onChooseOther = onChooseOther
         self.onCancel = onCancel
-        // Seeded here, not in `onAppear`: a highlight set once the card is on screen is a CHANGE,
-        // and the rail's selection lens grew in on it every time the picker opened, where Solid's
-        // fill was simply there.
+        // Seeded here, not in `onAppear`: state set once the card is on screen is a CHANGE, and
+        // the columns would open on the root and then jump.
         let root = PaneBrowsePath.normalized(request.providerRoot)
+        _browseRoot = State(initialValue: root)
+        _browseRootName = State(initialValue: request.providerName)
+        _highlighted = State(initialValue: "")
+        _browsePath = State(initialValue: Self.browsePath(for: Self.itemFolder(of: request), under: root))
+    }
+
+    /// The folder the items are in — where the card opens, and what the Here rows climb from.
+    static func itemFolder(of request: DestinationRequest) -> String {
         let opening = PaneBrowsePath.normalized(request.openAt)
-        let highlighted = opening.isEmpty ? root : opening
-        _highlighted = State(initialValue: highlighted)
-        _browsePath = State(initialValue: Self.browsePath(for: highlighted, under: root))
+        return opening.isEmpty ? PaneBrowsePath.normalized(request.providerRoot) : opening
     }
 
     // MARK: - Metrics
@@ -189,8 +205,10 @@ public struct DestinationPicker: View {
     // column behind the card are the same object.
 
     private static let headerHeight: CGFloat = 62
-    private static let railWidth: CGFloat = 196
-    static let minSize = CGSize(width: 620, height: 460)
+    private static let railWidth: CGFloat = 220
+    /// The preview on the right: what is in the picked folder and where the item will land.
+    private static let previewWidth: CGFloat = 240
+    static let minSize = CGSize(width: 780, height: 480)
     /// Matches `SettingsSheetMetrics.hostMargin`'s intent: always leave the scrim visible on every
     /// side, so the card reads as floating over the window rather than replacing it.
     private static let hostMargin: CGFloat = 80
@@ -207,9 +225,38 @@ public struct DestinationPicker: View {
 
     // MARK: - Derived
 
-    private var root: String { PaneBrowsePath.normalized(request.providerRoot) }
+    /// The root the columns browse — see `browseRoot`.
+    private var root: String { browseRoot }
+    /// The request's own provider root, which the Here rows and the recents belong to whatever the
+    /// columns are browsing.
+    private var requestRoot: String { PaneBrowsePath.normalized(request.providerRoot) }
+    private var itemFolder: String { Self.itemFolder(of: request) }
     private var isSearching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
     private var columnDirectories: [String] { browsePath.columnDirectories(treeRoot: root) }
+
+    private var hereRows: [DestinationPlace] {
+        Self.hereRows(itemFolder: itemFolder, root: requestRoot, rootName: request.providerName)
+    }
+
+    /// The year folder the item's neighbours imply, or nil — the only suggestion offered, and only
+    /// when the pattern is plain (`DestinationSuggestions.yearFolder`). Needs the item's folder
+    /// listed, which it is from the moment the card opens: it is the last column.
+    private var suggestion: DestinationSuggestion? {
+        guard let siblings = listings[itemFolder]?.folders.map(\.name),
+              DestinationBrowser.allSourcesAlreadyIn(itemFolder, sources: request.sourcePaths)
+        else { return nil }
+        return DestinationSuggestions.yearFolder(for: request.sourcePaths, in: itemFolder, siblingFolders: siblings)
+    }
+
+    /// The pick is a suggested folder that does not exist yet: Move makes it first.
+    private var picksNewFolder: Bool {
+        guard let suggestion, suggestion.isNew else { return false }
+        return !highlighted.isEmpty && suggestion.path == highlighted
+    }
+
+    /// Where New Folder makes its folder: inside the pick, or beside the item when nothing is
+    /// picked yet — the "new folder here, and move into it" move.
+    private var newFolderParent: String { highlighted.isEmpty ? itemFolder : highlighted }
 
     /// Why Move is withheld, or nil when it is offered. One string so the footer has a single place
     /// to explain itself and the button cannot disagree with the reason beside it.
@@ -263,6 +310,8 @@ public struct DestinationPicker: View {
                 shortcutsRail
                 Divider()
                 content.frame(maxWidth: .infinity, maxHeight: .infinity)
+                Divider()
+                previewPane
             }
             Divider()
             footerBar
@@ -273,7 +322,9 @@ public struct DestinationPicker: View {
         // No background here — the host wraps this in `contentSurface` + `glassCardStyle`, exactly
         // as it wraps the Settings card. A background applied in here would sit on top of the
         // material and flatten it back out.
-        .task(id: columnDirectories) { await loadVisibleColumns() }
+        // The pick rides along: a folder picked from search or the rail is previewed from its own
+        // listing, which no column may have asked for.
+        .task(id: columnDirectories + [highlighted]) { await loadVisibleColumns() }
         .task(id: query) { await runSearch() }
         .task(id: highlighted) { await refreshCollisions() }
         .alert("New Folder", isPresented: $isCreatingFolder) {
@@ -283,7 +334,7 @@ public struct DestinationPicker: View {
                 .disabled(FileSyncManager.validateItemName(newFolderName) != nil)
                 .lockedDuringRun()
         } message: {
-            Text("It will be created inside “\(displayName(of: highlighted))”.")
+            Text("It will be created inside “\(displayName(of: newFolderParent))”.")
         }
     }
 
@@ -327,36 +378,78 @@ public struct DestinationPicker: View {
     /// `Color.primary.opacity(0.035)` wash, same selected-row treatment. It also fixes a layout
     /// problem the first cut had: recents dangling under the columns, competing with them for the
     /// same vertical run.
+    ///
+    /// **Here first, then the sidebar.** The folders the item sits in (now here, up one, up two)
+    /// lead, because most moves are short; then the one Suggested folder when there is one; then
+    /// where things were moved recently; then the window sidebar's own Favorites, Recents and
+    /// Locations, so every place the window offers is a place a move can go.
     private var shortcutsRail: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 0) {
             searchField
                 .padding(.horizontal, 12)
                 .padding(.top, 14)
-                .padding(.bottom, 8)
+                .padding(.bottom, 4)
 
-            railSectionLabel("Places")
-            railRow(name: request.providerName, path: root, symbol: "externaldrive.connected.to.line.below")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    railSectionLabel("Here")
+                    ForEach(hereRows) { place in
+                        if place.path == itemFolder {
+                            // Back to where the card opened, with nothing picked: the item's own
+                            // folder is never a destination for a move.
+                            railRow(name: place.name, path: place.path, symbol: place.symbol,
+                                    detail: place.detail, action: returnToItemFolder)
+                        } else {
+                            railRow(name: place.name, path: place.path, symbol: place.symbol,
+                                    detail: place.detail) { pick(place) }
+                        }
+                    }
 
-            if !recents.isEmpty {
-                railSectionLabel("Recent")
-                ForEach(recents, id: \.self) { path in
-                    railRow(name: (path as NSString).lastPathComponent, path: path, symbol: "clock.arrow.circlepath",
-                            detail: Self.recentDetail(for: path, among: recents, under: root,
-                                                      rootName: request.providerName))
+                    if let suggestion {
+                        railSectionLabel("Suggested")
+                        railRow(name: suggestion.name, path: suggestion.path,
+                                symbol: suggestion.isNew ? "folder.badge.plus" : "folder",
+                                detail: suggestion.reason) { pickSuggestion(suggestion) }
+                    }
+
+                    if !recents.isEmpty {
+                        railSectionLabel("Recent Moves")
+                        ForEach(recents, id: \.self) { path in
+                            railRow(name: (path as NSString).lastPathComponent, path: path, symbol: "clock.arrow.circlepath",
+                                    detail: Self.recentDetail(for: path, among: recents, under: requestRoot,
+                                                              rootName: request.providerName)) {
+                                pick(DestinationPlace(name: (path as NSString).lastPathComponent, path: path,
+                                                      root: requestRoot, rootName: request.providerName))
+                            }
+                        }
+                    }
+
+                    ForEach(places) { section in
+                        if !section.places.isEmpty {
+                            railSectionLabel(section.title)
+                            ForEach(section.places) { place in
+                                railRow(name: place.name, path: place.path, symbol: place.symbol,
+                                        detail: place.detail) { pick(place) }
+                            }
+                        }
+                    }
                 }
+                .padding(.bottom, 12)
             }
-
-            Spacer(minLength: 0)
         }
         // Frosted and Clear: the highlighted row's fill as one glass lens that glides between rows
         // (RD46), as the Settings rail this one is modelled on does. None while searching, and none
         // when the columns have browsed below every row here — no row is highlighted then.
-        .selectionLensHost(Self.railLensChannel, selected: isSearching ? nil : highlighted,
+        .selectionLensHost(Self.railLensChannel, selected: isSearching ? nil : railFocus,
                            style: .fill(DestinationRowShape.kind, color: glassHue.accentFillColor))
         .frame(width: Self.railWidth)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Color.primary.opacity(0.035))
     }
+
+    /// The rail row drawn as chosen: the pick, or — before there is one — the item's own folder,
+    /// the "now here" row, so the column says where you are while the footer says "Now in".
+    private var railFocus: String { highlighted.isEmpty ? itemFolder : highlighted }
 
     /// The rail's selection lens — see `SelectionLens`.
     static let railLensChannel = SelectionLensChannel("destination.rail")
@@ -373,13 +466,9 @@ public struct DestinationPicker: View {
     /// One rail row. Selected rows take the hue's `accentFillColor` with `onAccentLabelColor` on
     /// top — the accent-fill model, not a wash of the accent over itself, which paints nothing.
     private func railRow(name: String, path: String, symbol: String,
-                         detail: String? = nil) -> some View {
-        let isSelected = PaneBrowsePath.normalized(path) == highlighted && !isSearching
-        return Button {
-            query = ""
-            highlighted = PaneBrowsePath.normalized(path)
-            browsePath = Self.browsePath(for: highlighted, under: root)
-        } label: {
+                         detail: String? = nil, action: @escaping () -> Void) -> some View {
+        let isSelected = PaneBrowsePath.normalized(path) == railFocus && !isSearching
+        return Button(action: action) {
             HStack(spacing: 7) {
                 Image(systemName: symbol).scaledFont(.system(size: 11))
                 VStack(alignment: .leading, spacing: 1) {
@@ -479,6 +568,10 @@ public struct DestinationPicker: View {
                                 highlighted: highlighted,
                                 onPathAt: depth < browsePath.depth ? browsePath.components[depth] : nil,
                                 accent: accent,
+                                caption: directory == itemFolder ? "Now Here" : nil,
+                                moving: Set(request.sourcePaths.map(PaneBrowsePath.normalized)),
+                                ghost: directory == itemFolder && suggestion?.isNew == true ? suggestion : nil,
+                                onPickGhost: { pickSuggestion($0) },
                                 onOpen: { folder in open(folder, atDepth: depth) }
                             )
                             .frame(width: PaneViewMode.defaultColumnWidth)
@@ -497,6 +590,12 @@ public struct DestinationPicker: View {
                 guard let last = dirs.last else { return }
                 withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(last, anchor: .trailing) }
             }
+            // And on opening: the card opens several folders deep, on the item's own folder, and a
+            // scroll view starts at its leading edge — the one column that matters sat off the right.
+            .onAppear {
+                guard let last = columnDirectories.last else { return }
+                DispatchQueue.main.async { proxy.scrollTo(last, anchor: .trailing) }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
@@ -508,6 +607,36 @@ public struct DestinationPicker: View {
         path.drill(into: folder.name, atDepth: depth)
         browsePath = path
         highlighted = folder.path
+    }
+
+    /// Picks a place from the left column, re-rooting the columns when it is in another source.
+    private func pick(_ place: DestinationPlace) {
+        query = ""
+        if place.root != browseRoot {
+            browseRoot = place.root
+            browseRootName = place.rootName
+        }
+        highlighted = place.path
+        browsePath = Self.browsePath(for: place.path, under: place.root)
+    }
+
+    /// Picks the suggested folder. One that does not exist yet is picked in its parent's column,
+    /// where it is drawn as a new row; Move makes it.
+    private func pickSuggestion(_ suggestion: DestinationSuggestion) {
+        query = ""
+        browseRoot = requestRoot
+        browseRootName = request.providerName
+        highlighted = suggestion.path
+        browsePath = Self.browsePath(for: suggestion.isNew ? itemFolder : suggestion.path, under: requestRoot)
+    }
+
+    /// Back to how the card opened: the item's own folder on show, nothing picked.
+    private func returnToItemFolder() {
+        query = ""
+        browseRoot = requestRoot
+        browseRootName = request.providerName
+        highlighted = ""
+        browsePath = Self.browsePath(for: itemFolder, under: requestRoot)
     }
 
     private var searchResults: some View {
@@ -559,6 +688,175 @@ public struct DestinationPicker: View {
         }
     }
 
+    // MARK: - Preview
+
+    /// **What a move does, before it does it.** With nothing picked: where the item is now, and
+    /// the short moves from there (the suggestion, up one, a new folder beside it). With a pick:
+    /// the folders inside it with the item drawn in where it will sort, and whether a name clashes.
+    private var previewPane: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                if highlighted.isEmpty { previewNowHere } else { previewDestination }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(width: Self.previewWidth)
+        .frame(maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var previewNowHere: some View {
+        previewCaption("Where it is now")
+        Text(itemFolder == requestRoot ? request.providerName : displayName(of: itemFolder))
+            .scaledFont(.system(size: 13, weight: .semibold))
+            .lineLimit(2)
+        Text("Pick a folder to \(verb.lowercased()) \(titleSubject) into, or:")
+            .scaledFont(.system(size: 11.5))
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 4) {
+            if let suggestion {
+                previewAction(suggestion.isNew ? "Into new folder “\(suggestion.name)”" : "Into “\(suggestion.name)”",
+                              symbol: suggestion.isNew ? "folder.badge.plus" : "folder") { pickSuggestion(suggestion) }
+            }
+            if hereRows.count > 1 {
+                let up = hereRows[1]
+                previewAction("Up to “\(up.name)”", symbol: "arrow.up") { pick(up) }
+            }
+            previewAction("New folder here…", symbol: "plus") { newFolderName = ""; isCreatingFolder = true }
+                .disabled(!canMakeFolder)
+        }
+    }
+
+    @ViewBuilder
+    private var previewDestination: some View {
+        let parentOfPick = (highlighted as NSString).deletingLastPathComponent
+        previewCaption(picksNewFolder ? "New folder in “\(displayName(of: parentOfPick))”"
+                                      : "Inside “\(displayName(of: highlighted))”")
+        let existing: [String]? = picksNewFolder ? [] : listings[highlighted]?.folders.map(\.name)
+        if let existing {
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(Self.previewRows(existing: existing, moving: movingNames)) { row in
+                    previewRow(row)
+                }
+            }
+            .padding(6)
+            .background(DestinationRowShape.outline.fill(Color.primary.opacity(0.04)))
+        } else {
+            ProgressView().controlSize(.small)
+        }
+        if refusal == nil {
+            if collidingNames.isEmpty {
+                Label("No name clash", systemImage: "checkmark")
+                    .scaledFont(.system(size: 11.5))
+                    .foregroundStyle(SemanticColor.success)
+            } else {
+                Label("\(collidingNames.count == 1 ? "“\(collidingNames[0])” is" : "\(collidingNames.count) names are") already there — you’ll be asked what to do.",
+                      systemImage: "doc.on.doc")
+                    .scaledFont(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var movingNames: [String] {
+        request.sourcePaths.map { (PaneBrowsePath.normalized($0) as NSString).lastPathComponent }
+    }
+
+    private func previewCaption(_ text: String) -> some View {
+        Text(text.uppercased())
+            .scaledFont(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
+    }
+
+    private func previewAction(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .scaledFont(.system(size: 12))
+                .lineLimit(1).truncationMode(.middle)
+                .padding(.horizontal, 8).padding(.vertical, 5)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(DestinationRowShape.outline)
+        }
+        .buttonStyle(.hoverAffordance(.segment, tint: accent, shape: DestinationRowShape.kind))
+    }
+
+    @ViewBuilder
+    private func previewRow(_ row: PreviewRow) -> some View {
+        switch row {
+        case .folder(let name):
+            Label(name, systemImage: "folder.fill")
+                .scaledFont(.system(size: 11.5))
+                .lineLimit(1).truncationMode(.middle)
+                .padding(.horizontal, 6).padding(.vertical, 3)
+        case .moving(let name):
+            // The words in `.primary`, the accent in the arrow and the outline: a word inked in the
+            // colour it sits on is the DS1 contrast failure.
+            Label {
+                Text(name)
+            } icon: {
+                Image(systemName: "arrow.turn.down.right").foregroundStyle(accent)
+            }
+                .scaledFont(.system(size: 11.5, weight: .medium))
+                .lineLimit(1).truncationMode(.middle)
+                .padding(.horizontal, 6).padding(.vertical, 3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(DestinationRowShape.outline.stroke(accent.opacity(0.6),
+                                                               style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
+                .accessibilityLabel("\(name) lands here")
+        case .more(let count, _):
+            Text("… \(count) more")
+                .scaledFont(.system(size: 11))
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+        }
+    }
+
+    /// One line of the preview's list.
+    enum PreviewRow: Identifiable, Equatable {
+        case folder(String)
+        case moving(String)
+        /// `count` folders left out; the second value keeps two gaps apart as identities.
+        case more(Int, Int)
+
+        var id: String {
+            switch self {
+            case .folder(let name): return "f:" + name
+            case .moving(let name): return "m:" + name
+            case .more(_, let index): return "more:\(index)"
+            }
+        }
+    }
+
+    /// **The destination's folders with the moving items sorted in**, trimmed to the neighbourhood
+    /// of where they land: `context` folders either side of each, a "… N more" line for each gap.
+    /// Sorted as the columns sort (`localizedStandardCompare`), so "2026" lands after "2025".
+    nonisolated static func previewRows(existing: [String], moving: [String], context: Int = 3) -> [PreviewRow] {
+        let movingSet = Set(moving)
+        let merged = (existing.filter { !movingSet.contains($0) }.map { ($0, false) } + moving.map { ($0, true) })
+            .sorted { $0.0.localizedStandardCompare($1.0) == .orderedAscending }
+        let landing = merged.indices.filter { merged[$0].1 }
+        var keep = Set<Int>()
+        for index in landing {
+            for near in max(0, index - context)...min(merged.count - 1, index + context) { keep.insert(near) }
+        }
+        var rows: [PreviewRow] = []
+        var skipped = 0
+        for (index, entry) in merged.enumerated() {
+            if keep.contains(index) {
+                if skipped > 0 { rows.append(.more(skipped, index)); skipped = 0 }
+                rows.append(entry.1 ? .moving(entry.0) : .folder(entry.0))
+            } else {
+                skipped += 1
+            }
+        }
+        if skipped > 0 { rows.append(.more(skipped, merged.count)) }
+        return rows
+    }
+
     // MARK: - Footer
 
     private var footerBar: some View {
@@ -600,7 +898,9 @@ public struct DestinationPicker: View {
                 .keyboardShortcut(AppChord.newFolder.key, modifiers: AppChord.newFolder.modifiers)
                 // ABOVE `.disabled`, so no badge on a button whose shortcut is refused.
                 .shortcutKeycap(AppChord.newFolder.display)
-                .disabled(!canCommit)
+                .disabled(!canMakeFolder)
+                .help(highlighted.isEmpty ? "New folder beside “\(request.firstItemName)”, and \(verb.lowercased()) into it"
+                                          : "New folder inside “\(displayName(of: highlighted))”, and \(verb.lowercased()) into it")
                 .lockedDuringRun()
 
                 Button("Other…") { onChooseOther() }
@@ -609,7 +909,7 @@ public struct DestinationPicker: View {
 
                 // The one filled capsule on the card, on the DEEPENED accent: the raw hue leaves
                 // white sitting on the contrast floor, which is what `AccentFill` exists to fix.
-                Button(verb) { onCommit(highlighted) }
+                Button(picksNewFolder ? "Create and \(verb)" : verb) { commit() }
                     .buttonStyle(.actionBar(.primary,
                                             tint: AccentFill.deepened(accent),
                                             onTint: glassHue.onAccentLabelColor))
@@ -645,13 +945,22 @@ public struct DestinationPicker: View {
     /// A single truncated path line was the first cut, and head-truncation cut it mid-component —
     /// "…ocuments/Family/Grandparents" reads as a broken string, not a location. Components let the
     /// leading ones drop cleanly and keep the folder you actually chose, which is the end.
+    ///
+    /// Before anything is picked it names where the item is now, under "Now in", so the line is
+    /// never blank and never a warning.
     private var destinationCrumbs: some View {
-        let components = DestinationBrowser.crumbs(for: highlighted, under: root,
-                                                   providerName: request.providerName)
+        let isPicked = !highlighted.isEmpty
+        let components = isPicked
+            ? DestinationBrowser.crumbs(for: highlighted, under: root, providerName: browseRootName)
+            : DestinationBrowser.crumbs(for: itemFolder, under: requestRoot, providerName: request.providerName)
         return HStack(spacing: 4) {
-            Image(systemName: "folder.fill")
-                .scaledFont(.system(size: 10))
-                .foregroundStyle(highlighted.isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(accent))
+            if isPicked {
+                Image(systemName: picksNewFolder ? "folder.badge.plus" : "folder.fill")
+                    .scaledFont(.system(size: 10))
+                    .foregroundStyle(accent)
+            } else {
+                Text("Now in").foregroundStyle(.secondary)
+            }
             if components.isEmpty {
                 Text("No folder chosen").foregroundStyle(.secondary)
             } else {
@@ -668,7 +977,8 @@ public struct DestinationPicker: View {
         }
         .scaledFont(.system(size: 11))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(highlighted.isEmpty ? "No folder chosen" : "Destination \(highlighted)")
+        .accessibilityLabel(isPicked ? "Destination \(components.joined(separator: ", "))"
+                                     : "No folder chosen. Now in \(components.joined(separator: ", "))")
     }
 
     /// The corner grip. Reads a FIXED coordinate space (`.global`) for the same reason
@@ -711,7 +1021,9 @@ public struct DestinationPicker: View {
     /// make even a shallow listing a disk round-trip. Results land one column at a time so the
     /// leftmost appears immediately rather than the whole stack arriving together.
     private func loadVisibleColumns() async {
-        for directory in columnDirectories where listings[directory] == nil {
+        // The pick last: the preview reads its listing, and a picked folder not yet made has none.
+        let picked = highlighted.isEmpty || picksNewFolder ? [] : [highlighted]
+        for directory in columnDirectories + picked where listings[directory] == nil {
             let showHidden = showHidden
             let listing = await Task.detached {
                 await DestinationBrowser.listSubfoldersSuspending(of: directory, showHidden: showHidden,
@@ -773,22 +1085,49 @@ public struct DestinationPicker: View {
 
     // MARK: - New folder
 
+    /// New Folder is offered wherever its folder could be moved into: never inside the selection
+    /// (it would leave an empty folder behind when the move is refused), never inside a suggested
+    /// folder that does not exist yet.
+    private var canMakeFolder: Bool {
+        !picksNewFolder
+            && !DestinationBrowser.destinationIsInsideSelection(newFolderParent, sources: request.sourcePaths)
+    }
+
+    /// Move, or — for a suggested folder that is not there yet — make it, then move.
+    private func commit() {
+        guard canCommit else { return }
+        guard picksNewFolder else { onCommit(highlighted); return }
+        let parent = (highlighted as NSString).deletingLastPathComponent
+        let name = (highlighted as NSString).lastPathComponent
+        // Made since the card opened (by another window, or by hand): there is nothing to make.
+        if !FileManager.default.fileExists(atPath: highlighted) {
+            guard makeFolder(named: name, in: parent) != nil else { return }
+        }
+        onCommit(highlighted)
+    }
+
     private func createFolderAndCommit() {
         let name = newFolderName.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty, FileSyncManager.validateItemName(name) == nil, !highlighted.isEmpty else { return }
-        let created = (highlighted as NSString).appendingPathComponent(name)
+        guard !name.isEmpty, FileSyncManager.validateItemName(name) == nil, canMakeFolder else { return }
+        guard let created = makeFolder(named: name, in: newFolderParent) else { return }
+        newFolderName = ""
+        onCommit(created)
+    }
+
+    /// Makes `name` in `parent` and tells the host, whatever happens to the transfer after it.
+    private func makeFolder(named name: String, in parent: String) -> String? {
+        let created = (parent as NSString).appendingPathComponent(name)
         do {
             try FileManager.default.createDirectory(
                 at: URL(fileURLWithPath: created), withIntermediateDirectories: false
             )
         } catch {
-            Logger.shared.warning("Could not create “\(name)” in \(highlighted): \(error.localizedDescription)")
-            return
+            Logger.shared.warning("Could not create “\(name)” in \(parent): \(error.localizedDescription)")
+            return nil
         }
         Logger.shared.info("Created “\(name)” from the destination picker")
-        newFolderName = ""
         onFolderCreated(created)
-        onCommit(created)
+        return created
     }
 
     // MARK: - Helpers
@@ -840,6 +1179,14 @@ struct DestinationColumn: View {
     /// Name of the folder drilled through at this depth, marked as the trail.
     let onPathAt: String?
     let accent: Color
+    /// A heading over the rows — "Now Here" on the item's own folder.
+    var caption: String? = nil
+    /// The items being moved, by path. Drawn in place but dimmed and not clickable: a folder is
+    /// never a destination for itself, and seeing it among its neighbours is the point.
+    var moving: Set<String> = []
+    /// A suggested folder not made yet, drawn dashed where it will sort.
+    var ghost: DestinationSuggestion? = nil
+    var onPickGhost: (DestinationSuggestion) -> Void = { _ in }
     let onOpen: (DestinationFolder) -> Void
 
 
@@ -866,13 +1213,102 @@ struct DestinationColumn: View {
             case .rows:
                 ScrollView {
                     LazyVStack(spacing: 2) {
-                        ForEach(listing?.folders ?? []) { folder in row(folder) }
+                        ForEach(Self.entries(listing?.folders ?? [], ghost: ghost)) { entry in
+                            switch entry {
+                            case .folder(let folder):
+                                if moving.contains(folder.path) { movingRow(folder) } else { row(folder) }
+                            case .ghost(let suggestion):
+                                ghostRow(suggestion)
+                            }
+                        }
                     }
                     .padding(.vertical, 8)
                 }
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if let caption {
+                Text(caption.uppercased())
+                    .scaledFont(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(accent)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .background(caption == nil ? Color.clear : accent.opacity(0.05))
+    }
+
+    /// One row of a column.
+    enum Entry: Identifiable, Equatable {
+        case folder(DestinationFolder)
+        case ghost(DestinationSuggestion)
+        var id: String {
+            switch self {
+            case .folder(let folder): return folder.path
+            case .ghost(let suggestion): return "new:" + suggestion.path
+            }
+        }
+    }
+
+    /// The listing with a not-yet-made suggestion sorted in, as the folder will sort once made.
+    nonisolated static func entries(_ folders: [DestinationFolder], ghost: DestinationSuggestion?) -> [Entry] {
+        var entries = folders.map(Entry.folder)
+        guard let ghost, !folders.contains(where: { $0.path == ghost.path }) else { return entries }
+        let at = folders.firstIndex { $0.name.localizedStandardCompare(ghost.name) == .orderedDescending } ?? folders.count
+        entries.insert(.ghost(ghost), at: at)
+        return entries
+    }
+
+    private func movingRow(_ folder: DestinationFolder) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "folder")
+            Text(folder.name).lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 4)
+            Text("MOVING").scaledFont(.system(size: 9, weight: .semibold))
+        }
+        .scaledFont(.system(size: 12))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DestinationRowShape.outline.stroke(Color.secondary.opacity(0.5),
+                                                       style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
+        .padding(.horizontal, 8)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(folder.name), being moved")
+    }
+
+    private func ghostRow(_ suggestion: DestinationSuggestion) -> some View {
+        let isChosen = suggestion.path == highlighted
+        return Button { onPickGhost(suggestion) } label: {
+            // Words in `.primary` over the accent wash (DS1); the accent is the icon and the outline.
+            HStack(spacing: 6) {
+                Image(systemName: "folder.badge.plus").foregroundStyle(accent)
+                Text(suggestion.name).lineLimit(1)
+                Spacer(minLength: 4)
+                Text("NEW").scaledFont(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
+            }
+            .scaledFont(.system(size: 12))
+            .foregroundStyle(.primary)
+            .fontWeight(isChosen ? .medium : .regular)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                ZStack {
+                    if isChosen { DestinationRowShape.outline.fill(accent.opacity(PaneSelectionWash.active)) }
+                    DestinationRowShape.outline.stroke(accent.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                }
+            }
+            .contentShape(DestinationRowShape.outline)
+        }
+        .buttonStyle(.hoverAffordance(.segment, tint: accent, shape: DestinationRowShape.kind))
+        .padding(.horizontal, 8)
+        .help(suggestion.reason)
+        .accessibilityLabel("New folder \(suggestion.name)")
+        .accessibilityAddTraits(isChosen ? [.isButton, .isSelected] : .isButton)
     }
 
     private func row(_ folder: DestinationFolder) -> some View {

@@ -1055,11 +1055,20 @@ import EventsTestSupport
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("Sources/FileExplorer/DestinationPicker.swift")
         let code = try String(contentsOf: url, encoding: .utf8)
-        let start = try #require(code.range(of: "private func createFolderAndCommit() {"))
-        let body = code[start.upperBound...]
-        let told = try #require(body.range(of: "onFolderCreated(created)"))
-        let commit = try #require(body.range(of: "onCommit(created)"))
-        #expect(told.lowerBound < commit.lowerBound)
+        // Both ways a folder is made — New Folder, and a suggested folder not made yet — go through
+        // `makeFolder`, which tells the host before it returns; each commits only after it returns.
+        let maker = code[try #require(code.range(of: "private func makeFolder(named name: String, in parent: String) -> String? {")).upperBound...]
+        let told = try #require(maker.range(of: "onFolderCreated(created)"))
+        let returned = try #require(maker.range(of: "return created"))
+        #expect(told.lowerBound < returned.lowerBound)
+        let create = code[try #require(code.range(of: "private func createFolderAndCommit() {")).upperBound...]
+        let made = try #require(create.range(of: "makeFolder(named: name, in: newFolderParent)"))
+        let commit = try #require(create.range(of: "onCommit(created)"))
+        #expect(made.lowerBound < commit.lowerBound)
+        let suggested = code[try #require(code.range(of: "private func commit() {")).upperBound...]
+        let madeSuggested = try #require(suggested.range(of: "makeFolder(named: name, in: parent)"))
+        let commitSuggested = try #require(suggested.range(of: "onCommit(highlighted)\n"))
+        #expect(madeSuggested.lowerBound < commitSuggested.lowerBound)
     }
 
     @Test func theDeletedBannerOffersSaveAgainOnlyWhereItCouldWrite() {
