@@ -236,8 +236,8 @@ public final class AskClaudeEngine {
     /// (`AskClaudeRequest.fixedDigest`). The API holds replayed thinking to the system text and
     /// tool list it was made under: an account it checks strictly refuses a changed one, and one
     /// it doesn't uses thinking made for other instructions. So a chat a new build changed them
-    /// under starts over. A chat saved before
-    /// TE292 holds `model|style|digest`; `isCurrent(setting:)` reads either.
+    /// under starts over. A chat saved before TE292 holds `model|style|digest`;
+    /// `isCurrent(setting:)` reads either.
     public private(set) var setting: String?
 
     /// Whether a chat started under `setting` can carry on in this build. The model and style no

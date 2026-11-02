@@ -659,7 +659,7 @@ final class AskClaudeChat: ObservableObject {
         }
         // A change of model or style, from the menu or Settings, carries on in this chat (TE292):
         // each question says which in its own block. Only an update that changed the system text
-        // or the tools can't, since the API refuses replayed thinking under either.
+        // or the tools can't: replayed thinking is bound to both.
         let model = self.model
         let detail = AskClaudeDetail.stored(in: defaults)
         if let setting = engine.setting, !AskClaudeEngine.isCurrent(setting: setting), !items.isEmpty {
