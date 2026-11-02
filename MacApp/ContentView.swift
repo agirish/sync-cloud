@@ -2973,11 +2973,10 @@ struct ContentView: View {
             GeometryReader { proxy in
                 ZStack {
                     Rectangle()
-                        // Much lighter than `overlayScrimOpacity`, which DEEPENS for Clear on the
-                        // assumption the card above it is floored to frosted. This card is not:
-                        // it takes the app's level verbatim, so at Clear a heavy scrim would leave
-                        // the clear material with nothing left to reveal. Enough to focus the card
-                        // and settle what shows through it, not enough to switch the window off.
+                        // `overlayScrimOpacity`'s Clear value at every level. This card takes the
+                        // app's level verbatim, so a heavy scrim would leave clear material with
+                        // nothing to reveal. Enough to focus the card and settle what shows
+                        // through it, not enough to switch the window off.
                         .fill(Color.black.opacity(0.20))
                         .ignoresSafeArea()
                         // Clicking away cancels, like every other overlay. Nothing has been moved
@@ -3042,8 +3041,8 @@ struct ContentView: View {
         GeometryReader { proxy in
             ZStack {
                 Rectangle()
-                    // Deepens for `.clear` (`overlayScrimOpacity`): the card below is floored to
-                    // frosted, and pushing the app further back is what lets it read cleanly.
+                    // Lightens for `.clear` (`overlayScrimOpacity`), so the window stays visible
+                    // through the card; the card's own ground keeps its text legible.
                     .fill(Color.black.opacity(glassLevel.overlayScrimOpacity))
                     .ignoresSafeArea()
                     .onTapGesture { showSettings = false }

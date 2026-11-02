@@ -45,10 +45,12 @@ struct GlassLevelTests {
         }
     }
 
-    @Test func clearDeepensTheOverlayScrim() {
-        // Apple's guidance for `.clear` glass is to pair it with a dimming layer. The card is
-        // floored to frosted; pushing the app further back is what makes it read cleanly.
-        #expect(GlassLevel.clear.overlayScrimOpacity > GlassLevel.frosted.overlayScrimOpacity)
+    @Test func clearLightensTheOverlayScrim() {
+        // The cards above the scrim take Clear at face value now, so a deeper scrim at Clear
+        // greyed the window and hid the setting (TE293). Lighter, but never off: it still focuses
+        // the card.
+        #expect(GlassLevel.clear.overlayScrimOpacity < GlassLevel.frosted.overlayScrimOpacity)
+        #expect(GlassLevel.clear.overlayScrimOpacity > 0)
         #expect(GlassLevel.frosted.overlayScrimOpacity == GlassLevel.solid.overlayScrimOpacity)
     }
 

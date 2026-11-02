@@ -13604,3 +13604,25 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No `mentionsAny`, no travel tokens, no Ask Claude | CLOSED — does not apply |
+
+## Overlays dim the window less at Clear (TE293, B) — main only
+
+2026-11-01, for v7.0 (decision HW: variant B). On `main`: at the Clear glass level, the scrim behind
+Settings, Help, Setup, Compare Copies, the Differences comparison and the editor's divergence
+overlay is 0.20 (`GlassLevel.overlayScrimOpacity`), where it was 0.55. The deeper value dated from
+when those cards were floored to Frosted; they are `groundedGlassCard`s at face value now, and 0.55
+greyed the window so that choosing Clear in Settings looked like it did nothing. Every line carries
+the grounded cards and the old value:
+
+```sh
+for l in main v6.x v5.x v4.x v3.x v2.x; do s=$(git show origin/$l:Modules/Design/Sources/Design/LiquidGlassStyle.swift 2>/dev/null)
+  printf '%-5s grounded=%s clearScrim=%s\n' $l "$(echo "$s" | grep -c 'func groundedGlassCard')" \
+  "$(echo "$s" | grep -A1 'var overlayScrimOpacity' | grep -o '0\.[0-9]*' | head -1)"; done
+# measured 2026-11-01, against origin, before this landed: every line grounded=1 clearScrim=0.55
+```
+
+A re-tune of what every Clear install looks like, so main-only on the Tint-slider precedent above.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The 0.55 scrim at Clear | RECORDED — not owed |

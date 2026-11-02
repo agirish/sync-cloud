@@ -236,11 +236,13 @@ public enum GlassLevel: String, CaseIterable, Identifiable, Sendable {
         self == .clear
     }
 
-    /// Backdrop dimming behind an overlay. `.clear` deepens it so the app recedes further and the
-    /// floored-to-frosted card reads cleanly against it — Apple's documented advice for `.clear`
-    /// glass is to pair it with a dimming layer.
+    /// Backdrop dimming behind an overlay. `.clear` LIGHTENS it, to the destination picker's 0.20.
+    /// It used to deepen to 0.55, back when the cards above it were floored to frosted; every
+    /// scrimmed card is now a `groundedGlassCard` at the level's face value, and a heavy scrim
+    /// greyed the whole window, so picking Clear in Settings looked like it did nothing (TE293).
+    /// The card's own ground keeps its text legible, so the scrim only has to focus it.
     public var overlayScrimOpacity: Double {
-        self == .clear ? 0.55 : 0.35
+        self == .clear ? 0.20 : 0.35
     }
 
     /// Strength of the app background gradient, 0...1. `.frosted` keeps 0.65 — the old intensity
