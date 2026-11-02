@@ -20,6 +20,10 @@ SyncCloud has four workspaces:
   folder tree, and see where the space goes.
 - **Edit** — write Markdown and plain text; read, rework, fill in and sign PDFs.
 
+Across all four, **Ask Claude** (⌘J) answers questions about what's on screen and proposes changes
+you apply, and **one-way sync** copies chosen iCloud Drive folders to Dropbox when you click Sync
+Now. Both are new in v7.0, which is in development on `main`.
+
 Deletes go to the Trash, overwrites are staged and swapped in atomically, and each run is a single
 ⌘Z.
 
@@ -33,6 +37,10 @@ Deletes go to the Trash, overwrites are staged and swapped in atomically, and ea
   to) or **Frequent** (where you spend the most time).
 - **Column view** with an inline preview, per-pane **tabs**, and a **pane bar** you arrange
   yourself.
+- **Filter by type** from the pane bar: Images, PDFs, Archives and the rest, with counts.
+- **Knows when it's out of date**: a pane says when its folder changed on disk since it was read,
+  and an amber line says when Dropbox, OneDrive or Google Drive isn't running and the folder may be
+  stale.
 
 ### 🔍 Compare
 - **Any two providers or folders**, with breadcrumbs, back/forward and one-click ⇄ swap.
@@ -43,6 +51,10 @@ Deletes go to the Trash, overwrites are staged and swapped in atomically, and ea
 - **Guided Review** steps through each difference — Copy, Move or Skip.
 - **Content verification** checksums same-size pairs to tell you whether they *actually* differ.
 - **Keyboard transfers**: ⌘→ / ⌘← copy, add ⇧ to move.
+- **One-way sync, iCloud Drive to Dropbox** (v7.0): set up from Compare, run with **Sync Now**.
+  It copies new files, edits, renames, moves and deletions; anything it removes or replaces in
+  Dropbox goes to a `SyncCloud Removed` folder, and a file changed directly in Dropbox waits for
+  you to choose, unless you set it to use iCloud's version.
 
 ### 🗂️ Organize
 One provider, six lenses:
@@ -98,6 +110,21 @@ budget caps ($5 lifetime by default).
 <p align="center">
   <img src="docs/assets/screenshots/edit-pdf.png" alt="Filling in and signing a PDF in Edit" width="900">
 </p>
+
+### 💬 Ask Claude (v7.0)
+A chat panel (⌘J) that answers questions about what you're looking at and moves you around the app,
+using your own Anthropic API key.
+- **Sees a description of the screen, not your files** — names, kinds, sizes, dates and tags. File
+  contents are read on this Mac and only a short answer is sent, unless you send a passage. Anything
+  can be hidden from it.
+- **Proposes, never acts**: moves, renames, new folders and moves to the Trash arrive as a card you
+  apply, with one Undo.
+- **Where should this go?** answers from your own folder layout, files a folder's loose files on
+  one card, and offers a rule when you correct it.
+- **Changes settings on a card** you click; it changes how the app looks itself, and can lower its
+  own spending or access but never raise it. Every change is listed in History with Revert.
+- Pick Sonnet, Opus or Haiku from the chat; every answer says what it cost, against a monthly
+  limit ($25 to start).
 
 ### 🧭 Guided setup
 A first-run guide reads the folder you point it at — names only, no file is opened — so it can ask
@@ -165,11 +192,14 @@ Key flags: `--direction auto|to-right|to-left`, `--strategy replace|skip|keep-bo
 ## Setting up Claude (optional)
 
 1. Get an API key from the [Anthropic Console](https://console.anthropic.com/).
-2. In **Settings ▸ Intelligence**, turn on *Use Claude (cloud)*, paste the key, pick a model
-   (Haiku 4.5, Sonnet 5 or Opus 5) and press **Test**.
-3. Set a monthly or lifetime **budget cap**.
+2. In **Settings ▸ Intelligence**, paste it under **Claude API key** and press **Test**. The key is
+   kept in the Keychain and used by both features below.
+3. **Organize's Refine:** turn on *Use Claude (cloud) to refine suggestions*, pick a model (Haiku
+   4.5, Sonnet 5 or Opus 5), and set a monthly or lifetime **budget cap**.
+4. **Ask Claude** (⌘J) needs no switch: pick its model (Sonnet 5.5, Opus 5.5 or Haiku 5.5), answer
+   style and monthly limit in the same tab.
 
-Without a key, Organize runs on its offline engine.
+Without a key, Organize runs on its offline engine, and Ask Claude asks for one before it answers.
 
 ## Project structure
 
@@ -189,7 +219,8 @@ SyncCloud/
 └── project.yml        # XcodeGen project definition
 ```
 
-Tests run on every push via a self-hosted GitHub Actions runner ([`docs/ci.md`](docs/ci.md)).
+Tests run on every push to `main` on GitHub's hosted runners, and nightly on a self-hosted one
+([`docs/ci.md`](docs/ci.md)).
 What's planned is in [`ROADMAP.md`](ROADMAP.md).
 
 ## License

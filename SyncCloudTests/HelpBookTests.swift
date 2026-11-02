@@ -16,6 +16,9 @@ import Testing
     @Test func testSectionsCoverTheExpectedAreas() {
         #expect(HelpBook.sections.map(\.title) == [
             "Getting started",
+            // v7.0: the chat had one paragraph inside "Suggestions and AI", and nothing on what
+            // it sees, what it may change, or where its changes are listed.
+            "Ask Claude",
             "Working with differences",
             // "Organize", not the "Cleanup tools" this shipped as: three of the workspace's five
             // sections had no article at all while the section was named for the two that did,

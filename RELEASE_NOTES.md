@@ -20,8 +20,8 @@ Requires **macOS 26**, unchanged from v6.2.
 
 ### Ask Claude
 
-- **Ask Claude, with ⌘J or the toolbar button.** A chat panel over the window, docked left or right
-  or floating, and resizable, that answers questions about what you're looking at and takes you
+- **Ask Claude, with ⌘J or the toolbar button.** A chat panel over the window, docked at the top or
+  bottom of either side or floating, and resizable, that answers questions about what you're looking at and takes you
   places in SyncCloud. It uses your own Anthropic API key from Settings ▸ Intelligence, and nothing
   is sent until you ask. The chat stays for an hour, across a relaunch.
 - **Claude sees a description of the screen, not your files.** The names, kinds, sizes, dates and
@@ -32,6 +32,11 @@ Requires **macOS 26**, unchanged from v6.2.
   goes to folders, tabs, sources and either side of Compare, and reveals, selects, opens or Quick
   Looks a file. It changes views and opens Settings, Help and Activity. It never opens an app, script
   or installer.
+- **The panel wears the window's accent.** It paints a pane's surface and accent wash and follows
+  the Tint slider, glass at Frosted and Clear, opaque at Solid; None keeps it gray. Drag it by its
+  header and drop it near a side: it docks at that side's top or bottom, whichever edge is nearer,
+  near the bottom edge it docks at the nearer bottom corner, and docked at the bottom it grows
+  upward.
 - **Claude proposes changes; you apply them.** Ask it to move, rename, make a folder or move
   something to the Trash, and it shows a card of the changes, each checked first. Nothing happens
   until you click Apply. Each change is checked again then; one that can't run is skipped with the
@@ -77,6 +82,18 @@ Requires **macOS 26**, unchanged from v6.2.
   a rule beside it for another folder. Rules run free on this Mac, in To File and in "Where should
   this go?", and you can edit them in Organize ▸ Rules, where Mentions any of is a new
   condition.
+- **Ask about a setting, or change one, from the chat.** Claude answers from Settings: a setting's
+  value, default, choices and what it affects, and what differs from the defaults. Ask for a change
+  and it shows a card holding the setting's real control at its live value, with its pick marked;
+  your click changes it, as Settings would. Accent color shows its swatches. When you ask, Claude
+  changes how SyncCloud looks itself, and can lower its own spending or access, such as turning Let
+  Claude read files off or lowering the monthly limit, but never raise either, and never to a limit
+  at or below what this month has spent. Undo on the card, or Edit ▸ Undo with the chat in front,
+  puts a setting back; an undo that would raise Claude's spending or access is on the card only.
+- **Settings changed from the chat are kept in History.** The Activity window's History tab lists
+  Changed from Chat above Sync History: every setting changed from the chat and every rule saved
+  from a card, for 90 days, after the chat is gone. Revert puts a value back while the setting still
+  holds what was set there, and asks first when that would raise Claude's spending or access.
 - **Every answer says what it sent and what it cost.** Spending counts against a monthly limit in
   Settings, $25 to start, with a note at 80%.
 - **Pick the model from the chat.** A menu under the text box picks Sonnet, Opus or Haiku, and
@@ -200,7 +217,15 @@ Requires **macOS 26**, unchanged from v6.2.
   folder and the folders inside it, grouped as Images, PDFs, Apps & installers, Archives and so on,
   with counts. Tick the types to show, or click Only beside one. Folders that hold a match stay where
   they are with a count beside them, and the rest are hidden. The status bar says how many items are
-  shown, with a chip that clears the filter. Each tab keeps its own filter until you quit.
+  shown, with a chip that clears the filter. Each tab keeps its own filter until you quit. A folder
+  you have open stays while it is open, unticking a type from no filter reads "All but Images", and a
+  copy, move or Trash of a folder says what the filter was hiding inside it.
+- **Move to… opens where the item is.** The folder picker behind File ▸ Move to… and Copy to… opens on
+  the item's own folder and the one above, with the item drawn in place and nothing picked. Its left
+  column starts with Here, then a year-folder suggestion when the item's neighbors plainly imply one,
+  recent moves, and the sidebar's Favorites, Locations and Recents. A preview shows where the item
+  lands and whether a name is taken. It now reaches iCloud Drive's Documents and Desktop when
+  Desktop & Documents syncing is on.
 
 ### Large files
 
@@ -216,6 +241,22 @@ Requires **macOS 26**, unchanged from v6.2.
   one new PDF of them, in the order you set, saved where the first one is. Right-click one PDF for
   Split…: type the pages new files start at, like 4, 9, and each part is saved next to it, named for
   its pages. The originals aren't changed. Both are in File ▸ PDF Tools too.
+- **Five Settings controls ask before they remove something.** Removing a folder source, Clear All
+  for ignored items and for kept names, clearing Intelligence's saved suggestions, and choosing All
+  columns while columns are sized on their own each acted on one click. Each now asks, with Cancel
+  as the default. Escape now cancels every alert whose Cancel takes Return, Reset All and Clear Log
+  among them; it did nothing there before.
+- **Reset All Settings keeps what you made.** v6.2's reset cleared Rules, saved signatures,
+  Favorites, pins and your choices while organizing along with the settings. It now keeps them, and
+  keeps the folders hidden from Claude and Claude's spending limits and record. Your files aren't
+  affected.
+- **Overlays at Clear look clear.** The window behind Settings, Help, Setup and Compare's overlays
+  dims less at Clear, and their cards let more show through. In Dark Mode at Frosted and Clear,
+  floating panels sit on the window's own tinted ground rather than a neutral gray.
+- **A row's right-click menu keeps Cut, Copy, the transfers and Paste Here together**, in one
+  section.
+- **SyncCloud no longer quits at launch** when macOS fails to hand it the monospaced font the
+  toolbar's ⌘K keycap is measured with.
 - **Cloud Filing prices Sonnet 5 at $2/$10.** v6.2 quoted and counted it at Sonnet 4.6's $3/$15 per
   million tokens, so a scan cost half as much again as the quote said and reached the spend caps
   early.
