@@ -13954,3 +13954,17 @@ owed nothing.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No request entry points | CLOSED — nothing to send |
+
+## Changed from Chat in Activity ▸ History, with Revert (TE290 step 5) — main only
+
+2026-11-02, for v7.0. On `main`: every setting changed from Ask Claude's chat — by Claude, on a card,
+with Undo or Redo — and every filing rule saved from a card is recorded the moment it happens, in
+`~/sync-cloud-settings-changes.json` beside the History file (90 days, 500 at most; Reset All leaves
+it; its own Clear…). Activity ▸ History lists it above Sync History, with Revert while the setting
+still holds what was set there; a Revert that raises Claude's spending or access asks first, and an
+open chat hears of it. The settings tool's `changed` lists the last 30 days of it. A `set` from a
+question that was stopped changes nothing. Ask Claude exists only on `main` (see step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

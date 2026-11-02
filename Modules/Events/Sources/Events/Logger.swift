@@ -294,7 +294,7 @@ public class Logger: ObservableObject {
     ///
     /// Extracted from ``defaultLogFileURL()``, which has always needed it, because the minimum
     /// level needs exactly the same question asked — see ``persistedMinimumLevel(from:)``.
-    nonisolated static var isRunningTests: Bool {
+    public nonisolated static var isRunningTests: Bool {
         let environment = ProcessInfo.processInfo.environment
         let executable = URL(fileURLWithPath: ProcessInfo.processInfo.arguments.first ?? "").lastPathComponent
         return executable == "swiftpm-testing-helper"

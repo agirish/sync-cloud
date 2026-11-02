@@ -426,6 +426,11 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             return AskClaudeToolOutcome(result: "Not changed: \(why) Offer it on a card with show; their click changes it.",
                                         isError: true, step: "Left \(entry.label) for their click")
         }
+        // Stopped, or replaced by New Chat: its card would never reach the chat, so nothing changes.
+        guard !Task.isCancelled else {
+            return AskClaudeToolOutcome(result: "Not changed: they stopped the question.", isError: true,
+                                        step: "Left \(entry.label) alone: stopped")
+        }
         switch ctx.setSetting(entry.id, value, targetID) {
         case .done:
             let was = current.map { SettingsLookup.label($0, entry) }

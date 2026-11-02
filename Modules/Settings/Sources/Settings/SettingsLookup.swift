@@ -36,17 +36,24 @@ public struct SettingsLookup {
     public var isHidden: (String) -> Bool
     /// Launch at login lives in macOS, and is read off the main thread.
     public var loginItemIsOn: () async -> Bool
+    /// Changed from Chat (TE290 step 5), newest first and through the hidden filter.
+    public var changesFromChat: () -> [SettingsChange]
 
     public init(defaults: UserDefaults, settings: SettingsManager?, keyIsSaved: @escaping () -> Bool,
                 hiddenCount: @escaping () -> Int, isHidden: @escaping (String) -> Bool,
-                loginItemIsOn: @escaping () async -> Bool) {
+                loginItemIsOn: @escaping () async -> Bool,
+                changesFromChat: @escaping () -> [SettingsChange] = { [] }) {
         self.defaults = defaults
         self.settings = settings
         self.keyIsSaved = keyIsSaved
         self.hiddenCount = hiddenCount
         self.isHidden = isHidden
         self.loginItemIsOn = loginItemIsOn
+        self.changesFromChat = changesFromChat
     }
+
+    /// How far back `changed` lists what was changed from chat.
+    static let changedFromChatWindow: TimeInterval = 30 * 86_400
 
     /// The most matches `find` returns.
     static let findLimit = 8
@@ -106,7 +113,17 @@ public struct SettingsLookup {
         if let patterns = settings?.ignorePatterns, !patterns.isEmpty {
             lines.append("Ignored name patterns (Sync): \(patterns.count) added")
         }
-        return lines.isEmpty ? "Every setting is at its default." : lines.joined(separator: "\n")
+        var answer = lines.isEmpty ? "Every setting is at its default." : lines.joined(separator: "\n")
+        let now = Date()
+        let recent = changesFromChat().filter { now.timeIntervalSince($0.at) < Self.changedFromChatWindow }
+        if !recent.isEmpty {
+            answer += "\n\nChanged from chat in the last 30 days, newest first:\n" + recent.prefix(20).map { change in
+                "\(change.name)" + (change.valueWords.map { ": \($0)" } ?? "") + ", \(change.howWords), "
+                    + change.at.formatted(date: .abbreviated, time: .shortened)
+            }.joined(separator: "\n")
+            if recent.count > 20 { answer += "\nand \(recent.count - 20) more, in Activity ▸ History." }
+        }
+        return answer
     }
 
     // MARK: - Reading

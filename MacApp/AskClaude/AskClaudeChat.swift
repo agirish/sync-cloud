@@ -1,4 +1,5 @@
 import Foundation
+import Settings
 import Sync
 import Events
 
@@ -307,6 +308,14 @@ final class AskClaudeChat: ObservableObject {
         hiddenObserver = keyChanges.addObserver(forName: AskClaudePrivacy.didChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.noteHiddenListChanged() }
         }
+        // A Revert in Activity (TE290 step 5) reaches an open chat with its next question.
+        revertObserver = keyChanges.addObserver(forName: SettingsRevert.didRevert, object: nil, queue: .main) { [weak self] note in
+            let line = note.userInfo?["line"] as? String
+            MainActor.assumeIsolated {
+                guard let self, let line, !self.items.isEmpty else { return }
+                self.tellClaude(line)
+            }
+        }
         keyObserver = keyChanges.addObserver(forName: AnthropicKeychain.didChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.cachedKey = nil
@@ -317,6 +326,7 @@ final class AskClaudeChat: ObservableObject {
 
     nonisolated(unsafe) private var keyObserver: NSObjectProtocol?
     nonisolated(unsafe) private var hiddenObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var revertObserver: NSObjectProtocol?
 
     private func noteHiddenListChanged() {
         let now = Set(AskClaudePrivacy.hiddenFolders(in: defaults))
@@ -327,6 +337,7 @@ final class AskClaudeChat: ObservableObject {
     deinit {
         if let keyObserver { keyCenter?.removeObserver(keyObserver) }
         if let hiddenObserver { keyCenter?.removeObserver(hiddenObserver) }
+        if let revertObserver { keyCenter?.removeObserver(revertObserver) }
     }
 
     /// Picks up the last chat if it was used within the hour; an older one is deleted.

@@ -18,13 +18,15 @@ import Foundation
 ///   post-mortem `docs/flaky-tests.md` sends readers to, and on a machine where other sessions
 ///   start a test process every few minutes, "dead" alone would delete it before anyone looked.
 ///
-/// Test-runner branch only: production resolves to `~/sync-cloud.log` and
-/// `~/sync-cloud-history.jsonl` without calling anything here.
-enum PerProcessTestFile {
+/// Test-runner branch only: production resolves to `~/sync-cloud.log`,
+/// `~/sync-cloud-history.jsonl` and `~/sync-cloud-settings-changes.json` without calling anything here.
+public enum PerProcessTestFile {
     /// The stem of the shared logger's per-process test log.
     static let logStem = "sync-cloud-tests"
     /// The stem of the shared history store's per-process test file.
     static let historyStem = "sync-cloud-history-tests"
+    /// The stem of the Changed from Chat record's per-process test file (TE290 step 5).
+    public static let settingsChangesStem = "sync-cloud-settings-changes-tests"
 
     /// How long a dead process's files are kept after their last write.
     static let retention: TimeInterval = 60 * 60
@@ -34,7 +36,7 @@ enum PerProcessTestFile {
     ///
     /// The sweep must not log: `Logger.shared` is being initialised when the log path resolves, and
     /// a line from here would re-enter that initialiser.
-    static func url(stem: String, extension ext: String) -> URL {
+    public static func url(stem: String, extension ext: String) -> URL {
         let directory = FileManager.default.temporaryDirectory
         if claimSweep(stem) {
             sweep(stem: stem, extension: ext, in: directory)

@@ -164,6 +164,15 @@ import FileExplorer
 
         #expect(await set("no.such", "On").isError)
         #expect(await set("appearance.theme", "Purple").isError)
+
+        // A question stopped, or replaced by New Chat, changes nothing: its card would never show.
+        let stopped = Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await set("appearance.theme", "Light")
+        }
+        let refused = await stopped.value
+        #expect(refused.isError && refused.result == "Not changed: they stopped the question.")
+        #expect(defaults.string(forKey: LiquidGlass.appearanceModeKey) == AppearanceMode.dark.rawValue)
     }
 
     /// TE290 step 4a: show checks every item before a card appears.
@@ -1438,6 +1447,22 @@ private final class NoTools: AskClaudeToolRunning {
         chat.tellClaude("They set Theme to Dark on your card (was System).", replacing: "They set Theme ")
         #expect(chat.sinceLastAnswer == ["They set Text size to 105% on your card (was 100%).",
                                          "They set Theme to Dark on your card (was System)."])
+    }
+
+    /// TE290 step 5: a Revert in Activity reaches an open chat with its next question, and an empty
+    /// chat hears nothing.
+    @Test func aRevertInActivityIsToldToAnOpenChat() async {
+        let d = defaults()
+        let center = NotificationCenter()
+        let line = ["line": "They put Theme back to System with Revert in Activity."]
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
+                                 readKey: { "k" }, keyChanges: center)
+        center.post(name: SettingsRevert.didRevert, object: nil, userInfo: line)
+        #expect(chat.sinceLastAnswer.isEmpty)
+        chat.ask("go dark", screen: screen, tools: ShowsASettingCard(AskClaudeSettingCard(rows: [.init(id: "appearance.theme")])))
+        await waitUntilIdle(chat)
+        center.post(name: SettingsRevert.didRevert, object: nil, userInfo: line)
+        #expect(chat.sinceLastAnswer == [line["line"]!])
     }
 
     /// TE290 step 3: a chat restarts for privacy only when something is hidden that wasn't when

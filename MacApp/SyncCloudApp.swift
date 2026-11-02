@@ -1035,7 +1035,7 @@ struct SyncCloudApp: App {
             if isRunningTests {
                 Color.clear
             } else {
-                ActivityWindowHost(syncManager: syncManager)
+                ActivityWindowHost(syncManager: syncManager, settings: settings)
                     .environmentObject(Logger.shared)
                     .modifier(RunWriteLockFromManager(syncManager: syncManager))
                     .appFontSizeFromSettings()
@@ -1750,6 +1750,7 @@ private struct RunWriteLockFromManager: ViewModifier {
 /// operation the main window publishes.
 private struct ActivityWindowHost: View {
     @ObservedObject var syncManager: FileSyncManager
+    let settings: SettingsManager
 
     var body: some View {
         ActivityWindow(center: .shared, activeProgress: syncManager.activeProgress,
@@ -1758,6 +1759,8 @@ private struct ActivityWindowHost: View {
                        scans: ActivityScanRows.rows(syncManager) { ActivityCenter.shared.doors.showScan($0) }) {
             // One-way sync's History entries (RD67), with Reverse in iCloud…, above Sync History.
             OneWaySyncHistoryHost()
+            // Settings changed from Ask Claude's chat (TE290 step 5), with Revert.
+            ChangedFromChatHost(settings: settings)
             SyncHistoryView(
                 store: .shared,
                 runFilter: Binding(get: { ActivityCenter.shared.historyRun },
@@ -1772,6 +1775,30 @@ private struct ActivityWindowHost: View {
         }
         // One-way sync's sheets opened from Now's rows and History (RD67), over this window.
         .oneWaySyncSheets(host: .activity)
+    }
+}
+
+/// Changed from Chat over Sync History's records, in a height of their own, only when it has
+/// any (TE290 step 5).
+private struct ChangedFromChatHost: View {
+    @ObservedObject var log = SettingsChangeLog.shared
+    let settings: SettingsManager
+
+    var body: some View {
+        if !log.changes.isEmpty {
+            ScrollView {
+                ChangedFromChatRows(
+                    lookup: {
+                        SettingsLookup(defaults: .standard, settings: settings, keyIsSaved: { AnthropicKeychain.isConfigured },
+                                       hiddenCount: { 0 }, isHidden: { _ in false }, loginItemIsOn: { LoginItemController.shared.isOn })
+                    },
+                    writer: { SettingsWriter(defaults: .standard, settings: settings) },
+                    hiddenNames: { AskClaudePrivacy.hiddenFolders(in: .standard).map { ($0 as NSString).lastPathComponent } })
+            }
+            .frame(maxHeight: 200)
+            .fixedSize(horizontal: false, vertical: true)
+            Divider()
+        }
     }
 }
 

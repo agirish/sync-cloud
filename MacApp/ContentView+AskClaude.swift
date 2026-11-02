@@ -182,6 +182,8 @@ extension ContentView {
         guard !askClaudeChat.isRunning, let card = askClaudeChat.offeredRule(id) else { return }
         if save {
             syncManager.saveCorrectionRule(card.correction)
+            SettingsChangeLog.shared.record(SettingsChange(setting: "organize.rules", name: "Rule “\(card.rule.name)”",
+                                                           from: nil, to: nil, fromLabel: nil, toLabel: nil, how: .rule))
             askClaudeChat.answerRule(id, .saved)
             askClaudeChat.tellClaude("They saved your rule “\(card.rule.name)”.")
         } else {
@@ -758,7 +760,28 @@ extension ContentView {
                 return true
             },
             settingsLookup: askClaudeSettingsLookup,
-            setSetting: { SettingsWriter(defaults: .standard, settings: settings).write($0, $1, target: $2) })
+            setSetting: { id, value, target in
+                let before = SettingsCatalog.entry(id).flatMap { askClaudeSettingsLookup.currentValue($0, target: target) }
+                let outcome = SettingsWriter(defaults: .standard, settings: settings).write(id, value, target: target)
+                if outcome == .done, let entry = SettingsCatalog.entry(id) {
+                    askClaudeRecordChange(entry, target: target, from: before, to: value, how: .claude)
+                }
+                return outcome
+            })
+    }
+
+    /// Changed from Chat's line for a change made from the chat (TE290 step 5), written at once.
+    func askClaudeRecordChange(_ entry: SettingEntry, target: String?, from: SettingValue?, to: SettingValue,
+                               how: SettingsChange.How) {
+        SettingsChangeLog.shared.record(SettingsChange(
+            setting: entry.id, target: target, name: askClaudeSettingName(entry, target: target),
+            from: from?.stored, to: to.stored, fromLabel: from.map { SettingsLookup.label($0, entry) },
+            toLabel: SettingsLookup.label(to, entry), how: how))
+    }
+
+    /// "Theme", or "Show in Sidebar for Dropbox" for a setting that belongs to a source.
+    func askClaudeSettingName(_ entry: SettingEntry, target: String?) -> String {
+        target.map { id in "\(entry.label) for \(settings.availableProviders.first { $0.id == id }?.displayName ?? id)" } ?? entry.label
     }
 
     /// The settings tool's reads (TE290), over this window's SettingsManager.
@@ -772,6 +795,11 @@ extension ContentView {
                 // macOS holds this one; read it fresh rather than trust a value nobody has read yet.
                 await LoginItemController.shared.refresh().value
                 return LoginItemController.shared.isOn
+            },
+            changesFromChat: {
+                SettingsChangeLog.shared.visible(hiding: AskClaudePrivacy.hiddenFolders(in: .standard).map {
+                    ($0 as NSString).lastPathComponent
+                })
             })
     }
 
@@ -800,9 +828,9 @@ extension ContentView {
     func askClaudeSettingsStepped(_ step: AskClaudeSettingsStep, undone: Bool) {
         for change in step.changes {
             guard let entry = SettingsCatalog.entry(change.key.id) else { continue }
-            let name = change.key.target.map { id in
-                "\(entry.label) for \(settings.availableProviders.first { $0.id == id }?.displayName ?? id)"
-            } ?? entry.label
+            let name = askClaudeSettingName(entry, target: change.key.target)
+            askClaudeRecordChange(entry, target: change.key.target, from: undone ? change.after : change.before,
+                                  to: undone ? change.before : change.after, how: undone ? .undo : .redo)
             let now = SettingsLookup.label(undone ? change.before : change.after, entry)
             let raises = entry.raises(from: undone ? change.after : change.before, to: undone ? change.before : change.after)
                 ? " This raises Claude’s spending or access." : ""
@@ -820,13 +848,12 @@ extension ContentView {
         let lookup = askClaudeSettingsLookup
         let before = lookup.currentValue(entry, target: row.target)
         guard before != value else { return }
-        let name = row.target.map { id in
-            "\(entry.label) for \(settings.availableProviders.first { $0.id == id }?.displayName ?? id)"
-        } ?? entry.label
+        let name = askClaudeSettingName(entry, target: row.target)
         let label = { (v: SettingValue?) in v.map { SettingsLookup.label($0, entry) } ?? "unknown" }
         let prefix = "They set \(name) "
         switch SettingsWriter(defaults: .standard, settings: settings).write(entry.id, value, target: row.target) {
         case .done:
+            askClaudeRecordChange(entry, target: row.target, from: before, to: value, how: .card)
             askClaudeChat.updateSettingCard(id) { card in
                 if card.rows[index].changedFrom == nil { card.rows[index].changedFrom = before?.stored }
                 card.rows[index].refusal = nil
