@@ -37,7 +37,8 @@ struct AskClaudeSettingsBridge {
 
 /// A card of settings (TE290 step 4a): each row is the setting's real control at its live value,
 /// and a click changes the setting. Designed for 240 pt: a switch or a stepper sits beside the
-/// name, anything wider goes below it, and every line wraps.
+/// name, anything wider goes below it, and every line wraps. Accent color's swatches are
+/// Settings' own discs in two rows of six (`AccentSwatchGrid`).
 struct AskClaudeSettingCardView: View {
     let itemID: UUID
     let card: AskClaudeSettingCard
@@ -145,6 +146,12 @@ struct AskClaudeSettingCardView: View {
             .controlSize(.small)
             .fixedSize()
             .accessibilityHint(suggesting ? "Claude suggests \(pick.map { SettingsLookup.label($0, entry) } ?? "")" : "")
+        case .swatches(let choices) where Self.hues(choices) != nil:
+            AccentSwatchGrid(hues: Self.hues(choices) ?? [], selected: Self.hue(current), suggested: Self.hue(pick)) {
+                bridge.change(itemID, index, .string($0.rawValue))
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(entry.label)
         case .menu(let choices), .swatches(let choices):
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 6) { menu(index, entry, choices, current); useButton(index, entry, pick, suggesting) }
@@ -179,6 +186,17 @@ struct AskClaudeSettingCardView: View {
         .fixedSize()
         .accessibilityLabel(entry.label)
         .accessibilityValue(shown)
+    }
+
+    /// The hues a swatch setting's choices name, in order; nil when any isn't a hue, so the row
+    /// falls back to a menu rather than dropping a choice.
+    static func hues(_ choices: [SettingChoice]) -> [LiquidGlassHue]? {
+        let hues = choices.compactMap { Self.hue($0.value) }
+        return hues.count == choices.count ? hues : nil
+    }
+
+    static func hue(_ value: SettingValue?) -> LiquidGlassHue? {
+        if case .string(let raw)? = value { LiquidGlassHue(rawValue: raw) } else { nil }
     }
 
     /// A label up to its dash: "Opus 5.5 — strongest, about twice the cost" is "Opus 5.5".

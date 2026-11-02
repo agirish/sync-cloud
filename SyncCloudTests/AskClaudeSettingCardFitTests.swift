@@ -30,17 +30,18 @@ import Sync
         "readability.textSize",           // stepper beside the name
         "sync.confirmTransfer",           // switch beside the name, long help text
         "appearance.tint",                // slider
+        "appearance.accent",              // twelve swatches, a suggestion ringed
     ])
     func everyKindOfCardFits240(id: String) throws {
         let entry = try #require(SettingsCatalog.entry(id))
         let pick: String? = switch entry.control {
-        case .menu(let choices), .segmented(let choices): choices.last?.value.stored
+        case .menu(let choices), .segmented(let choices), .swatches(let choices): choices.last?.value.stored
         default: nil
         }
         let card = AskClaudeSettingCard(rows: [.init(id: id, pick: pick)])
         // Every choice as the current value: the widest one on show is the case that matters.
         let currents: [SettingValue?] = switch entry.control {
-        case .menu(let choices), .segmented(let choices): choices.map(\.value)
+        case .menu(let choices), .segmented(let choices), .swatches(let choices): choices.map(\.value)
         default: [nil]
         }
         for current in currents {
@@ -55,5 +56,17 @@ import Sync
             .init(id: "sync.dateTolerance", pick: "2.0", changedFrom: "1.0"),
         ])
         #expect(fittingWidth(card, values: ["sync.dateTolerance": .double(2)]) <= 240)
+    }
+
+    /// Accent color's choices are every hue, so its card draws the swatch grid; a swatch choice
+    /// that isn't a hue turns the row back into a menu rather than losing the choice.
+    @Test func accentDrawsSwatchesAndAnUnknownChoiceFallsBackToAMenu() throws {
+        let entry = try #require(SettingsCatalog.entry("appearance.accent"))
+        guard case .swatches(let choices) = entry.control else {
+            Issue.record("Accent color is no longer swatches")
+            return
+        }
+        #expect(AskClaudeSettingCardView.hues(choices) == LiquidGlassHue.allCases)
+        #expect(AskClaudeSettingCardView.hues(choices + [SettingChoice(.string("chartreuse"), "Chartreuse")]) == nil)
     }
 }

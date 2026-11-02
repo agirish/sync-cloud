@@ -13908,3 +13908,14 @@ only on `main` (see step 0b).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Ask Claude's Accent color card shows Settings' swatches (TE290) — main only
+
+2026-11-02, for v7.0. On `main`: the Accent color card draws Settings' own color discs, two rows of
+six (`AccentSwatchGrid`), in place of a menu; Claude's suggestion is a dashed ring on its swatch.
+Settings' Appearance tab is unchanged: its disc moved into `HueSwatchDisc`, which both share. Ask
+Claude exists only on `main` (see step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

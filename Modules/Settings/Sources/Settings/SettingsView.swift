@@ -1004,9 +1004,21 @@ struct HueOptionView: View {
         .buttonStyle(.hoverAffordance(.segment, tint: hue.accentColor, shape: .roundedRect(8)))
     }
 
-    /// The colored disc for a hue, or a neutral slashed disc for "None".
-    @ViewBuilder
-    private var swatch: some View {
+    private var swatch: some View { HueSwatchDisc(hue: hue) }
+
+    /// The chosen swatch's ring, named once because the row's selection lens wears it too.
+    static let ringColor = Color.primary.opacity(0.4)
+    static let ringWidth: CGFloat = 2
+
+    private var swatchShadowColor: Color { HueSwatchDisc.shadowColor(hue) }
+}
+
+/// The colored disc for a hue, or a neutral slashed disc for "None", at whatever size its frame
+/// gives it (32 pt here, 24 pt on an Ask Claude card). Shared with `AccentSwatchGrid`.
+struct HueSwatchDisc: View {
+    let hue: LiquidGlassHue
+
+    var body: some View {
         if hue == .none {
             ZStack {
                 Circle().fill(Color(nsColor: .controlBackgroundColor))
@@ -1022,11 +1034,7 @@ struct HueOptionView: View {
         }
     }
 
-    /// The chosen swatch's ring, named once because the row's selection lens wears it too.
-    static let ringColor = Color.primary.opacity(0.4)
-    static let ringWidth: CGFloat = 2
-
-    private var swatchShadowColor: Color {
+    static func shadowColor(_ hue: LiquidGlassHue) -> Color {
         hue == .none ? Color.black.opacity(0.2) : hue.accentColor.opacity(0.4)
     }
 }
