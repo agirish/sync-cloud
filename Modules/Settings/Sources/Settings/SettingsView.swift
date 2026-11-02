@@ -2711,11 +2711,14 @@ struct IntelligenceSettingsTab: View {
                                         .help("This is hidden by its path. If it was renamed or moved, add it again under its new name.")
                                 }
                                 Button("Remove") {
-                                    AskClaudePrivacy.unhide(folder, in: .standard)
+                                    Self.unhideIfConfirmed(folder, in: .standard, confirm: RemovalPrompt.showToClaude(
+                                        named: (folder as NSString).lastPathComponent,
+                                        isFolder: Self.isFolderOrMissing(folder)).ask)
                                     askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard)
                                 }
                                 .controlSize(.small)
                                 .accessibilityLabel("Remove \((folder as NSString).lastPathComponent) from the hidden list")
+                                .help("Shows it to Claude again. Asks first.")
                             }
                         }
                         // Files too (TE263, decision EL), as a row's Hide from Claude allows.
@@ -2882,6 +2885,19 @@ struct IntelligenceSettingsTab: View {
         .sheet(isPresented: $showSpendHistory, onDismiss: refreshSpend) {
             FilingSpendHistorySheet().presentedNativeControlAccent()
         }
+    }
+
+    /// Hidden from Claude's Remove, as one step: ask, and only then show the item to Claude again.
+    /// - Returns: Whether it was taken off the list.
+    @discardableResult
+    static func unhideIfConfirmed(_ path: String, in defaults: UserDefaults, confirm: () -> Bool) -> Bool {
+        RemovalPrompt.actIfConfirmed(confirm: confirm) { AskClaudePrivacy.unhide(path, in: defaults) }
+    }
+
+    /// A path that is gone reads as a folder: the list holds folders far more often than files.
+    static func isFolderOrMissing(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        return !FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) || isDirectory.boolValue
     }
 
     /// Saved suggestions' Clear, as one step: ask, and only then forget.

@@ -10,7 +10,10 @@ import Foundation
 /// Claude again for every file to get them. Reset Setup, Reset All Settings and Clear Log already
 /// asked; these ask the same way.
 ///
-/// The words live here, beside one another, so the five read as one voice; each control's gate is
+/// **A sixth asks the same way** (decision II): Hidden from Claude's Remove. It forgets nothing
+/// by hand, but it is the one removal that widens what Claude may see, and it was one click.
+///
+/// The words live here, beside one another, so the six read as one voice; each control's gate is
 /// beside the control. Public so a control outside Settings — an Ask Claude card (TE290) — asks
 /// in the same words; of the gates, only Column widths' (`ColumnResizeChoice`) is public so far.
 public struct RemovalPrompt: Equatable, Sendable {
@@ -36,7 +39,7 @@ public struct RemovalPrompt: Equatable, Sendable {
         return true
     }
 
-    // MARK: The five questions
+    // MARK: The questions
 
     /// Sources ▸ a folder source ▸ Remove.
     public static func removeFolderSource(named name: String) -> RemovalPrompt {
@@ -80,6 +83,21 @@ public struct RemovalPrompt: Equatable, Sendable {
                 + "the next Refine sends every file to Claude again — and pays for each one. Your "
                 + "files aren’t affected.",
             confirmTitle: "Clear Suggestions")
+    }
+
+    /// Intelligence ▸ Hidden from Claude ▸ Remove. Says what Claude sees again, because that is
+    /// what a yes gives away, and how to take it back.
+    public static func showToClaude(named name: String, isFolder: Bool) -> RemovalPrompt {
+        RemovalPrompt(
+            messageText: "Show “\(name)” to Claude again?",
+            informativeText: (isFolder
+                ? "Claude can see this folder again when you ask about it: its name, and the names, "
+                    + "kinds, sizes and dates of what’s inside it. It can also ask this Mac to read "
+                    + "its files. "
+                : "Claude can see this file again when you ask about it: its name, kind, size and "
+                    + "date. It can also ask this Mac to read it. ")
+                + "To hide it again, use Add… here, or Hide from Claude on its right-click menu.",
+            confirmTitle: "Show to Claude")
     }
 
     /// Readability ▸ Column widths ▸ All columns, when some columns were sized on their own.

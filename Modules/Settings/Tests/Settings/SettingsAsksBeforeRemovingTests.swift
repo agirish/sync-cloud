@@ -10,7 +10,8 @@ import Testing
 /// with it), Sync's Clear All for ignored items, Organize's Clear All for kept names, Intelligence's
 /// Clear for saved suggestions (the next Refine pays Claude again for every file), and choosing
 /// "All columns" for column widths (the widths sized one at a time are erased, and choosing "Each
-/// column" again does not restore them).
+/// column" again does not restore them). A sixth, Hidden from Claude's Remove, asks the same way
+/// (decision II): it widens what Claude may see.
 ///
 /// The decisions are pinned on the gates — a SwiftUI button's closure cannot be reached from a test
 /// — over real stores where a store exists, and the last test holds each control to its gate, so a
@@ -214,6 +215,52 @@ import Testing
         #expect(choice?.overrides == sized)
     }
 
+    // MARK: Intelligence ▸ Hidden from Claude ▸ Remove
+
+    @Test func decliningRemoveKeepsTheItemHiddenFromClaude() {
+        let defaults = ScratchDefaults("AskFirst-hidden-decline")
+        AskClaudePrivacy.hide("/Users/u/Private", in: defaults)
+        AskClaudePrivacy.hide("/Users/u/Taxes", in: defaults)
+        var asked = 0
+
+        let done = IntelligenceSettingsTab.unhideIfConfirmed("/Users/u/Private", in: defaults,
+                                                             confirm: { asked += 1; return false })
+
+        #expect(!done)
+        #expect(asked == 1, "Remove did not ask")
+        #expect(AskClaudePrivacy.hiddenFolders(in: defaults) == ["/Users/u/Private", "/Users/u/Taxes"],
+                "a declined Remove showed the folder to Claude")
+    }
+
+    @Test func confirmingRemoveShowsOnlyThatItemAfterAsking() {
+        let defaults = ScratchDefaults("AskFirst-hidden-confirm")
+        AskClaudePrivacy.hide("/Users/u/Private", in: defaults)
+        AskClaudePrivacy.hide("/Users/u/Taxes", in: defaults)
+        var hiddenWhenAsked: [String] = []
+
+        let done = IntelligenceSettingsTab.unhideIfConfirmed("/Users/u/Private", in: defaults, confirm: {
+            hiddenWhenAsked = AskClaudePrivacy.hiddenFolders(in: defaults); return true
+        })
+
+        #expect(done)
+        #expect(hiddenWhenAsked.contains("/Users/u/Private"), "the folder was shown before the question")
+        #expect(AskClaudePrivacy.hiddenFolders(in: defaults) == ["/Users/u/Taxes"])
+    }
+
+    /// A folder that is gone asks in a folder's words, and a file in a file's.
+    @Test func theQuestionNamesWhatTheItemIs() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AskFirst-hidden-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("statement.pdf")
+        try Data("x".utf8).write(to: file)
+
+        #expect(IntelligenceSettingsTab.isFolderOrMissing(directory.path))
+        #expect(!IntelligenceSettingsTab.isFolderOrMissing(file.path))
+        #expect(IntelligenceSettingsTab.isFolderOrMissing(directory.appendingPathComponent("gone").path))
+    }
+
     // MARK: The words
 
     /// Each question says what goes, the button says the verb, and none of them claims more than
@@ -263,8 +310,21 @@ import Testing
                     .contains("The column you sized on its own"))
         #expect(columns.confirmTitle == "Use All Columns")
 
+        let folder = RemovalPrompt.showToClaude(named: "Private", isFolder: true)
+        let file = RemovalPrompt.showToClaude(named: "statement.pdf", isFolder: false)
+        #expect(folder.messageText == "Show “Private” to Claude again?")
+        #expect(folder.informativeText.contains("this folder"))
+        #expect(file.informativeText.contains("this file"))
+        // What a yes gives away, and the way back.
+        for prompt in [folder, file] {
+            #expect(prompt.informativeText.contains("ask this Mac to read"))
+            #expect(prompt.informativeText.contains("Add… here"))
+            #expect(prompt.informativeText.contains("Hide from Claude on its right-click menu"))
+            #expect(prompt.confirmTitle == "Show to Claude")
+        }
+
         for prompt in [source, RemovalPrompt.clearIgnoredItems(count: 3), RemovalPrompt.clearKeptNames(count: 2),
-                       suggestions, columns] {
+                       suggestions, columns, folder, file] {
             #expect(!prompt.informativeText.localizedCaseInsensitiveContains("trash"),
                     "\(prompt.messageText) talks of the Trash, but nothing goes there")
         }
@@ -325,6 +385,12 @@ import Testing
         #expect(settings.contains("RemovalPrompt.releaseColumnWidths(count: $0).ask()"),
                 "the Column widths picker no longer asks with the standard alert")
         #expect(settings.contains("confirm: { confirmReleasingColumnWidths(overrides.widths.count) }"))
+
+        #expect(count("AskClaudePrivacy.unhide(", in: settings) == 1,
+                "an item leaves Hidden from Claude somewhere in Settings besides the gate")
+        #expect(settings.contains("RemovalPrompt.actIfConfirmed(confirm: confirm) { AskClaudePrivacy.unhide(path, in: defaults) }"))
+        #expect(settings.contains("Self.unhideIfConfirmed(folder, in: .standard, confirm: RemovalPrompt.showToClaude("),
+                "Hidden from Claude's Remove no longer asks")
     }
 
     /// The source with every `//` comment removed — whole lines and trailing ones — so a call named

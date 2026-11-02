@@ -56,7 +56,7 @@ Requires **macOS 26**, unchanged from v6.2.
 - **Right-click ▸ Ask Claude About This.** On files and folders in a pane, and on rows in Compare's
   differences. The panel opens with them attached above the text box, and your question is about
   those. Hide from Claude on the same menu keeps a file or folder off Claude's screen; the list is
-  in Settings ▸ Intelligence.
+  in Settings ▸ Intelligence, where Remove asks before it shows one to Claude again.
 - **Where should this go?** Ask about a file and Claude answers from how you file, as Setup's folder
   survey learned it from your own folders: the best folder and why, with a runner-up when it isn't
   sure, and Go to Folder. It is worked out on this Mac from the file's name and, when the file is on
