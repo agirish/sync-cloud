@@ -361,7 +361,7 @@ struct AskClaudePanel: View {
                         Text("Ask about your files, or tell me what to open: a folder, a file, a tab, another cloud, or a place in SyncCloud. I can look things up and move your view, and propose changes, which happen only when you click Apply.")
                             .foregroundStyle(.secondary)
                             .padding(10)
-                            .background(AskClaudeTint.bubble(hue, accent: accent, dark: colorScheme == .dark),
+                            .background(AskClaudeTint.bubble(hue, accent: accent, dark: colorScheme == .dark, neutral: 0.6),
                                         in: RoundedRectangle(cornerRadius: Radius.card))
                     }
                     let latestReceipt = chat.items.last { if case .receipt = $0.kind { true } else { false } }?.id
@@ -558,18 +558,18 @@ final class AskClaudeComposerCaret {
     }
 }
 
-/// The panel's accent paints over its window ground (TE291). None has no hue of its own — its
+/// The panel's accent paints over its pane surface (TE291). None has no hue of its own — its
 /// accent is the system's, which would repaint the panel in a colour nobody picked — so it keeps
-/// the stock grays.
+/// the stock grays, each at the opacity it had before.
 enum AskClaudeTint {
     /// A divider or a field's edge. `neutral` is the separator's opacity under None.
     static func hairline(_ hue: LiquidGlassHue, accent: Color, dark: Bool, neutral: Double) -> AnyShapeStyle {
         hue == .none ? AnyShapeStyle(.separator.opacity(neutral)) : AnyShapeStyle(accent.opacity(dark ? 0.28 : 0.26))
     }
 
-    /// Claude's bubbles and the opening note.
-    static func bubble(_ hue: LiquidGlassHue, accent: Color, dark: Bool) -> AnyShapeStyle {
-        hue == .none ? AnyShapeStyle(.quaternary.opacity(0.7)) : AnyShapeStyle(accent.opacity(dark ? 0.16 : 0.11))
+    /// Claude's bubbles and the opening note. `neutral` is the gray's opacity under None.
+    static func bubble(_ hue: LiquidGlassHue, accent: Color, dark: Bool, neutral: Double) -> AnyShapeStyle {
+        hue == .none ? AnyShapeStyle(.quaternary.opacity(neutral)) : AnyShapeStyle(accent.opacity(dark ? 0.16 : 0.11))
     }
 }
 
@@ -658,7 +658,7 @@ private struct AskClaudeThreadRow: View, Equatable {
                 })
                 .textSelection(.enabled)
                 .padding(.horizontal, 11).padding(.vertical, 7)
-                .background(AskClaudeTint.bubble(hue, accent: accent, dark: colorScheme == .dark),
+                .background(AskClaudeTint.bubble(hue, accent: accent, dark: colorScheme == .dark, neutral: 0.7),
                             in: RoundedRectangle(cornerRadius: Radius.card))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityLabel("Claude: \(text)")

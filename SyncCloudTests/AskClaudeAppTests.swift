@@ -1440,6 +1440,59 @@ private final class Counter: @unchecked Sendable {
     }
 }
 
+/// TE291: the panel paints a pane's surface and the window's accent, not a gray popover's.
+@MainActor
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct AskClaudePanelPaintTests {
+
+    /// The panel's colour in its empty thread, rendered over black so a panel that paints nothing
+    /// there reads as black rather than as whatever the surface would have been.
+    private func threadColor(hue: LiquidGlassHue, tint: Double, level: GlassLevel) throws -> (r: CGFloat, g: CGFloat, b: CGFloat) {
+        let container = CGSize(width: 1000, height: 800)
+        let host = NSHostingView(rootView: AskClaudePanel(
+            chat: AskClaudeChat(readKey: { nil }), place: AskClaudePanelHandleTests.place,
+            accent: hue.accentColor, accentFill: hue.accentFillColor, onAccent: hue.onAccentLabelColor,
+            hue: hue, tint: tint, level: level,
+            onAsk: { _ in }, onClose: {}, onOpenSettings: {}, container: container)
+            .frame(width: container.width, height: container.height, alignment: .topLeading)
+            .background(Color.black)
+            .environment(\.colorScheme, .light))
+        host.frame = NSRect(origin: .zero, size: container)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .aqua)
+        window.colorSpace = .sRGB
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        // The panel draws from its host's top-left (its window does the placing), 372 wide:
+        // in the empty thread, below the opening note and above the composer.
+        let scale = CGFloat(rep.pixelsWide) / container.width
+        let c = try #require(rep.colorAt(x: Int(186 * scale), y: Int(300 * scale)))
+        return (c.redComponent, c.greenComponent, c.blueComponent)
+    }
+
+    @Test func atSolidItIsThePanesWhite() throws {
+        let c = try threadColor(hue: .none, tint: 0, level: .solid)
+        #expect(min(c.r, c.g, c.b) > 0.95, "the panel's thread is \(c) at Solid with no accent")
+    }
+
+    @Test func itTakesTheAccentWash() throws {
+        let amber = try threadColor(hue: .amber, tint: 1, level: .solid)
+        let none = try threadColor(hue: .none, tint: 1, level: .solid)
+        // Amber's wash warms white: red stays up, blue drops. None has no wash at any Tint.
+        #expect(amber.r - amber.b > 0.12, "Amber at full Tint painted \(amber)")
+        #expect(abs(none.r - none.b) < 0.03, "None at full Tint painted \(none)")
+    }
+
+    @Test func clearHasTheThinnerGround() {
+        // Decision HW: at Clear the panel shows more of what is behind it than the other levels.
+        #expect(AskClaudePanel.glassBacking(.clear) == 0.6)
+        #expect(AskClaudePanel.glassBacking(.frosted) == 0.85)
+        #expect(AskClaudePanel.glassBacking(.solid) == 0.85)
+    }
+}
+
 /// The real panel in its window, placed from its own view update: its content fills the window.
 @MainActor
 @Suite struct AskClaudePanelWindowFitTests {
