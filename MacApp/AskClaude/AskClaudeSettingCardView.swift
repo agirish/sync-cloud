@@ -37,6 +37,13 @@ struct AskClaudeSettingsBridge {
     /// question, and sends the one it stopped.
     var canAskAgain: @MainActor () -> Bool = { false }
     var askAgain: @MainActor (_ item: UUID) -> Void = { _ in }
+    /// The API key card (TE290 step 7). Whether a key is saved, asked without reading it; a key
+    /// typed in the card's field, saved; and a caught message's key, still held, saved or put back.
+    var keyIsSaved: @MainActor () -> Bool = { false }
+    var saveKey: @MainActor (_ item: UUID, _ row: Int, _ key: String) -> Void = { _, _, _ in }
+    var hasCaughtKey: @MainActor (_ item: UUID) -> Bool = { _ in false }
+    var saveCaughtKey: @MainActor (_ item: UUID, _ row: Int) -> Void = { _, _ in }
+    var editCaught: @MainActor (_ item: UUID) -> Void = { _ in }
 }
 
 /// What a change does beyond its value, shown beside it on a card (TE290 step 6): judged from the
@@ -93,6 +100,8 @@ struct AskClaudeSettingCardView: View {
     let accent: Color
     let hue: LiquidGlassHue
     @StateObject private var ticker = AskClaudeSettingsTicker()
+    /// What is typed in an API key field, by row: the view's alone, never the card's.
+    @State private var typedKeys: [Int: String] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -196,6 +205,8 @@ struct AskClaudeSettingCardView: View {
     private func belowControl(_ index: Int, _ entry: SettingEntry, _ current: SettingValue?, _ pick: SettingValue?,
                               _ suggesting: Bool) -> some View {
         switch entry.control {
+        case .secret:
+            keyControl(index)
         case .segmented(let choices):
             Picker(entry.label, selection: Binding(get: { current ?? choices[0].value },
                                                    set: { bridge.change(itemID, index, $0) })) {
@@ -275,6 +286,68 @@ struct AskClaudeSettingCardView: View {
         }
     }
 
+    // MARK: API key
+
+    /// The API key row: 16 dots for a saved key, as Settings shows it, and a field for a new one.
+    /// A message caught holding a key shows it masked, with Save as API Key while the chat still
+    /// holds the key.
+    @ViewBuilder
+    private func keyControl(_ index: Int) -> some View {
+        let row = card.rows[index]
+        if row.keySaved != true {
+            if let caught = card.caught {
+                Text(caught)
+                    .scaledFont(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.control))
+            }
+            if card.caught != nil, bridge.hasCaughtKey(itemID) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) { caughtButtons(index) }
+                    VStack(alignment: .leading, spacing: 6) { caughtButtons(index) }
+                }
+            } else {
+                if bridge.keyIsSaved() {
+                    Text("Saved key: ••••••••••••••••").scaledFont(.footnote).foregroundStyle(.secondary)
+                }
+                HStack(spacing: 6) {
+                    SecureField("Paste the new sk-ant-… key", text: Binding(get: { typedKeys[index] ?? "" },
+                                                                         set: { typedKeys[index] = $0 }))
+                        .textFieldStyle(.roundedBorder)
+                        .controlSize(.small)
+                        .onSubmit { saveTyped(index) }
+                        .accessibilityLabel("New API key")
+                    Button("Save") { saveTyped(index) }
+                        .controlSize(.small)
+                        .disabled((typedKeys[index] ?? "").trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+                Text("Paste the key here, not in the message box. It goes to your Keychain; Claude never sees it.")
+                    .scaledFont(.footnote).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func caughtButtons(_ index: Int) -> some View {
+        Button("Save as API Key") { bridge.saveCaughtKey(itemID, index) }
+            .controlSize(.small)
+            .help("Saves the key to your Keychain. The message isn’t sent.")
+        Button("Edit Message") { bridge.editCaught(itemID) }
+            .controlSize(.small)
+            .help("Puts the message back in the text box")
+    }
+
+    private func saveTyped(_ index: Int) {
+        let key = typedKeys[index] ?? ""
+        guard !key.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        bridge.saveKey(itemID, index, key)
+        typedKeys[index] = nil
+    }
+
     // MARK: Status
 
     @ViewBuilder
@@ -284,6 +357,10 @@ struct AskClaudeSettingCardView: View {
         if let refusal = row.refusal {
             Label(refusal, systemImage: "exclamationmark.circle")
                 .scaledFont(.footnote).foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if row.keySaved == true {
+            Label("Saved to your Keychain. Ask Claude and Refine use it from now on.", systemImage: "checkmark.circle")
+                .scaledFont(.footnote).foregroundStyle(.green)
                 .fixedSize(horizontal: false, vertical: true)
         } else if let before, let current, before != current {
             let changed = row.byClaude == true ? "Changed by Claude" : "Changed"

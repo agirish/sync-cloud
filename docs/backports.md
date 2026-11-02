@@ -14049,6 +14049,15 @@ and open a form in Edit with Fill & Sign on. Its instructions say what can't be 
 one limit to a sentence. The fixed text and tool list changed, so saved chats start over once. Ask
 Claude exists only on `main`.
 
+## API key card, and a pasted key caught before sending (TE290 step 7) — main only
+
+2026-11-02, for v7.0. On `main`: Ask Claude can show the Claude API key as a card holding a key
+field; Save puts the key in the Keychain as Settings' row does, with 16 dots for a key already
+saved and nothing read from the Keychain to draw it. A message holding `sk-ant-` and 20 or more key
+characters isn't sent or remembered: its card shows it masked, with Save as API Key and Edit
+Message, and the key stays in memory only — never in chat.json, Changed from Chat or what Claude is
+told. Ask Claude exists only on `main` (see step 0b).
+
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

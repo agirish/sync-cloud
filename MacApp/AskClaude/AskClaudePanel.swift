@@ -182,6 +182,13 @@ struct AskClaudePanel: View {
         .onChange(of: draft) { _, typed in chat.draft = typed }
         // Something attached from a row's menu: the caret goes to the box for the question (TE263).
         .onChange(of: chat.attachments) { _, now in if !now.isEmpty { composerFocused = true } }
+        // Edit Message on a caught-key card: the message comes back to the box (TE290 step 7).
+        .onChange(of: chat.draftToRestore) { _, message in
+            guard let message else { return }
+            draft = message
+            chat.draftToRestore = nil
+            composerFocused = true
+        }
         .onReceive(NotificationCenter.default.publisher(for: AskClaudeSpend.didChange)) { _ in refreshSpent() }
         // The limit is set in Settings, which writes it straight to the defaults.
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification).receive(on: RunLoop.main)) { _ in refreshSpent() }
@@ -495,6 +502,8 @@ struct AskClaudePanel: View {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !chat.isRunning else { return }
         draft = ""
+        // A key never leaves the Mac in a message, nor joins the remembered questions (TE290 step 7).
+        if chat.catchKey(text) { return }
         chat.rememberSent(text)
         onAsk(text)
     }

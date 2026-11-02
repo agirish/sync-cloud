@@ -1509,6 +1509,39 @@ private final class NoTools: AskClaudeToolRunning {
                                          "They set Theme to Dark on your card (was System)."])
     }
 
+    /// TE290 step 7: a message holding an API key is held back in favour of a card. The key stays
+    /// in memory: never in chat.json, gone with Edit Message, a save, or New Chat.
+    @Test func aMessageHoldingAKeyIsHeldBackAndNeverSaved() throws {
+        let d = defaults()
+        let store = FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudeKeyCatch-\(UUID().uuidString)/chat.json")
+        defer { try? FileManager.default.removeItem(at: store.deletingLastPathComponent()) }
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "hi"), defaults: d) },
+                                 readKey: { "k" }, storeURL: store)
+        let key = "sk-ant-api03-" + String(repeating: "Zq9_", count: 6)
+        let message = "here’s my new key \(key)"
+        #expect(!chat.catchKey("keys start with sk-ant-, right?"))
+        #expect(chat.catchKey(message))
+
+        let item = try #require(chat.items.last)
+        guard case .settings(let card) = item.kind else { Issue.record("no card"); return }
+        #expect(card.rows == [.init(id: "intelligence.apiKey")])
+        #expect(card.caught == "here’s my new key sk-ant-api03-••••••••••••")
+        #expect(chat.caughtKey(item.id) == key)
+        let saved = try String(contentsOf: store, encoding: .utf8)
+        #expect(!saved.contains("Zq9_"), "chat.json holds the key")
+        #expect(saved.contains("sk-ant-api03-••••"))
+
+        chat.editCaught(item.id)
+        #expect(chat.draftToRestore == message)
+        #expect(!chat.items.contains { $0.id == item.id })
+        #expect(chat.caughtKey(item.id) == nil)
+
+        #expect(chat.catchKey(message))
+        let again = try #require(chat.items.last).id
+        chat.startOver()
+        #expect(chat.caughtKey(again) == nil)
+    }
+
     /// TE290 step 6: at the monthly limit the panel shows Monthly limit as a card, saved with the
     /// chat and keeping the question for Ask Again, in place of the problem line.
     @Test func atTheLimitTheChatShowsTheLimitItself() async throws {

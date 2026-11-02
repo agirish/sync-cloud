@@ -78,6 +78,17 @@ import Sync
         #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
     }
 
+    /// TE290 step 7: the API key card, with a key saved, and a caught message with its buttons.
+    @Test(arguments: [false, true])
+    func theKeyCardsFit240(caught: Bool) {
+        let message = "here’s my new key sk-ant-api03-" + String(repeating: "x", count: 30) + " for Refine and Ask Claude both"
+        let card = caught ? AskClaudeSettingCard.caughtKey(in: message) : AskClaudeSettingCard(rows: [.init(id: "intelligence.apiKey")])
+        let bridge = AskClaudeSettingsBridge(keyIsSaved: { true }, hasCaughtKey: { _ in caught })
+        let host = NSHostingController(rootView: AskClaudeSettingCardView(itemID: UUID(), card: card, bridge: bridge,
+                                                                          accent: .blue, hue: .blue))
+        #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
+    }
+
     @Test func aCardOfSeveralWithATitleFits240() {
         let card = AskClaudeSettingCard(title: "Hide Identical Files in Compare", rows: [
             .init(id: "sync.verifySameSize", pick: "true"),

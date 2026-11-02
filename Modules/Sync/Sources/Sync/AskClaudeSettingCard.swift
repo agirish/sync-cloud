@@ -22,6 +22,9 @@ public struct AskClaudeSettingCard: Codable, Equatable, Sendable {
         public var refusal: String?
         /// Claude changed it itself, with set (TE290 step 4c); nil once their own click changes it.
         public var byClaude: Bool?
+        /// The API key card saved a key to the Keychain (TE290 step 7). The key itself is never
+        /// kept on the card.
+        public var keySaved: Bool?
 
         public init(id: String, target: String? = nil, pick: String? = nil, changedFrom: String? = nil,
                     refusal: String? = nil, byClaude: Bool? = nil) {
@@ -43,12 +46,24 @@ public struct AskClaudeSettingCard: Codable, Equatable, Sendable {
     /// The question the limit stopped, for Ask Again once the limit is raised; nil after it is
     /// asked, and on every card Claude showed.
     public var askAgain: String?
+    /// A message that held an API key and wasn't sent, with the key masked (TE290 step 7). The
+    /// key itself lives only in the chat's memory, never here.
+    public var caught: String?
 
-    public init(title: String? = nil, rows: [Row], notice: String? = nil, askAgain: String? = nil) {
+    public init(title: String? = nil, rows: [Row], notice: String? = nil, askAgain: String? = nil,
+                caught: String? = nil) {
         self.title = title
         self.rows = rows
         self.notice = notice
         self.askAgain = askAgain
+        self.caught = caught
+    }
+
+    /// The card the panel shows in place of a message that held an API key.
+    public static func caughtKey(in message: String) -> AskClaudeSettingCard {
+        AskClaudeSettingCard(rows: [Row(id: "intelligence.apiKey")],
+                             notice: "That looks like an API key, so it wasn’t sent. Messages reach Claude.",
+                             caught: AskClaudeKeyCatch.masked(message))
     }
 
     /// The card the panel shows in place of the at-limit problem: Monthly limit, with the stopped

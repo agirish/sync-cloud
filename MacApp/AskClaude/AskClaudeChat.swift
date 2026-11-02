@@ -269,6 +269,39 @@ final class AskClaudeChat: ObservableObject {
     /// The settings cards' undo and redo (TE290 step 4b): the chat's, so they outlive the panel.
     let settingsUndo = AskClaudeSettingsUndo()
 
+    /// Messages held back because they held an API key (TE290 step 7), and their keys, by card.
+    /// In memory only: never saved with the chat, gone with New Chat and a relaunch.
+    private var caughtMessages: [UUID: (message: String, key: String)] = [:]
+    /// A message for the text box to take back: Edit Message on a caught-key card.
+    @Published var draftToRestore: String?
+
+    /// Holds back a message with an API key in it, putting a card in its place.
+    /// - Returns: Whether it held the message back.
+    func catchKey(_ message: String) -> Bool {
+        guard let key = AskClaudeKeyCatch.key(in: message) else { return false }
+        let item = Item(kind: .settings(.caughtKey(in: message)))
+        items.append(item)
+        lastActivity = now()
+        caughtMessages[item.id] = (message, key)
+        Logger.shared.info("Ask Claude: held back a message that holds an API key")
+        if !isRunning { save() }
+        return true
+    }
+
+    /// The key a caught-key card holds back, while the chat still has it.
+    func caughtKey(_ id: UUID) -> String? { caughtMessages[id]?.key }
+
+    /// Lets go of a caught key once it is saved.
+    func forgetCaughtKey(_ id: UUID) { caughtMessages[id] = nil }
+
+    /// Edit Message: the message goes back to the text box, and its card goes.
+    func editCaught(_ id: UUID) {
+        guard let message = caughtMessages.removeValue(forKey: id)?.message else { return }
+        items.removeAll { $0.id == id }
+        draftToRestore = message
+        if !isRunning { save() }
+    }
+
     /// A line about a card for Claude, sent with the next question.
     func tellClaude(_ line: String) {
         sinceLastAnswer.append(line)
@@ -852,6 +885,7 @@ final class AskClaudeChat: ObservableObject {
         hiddenAtStart = Set(AskClaudePrivacy.hiddenFolders(in: defaults))
         // The cards are gone; so are their undo steps. Their changes stay.
         settingsUndo.clear()
+        caughtMessages = [:]
         save()
     }
 

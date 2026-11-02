@@ -121,17 +121,53 @@ import Sync
     private final class FakeKeychain: KeychainStore, @unchecked Sendable {
         var hasItem = true
         var refuseDelete = false
+        /// Refuses every write, as a locked keychain or an MDM policy does.
+        var refuseWrite = false
+        var writes = 0
 
         func delete(_ query: [String: Any]) -> OSStatus {
             if refuseDelete { return errSecInteractionNotAllowed }
             hasItem = false
             return errSecSuccess
         }
-        func add(_ attributes: [String: Any]) -> OSStatus { errSecSuccess }
+        func add(_ attributes: [String: Any]) -> OSStatus {
+            if refuseWrite { return errSecInteractionNotAllowed }
+            hasItem = true
+            writes += 1
+            return errSecSuccess
+        }
         func copyMatching(_ query: [String: Any]) -> (status: OSStatus, result: AnyObject?) {
             (hasItem ? errSecSuccess : errSecItemNotFound, nil)
         }
-        func update(_ query: [String: Any], attributes: [String: Any]) -> OSStatus { errSecSuccess }
+        func update(_ query: [String: Any], attributes: [String: Any]) -> OSStatus {
+            if refuseWrite { return errSecInteractionNotAllowed }
+            guard hasItem else { return errSecItemNotFound }
+            writes += 1
+            return errSecSuccess
+        }
+    }
+
+    // MARK: - API key saving (TE290 step 7)
+
+    @Test func aKeyFromACardIsSavedAsSettingsSavesIt() {
+        let keychain = FakeKeychain()
+        keychain.hasItem = false
+        #expect(APIKeySaving.save("sk-ant-api03-abcdefghijklmnopqrstuvwxyz", in: keychain) == nil)
+        #expect(keychain.hasItem && keychain.writes == 1)
+        // Replaced in place.
+        #expect(APIKeySaving.save("sk-ant-api03-zyxwvutsrqponmlkjihgfedcba", in: keychain) == nil)
+        #expect(keychain.writes == 2)
+    }
+
+    @Test func aRefusedSaveSaysSoAndAnEmptyOneWritesNothing() {
+        let keychain = FakeKeychain()
+        keychain.refuseWrite = true
+        let refusal = APIKeySaving.save("sk-ant-api03-abcdefghijklmnopqrstuvwxyz", in: keychain)
+        #expect(refusal?.hasPrefix("Couldn’t save the key: macOS refused it") == true)
+        #expect(refusal?.contains("The old key stays") == true)
+        keychain.refuseWrite = false
+        #expect(APIKeySaving.save("   ", in: keychain) == "Paste the key first.")
+        #expect(keychain.writes == 0 && keychain.hasItem)
     }
 
     @Test func removingTheKeyReportsNothingWhenItIsGone() {

@@ -330,7 +330,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     /// The controls a card can hold in this version (TE290 step 4a); the rest open Settings.
     static func cardHolds(_ control: SettingControl) -> Bool {
         switch control {
-        case .toggle, .segmented, .menu, .stepper, .slider, .swatches: true
+        case .toggle, .segmented, .menu, .stepper, .slider, .swatches, .secret: true
         default: false
         }
     }

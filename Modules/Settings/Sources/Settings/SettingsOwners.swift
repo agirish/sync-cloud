@@ -1,6 +1,7 @@
 import Design
 import Events
 import Foundation
+import Security
 import Sync
 import UserNotifications
 
@@ -62,6 +63,23 @@ public enum APIKeyRemoval {
         let status = AnthropicKeychain.delete(from: store)
         guard AnthropicKeychain.isConfigured(in: store) else { return nil }
         return "The Keychain refused to delete the key (status \(status)). It is still stored. Unlock your login keychain and try again."
+    }
+}
+
+/// Intelligence ▸ Claude API key ▸ Save, from an Ask Claude card (TE290 step 7): the same write
+/// Settings' row makes, and the same check that it landed.
+public enum APIKeySaving {
+
+    /// Stores `key` in the Keychain, replacing any saved one in place (a refused write leaves the
+    /// old key). `isConfigured`, not `hasKey`: confirming the write must not ask for the secret.
+    /// - Returns: Why it wasn't saved, or nil when it was.
+    public static func save(_ key: String, in store: KeychainStore = SecItemKeychainStore()) -> String? {
+        guard !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "Paste the key first." }
+        let status = AnthropicKeychain.store(key, in: store)
+        guard status == errSecSuccess, AnthropicKeychain.isConfigured(in: store) else {
+            return "Couldn’t save the key: macOS refused it (status \(status)). The old key stays."
+        }
+        return nil
     }
 }
 

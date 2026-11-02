@@ -828,7 +828,40 @@ extension ContentView {
                 if case .overLimit = AskClaudeSpend.state(in: .standard) { return false }
                 return true
             },
-            askAgain: { id in askClaudeAskAgain(id) })
+            askAgain: { id in askClaudeAskAgain(id) },
+            // `isConfigured` asks whether a key is saved without reading it, so drawing the card
+            // never raises the Keychain's password prompt.
+            keyIsSaved: { AnthropicKeychain.isConfigured },
+            saveKey: { id, row, key in askClaudeSaveKey(id, row, key) },
+            hasCaughtKey: { [weak chat] id in chat?.caughtKey(id) != nil },
+            saveCaughtKey: { [weak chat] id, row in
+                guard let key = chat?.caughtKey(id) else { return }
+                if askClaudeSaveKey(id, row, key) { chat?.forgetCaughtKey(id) }
+            },
+            editCaught: { [weak chat] id in chat?.editCaught(id) })
+    }
+
+    /// An API key from a card (TE290 step 7), to the Keychain as Settings saves it. The card,
+    /// the record and Claude hear that it was saved, never what it is.
+    /// - Returns: Whether it was saved.
+    @discardableResult
+    func askClaudeSaveKey(_ id: UUID, _ index: Int, _ key: String) -> Bool {
+        guard let entry = SettingsCatalog.entry("intelligence.apiKey") else { return false }
+        let replacing = AnthropicKeychain.isConfigured
+        if let why = APIKeySaving.save(key) {
+            askClaudeChat.updateSettingCard(id) { $0.rows[index].refusal = why }
+            return false
+        }
+        askClaudeChat.updateSettingCard(id) { card in
+            card.rows[index].refusal = nil
+            card.rows[index].keySaved = true
+        }
+        SettingsChangeLog.shared.record(SettingsChange(
+            setting: entry.id, name: entry.label, from: nil, to: nil, fromLabel: nil,
+            toLabel: replacing ? "Replaced with a new key" : "A key saved", how: .card))
+        askClaudeChat.tellClaude(replacing ? "They replaced the API key." : "They saved an API key.")
+        Logger.shared.info("Ask Claude: an API key was saved from a card")
+        return true
     }
 
     /// The at-limit card's Ask Again (TE290 step 6): the question the limit stopped, once, now
