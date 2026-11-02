@@ -212,6 +212,10 @@ Requires **macOS 26**, unchanged from v6.2.
 
 ### Around the app
 
+- **Combine and Split PDFs.** Select several PDFs and right-click for PDF Tools ▸ Combine 3 Files…:
+  one new PDF of them, in the order you set, saved where the first one is. Right-click one PDF for
+  Split…: type the pages new files start at, like 4, 9, and each part is saved next to it, named for
+  its pages. The originals aren't changed. Both are in File ▸ PDF Tools too.
 - **Cloud Filing prices Sonnet 5 at $2/$10.** v6.2 quoted and counted it at Sonnet 4.6's $3/$15 per
   million tokens, so a scan cost half as much again as the quote said and reached the spend caps
   early.

@@ -47,6 +47,8 @@ public final class PanePDFTools: ObservableObject {
     public enum Current {
         case single(EditorPDFTools)
         case batch(EditorPDFBatch)
+        /// Combine several into one, or split one into several (TE294).
+        case combineSplit(EditorPDFCombineSplit)
     }
 
     /// The run the window shows — its sheet, its progress, its banner.
@@ -74,6 +76,7 @@ public final class PanePDFTools: ObservableObject {
         // A batch's sheet is up from the request until its run starts; the run itself is in the
         // capsule (CH).
         case .batch(let batch): return batch.isRunning || batch.showsSheet
+        case .combineSplit(let run): return run.isRunning || run.showsSheet || run.isPreparing
         case nil: return false
         }
     }
@@ -113,11 +116,29 @@ public final class PanePDFTools: ObservableObject {
             refuseWhileBusy()
             return
         }
-        if paths.count == 1 {
-            startSingle(request, path: paths[0], writer: writer)
-        } else {
-            startBatch(request, paths: paths, writer: writer)
+        switch request {
+        case .combine:
+            guard paths.count > 1 else { return }
+            startCombineSplit(.combine(paths), writer: writer)
+        case .split:
+            startCombineSplit(.split(paths[0]), writer: writer)
+        default:
+            if paths.count == 1 {
+                startSingle(request, path: paths[0], writer: writer)
+            } else {
+                startBatch(request, paths: paths, writer: writer)
+            }
         }
+    }
+
+    /// Combine or Split: its sheet, after Split's lane read.
+    private func startCombineSplit(_ job: EditorPDFCombineSplit.Job, writer: String) {
+        let run = EditorPDFCombineSplit(job: job, writer: writer)
+        run.host = host
+        run.isCloudOnly = isCloudOnly
+        current = .combineSplit(run)
+        run.prepare()
+        work = run.work
     }
 
     private func refuseWhileBusy() {
@@ -125,6 +146,7 @@ public final class PanePDFTools: ObservableObject {
         switch current {
         case .single(let tools): tools.banner = note
         case .batch(let batch): batch.banner = note
+        case .combineSplit(let run): run.banner = note
         case nil: break
         }
     }
@@ -190,6 +212,9 @@ public final class PanePDFTools: ObservableObject {
             if tools.offersRemovePassword { tools.sheet = .removePassword } else {
                 refuse("“\(name)” has no password to remove.")
             }
+        // Their own run, never this one's (``startCombineSplit(_:writer:)``).
+        case .combine, .split:
+            break
         }
     }
 
@@ -371,7 +396,7 @@ public final class PanePDFTools: ObservableObject {
         case .rotateAll(let turns): kind = .rotate(quarterTurns: turns)
         case .compress: kind = .compress
         case .cleanMetadata: kind = .cleanMetadata
-        case .protect, .removePassword: return
+        case .protect, .removePassword, .combine, .split: return
         }
         let batch = EditorPDFBatch(kind: kind, paths: paths, writer: writer)
         batch.host = host
@@ -448,6 +473,8 @@ struct PanePDFToolsLayer: View {
             PanePDFSingleLayer(tools: tools, host: model.host, accent: accent, onResult: onResult)
         case .batch(let batch):
             PanePDFBatchLayer(batch: batch, accent: accent, onResult: onResult)
+        case .combineSplit(let run):
+            PanePDFCombineSplitLayer(run: run, onResult: onResult)
         case nil:
             EmptyView()
         }
@@ -507,6 +534,30 @@ struct PanePDFBatchLayer: View {
                     .frame(minWidth: EditorPDFBatchSheet.minWidth, idealWidth: EditorPDFBatchSheet.idealWidth)
                     // No `.accentedProminent()` here: a root tint draws every bordered button's
                     // words in the fill. The sheet's default button takes it itself.
+                    .presentedNativeControlAccent()
+            }
+        }
+    }
+}
+
+/// Combine's and Split's sheet over the window, and their ending as the pane's result message — the
+/// batch's shape (``PanePDFBatchLayer``).
+struct PanePDFCombineSplitLayer: View {
+    @ObservedObject var run: EditorPDFCombineSplit
+    let onResult: (PaneToolResult) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {}
+        .onChange(of: run.banner, initial: true) { _, banner in
+            guard let banner else { return }
+            onResult(PaneToolResult(banner, host: run.host))
+            run.banner = nil
+        }
+        .background {
+            Color.clear.sheet(isPresented: $run.showsSheet) {
+                EditorPDFCombineSplitSheet(run: run)
+                    .padding(20)
+                    .frame(minWidth: EditorPDFBatchSheet.minWidth, idealWidth: EditorPDFBatchSheet.idealWidth)
                     .presentedNativeControlAccent()
             }
         }

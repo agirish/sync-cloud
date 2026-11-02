@@ -186,9 +186,9 @@ private struct PDFToolDelegate: FileActionDelegate {
                 "one PDF draws no submenu: \(one)")
     }
 
-    /// **Three PDFs draw the batch submenu, first after Refresh, holding three items**: Rotate All
-    /// Pages, Compress 3 Files…, Clean Metadata of 3 Files… — and no password item.
-    @Test func threePDFsDrawTheBatchSubmenuWithThreeItems() throws {
+    /// **Three PDFs draw the batch submenu, first after Refresh, holding four items**: Rotate All
+    /// Pages, Compress 3 Files…, Clean Metadata of 3 Files…, Combine 3 Files… — and no password item.
+    @Test func threePDFsDrawTheBatchSubmenuWithFourItems() throws {
         let paths = ["One.pdf", "Two.pdf", "Three.pdf"].map(path)
         for file in paths { PDFFixtures.write(file, pages: 1) }
         let box = ToolBox()
@@ -200,7 +200,7 @@ private struct PDFToolDelegate: FileActionDelegate {
         let items = Self.rings(AnyView(VStack(alignment: .leading) {
             PanePDFToolsSubmenu.severalItems(count: 3) { box.asked.append(($0, paths)) }
         }.frame(width: 260)), height: 200)
-        #expect(items.count == 3, "the batch submenu holds \(items.count) items")
+        #expect(items.count == 4, "the batch submenu holds \(items.count) items")
     }
 
     /// Edit's items for each protection, Extract left out and what Edit would grey out left out —
@@ -211,10 +211,10 @@ private struct PDFToolDelegate: FileActionDelegate {
                 PanePDFToolsSubmenu.singleItems(encryption: encryption) { _ in }
             }.frame(width: 260)), height: 300).count
         }
-        // Rotate All Pages ▸, Compress…, Clean Metadata…, Protect with Password…
-        #expect(count(.none) == 4)
-        // Rotate All Pages ▸, Compress…, Remove Password…
-        #expect(count(.restrictedOnly) == 3)
+        // Rotate All Pages ▸, Split…, Compress…, Clean Metadata…, Protect with Password…
+        #expect(count(.none) == 5)
+        // Rotate All Pages ▸, Split…, Compress…, Remove Password…
+        #expect(count(.restrictedOnly) == 4)
         // Remove Password…
         #expect(count(.lockedToOpen) == 1)
     }
@@ -284,13 +284,14 @@ private struct PDFToolDelegate: FileActionDelegate {
         }
         let rotate = "Rotate All Pages ▸ Rotate Left, Rotate Right, Rotate 180°"
         #expect(drawn(.single(path: "/a.pdf", encryption: .none))
-                == [rotate, "—", "Compress…", "Clean Metadata…", "—", "Protect with Password…"])
+                == [rotate, "Split…", "—", "Compress…", "Clean Metadata…", "—", "Protect with Password…"])
         #expect(drawn(.single(path: "/a.pdf", encryption: .restrictedOnly))
-                == [rotate, "—", "Compress…", "(\(EditorPDFTools.metadataEncryptedReason))", "—", "Remove Password…"])
+                == [rotate, "Split…", "—", "Compress…", "(\(EditorPDFTools.metadataEncryptedReason))", "—",
+                    "Remove Password…"])
         #expect(drawn(.single(path: "/a.pdf", encryption: .lockedToOpen))
                 == ["(\(EditorPDFTools.lockedReason))", "—", "Remove Password…"])
         #expect(drawn(.several(paths: ["/a.pdf", "/b.pdf", "/c.pdf"]))
-                == [rotate, "—", "Compress 3 Files…", "Clean Metadata of 3 Files…"])
+                == [rotate, "—", "Compress 3 Files…", "Clean Metadata of 3 Files…", "—", "Combine 3 Files…"])
     }
 
     // MARK: The menu's protection probe

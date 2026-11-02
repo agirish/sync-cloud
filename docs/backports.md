@@ -13968,3 +13968,17 @@ question that was stopped changes nothing. Ask Claude exists only on `main` (see
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Combine and Split in PDF Tools (TE294 step 2) — main only
+
+2026-11-02, for v7.0. On `main`: a pane's PDF Tools has Combine 3 Files… for several PDFs and
+Split… for one, and File ▸ PDF Tools has them too. Combine's sheet lists the files in order, with
+↑ and ↓ to move one and the folder beside each when they're in more than one, and writes one new
+PDF where the first is ("Receipt (combined).pdf", or the name typed; keep-both on a taken name).
+Split takes the pages the new files start at and writes each part as Extract names it
+("Statement (pages 4–8).pdf"); Stop keeps the parts written. The originals are only read. These
+are new features, so the maintenance lines are owed nothing.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Combine or Split | CLOSED — new feature |

@@ -107,6 +107,10 @@ public struct ActivityRunsReader<Content: View>: View {
             RunCapsuleObserving(model: batch) { batch in
                 content(entries(pdfRun: RunCapsuleEntry.batch(batch)))
             }
+        case .combineSplit(let run):
+            RunCapsuleObserving(model: run) { run in
+                content(entries(pdfRun: RunCapsuleEntry.combineSplit(run)))
+            }
         case nil:
             content(entries(pdfRun: nil))
         }
@@ -150,6 +154,10 @@ public struct RunCapsulePresence: View {
         case .batch(let batch):
             RunCapsuleObserving(model: batch) { batch in
                 report(RunCapsuleEntry.batch(batch) != nil)
+            }
+        case .combineSplit(let run):
+            RunCapsuleObserving(model: run) { run in
+                report(RunCapsuleEntry.combineSplit(run) != nil)
             }
         case nil:
             report(false)
@@ -257,6 +265,36 @@ public struct RunCapsuleEntry {
     }
 
     static let batchStopHelp = "Stop after this file — the copies already written stay"
+
+    /// **Combine or Split, once its sheet has gone** — in the PDF tools' slot, which they share:
+    /// "Combining 3 PDFs", file 2 of 3 read, or "Splitting “Statement.pdf”", part 2 of 3.
+    @MainActor static func combineSplit(_ run: EditorPDFCombineSplit) -> RunCapsuleEntry? {
+        guard run.isRunning, !run.showsSheet else { return nil }
+        return RunCapsuleEntry(kind: .pdfTool, startedAt: run.startedAt, snapshot: {
+            let title = combineSplitTitle(run.job)
+            guard let progress = run.progress else {
+                return ProgressCapsuleRun(title: "\(title) — \(EditorPDFToolBannerView.waitingWords)",
+                                          cancelTitle: "Stop", cancelHelp: combineSplitStopHelp(run.job))
+            }
+            return ProgressCapsuleRun(title: title, completed: Int64(progress.step), total: Int64(progress.steps),
+                                      detail: progress.detail,
+                                      cancelTitle: "Stop", cancelHelp: combineSplitStopHelp(run.job))
+        }, cancel: { run.stop() }, isWaiting: { run.progress == nil })
+    }
+
+    static func combineSplitTitle(_ job: EditorPDFCombineSplit.Job) -> String {
+        switch job {
+        case .combine(let paths): return "Combining \(paths.count.formatted()) PDFs"
+        case .split(let path): return "Splitting “\((path as NSString).lastPathComponent)”"
+        }
+    }
+
+    static func combineSplitStopHelp(_ job: EditorPDFCombineSplit.Job) -> String {
+        switch job {
+        case .combine: return "Stop — nothing is written"
+        case .split: return "Stop after this part — the files already written stay"
+        }
+    }
 
     /// "Compressing 4 PDFs" — what the run does, and to how many.
     static func batchTitle(_ kind: EditorPDFBatchKind, count: Int) -> String {

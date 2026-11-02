@@ -198,6 +198,9 @@ import Testing
         // modal, and apart from `PanePDFTools.swift`, whose layer is always mounted.
         "EditorPDFBatchSheet.swift":
             "modal sheet: the batch's Cancel/run pair (.cancelAction/.defaultAction)",
+        // Combine's and Split's sheet, presented with `.sheet` by `PanePDFCombineSplitLayer` (TE294).
+        "EditorPDFCombineSplitSheet.swift":
+            "modal sheet: Combine's and Split's Cancel/run pair (.cancelAction/.defaultAction)",
         // Add Signature / Add Initials, presented with `.sheet` by Fill & Sign's palette — modal,
         // and apart from `EditorPDFFillPalette.swift`, which is mounted while the palette is up.
         "EditorPDFSignatureSheet.swift":

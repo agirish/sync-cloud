@@ -5,21 +5,26 @@ import Sync
 import SwiftUI
 
 /// **What a pane row's PDF Tools submenu asks the window to do** — Edit's whole-file tools, by the
-/// names its Tools menu gives them. The page tools (Extract, Delete, Reorder) are not here: a row
-/// has no pages to pick, and Open in Edit, a few items up, leads to them.
+/// names its Tools menu gives them, and Combine and Split, which Edit's has not (TE294). The page
+/// tools (Extract, Delete, Reorder) are not here: a row has no pages to pick, and Open in Edit, a
+/// few items up, leads to them. Split asks where its parts start in its own sheet.
 public enum PDFToolRequest: Equatable, Sendable {
     case rotateAll(quarterTurns: Int)
     case compress
     case cleanMetadata
     case protect
     case removePassword
+    /// Several PDFs into one, in an order the sheet sets (TE294).
+    case combine
+    /// One PDF into several, at the pages the sheet names (TE294).
+    case split
 
     /// Whether the request runs over several files. Passwords are one file at a time: each
     /// file's password is its own.
     public var runsOnSeveral: Bool {
         switch self {
-        case .rotateAll, .compress, .cleanMetadata: return true
-        case .protect, .removePassword: return false
+        case .rotateAll, .compress, .cleanMetadata, .combine: return true
+        case .protect, .removePassword, .split: return false
         }
     }
 }
@@ -222,9 +227,10 @@ struct PanePDFToolsSubmenu: View {
         }
     }
 
-    /// Edit's Tools menu without its page tools (Extract and Delete), in its order, with what Edit
-    /// would grey out left out — so a file locked to open holds only Remove Password, under Edit's
-    /// own reason, and a restricted one says why Clean Metadata is not there, where it would be.
+    /// Edit's Tools menu without its page tools (Extract and Delete), in its order, with Split
+    /// under Rotate, and with what Edit would grey out left out — so a file locked to open holds
+    /// only Remove Password, under Edit's own reason, and a restricted one says why Clean Metadata
+    /// is not there, where it would be.
     @ViewBuilder
     static func singleItems(encryption: PDFEncryptionState, run: @escaping (PDFToolRequest) -> Void) -> some View {
         if encryption == .lockedToOpen {
@@ -233,6 +239,7 @@ struct PanePDFToolsSubmenu: View {
             Button("Remove Password…") { run(.removePassword) }
         } else {
             rotateItems(run: run)
+            Button("Split…") { run(.split) }
             Divider()
             Button("Compress…") { run(.compress) }
             // Where Edit's menu puts its reason, in the item's own place.
@@ -256,6 +263,8 @@ struct PanePDFToolsSubmenu: View {
         Divider()
         Button("Compress \(count) Files…") { run(.compress) }
         Button("Clean Metadata of \(count) Files…") { run(.cleanMetadata) }
+        Divider()
+        Button("Combine \(count) Files…") { run(.combine) }
     }
 
     /// Edit's three turns, under Edit's name for them.

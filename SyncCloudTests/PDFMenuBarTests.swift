@@ -295,13 +295,13 @@ import Testing
         }
         let paths = ["/a/One.pdf", "/a/Two.pdf"]
         #expect(try choose(["Rotate All Pages ▸ Rotate Left", "Rotate All Pages ▸ Rotate 180°", "Compress 2 Files…",
-                            "Clean Metadata of 2 Files…"], in: .several(paths: paths))
+                            "Clean Metadata of 2 Files…", "Combine 2 Files…"], in: .several(paths: paths))
                 == ["rotateAll(quarterTurns: -1) \(paths)", "rotateAll(quarterTurns: 2) \(paths)",
-                    "compress \(paths)", "cleanMetadata \(paths)"])
+                    "compress \(paths)", "cleanMetadata \(paths)", "combine \(paths)"])
         let one = ["/a/One.pdf"]
-        #expect(try choose(["Rotate All Pages ▸ Rotate Right", "Protect with Password…"],
+        #expect(try choose(["Rotate All Pages ▸ Rotate Right", "Split…", "Protect with Password…"],
                            in: .single(path: one[0], encryption: .none))
-                == ["rotateAll(quarterTurns: 1) \(one)", "protect \(one)"])
+                == ["rotateAll(quarterTurns: 1) \(one)", "split \(one)", "protect \(one)"])
         #expect(try choose(["Remove Password…"], in: .single(path: one[0], encryption: .restrictedOnly))
                 == ["removePassword \(one)"])
     }
