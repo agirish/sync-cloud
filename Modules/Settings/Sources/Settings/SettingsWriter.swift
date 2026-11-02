@@ -111,7 +111,11 @@ public struct SettingsWriter {
                 return .refused("Not changed: you chose Cancel.")
             }
             defaults.set(choice.mode, forKey: ColumnResizeMode.defaultsKey)
-            defaults.set(choice.overrides.rawValue, forKey: PaneViewMode.columnWidthOverridesDefaultsKey)
+            // Only what changed, as Settings writes it: a write of the same widths is still a
+            // defaults change every window's columns react to.
+            if choice.overrides != overrides {
+                defaults.set(choice.overrides.rawValue, forKey: PaneViewMode.columnWidthOverridesDefaultsKey)
+            }
 
         // Stored keys and nothing more: views bound with @AppStorage see the change themselves.
         default:

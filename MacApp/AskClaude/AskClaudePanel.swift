@@ -356,7 +356,7 @@ struct AskClaudePanel: View {
                 // chat.json held every message); a chat's few hundred rows don't need laziness.
                 VStack(alignment: .leading, spacing: 10) {
                     if chat.items.isEmpty {
-                        Text("Ask about your files, or tell me what to open: a folder, a file, a tab, another cloud, or a place in SyncCloud. I can look things up and move your view, and propose changes, which happen only when you click Apply.")
+                        Text("Ask about your files, or tell me what to open: a folder, a file, a tab, another cloud, or a place in SyncCloud. I can look things up, move your view, and change how SyncCloud looks when you ask, with Undo. Other changes, to files or settings, happen only when you click on their card.")
                             .foregroundStyle(.secondary)
                             .padding(10)
                             .background(AskClaudeTint.bubble(hue, accent: accent, dark: colorScheme == .dark, neutral: 0.6),

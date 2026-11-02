@@ -86,6 +86,17 @@ import Sync
         #expect(defaults.string(forKey: PaneViewMode.columnWidthOverridesDefaultsKey) == overrides.rawValue)
     }
 
+    /// Settings writes the widths only when they change; so does a card, or every window's
+    /// columns hear a change that isn't one.
+    @Test func widthsAreWrittenOnlyWhenTheyChange() {
+        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        let w = writer(defaults, nil, Calls())
+        #expect(w.write("readability.columnWidths", .string(ColumnResizeMode.allColumns.rawValue)) == .done)
+        #expect(w.write("readability.columnWidths", .string(ColumnResizeMode.eachColumn.rawValue)) == .done)
+        #expect(defaults.string(forKey: ColumnResizeMode.defaultsKey) == ColumnResizeMode.eachColumn.rawValue)
+        #expect(defaults.object(forKey: PaneViewMode.columnWidthOverridesDefaultsKey) == nil)
+    }
+
     @Test func launchAtLoginGoesToTheLoginItem() {
         let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
         let calls = Calls()

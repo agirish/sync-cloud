@@ -103,6 +103,10 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var showPlace: (_ place: String, _ tab: String?, _ visible: Bool) -> Bool = { _, _, _ in false }
         /// The settings tool's answers (TE290); nil where there is no app to read.
         var settingsLookup: SettingsLookup?
+        /// Writes a setting Claude may change itself, through its owner (TE290 step 4c).
+        var setSetting: (_ id: String, _ value: SettingValue, _ target: String?) -> SettingsWriter.Outcome = { _, _, _ in
+            .refused("Settings can’t be changed here.")
+        }
     }
 
     struct Tab: Equatable {
@@ -293,8 +297,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
     }
 
-    /// SyncCloud's own settings (TE290 step 2): find, get and changed. Show and set come with the
-    /// cards; until then they say so and point at the place in Settings, which is still the way.
+    /// SyncCloud's own settings (TE290): find, get and changed read them (step 2); show puts a
+    /// card in the chat (4a); set is Claude's own change, for the few it may make (4c).
     private func settings(_ call: AskClaudeToolCall, _ ctx: Context) async -> AskClaudeToolOutcome {
         guard let lookup = ctx.settingsLookup else {
             return AskClaudeToolOutcome(result: "Settings can’t be looked up here.", isError: true, step: "Couldn’t look up settings")
@@ -312,9 +316,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         case "show":
             return showSettings(call, lookup)
         case "set":
-            return AskClaudeToolOutcome(
-                result: "Not in this version yet. Show a card for it with show; their click changes it.",
-                isError: true, step: "Claude can’t change settings itself yet")
+            return setSetting(call, ctx, lookup)
         default:
             return AskClaudeToolOutcome(result: "action is find, get, changed, show or set.", isError: true, step: "No such settings action")
         }
@@ -352,17 +354,10 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                     result: "\(entry.label) can’t be a card in this version. Open Settings at it with show_in_app (place settings, tab: \(entry.label)).",
                     isError: true, step: "\(entry.label) isn’t a card yet")
             }
-            let target = item["target"]?.stringValue
-            if entry.target != .app {
-                let sources = lookup.settings?.availableProviders ?? []
-                guard let target, sources.contains(where: { $0.id == target || $0.displayName == target }) else {
-                    return AskClaudeToolOutcome(result: "\(entry.label) belongs to a source: give target, one of "
-                                                + sources.map(\.displayName).joined(separator: ", ") + ".",
-                                                isError: true, step: "Which source?")
-                }
-            }
-            let targetID = target.flatMap { name in
-                lookup.settings?.availableProviders.first { $0.id == name || $0.displayName == name }?.id
+            let targetID: String?
+            switch Self.target(item["target"]?.stringValue, of: entry, lookup) {
+            case .success(let id): targetID = id
+            case .failure(let refused): return refused.outcome
             }
             var pick: SettingValue?
             if let text = item["pick"]?.stringValue {
@@ -380,6 +375,67 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         return AskClaudeToolOutcome(
             result: "Showed a card: \(shown.joined(separator: "; ")). Their click on it changes the setting, and what they do reaches you with their next question. Don’t say it’s changed.",
             step: rows.count == 1 ? "Showed \(shown[0])" : "Showed \(rows.count) settings", settings: card)
+    }
+
+    /// A refusal as the tool's answer, carried through a `Result`.
+    struct Refused: Error {
+        let outcome: AskClaudeToolOutcome
+    }
+
+    /// The source a setting belongs to, by its id, from what Claude named it (its id or its name);
+    /// nil for an app-wide setting.
+    private static func target(_ given: String?, of entry: SettingEntry, _ lookup: SettingsLookup) -> Result<String?, Refused> {
+        guard entry.target != .app else { return .success(nil) }
+        let sources = lookup.settings?.availableProviders ?? []
+        guard let given, let source = sources.first(where: { $0.id == given || $0.displayName == given }) else {
+            return .failure(Refused(outcome: AskClaudeToolOutcome(
+                result: "\(entry.label) belongs to a source: give target, one of " + sources.map(\.displayName).joined(separator: ", ") + ".",
+                isError: true, step: "Which source?")))
+        }
+        return .success(source.id)
+    }
+
+    /// Claude's own change to a setting (TE290 step 4c): only one get says it may make — a Direct
+    /// setting, or one that lowers its own reach — and only while the chat is on screen, so the
+    /// card showing it, with Undo, is in front of them.
+    private func setSetting(_ call: AskClaudeToolCall, _ ctx: Context, _ lookup: SettingsLookup) -> AskClaudeToolOutcome {
+        guard let id = call.string("id"), let entry = SettingsCatalog.entry(id) else {
+            return AskClaudeToolOutcome(result: "\(call.string("id") ?? "That") isn’t a setting id. Use find.", isError: true,
+                                        step: "No such setting")
+        }
+        if let busy = ctx.busyReason {
+            return AskClaudeToolOutcome(
+                result: "Not changed: \(busy), which hides this chat, so they wouldn’t see the change or its Undo. Say so; it can change once that’s closed.",
+                isError: true, step: "Left \(entry.label) alone: \(busy)")
+        }
+        guard let text = call.string("value"), let value = SettingsCatalog.value(text, for: entry) else {
+            return AskClaudeToolOutcome(result: "“\(call.string("value") ?? "")” isn’t one of \(entry.label)’s choices. get it for its choices.",
+                                        isError: true, step: "Not a choice for \(entry.label)")
+        }
+        let targetID: String?
+        switch Self.target(call.string("target"), of: entry, lookup) {
+        case .success(let id): targetID = id
+        case .failure(let refused): return refused.outcome
+        }
+        let current = lookup.currentValue(entry, target: targetID)
+        let now = SettingsLookup.label(value, entry)
+        if current == value {
+            return AskClaudeToolOutcome(result: "\(entry.label) is already \(now). Nothing changed.", step: "\(entry.label) is already \(now)")
+        }
+        if let why = ClaudeSettingRule.refusal(entry, from: current, to: value, defaults: lookup.defaults) {
+            return AskClaudeToolOutcome(result: "Not changed: \(why) Offer it on a card with show; their click changes it.",
+                                        isError: true, step: "Left \(entry.label) for their click")
+        }
+        switch ctx.setSetting(entry.id, value, targetID) {
+        case .done:
+            let was = current.map { SettingsLookup.label($0, entry) }
+            let card = AskClaudeSettingCard(rows: [.init(id: entry.id, target: targetID, changedFrom: current?.stored, byClaude: true)])
+            return AskClaudeToolOutcome(
+                result: "Done: \(entry.label) is now \(now)" + (was.map { " (was \($0))" } ?? "") + ". A card shows it with Undo.",
+                step: "Changed \(entry.label) to \(now)", settings: card)
+        case .refused(let why):
+            return AskClaudeToolOutcome(result: "Not changed: \(why)", isError: true, step: "Couldn’t change \(entry.label)")
+        }
     }
 
     /// Claude's card title, held to what a title should be: one short line, no control or

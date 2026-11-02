@@ -757,7 +757,8 @@ extension ContentView {
                 }
                 return true
             },
-            settingsLookup: askClaudeSettingsLookup)
+            settingsLookup: askClaudeSettingsLookup,
+            setSetting: { SettingsWriter(defaults: .standard, settings: settings).write($0, $1, target: $2) })
     }
 
     /// The settings tool's reads (TE290), over this window's SettingsManager.
@@ -829,6 +830,7 @@ extension ContentView {
             askClaudeChat.updateSettingCard(id) { card in
                 if card.rows[index].changedFrom == nil { card.rows[index].changedFrom = before?.stored }
                 card.rows[index].refusal = nil
+                card.rows[index].byClaude = nil
             }
             if let before {
                 let undo = askClaudeChat.settingsUndo

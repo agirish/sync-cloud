@@ -82,6 +82,28 @@ import Sync
         #expect(store.values["intelligence.readsFiles"] == .bool(true))
     }
 
+    /// TE290 step 4c: Claude's own change goes on the stack as a click's would, once its card is
+    /// in the chat. Its tightening comes back only by the card's Undo: that would raise again.
+    @Test func claudesOwnChangesAreUndoneLikeAClicks() {
+        let store = Store()
+        store.values["appearance.theme"] = .string("dark")
+        store.values["intelligence.readsFiles"] = .bool(false)
+        let undo = stack(store)
+        let card = UUID()
+        undo.recordClaude([.init(id: "appearance.theme", changedFrom: "system", byClaude: true),
+                           .init(id: "intelligence.readsFiles", changedFrom: "true", byClaude: true),
+                           .init(id: "sync.confirmTransfer", changedFrom: "true")], card: card)
+
+        #expect(undo.offersUndo(card, row: 0) && undo.offersUndo(card, row: 1))
+        #expect(!undo.offersUndo(card, row: 2))
+        #expect(undo.undoTitle == "Undo Theme")
+        undo.undo()
+        #expect(store.values["appearance.theme"] == .string("system"))
+        #expect(!undo.canUndo)
+        undo.undoCard(card, row: 1)
+        #expect(store.values["intelligence.readsFiles"] == .bool(true))
+    }
+
     @Test func newChatClearsTheStepsAndKeepsTheChanges() {
         let d = UserDefaults(suiteName: "AskClaudeSettingsUndoTests.newChat")!
         defer { wipeDefaultsSuite("AskClaudeSettingsUndoTests.newChat") }

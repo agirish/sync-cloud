@@ -76,6 +76,20 @@ final class AskClaudeSettingsUndo {
         redoSteps.removeAll()
     }
 
+    /// The changes Claude made itself (TE290 step 4c), once their card is in the chat as `card`:
+    /// a step per row, as a click on it would have made, so Undo and Edit ▸ Undo take them back.
+    func recordClaude(_ rows: [AskClaudeSettingCard.Row], card: UUID) {
+        for (index, row) in rows.enumerated() where row.byClaude == true {
+            let key = AskClaudeSettingsLedger.Key(id: row.id, target: row.target)
+            guard let entry = SettingsCatalog.entry(row.id), let was = row.changedFrom, let after = read(key),
+                  let before = SettingsCatalog.value(was, for: entry) ?? AskClaudeSettingCardView.storedValue(was, like: after),
+                  before != after else { continue }
+            record(AskClaudeSettingsStep(
+                card: card, rows: [index], changes: [.init(key: key, before: before, after: after, token: token(key))],
+                name: entry.label, cardOnly: entry.raises(from: after, to: before)))
+        }
+    }
+
     /// Whether `step` still describes the live values: nothing changed any of them since.
     func isCurrent(_ step: AskClaudeSettingsStep) -> Bool {
         step.changes.allSatisfy { token($0.key) == $0.token }

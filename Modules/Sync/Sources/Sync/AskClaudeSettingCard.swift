@@ -20,14 +20,17 @@ public struct AskClaudeSettingCard: Codable, Equatable, Sendable {
         public var changedFrom: String?
         /// Why the last click didn't change it, shown under the control; nil when it did.
         public var refusal: String?
+        /// Claude changed it itself, with set (TE290 step 4c); nil once their own click changes it.
+        public var byClaude: Bool?
 
         public init(id: String, target: String? = nil, pick: String? = nil, changedFrom: String? = nil,
-                    refusal: String? = nil) {
+                    refusal: String? = nil, byClaude: Bool? = nil) {
             self.id = id
             self.target = target
             self.pick = pick
             self.changedFrom = changedFrom
             self.refusal = refusal
+            self.byClaude = byClaude
         }
     }
 

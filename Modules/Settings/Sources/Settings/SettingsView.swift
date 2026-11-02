@@ -2650,7 +2650,7 @@ struct IntelligenceSettingsTab: View {
 
             SettingsSection(
                 "Ask Claude",
-                caption: "The chat button in the toolbar, ⌘J. Claude sees a description of the screen you’re on — the names, kinds, sizes, dates and tags of what’s shown — and can look things up, move your view and open your places. When it needs what’s inside a file, this Mac reads the file and sends Claude a short answer, not the file; a passage goes only if you send it, or always with Let Claude read files on. It can’t change files. Every answer says what it sent and what it cost."
+                caption: "The chat button in the toolbar, ⌘J. Claude sees a description of the screen you’re on — the names, kinds, sizes, dates and tags of what’s shown — and can look things up, move your view and open your places. When it needs what’s inside a file, this Mac reads the file and sends Claude a short answer, not the file; a passage goes only if you send it, or always with Let Claude read files on. When you ask, it changes how SyncCloud looks, or lowers its own spending or access, with Undo on its card; any other change, files included, waits for your click on a card. Every answer says what it sent and what it cost."
             ) {
                 SettingsRow("Model") {
                     Picker("Model", selection: Binding(

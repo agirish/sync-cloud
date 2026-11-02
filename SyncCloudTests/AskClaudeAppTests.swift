@@ -53,7 +53,8 @@ import FileExplorer
     private func tools(inBrowse: Bool = true, busy: String? = nil, folder: String = "Documents/Taxes",
                        root: String = AskClaudeBrowseToolsTests.root, recorder: Recorder = Recorder(),
                        disk: [String: [FileNode]] = [:], spotlight: [String]? = nil, extra: [FileNode] = [],
-                       moveAfter: Duration? = nil, settingsLookup: SettingsLookup? = nil) -> AskClaudeBrowseTools {
+                       moveAfter: Duration? = nil, settingsLookup: SettingsLookup? = nil,
+                       setSetting: ((String, SettingValue, String?) -> SettingsWriter.Outcome)? = nil) -> AskClaudeBrowseTools {
         var map: [String: FileNode] = [:]
         Self.index(Self.tree + extra, into: &map)
         let scope = root
@@ -79,7 +80,8 @@ import FileExplorer
                     }
                 },
                 select: { recorder.selected.append($0) },
-                settingsLookup: settingsLookup)
+                settingsLookup: settingsLookup,
+                setSetting: setSetting ?? { _, _, _ in .refused("Settings can’t be changed here.") })
         }, listDisk: { disk[$0] }, searchNames: { _, _ in spotlight }, statDisk: { _ in nil },
            openFile: { recorder.opened.append($0); return true })
     }
@@ -88,8 +90,7 @@ import FileExplorer
         AskClaudeToolCall(id: "t", name: name, input: .object(input))
     }
 
-    /// TE290 step 2: the settings tool answers find, get and changed through the runner, and says
-    /// plainly that show and set aren't here yet.
+    /// TE290 step 2: the settings tool answers find, get and changed through the runner.
     @Test func theSettingsToolFindsReadsAndListsWhatChanged() async {
         let suite = "AskClaudeSettingsTool.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -111,12 +112,58 @@ import FileExplorer
 
         let changed = await runner.run(call("settings", ["action": .string("changed")]), handles: &handles)
         #expect(changed.result == "Theme (Appearance): Dark — default System")
+    }
 
-        let set = await runner.run(call("settings", ["action": .string("set"), "id": .string("appearance.theme"),
-                                                      "value": .string("light")]), handles: &handles)
-        #expect(set.isError)
-        #expect(set.result.hasPrefix("Not in this version yet"))
+    /// TE290 step 4c: Claude changes a setting itself only for look-and-feel, or to lower its own
+    /// reach, never to a limit it has already spent, and never while the chat is hidden.
+    @Test func setChangesOnlyWhatClaudeMayChangeItself() async throws {
+        let suite = "AskClaudeSettingsSet.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { wipeDefaultsSuite(suite) }
+        let manager = SettingsManager(userDefaults: defaults)
+        let lookup = SettingsLookup(defaults: defaults, settings: manager,
+                                    keyIsSaved: { true }, hiddenCount: { 0 }, isHidden: { _ in false },
+                                    loginItemIsOn: { false })
+        let write = { SettingsWriter(defaults: defaults, settings: manager).write($0, $1, target: $2) }
+        var handles = AskClaudeHandles()
+        func set(_ id: String, _ value: String, busy: String? = nil) async -> AskClaudeToolOutcome {
+            await tools(busy: busy, settingsLookup: lookup, setSetting: write)
+                .run(call("settings", ["action": .string("set"), "id": .string(id), "value": .string(value)]), handles: &handles)
+        }
+
+        let dark = await set("appearance.theme", "Dark")
+        #expect(!dark.isError)
+        #expect(dark.result == "Done: Theme is now Dark (was System). A card shows it with Undo.")
+        #expect(dark.settings?.rows == [.init(id: "appearance.theme", changedFrom: "system", byClaude: true)])
         #expect(defaults.string(forKey: LiquidGlass.appearanceModeKey) == AppearanceMode.dark.rawValue)
+        let again = await set("appearance.theme", "dark")
+        #expect(!again.isError && again.settings == nil)
+        #expect(again.result == "Theme is already Dark. Nothing changed.")
+
+        let hidden = await set("appearance.theme", "Light", busy: "Settings is open")
+        #expect(hidden.isError && hidden.result.hasPrefix("Not changed: Settings is open"))
+        #expect(defaults.string(forKey: LiquidGlass.appearanceModeKey) == AppearanceMode.dark.rawValue)
+
+        // Their click, not Claude's: a Suggested setting, and reading turned on.
+        #expect(await set("sync.whenFileExists", "Skip").isError)
+        #expect(await set("intelligence.readsFiles", "On").isError)
+        #expect(defaults.object(forKey: AskClaudePrivacy.readsFilesKey) == nil)
+
+        // Lowering its own reach is Claude's to do: reading off, a lower limit. Not below what's spent.
+        defaults.set(true, forKey: AskClaudePrivacy.readsFilesKey)
+        #expect(!(await set("intelligence.readsFiles", "Off")).isError)
+        #expect(defaults.bool(forKey: AskClaudePrivacy.readsFilesKey) == false)
+        AskClaudeSpend.record(7, in: defaults)
+        #expect(await set("intelligence.monthlyLimit", "$50").isError)
+        #expect(await set("intelligence.monthlyLimit", "No limit").isError)
+        #expect(!(await set("intelligence.monthlyLimit", "$10")).isError)
+        #expect(AskClaudeSpend.limit(in: defaults) == 10)
+        let below = await set("intelligence.monthlyLimit", "$5")
+        #expect(below.isError && below.result.contains("already spent"))
+        #expect(AskClaudeSpend.limit(in: defaults) == 10)
+
+        #expect(await set("no.such", "On").isError)
+        #expect(await set("appearance.theme", "Purple").isError)
     }
 
     /// TE290 step 4a: show checks every item before a card appears.

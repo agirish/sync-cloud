@@ -13920,3 +13920,17 @@ Claude exists only on `main` (see step 0b).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Ask Claude changes look-and-feel itself, and lowers its own reach (TE290 step 4c) — main only
+
+2026-11-02, for v7.0. On `main`: asked in your own message, Claude changes a look-and-feel setting
+itself (Appearance, Readability, Sort panes by), or lowers its own spending or access — reading off,
+cloud Refine off, a lower monthly limit or cap — never to what has already been spent, and never
+while Settings or a sheet hides the chat. Its card says "Changed by Claude · was …" with Undo, and
+Edit ▸ Undo takes the look-and-feel ones back too. Everything else stays your click on a card. Also:
+a card choosing Column widths no longer rewrites the custom widths when they didn't change. Ask
+Claude exists only on `main` (see step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

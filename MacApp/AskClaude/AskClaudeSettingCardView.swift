@@ -225,8 +225,9 @@ struct AskClaudeSettingCardView: View {
                 .scaledFont(.footnote).foregroundStyle(.red)
                 .fixedSize(horizontal: false, vertical: true)
         } else if let before, let current, before != current {
+            let changed = row.byClaude == true ? "Changed by Claude" : "Changed"
             HStack(spacing: 4) {
-                Label("Changed · was \(SettingsLookup.label(before, entry))", systemImage: "checkmark.circle")
+                Label("\(changed) · was \(SettingsLookup.label(before, entry))", systemImage: "checkmark.circle")
                     .foregroundStyle(.green)
                 badges(entry, from: before, to: current)
                 Spacer(minLength: 4)

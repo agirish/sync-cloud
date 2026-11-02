@@ -50,6 +50,21 @@ import Sync
         }
     }
 
+    /// TE290 step 4c: Claude's own change says so, with the longest "was" and a raising Undo.
+    @Test(arguments: [
+        ("intelligence.monthlyLimit", "0.0", SettingValue.double(5)),
+        ("intelligence.readsFiles", "true", SettingValue.bool(false)),
+        ("readability.columnWidths", "each", SettingValue.string("all")),
+    ])
+    func aChangeClaudeMadeFits240(id: String, was: String, now: SettingValue) {
+        let card = AskClaudeSettingCard(rows: [.init(id: id, changedFrom: was, byClaude: true)])
+        let bridge = AskClaudeSettingsBridge(read: { entry, _ in entry.id == id ? now : entry.defaultValue },
+                                             offersUndo: { _, _ in true })
+        let host = NSHostingController(rootView: AskClaudeSettingCardView(itemID: UUID(), card: card, bridge: bridge,
+                                                                          accent: .blue, hue: .blue))
+        #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
+    }
+
     @Test func aCardOfSeveralWithATitleFits240() {
         let card = AskClaudeSettingCard(title: "Hide Identical Files in Compare", rows: [
             .init(id: "sync.verifySameSize", pick: "true"),

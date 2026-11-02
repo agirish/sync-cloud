@@ -807,7 +807,9 @@ final class AskClaudeChat: ObservableObject {
             items.append(Item(kind: .rule(card)))
         case .settings(let card):
             streamingItem = nil
-            items.append(Item(kind: .settings(card)))
+            let item = Item(kind: .settings(card))
+            items.append(item)
+            settingsUndo.recordClaude(card.rows, card: item.id)
         case .kept(let previous, let now):
             // A switch is noted once it reached Claude, at the question that made it (TE292). A
             // question that failed, was declined or stopped before joining the chat notes nothing,
