@@ -557,8 +557,9 @@ public final class EditorPDFSignatureStore: ObservableObject {
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         saved = Self.read(defaults)
-        // **Settings ▸ Reset All Settings takes them while the app runs**, not at the next launch:
-        // the list held here kept offering a removed signature to place, until a relaunch. Any
+        // **A removal from the domain takes them while the app runs**, not at the next launch: when
+        // Reset All Settings still took them (it keeps them now, `SettingsResetKeeps`), the list
+        // held here kept offering a removed signature to place, until a relaunch. Any
         // change to the domain is looked at; only a list that differs from the stored one moves.
         change = observeDefaultsChanges(of: defaults) { [weak self] in self?.reread() }
     }

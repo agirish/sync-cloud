@@ -4113,7 +4113,7 @@ struct AdvancedSettingsTab: View {
     }
 
     /// What Reset All Settings takes and what it keeps, in the confirmation.
-    static let resetAllExplanation = "Every setting returns to its default. Folders you added as sources, ignored items, source names and paths, Automations and saved signatures are removed, and setup will offer itself again on the next launch.\n\nKept: the folders you hid from Claude, your spending limits for Claude, and the record of what it has cost. Files on disk are not affected."
+    static let resetAllExplanation = "Every setting returns to its default. Folders you added as sources, ignored items, and source names and paths are removed, and setup will offer itself again on the next launch.\n\nKept: your Automations and saved signatures, the folders you hid from Claude, your spending limits for Claude, and the record of what it has cost. Files on disk are not affected."
 
     /// Confirmation ahead of the defaults wipe; Cancel is the default button (Return must
     /// not reset, same convention as the permanent-delete alert).

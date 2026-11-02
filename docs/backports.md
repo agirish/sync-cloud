@@ -13627,28 +13627,34 @@ A re-tune of what every Clear install looks like, so main-only on the Tint-slide
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The 0.55 scrim at Clear | RECORDED — not owed |
 
-## Reset All Settings keeps the Never show Claude list, spending limits and spend records — main only
+## Reset All Settings keeps the Never show Claude list, spending limits, spend records, Automations and saved signatures — main only
 
 2026-11-01, for v7.0. On `main`: Reset All Settings clears the defaults domain key by key and leaves
 what `SettingsResetKeeps` names — `askClaudeHiddenFolders`, the three spending limits
 (`askClaudeMonthlyLimitUSD`, `tidyFilingMonthlyBudgetUSD`, `tidyFilingTotalBudgetUSD`), Ask Claude's
-`askClaudeSpend.<month>` totals and Refine's `tidyFilingSpend{History,Totals,Last}` with their
-`.unreadable` copies. Before, `removePersistentDomain` took them all. Every line still removes the
-whole domain, so Refine's spend record and caps go with a reset there; none has Ask Claude:
+`askClaudeSpend.<month>` totals, Refine's `tidyFilingSpend{History,Totals,Last}`, Automations
+(`automationRules`), the legacy `tidyFilingRules` with `tidyFilingRulesMigratedToAutomations`, the
+`.unreadable` copies of those stores, and `editorPDFSavedSignatures`. Before, `removePersistentDomain`
+took them all. Every line still removes the whole domain, so Refine's spend record and caps and the
+Automations go with a reset there (and `v6.x`'s saved signatures); none has Ask Claude:
 
 ```sh
-for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s wipe=%s spend=%s askClaude=%s\n' $l \
+for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s wipe=%s spend=%s automations=%s signatures=%s askClaude=%s\n' $l \
   "$(git show origin/$l:Modules/Settings/Sources/Settings/SettingsManager.swift 2>/dev/null | grep -c 'userDefaults.removePersistentDomain')" \
   "$(git show origin/$l:Modules/Sync/Sources/Sync/FilingSpend.swift 2>/dev/null | grep -c 'historyKey = ')" \
+  "$(git grep -c 'automationRulesDefaultsKey = ' origin/$l -- Modules/Sync/Sources | wc -l | tr -d ' ')" \
+  "$(git grep -c '"editorPDFSavedSignatures"' origin/$l -- Modules/FileExplorer/Sources | wc -l | tr -d ' ')" \
   "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/AskClaudePrivacy.swift | wc -l | tr -d ' ')"; done
-# measured 2026-11-01, against origin, before this landed:
-# main                         wipe=1 spend=1 askClaude=1
-# v6.x / v5.x / v4.x / v3.x / v2.x  wipe=1 spend=1 askClaude=0
+# measured 2026-11-01, against origin, before the first of these landed (59997fc7c):
+# main                         wipe=1 spend=1 automations=1 signatures=1 askClaude=1
+# v6.x                         wipe=1 spend=1 automations=1 signatures=1 askClaude=0
+# v5.x / v4.x / v3.x / v2.x    wipe=1 spend=1 automations=1 signatures=0 askClaude=0
 ```
 
 | Line | Carries | Status |
 |---|---|---|
-| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Reset takes Refine's spend record and caps; no Ask Claude | RECORDED — not owed |
+| `v6.x` | Reset takes Refine's spend record and caps, Automations and saved signatures | RECORDED — not owed |
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | Reset takes Refine's spend record and caps and Automations; no signatures, no Ask Claude | RECORDED — not owed |
 
 ## Five Settings controls ask before they remove (HR) — main only
 

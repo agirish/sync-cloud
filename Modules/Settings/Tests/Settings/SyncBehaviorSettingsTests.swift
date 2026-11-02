@@ -121,7 +121,7 @@ import Sync
     }
 
     /// The reset keeps what `SettingsResetKeeps` names — the Never show Claude list, the spending
-    /// limits and the spend records — and takes the rest of what Claude was set to, which used to
+    /// limits, the spend records, Automations and saved signatures — and takes the rest of what Claude was set to, which used to
     /// go with the whole domain: every folder he had hidden was shown to Claude again.
     @MainActor
     @Test func testResetAllSettingsKeepsTheHiddenListLimitsAndSpend() {
@@ -144,13 +144,19 @@ import Sync
                              inputTokens: 1000, outputTokens: 0, cacheReadTokens: 0,
                              cacheCreationTokens: 0, estimatedCostUSD: 0.75),
             defaults: defaults)
+        defaults.set(Data("[]".utf8), forKey: FileSyncManager.automationRulesDefaultsKey)
+        defaults.set(Data("[]".utf8), forKey: FileSyncManager.rulesDefaultsKey)
+        defaults.set(true, forKey: FileSyncManager.filingRulesMigratedKey)
+        defaults.set(Data("[]".utf8), forKey: "editorPDFSavedSignatures")
+        defaults.set("cursive", forKey: "editorPDFSignatureFace")
         defaults.set("claude-opus-4-1", forKey: "askClaudeModel")
         defaults.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
         settings.dateToleranceSeconds = 60
         let kept = Set((defaults.persistentDomain(forName: test.suiteName) ?? [:]).keys)
             .filter(SettingsResetKeeps.keeps)
-        // The hidden list, three limits, this month's Ask Claude spend, Refine's history, totals, last.
-        #expect(kept.count == 8, "\(kept.sorted())")
+        // The hidden list, three limits, this month's Ask Claude spend, Refine's history, totals, last,
+        // both rule stores and their flag, and the signatures.
+        #expect(kept.count == 12, "\(kept.sorted())")
 
         let privacyPosts = CallCounter()
         let observer = NotificationCenter.default.addObserver(
@@ -169,6 +175,10 @@ import Sync
         #expect(defaults.double(forKey: FileSyncManager.monthlyBudgetCapKey) == 2)
         #expect(FilingSpendStore.totals(defaults: defaults).costUSD == 0.75)
         #expect(!AskClaudePrivacy.readsFiles(in: defaults))
+        #expect(defaults.data(forKey: FileSyncManager.automationRulesDefaultsKey) != nil)
+        #expect(defaults.bool(forKey: FileSyncManager.filingRulesMigratedKey))
+        #expect(defaults.data(forKey: "editorPDFSavedSignatures") != nil)
+        #expect(defaults.string(forKey: "editorPDFSignatureFace") == nil)
         #expect(defaults.string(forKey: "askClaudeModel") == nil)
         #expect(defaults.object(forKey: FileSyncManager.usesCloudDefaultsKey) == nil)
         #expect(settings.dateToleranceSeconds == 1)
@@ -177,11 +187,14 @@ import Sync
     }
 
     /// The confirmation says what stays, not only what goes.
-    @Test func testTheResetConfirmationNamesWhatItKeeps() {
-        let text = AdvancedSettingsTab.resetAllExplanation
-        for phrase in ["folders you hid from Claude", "spending limits", "what it has cost",
-                       "Automations", "saved signatures", "Files on disk are not affected"] {
-            #expect(text.contains(phrase), "\(phrase)")
+    @Test func testTheResetConfirmationNamesWhatItKeeps() throws {
+        let parts = AdvancedSettingsTab.resetAllExplanation.components(separatedBy: "Kept:")
+        try #require(parts.count == 2)
+        for phrase in ["Automations", "saved signatures", "folders you hid from Claude", "spending limits",
+                       "what it has cost", "Files on disk are not affected"] {
+            #expect(parts[1].contains(phrase), "\(phrase)")
+            #expect(!parts[0].contains(phrase), "\(phrase) is also named as removed")
         }
+        #expect(parts[0].contains("Folders you added as sources"))
     }
 }

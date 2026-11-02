@@ -1209,11 +1209,11 @@ extension FileSyncManager {
     /// Where the legacy remembered filing rules (F3) persist (JSON, in `filingRuleDefaults`). The
     /// store is read for the one-time migration into Automations — and consulted by scans only
     /// until that migration has run — but no new rules are ever written to it.
-    public static let rulesDefaultsKey = "tidyFilingRules"
+    public nonisolated static let rulesDefaultsKey = "tidyFilingRules"
 
     /// Set once ``migrateFilingRulesToAutomations(providerRoots:)`` has converted the legacy F3
     /// store; scans then steer from automations alone.
-    public static let filingRulesMigratedKey = "tidyFilingRulesMigratedToAutomations"
+    public nonisolated static let filingRulesMigratedKey = "tidyFilingRulesMigratedToAutomations"
 
     /// The legacy remembered rules (F3). Kept readable for the migration and the pre-migration
     /// scan path; the old data stays in defaults untouched afterwards as a backup.

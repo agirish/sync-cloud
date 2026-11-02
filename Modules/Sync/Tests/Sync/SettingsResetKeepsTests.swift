@@ -3,8 +3,8 @@ import Testing
 @testable import Sync
 
 /// What Reset All Settings keeps (`SettingsResetKeeps`): the Never show Claude list, the spending
-/// limits and every spend record — read off the keys the owners really write, so a new spend key
-/// that the list does not name goes red here.
+/// limits, every spend record, Automations and saved signatures — read off the keys the owners
+/// really write, so a new key that the list does not name goes red here.
 @Suite struct SettingsResetKeepsTests {
 
     private func suite() -> (UserDefaults, String) {
@@ -70,11 +70,32 @@ import Testing
         #expect(SettingsResetKeeps.keeps("tidyFilingTotalBudgetUSD"))
     }
 
-    /// Settings and records that are not money or privacy go with the reset.
+    /// Automations, the legacy filing rules with their "migrated" flag, and the copies an
+    /// unreadable rule list is set aside under — read off the keys the rule store really writes.
+    @MainActor
+    @Test func everyKeyTheRuleStoresWriteIsKept() {
+        let (defaults, name) = suite()
+        defer { wipeDefaultsSuite(name) }
+        let corrupt = Data("[{\"id\": \"x".utf8)
+        for key in [FileSyncManager.automationRulesDefaultsKey, FileSyncManager.rulesDefaultsKey] {
+            defaults.set(corrupt, forKey: key)
+            _ = FileSyncManager.decodePersistedStore([AutomationRule].self, from: defaults, key: key,
+                                                     describing: "rules")
+        }
+        defaults.set(true, forKey: FileSyncManager.filingRulesMigratedKey)
+
+        let keys = storedKeys(name, defaults)
+        // Both stores, both set-aside copies, and the flag.
+        #expect(keys.count == 5, "\(keys.sorted())")
+        for key in keys { #expect(SettingsResetKeeps.keeps(key), "\(key) would be reset") }
+    }
+
+    /// Settings and records that are not money, privacy or his own rules and signatures go with the reset.
     @Test func everythingElseIsReset() {
         for key in ["askClaudeModel", "askClaudeReadsFiles", "askClaudePanelWidth", "askClaudeAnswers",
-                    "tidyFilingUseCloud", "tidyFilingCloudModel", "tidyFilingRules", "automationRules",
-                    "editorPDFSavedSignatures", "folderSources", "appearanceMode", "hasCompletedSetup",
+                    "tidyFilingUseCloud", "tidyFilingCloudModel", "tidyFilingRejections",
+                    "editorPDFSignatureFace", "editorPDFSignaturePen", "editorPDFSignatureSmoothing",
+                    "folderSources", "appearanceMode", "hasCompletedSetup",
                     "askClaudeSpendNotice", "tidyFilingSpend"] {
             #expect(!SettingsResetKeeps.keeps(key), "\(key) would be kept")
         }

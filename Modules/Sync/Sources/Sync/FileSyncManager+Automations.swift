@@ -71,7 +71,7 @@ extension FileSyncManager {
 
     /// Where automation rules persist (JSON, in the injectable `filingRuleDefaults` store — the same
     /// store Filing's rules use, so tests that stub defaults cover both).
-    public static let automationRulesDefaultsKey = "automationRules"
+    public nonisolated static let automationRulesDefaultsKey = "automationRules"
 
     // MARK: Rule store
 

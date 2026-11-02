@@ -213,8 +213,18 @@ extension PDFFixtures {
         #expect(EditorPDFSignatureStore(defaults: defaults).saved(.initials).isEmpty)
     }
 
-    /// **A reset of every setting takes the saved signatures for good** — Reset All Settings empties
-    /// the domain under a store already up, and its next add used to write back the signatures the
+    /// **Reset All Settings keeps the saved signatures** (`SettingsResetKeeps`, in Sync, names the key
+    /// by its string), and the sheet's last face, pen and smoothing go with the other settings.
+    @Test func resetAllSettingsKeepsSavedSignatures() {
+        #expect(SettingsResetKeeps.keeps(EditorPDFSignatureStore.key))
+        for key in [EditorPDFSignatureStore.faceKey, EditorPDFSignatureStore.penKey,
+                    EditorPDFSignatureStore.smoothKey] {
+            #expect(!SettingsResetKeeps.keeps(key), "\(key)")
+        }
+    }
+
+    /// **A removal from the domain takes the saved signatures for good** — when Reset All Settings
+    /// still emptied the domain under a store already up, its next add wrote back the signatures the
     /// reset had just removed.
     @Test func savedSignaturesDoNotComeBackAfterAReset() throws {
         let scratch = ScratchDefaults("EditorPDFSignatureReset")
@@ -236,7 +246,7 @@ extension PDFFixtures {
         #expect(afterDelete.isEmpty, "the delete wrote back signatures the reset removed: \(afterDelete)")
     }
 
-    /// **A reset takes them from the open app at once** — not only from disk. The list held in
+    /// **A removal takes them from the open app at once** — not only from disk. The list held in
     /// memory went on offering a removed signature in the Signature flyout, ready to place, until
     /// a relaunch or the next add.
     @Test func aResetTakesSavedSignaturesOffTheMenuAtOnce() throws {
