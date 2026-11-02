@@ -659,12 +659,27 @@ public extension View {
     /// background reads through the margins — while the text always has something to sit on.
     ///
     /// `backingOpacity` is the one knob, and it defaults to the level's
-    /// `groundedBackingOpacity`. `controlBackgroundColor` rather than a hardcoded grey so it
-    /// follows light/dark, and the same colour `lensCard` fills with, so a card is a card wherever
-    /// it appears.
+    /// `groundedBackingOpacity`. The ground itself is `glassPanelGround`, in the stored accent and
+    /// Tint.
     func groundedGlassCard(level: GlassLevel, backingOpacity: Double? = nil) -> some View {
         modifier(GroundedGlassCard(level: level,
                                    backingOpacity: backingOpacity ?? level.groundedBackingOpacity))
+    }
+
+    /// The ground under a floating panel's text, `opacity` thick, between the text and the
+    /// panel's glass (`groundedGlassCard`, Ask Claude).
+    ///
+    /// In light, and at Solid, `controlBackgroundColor` — the colour `lensCard` fills with, so a
+    /// card is a card wherever it appears. In dark at Frosted and Clear, the window's own dark
+    /// ground instead: its deep base, accent diagonal and glow in `hue` at `tint` (HX). Neutral
+    /// charcoal there read as a grey panel on an accent-tinted window — on Purple at Tint 12%,
+    /// dark Frosted, Ask Claude measured (36,35,40) beside panes at (25,25,42), and (34,32,58)
+    /// on this ground beside panes at (32,33,51). Solid's panels are
+    /// opaque `controlBackgroundColor` already, which is what the panes there are too.
+    func glassPanelGround(level: GlassLevel, hue: LiquidGlassHue, tint: Double, opacity: Double,
+                          cornerRadius: CGFloat) -> some View {
+        modifier(GlassPanelGround(level: level, hue: hue, tint: tint, opacity: opacity,
+                                  cornerRadius: cornerRadius))
     }
 
     /// Lighter glass style for bars and inline panels. These sit over the window's own background
@@ -1016,11 +1031,18 @@ private struct GlassSurface: ViewModifier {
 /// in dark to survive the darker base. `.clear` stays see-through — it skips the opaque material,
 /// but in dark still takes a translucent veil of that base plus a toned-down glow, so it reads as
 /// deep moody glass over the desktop rather than a pale wash.
+///
+/// **`panelGround`** paints only the window's own dark ground — the deep base, opaque at every
+/// level, the accent diagonal and the glow — for `glassPanelGround` to lay under a floating panel's
+/// text (HX). Nothing behind-window: `BehindWindowGlass` sets its window's `isOpaque` and
+/// `backgroundColor` even when disabled, which squares a borderless panel's corners. No material
+/// and no Clear veils either: the panel's own glass stands in for those. Dark only.
 private struct LiquidGlassBackground: ViewModifier {
     let level: GlassLevel
     let hue: LiquidGlassHue
     /// The Tint slider, 0...1 — scales every accent paint below.
     let tint: Double
+    var panelGround = false
     @Environment(\.colorScheme) private var scheme
 
     func body(content: Content) -> some View {
@@ -1049,10 +1071,12 @@ private struct LiquidGlassBackground: ViewModifier {
 
         content.background {
             ZStack {
-                BehindWindowGlass(
-                    isEnabled: seeThrough,
-                    vibrancyAlpha: seeThrough ? LiquidGlass.clearVibrancyAlpha : 1.0)
-                    .ignoresSafeArea()
+                if !panelGround {
+                    BehindWindowGlass(
+                        isEnabled: seeThrough,
+                        vibrancyAlpha: seeThrough ? LiquidGlass.clearVibrancyAlpha : 1.0)
+                        .ignoresSafeArea()
+                }
 
                 // Dark deep base: a near-black, faintly-cool gradient. When the window is opaque
                 // (`.frosted`/`.solid`) it's the full ground the material sits on. At `.clear` it
@@ -1066,7 +1090,7 @@ private struct LiquidGlassBackground: ViewModifier {
                         startPoint: .top,
                         endPoint: .bottom
                     )
-                    .opacity(seeThrough ? LiquidGlass.clearDarkVeil : 1)
+                    .opacity(seeThrough && !panelGround ? LiquidGlass.clearDarkVeil : 1)
                     .ignoresSafeArea()
                 }
 
@@ -1090,7 +1114,9 @@ private struct LiquidGlassBackground: ViewModifier {
                 )
                 .ignoresSafeArea()
 
-                if !seeThrough {
+                if panelGround {
+                    // The panel's own glass is its material, and Clear's veils are the window's.
+                } else if !seeThrough {
                     // Base material so content stays readable. Dark thins it so the deep base reads
                     // through instead of flattening back to system gray.
                     Color.clear
@@ -1293,6 +1319,10 @@ private struct DarkBoldCardChrome: ViewModifier {
 private struct GroundedGlassCard: ViewModifier {
     let level: GlassLevel
     let backingOpacity: Double
+    // The ground's accent and Tint, read here rather than passed: the callers hold only the level,
+    // and these are the same keys and defaults every other reader uses.
+    @AppStorage(LiquidGlass.hueKey) private var hueRaw: String = SelectionLensAppearance.defaultHue.rawValue
+    @AppStorage(LiquidGlass.tintKey) private var tint: Double = SelectionLensAppearance.defaultTint
 
     func body(content: Content) -> some View {
         let radius = LiquidGlass.cardCornerRadius
@@ -1305,13 +1335,41 @@ private struct GroundedGlassCard: ViewModifier {
         // Drawn UNDER the content and OVER the material: a background applied first sits nearest
         // the content, so the stack reads text → ground → glass → window.
         let grounded = content
-            .background(shape.fill(Color(nsColor: .controlBackgroundColor).opacity(backingOpacity)))
+            .glassPanelGround(level: level, hue: LiquidGlassHue(rawValue: hueRaw) ?? SelectionLensAppearance.defaultHue,
+                              tint: tint, opacity: backingOpacity, cornerRadius: radius)
         // Same branch order as `glassCardStyle`, and kept as two `@ViewBuilder` arms rather than an
         // erased view for the same reason: an erased card re-renders whole on every parent update.
         if level.needsExplicitChrome {
             grounded.glassSurface(level, cornerRadius: radius).clipShape(shape).modifier(chrome)
         } else {
             grounded.clipShape(shape).glassSurface(level, cornerRadius: radius).modifier(chrome)
+        }
+    }
+}
+
+/// Backs `glassPanelGround`.
+private struct GlassPanelGround: ViewModifier {
+    let level: GlassLevel
+    let hue: LiquidGlassHue
+    let tint: Double
+    let opacity: Double
+    let cornerRadius: CGFloat
+    @Environment(\.colorScheme) private var scheme
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        if scheme == .dark && level != .solid {
+            // Flattened before it is thinned, so the glow's `plusLighter` lights the ground's own
+            // base rather than whatever shows through the panel.
+            content.background(
+                Color.clear
+                    .modifier(LiquidGlassBackground(level: level, hue: hue, tint: tint, panelGround: true))
+                    .compositingGroup()
+                    .opacity(opacity)
+                    .clipShape(shape))
+        } else {
+            content.background(shape.fill(Color(nsColor: .controlBackgroundColor).opacity(opacity)))
         }
     }
 }

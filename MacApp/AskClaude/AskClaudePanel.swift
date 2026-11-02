@@ -63,13 +63,6 @@ struct AskClaudePanel: View {
     static let startHeight: CGFloat = 420
     /// How close to a side of the window a drop docks the panel there.
     static let snapZone: CGFloat = 56
-    /// How much of the text's ground covers the glass: `groundedGlassCard`'s 0.85, as the other
-    /// panels floating over the window's content have — but thinner at Clear (decision HW), where
-    /// 0.85 left a near-white card on a see-through window. 0.6 is the floor `groundedGlassCard`
-    /// names: below it, what is behind stays legible through the text.
-    static func glassBacking(_ level: GlassLevel) -> Double {
-        level == .clear ? 0.6 : 0.85
-    }
 
     // TE248, round 3: docked right (the default), docked left, or floating where it was dropped;
     // TE288 adds the two bottom corners, where the panel grows upward from the window's bottom.
@@ -162,12 +155,14 @@ struct AskClaudePanel: View {
         }
         .frame(width: size.width, height: size.height)
         // A pane's surface and accent wash (TE291), so the panel reads as part of the window at
-        // every accent and Tint, over a ground for its text as the other floating panels have
-        // (`groundedGlassCard`). Solid is opaque, like the panes; Frosted and Clear keep their
-        // glass, the window's content showing blurred through the backdrop (AskClaudeWindow.swift),
-        // which also owns the rounding and the shadow.
+        // every accent and Tint, over the ground for its text the other floating panels have, as
+        // thick as theirs at every level (HY) and the window's own dark ground in dark (HX).
+        // Solid is opaque, like the panes; Frosted and Clear keep their glass, the window's content
+        // showing blurred through the backdrop (AskClaudeWindow.swift), which also owns the
+        // rounding and the shadow — so the ground is square, as it always was.
         .contentSurface(hue: hue, tint: tint)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(Self.glassBacking(level)))
+        .glassPanelGround(level: level, hue: hue, tint: tint, opacity: level.groundedBackingOpacity,
+                          cornerRadius: 0)
         .glassSurface(level, cornerRadius: Radius.card)
         .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).strokeBorder(.separator.opacity(0.6)))
         .overlay { resizeHandles }

@@ -13811,3 +13811,24 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No forwarded cancel to fix | CLOSED — does not apply |
+
+## Floating panels sit on the window's dark ground (HX, HY) — main only
+
+2026-11-01, for v7.0. On `main`: in dark at Frosted and Clear, the ground under a floating panel's
+text (`groundedGlassCard` — Settings, Help, Setup, Go To results, the destination picker, the
+compare overlays — and Ask Claude) is the window's own dark ground in the stored accent and Tint
+(`glassPanelGround`), where it was neutral `controlBackgroundColor`: on Purple the panels read grey
+on a violet window. Light and Solid are unchanged. Ask Claude's ground takes `groundedBackingOpacity` (0.45 at Clear) in place
+of its own 0.6. Every line has the neutral ground:
+
+```sh
+for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
+  "$(git show origin/$l:Modules/Design/Sources/Design/LiquidGlassStyle.swift 2>/dev/null | grep -c 'Color(nsColor: .controlBackgroundColor).opacity(backingOpacity)')"; done
+# measured 2026-11-01, against origin, before this landed: 1 on every line
+```
+
+A re-tune of what every dark install looks like, so main-only on the Tint-slider precedent.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Neutral charcoal ground under dark glass panels | RECORDED — not owed |

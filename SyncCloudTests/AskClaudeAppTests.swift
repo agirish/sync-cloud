@@ -1518,11 +1518,14 @@ private final class Counter: @unchecked Sendable {
         #expect(abs(none.r - none.b) < 0.03, "None at full Tint painted \(none)")
     }
 
-    @Test func clearHasTheThinnerGround() {
-        // Decision HW: at Clear the panel shows more of what is behind it than the other levels.
-        #expect(AskClaudePanel.glassBacking(.clear) == 0.6)
-        #expect(AskClaudePanel.glassBacking(.frosted) == 0.85)
-        #expect(AskClaudePanel.glassBacking(.solid) == 0.85)
+    @Test func clearHasTheThinnerGround() throws {
+        // Decision HY: the text's ground is the house one, `groundedBackingOpacity` — 0.45 at
+        // Clear, 0.85 at Frosted — so at Clear the panel shows more of what is behind it, as much
+        // as the other floating panels do. Over black, the thinner white ground reads darker:
+        // measured 0.64 at Clear and 0.92 at Frosted, where the old 0.6 made Clear 0.74.
+        let clear = try threadColor(hue: .none, tint: 0, level: .clear)
+        let frosted = try threadColor(hue: .none, tint: 0, level: .frosted)
+        #expect(frosted.g - clear.g > 0.23, "Clear's thread is \(clear), Frosted's \(frosted)")
     }
 }
 
