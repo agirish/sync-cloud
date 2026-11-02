@@ -2596,6 +2596,16 @@ fixed `pump(0.1)` after landing: "some run-loop turn in the next 100 ms showed t
 the scheduler's to grant. It now waits (bounded, 15 s) for the watch to have recorded a shown turn,
 so the evidence is the run loop's own; blinding the watch still turns it red, after the bound.
 
+#### Seen: `PaneScrollMemoryTests.aRebuiltListIsNeverShownBeforeItsPositionLands`, 2026-11-01 — FIXED
+
+The same red on the list sibling, which had kept the fixed `pump(0.1)`: locally, in a FileExplorer
+landing gate at load average 26, `!watch.shown.isEmpty` ("no turn ever showed the list") failed in
+0.59 s after `landed` passed; the suite passed 17/17 rerun alone, and the commit under test only
+reordered a context menu. It now waits for a shown turn the same way, and blinding the watch still
+turns it red, after the bound. The two "never held clear" tests in the suite read their control
+after a fixed `pump(0.3)` too; each keeps that 0.3 s as its window for the absence and now also
+waits, bounded, for a recorded turn before requiring one.
+
 ### 18. A named NSPasteboard is machine-global, so two test PROCESSES share it
 
 **Symptom.** A pasteboard assertion fails with a value from a fixture **this process never

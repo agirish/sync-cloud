@@ -537,7 +537,9 @@ import Sync
         defer { window.contentView = nil }
         let middle = try #require(lists(window).dropFirst().first)
         let landed = await waitUntil { abs(middle.contentView.bounds.origin.y - 80) < 1 && Self.isVisible(middle) }
-        await pump(0.1)
+        // Until a turn has shown the list, not for a fixed 0.1 s — the stack test's fix, for the same
+        // red: at load average 26 (2026-11-01) a 0.1 s pump after landing ended with no turn recorded.
+        await waitUntil { !watch.shown.isEmpty }
         watch.stop()
         try #require(landed, "the middle list never came back to 80, so there is nothing to time")
         try #require(!watch.shown.isEmpty, "no turn ever showed the list — the watch proves nothing")
@@ -565,6 +567,7 @@ import Sync
         let second = await mount(["a2", "b3"], slot: slot, watch: watch)
         defer { second.contentView = nil }
         await pump(0.3)
+        await waitUntil { !watch.shown.isEmpty }          // the control is the run loop's, not the clock's
         watch.stop()
         try #require(!watch.shown.isEmpty, "no turn ever saw the lists — the watch proves nothing")
         #expect(!watch.shown.contains(1), "a column at its top was held clear for \(watch.shown.filter { $0 == 1 }.count) turn(s)")
@@ -590,6 +593,7 @@ import Sync
         let second = await mount(["a2", "b3"], slot: slot, watch: watch, wide: true)
         defer { second.contentView = nil }
         await pump(0.3)
+        await waitUntil { !watch.shown.isEmpty }          // the control is the run loop's, not the clock's
         watch.stop()
         try #require(try room(second) <= 1, "the columns do not fit a wide window — nothing to test")
         try #require(!watch.shown.isEmpty, "no turn ever saw the columns — the watch proves nothing")
