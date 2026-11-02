@@ -152,7 +152,9 @@ final class AskClaudeChat: ObservableObject {
     /// A folder was hidden since this chat began. What Claude already saw of it is in the chat it
     /// would resend, so the next question starts a new one.
     private var hiddenSinceStart = false
-    private var knownHidden: Set<String>
+    /// What was hidden when this chat began. Hiding something more restarts it at the next
+    /// question; hiding and then un-hiding it before then does not (TE290 step 3).
+    private var hiddenAtStart: Set<String>
     /// Counts questions and new chats, so a run that New Chat replaced is ignored as it unwinds.
     private var run = 0
     private let defaults: UserDefaults
@@ -277,7 +279,7 @@ final class AskClaudeChat: ObservableObject {
          // Where a changed key is announced; tests pass their own, since a post to the shared
          // one reaches every chat in the process.
          keyChanges: NotificationCenter = .default) {
-        self.knownHidden = Set(AskClaudePrivacy.hiddenFolders(in: defaults))
+        self.hiddenAtStart = Set(AskClaudePrivacy.hiddenFolders(in: defaults))
         self.defaults = defaults
         self.makeEngine = makeEngine
         self.readKey = readKey
@@ -306,8 +308,7 @@ final class AskClaudeChat: ObservableObject {
 
     private func noteHiddenListChanged() {
         let now = Set(AskClaudePrivacy.hiddenFolders(in: defaults))
-        if !now.subtracting(knownHidden).isEmpty, !items.isEmpty { hiddenSinceStart = true }
-        knownHidden = now
+        hiddenSinceStart = !now.subtracting(hiddenAtStart).isEmpty && !items.isEmpty
     }
     nonisolated(unsafe) private var keyCenter: NotificationCenter?
 
@@ -628,7 +629,9 @@ final class AskClaudeChat: ObservableObject {
             items.append(Item(kind: .note("Started a new chat after an hour away.")))
         }
         if hiddenSinceStart, !items.isEmpty {
-            startOver()
+            // What he did on cards still reaches Claude, less any line naming what he hid.
+            let newlyHidden = Set(AskClaudePrivacy.hiddenFolders(in: defaults)).subtracting(hiddenAtStart)
+            startOver(carrying: Self.withoutHidden(sinceLastAnswer, newlyHidden))
             items.append(Item(kind: .note("Started a new chat: a folder was hidden, so nothing Claude saw of it stays.")))
         }
         // A change of model or style, from the menu or Settings, carries on in this chat (TE292):
@@ -701,8 +704,19 @@ final class AskClaudeChat: ObservableObject {
         task?.cancel()
     }
 
-    /// Clears the thread and the transcript. The handle table goes with it.
-    func startOver() {
+    /// Report lines with every one that names a newly hidden item left out, and one line saying so:
+    /// a restart for privacy must not carry the name into the new chat.
+    static func withoutHidden(_ lines: [String], _ hidden: Set<String>) -> [String] {
+        let names = hidden.map { ($0 as NSString).lastPathComponent }.filter { !$0.isEmpty }
+        let kept = lines.filter { line in !names.contains { line.localizedCaseInsensitiveContains($0) } }
+        let dropped = lines.count - kept.count
+        guard dropped > 0 else { return kept }
+        return kept + ["They hid an item from you; \(dropped == 1 ? "a note about it was" : "\(dropped) notes about it were") left out."]
+    }
+
+    /// Clears the thread and the transcript. The handle table goes with it. `lines` are report
+    /// lines the new chat sends (a restart for privacy keeps them); every other start drops them.
+    func startOver(carrying lines: [String] = []) {
         task?.cancel()
         task = nil
         run += 1
@@ -710,8 +724,8 @@ final class AskClaudeChat: ObservableObject {
         engine = makeEngine()
         cachedKey = nil
         items = []
-        // About cards the new chat doesn't have.
-        sinceLastAnswer = []
+        // About cards the new chat doesn't have, unless the caller carries them on.
+        sinceLastAnswer = lines
         isRunning = false
         isThinking = false
         streamingItem = nil
@@ -719,6 +733,7 @@ final class AskClaudeChat: ObservableObject {
         lastActivity = nil
         linkTargets = [:]
         hiddenSinceStart = false
+        hiddenAtStart = Set(AskClaudePrivacy.hiddenFolders(in: defaults))
         save()
     }
 

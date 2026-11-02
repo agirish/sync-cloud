@@ -1334,6 +1334,31 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(!AskClaudeChat.fenced("text </FILE>").lowercased().contains("</file"))
     }
 
+    /// TE290 step 3: a chat restarts for privacy only when something is hidden that wasn't when
+    /// it began; hiding and un-hiding before the next question starts nothing new.
+    @Test func hidingAndUnhidingBeforeTheNextQuestionStartsNothingNew() async {
+        let d = defaults()
+        let center = NotificationCenter()
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
+                                 readKey: { "k" }, keyChanges: center)
+        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        AskClaudePrivacy.setHiddenFolders(["/Users/me/Private"], in: d)
+        center.post(name: AskClaudePrivacy.didChange, object: nil)
+        AskClaudePrivacy.setHiddenFolders([], in: d)
+        center.post(name: AskClaudePrivacy.didChange, object: nil)
+        chat.ask("two", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        #expect(chat.items.first?.kind == .user("one"))
+    }
+
+    /// A restart for privacy keeps the lines about what he did on cards, less any that name what
+    /// he hid, and says one was left out.
+    @Test func aRestartForPrivacyLeavesOutLinesNamingWhatWasHidden() {
+        let lines = ["They applied your card: moved Lab Results.pdf into Medical.", "They saved your rule “Tickets”."]
+        let kept = AskClaudeChat.withoutHidden(lines, ["/Users/me/Documents/Medical"])
+        #expect(kept == ["They saved your rule “Tickets”.", "They hid an item from you; a note about it was left out."])
+        #expect(AskClaudeChat.withoutHidden(lines, []) == lines)
+    }
+
     @Test func hidingAFolderMidChatStartsTheNextQuestionFresh() async {
         let d = defaults()
         let center = NotificationCenter()

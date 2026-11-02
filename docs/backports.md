@@ -13868,3 +13868,16 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |
+
+## Hiding and un-hiding before the next question keeps the chat (TE290 step 3) — main only
+
+2026-11-02, for v7.0. On `main`: Ask Claude restarts a chat for privacy only when something is
+hidden that wasn't when the chat began, so hiding a folder and un-hiding it before the next
+question starts nothing new. A restart for privacy now carries what he did on cards into the new
+chat, less any line that names what he hid. (TE290's model-change half, decision HQ, was
+superseded by TE292: a change of model or style carries on in the open chat.) Ask Claude exists
+only on `main` (see step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
