@@ -1057,6 +1057,20 @@ struct ReadabilitySettingsTab: View {
     /// The columns sized one at a time, which choosing "All columns" releases.
     @AppStorage(PaneViewMode.columnWidthOverridesDefaultsKey) private var columnWidthOverrides =
         ColumnWidthOverrides()
+    /// Asks before "All columns" erases the widths of that many columns sized on their own.
+    private let confirmReleasingColumnWidths: @MainActor (Int) -> Bool
+    /// Bumped by a declined "All columns", to rebuild the picker. The segment the click lit stays
+    /// lit otherwise: the setter wrote nothing, so SwiftUI has no change to redraw the control from,
+    /// and the picker would show "All columns" over a setting still at "Each column".
+    @State private var declinedResizeChoices = 0
+
+    /// The app takes the standard alert; a test that drives the picker passes its own answer, since
+    /// a modal alert in a test process blocks its main thread with nothing to dismiss it.
+    init(confirmReleasingColumnWidths: @escaping @MainActor (Int) -> Bool = {
+        RemovalPrompt.releaseColumnWidths(count: $0).ask()
+    }) {
+        self.confirmReleasingColumnWidths = confirmReleasingColumnWidths
+    }
 
     /// The setting, written through one rule: choosing "All columns" puts every column back to the
     /// one shared width, the way that choice always drew them. Leaving the columns someone sized on
@@ -1066,9 +1080,32 @@ struct ReadabilitySettingsTab: View {
         Binding(
             get: { columnResizeModeRaw },
             set: { raw in
-                columnResizeModeRaw = raw
-                if raw == ColumnResizeMode.allColumns.rawValue { columnWidthOverrides = ColumnWidthOverrides() }
+                // Counted before the call: the gate holds the widths `inout` while it asks.
+                let sizedOnTheirOwn = columnWidthOverrides.widths.count
+                let written = Self.chooseResizeMode(
+                    raw, mode: &columnResizeModeRaw, overrides: &columnWidthOverrides,
+                    confirm: { confirmReleasingColumnWidths(sizedOnTheirOwn) })
+                if !written { declinedResizeChoices += 1 }
             })
+    }
+
+    /// The setter's rule, reachable without mounting the tab. **Asks first when "All columns" would
+    /// release columns sized on their own** — their widths are erased, and choosing "Each column"
+    /// again does not bring them back. Declined, nothing changes: the mode stays where it was.
+    /// With nothing sized on its own there is nothing to lose, so it does not ask.
+    /// - Returns: Whether the mode was written.
+    @discardableResult
+    static func chooseResizeMode(_ raw: String, mode: inout String,
+                                 overrides: inout ColumnWidthOverrides,
+                                 confirm: () -> Bool) -> Bool {
+        guard raw == ColumnResizeMode.allColumns.rawValue, !overrides.widths.isEmpty else {
+            mode = raw
+            return true
+        }
+        return RemovalPrompt.actIfConfirmed(confirm: confirm) {
+            mode = raw
+            overrides = ColumnWidthOverrides()
+        }
     }
 
     /// The resolved text size. `FontSize.init(percent:)` clamps, so a value stored before the
@@ -1261,6 +1298,7 @@ struct ReadabilitySettingsTab: View {
                     .labelsHidden()
                     .accentedSegments(selectedHue)
                     .fixedSize()
+                    .id(declinedResizeChoices)
                     .help("What dragging a divider in Columns resizes: Each column resizes that column, All columns resizes every column. Hold ⌥ for the other.")
                 }
                 .padding(.top, 10)
@@ -1467,6 +1505,16 @@ struct ProviderSettingsSection: View {
 
     private var isEnabled: Bool {
         settings.isEnabled(provider.id)
+    }
+
+    /// A folder source's Remove, as one step: ask, and only then remove. Removing takes the name
+    /// given to it and its switched-off state with it (`SettingsManager.removeFolderSource`), and
+    /// adding the folder again brings neither back.
+    /// - Returns: Whether the source was removed.
+    @discardableResult
+    static func removeFolderSourceIfConfirmed(id: String, from settings: SettingsManager,
+                                              confirm: () -> Bool) -> Bool {
+        RemovalPrompt.actIfConfirmed(confirm: confirm) { settings.removeFolderSource(id: id) }
     }
 
     var body: some View {
@@ -1779,8 +1827,12 @@ struct ProviderSettingsSection: View {
                 // A folder source has no discovered default to reset TO — the user chose
                 // the path, and that choice is the whole record. Remove takes its place: the
                 // one thing a folder source can do that a cloud account cannot.
-                Button("Remove", role: .destructive) { settings.removeFolderSource(id: provider.id) }
-                    .help("Removes \(provider.displayName) from your sources. The folder and its files stay where they are.")
+                Button("Remove…", role: .destructive) {
+                    Self.removeFolderSourceIfConfirmed(
+                        id: provider.id, from: settings,
+                        confirm: RemovalPrompt.removeFolderSource(named: provider.displayName).ask)
+                }
+                .help("Removes \(provider.displayName) from your sources. The folder and its files stay where they are. Asks first.")
                 Button("Show in Finder") { openInFinder(provider.rootPath) }
                 Spacer()
             }
@@ -2247,7 +2299,10 @@ struct SyncSettingsTab: View {
 /// The remembered-ignores rows inside the Sync tab: a monospaced root-relative path per
 /// entry with a remove button, plus Clear All. Split out so it can observe the store
 /// directly — un-ignoring from here must repaint the list immediately.
-private struct IgnoredItemsList: View {
+///
+/// Internal rather than `private` so the tests can reach `clearAll(confirm:)`, the gate Clear All
+/// goes through.
+struct IgnoredItemsList: View {
     @ObservedObject var store: IgnoredItemsStore
     let onRemove: (String) -> Void
     let onClear: () -> Void
@@ -2279,10 +2334,20 @@ private struct IgnoredItemsList: View {
             }
             HStack {
                 Spacer()
-                Button("Clear All", role: .destructive, action: onClear)
-                    .controlSize(.small)
+                Button("Clear All…", role: .destructive) {
+                    clearAll(confirm: RemovalPrompt.clearIgnoredItems(
+                        count: store.rootRelativePaths.count).ask)
+                }
+                .controlSize(.small)
             }
         }
+    }
+
+    /// Clear All asks first: every ignore made one item at a time goes at once.
+    /// - Returns: Whether the list was cleared.
+    @discardableResult
+    func clearAll(confirm: () -> Bool) -> Bool {
+        RemovalPrompt.actIfConfirmed(confirm: confirm, act: onClear)
     }
 }
 
@@ -2753,14 +2818,18 @@ struct IntelligenceSettingsTab: View {
                         Text(savedSuggestionCount == 1 ? "1 file" : "\(savedSuggestionCount) files")
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
-                        Button("Clear") {
-                            syncManager?.clearFilingVerdictCache()
+                        // Asks first: the next Refine pays Claude again for every file.
+                        Button("Clear…") {
+                            guard let syncManager else { return }
+                            Self.clearSavedSuggestionsIfConfirmed(
+                                confirm: RemovalPrompt.clearSavedSuggestions(count: savedSuggestionCount).ask,
+                                clear: { syncManager.clearFilingVerdictCache() })
                             // The non-awaiting read: `clearFilingVerdictCache` has just written the
                             // memo, so this cannot be the first load and cannot decode anything.
-                            savedSuggestionCount = syncManager?.filingVerdictCacheCountNow ?? 0
+                            savedSuggestionCount = syncManager.filingVerdictCacheCountNow
                         }
                         .disabled(savedSuggestionCount == 0)
-                        .help("Forgets every saved suggestion. The next scan asks the on-device model about each file again, and the next Refine asks — and pays — Claude again.")
+                        .help("Forgets every saved suggestion. The next scan asks the on-device model about each file again, and the next Refine asks — and pays — Claude again. Asks first.")
                     }
                 }
             }
@@ -2780,6 +2849,13 @@ struct IntelligenceSettingsTab: View {
         .sheet(isPresented: $showSpendHistory, onDismiss: refreshSpend) {
             FilingSpendHistorySheet().presentedNativeControlAccent()
         }
+    }
+
+    /// Saved suggestions' Clear, as one step: ask, and only then forget.
+    /// - Returns: Whether the suggestions were cleared.
+    @discardableResult
+    static func clearSavedSuggestionsIfConfirmed(confirm: () -> Bool, clear: () -> Void) -> Bool {
+        RemovalPrompt.actIfConfirmed(confirm: confirm, act: clear)
     }
 
     /// The question both spend Clear buttons ask — see `FilingSpendStore.clearIfConfirmed`.
@@ -2933,8 +3009,10 @@ struct KeptNamesList: View {
             }
             HStack {
                 Spacer()
-                Button("Clear All", role: .destructive, action: clearAll)
-                    .controlSize(.small)
+                Button("Clear All…", role: .destructive) {
+                    clearAll(confirm: RemovalPrompt.clearKeptNames(count: store.names.count).ask)
+                }
+                .controlSize(.small)
             }
         }
     }
@@ -2945,9 +3023,14 @@ struct KeptNamesList: View {
     /// method instead would be a second door onto the same latch.
     func remove(_ name: String) { store.stopKeeping(name) }
 
-    /// Withdraw every keep. One store call rather than a loop over `remove(_:)`, so the manager
-    /// re-filters its finding once.
-    func clearAll() { store.stopKeepingAll() }
+    /// Withdraw every keep, after asking. One store call rather than a loop over `remove(_:)`, so
+    /// the manager re-filters its finding once. The confirmer has no default, so a test cannot
+    /// reach the modal alert by leaving it out.
+    /// - Returns: Whether the keeps were withdrawn.
+    @discardableResult
+    func clearAll(confirm: () -> Bool) -> Bool {
+        RemovalPrompt.actIfConfirmed(confirm: confirm) { store.stopKeepingAll() }
+    }
 
     /// Shown by an empty store, and by a tab built without an engine attached.
     static var nothingKeptNote: some View {

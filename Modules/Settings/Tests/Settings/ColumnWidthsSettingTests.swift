@@ -33,7 +33,10 @@ import SwiftUI
         let sized = ColumnWidthOverrides(widths: [1: 400])
         test.defaults.set(sized.rawValue, forKey: PaneViewMode.columnWidthOverridesDefaultsKey)
 
-        let host = NSHostingView(rootView: ReadabilitySettingsTab().defaultAppStorage(test.defaults))
+        var asked: [Int] = []
+        let host = NSHostingView(rootView: ReadabilitySettingsTab(confirmReleasingColumnWidths: {
+            asked.append($0); return true
+        }).defaultAppStorage(test.defaults))
         host.frame = NSRect(x: 0, y: 0, width: 520, height: 900)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -62,6 +65,52 @@ import SwiftUI
                 "the control's action did not reach the setting — the rest of this test measures nothing")
         #expect(stored()?.widths.isEmpty == true,
                 "All columns left a column at its own width: \(String(describing: stored()?.widths))")
+
+        #expect(asked == [1], "All columns did not ask about the one column sized on its own: \(asked)")
+    }
+
+    /// **Declined, the choice changes nothing — on screen too.** The setting and the widths stay,
+    /// and the picker goes back to "Each column": the setter writes nothing, so without the rebuild
+    /// the segment the click lit stayed lit over a setting that never moved (measured offscreen
+    /// before the fix — selected segment 1, stored mode "each").
+    @Test func decliningAllColumnsLeavesTheSettingTheWidthsAndThePicker() async throws {
+        let test = TestDefaults("column-widths-decline")
+        test.defaults.set(ColumnResizeMode.eachColumn.rawValue, forKey: ColumnResizeMode.defaultsKey)
+        let sized = ColumnWidthOverrides(widths: [0: 363, 2: 300])
+        test.defaults.set(sized.rawValue, forKey: PaneViewMode.columnWidthOverridesDefaultsKey)
+
+        var asked: [Int] = []
+        let host = NSHostingView(rootView: ReadabilitySettingsTab(confirmReleasingColumnWidths: {
+            asked.append($0); return false
+        }).defaultAppStorage(test.defaults))
+        host.frame = NSRect(x: 0, y: 0, width: 520, height: 900)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.contentView = nil }
+        host.layoutSubtreeIfNeeded()
+
+        func picker() -> NSSegmentedControl? {
+            segmentedControls(in: host).first { $0.segmentCount == 2 && $0.label(forSegment: 1) == "All columns" }
+        }
+        let control = try #require(picker(), "no segmented control offering All columns")
+        #expect(control.selectedSegment == 0)
+
+        control.selectedSegment = 1
+        _ = control.sendAction(control.action, to: control.target)
+        for _ in 0..<10 {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            host.layoutSubtreeIfNeeded()
+        }
+
+        #expect(asked == [2], "All columns did not ask about the two columns sized on their own: \(asked)")
+        #expect(test.defaults.string(forKey: ColumnResizeMode.defaultsKey) == ColumnResizeMode.eachColumn.rawValue,
+                "a declined All columns changed the setting")
+        #expect(test.defaults.string(forKey: PaneViewMode.columnWidthOverridesDefaultsKey)
+                    .flatMap(ColumnWidthOverrides.init(rawValue:)) == sized,
+                "a declined All columns erased the widths")
+        let shown = try #require(picker(), "the picker is gone after a declined choice")
+        #expect(shown.selectedSegment == 0, "the picker shows All columns over a setting still at Each column")
     }
 
     /// **The row fits the narrowest column the sheet can offer, at the largest text size** — the

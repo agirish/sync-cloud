@@ -13,8 +13,8 @@ import Sync
 /// what it has to get right is the reverse trip: a name removed here must actually stop being kept,
 /// durably, or the list is a display that lies about what it does.
 ///
-/// Asserted against `remove(_:)` and `clearAll()` — the two methods the row button and Clear All
-/// call — over a real `KeptNamesStore` on an injected defaults suite. That is the wiring from the
+/// Asserted against `remove(_:)` and `clearAll(confirm:)` — the two methods the row button and
+/// Clear All call — over a real `KeptNamesStore` on an injected defaults suite. That is the wiring from the
 /// view to the persisted set; what it does not reach is whether the buttons are connected to these
 /// methods, which nothing short of driving the rendered control could show.
 @Suite struct KeptNamesSettingsTests {
@@ -55,7 +55,7 @@ import Sync
         for name in ["a ", "b:", "c\u{200B}d"] { store.keep(name) }
         #expect(store.names.count == 3)
 
-        KeptNamesList(store: store).clearAll()
+        KeptNamesList(store: store).clearAll(confirm: { true })
 
         #expect(store.names.isEmpty)
         #expect(KeptNamesStore(userDefaults: defaults).names.isEmpty)

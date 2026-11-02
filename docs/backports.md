@@ -13649,3 +13649,27 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s wipe=%s spend=%s askClau
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Reset takes Refine's spend record and caps; no Ask Claude | RECORDED — not owed |
+
+## Five Settings controls ask before they remove (HR) — main only
+
+2026-11-01, for v7.0 (decision HR). On `main`: a folder source's Remove…, Sync's ignored items
+Clear All…, Organize's kept names Clear All…, Intelligence's saved suggestions Clear…, and choosing
+"All columns" while some columns are sized on their own each ask first, with the standard
+irreversible alert (`RemovalPrompt`, Cancel the default). Before this each acted on one click; none
+touches a file. A behaviour change, not a crash or data-on-disk fix:
+
+```sh
+F=Modules/Settings/Sources/Settings/SettingsView.swift
+for l in main v6.x v5.x v4.x v3.x v2.x; do t=$(git show origin/$l:$F 2>/dev/null); printf '%-5s remove=%s ignored=%s kept=%s suggestions=%s columns=%s\n' $l \
+  "$(echo "$t" | grep -c 'settings.removeFolderSource(id: provider.id)')" "$(echo "$t" | grep -c 'action: onClear)')" \
+  "$(echo "$t" | grep -c 'action: clearAll)')" "$(echo "$t" | grep -c 'syncManager?.clearFilingVerdictCache()')" \
+  "$(echo "$t" | grep -c 'columnWidthOverrides = ColumnWidthOverrides()')"; done
+# measured 2026-11-01, against origin, before this landed:
+# main / v6.x / v5.x   remove=1 ignored=1 kept=1 suggestions=1 columns=1
+# v4.x / v3.x          remove=1 ignored=1 kept=1 suggestions=1 columns=0
+# v2.x                 remove=0 ignored=1 kept=0 suggestions=0 columns=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Whichever of the five it has acts on one click | RECORDED — not owed |
