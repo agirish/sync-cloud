@@ -160,7 +160,7 @@ import Sync
 
         let privacyPosts = CallCounter()
         let observer = NotificationCenter.default.addObserver(
-            forName: AskClaudePrivacy.didChange, object: nil, queue: nil) { _ in privacyPosts.increment() }
+            forName: AskClaudePrivacy.didChange, object: defaults, queue: nil) { _ in privacyPosts.increment() }
         defer { NotificationCenter.default.removeObserver(observer) }
 
         settings.resetAllSettings()
@@ -182,8 +182,9 @@ import Sync
         #expect(defaults.string(forKey: "askClaudeModel") == nil)
         #expect(defaults.object(forKey: FileSyncManager.usesCloudDefaultsKey) == nil)
         #expect(settings.dateToleranceSeconds == 1)
-        // The read switch changed, so whatever caches what Claude may see is told.
-        #expect(privacyPosts.count >= 1)
+        // The read switch changed, so whatever caches what Claude may see is told — by this reset:
+        // the other tests' resets, running beside this one, post for their own stores.
+        #expect(privacyPosts.count == 1)
     }
 
     /// The confirmation says what stays, not only what goes.

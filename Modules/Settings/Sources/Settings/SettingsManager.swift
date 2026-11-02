@@ -694,8 +694,9 @@ public class SettingsManager: ObservableObject {
             userDefaults.removeObject(forKey: key)
         }
         // `askClaudeReadsFiles` is reset, and the views and chats that cache what Claude may see
-        // re-read it on this.
-        NotificationCenter.default.post(name: AskClaudePrivacy.didChange, object: nil)
+        // re-read it on this. They observe any sender; the store as the sender lets a test tell
+        // this reset's notice from another's.
+        NotificationCenter.default.post(name: AskClaudePrivacy.didChange, object: userDefaults)
         // Re-seed the LIVE log level from the (now-cleared) persisted value, exactly as launch does.
         // The reset drops the persisted `logMinimumLevel`, but the running Logger keeps
         // whatever the user had set, so a raised threshold would keep hiding entries until relaunch.
