@@ -4,7 +4,7 @@ import SwiftUI
 @testable import Design
 
 /// The ground under a floating panel's text (`glassPanelGround`): the window's tinted dark ground in
-/// dark at Frosted and Clear (HX), and exactly the old `controlBackgroundColor` everywhere else.
+/// dark at Frosted and Clear (HZ), and exactly the old `controlBackgroundColor` everywhere else.
 ///
 /// The ground is rendered on its own, over black: the glass it sits on in a real panel draws
 /// nothing into an offscreen capture, and black keeps a ground that paints nothing from passing
@@ -37,7 +37,7 @@ import SwiftUI
                    dark: dark)
     }
 
-    /// What every level painted before HX, verbatim.
+    /// What every level painted before HZ, verbatim.
     private func controlBackground(_ level: GlassLevel, dark: Bool) throws -> NSBitmapImageRep {
         let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
         return try render(Color.clear.background(shape.fill(Color(nsColor: .controlBackgroundColor)

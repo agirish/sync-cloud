@@ -13816,7 +13816,10 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No forwarded cancel to fix | CLOSED — does not apply |
 
-## Floating panels sit on the window's dark ground (HX, HY) — main only
+## Floating panels sit on the window's dark ground (HZ, IA) — main only
+
+Landed as `36252fb7f`, whose subject says "(HX, HY)": the decisions were renumbered HZ and IA
+after TE292 took HS–HX.
 
 2026-11-01, for v7.0. On `main`: in dark at Frosted and Clear, the ground under a floating panel's
 text (`groundedGlassCard` — Settings, Help, Setup, Go To results, the destination picker, the

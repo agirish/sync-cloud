@@ -156,7 +156,7 @@ struct AskClaudePanel: View {
         .frame(width: size.width, height: size.height)
         // A pane's surface and accent wash (TE291), so the panel reads as part of the window at
         // every accent and Tint, over the ground for its text the other floating panels have, as
-        // thick as theirs at every level (HY) and the window's own dark ground in dark (HX).
+        // thick as theirs at every level (IA) and the window's own dark ground in dark (HZ).
         // Solid is opaque, like the panes; Frosted and Clear keep their glass, the window's content
         // showing blurred through the backdrop (AskClaudeWindow.swift), which also owns the
         // rounding and the shadow — so the ground is square, as it always was.

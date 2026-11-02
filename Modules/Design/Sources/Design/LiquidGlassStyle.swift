@@ -671,7 +671,7 @@ public extension View {
     ///
     /// In light, and at Solid, `controlBackgroundColor` — the colour `lensCard` fills with, so a
     /// card is a card wherever it appears. In dark at Frosted and Clear, the window's own dark
-    /// ground instead: its deep base, accent diagonal and glow in `hue` at `tint` (HX). Neutral
+    /// ground instead: its deep base, accent diagonal and glow in `hue` at `tint` (HZ). Neutral
     /// charcoal there read as a grey panel on an accent-tinted window — on Purple at Tint 12%,
     /// dark Frosted, Ask Claude measured (36,35,40) beside panes at (25,25,42), and (34,32,58)
     /// on this ground beside panes at (32,33,51). Solid's panels are
@@ -1034,7 +1034,7 @@ private struct GlassSurface: ViewModifier {
 ///
 /// **`panelGround`** paints only the window's own dark ground — the deep base, opaque at every
 /// level, the accent diagonal and the glow — for `glassPanelGround` to lay under a floating panel's
-/// text (HX). Nothing behind-window: `BehindWindowGlass` sets its window's `isOpaque` and
+/// text (HZ). Nothing behind-window: `BehindWindowGlass` sets its window's `isOpaque` and
 /// `backgroundColor` even when disabled, which squares a borderless panel's corners. No material
 /// and no Clear veils either: the panel's own glass stands in for those. Dark only.
 private struct LiquidGlassBackground: ViewModifier {
