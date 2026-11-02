@@ -680,9 +680,8 @@ public class SettingsManager: ObservableObject {
 
     /// Clears the app's persisted defaults domain — appearance, General/Sync/Advanced flags,
     /// provider path/name overrides and enablement, ignored items — except what
-    /// `SettingsResetKeeps` names (the Never show Claude list, spending limits, spend records,
-    /// Automations and saved signatures),
-    /// and republishes this manager's own settings at their defaults. `@AppStorage`-backed values
+    /// `SettingsResetKeeps` names (the Never show Claude list, spending limits and spend records,
+    /// what he made by hand, and migration marks), and republishes this manager's own settings at their defaults. `@AppStorage`-backed values
     /// elsewhere pick the removal up automatically. Files on disk are untouched.
     ///
     /// Key by key rather than `removePersistentDomain` and writing the kept keys back: in between,

@@ -4088,7 +4088,7 @@ struct AdvancedSettingsTab: View {
                     Button("Reset All Settings…", role: .destructive) {
                         confirmReset(onResetAllSettings)
                     }
-                    .help("Returns SyncCloud’s settings to their defaults and removes the folders you added as sources; keeps what you made — Rules, signatures, Favorites, pins and your choices while organizing — the folders hidden from Claude, and Claude’s spending limits and record. Asks first; files on disk aren’t touched.")
+                    .help("Returns SyncCloud’s settings to their defaults and removes the folders you added as sources; keeps what you made — Rules, signatures, Favorites, pins and your choices while organizing — the folders hidden from Claude, and Claude’s spending limits and record. Asks first; your files aren’t touched.")
                 }
             }
         }
@@ -4139,7 +4139,7 @@ struct AdvancedSettingsTab: View {
     }
 
     /// What Reset All Settings takes and what it keeps, in the confirmation.
-    static let resetAllExplanation = "Settings return to their defaults, apart from what is kept below. Folders you added as sources, ignored items, and source names and paths are removed, and SyncCloud forgets that setup has run.\n\nKept: your Rules, saved signatures, Favorites and pins, and the choices you made while organizing (corrections, groups kept separate, names kept); the folders you hid from Claude; and your spending limits for Claude and the record of what it has cost. Your Claude API key, folder profile, Ask Claude chats and files on disk are not touched."
+    static let resetAllExplanation = "Settings return to their defaults, apart from what is kept below. Folders you added as sources, ignored items, and source names and paths are removed, and SyncCloud forgets that setup has run.\n\nKept: your Rules, saved signatures, Favorites and pins, and the choices you made while organizing (corrections, groups kept separate, names kept); the folders you hid from Claude; and your spending limits for Claude and the record of what it has cost. Your Claude API key, folder profile, Ask Claude chats and your files are not touched."
 
     /// Confirmation ahead of the defaults wipe; Cancel is the default button (Return must
     /// not reset, same convention as the permanent-delete alert).

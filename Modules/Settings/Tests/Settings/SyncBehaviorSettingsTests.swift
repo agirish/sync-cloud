@@ -217,7 +217,7 @@ import Sync
         try #require(parts.count == 2)
         // "Rules", the name Organize shows; "Automations" is a retired workspace name.
         for phrase in ["Rules", "saved signatures", "Favorites and pins", "folders you hid from Claude", "spending limits",
-                       "what it has cost", "API key", "files on disk"] {
+                       "what it has cost", "API key", "your files"] {
             #expect(parts[1].contains(phrase), "\(phrase)")
             #expect(!parts[0].contains(phrase), "\(phrase) is also named as removed")
         }
@@ -226,5 +226,8 @@ import Sync
         // promise it will.
         #expect(parts[0].contains("forgets that setup has run"))
         #expect(!AdvancedSettingsTab.resetAllExplanation.contains("offer itself"))
+        // The full reset deletes setup's draft, a file in Application Support, so "files on disk"
+        // would overclaim; the person's own files are what is untouched.
+        #expect(!AdvancedSettingsTab.resetAllExplanation.contains("files on disk"))
     }
 }
