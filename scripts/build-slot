@@ -20,7 +20,7 @@ reclaimed by hand and a reused PID can never look like a live holder. Waiters qu
 by a session runs beside it (a CPU-stress probe's measurement is its own). Everyone queued behind
 it waits, even for a slot that is free. The slot count is read on every poll.
 
-Slot count: $BUILD_SLOTS, else the number in ~/Library/Caches/SyncCloud-build-slots/slots, else 2.
+Slot count: $BUILD_SLOTS, else the number in ~/Library/Caches/SyncCloud-build-slots/slots, else 3.
 $BUILD_SLOT_TIMEOUT: give up after this many seconds of waiting, exit 75 (default: wait forever,
     reporting the holders once a minute on stderr).
 $BUILD_SLOT_NICE: nice increment for compile-only commands (default 10, 0 disables). Test runs
@@ -44,7 +44,7 @@ import time
 SLOT_DIR = os.environ.get("BUILD_SLOT_DIR") or os.path.expanduser(
     "~/Library/Caches/SyncCloud-build-slots")
 QUEUE_DIR = os.path.join(SLOT_DIR, "queue")
-DEFAULT_SLOTS = 2
+DEFAULT_SLOTS = 3
 POLL_SECONDS = 1.0
 HEAL_SECONDS = 2.0
 REPORT_SECONDS = 60

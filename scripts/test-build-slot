@@ -360,9 +360,9 @@ check "BUILD_SLOT_TIMEOUT gives up with exit 75" same $? 75
 check "BUILD_SLOT_TIMEOUT says it gave up" grep -q 'gave up after' "$WORK/timeout-err"
 kill "$holder"; wait "$holder" 2>/dev/null
 unset BUILD_SLOTS
-check "default slot count is 2" eval "'$SLOT' --status | grep -q '^0 of 2 slots'"
-echo 3 > "$BUILD_SLOT_DIR/slots"
-check "the slots file sets the count" eval "'$SLOT' --status | grep -q '^0 of 3 slots'"
+check "default slot count is 3" eval "'$SLOT' --status | grep -q '^0 of 3 slots'"
+echo 4 > "$BUILD_SLOT_DIR/slots"
+check "the slots file sets the count" eval "'$SLOT' --status | grep -q '^0 of 4 slots'"
 check "\$BUILD_SLOTS overrides the slots file" eval "BUILD_SLOTS=5 '$SLOT' --status | grep -q '^0 of 5 slots'"
 "$SLOT" sleep 30.9 & h1=$!
 "$SLOT" sleep 30.9 & h2=$!
@@ -373,8 +373,8 @@ check "lowering the count below the running builds makes newcomers wait" same $?
 check "...and --status still shows every running build" eval "BUILD_SLOTS=2 '$SLOT' --status | grep -q '^3 of 2 slots'"
 kill "$h1" "$h2" "$h3"; wait "$h1" "$h2" "$h3" 2>/dev/null
 echo garbage > "$BUILD_SLOT_DIR/slots"
-check "a garbled slots file falls back to 2, with a warning" \
-  eval "'$SLOT' --status 2>&1 | grep -q 'using 2' && '$SLOT' --status 2>/dev/null | grep -q '^0 of 2'"
+check "a garbled slots file falls back to 3, with a warning" \
+  eval "'$SLOT' --status 2>&1 | grep -q 'using 3' && '$SLOT' --status 2>/dev/null | grep -q '^0 of 3'"
 rm "$BUILD_SLOT_DIR/slots"
 BUILD_SLOTS=abc "$SLOT" true 2>/dev/null
 check "a garbled \$BUILD_SLOTS refuses with exit 2" same $? 2

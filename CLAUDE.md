@@ -131,11 +131,12 @@ For a mechanical choice with a clear default, pick it, say so in the report, and
 ## 7. Builds share this Mac
 
 Every session, and the CI runner, builds on the same ten cores. More concurrent builds than that buy
-no throughput; they slow every build and make the timing-sensitive suites flake.
+no throughput; they slow every build and make the timing-sensitive suites flake. Pushes to `main`
+test on GitHub (`hosted-ci.yml`), so the runner here takes only the nightly run, tags and hand runs.
 
 - **Queue every heavy command for a slot:** `scripts/build-slot xcodebuild …`,
   `scripts/build-slot swift test --package-path Modules/Sync …`. Commands wait first come, first
-  served for one of a machine-wide number of slots (default **2**), then run with their output and
+  served for one of a machine-wide number of slots (default **3**), then run with their output and
   exit status untouched. `xcodegen`, `git` and everything light run directly. A worktree without
   the script (a maintenance line) uses the primary checkout's copy,
   `/Users/abhishek/Projects/SyncCloud/scripts/build-slot`.
@@ -146,8 +147,8 @@ no throughput; they slow every build and make the timing-sensitive suites flake.
 - **A wait is reported, never silent:** at once and then once a minute on stderr, with your place
   in line and each holder's PID, worktree and command. Run long builds in the background so a wait
   cannot hit the tool's timeout. `scripts/build-slot --status` shows the holders and how many wait.
-- **Changing the count:** `echo 3 > ~/Library/Caches/SyncCloud-build-slots/slots` for every
-  session, `BUILD_SLOTS=3` for one command. A killed or crashed holder frees its slot at once.
+- **Changing the count:** `echo 4 > ~/Library/Caches/SyncCloud-build-slots/slots` for every
+  session, `BUILD_SLOTS=4` for one command. A killed or crashed holder frees its slot at once.
 - **Stopping a wrapped command ends what it started**, such as the test helper a killed
   `swift test` can orphan (`docs/flaky-triage.md`). Killing the wrapper alone with `SIGKILL` skips
   this, and frees its slot while the build runs on.
