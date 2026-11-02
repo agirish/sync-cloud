@@ -83,6 +83,10 @@ public struct DifferencesView: View {
     /// False until the first row computation lands: gates the "No differences" empty overlay so
     /// the async first pass shows a briefly blank table, never a wrong "nothing here" flash.
     @State private var hasComputedRows = false
+    /// Rows Ask Claude selected that the table still has to scroll to (TE295). Set only by
+    /// `session.requestedSelection`, so no click of the user's can ever start a scroll, and taken
+    /// once the rows built for the request's filter have landed — see `revealIsDue`.
+    @State private var pendingReveal: Set<FileDifference.ID>?
     private var isSearchExpanded: Bool {
         get { session.isSearchExpanded }
         nonmutating set { session.isSearchExpanded = newValue }
@@ -237,6 +241,9 @@ public struct DifferencesView: View {
         /// non-escaping and runs on every render of the header — so computing counts inside the
         /// Menu paid an O(differences) pass per published file during bulk sync.
         var filterCounts: [DifferenceFilter: Int] = [:]
+        /// The inputs these rows were built from — `nil` for a placeholder — so a reveal can tell
+        /// the rows of the filter it asked for from the ones still on screen before it.
+        var builtFrom: DisplayInputs?
     }
 
     /// Everything that decides the visible rows, bundled as the `.task(id:)` key so the pass
@@ -434,11 +441,15 @@ public struct DifferencesView: View {
             session.collapsedSectionsScanDate = date
         }
         // Rows Ask Claude asked to select (TE261), taken once: on arrival when the table mounts
-        // after the request, or as it comes while the table is on screen.
+        // after the request, or as it comes while the table is on screen. The scroll to them
+        // (TE295) waits for the rows — see `reveal`. A pane collapsed to its bar has no table, so
+        // it opens: Claude was asked to show them.
         .onChange(of: session.requestedSelection, initial: true) { _, requested in
             guard let requested else { return }
             selection = requested
+            pendingReveal = requested
             session.requestedSelection = nil
+            if isCollapsed?.wrappedValue == true { isCollapsed?.wrappedValue = false }
         }
         // The same argument for the filter. `.failed` is set when a partial run publishes failures
         // and cleared when they go; both are `.onChange`, so failures that clear while Compare is
@@ -493,7 +504,8 @@ public struct DifferencesView: View {
                 return DisplayRows(
                     filtered: filtered,
                     sorted: filtered.sorted(using: inputs.sortOrder),
-                    filterCounts: DifferencesQuery.counts(inputs.differences, failedIDs: inputs.failedIDs)
+                    filterCounts: DifferencesQuery.counts(inputs.differences, failedIDs: inputs.failedIDs),
+                    builtFrom: inputs
                 )
             }.value
             guard !Task.isCancelled else { return }
@@ -1522,6 +1534,47 @@ public struct DifferencesView: View {
         if let progress = syncManager.bulkSyncProgress {
             syncProgressRow(verb: "Syncing", completed: progress.completed, total: progress.total)
         }
+        ScrollViewReader { proxy in
+            differencesTable(sorted: sorted, sections: sections)
+                // `initial: true` for a table that mounts with the reveal already due: Compare
+                // was collapsed to its bar, which drops the table, when Claude asked.
+                .onChange(of: revealIsDue, initial: true) { _, due in
+                    if due { reveal(sorted: sorted, sections: sections, proxy: proxy) }
+                }
+        }
+    }
+
+    /// Whether `pendingReveal` can be answered now: the rows on screen were built from the inputs
+    /// in force, so the filter `show` set has applied. Until then the rows are the previous
+    /// filter's, and the row to scroll to may not be in them, or not where it will be.
+    private var revealIsDue: Bool {
+        pendingReveal != nil && displayRows.builtFrom == displayInputs
+    }
+
+    /// Scrolls the first selected row in display order to the middle of the table (TE295). No
+    /// section can be folded over it: `show` opened them all. The request is spent either way — a
+    /// row the filter left out must not be scrolled to later by a rescan that brings it back.
+    ///
+    /// Deferred twice, exactly as `FileTreeView.scrollTreeRow`: this runs inside the update that
+    /// delivered the rows, so the table the first scroll resolves against may not hold the row
+    /// yet. Neither attempt is proof; `DifferencesRevealTests` waits for the row on screen.
+    private func reveal(sorted: [FileDifference], sections: [DifferenceGrouping.Section],
+                        proxy: ScrollViewProxy) {
+        guard let requested = pendingReveal else { return }
+        pendingReveal = nil
+        guard let id = DifferenceGrouping.firstShown(of: requested, sorted: sorted,
+                                                     sections: sections)?.id
+        else { return }
+        DispatchQueue.main.async { proxy.scrollTo(id, anchor: .center) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + FileTreeView.searchRevealRetryDelay) {
+            proxy.scrollTo(id, anchor: .center)
+        }
+    }
+
+    /// The live differences table, with everything that hangs off it.
+    @ViewBuilder
+    private func differencesTable(sorted: [FileDifference],
+                                  sections: [DifferenceGrouping.Section]) -> some View {
         let compact = listDensity == .compact
         // `sections` is empty when grouping is off OR when it would not be worth it — both gates
         // live in `groupedSections`, so the rows builder asks one question.

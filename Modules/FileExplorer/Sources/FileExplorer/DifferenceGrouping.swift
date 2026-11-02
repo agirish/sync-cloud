@@ -157,6 +157,18 @@ extension DifferenceGrouping {
         guard !section.rows.isEmpty else { return false }
         return section.rows.allSatisfy { selection.contains($0.id) }
     }
+
+    /// The row of `ids` the table draws first — where a reveal scrolls (TE295).
+    ///
+    /// Display order, not `sorted` order, whenever there are sections: a section gathers its rows
+    /// from wherever the sort put them, so under a Size sort the biggest selected file can be the
+    /// first row of `sorted` and still sit in the second section. Folds are not consulted: the one
+    /// caller follows `DifferencesSession.show`, which opens every section.
+    static func firstShown(of ids: Set<FileDifference.ID>, sorted: [FileDifference],
+                           sections: [Section]) -> FileDifference? {
+        guard !sections.isEmpty else { return sorted.first { ids.contains($0.id) } }
+        return sections.lazy.compactMap { $0.rows.first { ids.contains($0.id) } }.first
+    }
 }
 
 extension DifferenceGrouping.Section {

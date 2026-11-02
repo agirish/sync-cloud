@@ -49,7 +49,8 @@ Requires **macOS 26**, unchanged from v6.2.
   time with Let Claude read files on.
 - **Ask about Compare's differences.** "Which files are only on Dropbox?" is answered from the list
   Compare shows, with both sides' sizes and dates. A comparison over an hour old is scanned again
-  first, and Claude can narrow the list and select the rows it means.
+  first, and Claude can narrow the list and select the rows it means. The list scrolls to the first
+  of them, and opens if it was collapsed to its bar.
 - **A file only in the cloud over 25 MB is downloaded only when you click.** Claude shows a card
   with the file's size and where it lives; Download and Read, or Download and Open, fetches it and
   carries on. Smaller files download as part of the read, as opening them does.
