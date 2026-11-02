@@ -13544,3 +13544,22 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s oneWordHigh=%s routerOnl
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` | The one-word High and the router that cannot displace it | RECORDED — not owed |
 | `v3.x` / `v2.x` | The one-word High; no router | RECORDED — not owed |
+
+## The row menu's Cut, Copy, transfers and Paste Here share one section — main only
+
+2026-11-01, for v7.0. On `main`: a row's right-click menu reads Cut, Copy, Copy to… / Move to… (or
+Copy to / Move to the other pane), Paste Here, in one section (`FileContextMenu`), where the
+transfers used to sit above a divider of their own. A layout change, not a defect fix. Every line
+has the old order:
+
+```sh
+F=Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift
+for l in main v6.x v5.x v4.x v3.x v2.x; do s=$(git show origin/$l:$F 2>/dev/null); printf '%-5s move=%s cut=%s\n' $l \
+  "$(echo "$s" | grep -nF 'delegate.handleMove(selectedNodes)' | head -1 | cut -d: -f1)" \
+  "$(echo "$s" | grep -nF 'isCut: true) })' | head -1 | cut -d: -f1)"; done
+# measured 2026-11-01, against origin, before this landed: on every line move < cut (transfers first)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The old order, transfers in a section of their own | RECORDED — not owed |

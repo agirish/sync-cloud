@@ -1987,6 +1987,17 @@ struct FileContextMenu: View {
                 Divider()
             }
 
+            // One section for every verb that puts the selection somewhere: Cut and Copy, then the
+            // two transfers, then Paste Here last — the one item that acts on the clicked row's
+            // folder rather than on the selection.
+            Button(action: { delegate.handleCopyToClipboard(selectedNodes, isCut: true) }) {
+                Label(count > 1 ? "Cut \(count) Items" : "Cut", systemImage: "scissors")
+            }
+            
+            Button(action: { delegate.handleCopyToClipboard(selectedNodes, isCut: false) }) {
+                Label(count > 1 ? "Copy \(count) Items" : "Copy", systemImage: "doc.on.doc")
+            }
+
             // The absolute destination verbs, in the slot the comparison transfers occupy on the
             // two-pane menu. Single-source only, and deliberately: over there they would sit beside
             // "Move to <other pane>" — two entries opening with the same two words, one of which
@@ -2013,8 +2024,6 @@ struct FileContextMenu: View {
                     Label(count > 1 ? "Move \(count) Items to…" : "Move to…", systemImage: TransferGlyph.move(toRight: true))
                 }
                 .lockedDuringRun()
-
-                Divider()
             }
 
             if !isSingleSource {
@@ -2031,18 +2040,8 @@ struct FileContextMenu: View {
                     Label(count > 1 ? "Move \(count) Items to \(otherPaneName)" : "Move to \(otherPaneName)", systemImage: TransferGlyph.move(toRight: isLeft))
                 }
                 .lockedDuringRun()
-
-                Divider()
             }
 
-            Button(action: { delegate.handleCopyToClipboard(selectedNodes, isCut: true) }) {
-                Label(count > 1 ? "Cut \(count) Items" : "Cut", systemImage: "scissors")
-            }
-            
-            Button(action: { delegate.handleCopyToClipboard(selectedNodes, isCut: false) }) {
-                Label(count > 1 ? "Copy \(count) Items" : "Copy", systemImage: "doc.on.doc")
-            }
-            
             SharedFileMenuItems.pasteHere(clipboardHasItems: delegate.clipboardHasItems) {
                 delegate.handlePaste(node)
             }
