@@ -49,6 +49,7 @@ extension ContentView {
                            },
                            onRuleCard: { askClaudeRuleCard($0, save: $1) },
                            settingsBridge: askClaudeSettingsBridge,
+                           pdfBridge: askClaudePDFBridge,
                            onPlace: onPlace)
     }
 

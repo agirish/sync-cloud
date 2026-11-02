@@ -1,0 +1,208 @@
+import AppKit
+import Foundation
+import SwiftUI
+import Testing
+import Design
+import FileExplorer
+import Sync
+@testable import SyncCloud
+
+/// **Ask Claude's PDF cards, the app's half** (TE294 step 3): the runner's checks on Claude's call,
+/// the card it offers, the handles a report line gets as it is sent, what a card restored after a
+/// quit says, the lines Claude hears — and that the card fits the panel.
+@MainActor
+@Suite(.serialized) final class AskClaudePDFAppTests {
+    let folder = NSTemporaryDirectory() + "ask-claude-pdf-" + UUID().uuidString
+
+    init() throws {
+        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+    }
+
+    deinit { try? FileManager.default.removeItem(atPath: folder) }
+
+    private func file(_ name: String, in sub: String? = nil) throws -> String {
+        var base = folder
+        if let sub {
+            base = (folder as NSString).appendingPathComponent(sub)
+            try FileManager.default.createDirectory(atPath: base, withIntermediateDirectories: true)
+        }
+        let path = (base as NSString).appendingPathComponent(name)
+        try Data("%PDF-1.4\n".utf8).write(to: URL(fileURLWithPath: path))
+        return path
+    }
+
+    private func context(hidden: [String] = []) -> AskClaudeBrowseTools.Context {
+        var ctx = AskClaudeBrowseTools.Context(
+            inBrowse: true, sourceName: "Tests", root: folder, folder: "", sort: .name,
+            items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: nil,
+            goTo: { _ in }, select: { _ in })
+        ctx.hidden = hidden
+        return ctx
+    }
+
+    private func offer(_ input: [String: JSONFragment], paths: [String], hidden: [String] = []) -> AskClaudeToolOutcome {
+        var handles = AskClaudeHandles()
+        var named: [JSONFragment] = []
+        for path in paths { named.append(.string(handles.handle(for: path))) }
+        var input = input
+        if input["handles"] == nil { input["handles"] = .array(named) }
+        let ctx = context(hidden: hidden)
+        let runner = AskClaudeBrowseTools(context: { ctx }, statDisk: { _ in nil })
+        return runner.pdfCard(AskClaudeToolCall(id: "t", name: "pdf", input: .object(input)), ctx, handles)
+    }
+
+    // MARK: The runner
+
+    /// **Each field Claude gets wrong is refused by name**, and nothing is offered.
+    @Test func refusesACallFieldByField() throws {
+        let one = try file("A.pdf"), two = try file("B.pdf"), doc = try file("Report.pages")
+        func refusal(_ input: [String: JSONFragment], _ paths: [String], hidden: [String] = []) -> String {
+            let outcome = offer(input, paths: paths, hidden: hidden)
+            #expect(outcome.isError && outcome.pdf == nil, "offered a card for \(input)")
+            return outcome.result
+        }
+        #expect(refusal(["action": .string("shrink")], [one]).contains("action must be one of"))
+        #expect(refusal(["action": .string("compress"), "handles": .array([])], []).contains("handles needs"))
+        #expect(refusal(["action": .string("compress"), "handles": .array([.string("r99")])], []).contains("r99 isn’t a handle"))
+        #expect(refusal(["action": .string("combine")], [one]).contains("two or more"))
+        #expect(refusal(["action": .string("extract"), "pages": .string("1")], [one, two]).contains("takes one handle"))
+        #expect(refusal(["action": .string("extract")], [one]).contains("pages needs"))
+        #expect(refusal(["action": .string("compress"), "strength": .string("tiny")], [one]).contains("strength must be"))
+        #expect(refusal(["action": .string("rotate"), "pages": .string("1")], [one, two]).contains("rotates one file’s pages"))
+        #expect(refusal(["action": .string("split"), "split_at": .array([.integer(9), .integer(4)])], [one]).contains("must go up"))
+        #expect(refusal(["action": .string("split"), "split_at": .array([.integer(1)])], [one]).contains("must go up"))
+        #expect(refusal(["action": .string("save_as_pdf")], [doc]).contains("Pages, Keynote and Numbers"))
+        #expect(refusal(["action": .string("compress")], [doc]).contains("isn’t a PDF"))
+        #expect(refusal(["action": .string("compress")], [one], hidden: [folder]).contains("hid from you"))
+        let many = try (0...AskClaudePDFCard.maxFiles).map { try file("F\($0).pdf") }
+        #expect(refusal(["action": .string("compress")], many).contains("at most \(AskClaudePDFCard.maxFiles)"))
+    }
+
+    /// **The card it offers, and what Claude is told**: nothing has happened, never “done”; with
+    /// no strength or size, Balanced. Protect tells Claude never to touch the password.
+    @Test func offersACardAndSaysNothingHasHappened() throws {
+        let one = try file("Scan.pdf")
+        let outcome = offer(["action": .string("compress")], paths: [one])
+        let card = try #require(outcome.pdf)
+        #expect(!outcome.isError)
+        #expect(card.state == .checking)
+        #expect(card.options.strength == .balanced)
+        #expect(card.rows.map(\.path) == [one])
+        #expect(outcome.result.contains("Nothing has happened"))
+        #expect(outcome.result.contains("Never say it’s done"))
+        let protect = offer(["action": .string("protect")], paths: [one])
+        #expect(protect.result.contains("Never ask for it"))
+        #expect(protect.pdf?.options.mode == .lockToOpen)
+        let combine = try #require(offer(["action": .string("combine")], paths: [one, try file("Other.pdf")]).pdf)
+        #expect(combine.options.name == "Scan (combined).pdf")
+    }
+
+    // MARK: Handles, minted as the line is sent
+
+    /// **A file a line names gets its handle when the line is sent** — the same handle every time
+    /// for the same file, and none for one now hidden from Claude.
+    @Test func linesGetTheirHandlesAsTheyAreSent() {
+        var handles = AskClaudeHandles()
+        let earlier = handles.handle(for: "/d/Other.pdf")
+        let lines = ["They compressed “A.pdf”: “A (compressed).pdf” \(AskClaudeChat.fileMark("/d/A (compressed).pdf")), 3 pages.",
+                     "And again \(AskClaudeChat.fileMark("/d/A (compressed).pdf")).",
+                     "Hidden: \(AskClaudeChat.fileMark("/secret/B.pdf"))."]
+        let sent = AskClaudeChat.minted(lines, handles: &handles, isHidden: { $0.hasPrefix("/secret") })
+        let handle = handles.handle(for: "/d/A (compressed).pdf")
+        #expect(handle != earlier)
+        #expect(sent[0] == "They compressed “A.pdf”: “A (compressed).pdf” (\(handle)), 3 pages.")
+        #expect(sent[1] == "And again (\(handle)).")
+        #expect(sent[2] == "Hidden: (in a folder hidden from you).")
+        #expect(handles.path(for: handle) == "/d/A (compressed).pdf")
+        #expect(!sent.joined().contains("⟦"), "a mark reached Claude")
+    }
+
+    /// **A card restored after a quit**: one that was running says SyncCloud quit while it ran;
+    /// one still offered is read again before its button wakes.
+    @Test func aRestoredCardSaysWhatBecameOfIt() {
+        let base = AskClaudePDFCard(action: .compress, rows: [.init(path: "/d/A.pdf", name: "A.pdf", folderLabel: "d")])
+        var running = base; running.state = .running
+        var offered = base; offered.state = .offered
+        func restored(_ card: AskClaudePDFCard) -> AskClaudePDFCard.State? {
+            if case .pdf(let back) = AskClaudeChat.notWaiting(AskClaudeChat.Item(kind: .pdf(card))).kind { return back.state }
+            return nil
+        }
+        #expect(restored(running) == .quitWhileRunning)
+        #expect(restored(offered) == .checking)
+        var done = base; done.state = .done
+        #expect(restored(done) == .done)
+    }
+
+    // MARK: What Claude hears
+
+    private func written(_ path: String, bytes: Int = 3_100_000, pages: Int? = 22) -> PDFWrittenFile {
+        PDFWrittenFile(source: "/d/Scan.pdf", path: path, stamp: EditorFileStore.Stamp(modifiedAt: nil, size: bytes),
+                       bytes: bytes, pageCount: pages)
+    }
+
+    /// **The lines, word for word**: each new file by name with its mark, its pages and size, and
+    /// where; Compress says its pages are pictures; a hidden destination names nothing.
+    @Test func reportsWhatTheClickMadeWordForWord() {
+        let card = AskClaudePDFCard(action: .compress,
+                                    rows: [.init(path: "/d/Scan.pdf", name: "Scan.pdf", folderLabel: "iCloud › Downloads")])
+        let mark = AskClaudeChat.fileMark("/d/Scan (compressed).pdf")
+        let wrote = PDFRunResult(outcome: .wrote, written: [written("/d/Scan (compressed).pdf")], message: "Saved")
+        let size = FileSyncManager.formatBytes(3_100_000)
+        #expect(ContentView.askClaudePDFReport(card, wrote, isHidden: { _ in false })
+                == "They compressed “Scan.pdf”: “Scan (compressed).pdf” \(mark), 22 pages, \(size), next to it in iCloud › Downloads. Its pages are pictures now.")
+        #expect(ContentView.askClaudePDFReport(card, wrote, isHidden: { _ in true })
+                == "They compressed “Scan.pdf”: a file in a folder hidden from you, next to it in iCloud › Downloads. Its pages are pictures now.")
+        let small = PDFRunResult(outcome: .nothingWritten, message: "“Scan.pdf” is already 3 MB, under the 5 MB target — nothing was written.")
+        #expect(ContentView.askClaudePDFReport(card, small, isHidden: { _ in false })
+                == "Your card “Compress” wrote nothing: “Scan.pdf” is already 3 MB, under the 5 MB target — nothing was written.")
+        let failed = PDFRunResult(outcome: .failed, message: "“Scan.pdf” changed since it was chosen, so nothing was written.")
+        #expect(ContentView.askClaudePDFReport(card, failed, isHidden: { _ in false })
+                == "Your card “Compress” didn’t run: “Scan.pdf” changed since it was chosen, so nothing was written.")
+        var protect = card
+        protect.action = .protect
+        let locked = PDFRunResult(outcome: .wrote, written: [written("/d/Scan (protected).pdf", pages: nil)], message: "Saved")
+        let line = ContentView.askClaudePDFReport(protect, locked, isHidden: { _ in false })
+        #expect(line.hasPrefix("They protected “Scan.pdf” with a password (locked to open): “Scan (protected).pdf”"), "\(line)")
+        #expect(!line.lowercased().contains("password:"), "a password reached the line: \(line)")
+    }
+
+    /// A batch with some files left out says which, and why.
+    @Test func aPartRunSaysWhatWasLeftOut() {
+        let card = AskClaudePDFCard(action: .rotate, rows: [
+            .init(path: "/d/A.pdf", name: "A.pdf", folderLabel: "d"), .init(path: "/d/B.pdf", name: "B.pdf", folderLabel: "d"),
+        ])
+        let part = PDFRunResult(outcome: .partlyWrote, written: [written("/d/A (rotated).pdf", bytes: 1000, pages: 1)],
+                                skipped: [.init(path: "/d/B.pdf", reason: "locked with a password")], message: "Saved 1")
+        let line = ContentView.askClaudePDFReport(card, part, isHidden: { _ in false })
+        #expect(line.hasSuffix("Not done: “B.pdf” (locked with a password)."), "\(line)")
+        #expect(line.contains("next to each original in d"), "\(line)")
+    }
+
+    // MARK: The card fits
+
+    /// **Every action's card, offered and done, fits 240 pt** — the narrowest the panel leaves it.
+    @Test(arguments: AskClaudePDFCard.Action.allCases)
+    func everyCardFits240(_ action: AskClaudePDFCard.Action) {
+        let rows: [AskClaudePDFCard.Row] = (action == .combine ? ["A long receipt name from a hotel.pdf", "Another.pdf"]
+                                                               : ["Statement October 2026 with a long name.pdf"]).map {
+            .init(path: "/Users/me/Library/Mobile Documents/com~apple~CloudDocs/Documents/Travel/2026/\($0)", name: $0,
+                  folderLabel: "iCloud › Documents › Travel › 2026 › Sep", bytes: 18_200_000, pageCount: 22,
+                  refusal: action == .protect ? "It already has a password. Remove it first." : nil)
+        }
+        for state in [AskClaudePDFCard.State.offered, .running, .done, .quitWhileRunning] {
+            let card = AskClaudePDFCard(action: action, rows: rows,
+                                        options: .init(strength: .balanced, underMB: action == .compress ? 4.5 : nil,
+                                                       quarterTurns: 1, pages: "3-5, 1", splitAt: [4, 9], mode: .restrictEditing,
+                                                       name: "A long receipt name from a hotel (combined).pdf"),
+                                        state: state,
+                                        losses: [PDFCardFactsReader.compressRedraw, PDFCardFactsReader.formFlattened],
+                                        written: [.init(path: "/d/Statement (pages 3–5, 1).pdf",
+                                                        stamp: AskClaudeFileStamp(modifiedAt: nil, size: 1, fileID: 1), bytes: 1)],
+                                        message: "Saved “Statement October 2026 with a long name (pages 3–5, 1).pdf” — 18.2 MB → 3.1 MB")
+            let view = AskClaudePDFCardView(itemID: UUID(), card: card,
+                                            bridge: AskClaudePDFBridge(offersUndo: { _ in true }), accent: .blue, hue: .blue)
+            let width = NSHostingController(rootView: view).sizeThatFits(in: CGSize(width: 240, height: 3_000)).width
+            #expect(width <= 240, "\(action) \(state) asks for \(width) pt")
+        }
+    }
+}

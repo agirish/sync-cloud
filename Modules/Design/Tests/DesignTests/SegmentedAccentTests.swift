@@ -226,7 +226,8 @@ import Testing
         // 14 since the Activity window's "Now / History / Log" (Run Room TE232).
         // 15 since Ask Claude's "Brief / Detailed" answers (RD69, v7.0).
         // 16 since Ask Claude's settings cards draw a segmented setting with its own control (TE290).
-        #expect(sites == 16, "expected 16 segmented pickers in the app, found \(sites)")
+        // 19 since Ask Claude's PDF cards: Compress's strength, Rotate's turn, Protect's mode (TE294).
+        #expect(sites == 19, "expected 19 segmented pickers in the app, found \(sites)")
     }
 
     /// Every Swift file the SHIPPING app is built from: each module's `Sources`, plus `MacApp`.

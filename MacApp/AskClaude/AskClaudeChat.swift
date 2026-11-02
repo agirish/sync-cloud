@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Settings
 import Sync
@@ -53,6 +54,8 @@ final class AskClaudeChat: ObservableObject {
             case rule(AskClaudeRuleCard)
             /// Settings with their real controls (TE290); a click changes one.
             case settings(AskClaudeSettingCard)
+            /// One of the PDF tools, run on their click (TE294).
+            case pdf(AskClaudePDFCard)
         }
         var id = UUID()
         var kind: Kind
@@ -134,6 +137,20 @@ final class AskClaudeChat: ObservableObject {
     /// What the next question is about, in the order attached. Kept through New Chat: it belongs
     /// to the question not yet asked, not to the chat.
     @Published private(set) var attachments: [Attachment] = []
+    /// Small pictures of the pages each PDF card acts on, by card and page — drawn for the card,
+    /// never saved (TE294).
+    @Published var pdfThumbnails: [UUID: [Int: CGImage]] = [:]
+    /// Each PDF card's Edit ▸ Undo step, by card: the target it was registered against and the
+    /// undo manager that holds it. Kept alive here — an undo manager doesn't retain its targets —
+    /// for as long as the chat; a relaunch or New Chat drops them, and the card's Undo with them.
+    var pdfUndoSteps: [UUID: (target: AnyObject, manager: UndoManager)] = [:]
+    /// Called with each PDF card as it joins the chat, and with each open one restored, so the
+    /// window reads its files for it (TE294).
+    var pdfCardOffered: ((UUID) -> Void)? {
+        didSet {
+            for item in items { if case .pdf(let card) = item.kind, card.state == .checking { pdfCardOffered?(item.id) } }
+        }
+    }
 
     /// Adds rows to the chips; one already there isn't added twice.
     func attach(_ items: [Attachment]) {
@@ -274,6 +291,28 @@ final class AskClaudeChat: ObservableObject {
         return line
     }
 
+    /// **A file a line for Claude names, marked to get its handle when the line is sent** (TE294):
+    /// "“Lease.pdf” ⟦/abs/Lease.pdf⟧" goes as "“Lease.pdf” (r52)". Kept as the path until then, so
+    /// a line written while Claude answers never takes a handle the answer's own tools could give
+    /// out again, and a restart mints it afresh in the new chat.
+    static func fileMark(_ path: String) -> String { "⟦\(path)⟧" }
+
+    /// The lines with each file mark made a handle — or, for a file now on Never show Claude, said
+    /// to be in a hidden folder, with no handle.
+    static func minted(_ lines: [String], handles: inout AskClaudeHandles, isHidden: (String) -> Bool) -> [String] {
+        lines.map { line in
+            var out = ""
+            var rest = Substring(line)
+            while let open = rest.firstIndex(of: "⟦"), let close = rest[open...].firstIndex(of: "⟧") {
+                out += rest[..<open]
+                let path = String(rest[rest.index(after: open)..<close])
+                out += isHidden(path) ? "(in a folder hidden from you)" : "(\(handles.handle(for: path)))"
+                rest = rest[rest.index(after: close)...]
+            }
+            return out + rest
+        }
+    }
+
     /// The question as sent, with what happened on the cards in front of it, as data.
     static func withSinceLastAnswer(_ lines: [String], _ question: String) -> String {
         guard !lines.isEmpty else { return question }
@@ -384,6 +423,14 @@ final class AskClaudeChat: ObservableObject {
         switch item.kind {
         case .download(let download, .downloading):
             item.kind = .download(download, state: .offered)
+        case .pdf(var card) where card.state == .running:
+            // The app quit while it ran: the files it had written are on the card already.
+            card.state = .quitWhileRunning
+            item.kind = .pdf(card)
+        case .pdf(var card) where card.state == .offered:
+            // Read again before the button wakes: the files may have changed since.
+            card.state = .checking
+            item.kind = .pdf(card)
         case .plan(var plan) where plan.state == .applying:
             // The app quit while it applied: what ran is on disk, and its Undo went with the app.
             plan.state = .partlyApplied
@@ -580,6 +627,20 @@ final class AskClaudeChat: ObservableObject {
         if !isRunning { save() }
     }
 
+    /// The PDF card `id` (TE294).
+    func pdfCard(_ id: UUID) -> AskClaudePDFCard? {
+        guard let item = items.first(where: { $0.id == id }), case .pdf(let card) = item.kind else { return nil }
+        return card
+    }
+
+    /// Changes the PDF card `id` in place — its options, what its files are, how its run ended.
+    func updatePDFCard(_ id: UUID, _ change: (inout AskClaudePDFCard) -> Void) {
+        guard let index = items.firstIndex(where: { $0.id == id }), case .pdf(var card) = items[index].kind else { return }
+        change(&card)
+        items[index].kind = .pdf(card)
+        if !isRunning { save() }
+    }
+
     /// The settings card `id` (TE290).
     func settingCard(_ id: UUID) -> AskClaudeSettingCard? {
         guard let item = items.first(where: { $0.id == id }), case .settings(let card) = item.kind else { return nil }
@@ -686,7 +747,18 @@ final class AskClaudeChat: ObservableObject {
         // request, an empty answer): Claude didn't get them, so they go with the next one.
         let pending = sinceLastAnswer
         sinceLastAnswer = []
-        let sent = Self.withSinceLastAnswer(pending, question)
+        // A file a line names gets its handle now, between runs — never mid-run, where the
+        // engine's own handle table would write over it (TE294).
+        var minting = engine.handles
+        let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: defaults))
+        // A card's run still going is said every time, so Claude never answers as if it had ended.
+        let running = items.compactMap { item -> String? in
+            guard case .pdf(let card) = item.kind, card.state == .running else { return nil }
+            return "Your card “\(card.title)” is still running; what it makes is reported when it ends."
+        }
+        let named = Self.minted(pending, handles: &minting, isHidden: hidden.isHidden) + running
+        engine.handles = minting
+        let sent = Self.withSinceLastAnswer(named, question)
 
         let questionItem = Item(kind: .user(shown ?? question))
         items.append(questionItem)
@@ -761,6 +833,9 @@ final class AskClaudeChat: ObservableObject {
         engine = makeEngine()
         cachedKey = nil
         items = []
+        pdfThumbnails = [:]
+        for step in pdfUndoSteps.values { step.manager.removeAllActions(withTarget: step.target) }
+        pdfUndoSteps = [:]
         // About cards the new chat doesn't have, unless the caller carries them on.
         sinceLastAnswer = lines
         isRunning = false
@@ -821,6 +896,18 @@ final class AskClaudeChat: ObservableObject {
             let item = Item(kind: .settings(card))
             items.append(item)
             settingsUndo.recordClaude(card.rows, card: item.id)
+        case .pdf(let card):
+            streamingItem = nil
+            // A newer card for the same tool on the same files takes the older one's place.
+            for index in items.indices {
+                if case .pdf(var old) = items[index].kind, old.isReplaced(by: card) {
+                    old.state = .replaced
+                    items[index].kind = .pdf(old)
+                }
+            }
+            let item = Item(kind: .pdf(card))
+            items.append(item)
+            pdfCardOffered?(item.id)
         case .kept(let previous, let now):
             // A switch is noted once it reached Claude, at the question that made it (TE292). A
             // question that failed, was declined or stopped before joining the chat notes nothing,

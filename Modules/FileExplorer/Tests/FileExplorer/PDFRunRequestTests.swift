@@ -245,6 +245,62 @@ import FileExplorerTestSupport
         #expect(result?.outcome == .wrote)
         #expect(files(in: "Out") == ["A (rotated).pdf", "B (rotated).pdf"], "\(files(in: "Out"))")
     }
+
+    // MARK: Combine and Split
+
+    /// **Combine from a request: no sheet, the stamp of the file written, nothing on the banner.**
+    @Test func combineFromARequestSaysExactlyWhatItWrote() async throws {
+        let paths = ["A.pdf", "B.pdf"].map { path($0) }
+        for file in paths { PDFFixtures.write(file, pages: 1) }
+        var expected: [String: EditorFileStore.Stamp] = [:]
+        for file in paths { expected[file] = stamp(file) }
+        let model = PanePDFTools()
+        var result: PDFRunResult?
+        model.startCombineSplitFromChat(.combine(paths), name: "Both", expecting: expected, writer: "Ask Claude",
+                                        completion: { result = $0 })
+        guard case .combineSplit(let run)? = model.current else { Issue.record("no run"); return }
+        await model.work?.value
+        let combined = path("Both.pdf")
+        #expect(result?.outcome == .wrote, "\(String(describing: result))")
+        #expect(result?.written.map(\.path) == [combined])
+        #expect(result?.written.first?.stamp == stamp(combined))
+        #expect(result?.written.first?.pageCount == 2)
+        #expect(!run.showsSheet && run.banner == nil)
+    }
+
+    /// **Split from a request writes each part, says which, and never raises its sheet.**
+    @Test func splitFromARequestWritesEachPart() async throws {
+        let file = path("Statement.pdf")
+        PDFFixtures.write(file, pages: 3)
+        let model = PanePDFTools()
+        var result: PDFRunResult?
+        var sheetSeen = false
+        model.startCombineSplitFromChat(.split(file), splitAt: [2], expecting: [file: stamp(file)!], writer: "Ask Claude",
+                                        completion: { result = $0 })
+        guard case .combineSplit(let run)? = model.current else { Issue.record("no run"); return }
+        let watch = run.$showsSheet.sink { if $0 { sheetSeen = true } }
+        await model.work?.value
+        watch.cancel()
+        #expect(result?.outcome == .wrote, "\(String(describing: result))")
+        #expect(result?.written.map(\.path) == ["Statement (page 1).pdf", "Statement (pages 2–3).pdf"].map { path($0) })
+        #expect(!sheetSeen, "a request's split raised its sheet")
+        #expect(run.banner == nil)
+    }
+
+    /// A file changed since the asker read it is not split, and its sentence says why.
+    @Test func splitFromARequestLeavesAChangedFileAlone() async throws {
+        let file = path("Moved.pdf")
+        PDFFixtures.write(file, pages: 3)
+        let chosen = EditorFileStore.Stamp(modifiedAt: .distantPast, size: 1)
+        let model = PanePDFTools()
+        var result: PDFRunResult?
+        model.startCombineSplitFromChat(.split(file), splitAt: [2], expecting: [file: chosen], writer: "Ask Claude",
+                                        completion: { result = $0 })
+        await model.work?.value
+        #expect(result?.outcome == .failed)
+        #expect(result?.message == PanePDFTools.changedSinceAskedReason("Moved.pdf"), "\(result?.message ?? "")")
+        #expect(files() == ["Moved.pdf"])
+    }
 }
 
 /// **Save as PDF from a request** (TE294 step 1): nothing asks where to save, a chosen folder gets

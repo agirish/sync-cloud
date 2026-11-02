@@ -309,6 +309,63 @@ public final class PanePDFTools: ObservableObject {
         }
     }
 
+    /// **Combine or Split, asked for by a request** — the menu's run with the sheet's choices
+    /// already made: Combine's files in their order under `name`, Split's parts starting at
+    /// `splitAt` (one-based). No sheet; the ending goes to `completion`. `expecting` holds each
+    /// file's stamp as the asker read it.
+    public func startCombineSplitFromChat(_ job: EditorPDFCombineSplit.Job, name: String? = nil, splitAt: [Int] = [],
+                                          expecting: [String: EditorFileStore.Stamp], writer: String,
+                                          completion: @escaping @MainActor (PDFRunResult) -> Void) {
+        guard !isBusy else {
+            completion(.busy)
+            return
+        }
+        let run = EditorPDFCombineSplit(job: job, writer: writer)
+        run.host = host
+        run.isCloudOnly = isCloudOnly
+        run.quiet = true
+        run.expected = expecting
+        if let name { run.name = name }
+        run.splitAt = splitAt.map(String.init).joined(separator: ", ")
+        current = .combineSplit(run)
+        preparing = true
+        work = Task { @MainActor in
+            run.prepare()
+            await run.work?.value
+            preparing = false
+            // Split's lane read said why not, if it can't split: that is the ending.
+            if let said = run.banner {
+                run.banner = nil
+                completion(PDFRunResult(outcome: .failed, message: said.message, download: said.download))
+                return
+            }
+            if case .split = job, case .failure(let problem) = EditorPDFCombineSplit.parts(run.splitAt, pageCount: run.pageCount) {
+                completion(PDFRunResult(outcome: .failed, message: problem.sentence))
+                return
+            }
+            if case .combine = job, case .failure(let problem) = EditorPDFCombineSplit.fileName(run.name) {
+                completion(PDFRunResult(outcome: .failed, message: problem.sentence))
+                return
+            }
+            await run.run()
+            completion(Self.result(run))
+        }
+    }
+
+    static func result(_ run: EditorPDFCombineSplit) -> PDFRunResult {
+        let said = run.lastReport
+        let outcome: PDFRunResult.Outcome
+        if !run.written.isEmpty {
+            outcome = run.written.count == run.asked ? .wrote : .partlyWrote
+        } else if case .failure? = said?.kind {
+            outcome = .failed
+        } else {
+            outcome = run.asked == 0 ? .failed : .cancelled
+        }
+        return PDFRunResult(outcome: outcome, written: run.written, message: said?.message ?? "",
+                            detail: said?.detail, download: said?.download)
+    }
+
     /// What the menu's ``offer(_:on:path:probe:)`` refuses, for a whole tool on an attached file —
     /// `nil` when it may run. Fill & Sign is Edit's alone: it is never asked for from a request.
     static func refusal(_ tool: EditorPDFTool, on tools: EditorPDFTools, name: String) -> String? {

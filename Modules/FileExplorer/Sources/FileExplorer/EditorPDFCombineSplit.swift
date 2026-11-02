@@ -60,6 +60,17 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
     @Published public var banner: EditorPDFToolBanner?
 
     var isCloudOnly: @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
+    /// For a run a request made (TE294): the ending is left off ``banner`` — the asker reads
+    /// ``lastReport`` and ``written`` — and no sheet is raised.
+    var quiet = false
+    /// The stamp each file had when the asker read it, by path; a file that changed since is
+    /// left alone. Empty for a menu, whose sheet read the file itself.
+    var expected: [String: EditorFileStore.Stamp] = [:]
+    private(set) var lastReport: EditorPDFToolBanner?
+    /// Every file the last run wrote, with the stamp of the file the writer made.
+    public private(set) var written: [PDFWrittenFile] = []
+    /// How many files the last run set out to write: Combine's one, or Split's parts.
+    private(set) var asked = 0
     private var stopRequested = false
     /// Split's part in flight, so Stop can end the run after it.
     private var tools: EditorPDFTools?
@@ -81,10 +92,11 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
 
     /// **Readies the sheet.** Combine opens it at once; Split reads its file in the lane first —
     /// its page count and protection — and says in the banner why it can't split, if it can't.
+    /// A request's run (``quiet``) reads the same and raises no sheet.
     func prepare() {
         switch job {
         case .combine:
-            showsSheet = true
+            showsSheet = !quiet
         case .split(let path):
             let name = (path as NSString).lastPathComponent
             if isCloudOnly(MaterializationStatus.linkTarget(of: path)) {
@@ -112,13 +124,13 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
                 facts = (encryption, dropped, stamp)
                 formNote = await EditorPDFToolEngine.fidelityWarning(for: .extract([0]), input: input)
                     .map { _ in Self.splitFormNote }
-                showsSheet = true
+                showsSheet = !quiet
             }
         }
     }
 
     static let splitFormNote = "Its fillable form won’t work in the new files."
-    static let combineNote = "The combined file keeps no bookmarks and no fillable forms."
+    public static let combineNote = "The combined file keeps no bookmarks and no fillable forms."
 
     public var count: Int {
         switch job {
@@ -130,7 +142,7 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
     // MARK: Combine's name
 
     /// "Receipt (combined).pdf" — the first file's name, as every tool names its copy (decision ID).
-    static func defaultName(_ first: String) -> String {
+    public static func defaultName(_ first: String) -> String {
         (EditorPDFCopyName.firstChoice(for: first, suffix: "combined") as NSString).lastPathComponent
     }
 
@@ -227,6 +239,9 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
         stopRequested = false
         showsSheet = false
         banner = nil
+        lastReport = nil
+        written = []
+        asked = 0
         defer {
             isRunning = false
             progress = nil
@@ -241,6 +256,7 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
     private func runCombine() async {
         let inputs = order
         guard inputs.count > 1, case .success(let fileName) = Self.fileName(name), let first = inputs.first else { return }
+        asked = 1
         var restricted = 0
         var pages = 0
         for (index, path) in inputs.enumerated() {
@@ -250,8 +266,11 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
             if isCloudOnly(MaterializationStatus.linkTarget(of: path)) {
                 return end(EditorPDFToolBanner(message: EditorPDFTools.cloudOnlyReason(name), kind: .failure, download: path))
             }
-            guard EditorFileStore.stamp(ofPath: path) != nil else {
+            guard let stamp = EditorFileStore.stamp(ofPath: path) else {
                 return end(EditorPDFToolBanner(message: "“\(name)” \(EditorPDFBatch.goneReason).", kind: .failure))
+            }
+            if let want = expected[path], stamp != want {
+                return end(EditorPDFToolBanner(message: PanePDFTools.changedSinceAskedReason(name), kind: .failure))
             }
             switch await EditorPDFToolEngine.probe(URL(fileURLWithPath: EditorFileStore.resolved(path))) {
             case .unreadable:
@@ -287,6 +306,8 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
             case .success(let landed):
                 let copyName = (landed.path as NSString).lastPathComponent
                 Logger.shared.info("\(writer) combined \(inputs.count) PDFs into \(copyName) — \(pages) pages")
+                self.written.append(PDFWrittenFile(source: first, path: landed.path, stamp: landed.stamp, bytes: data.count,
+                                              pageCount: pages))
                 host.didWrite(landed.path)
                 var message = "Saved “\(copyName)” — \(SaveAsPDFSummary.pages(pages)) from \(inputs.count) PDFs"
                 if restricted > 0 { message += ". It has no editing restrictions" }
@@ -298,6 +319,7 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
     private func runSplit(_ path: String) async {
         guard let facts, case .success(let parts) = Self.parts(splitAt, pageCount: pageCount) else { return }
         let source = (path as NSString).lastPathComponent
+        asked = parts.count
         let tools = EditorPDFTools()
         tools.writer = writer
         tools.isCloudOnly = isCloudOnly
@@ -306,7 +328,7 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
         tools.confirm = { _, _ in true }
         tools.attach(path: path, pageCount: pageCount, encryption: facts.encryption, droppedParts: facts.droppedParts)
         // The file as the sheet read it: one changed since is not split by its old page numbers.
-        tools.shownStamp = facts.stamp
+        tools.shownStamp = expected[path] ?? facts.stamp
         tools.changedMessage = PanePDFTools.changedSinceAskedReason
         let host = self.host
         tools.host = EditorPDFToolHost(didWrite: host.didWrite)
@@ -319,6 +341,7 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
             switch await tools.run(.extract(part)) {
             case .wrote(let copy):
                 copies.append(copy)
+                if let landed = tools.lastWrite { written.append(landed) }
             case .failed(let message):
                 return end(EditorPDFToolBanner(
                     message: copies.isEmpty ? message : "Saved \(copies.count) of \(parts.count) files from “\(source)”. \(message)",
@@ -342,7 +365,8 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
     }
 
     private func end(_ ending: EditorPDFToolBanner) {
-        banner = ending
+        lastReport = ending
+        if !quiet { banner = ending }
     }
 
     private static func logName(_ path: String) -> String { (path as NSString).lastPathComponent }

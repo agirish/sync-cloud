@@ -14005,3 +14005,18 @@ entry point for it; Save as PDF reads as before. Ask Claude exists only on `main
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Ask Claude's PDF cards, built but not offered (TE294 step 3) — main only
+
+2026-11-02, for v7.0. On `main`: the whole of an Ask Claude PDF card except the tool that offers
+it — the card, saved with the chat; the runner that checks Claude's call field by field; reading a
+card's files in one bounded turn of the PDF lane (pages, size, protection, form fields, what the
+copy loses), with small pictures of the pages; the run on their click through the window's own PDF
+runs, every file checked again first; the line Claude hears with the next question, each new file
+getting its handle as the line is sent; and Undo, which moves exactly the files the card wrote to
+the Trash. No tool name reaches it yet, so nothing in the app offers one and Ask Claude's fixed
+text is unchanged; the `pdf` tool turns it on (TE294 step 4). Ask Claude exists only on `main`.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

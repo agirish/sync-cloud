@@ -45,6 +45,8 @@ struct AskClaudePanel: View {
     var onRuleCard: (UUID, Bool) -> Void = { _, _ in }
     /// What a settings card reads and does (TE290).
     var settingsBridge = AskClaudeSettingsBridge()
+    /// What a PDF card reads and does (TE294).
+    var pdfBridge = AskClaudePDFBridge()
     /// Where the panel wants its window, top-left within `container` (AskClaudeWindow.swift).
     var onPlace: (CGRect) -> Void = { _ in }
 
@@ -369,7 +371,8 @@ struct AskClaudePanel: View {
                                            onDownloadCard: onDownloadCard,
                                            onFilingCard: onFilingCard,
                                            onPlanCard: onPlanCard, onChoice: onChoice, onRuleCard: onRuleCard,
-                                           settingsBridge: settingsBridge,
+                                           settingsBridge: settingsBridge, pdfBridge: pdfBridge,
+                                           pdfThumbnails: chat.pdfThumbnails[item.id] ?? [:],
                                            isLatestReceipt: item.id == latestReceipt, isRunning: chat.isRunning)
                             // Rows that didn't change aren't redrawn as each word streams in.
                             .equatable()
@@ -601,6 +604,8 @@ private struct AskClaudeThreadRow: View, Equatable {
     let onChoice: (UUID, Int) -> Void
     let onRuleCard: (UUID, Bool) -> Void
     let settingsBridge: AskClaudeSettingsBridge
+    let pdfBridge: AskClaudePDFBridge
+    var pdfThumbnails: [Int: CGImage] = [:]
     /// A card applies only once the question that offered it has finished.
     /// The newest receipt shows its summary; older ones fold to an icon, so the thread doesn't
     /// repeat “Sent screen …” under every answer.
@@ -616,7 +621,7 @@ private struct AskClaudeThreadRow: View, Equatable {
     static func == (a: Self, b: Self) -> Bool {
         a.item == b.item && a.linkTargets == b.linkTargets && a.isLatestReceipt == b.isLatestReceipt
             && a.isRunning == b.isRunning && a.accent == b.accent && a.accentFill == b.accentFill && a.onAccent == b.onAccent
-            && a.hue == b.hue
+            && a.hue == b.hue && a.pdfThumbnails == b.pdfThumbnails
     }
 
     static let revealScheme = "synccloud-askclaude"
@@ -711,6 +716,9 @@ private struct AskClaudeThreadRow: View, Equatable {
             ruleCard(card)
         case .settings(let card):
             AskClaudeSettingCardView(itemID: item.id, card: card, bridge: settingsBridge, accent: accent, hue: hue)
+        case .pdf(let card):
+            AskClaudePDFCardView(itemID: item.id, card: card, bridge: pdfBridge, accent: accent, hue: hue,
+                                 isRunning: isRunning, thumbnails: pdfThumbnails)
         case .choices(let choices, let used):
             HStack(spacing: 6) {
                 ForEach(Array(choices.enumerated()), id: \.offset) { index, choice in

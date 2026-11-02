@@ -68,11 +68,13 @@ public struct AskClaudeToolOutcome: Equatable, Sendable {
     public let rule: AskClaudeRuleCard?
     /// A card of settings with their real controls (TE290).
     public let settings: AskClaudeSettingCard?
+    /// A card that runs one of the PDF tools on their click (TE294).
+    public let pdf: AskClaudePDFCard?
 
     public init(result: String, isError: Bool = false, step: String, movedView: String? = nil,
                 passage: AskClaudePassage? = nil, download: AskClaudeDownload? = nil,
                 filing: AskClaudeFilingCard? = nil, plan: AskClaudePlan? = nil, choices: [AskClaudeChoice]? = nil,
-                rule: AskClaudeRuleCard? = nil, settings: AskClaudeSettingCard? = nil) {
+                rule: AskClaudeRuleCard? = nil, settings: AskClaudeSettingCard? = nil, pdf: AskClaudePDFCard? = nil) {
         self.result = result
         self.isError = isError
         self.step = step
@@ -84,6 +86,7 @@ public struct AskClaudeToolOutcome: Equatable, Sendable {
         self.choices = choices
         self.rule = rule
         self.settings = settings
+        self.pdf = pdf
     }
 }
 
@@ -201,6 +204,8 @@ public enum AskClaudeEvent: Equatable, Sendable {
     case rule(AskClaudeRuleCard)
     /// A card of settings (TE290).
     case settings(AskClaudeSettingCard)
+    /// A card that runs a PDF tool on their click (TE294).
+    case pdf(AskClaudePDFCard)
     /// The question joined the transcript with this model and style (TE292); `previous` is the
     /// last question's, nil in a new chat.
     case kept(previous: AskClaudeKeptSetting?, now: AskClaudeKeptSetting)
@@ -502,6 +507,7 @@ public final class AskClaudeEngine {
                 if let choices = outcome.choices { emit(.choices(choices)) }
                 if let rule = outcome.rule { emit(.rule(rule)) }
                 if let settings = outcome.settings { emit(.settings(settings)) }
+                if let pdf = outcome.pdf { emit(.pdf(pdf)) }
                 results.append(Self.result(for: call, text: outcome.result, isError: outcome.isError))
             }
             if Task.isCancelled {
