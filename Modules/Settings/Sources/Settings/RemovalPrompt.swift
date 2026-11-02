@@ -10,7 +10,7 @@ import Foundation
 /// Claude again for every file to get them. Reset Setup, Reset All Settings and Clear Log already
 /// asked; these ask the same way.
 ///
-/// **A sixth asks the same way** (decision II): Hidden from Claude's Remove. It forgets nothing
+/// **A sixth asks the same way** (decision IP): Hidden from Claude's Remove. It forgets nothing
 /// by hand, but it is the one removal that widens what Claude may see, and it was one click.
 ///
 /// The words live here, beside one another, so the six read as one voice; each control's gate is

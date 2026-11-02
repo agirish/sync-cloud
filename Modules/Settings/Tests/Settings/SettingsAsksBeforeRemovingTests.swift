@@ -11,7 +11,7 @@ import Testing
 /// Clear for saved suggestions (the next Refine pays Claude again for every file), and choosing
 /// "All columns" for column widths (the widths sized one at a time are erased, and choosing "Each
 /// column" again does not restore them). A sixth, Hidden from Claude's Remove, asks the same way
-/// (decision II): it widens what Claude may see.
+/// (decision IP): it widens what Claude may see.
 ///
 /// The decisions are pinned on the gates — a SwiftUI button's closure cannot be reached from a test
 /// — over real stores where a store exists, and the last test holds each control to its gate, so a
