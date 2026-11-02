@@ -4961,11 +4961,10 @@ cancelled on entry and forward it then. The read meanwhile reads a chunk and ask
 the app the same window lets a Stop arrive a chunk or more late. `edgeSample` had the same shape.
 
 **Reproduced** with a 50 ms `usleep` between the spawn and the handler: 3 of 3 rounds red beside 14 `yes`
-spinners, one at the CI line (`asked == 2` false) and two hashing the whole file before the
-cancel arrived. The same pause after the spawn in the fixed code, where the handler already exists:
-0 of 3 rounds, 60 iterations, green. Without the pause,
-neither reproduces on this Mac: about 5,000 iterations of the old code beside 14 `yes` spinners
-under `build-slot --exclusive` were all green.
+spinners, one at the CI line (`asked == 2` false) and two where the outcome was not `.cancelled`
+at all. The same pause after the spawn in the fixed code, where the handler already exists:
+0 of 3 rounds, 60 iterations, green. Without the pause the old code did not reproduce on this Mac:
+about 5,000 iterations beside 14 `yes` spinners under `build-slot --exclusive` were all green.
 
 **Fix, 2026-11-01.** `FileContentVerifier.onHashLane` enters `withTaskCancellationHandler` first
 and spawns the read inside it. The handler sets a lock-held flag that the read asks before the open
