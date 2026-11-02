@@ -50,6 +50,9 @@ struct AskClaudeSettingsBridge {
     var setListItem: @MainActor (_ item: UUID, _ row: Int, _ value: String, _ present: Bool) -> Void = { _, _, _, _ in }
     var chooseHidden: @MainActor (_ item: UUID, _ row: Int) -> Void = { _, _ in }
     var isHiddenItem: @MainActor (_ value: String) -> Bool = { _ in false }
+    /// A folder setting's Choose… (TE290 step 9): the panel opens; Claude never fills a path in.
+    var chooseFolder: @MainActor (_ item: UUID, _ row: Int) -> Void = { _, _ in }
+    var resetOpenAt: @MainActor (_ item: UUID, _ row: Int) -> Void = { _, _ in }
 }
 
 /// What a change does beyond its value, shown beside it on a card (TE290 step 6): judged from the
@@ -108,8 +111,10 @@ struct AskClaudeSettingCardView: View {
     @StateObject private var ticker = AskClaudeSettingsTicker()
     /// What is typed in an API key field, by row: the view's alone, never the card's.
     @State private var typedKeys: [Int: String] = [:]
-    /// A pattern being typed into a list's field, by row.
+    /// A pattern being typed into a list's field, or text into a text field, by row.
     @State private var typedItems: [Int: String] = [:]
+    /// The row whose text field has the caret, so leaving one saves it.
+    @FocusState private var focusedField: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -218,6 +223,10 @@ struct AskClaudeSettingCardView: View {
             keyControl(index)
         case .list:
             listControl(index, entry, pick)
+        case .text:
+            textControl(index, entry, current, pick)
+        case .folder:
+            folderControl(index, entry, current)
         case .segmented(let choices):
             Picker(entry.label, selection: Binding(get: { current ?? choices[0].value },
                                                    set: { bridge.change(itemID, index, $0) })) {
@@ -294,6 +303,58 @@ struct AskClaudeSettingCardView: View {
             Button("Use \(choice)") { bridge.change(itemID, index, pick) }
                 .controlSize(.small)
                 .help("Claude’s suggestion")
+        }
+    }
+
+    // MARK: Text and folders
+
+    /// A text setting (a source's name, the Loose-files inbox): saved on Return or on leaving the
+    /// field, as Settings saves it. Claude's suggestion is a button beside it.
+    @ViewBuilder
+    private func textControl(_ index: Int, _ entry: SettingEntry, _ current: SettingValue?, _ pick: SettingValue?) -> some View {
+        let shown: String = { if case .string(let x)? = current { x } else { "" } }()
+        let commit = {
+            guard let typed = typedItems[index], typed != shown else { return }
+            bridge.change(itemID, index, .string(typed))
+            typedItems[index] = nil
+        }
+        TextField(entry.label, text: Binding(get: { typedItems[index] ?? shown }, set: { typedItems[index] = $0 }))
+            .textFieldStyle(.roundedBorder)
+            .controlSize(.small)
+            .onSubmit(commit)
+            .focused($focusedField, equals: index)
+            .onChange(of: focusedField) { was, now in if was == index, now != index { commit() } }
+            .accessibilityLabel(entry.label)
+        if case .string(let suggested)? = pick, suggested != shown {
+            useButton(index, entry, pick, true)
+        }
+    }
+
+    /// A folder setting: where it is now, and Choose… — the macOS panel, which doesn't move the
+    /// chat. Open at can also go back to the source's default.
+    @ViewBuilder
+    private func folderControl(_ index: Int, _ entry: SettingEntry, _ current: SettingValue?) -> some View {
+        if case .string(let path)? = current {
+            Text(path.isEmpty ? "The top of the source" : path)
+                .scaledFont(.system(.footnote, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .truncationMode(.middle)
+                .help(path)
+        }
+        HStack(spacing: 6) {
+            Button(entry.id == "sources.addFolder" ? "Add Folder…" : "Choose…") { bridge.chooseFolder(itemID, index) }
+                .controlSize(.small)
+            if entry.id == "sources.openAt" {
+                Button("Reset") { bridge.resetOpenAt(itemID, index) }
+                    .controlSize(.small)
+                    .help("Opens at the source’s default folder again")
+            }
+        }
+        if let outcome = card.rows[index].outcome {
+            Label(outcome, systemImage: "checkmark.circle")
+                .scaledFont(.footnote).foregroundStyle(.green)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

@@ -818,7 +818,14 @@ extension ContentView {
         }
         undo.write = { key, value in
             if SettingsLists.ids.contains(key.id) { return lists.set(key.id, scoped: key.target ?? "", present: value == .bool(true)) == .done }
-            return SettingsWriter(defaults: .standard, settings: settings).write(key.id, value, target: key.target) == .done
+            let done = SettingsWriter(defaults: .standard, settings: settings).write(key.id, value, target: key.target) == .done
+            if done, SettingsWriter.appliedByDiscovery.contains(key.id) {
+                Task { @MainActor in
+                    await settings.discoverProviders()
+                    undo.resettle(key)
+                }
+            }
+            return done
         }
         undo.didStep = { step, undone in askClaudeSettingsStepped(step, undone: undone) }
         AskClaudePanelWindow.settingsUndo = { [weak chat] in chat?.settingsUndo }
@@ -848,7 +855,64 @@ extension ContentView {
             listItems: { lists.items($0.id) },
             setListItem: { id, row, item, present in askClaudeListEdit(id, row, item, present: present) },
             chooseHidden: { id, row in askClaudeChooseHidden(id, row) },
-            isHiddenItem: askClaudeNamesHidden)
+            isHiddenItem: askClaudeNamesHidden,
+            chooseFolder: { id, row in askClaudeChooseFolder(id, row) },
+            resetOpenAt: { id, row in
+                guard let target = askClaudeChat.settingCard(id)?.rows[row].target else { return }
+                askClaudeSettingChange(id, row, nil) { settings.resetOpenAt(for: target); return .done }
+            })
+    }
+
+    /// A value in words for Claude: a folder setting's path is left out when it names something
+    /// hidden from Claude (TE290 step 9).
+    func askClaudeWords(_ value: SettingValue?, _ entry: SettingEntry) -> String {
+        guard let value else { return "unknown" }
+        if entry.privacy == .hiddenFiltered, case .string(let path) = value, askClaudeNamesHidden(path) {
+            return "a folder hidden from you"
+        }
+        return SettingsLookup.label(value, entry)
+    }
+
+    /// A folder setting's Choose… (TE290 step 9): the macOS panel, which doesn't move the chat.
+    /// Claude never fills a path in; what the panel gives is written as Settings writes it.
+    func askClaudeChooseFolder(_ id: UUID, _ index: Int) {
+        guard let rows = askClaudeChat.settingCard(id)?.rows, rows.indices.contains(index),
+              let entry = SettingsCatalog.entry(rows[index].id) else { return }
+        let row = rows[index]
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        switch entry.id {
+        case "sources.addFolder":
+            panel.prompt = "Add Folder"
+            panel.message = "A folder to add as a source"
+        case "sources.openAt":
+            panel.prompt = "Open Here"
+            panel.message = "Where panes on this source open"
+            if let target = row.target { panel.directoryURL = URL(fileURLWithPath: (settings.rootPath(for: target) as NSString).expandingTildeInPath) }
+        default:
+            panel.prompt = "Choose"
+            if let target = row.target { panel.directoryURL = URL(fileURLWithPath: (settings.rootPath(for: target) as NSString).expandingTildeInPath) }
+        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard entry.id == "sources.addFolder" else {
+            askClaudeSettingChange(id, index, .string(url.path))
+            return
+        }
+        let known = Set(settings.availableProviders.map(\.id))
+        let source = settings.addFolderSource(path: url.path)
+        let name = url.lastPathComponent
+        let hidden = askClaudeIsHidden(url.path)
+        if known.contains(source) {
+            let existing = settings.availableProviders.first { $0.id == source }?.displayName ?? name
+            askClaudeChat.updateSettingCard(id) { $0.rows[index].outcome = "Already a source: \(existing). Nothing was added." }
+            return
+        }
+        askClaudeChat.updateSettingCard(id) { $0.rows[index].outcome = "Added \(name) as a source." }
+        SettingsChangeLog.shared.record(SettingsChange(setting: entry.id, name: "Local folders", from: nil, to: nil,
+                                                       fromLabel: nil, toLabel: "added \(name)", how: .card))
+        askClaudeChat.tellClaude(hidden ? "They added a folder hidden from you as a source." : "They added \(name) as a folder source.")
     }
 
     /// The four lists a card edits (TE290 step 8), through Settings' owners.
@@ -971,7 +1035,7 @@ extension ContentView {
             let name = askClaudeSettingName(entry, target: change.key.target)
             askClaudeRecordChange(entry, target: change.key.target, from: undone ? change.after : change.before,
                                   to: undone ? change.before : change.after, how: undone ? .undo : .redo)
-            let now = SettingsLookup.label(undone ? change.before : change.after, entry)
+            let now = askClaudeWords(undone ? change.before : change.after, entry)
             let raises = entry.raises(from: undone ? change.after : change.before, to: undone ? change.before : change.after)
                 ? " This raises Claude’s spending or access." : ""
             askClaudeChat.tellClaude("They set \(name) back with \(undone ? "Undo" : "Redo"): now \(now).\(raises)",
@@ -981,18 +1045,43 @@ extension ContentView {
 
     /// A click on a settings card: written through the setting's owner, remembered on the card as
     /// "was", and told to Claude as one line per setting (TE290 step 4a).
-    func askClaudeSettingChange(_ id: UUID, _ index: Int, _ value: SettingValue) {
+    /// `value` nil with a `write` of its own: an action that sets a value, such as Open at's
+    /// Reset, whose result is read back.
+    func askClaudeSettingChange(_ id: UUID, _ index: Int, _ value: SettingValue?,
+                                write: (() -> SettingsWriter.Outcome)? = nil) {
         guard let card = askClaudeChat.settingCard(id), card.rows.indices.contains(index),
               let entry = SettingsCatalog.entry(card.rows[index].id) else { return }
         let row = card.rows[index]
         let lookup = askClaudeSettingsLookup
         let before = lookup.currentValue(entry, target: row.target)
-        guard before != value else { return }
+        if let value { guard before != value else { return } }
         let name = askClaudeSettingName(entry, target: row.target)
-        let label = { (v: SettingValue?) in v.map { SettingsLookup.label($0, entry) } ?? "unknown" }
+        let label = { (v: SettingValue?) in askClaudeWords(v, entry) }
         let prefix = "They set \(name) "
-        switch SettingsWriter(defaults: .standard, settings: settings).write(entry.id, value, target: row.target) {
+        let outcome = write?() ?? value.map { SettingsWriter(defaults: .standard, settings: settings).write(entry.id, $0, target: row.target) }
+            ?? .refused("Nothing to change.")
+        // A source's name, path and Open at land when the sources are discovered again: the
+        // card, its Undo and Claude's line wait for that, so each holds the value that landed.
+        guard outcome == .done, SettingsWriter.appliedByDiscovery.contains(entry.id) else {
+            askClaudeSettingChanged(id, index, entry, outcome: outcome, before: before, wrote: value, prefix: prefix, label: label)
+            return
+        }
+        Task { @MainActor in
+            await settings.discoverProviders()
+            askClaudeSettingChanged(id, index, entry, outcome: outcome, before: before, wrote: value, prefix: prefix, label: label)
+        }
+    }
+
+    /// What a card's write did, once it has landed: the card, the undo step, the record, Claude's line.
+    private func askClaudeSettingChanged(_ id: UUID, _ index: Int, _ entry: SettingEntry, outcome: SettingsWriter.Outcome,
+                                         before: SettingValue?, wrote: SettingValue?, prefix: String,
+                                         label: (SettingValue?) -> String) {
+        guard let card = askClaudeChat.settingCard(id), card.rows.indices.contains(index) else { return }
+        let row = card.rows[index]
+        switch outcome {
         case .done:
+            // Read back, so the step and the line hold what is there (a path as stored, say).
+            guard let value = askClaudeSettingsLookup.currentValue(entry, target: row.target) ?? wrote, value != before else { return }
             askClaudeRecordChange(entry, target: row.target, from: before, to: value, how: .card)
             askClaudeChat.updateSettingCard(id) { card in
                 if card.rows[index].changedFrom == nil { card.rows[index].changedFrom = before?.stored }
@@ -1019,7 +1108,7 @@ extension ContentView {
             }
         case .refused(let why):
             askClaudeChat.updateSettingCard(id) { $0.rows[index].refusal = why }
-            askClaudeChat.tellClaude(prefix + "to \(label(value)) on your card, and it wasn’t changed: \(why)", replacing: prefix)
+            askClaudeChat.tellClaude(prefix + "to \(label(wrote)) on your card, and it wasn’t changed: \(why)", replacing: prefix)
         }
     }
 }

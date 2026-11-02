@@ -101,6 +101,19 @@ import Sync
         #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
     }
 
+    /// TE290 step 9: a text field, and a folder with a long path, Choose… and Reset.
+    @Test(arguments: ["organize.inbox", "sources.openAt", "sources.addFolder"])
+    func textAndFolderCardsFit240(id: String) {
+        var card = AskClaudeSettingCard(rows: [.init(id: id, target: id == "sources.openAt" ? "Acct" : nil, pick: id == "organize.inbox" ? "Loose Files" : nil)])
+        card.rows[0].outcome = id == "sources.addFolder" ? "Already a source: Projects From The Old Mac. Nothing was added." : nil
+        let path = "Documents/Clients/Northwind Traders/2026/Contracts and Statements of Work"
+        let bridge = AskClaudeSettingsBridge(read: { entry, _ in entry.id == id && id != "sources.addFolder" ? .string(path) : entry.defaultValue },
+                                             targetName: { _ in "Dropbox (Northwind Traders)" })
+        let host = NSHostingController(rootView: AskClaudeSettingCardView(itemID: UUID(), card: card, bridge: bridge,
+                                                                          accent: .blue, hue: .blue))
+        #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
+    }
+
     @Test func aCardOfSeveralWithATitleFits240() {
         let card = AskClaudeSettingCard(title: "Hide Identical Files in Compare", rows: [
             .init(id: "sync.verifySameSize", pick: "true"),

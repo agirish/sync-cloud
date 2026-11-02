@@ -14076,3 +14076,16 @@ exists only on `main` (see step 0b).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Sources on Ask Claude's cards (TE290 step 9, part 1) — main only
+
+2026-11-02, for v7.0. On `main`: a source's name, a folder source's synchronized path, a cloud
+source's Open at (with Reset), Add Folder… and the Loose-files inbox can each be a card. A folder
+always comes from Choose…, the macOS panel; Claude may suggest text (one line, up to 64 characters,
+not another source's name) but never a path. Writes go through SettingsManager as Settings' rows
+make them, and the card, its Undo and Claude's line wait for the sources to be rediscovered, so
+each holds the value that landed. Ask Claude exists only on `main` (see step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

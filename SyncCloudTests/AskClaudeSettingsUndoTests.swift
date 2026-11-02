@@ -104,6 +104,31 @@ import Sync
         #expect(store.values["intelligence.readsFiles"] == .bool(true))
     }
 
+    /// TE290 step 9: a write that lands only once the sources are rediscovered. Its undo read the
+    /// old value straight after writing; once the written value is there, Redo takes it again.
+    @Test func aWriteThatLandsLaterIsUndoneOnceItHas() {
+        let store = Store()
+        store.values["sources.name"] = .string("Dropbox (Work)")
+        var landed: [String: SettingValue] = [:]
+        let undo = AskClaudeSettingsUndo()
+        undo.read = { store.values[$0.id] }
+        // Each write waits for "discovery" to land.
+        undo.write = { key, value in landed[key.id] = value; return true }
+        let card = UUID()
+        let key = AskClaudeSettingsLedger.Key(id: "sources.name", target: nil)
+        undo.record(AskClaudeSettingsStep(card: card, rows: [0],
+                                          changes: [.init(key: key, before: .string("Dropbox"), after: .string("Dropbox (Work)"),
+                                                          token: undo.token(key))], name: "Source name", cardOnly: false))
+        undo.undoCard(card, row: 0)
+        #expect(landed["sources.name"] == .string("Dropbox"))
+        // Discovery lands the undo: without resettling, the step's token names the old value and
+        // Redo is lost.
+        store.values["sources.name"] = .string("Dropbox")
+        #expect(!undo.canRedo)
+        undo.resettle(key)
+        #expect(undo.redoTitle == "Redo Source name")
+    }
+
     @Test func newChatClearsTheStepsAndKeepsTheChanges() {
         let d = UserDefaults(suiteName: "AskClaudeSettingsUndoTests.newChat")!
         defer { wipeDefaultsSuite("AskClaudeSettingsUndoTests.newChat") }

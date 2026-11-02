@@ -90,6 +90,24 @@ final class AskClaudeSettingsUndo {
         }
     }
 
+    /// A setting whose write lands only once something else catches up — a source's name, path
+    /// and Open at take effect when the sources are discovered again (TE290 step 9). An undo of
+    /// one read the old value straight after writing, so its token named that; once the value it
+    /// wrote is there, its steps take that value's token again.
+    func resettle(_ key: AskClaudeSettingsLedger.Key) {
+        let now = read(key)
+        for index in undoSteps.indices {
+            for (row, change) in undoSteps[index].changes.enumerated() where change.key == key && now == change.after {
+                undoSteps[index].changes[row].token = token(key)
+            }
+        }
+        for index in redoSteps.indices {
+            for (row, change) in redoSteps[index].changes.enumerated() where change.key == key && now == change.before {
+                redoSteps[index].changes[row].token = token(key)
+            }
+        }
+    }
+
     /// Whether `step` still describes the live values: nothing changed any of them since.
     func isCurrent(_ step: AskClaudeSettingsStep) -> Bool {
         step.changes.allSatisfy { token($0.key) == $0.token }

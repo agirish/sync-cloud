@@ -95,6 +95,7 @@ public enum SettingsRevert {
             choices.first { $0.value.stored == text }?.value
         case .stepper: Int(text).map(SettingValue.int)
         case .slider: Double(text).map(SettingValue.double)
+        case .text, .folder: .string(text)
         default: nil
         }
     }

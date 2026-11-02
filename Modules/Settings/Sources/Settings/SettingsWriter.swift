@@ -47,6 +47,10 @@ public struct SettingsWriter {
         self.notificationsDenied = notificationsDenied
     }
 
+    /// The settings a write applies only once the sources are discovered again: reading one
+    /// straight after its write still gives the old value (TE290 step 9).
+    public static let appliedByDiscovery: Set<String> = ["sources.name", "sources.path", "sources.openAt"]
+
     /// Writes `value` to the setting `id` (for `target`, when it belongs to one).
     @discardableResult
     public func write(_ id: String, _ value: SettingValue, target: String? = nil) -> Outcome {
@@ -88,6 +92,36 @@ public struct SettingsWriter {
             settings.setEnabled(on, for: target)
             // SettingsManager refuses to switch off the last source, silently.
             if settings.isEnabled(target) != on { return .refused("Your only source can’t be turned off.") }
+
+        // A source's name, path and Open at (TE290 step 9), as Settings' rows set them.
+        case ("sources.name", .string(let name)):
+            guard let settings, let target, settings.availableProviders.contains(where: { $0.id == target }) else {
+                return .refused("Say which source.")
+            }
+            if let other = settings.availableProviders.first(where: { $0.id != target && $0.displayName == name.trimmingCharacters(in: .whitespaces) }) {
+                return .refused("\(other.displayName) is another source’s name.")
+            }
+            settings.setCustomName(name, for: target)
+        case ("sources.path", .string(let path)):
+            guard let settings, let target else { return .refused("Say which folder source.") }
+            guard FileManager.default.fileExists(atPath: (path as NSString).expandingTildeInPath) else {
+                return .refused("There’s no folder at \(path).")
+            }
+            if case .refusedDuplicate(let existing) = settings.setPath(path, for: target) {
+                let name = settings.availableProviders.first { $0.id == existing }?.displayName ?? existing
+                return .refused("Already a source: \(name).")
+            }
+        case ("sources.openAt", .string(let folder)):
+            guard let settings, let target else { return .refused("Say which source.") }
+            // A folder chosen in the panel comes as a full path; Undo and Revert give back the
+            // stored form, relative to the source's root.
+            let outcome = folder.hasPrefix("/") || folder.hasPrefix("~")
+                ? settings.setOpenAt(folder, for: target) : settings.setOpenAtRelative(folder, for: target)
+            switch outcome {
+            case .refusedOutsideRoot: return .refused("That folder isn’t inside \(settings.availableProviders.first { $0.id == target }?.displayName ?? "the source").")
+            case .refusedUnknownSource: return .refused("That source isn’t there right now.")
+            default: break
+            }
 
         // Owned elsewhere.
         case ("general.launchAtLogin", .bool(let on)):
@@ -151,8 +185,20 @@ public struct SettingsWriter {
         case .slider(let low, let high):
             if case .double(let x) = value { return (low...high).contains(x) }
             return false
+        case .text, .folder:
+            if case .string = value { return true }
+            return false
         default:
             return false
+        }
+    }
+
+    /// Text Claude offers for a field (TE290 step 9), held to what Settings would take: one line
+    /// of up to 64 characters, with no control or direction-changing characters.
+    public static func acceptsClaudesText(_ text: String) -> Bool {
+        text.count <= 64 && !text.unicodeScalars.contains { scalar in
+            CharacterSet.controlCharacters.contains(scalar) || (0x202A...0x202E).contains(scalar.value)
+                || (0x2066...0x2069).contains(scalar.value)
         }
     }
 }
@@ -189,6 +235,8 @@ extension SettingsCatalog {
         case .slider:
             let number = Double(trimmed.replacingOccurrences(of: "%", with: ""))
             return number.map { .double(trimmed.hasSuffix("%") || $0 > 1 ? $0 / 100 : $0) }
+        case .text, .folder:
+            return .string(text)
         default:
             return nil
         }

@@ -217,6 +217,14 @@ import FileExplorer
         #expect(!(await show([["id": .string("organize.keptNames")]])).isError)
         #expect(await show([["id": .string("organize.keptNames"), "pick": .string("Report .pdf")]]).isError)
         #expect(await show([["id": .string("intelligence.hidden"), "pick": .string("/Users/me/Medical")]]).isError)
+
+        // TE290 step 9: Claude never fills in a folder, its text is checked, and People wait.
+        #expect(!(await show([["id": .string("sources.addFolder")]])).isError)
+        #expect(await show([["id": .string("sources.addFolder"), "pick": .string("/Users/me/Projects")]]).isError)
+        let inbox = await show([["id": .string("organize.inbox"), "pick": .string("To File")]])
+        #expect(!inbox.isError && inbox.settings?.rows.first?.pick == "To File")
+        #expect(await show([["id": .string("organize.inbox"), "pick": .string("To\u{202E}File")]]).isError)
+        #expect(await show([["id": .string("people.add")]]).result.contains("can’t be a card in this version"))
     }
 
     @Test func aFolderArgumentCannotClimbOutOfTheSource() {

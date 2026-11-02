@@ -97,6 +97,50 @@ import Sync
         #expect(defaults.object(forKey: PaneViewMode.columnWidthOverridesDefaultsKey) == nil)
     }
 
+    /// TE290 step 9: a source's name and Open at, from a card, as Settings' rows set them.
+    private func sources(_ name: String, _ defaults: UserDefaults, root: String) -> SettingsManager {
+        let manager = SettingsManager(autoDiscover: false, userDefaults: defaults, overridesDomainName: name,
+                                      cloudStorageLister: { .read([]) }, pathValidator: { _ in true })
+        manager.availableProviders = [
+            CloudProvider(id: "Acct", displayName: "Dropbox", imageName: "cloud", rootPath: root, openAt: "Documents", type: .dropBox),
+            CloudProvider(id: "Other", displayName: "OneDrive", imageName: "cloud", rootPath: "/nowhere", type: .oneDrive),
+        ]
+        return manager
+    }
+
+    @Test func aSourcesNameAndOpenAtAreSetAsSettingsSetsThem() throws {
+        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SettingsWriterTests-\(UUID().uuidString)")
+        let inside = root.appendingPathComponent("Work")
+        try FileManager.default.createDirectory(at: inside, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manager = sources(name, defaults, root: root.path)
+        let w = writer(defaults, manager, Calls())
+
+        #expect(w.write("sources.name", .string("Dropbox (Work)"), target: "Acct") == .done)
+        #expect(defaults.string(forKey: "name_override_Acct") == "Dropbox (Work)")
+        #expect(w.write("sources.name", .string("OneDrive"), target: "Acct") == .refused("OneDrive is another source’s name."))
+        #expect(w.write("sources.name", .string("x")) == .refused("Say which source."))
+
+        #expect(w.write("sources.openAt", .string(inside.path), target: "Acct") == .done)
+        #expect(defaults.string(forKey: SettingsManager.openAtOverrideKeyPrefix + "Acct") == "Work")
+        #expect(w.write("sources.openAt", .string("/Users"), target: "Acct") == .refused("That folder isn’t inside Dropbox."))
+        // Undo and Revert hand back the stored, relative form, once discovery has applied the
+        // change (as the card waits for it to).
+        manager.availableProviders[0] = CloudProvider(id: "Acct", displayName: "Dropbox", imageName: "cloud", rootPath: root.path,
+                                                      openAt: "Work", type: .dropBox)
+        #expect(w.write("sources.openAt", .string("Documents"), target: "Acct") == .done)
+        #expect(defaults.string(forKey: SettingsManager.openAtOverrideKeyPrefix + "Acct") == "Documents")
+        #expect(w.write("sources.path", .string("/no/such/folder"), target: "Acct") == .refused("There’s no folder at /no/such/folder."))
+    }
+
+    @Test func claudesTextIsOneShortLineWithNothingHiddenInIt() {
+        #expect(SettingsWriter.acceptsClaudesText("Dropbox (Work)"))
+        #expect(!SettingsWriter.acceptsClaudesText(String(repeating: "a", count: 65)))
+        #expect(!SettingsWriter.acceptsClaudesText("Work\nEvil"))
+        #expect(!SettingsWriter.acceptsClaudesText("Work\u{202E}xob"))
+    }
+
     @Test func launchAtLoginGoesToTheLoginItem() {
         let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
         let calls = Calls()

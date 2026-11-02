@@ -40,6 +40,9 @@ public struct AskClaudeSettingCard: Codable, Equatable, Sendable {
         public var keySaved: Bool?
         /// What this card put in or took out of a list, in order; nil for a setting that isn't one.
         public var listEdits: [ListEdit]?
+        /// What a one-off action did, in words for the card (TE290 step 9): "Added Projects as a
+        /// source." It is never a value Undo could put back.
+        public var outcome: String?
 
         public init(id: String, target: String? = nil, pick: String? = nil, changedFrom: String? = nil,
                     refusal: String? = nil, byClaude: Bool? = nil) {

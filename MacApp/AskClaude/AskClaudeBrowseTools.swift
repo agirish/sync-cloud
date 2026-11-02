@@ -330,9 +330,15 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     /// The controls a card can hold in this version (TE290 step 4a); the rest open Settings.
     static func cardHolds(_ control: SettingControl) -> Bool {
         switch control {
-        case .toggle, .segmented, .menu, .stepper, .slider, .swatches, .secret: true
+        case .toggle, .segmented, .menu, .stepper, .slider, .swatches, .secret, .text, .folder: true
         default: false
         }
+    }
+
+    /// Whether `entry` can be a card in this version: its control can, and it isn't one of
+    /// People's, which come with their own fields (TE290 step 9, part 2).
+    static func cardHolds(_ entry: SettingEntry) -> Bool {
+        (cardHolds(entry.control) || SettingsLists.ids.contains(entry.id)) && !entry.id.hasPrefix("people.")
     }
 
     /// Puts a card of settings in the chat. Every item is checked first — a setting that exists,
@@ -354,7 +360,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             guard entry.tier != .notInChat, entry.tier != .readOnly, entry.tier != .viewTools else {
                 return AskClaudeToolOutcome(result: "\(entry.label) isn’t offered on a card.", isError: true, step: "Not a card")
             }
-            guard Self.cardHolds(entry.control) || SettingsLists.ids.contains(entry.id) else {
+            guard Self.cardHolds(entry) else {
                 return AskClaudeToolOutcome(
                     result: "\(entry.label) can’t be a card in this version. Open Settings at it with show_in_app (place settings, tab: \(entry.label)).",
                     isError: true, step: "\(entry.label) isn’t a card yet")
@@ -374,6 +380,18 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                         isError: true, step: "Not a pick for \(entry.label)")
                 }
                 pick = .string(pattern)
+            } else if item["pick"]?.stringValue != nil, entry.control == .folder {
+                // A path comes from their Choose…, never from Claude (TE290 step 9).
+                return AskClaudeToolOutcome(result: "Claude never fills in a folder; show \(entry.label) without a pick, and they choose it.",
+                                            isError: true, step: "Not a pick for \(entry.label)")
+            } else if let text = item["pick"]?.stringValue, entry.control == .text {
+                let trimmed = text.trimmingCharacters(in: .whitespaces)
+                let others = (lookup.settings?.availableProviders ?? []).filter { $0.id != targetID }.map(\.displayName)
+                guard SettingsWriter.acceptsClaudesText(trimmed), !(entry.id == "sources.name" && others.contains(trimmed)) else {
+                    return AskClaudeToolOutcome(result: "“\(text)” can’t be offered for \(entry.label): one line of up to 64 characters, and not another source’s name.",
+                                                isError: true, step: "Not a pick for \(entry.label)")
+                }
+                pick = .string(trimmed)
             } else if let text = item["pick"]?.stringValue {
                 guard let value = SettingsCatalog.value(text, for: entry) else {
                     return AskClaudeToolOutcome(result: "“\(text)” isn’t one of \(entry.label)’s choices. get it for its choices.",
