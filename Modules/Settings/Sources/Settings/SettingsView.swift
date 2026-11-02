@@ -2654,7 +2654,7 @@ struct IntelligenceSettingsTab: View {
                     }
                     .labelsHidden()
                     .fixedSize()
-                    .help("Sonnet 5.5 answers a typical question for about a cent. Changing it starts a new chat at the next question.")
+                    .help("Sonnet 5.5 answers a typical question for about a cent. A change carries on in the open chat from its next question; the menu under Ask Claude’s text box changes it too.")
                 }
                 SettingsRow("Answers") {
                     Picker("Answers", selection: $askClaudeAnswers) {
@@ -2666,7 +2666,7 @@ struct IntelligenceSettingsTab: View {
                     .accentedSegments(LiquidGlassHue(rawValue: glassHueRaw) ?? .blue)
                     .labelsHidden()
                     .fixedSize()
-                    .help("Brief answers in a sentence or two. Detailed explains what it checked and names close alternatives, and costs a little more per answer. Changing it starts a new chat at the next question.")
+                    .help("Brief answers in a sentence or two. Detailed explains what it checked and names close alternatives, and costs a little more per answer. A change carries on in the open chat from its next question; the menu under Ask Claude’s text box changes it too.")
                 }
                 SettingsRow("Monthly limit") {
                     Picker("Monthly limit", selection: $askClaudeLimitUSD) {

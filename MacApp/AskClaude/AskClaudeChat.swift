@@ -80,7 +80,21 @@ final class AskClaudeChat: ObservableObject {
         var outputTokens = 0
         var costUSD = 0.0
         var rounds = 0
+        /// The model that answered (the last round's; a fallback's when one stepped in).
         var model = ""
+        /// The model asked for (TE292). Optional, like `showsModel`, so a chat saved before they
+        /// existed still loads.
+        var requested: String?
+        /// Whether the line under the answer names the model: when a fallback answered any round,
+        /// when the model asked for differs from the last kept answer's, and on a chat's first
+        /// answer when it isn't the default. A chat on one model doesn't say so under every answer.
+        var showsModel: Bool?
+        /// The first model other than the one asked for that answered a round, when a fallback
+        /// stepped in: marked even when a later round went back to the model asked for.
+        var fallbackModel: String?
+        /// Whether the question joined the chat. A declined or stopped one's receipt doesn't count
+        /// as the model the chat was last answered on.
+        var kept: Bool?
     }
 
     /// An hour away starts a new chat; the cache would be cold by then anyway.
@@ -99,6 +113,8 @@ final class AskClaudeChat: ObservableObject {
     /// The question running, or last run: what a download card offered during it was wanted for.
     private var askedQuestion: String?
     private var streamingItem: UUID?
+    /// The question running, as the thread shows it: where a switch's note goes (TE292).
+    private var askedItem: UUID?
     private var receipt: Receipt?
     private var warnedNearLimit = false
     /// What was typed and not sent when the panel closed; Esc or ✕ doesn't throw it away.
@@ -399,7 +415,7 @@ final class AskClaudeChat: ObservableObject {
     }
 
     /// New Chat, the button: a fresh chat, and the questions typed so far forgotten with it. The
-    /// chat's own fresh starts (an hour away, a hidden folder, a changed setting) keep them: they
+    /// chat's own fresh starts (an hour away, a hidden folder, an app update) keep them: they
     /// come as a question is sent, and that question has just been remembered.
     func newChat() {
         startOver()
@@ -505,8 +521,8 @@ final class AskClaudeChat: ObservableObject {
 
     /// The question that goes again once a download for a read lands, and what the thread shows.
     /// The file goes attached and the question it was wanted for goes with it, not as "my last
-    /// question": an hour away, a folder hidden or a model changed in Settings starts a new chat
-    /// first, which holds neither the question nor the handle.
+    /// question": an hour away, a folder hidden or an app update starts a new chat first, which
+    /// holds neither the question nor the handle.
     static func reask(after download: AskClaudeDownload) -> (question: String, shown: String) {
         let shown = "Downloaded \(download.fileName)"
         guard let question = download.question else {
@@ -573,6 +589,28 @@ final class AskClaudeChat: ObservableObject {
         AskClaudeModels.option(for: defaults.string(forKey: AskClaudeModels.defaultsKey))
     }
 
+    /// Where the model and style are kept: the composer's menu reads and writes these, so a test's
+    /// chat never touches the app's own (TE292).
+    var settingsDefaults: UserDefaults { defaults }
+
+    /// Whether the next question starts a new chat rather than carrying this one on: an hour
+    /// away, a folder hidden since it began, or an update the API won't continue it under. `ask`
+    /// starts over for exactly these, and the menu prices no catch-up for a chat about to go.
+    var startsOverAtNextQuestion: Bool {
+        guard !items.isEmpty else { return false }
+        if let last = lastActivity, now().timeIntervalSince(last) > Self.idleReset { return true }
+        if hiddenSinceStart { return true }
+        if let setting = engine.setting, !AskClaudeEngine.isCurrent(setting: setting) { return true }
+        return false
+    }
+
+    /// The model the chat's last kept question went to, nil in a new chat or one the next
+    /// question replaces: the menu prices a catch-up only for the others.
+    var chatModel: String? { items.isEmpty || startsOverAtNextQuestion ? nil : engine.lastKept?.model }
+
+    /// The chat's size as of its last kept round, for the catch-up estimate.
+    var contextTokens: Int? { items.isEmpty || startsOverAtNextQuestion ? nil : engine.contextTokens }
+
     /// Starts a question about `screen`, run with `tools`.
     func ask(_ question: String, shown: String? = nil, screen: AskClaudeScreen, tools: AskClaudeToolRunning) {
         ask(question, shown: shown, preparing: { screen }, tools: tools)
@@ -593,16 +631,14 @@ final class AskClaudeChat: ObservableObject {
             startOver()
             items.append(Item(kind: .note("Started a new chat: a folder was hidden, so nothing Claude saw of it stays.")))
         }
-        // A chat keeps the model and answer style it started with (the API refuses a changed
-        // system text under replayed thinking), so a change in Settings starts a new one.
+        // A change of model or style, from the menu or Settings, carries on in this chat (TE292):
+        // each question says which in its own block. Only an update that changed the system text
+        // or the tools can't, since the API refuses replayed thinking under either.
         let model = self.model
         let detail = AskClaudeDetail.stored(in: defaults)
-        if let setting = engine.setting, setting != AskClaudeEngine.setting(model: model, detail: detail), !items.isEmpty {
-            // Same model and style, so what changed is Ask Claude itself: an update since.
-            let settingsChanged = setting.split(separator: "|").prefix(2).map(String.init) != [model.id, detail.rawValue]
+        if let setting = engine.setting, !AskClaudeEngine.isCurrent(setting: setting), !items.isEmpty {
             startOver()
-            items.append(Item(kind: .note(settingsChanged ? "Started a new chat for \(model.displayName), as set in Settings."
-                                                          : "Started a new chat: Ask Claude was updated since this one began.")))
+            items.append(Item(kind: .note("Started a new chat: Ask Claude was updated since this one began.")))
         }
         lastActivity = now()
         askedQuestion = question
@@ -612,7 +648,9 @@ final class AskClaudeChat: ObservableObject {
         sinceLastAnswer = []
         let sent = Self.withSinceLastAnswer(pending, question)
 
-        items.append(Item(kind: .user(shown ?? question)))
+        let questionItem = Item(kind: .user(shown ?? question))
+        items.append(questionItem)
+        askedItem = questionItem.id
         streamingItem = nil
         isRunning = true
         isThinking = true
@@ -637,13 +675,13 @@ final class AskClaudeChat: ObservableObject {
             engine.handles = handles
             let block = engine.screenBlock(for: rendered.text)
             self.receipt = Receipt(screenText: rendered.text, screenUnchanged: block != rendered.text,
-                                   rowsSent: rendered.rowsSent, rowsTotal: rendered.rowsTotal)
+                                   rowsSent: rendered.rowsSent, rowsTotal: rendered.rowsTotal, requested: model.id)
             let key: String?
             let keyChangesBefore = self.keyChanges
             if let known { key = known } else { key = await Task.detached(priority: .userInitiated) { readKey() }.value }
             // Not kept when the key changed during the read: that copy may be the old key.
             if self.run == thisRun, self.keyChanges == keyChangesBefore { self.cachedKey = key }
-            // The style checked above, not read again: Settings can change it while the screen is read.
+            // The model and style read above, not again: they can change while the screen is read.
             let joined = await engine.ask(sent, card: rendered.text, key: key, model: model, detail: detail,
                                           tools: tools) { [weak self] event in
                 // A run New Chat replaced keeps unwinding; nothing it says reaches the new chat.
@@ -654,7 +692,7 @@ final class AskClaudeChat: ObservableObject {
             // Claude has them only if the question joined the transcript: a stop or an empty turn
             // ends without a problem and keeps nothing, and a problem in a later round comes after.
             if !joined { self.sinceLastAnswer = pending + self.sinceLastAnswer }
-            self.finishRun()
+            self.finishRun(joined: joined)
         }
     }
 
@@ -724,6 +762,19 @@ final class AskClaudeChat: ObservableObject {
         case .rule(let card):
             streamingItem = nil
             items.append(Item(kind: .rule(card)))
+        case .kept(let previous, let now):
+            // A switch is noted once it reached Claude, at the question that made it (TE292). A
+            // question that failed, was declined or stopped before joining the chat notes nothing,
+            // and the next one that joins makes the note instead.
+            guard let previous, let at = askedItem.flatMap({ id in items.firstIndex { $0.id == id } }) else { break }
+            var notes: [String] = []
+            if previous.model != now.model {
+                notes.append("Now on \(AskClaudeModels.option(for: now.model).displayName).")
+            }
+            if previous.detail != now.detail, let detail = AskClaudeDetail(rawValue: now.detail) {
+                notes.append("Answers now \(detail.label).")
+            }
+            if !notes.isEmpty { items.insert(Item(kind: .note(notes.joined(separator: " "))), at: at) }
         case .movedView(let note):
             // The move says what the step said ("Opened Help" twice, 2026-10-30): it takes the
             // step's place rather than repeating it.
@@ -735,6 +786,9 @@ final class AskClaudeChat: ObservableObject {
             receipt?.costUSD += cost
             receipt?.rounds += 1
             receipt?.model = model
+            if let requested = receipt?.requested, model != requested, receipt?.fallbackModel == nil {
+                receipt?.fallbackModel = model
+            }
         case .finished(let reason):
             if reason == "max_tokens" {
                 items.append(Item(kind: .note("The answer hit its length limit and was cut short.")))
@@ -748,8 +802,19 @@ final class AskClaudeChat: ObservableObject {
         }
     }
 
-    private func finishRun() {
-        if let receipt, receipt.rounds > 0 { items.append(Item(kind: .receipt(receipt))) }
+    private func finishRun(joined: Bool = false) {
+        if var receipt, receipt.rounds > 0 {
+            receipt.kept = joined
+            // Compared with the last answer Claude kept, by the model asked for (a receipt saved
+            // before TE292 has only the one that answered).
+            let lastKept = items.reversed().lazy.compactMap { item -> Receipt? in
+                if case .receipt(let r) = item.kind, r.kept != false { r } else { nil }
+            }.first
+            let asked = receipt.requested ?? receipt.model
+            let changed = lastKept.map { ($0.requested ?? $0.model) != asked } ?? (asked != AskClaudeModels.defaultModel.id)
+            receipt.showsModel = receipt.fallbackModel != nil || changed
+            items.append(Item(kind: .receipt(receipt)))
+        }
         // The 80% warning (decision DZ), once per chat: the limit itself stops the next question.
         if !warnedNearLimit, case .nearLimit(let spent, let limit) = AskClaudeSpend.state(in: defaults, now: now()) {
             warnedNearLimit = true

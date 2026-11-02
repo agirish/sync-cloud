@@ -138,7 +138,7 @@ public struct AskClaudeProblem: Error, Equatable, Sendable, Codable {
         case 403:
             // A permission error, not a bad key: the key's workspace or region can't use this.
             let what = detail.isEmpty ? "" : " (\(detail))"
-            return AskClaudeProblem(.failed, "This API key isn’t allowed to make this request\(what). Check its workspace in the Claude Console, or pick another model in Settings ▸ Intelligence.")
+            return AskClaudeProblem(.failed, "This API key isn’t allowed to make this request\(what). Check its workspace in the Claude Console, or pick another model in the menu under the text box.")
         case 429:
             let wait = retryAfter.flatMap(Int.init).map { " Try again in \($0) seconds." } ?? " Try again in a moment."
             return AskClaudeProblem(.rateLimited, "Claude is limiting how fast requests can come in." + wait)
@@ -168,6 +168,17 @@ public struct AskClaudeProblem: Error, Equatable, Sendable, Codable {
     }
 }
 
+/// The model and answer style a question was asked with, by id and raw value (TE292).
+public struct AskClaudeKeptSetting: Codable, Equatable, Sendable {
+    public let model: String
+    public let detail: String
+
+    public init(model: String, detail: String) {
+        self.model = model
+        self.detail = detail
+    }
+}
+
 /// What the panel hears while a question runs.
 public enum AskClaudeEvent: Equatable, Sendable {
     case text(String)
@@ -185,6 +196,9 @@ public enum AskClaudeEvent: Equatable, Sendable {
     case choices([AskClaudeChoice])
     /// A rule offered from a correction (TE286).
     case rule(AskClaudeRuleCard)
+    /// The question joined the transcript with this model and style (TE292); `previous` is the
+    /// last question's, nil in a new chat.
+    case kept(previous: AskClaudeKeptSetting?, now: AskClaudeKeptSetting)
     /// One round trip finished: its usage and estimated cost.
     case round(AskClaudeUsage, costUSD: Double, model: String)
     case finished(stopReason: String?)
@@ -213,18 +227,27 @@ public final class AskClaudeEngine {
     /// sending them (stopped by the person, or past the tool limit). The API needs every tool call
     /// answered before anything else, so they lead the next question’s turn.
     private var owedResults: [JSONFragment] = []
-    /// The model and answer style this transcript was started with. The system text names both,
-    /// and changing it under replayed thinking blocks is refused by the API, so a chat keeps them;
-    /// the chat starts a new one when the person changes either.
+    /// The digest of the system text and tools this transcript was started with
+    /// (`AskClaudeRequest.fixedDigest`). The API holds replayed thinking to the system text and
+    /// tool list it was made under: an account it checks strictly refuses a changed one, and one
+    /// it doesn't uses thinking made for other instructions. So a chat a new build changed them
+    /// under starts over. A chat saved before
+    /// TE292 holds `model|style|digest`; `isCurrent(setting:)` reads either.
     public private(set) var setting: String?
 
-    /// The `setting` a chat on this model and style has.
-    ///
-    /// It also carries a digest of the instructions and the tool list, which a new build can
-    /// change: a chat restored after such an update would otherwise be refused on every question.
-    public static func setting(model: AskClaudeModels.Option, detail: AskClaudeDetail) -> String {
-        model.id + "|" + detail.rawValue + "|" + AskClaudeRequest.fixedDigest
+    /// Whether a chat started under `setting` can carry on in this build. The model and style no
+    /// longer count (TE292): every question says which in its own `<setting>` block.
+    public static func isCurrent(setting: String) -> Bool {
+        setting.split(separator: "|").last.map(String.init) == AskClaudeRequest.fixedDigest
     }
+
+    /// The model and style of the last question that joined the transcript (TE292), so a switch
+    /// is noted once, at the question that made it. Nil in a new chat and in one saved before it.
+    public private(set) var lastKept: AskClaudeKeptSetting?
+    /// The size of the chat as of the last round that joined the transcript: what that round sent
+    /// plus what it answered, which the next request resends. What a switch's catch-up costs is
+    /// estimated from it (TE292). Nil until a round joins.
+    public private(set) var contextTokens: Int?
 
     private let transport: AskClaudeTransport
     private let defaults: UserDefaults
@@ -237,10 +260,14 @@ public final class AskClaudeEngine {
         public var lastCard: String?
         public var owedResults: [JSONFragment]
         public var setting: String?
+        /// Optional, so a chat saved before they existed still decodes.
+        public var lastKept: AskClaudeKeptSetting?
+        public var contextTokens: Int?
     }
 
     public var snapshot: Snapshot {
-        Snapshot(transcript: transcript, handles: handles, lastCard: lastCard, owedResults: owedResults, setting: setting)
+        Snapshot(transcript: transcript, handles: handles, lastCard: lastCard, owedResults: owedResults, setting: setting,
+                 lastKept: lastKept, contextTokens: contextTokens)
     }
 
     public func restore(_ snapshot: Snapshot) {
@@ -249,6 +276,8 @@ public final class AskClaudeEngine {
         lastCard = snapshot.lastCard
         owedResults = snapshot.owedResults
         setting = snapshot.setting
+        lastKept = snapshot.lastKept
+        contextTokens = snapshot.contextTokens
     }
 
     public init(transport: AskClaudeTransport = AskClaudeURLSessionTransport(),
@@ -299,14 +328,18 @@ public final class AskClaudeEngine {
         }
 
         let screen = screenBlock(for: card)
-        // Read once per question, so the system text can't change between its rounds.
+        // Read once per question, so its rounds all go out with one style.
         let detail = chosenDetail ?? AskClaudeDetail.stored(in: defaults)
-        if transcript.isEmpty { setting = Self.setting(model: model, detail: detail) }
+        let kept = AskClaudeKeptSetting(model: model.id, detail: detail.rawValue)
+        if transcript.isEmpty { setting = AskClaudeRequest.fixedDigest }
+        // Tool results owed to the last turn must lead (the API answers every call first); then
+        // which model and style this question is for, the screen, and the question.
         var pending: JSONFragment = .object([
             "role": .string("user"),
             "content": .array(owedResults + [
+                AskClaudeRequest.settingBlock(model: model, detail: detail),
                 .object(["type": .string("text"), "text": .string(screen)]),
-                .object(["type": .string("text"), "text": .string(question)]),
+                .object(["type": .string("text"), "text": .string(AskClaudeRequest.defused(question))]),
             ]),
         ])
         var round = 0
@@ -317,13 +350,13 @@ public final class AskClaudeEngine {
         var toolNames: [String] = []
         // One summary line per question, however it ends.
         defer {
-            Logger.shared.info("Ask Claude question done: \(round) round(s) · \(Self.describe(used)) · \(AskClaudeSpend.format(spent)) · "
+            Logger.shared.info("Ask Claude question done: \(model.id) \(detail.rawValue) · \(round) round(s) · \(Self.describe(used)) · \(AskClaudeSpend.format(spent)) · "
                 + "tools: \(toolNames.isEmpty ? "none" : toolNames.joined(separator: ", ")) · \(Self.seconds(since: askedAt))"
                 + (screen == card ? " · screen \(card.count) chars" : " · screen unchanged") + " · ended \(ended)")
         }
         while true {
             round += 1
-            let body = AskClaudeRequest.body(model: model, detail: detail, messages: transcript + [pending])
+            let body = AskClaudeRequest.body(model: model, messages: transcript + [pending])
             let roundAt = Date()
             var firstWordAt: Date?
             var accumulator = AskClaudeStreamAccumulator()
@@ -380,7 +413,10 @@ public final class AskClaudeEngine {
                 // Results a tool round produced are still owed to the turn before it.
                 if round > 1 { owedResults = pending["content"]?.arrayValue ?? [] }
                 emit(.retractAnswer)
-                emit(.problem(AskClaudeProblem(.declined, "Claude declined to answer this one. Try asking it another way.")))
+                // Haiku has no fallback model to answer instead, so the menu is the way on.
+                emit(.problem(AskClaudeProblem(.declined, model.sendsFallbacks
+                    ? "Claude declined to answer this one. Try asking it another way."
+                    : "\(model.displayName) declined to answer this one. Try asking it another way, or pick another model in the menu under the text box.")))
                 return joined
             }
             // An empty turn can't be sent back (the API refuses empty content and empty text), so it
@@ -400,6 +436,17 @@ public final class AskClaudeEngine {
             transcript.append(pending)
             joined = true
             transcript.append(.object(["role": .string("assistant"), "content": .array(content)]))
+            contextTokens = accumulator.usage.promptTokens + accumulator.usage.outputTokens
+            if round == 1 {
+                // The question has joined the chat, its setting with it: the one moment a switch
+                // is known to have reached Claude.
+                let previous = lastKept
+                lastKept = kept
+                if let previous, previous != kept {
+                    Logger.shared.info("Ask Claude switched: \(previous.model) \(previous.detail) → \(kept.model) \(kept.detail)")
+                }
+                emit(.kept(previous: previous, now: kept))
+            }
 
             let calls = accumulator.toolCalls
             guard accumulator.stopReason == "tool_use", !calls.isEmpty else {
@@ -469,11 +516,13 @@ public final class AskClaudeEngine {
     static func seconds(since start: Date) -> String { seconds(Date().timeIntervalSince(start)) }
     static func seconds(_ interval: TimeInterval) -> String { String(format: "%.1f s", interval) }
 
+    /// Every tool result goes through here, so nothing a tool read (a file's name or text, the
+    /// on-device answer) can pass for the app's `<setting>` block.
     static func result(for call: AskClaudeToolCall, text: String, isError: Bool) -> JSONFragment {
         var result: [String: JSONFragment] = [
             "type": .string("tool_result"),
             "tool_use_id": .string(call.id),
-            "content": .string(text),
+            "content": .string(AskClaudeRequest.defused(text)),
         ]
         if isError { result["is_error"] = .bool(true) }
         return .object(result)

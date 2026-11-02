@@ -79,6 +79,11 @@ Requires **macOS 26**, unchanged from v6.2.
   condition.
 - **Every answer says what it sent and what it cost.** Spending counts against a monthly limit in
   Settings, $25 to start, with a note at 80%.
+- **Pick the model from the chat.** A menu under the text box picks Sonnet, Opus or Haiku, and
+  Brief or Detailed answers, for the next question. The chat carries on, with a line where it
+  changed, and the pick becomes your default in Settings; a change made in Settings carries on the
+  same way. Switching mid-chat, the new model reads the chat once first, and the menu says what that
+  costs.
 - **Up and Down bring back what you asked.** In the text box, Up shows the questions you typed
   before, newest first, and Down comes back to what you'd typed and not sent. The last 10 are kept
   across a relaunch; New Chat clears them.

@@ -393,7 +393,7 @@ struct AskClaudePanel: View {
     private var composer: some View {
         VStack(alignment: .leading, spacing: 6) {
             if !chat.attachments.isEmpty { attachmentChips }
-            HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
                 TextField("Ask a question, or say what to open", text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .lineLimit(1...4)
@@ -413,19 +413,14 @@ struct AskClaudePanel: View {
                     }
                     .disabled(chat.isRunning)
                     .background(AskClaudeComposerCaret.Anchor(caret: caret))
-                if chat.isRunning {
-                    Button(action: chat.stop) { Image(systemName: "stop.fill") }
-                        .buttonStyle(.borderless)
-                        .help("Stop")
-                        .accessibilityLabel("Stop")
-                } else {
-                    Button(action: send) {
-                        Image(systemName: "arrow.up.circle.fill").scaledFont(.title2).foregroundStyle(accent)
-                    }
-                    .buttonStyle(.borderless)
-                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .help("Send")
-                    .accessibilityLabel("Send")
+                // The box's bottom row (TE292): which model and style the next question goes to,
+                // then Stop or Send.
+                HStack(spacing: 6) {
+                    AskClaudeModelMenu(defaults: chat.settingsDefaults, chatModel: chat.chatModel,
+                                       contextTokens: chat.contextTokens, onOpenSettings: onOpenSettings)
+                        .disabled(chat.isRunning)
+                    Spacer(minLength: 0)
+                    sendOrStop
                 }
             }
             .padding(.horizontal, 10)
@@ -442,6 +437,23 @@ struct AskClaudePanel: View {
         Rectangle()
             .fill(AskClaudeTint.hairline(hue, accent: accent, dark: colorScheme == .dark, neutral: 0.5))
             .frame(height: 1)
+    }
+
+    @ViewBuilder private var sendOrStop: some View {
+        if chat.isRunning {
+            Button(action: chat.stop) { Image(systemName: "stop.fill") }
+                .buttonStyle(.borderless)
+                .help("Stop")
+                .accessibilityLabel("Stop")
+        } else {
+            Button(action: send) {
+                Image(systemName: "arrow.up.circle.fill").scaledFont(.title2).foregroundStyle(accent)
+            }
+            .buttonStyle(.borderless)
+            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .help("Send")
+            .accessibilityLabel("Send")
+        }
     }
 
     /// What the next question is about (TE263): a chip per row attached from its menu, each with ✕.
@@ -717,19 +729,19 @@ private struct AskClaudeThreadRow: View, Equatable {
             Button { showsSent.toggle() } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "info.circle")
-                    if isLatestReceipt { Text(Self.summary(receipt)) }
+                    if isLatestReceipt { Text(receipt.summary) }
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .scaledFont(.callout)
             .foregroundStyle(.secondary)
-            .help(isLatestReceipt ? "What this question sent" : Self.summary(receipt))
-            .accessibilityLabel(Self.summary(receipt))
+            .help(isLatestReceipt ? "What this question sent" : receipt.summary)
+            .accessibilityLabel(receipt.summary)
             .popover(isPresented: $showsSent, arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(Self.summary(receipt)).scaledFont(.callout)
-                    Text("\(receipt.model.isEmpty ? "" : receipt.model + " · ")\(receipt.rounds) round\(receipt.rounds == 1 ? "" : "s")")
+                    Text(receipt.summary).scaledFont(.callout)
+                    Text("\(receipt.modelName.map { $0 + " · " } ?? "")\(receipt.rounds) round\(receipt.rounds == 1 ? "" : "s")")
                         .scaledFont(.callout)
                         .foregroundStyle(.secondary)
                     ScrollView([.horizontal, .vertical]) {
@@ -1184,12 +1196,6 @@ private struct AskClaudeThreadRow: View, Equatable {
         }
     }
 
-    static func summary(_ r: AskClaudeChat.Receipt) -> String {
-        let screen = r.screenUnchanged ? "screen unchanged"
-            : (r.rowsSent == r.rowsTotal ? "screen · \(r.rowsSent) rows" : "screen · \(r.rowsSent) of \(r.rowsTotal) rows")
-        let tokens = (r.promptTokens + r.outputTokens).formatted(.number.notation(.compactName))
-        return "Sent \(screen) · \(tokens) tokens · \(AskClaudeSpend.format(r.costUSD))"
-    }
 
     static func markdown(_ text: String) -> AttributedString {
         (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
@@ -1379,5 +1385,25 @@ enum AskClaudeThreadRowShortening {
         case .rename(_, let to): return to
         default: return row.folderLabel.map { $0.components(separatedBy: " › ").last ?? $0 } ?? ""
         }
+    }
+}
+
+extension AskClaudeChat.Receipt {
+    /// The line under an answer: what it sent and cost, led by the model's name when it changed.
+    var summary: String {
+        let screen = screenUnchanged ? "screen unchanged"
+            : (rowsSent == rowsTotal ? "screen · \(rowsSent) rows" : "screen · \(rowsSent) of \(rowsTotal) rows")
+        let tokens = (promptTokens + outputTokens).formatted(.number.notation(.compactName))
+        let named = showsModel == true ? modelName.map { $0 + " · " } ?? "" : ""
+        return "\(named)Sent \(screen) · \(tokens) tokens · \(AskClaudeSpend.format(costUSD))"
+    }
+
+    /// The model that answered, by its short name; the fallback's, marked, when one answered any
+    /// round instead of the one asked for (TE292). Nil for a receipt that never heard from a model.
+    var modelName: String? {
+        if let fallbackModel { return AskClaudeModels.name(ofServed: fallbackModel) + ", fallback" }
+        guard !model.isEmpty else { return nil }
+        if let requested, requested != model { return AskClaudeModels.name(ofServed: model) + ", fallback" }
+        return AskClaudeModels.name(ofServed: model)
     }
 }

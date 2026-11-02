@@ -45,9 +45,11 @@ public enum AskClaudeModels {
         public let id: String
         public let label: String
         /// How the model names itself when asked which one it is.
-        public var displayName: String {
-            "Claude " + (label.components(separatedBy: " — ").first ?? id)
-        }
+        public var displayName: String { "Claude " + name }
+        /// The short name the chat's menu shows: "Sonnet 5.5".
+        public var name: String { label.components(separatedBy: " — ").first ?? id }
+        /// The menu's second line: what it is for, and what a typical question costs.
+        public let menuLine: String
         public let price: Price
         /// Whether to send `fallbacks: "default"`, which re-runs a declined request on another
         /// model server-side. Haiku 5.5 has no server-side fallback: with `"default"` a declined
@@ -56,13 +58,16 @@ public enum AskClaudeModels {
     }
 
     public static let sonnet = Option(id: "claude-sonnet-5-5", label: "Sonnet 5.5 — balanced (default)",
+                                      menuLine: "Balanced · about 1¢ a question",
                                       price: Price(input: 2, output: 10, cacheRead: 0.20), sendsFallbacks: true)
     public static let opus = Option(id: "claude-opus-5-5", label: "Opus 5.5 — strongest, about twice the cost",
+                                    menuLine: "Strongest · about 2¢ a question",
                                     price: Price(input: 4, output: 20, cacheRead: 0.20), sendsFallbacks: true)
     /// Haiku 5.5’s cache-read price is not in the table this was written from; a tenth of input is
     /// the usual ratio, and at $0.01 per million the estimate cannot be wrong by anything visible.
     /// Above 100K prompt tokens it costs five times as much, which a long chat can reach.
     public static let haiku = Option(id: "claude-haiku-5-5", label: "Haiku 5.5 — fastest and cheapest",
+                                     menuLine: "Fastest · under 1¢ a question",
                                      price: Price(input: 0.10, output: 0.50, cacheRead: 0.01,
                                                   longPromptThreshold: 100_000, longPromptMultiplier: 5),
                                      sendsFallbacks: false)
@@ -91,6 +96,31 @@ public enum AskClaudeModels {
         case "claude-opus-5", "claude-opus-4-8": return (Price(input: 5, output: 25, cacheRead: 0.50), true)
         default: return (requested.price, false)
         }
+    }
+
+    /// The short name of whichever model answered: an offered one by its name, a documented
+    /// fallback target by its own ("Opus 5"), anything else by its id.
+    public static func name(ofServed model: String) -> String {
+        if let option = options.first(where: { $0.id == model }) { return option.name }
+        switch model {
+        case "claude-sonnet-5": return "Sonnet 5"
+        case "claude-opus-5": return "Opus 5"
+        case "claude-opus-4-8": return "Opus 4.8"
+        default: return model
+        }
+    }
+
+    /// Tokens a question adds on top of the chat: a full screen card and the question, generously.
+    static let nextQuestionAllowance = 10_000
+
+    /// What the first answer on `target` costs to catch up on a chat of `contextTokens` (TE292):
+    /// each model keeps its own cache, so the whole chat is written into `target`'s at the 1-hour
+    /// rate. "Up to": a cache `target` wrote in the last hour, or thinking it can't read (dropped
+    /// unbilled), makes it less. The long-prompt tier is judged with room for the next screen and
+    /// question, which go out in the same request.
+    public static func catchUpCost(contextTokens: Int, to target: Option) -> Double {
+        let price = target.price.forPrompt(contextTokens + nextQuestionAllowance)
+        return Double(contextTokens) * price.input * Price.oneHourWriteMultiplier / 1_000_000
     }
 
     /// Estimated cost of one response in US dollars.

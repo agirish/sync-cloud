@@ -215,6 +215,15 @@ import Sync
         #expect(answers.raises(from: .string("brief"), to: .string("detailed")))
     }
 
+    @Test func aModelOrStyleChangeCarriesOnInTheChatAndHidingStartsANewOne() throws {
+        // TE292 HT/HX: the open chat carries on under a new model or style; a hidden folder still
+        // starts a new one, so what Claude saw of it goes.
+        for id in ["intelligence.askClaudeModel", "intelligence.answers"] {
+            #expect(try #require(SettingsCatalog.entry(id)).effects.contains(.newChat) == false, "\(id)")
+        }
+        #expect(SettingsCatalog.all.contains { $0.effects.contains(.newChat) && $0.privacy == .countOnly })
+    }
+
     @Test func turningASafeguardOffIsLessSafe() throws {
         let confirm = try #require(SettingsCatalog.entry("sync.confirmTransfer"))
         #expect(confirm.isLessSafe(from: .bool(true), to: .bool(false)))

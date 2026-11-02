@@ -136,6 +136,8 @@ enum AppCopyScan {
                   reason: "Spotlight query syntax, sent to the index and never shown"),
             .init(file: "MacApp/AskClaude/AskClaudeBrowseTools.swift", contains: "<file name=", reason: prompt),
             .init(file: "MacApp/AskClaude/AskClaudeChat.swift", contains: "<file name=", reason: prompt),
+            .init(file: "Modules/Sync/Sources/Sync/AskClaudeRequest.swift", contains: "<setting model=", reason: prompt),
+            .init(file: "Modules/Sync/Sources/Sync/AskClaudeRequest.swift", contains: "Answer styles, as the newest <setting> says", reason: prompt),
             .init(file: "Modules/FileExplorer/Sources/FileExplorer/RestructureLens.swift", contains: "'T'", reason: dateFormat),
             .init(file: "Modules/FileExplorer/Sources/FileExplorer/RestructurePlanSheet.swift", contains: "'T'", reason: dateFormat),
             .init(file: "Modules/Sync/Sources/Sync/FilingArtifactStamp.swift", contains: "'T'", reason: dateFormat),

@@ -13847,3 +13847,21 @@ instructions change, so a saved chat restarts once. Ask Claude exists only on `m
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Pick Claude's model from the chat (TE292) — main only
+
+2026-11-01, for v7.0. On `main`: a menu under Ask Claude's text box picks the model and answer
+style for the next question (`AskClaudeModelMenu`), and a change, there or in Settings, carries on
+in the same chat instead of starting a new one. The system text no longer names the model or style
+(`AskClaudeRequest.systemText`); each question carries a `<setting>` block, and the fallback beta
+header goes on every request. No maintenance line has Ask Claude:
+
+```sh
+for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/AskClaudeModels.swift | wc -l | tr -d ' ')"; done
+# measured 2026-11-01, against origin: main 1, every other line 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |

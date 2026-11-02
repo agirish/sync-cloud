@@ -956,6 +956,42 @@ private struct OneLineTransport: AskClaudeTransport {
     }
 }
 
+/// A one-line transport that answers as the model each request asked for, unless a scripted reply
+/// says which model served it (a fallback) or that it was declined (TE292).
+private final class ModelTransport: AskClaudeTransport, @unchecked Sendable {
+    struct Reply { var served: String? = nil; var stop = "end_turn"; var toolUse = false }
+    private let lock = NSLock()
+    private var replies: [Reply]
+
+    init(_ replies: [Reply] = []) { self.replies = replies }
+
+    func send(_ request: URLRequest) async throws -> AskClaudeTransportResponse {
+        let reply = lock.withLock { replies.isEmpty ? Reply() : replies.removeFirst() }
+        let asked = (try? JSONFragment.decode(request.httpBody ?? Data()))?["model"]?.stringValue ?? "?"
+        let text = reply.stop == "refusal" ? "" : "ok"
+        let start = #"data: {"type":"message_start","message":{"model":"\#(reply.served ?? asked)","usage":{"input_tokens":300,"cache_read_input_tokens":4500}}}"#
+        let lines = reply.toolUse ? [
+            start,
+            #"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_m","name":"list_folder","input":{}}}"#,
+            #"data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"folder\":\"\"}"}}"#,
+            #"data: {"type":"content_block_stop","index":0}"#,
+            #"data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":50}}"#,
+            #"data: {"type":"message_stop"}"#,
+        ] : [
+            start,
+            #"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            #"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"\#(text)"}}"#,
+            #"data: {"type":"content_block_stop","index":0}"#,
+            #"data: {"type":"message_delta","delta":{"stop_reason":"\#(reply.stop)"},"usage":{"output_tokens":700}}"#,
+            #"data: {"type":"message_stop"}"#,
+        ]
+        return AskClaudeTransportResponse(status: 200, retryAfter: nil, lines: AsyncThrowingStream { c in
+            lines.forEach { c.yield($0) }
+            c.finish()
+        })
+    }
+}
+
 /// A one-line transport that keeps each request's body, to read what was sent.
 private final class RecordingTransport: AskClaudeTransport, @unchecked Sendable {
     private let lock = NSLock()
@@ -1112,15 +1148,173 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(!chat.isRunning)
     }
 
-    @Test func changingTheModelStartsANewChat() async {
+    @Test func changingTheModelCarriesOnInThisChatWithOneNote() async {
+        // TE292 HT and HX: a change, from the menu or Settings (the same key), never starts a new chat.
         let d = defaults()
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ModelTransport(), defaults: d) },
                                  readKey: { "k" })
         chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
         d.set(AskClaudeModels.haiku.id, forKey: AskClaudeModels.defaultsKey)
         chat.ask("two", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
-        #expect(chat.items.first?.kind == .note("Started a new chat for Claude Haiku 5.5, as set in Settings."))
-        #expect(!chat.items.contains { $0.kind == .user("one") })
+        chat.ask("three", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        let kinds = chat.items.map(\.kind)
+        #expect(kinds.first == .user("one"))
+        let two = kinds.firstIndex(of: .user("two"))
+        #expect(two.map { kinds[$0 - 1] } == .note("Now on Claude Haiku 5.5."))
+        #expect(kinds.filter { if case .note = $0 { true } else { false } }.count == 1)
+        #expect(chat.chatModel == AskClaudeModels.haiku.id)
+    }
+
+    @Test func aSwitchThatNeverReachedClaudeIsNotedAtTheQuestionThatDid() async {
+        let d = defaults()
+        let chat = AskClaudeChat(defaults: d, makeEngine: {
+            AskClaudeEngine(transport: ModelTransport([.init(), .init(stop: "refusal")]), defaults: d)
+        }, readKey: { "k" })
+        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        d.set(AskClaudeModels.opus.id, forKey: AskClaudeModels.defaultsKey)
+        d.set(AskClaudeDetail.detailed.rawValue, forKey: AskClaudeDetail.defaultsKey)
+        chat.ask("declined", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        #expect(!chat.items.contains { if case .note(let n) = $0.kind { n.hasPrefix("Now on") } else { false } })
+        chat.ask("kept", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        let kinds = chat.items.map(\.kind)
+        let kept = kinds.firstIndex(of: .user("kept"))
+        #expect(kept.map { kinds[$0 - 1] } == .note("Now on Claude Opus 5.5. Answers now Detailed."))
+    }
+
+    @Test func aReceiptNamesTheModelOnlyWhenItChangesAndMarksAFallback() async {
+        let d = defaults()
+        let chat = AskClaudeChat(defaults: d, makeEngine: {
+            AskClaudeEngine(transport: ModelTransport([.init(), .init(), .init(served: "claude-opus-5")]), defaults: d)
+        }, readKey: { "k" })
+        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        chat.ask("two", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        d.set(AskClaudeModels.opus.id, forKey: AskClaudeModels.defaultsKey)
+        chat.ask("three", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        let receipts = chat.items.compactMap { if case .receipt(let r) = $0.kind { r } else { nil } }
+        #expect(receipts.map(\.showsModel) == [false, false, true])
+        #expect(receipts[0].summary.hasPrefix("Sent screen"))
+        #expect(receipts[2].summary.hasPrefix("Opus 5, fallback · Sent screen"))
+        #expect(receipts[1].modelName == "Sonnet 5.5")
+    }
+
+    @Test func aFallbackInAnyRoundIsMarkedAndSoIsEveryOneInARow() async {
+        let d = defaults()
+        let chat = AskClaudeChat(defaults: d, makeEngine: {
+            AskClaudeEngine(transport: ModelTransport([
+                // One question: the tool round from a fallback, the answer from the model asked.
+                .init(served: "claude-sonnet-5", toolUse: true), .init(),
+                // Two questions in a row that both fell back.
+                .init(served: "claude-sonnet-5"), .init(served: "claude-sonnet-5"),
+            ]), defaults: d)
+        }, readKey: { "k" })
+        for q in ["one", "two", "three"] { chat.ask(q, screen: screen, tools: NoTools()); await waitUntilIdle(chat) }
+        let receipts = chat.items.compactMap { if case .receipt(let r) = $0.kind { r } else { nil } }
+        #expect(receipts.map(\.rounds) == [2, 1, 1])
+        #expect(receipts.map(\.modelName) == ["Sonnet 5, fallback", "Sonnet 5, fallback", "Sonnet 5, fallback"])
+        #expect(receipts.map(\.showsModel) == [true, true, true])
+    }
+
+    @Test func aDeclinedAnswerIsNotTheModelTheChatWasLastAnsweredOn() async {
+        let d = defaults()
+        let chat = AskClaudeChat(defaults: d, makeEngine: {
+            AskClaudeEngine(transport: ModelTransport([.init(), .init(stop: "refusal"), .init()]), defaults: d)
+        }, readKey: { "k" })
+        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        d.set(AskClaudeModels.haiku.id, forKey: AskClaudeModels.defaultsKey)
+        chat.ask("declined", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        chat.ask("answered", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        let receipts = chat.items.compactMap { if case .receipt(let r) = $0.kind { r } else { nil } }
+        #expect(receipts.map(\.kept) == [true, false, true])
+        // Haiku's first real answer still says so: the declined one didn't count.
+        #expect(receipts.last?.showsModel == true)
+        #expect(receipts.last?.summary.hasPrefix("Haiku 5.5 · Sent") == true)
+    }
+
+    @Test func theMenuPricesACatchUpOnlyForAnotherModelInALiveChat() async {
+        let d = defaults()
+        let now = Date()
+        let line = { (option: AskClaudeModels.Option, chat: String?, tokens: Int?) in
+            AskClaudeModelMenu.line(for: option, chatModel: chat, contextTokens: tokens, defaults: d, now: now)
+        }
+        #expect(line(AskClaudeModels.opus, nil, nil) == AskClaudeModels.opus.menuLine)
+        #expect(line(AskClaudeModels.sonnet, AskClaudeModels.sonnet.id, 18_400) == AskClaudeModels.sonnet.menuLine)
+        #expect(line(AskClaudeModels.opus, AskClaudeModels.sonnet.id, 18_400)
+                == AskClaudeModels.opus.menuLine + " · catching up on this chat: up to 15¢")
+        #expect(line(AskClaudeModels.haiku, AskClaudeModels.sonnet.id, 18_400)
+                == AskClaudeModels.haiku.menuLine + " · catching up on this chat: under 1¢")
+        d.set(1.0, forKey: AskClaudeSpend.limitDefaultsKey)
+        AskClaudeSpend.record(0.90, in: d, now: now)
+        #expect(line(AskClaudeModels.opus, AskClaudeModels.sonnet.id, 18_400).hasSuffix("up to 15¢, past your monthly limit"))
+        AskClaudeSpend.record(0.20, in: d, now: now)
+        #expect(line(AskClaudeModels.sonnet, AskClaudeModels.sonnet.id, 18_400) == AskClaudeModels.sonnet.menuLine + " · monthly limit reached")
+
+        // A chat the next question replaces (an hour away) has nothing to catch up on.
+        var clock = now
+        let fresh = defaults("hourAway")
+        let chat = AskClaudeChat(defaults: fresh, makeEngine: { AskClaudeEngine(transport: ModelTransport(), defaults: fresh) },
+                                 readKey: { "k" }, now: { clock })
+        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        #expect(chat.chatModel == AskClaudeModels.sonnet.id && (chat.contextTokens ?? 0) > 0)
+        clock = clock.addingTimeInterval(AskClaudeChat.idleReset + 1)
+        #expect(chat.startsOverAtNextQuestion && chat.chatModel == nil && chat.contextTokens == nil)
+    }
+
+    @Test func aChatSavedBeforeAnUpdateStartsOverOnceThenCarriesOn() async throws {
+        let d = defaults()
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudeUpdate-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = dir.appendingPathComponent("chat.json")
+        let make = { AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ModelTransport(), defaults: d) },
+                                   readKey: { "k" }, storeURL: store) }
+        let first = make()
+        first.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(first)
+        // As a build before TE292 saved it: model, style and that build's digest, and receipts
+        // without the fields TE292 added.
+        var saved = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: store)) as? [String: Any])
+        var engine = try #require(saved["engine"] as? [String: Any])
+        engine["setting"] = "claude-sonnet-5-5|brief|0123456789ab"
+        engine.removeValue(forKey: "lastKept"); engine.removeValue(forKey: "contextTokens")
+        saved["engine"] = engine
+        func strip(_ value: Any) -> Any {
+            if let dict = value as? [String: Any] {
+                return dict.filter { !["requested", "showsModel", "fallbackModel", "kept"].contains($0.key) }.mapValues(strip)
+            }
+            if let array = value as? [Any] { return array.map(strip) }
+            return value
+        }
+        let old = strip(saved)
+        #expect(!String(decoding: try JSONSerialization.data(withJSONObject: old), as: UTF8.self).contains("\"requested\""))
+        try JSONSerialization.data(withJSONObject: old).write(to: store)
+        let second = make()
+        #expect(second.items.contains { $0.kind == .user("one") })
+        second.ask("two", screen: screen, tools: NoTools()); await waitUntilIdle(second)
+        #expect(second.items.first?.kind == .note("Started a new chat: Ask Claude was updated since this one began."))
+        second.ask("three", screen: screen, tools: NoTools()); await waitUntilIdle(second)
+        let kinds = second.items.map(\.kind)
+        #expect(kinds.contains(.user("two")) && kinds.contains(.user("three")) && !kinds.contains(.user("one")))
+        #expect(kinds.filter { if case .note = $0 { true } else { false } }.count == 1)
+    }
+
+    @Test func theMenuOffersEachModelWithItsCostAndBothStyles() throws {
+        var model = AskClaudeModels.sonnet.id
+        var detail = AskClaudeDetail.brief.rawValue
+        let menu = NSHostingMenu(rootView: AskClaudeModelMenuItems(
+            model: Binding(get: { model }, set: { model = $0 }), detail: Binding(get: { detail }, set: { detail = $0 }),
+            lines: [AskClaudeModels.opus.id: "Strongest · about 2¢ a question · catching up on this chat: up to 15¢"],
+            onOpenSettings: {}))
+        menu.update()
+        let items = menu.items.filter { !$0.isSeparatorItem && !$0.isSectionHeader }
+        let titles = items.map(\.title)
+        #expect(titles == ["Sonnet 5.5", "Opus 5.5", "Haiku 5.5", "Brief", "Detailed", "Ask Claude Settings…"], "\(titles)")
+        #expect(items.first { $0.title == "Opus 5.5" }?.subtitle == "Strongest · about 2¢ a question · catching up on this chat: up to 15¢")
+        #expect(items.first { $0.title == "Haiku 5.5" }?.subtitle == AskClaudeModels.haiku.menuLine)
+        #expect(items.first { $0.title == "Sonnet 5.5" }?.state == .on)
+        let opus = try #require(menu.items.firstIndex { $0.title == "Opus 5.5" })
+        menu.performActionForItem(at: opus)
+        #expect(model == AskClaudeModels.opus.id)
+        let detailed = try #require(menu.items.firstIndex { $0.title == "Detailed" })
+        menu.performActionForItem(at: detailed)
+        #expect(detail == "detailed")
     }
 
     @Test func aChangedKeyIsReadAgain() async {
