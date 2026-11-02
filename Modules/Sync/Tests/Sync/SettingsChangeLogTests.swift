@@ -63,7 +63,11 @@ import Testing
         #expect(shown[0].how == .rule)
         #expect(log.visible(hiding: []).first?.name == "Rule “Tickets into Travel”")
     }
+}
 
+/// Off the main actor: resolving the test file sweeps the temp directory, which took 1.3 s on the
+/// main actor with 200,000 entries in it, long enough to starve other suites' main-actor waits.
+@Suite struct SettingsChangeLogFileTests {
     @Test func aTestRunNeverWritesTheRealFile() {
         #expect(SettingsChangeLog.defaultFileURL().path != NSHomeDirectory() + "/sync-cloud-settings-changes.json")
     }
