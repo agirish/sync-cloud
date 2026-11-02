@@ -20,11 +20,14 @@ public enum AskClaudeSpend {
         case overLimit(spent: Double, limit: Double)
     }
 
+    /// Each month's spend is its own key, `askClaudeSpend.2026-11`.
+    static let monthKeyPrefix = "askClaudeSpend."
+
     static func monthKey(_ date: Date) -> String {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .current
         let c = calendar.dateComponents([.year, .month], from: date)
-        return String(format: "askClaudeSpend.%04d-%02d", c.year ?? 0, c.month ?? 0)
+        return monthKeyPrefix + String(format: "%04d-%02d", c.year ?? 0, c.month ?? 0)
     }
 
     public static func limit(in defaults: UserDefaults) -> Double {

@@ -4029,16 +4029,20 @@ struct AdvancedSettingsTab: View {
         }
     }
 
+    /// What Reset All Settings takes and what it keeps, in the confirmation.
+    static let resetAllExplanation = "Every setting returns to its default. Folders you added as sources, ignored items, source names and paths, Automations and saved signatures are removed, and setup will offer itself again on the next launch.\n\nKept: the folders you hid from Claude, your spending limits for Claude, and the record of what it has cost. Files on disk are not affected."
+
     /// Confirmation ahead of the defaults wipe; Cancel is the default button (Return must
     /// not reset, same convention as the permanent-delete alert).
     private func confirmReset(_ reset: () -> Void) {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Reset all settings?"
-        // Names the folder list explicitly. "Files on disk are not affected" is true and used to be
+        // Names what goes and what stays. "Files on disk are not affected" is true and used to be
         // the whole of the reassurance, which read as "nothing you care about is lost" while the
-        // curated list of folder sources went with the defaults domain.
-        alert.informativeText = "Appearance, sync behavior, ignored items, and source names and paths return to their defaults, and any folders you added as sources are removed from the list. Setup will offer itself again on the next launch. Files on disk are not affected."
+        // curated list of folder sources went with the defaults domain. What stays is
+        // `SettingsResetKeeps`.
+        alert.informativeText = Self.resetAllExplanation
         alert.addButton(withTitle: "Reset")
         alert.addButton(withTitle: "Cancel")
         if let resetButton = alert.buttons.first {

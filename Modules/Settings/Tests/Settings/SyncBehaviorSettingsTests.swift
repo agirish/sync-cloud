@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import Settings
+import Sync
 
 /// Coverage for the Sync/Advanced-tab settings added with the expanded Settings surface:
 /// persistence round-trips for date tolerance, scan-time verification, remembered ignores,
@@ -89,7 +90,7 @@ import Foundation
     }
 
     @MainActor
-    @Test func testResetAllSettingsWipesTheDomainAndRepublishesDefaults() {
+    @Test func testResetAllSettingsClearsTheDomainAndRepublishesDefaults() {
         let test = TestDefaults()
         let settings = SettingsManager(
             autoDiscover: false,
@@ -117,5 +118,70 @@ import Foundation
         // Foreign keys in the same domain (the @AppStorage-backed toggles) are wiped too.
         #expect(GeneralSettings.shouldConfirmBeforeDelete(test.defaults))
         #expect(test.defaults.string(forKey: "path_override_iCloud") == nil)
+    }
+
+    /// The reset keeps what `SettingsResetKeeps` names — the Never show Claude list, the spending
+    /// limits and the spend records — and takes the rest of what Claude was set to, which used to
+    /// go with the whole domain: every folder he had hidden was shown to Claude again.
+    @MainActor
+    @Test func testResetAllSettingsKeepsTheHiddenListLimitsAndSpend() {
+        let test = TestDefaults()
+        let settings = SettingsManager(
+            autoDiscover: false,
+            userDefaults: test.defaults,
+            overridesDomainName: test.suiteName,
+            cloudStorageLister: { .read([]) }
+        )
+        let defaults = test.defaults
+        AskClaudePrivacy.hide("/Users/u/Documents/Medical", in: defaults)
+        defaults.set(true, forKey: AskClaudePrivacy.readsFilesKey)
+        defaults.set(5.0, forKey: AskClaudeSpend.limitDefaultsKey)
+        AskClaudeSpend.record(3.10, in: defaults)
+        defaults.set(2.0, forKey: FileSyncManager.monthlyBudgetCapKey)
+        defaults.set(1.0, forKey: FileSyncManager.totalBudgetCapKey)
+        FilingSpendStore.record(
+            FilingSpendEntry(timestamp: Date(), model: "claude-haiku-4-5", fileCount: 5, placedCount: 4,
+                             inputTokens: 1000, outputTokens: 0, cacheReadTokens: 0,
+                             cacheCreationTokens: 0, estimatedCostUSD: 0.75),
+            defaults: defaults)
+        defaults.set("claude-opus-4-1", forKey: "askClaudeModel")
+        defaults.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
+        settings.dateToleranceSeconds = 60
+        let kept = Set((defaults.persistentDomain(forName: test.suiteName) ?? [:]).keys)
+            .filter(SettingsResetKeeps.keeps)
+        // The hidden list, three limits, this month's Ask Claude spend, Refine's history, totals, last.
+        #expect(kept.count == 8, "\(kept.sorted())")
+
+        let privacyPosts = CallCounter()
+        let observer = NotificationCenter.default.addObserver(
+            forName: AskClaudePrivacy.didChange, object: nil, queue: nil) { _ in privacyPosts.increment() }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        settings.resetAllSettings()
+
+        let left = Set((defaults.persistentDomain(forName: test.suiteName) ?? [:]).keys)
+        // The manager writes its own settings back at their defaults, so the domain is not only these.
+        #expect(kept.isSubset(of: left), "\(kept.subtracting(left).sorted())")
+        #expect(AskClaudePrivacy.hiddenFolders(in: defaults) == ["/Users/u/Documents/Medical"])
+        #expect(AskClaudeSpend.limit(in: defaults) == 5)
+        #expect(AskClaudeSpend.spent(in: defaults) == 3.10)
+        #expect(FileSyncManager.totalBudgetCap(in: defaults) == 1)
+        #expect(defaults.double(forKey: FileSyncManager.monthlyBudgetCapKey) == 2)
+        #expect(FilingSpendStore.totals(defaults: defaults).costUSD == 0.75)
+        #expect(!AskClaudePrivacy.readsFiles(in: defaults))
+        #expect(defaults.string(forKey: "askClaudeModel") == nil)
+        #expect(defaults.object(forKey: FileSyncManager.usesCloudDefaultsKey) == nil)
+        #expect(settings.dateToleranceSeconds == 1)
+        // The read switch changed, so whatever caches what Claude may see is told.
+        #expect(privacyPosts.count >= 1)
+    }
+
+    /// The confirmation says what stays, not only what goes.
+    @Test func testTheResetConfirmationNamesWhatItKeeps() {
+        let text = AdvancedSettingsTab.resetAllExplanation
+        for phrase in ["folders you hid from Claude", "spending limits", "what it has cost",
+                       "Automations", "saved signatures", "Files on disk are not affected"] {
+            #expect(text.contains(phrase), "\(phrase)")
+        }
     }
 }

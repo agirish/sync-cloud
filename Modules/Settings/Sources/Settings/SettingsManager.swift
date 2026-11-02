@@ -675,15 +675,28 @@ public class SettingsManager: ObservableObject {
         ignorePatterns.removeAll { $0 == pattern }
     }
 
-    /// Wipes the app's persisted defaults domain — appearance, General/Sync/Advanced flags,
-    /// provider path/name overrides and enablement, ignored items — and republishes this
-    /// manager's own settings at their defaults. `@AppStorage`-backed values elsewhere pick
-    /// the removal up automatically. Files on disk are untouched.
+    /// Clears the app's persisted defaults domain — appearance, General/Sync/Advanced flags,
+    /// provider path/name overrides and enablement, ignored items — except what
+    /// `SettingsResetKeeps` names (the Never show Claude list, spending limits and spend records),
+    /// and republishes this manager's own settings at their defaults. `@AppStorage`-backed values
+    /// elsewhere pick the removal up automatically. Files on disk are untouched.
+    ///
+    /// Key by key rather than `removePersistentDomain` and writing the kept keys back: in between,
+    /// the hidden list would be absent, and a reader on another thread would show Claude every
+    /// folder in it.
     public func resetAllSettings() {
-        Logger.shared.info("User reset all settings to defaults")
-        userDefaults.removePersistentDomain(forName: overridesDomainName ?? Self.appSuiteName)
+        let domainName = overridesDomainName ?? Self.appSuiteName
+        let stored = userDefaults.persistentDomain(forName: domainName) ?? [:]
+        let kept = stored.keys.filter(SettingsResetKeeps.keeps).sorted()
+        Logger.shared.info("User reset all settings to defaults, keeping \(kept.isEmpty ? "nothing" : kept.joined(separator: ", "))")
+        for key in stored.keys where !SettingsResetKeeps.keeps(key) {
+            userDefaults.removeObject(forKey: key)
+        }
+        // `askClaudeReadsFiles` is reset, and the views and chats that cache what Claude may see
+        // re-read it on this.
+        NotificationCenter.default.post(name: AskClaudePrivacy.didChange, object: nil)
         // Re-seed the LIVE log level from the (now-cleared) persisted value, exactly as launch does.
-        // removePersistentDomain drops the persisted `logMinimumLevel`, but the running Logger keeps
+        // The reset drops the persisted `logMinimumLevel`, but the running Logger keeps
         // whatever the user had set, so a raised threshold would keep hiding entries until relaunch.
         Logger.shared.minimumLevel = Logger.persistedMinimumLevel()
         ignoreGoogleDriveNewerDateOnly = false
@@ -695,7 +708,7 @@ public class SettingsManager: ObservableObject {
         conflictPolicy = .ask
         defaultSortOption = .name
         disabledProviderIds = []
-        // The curated folder list goes with the domain. `removePersistentDomain` has already taken
+        // The curated folder list goes with the domain. The reset above has already taken
         // it; this republishes the emptiness so the UI and `availableProviders` agree without
         // waiting for a relaunch. The confirmation names it — "files on disk are untouched" is true
         // and was the whole of what it said, which read as reassurance while the list disappeared.

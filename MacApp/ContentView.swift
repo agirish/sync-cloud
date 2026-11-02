@@ -2791,8 +2791,8 @@ struct ContentView: View {
         }
     }
 
-    /// The full reset behind Settings → Advanced. `resetAllSettings()` wipes the defaults
-    /// domain and republishes the manager's own settings (each `.onChange` mirror above then
+    /// The full reset behind Settings → Advanced. `resetAllSettings()` clears the defaults
+    /// domain (all but `SettingsResetKeeps`) and republishes the manager's own settings (each `.onChange` mirror above then
     /// re-seeds the engine); the pieces built from the old values that DON'T flow through
     /// those mirrors — the log gate and the in-memory ignore sets — are reset here.
     ///
@@ -2820,7 +2820,7 @@ struct ContentView: View {
         (setLogLevel ?? { Logger.shared.minimumLevel = $0 })(.debug)
         syncManager.clearAllIgnoredItems()
         // **The one thing the defaults domain does not carry.** `resetAllSettings()` drops all
-        // three setup flags with `removePersistentDomain`, so the alert's "Setup will offer itself
+        // three setup flags with the rest of the domain, so the alert's "Setup will offer itself
         // again" needs no code behind it — but the draft is a file beside the profiles, and a reset
         // that left it would have setup open on a fresh machine with a household already in it.
         if let draft = SetupDraftStore.defaultURL() { SetupDraftStore.clear(at: draft) }
