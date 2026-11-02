@@ -487,7 +487,8 @@ import FileExplorer
            searchNames: { _, _ in [Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"] },
            // A real candidate, so only the hidden filter can keep it out of the result.
            statDisk: { Self.file(AskClaudeBrowseTools.relative($0, root: Self.root)) },
-           extract: { _ in Issue.record("read a hidden file"); return nil })
+           extract: { _ in Issue.record("read a hidden file"); return nil },
+           read: { _ in Issue.record("read a hidden file"); return nil })
         let listed = await runner.run(call("list_folder", ["folder": .string("Documents")]), handles: &handles)
         #expect(!listed.result.contains("Taxes"))
         #expect(listed.result.contains("1 more hidden from Claude"))
@@ -840,7 +841,7 @@ import FileExplorer
                 ctx.readsFiles = readsFiles
                 return ctx
             }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
-               extract: { _ in ["Store copy", "Total due: $84.10 for the tent"] },
+               read: { _ in AskClaudeReading.Read(pages: ["Store copy", "Total due: $84.10 for the tent"], pageCount: 2) },
                answerOnDevice: { _, _, _ in .answer("The total is $84.10.") })
         }
         var handles = AskClaudeHandles()
@@ -852,6 +853,57 @@ import FileExplorer
         let on = await runner(readsFiles: true).run(call("read_text", ["handle": .string(handle), "question": .string("What was the total due?")]), handles: &handles)
         #expect(on.result.contains("Total due: $84.10 for the tent"))
         #expect(on.passage == nil)
+    }
+
+    /// **A scan's text is read as a text layer's is, and Claude is told it came from OCR** (TE264):
+    /// the note goes with the answer, the text stays here with the switch off, and the step says so.
+    @Test func textReadByOCRIsSaidAndStaysOnTheMac() async {
+        let path = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
+        var map: [String: FileNode] = [:]
+        Self.index(Self.tree, into: &map)
+        func runner(readsFiles: Bool, _ read: AskClaudeReading.Read?) -> AskClaudeBrowseTools {
+            AskClaudeBrowseTools(context: {
+                var ctx = AskClaudeBrowseTools.Context(
+                    inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Documents/Taxes", sort: .name,
+                    items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+                ctx.readsFiles = readsFiles
+                return ctx
+            }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
+               read: { _ in read }, answerOnDevice: { _, _, _ in .answer("The total is $84.10.") })
+        }
+        let scanned = AskClaudeReading.Read(pages: ["Total due: $84.10 for the tent", "Thank you"], pageCount: 34,
+                                            recognized: [0, 1], unread: Array(2..<34), stoppedBy: .pageLimit)
+        var handles = AskClaudeHandles()
+        let handle = handles.handle(for: path)
+        let question = call("read_text", ["handle": .string(handle), "question": .string("What was the total due?")])
+        let off = await runner(readsFiles: false, scanned).run(question, handles: &handles)
+        #expect(off.result.contains("Pages 1–2 of 34 have no text layer, so they were read by OCR on this Mac: a word may be misread. OCR stopped at its 10-page limit, so pages 3–34 weren’t read."))
+        #expect(!off.result.contains("tent"))
+        #expect(off.passage?.whereInFile == "pages 1–2" && off.passage?.text.hasPrefix("Total due: $84.10 for the tent") == true)
+        #expect(off.step == "Read Receipt REI 2025.pdf on this Mac, 2 pages by OCR")
+        let on = await runner(readsFiles: true, scanned).run(question, handles: &handles)
+        #expect(on.result.contains("Total due: $84.10 for the tent") && on.result.contains("read by OCR"))
+        #expect(on.passage == nil)
+        // A text layer says nothing of OCR.
+        let layered = await runner(readsFiles: false, AskClaudeReading.Read(pages: ["Total due: $84.10"], pageCount: 1)).run(question, handles: &handles)
+        #expect(!layered.result.contains("OCR") && layered.step == "Read Receipt REI 2025.pdf on this Mac")
+        // A scan whose time ran out before any page is an error that says why.
+        let late = AskClaudeReading.Read(pages: ["", ""], pageCount: 2, unread: [0, 1], stoppedBy: .time(seconds: 30))
+        let none = await runner(readsFiles: false, late).run(question, handles: &handles)
+        #expect(none.isError && none.result == "Receipt REI 2025.pdf has no text read yet. Pages 1–2 of 2 have no text layer, and OCR stopped after 30 seconds, before reading them.")
+    }
+
+    @Test func pageListsNameRunsAndSayWhenTimeRanOut() {
+        #expect(AskClaudeReading.pages([4]) == "page 5")
+        #expect(AskClaudeReading.pages([0, 1, 2]) == "pages 1–3")
+        #expect(AskClaudeReading.pages([6, 1, 3, 4, 5]) == "pages 2 and 4–7")
+        #expect(AskClaudeReading.pages([0, 2, 5, 6]) == "pages 1, 3 and 6–7")
+        let late = AskClaudeReading.Read(pages: [], pageCount: 80, recognized: [0], unread: Array(1..<60), stoppedBy: .time(seconds: 1))
+        #expect(late.ocrNote == "Page 1 of 80 has no text layer, so it was read by OCR on this Mac: a word may be misread. OCR stopped after 1 second, so pages 2–60 weren’t read, nor anything past page 60.")
+        #expect(AskClaudeReading.Read(pages: ["x"], pageCount: 1).ocrNote == nil)
+        // A scanner's name over the picture is not the page's words; a short real line is.
+        #expect(AskClaudeReading.isNearEmpty("  Scanned by Scanbot \n 3 "))
+        #expect(!AskClaudeReading.isNearEmpty("Parking space 17, garage B"))
     }
 
     @Test func thePassageIsThePageTheQuestionsWordsAreOn() {
@@ -941,7 +993,7 @@ import FileExplorer
                 items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
         }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: statDisk,
            openFile: { opened.value.append($0); return true },
-           extract: { _ in extracted.value += 1; return ["Rent is $2,400."] },
+           read: { _ in extracted.value += 1; return AskClaudeReading.Read(pages: ["Rent is $2,400."], pageCount: 1) },
            answerOnDevice: { _, _, _ in .answer("$2,400.") }, isCloudOnly: cloudOnly)
     }
 

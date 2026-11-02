@@ -13994,3 +13994,14 @@ question. Ask Claude exists only on `main` (see step 0b).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Ask Claude reads scanned PDFs by OCR (TE264) — main only
+
+2026-11-02, for v7.0. On `main`: Ask Claude's `read_text` reads a PDF page whose text layer is
+empty or all but by OCR — the first 10 such pages, within 30 seconds, read on the CPU first — and
+tells Claude which pages came from OCR and which it didn't reach. `PictureText` gains a CPU-first
+entry point for it; Save as PDF reads as before. Ask Claude exists only on `main`.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

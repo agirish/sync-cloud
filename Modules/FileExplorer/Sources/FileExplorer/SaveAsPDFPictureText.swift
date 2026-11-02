@@ -21,8 +21,9 @@ import Vision
 /// `.fast` lost 40 of 111 lines on a table slide; 1280 px read the same as 1920.
 ///
 /// CoreGraphics and Vision only, no PDFKit, so nothing here is in `PDFKitSerialAccess`'s lane. It
-/// blocks for the whole deck: call it off the main actor.
-enum PictureText {
+/// blocks for the whole deck: call it off the main actor. Ask Claude's `read_text` reads scanned
+/// PDF pages with ``text(in:)`` (TE264).
+public enum PictureText {
     /// The bitmap Vision reads, by its longer side.
     static let readSize: CGFloat = 1920
 
@@ -67,18 +68,38 @@ enum PictureText {
     static func recognise(_ page: CGPDFPage,
                           read: (CGImage, Processor) throws -> [Line] = read(_:on:)) -> [Line] {
         guard let image = bitmap(of: page) else { return [] }
+        return recognise(image, read: read)
+    }
+
+    /// `image`'s lines, read as ``recognise(_:read:)`` reads a page's.
+    ///
+    /// **`cpuFirst` reads on the CPU and only falls back to Vision's own choice.** A binary's
+    /// first request on the Neural Engine compiles its models: 70.5 s and 73.3 s for two fresh
+    /// copies of one probe on 2026-11-02, against 0.29 s on the CPU and 0.13–0.14 s warm on
+    /// either. Every install is a fresh binary, and a question can't wait a minute.
+    static func recognise(_ image: CGImage, cpuFirst: Bool = false, reader: String = "Save as PDF",
+                          read: (CGImage, Processor) throws -> [Line] = read(_:on:)) -> [Line] {
+        let first: Processor = cpuFirst ? .cpu : .any
+        let then: Processor = cpuFirst ? .any : .cpu
         do {
-            return try read(image, .any)
+            return try read(image, first)
         } catch {
             // Said, because a Vision that fails reads exactly like slides with no words.
-            Logger.shared.warning("Save as PDF: text recognition failed: \(error.localizedDescription); reading on the CPU")
+            Logger.shared.warning("\(reader): text recognition failed: \(error.localizedDescription); reading on \(then == .cpu ? "the CPU" : "Vision’s own choice")")
         }
         do {
-            return try read(image, .cpu)
+            return try read(image, then)
         } catch {
-            Logger.shared.warning("Save as PDF: text recognition failed on the CPU too: \(error.localizedDescription)")
+            Logger.shared.warning("\(reader): text recognition failed on \(then == .cpu ? "the CPU" : "Vision’s own choice") too: \(error.localizedDescription)")
             return []
         }
+    }
+
+    /// The words Vision reads in `image`, a line each in Vision's order, on the CPU first; empty
+    /// when it reads none. For a caller that draws the page itself, as Ask Claude does on the
+    /// PDFKit lane.
+    public static func text(in image: CGImage, reader: String) -> String {
+        recognise(image, cpuFirst: true, reader: reader).map(\.text).joined(separator: "\n")
     }
 
     static func read(_ image: CGImage, on processor: Processor) throws -> [Line] {
@@ -101,7 +122,7 @@ enum PictureText {
 
     /// The page on white, its longer side ``readSize`` pixels — never below its own size in points,
     /// never above four times it.
-    static func bitmap(of page: CGPDFPage) -> CGImage? {
+    public static func bitmap(of page: CGPDFPage) -> CGImage? {
         let media = page.getBoxRect(.mediaBox)
         guard media.width > 0, media.height > 0 else { return nil }
         let scale = min(max(readSize / max(media.width, media.height), 1), 4)

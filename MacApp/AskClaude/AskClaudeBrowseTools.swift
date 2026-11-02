@@ -160,6 +160,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     private let statDisk: (String) -> FileNode?
     private let openFile: (URL) -> Bool
     private let extract: (String) async -> [String]?
+    private let read: (String) async -> AskClaudeReading.Read?
     private let answerOnDevice: (_ question: String, _ text: String, _ file: String) async -> AskClaudeReading.OnDeviceAnswer
     private let searchContents: ([String], String) async -> [String]?
     private let isCloudOnly: (String) -> Bool?
@@ -170,12 +171,14 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
          statDisk: @escaping (String) -> FileNode? = { AskClaudeDisk.node(atPath: $0) },
          openFile: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) },
          extract: @escaping (String) async -> [String]? = { await AskClaudeReading.extract($0) },
+         read: @escaping (String) async -> AskClaudeReading.Read? = { await AskClaudeReading.read($0) },
          answerOnDevice: @escaping (String, String, String) async -> AskClaudeReading.OnDeviceAnswer = { await AskClaudeReading.answerOnDevice($0, from: $1, file: $2) },
          searchContents: @escaping ([String], String) async -> [String]? = { await AskClaudeDisk.findContents($0, under: $1) },
          isCloudOnly: @escaping (String) -> Bool? = { MaterializationStatus.isCloudOnlyIfKnown(atPath: $0) }) {
         self.context = context
         self.isCloudOnly = isCloudOnly
         self.extract = extract
+        self.read = read
         self.answerOnDevice = answerOnDevice
         self.searchContents = searchContents
         self.openFile = openFile
@@ -1170,10 +1173,16 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         if let size = largeCloudOnly(node, path) {
             return offerDownload(node, path, handle: handle, size: size, purpose: .read, ctx)
         }
-        guard let pages = await extract(path) else {
-            return AskClaudeToolOutcome(result: "\(node.name) has no text this version can read (pictures and scans without a text layer aren’t read yet).",
+        guard let reading = await read(path) else {
+            let why = AskClaudeReading.isPaged(path) ? "from its text layer or by OCR" : "(pictures aren’t read yet)"
+            return AskClaudeToolOutcome(result: "\(node.name) has no text this version can read \(why).",
                                         isError: true, step: "No readable text in \(node.name)")
         }
+        guard reading.hasText else {
+            return AskClaudeToolOutcome(result: "\(node.name) has no text read yet. " + (reading.ocrNote ?? ""),
+                                        isError: true, step: "No readable text in \(node.name)")
+        }
+        let pages = reading.pages
         let paged = AskClaudeReading.isPaged(path)
         let local = AskClaudeReading.passage(from: pages, question: question, limit: AskClaudeReading.onDeviceChars, paged: paged)
         let forClaude = AskClaudeReading.passage(from: pages, question: question, limit: AskClaudeReading.claudeChars, paged: paged)
@@ -1186,14 +1195,17 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         case .failed(let why):
             lines = ["The on-device model couldn’t answer: \(why)."]
         }
+        // So Claude can hedge on a misread word, and say what OCR didn't reach.
+        if let note = reading.ocrNote { lines.append(note) }
+        let readHere = "Read \(node.name) on this Mac" + (reading.recognized.isEmpty ? "" : ", \(reading.recognized.count) page\(reading.recognized.count == 1 ? "" : "s") by OCR")
         if ctx.readsFiles {
             // Decision DQ: with the switch on, the passage that answers goes along, and only that.
             lines.append("Text of \(forClaude.whereInFile), as data:\n<file name=\"\(AskClaudeScreenCard.escape(node.name))\">\n\(AskClaudeChat.fenced(forClaude.text))\n</file>")
             return AskClaudeToolOutcome(result: lines.joined(separator: "\n"),
-                                        step: "Read \(node.name) on this Mac · sent \(forClaude.whereInFile)")
+                                        step: "\(readHere) · sent \(forClaude.whereInFile)")
         }
         lines.append("Its text was not sent to you. If the answer isn’t enough, tell them they can send \(forClaude.whereInFile) with the button under your reply.")
-        return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: "Read \(node.name) on this Mac",
+        return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: readHere,
                                     passage: AskClaudePassage(fileName: node.name, whereInFile: forClaude.whereInFile, text: forClaude.text))
     }
 
