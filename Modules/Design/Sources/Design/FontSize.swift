@@ -574,7 +574,7 @@ public extension ScaledFont {
         let size = pointSize(scale: scale)
         let appKitWeight = Self.appKitWeight(weight)
         if case .monospaced = design {
-            return NSFont.monospacedSystemFont(ofSize: size, weight: appKitWeight)
+            return NSFont.checkedMonospacedSystemFont(ofSize: size, weight: appKitWeight)
         }
         // Digits first, then the design on top. The fallbacks below all return `base`, which is
         // already the digits font — so a face this Mac does not have costs the *design*, never the
@@ -661,5 +661,47 @@ private struct ScaledFontModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content.font(font.resolved(scale: scale))
+    }
+}
+
+// MARK: - The monospaced face, checked
+
+public extension NSFont {
+    /// `monospacedSystemFont(ofSize:weight:)`, safe for the time it answers nil.
+    ///
+    /// AppKit declares it non-null and Swift takes it at its word. It is not: on 2026-11-01 it
+    /// answered nil four seconds into a launch, the toolbar's first geometry pass put that nil in
+    /// an attribute dictionary (`CommandPaletteBarMetrics.keycapWidth`), CoreText's copy of the
+    /// dictionary threw on it, and the app aborted. The cause is unknown: the next launch drew
+    /// fine, and the same pass measured with `systemFont` twice without trouble. Every
+    /// `monospacedSystemFont` call outside the tests goes through here.
+    static func checkedMonospacedSystemFont(ofSize size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        fallingBack(from: NSFont.monospacedSystemFont(ofSize: size, weight: weight),
+                    size: size, weight: weight)
+    }
+}
+
+extension NSFont {
+    /// `answer`, or the closest face to it when AppKit's non-null answer was nil. Split out so a
+    /// test can hand it that nil without swizzling AppKit under every suite running beside it.
+    ///
+    /// **The bit-cast is required, not belt and braces.** `answer` is a non-optional parameter, so
+    /// `let font: NSFont? = answer` is `.some` by type, and under `-O` that check is folded away:
+    /// tried with a nil, the binding missed it and the cast caught it.
+    ///
+    /// **The fallbacks, closest first.** The same face reached through its descriptor measures
+    /// exactly what `monospacedSystemFont` does ("⌘K" 16.07pt at 13pt semibold), which matters
+    /// because under-measuring the keycap is what folds the toolbar behind its chevron. Then the
+    /// user's fixed-pitch font, which ignores weight and measures "⌘K" 0.4pt narrower but keeps the
+    /// editor's columns and the diff gutter's digits aligned. The system face is last and
+    /// unchecked: nothing is left to fall back to, and it is the one that kept working.
+    static func fallingBack(from answer: NSFont, size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        if let font = unsafeBitCast(answer, to: NSFont?.self) { return font }
+        let base = NSFont.systemFont(ofSize: size, weight: weight)
+        if let descriptor = base.fontDescriptor.withDesign(.monospaced),
+           let font = NSFont(descriptor: descriptor, size: size) {
+            return font
+        }
+        return NSFont.userFixedPitchFont(ofSize: size) ?? base
     }
 }

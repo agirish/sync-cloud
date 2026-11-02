@@ -46,7 +46,7 @@ public enum CommandPaletteBarMetrics {
     /// Text size — and this one is charged into the *reserve* the workspace bar sheds against, so
     /// under-measuring it is what pushes the whole toolbar behind the chevron.
     public static func keycapWidth(symbol: String, scale: CGFloat) -> CGFloat {
-        let font = NSFont.monospacedSystemFont(ofSize: 13 * scale, weight: .semibold)
+        let font = NSFont.checkedMonospacedSystemFont(ofSize: 13 * scale, weight: .semibold)
         let text = (symbol as NSString).size(withAttributes: [.font: font]).width
         return text + 2 * ShortcutKeycapMetrics.horizontalPadding
     }

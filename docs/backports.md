@@ -13761,3 +13761,23 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## A nil monospaced font no longer aborts the app at launch — main only
+
+2026-11-01, for v7.0. `NSFont.monospacedSystemFont(ofSize:weight:)` answered nil four seconds into
+one launch (`SyncCloud-2026-11-01-222537.ips`); the toolbar's first geometry pass measured the ⌘K
+keycap with it (`CommandPaletteBarMetrics.keycapWidth`) and CoreText aborted on the nil. Once, cause
+unknown; the next launch was fine. On `main` every non-test `monospacedSystemFont` call goes through
+`NSFont.checkedMonospacedSystemFont`, which falls back to the same face by descriptor.
+
+```sh
+for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s toolbar:%s calls:%s\n' $l \
+  "$(git grep -c 'CommandPaletteBarMetrics.keycapWidth' origin/$l -- MacApp/ContentView.swift | wc -l | tr -d ' ')" \
+  "$(git grep -l 'NSFont.monospacedSystemFont(' origin/$l -- Modules MacApp | grep -vc /Tests/)"; done
+# measured 2026-11-01, before this landed: v6.x/v5.x/v4.x toolbar:1; v3.x/v2.x toolbar:0, calls:1
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` | The unchecked keycap measure, in the main window's first layout pass | RECORDED — not owed |
+| `v3.x` / `v2.x` | One unchecked call, `ScaledFont.nsFont`'s monospaced branch; not traced to launch | RECORDED — not owed |

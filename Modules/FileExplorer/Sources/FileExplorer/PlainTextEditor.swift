@@ -185,8 +185,8 @@ struct PlainTextEditor: NSViewRepresentable {
     /// against the ramp's 15.85). Below 1.0 the two agree, which is why a multiply reads fine at
     /// Small and Default and only parts company at the sizes someone chooses because they need it.
     static func font(scale: CGFloat) -> NSFont {
-        .monospacedSystemFont(ofSize: FontSize.scaledPointSize(baseFontSize, scale: scale),
-                              weight: .regular)
+        .checkedMonospacedSystemFont(ofSize: FontSize.scaledPointSize(baseFontSize, scale: scale),
+                                     weight: .regular)
     }
 
     // `@MainActor` because it holds an `UndoManager`, whose initialiser is main-actor isolated —

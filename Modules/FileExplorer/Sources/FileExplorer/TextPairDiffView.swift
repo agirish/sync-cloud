@@ -175,7 +175,7 @@ struct TextPairDiffView: View {
     /// width times the count is the width, plus a point for rounding.
     static func gutterWidth(largestNumber: Int, scale: CGFloat) -> CGFloat {
         let size = FontSize.scaledPointSize(gutterPointSize, scale: scale)
-        let font = NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        let font = NSFont.checkedMonospacedSystemFont(ofSize: size, weight: .regular)
         let digit = ("0" as NSString).size(withAttributes: [.font: font]).width
         let digits = max(String(max(largestNumber, 0)).count, 3)
         return (CGFloat(digits) * digit).rounded(.up) + 1

@@ -1,4 +1,5 @@
 import AppKit
+import Design
 import Events
 import Markdown
 
@@ -1389,7 +1390,7 @@ private struct Builder {
     }
 
     private var monoFont: NSFont {
-        NSFont.monospacedSystemFont(ofSize: 12 * style.scale, weight: .regular)
+        NSFont.checkedMonospacedSystemFont(ofSize: 12 * style.scale, weight: .regular)
     }
 
     /// How far a quote level and a list level each push the text in.
