@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import os
 import PDFKit
 import Sync
 @testable import FileExplorer
@@ -98,21 +99,33 @@ import Sync
         #expect(await PDFCardFactsReader.read(junk, for: .compress(.quality(0.6)), timeout: Self.wait, isCloudOnly: { _ in false }) == .unreadable)
     }
 
-    /// **A lane held by other work answers "busy" in time, not after it** — and the queued turn,
-    /// cancelled, does nothing when it comes.
-    @Test func aHeldLaneAnswersBusyInTime() async throws {
+    /// **A lane held by other work answers "busy" while it is still held, not after** — and the
+    /// queued turn, cancelled, does nothing when it comes. Said without a clock: on a loaded
+    /// 3-core runner even the 200 ms timer can take seconds to fire, so the claim is that the
+    /// answer came back before the lane was let go, which a read that waited for it can't do.
+    @Test func aHeldLaneAnswersBusyWhileItIsHeld() async throws {
         let file = path("Held.pdf")
         PDFFixtures.write(file, pages: 1)
         let release = DispatchSemaphore(value: 0)
-        let holder = Task.detached { await PDFKitSerialAccess.perform { _ = release.wait(timeout: .now() + 20) } }
-        let started = Date()
+        let held = OSAllocatedUnfairLock(initialState: false), freed = OSAllocatedUnfairLock(initialState: false)
+        let holder = Task.detached {
+            await PDFKitSerialAccess.perform {
+                held.withLock { $0 = true }
+                _ = release.wait(timeout: .now() + 120)
+                freed.withLock { $0 = true }
+            }
+        }
+        // The holder's turn first: a read queued ahead of it would never meet a held lane.
+        let deadline = Date().addingTimeInterval(60)
+        while !held.withLock({ $0 }), Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(held.withLock { $0 }, "the holder never got the lane")
         let read = await PDFCardFactsReader.read(file, for: .compress(.quality(0.6)), timeout: .milliseconds(200),
                                                  isCloudOnly: { _ in false })
-        let waited = Date().timeIntervalSince(started)
+        let freedFirst = freed.withLock { $0 }
         release.signal()
         await holder.value
         #expect(read == .busy)
-        #expect(waited < 10, "the read waited \(waited) s on a held lane")
+        #expect(!freedFirst, "the read came back only once the lane was let go")
     }
 
     // MARK: Thumbnails
