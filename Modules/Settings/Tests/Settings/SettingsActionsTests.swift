@@ -51,6 +51,8 @@ import Sync
         #expect(!actions.resetAllRaises().contains { $0.hasPrefix("Monthly limit") }, "a kept limit was named")
         let question = actions.prompt("advanced.resetAll", target: nil)?.informativeText ?? ""
         #expect(question.contains("This also raises what Claude may do: Model back to Sonnet"))
+        defaults.set(false, forKey: FileSyncManager.readContentsDefaultsKey)
+        #expect(actions.resetAllRaises().contains("Read file contents on-device for better signals back to On"))
     }
 
     @Test func aPressRunsSettingsOwnCode() async throws {

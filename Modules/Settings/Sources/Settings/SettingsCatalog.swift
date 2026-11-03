@@ -210,6 +210,12 @@ public struct SettingEntry: Identifiable, Hashable, Sendable {
     public func isLessSafe(from old: SettingValue?, to new: SettingValue) -> Bool {
         lessSafe?.matches(from: old, to: new) ?? false
     }
+
+    /// What this entry holds when the entries that depend on it are disabled: a switch's Off, or
+    /// Accent color's None, under which Settings disables Tint.
+    public var offValue: SettingValue {
+        id == "appearance.accent" ? .string(LiquidGlassHue.none.rawValue) : .bool(false)
+    }
 }
 
 @MainActor
@@ -272,8 +278,9 @@ public enum SettingsCatalog {
 
         // MARK: Readability
         e("readability.presets", .readability, "Size & spacing", indexed: true,
+          // Nothing of its own to set: it sets Text size and Row spacing, which Claude can.
           control: .menu(SizePreset.all.map { SettingChoice(.string($0.id), "\($0.fontSize.percent)%, \($0.density.rawValue)") }),
-          tier: .direct),
+          tier: .readOnly),
         e("readability.textSize", .readability, "Text size", indexed: true,
           storage: app(FontSize.defaultsKey, "FontSize.defaultsKey", "FontSize.medium.percent"),
           control: .stepper(min: FontSize.minimumPercent, max: FontSize.maximumPercent, step: FontSize.step),
@@ -429,7 +436,8 @@ public enum SettingsCatalog {
           control: .toggle, default: .bool(true), tier: .suggested, raises: .turningOn),
         e("intelligence.readContents", .intelligence, "Read file contents on-device for better signals", indexed: true,
           storage: app(FileSyncManager.readContentsDefaultsKey, "FileSyncManager.readContentsDefaultsKey", "true"),
-          control: .toggle, default: .bool(true), tier: .suggested),
+          // On, Refine sends Claude excerpts of what it read.
+          control: .toggle, default: .bool(true), tier: .suggested, raises: .turningOn),
         e("intelligence.cloudRefine", .intelligence, "Use Claude (cloud) to refine suggestions", indexed: true,
           storage: app(FileSyncManager.usesCloudDefaultsKey, "FileSyncManager.usesCloudDefaultsKey", "false"),
           control: .toggle, default: .bool(false), tier: .directWhenTightening, dependsOn: ["intelligence.onDeviceAI"],

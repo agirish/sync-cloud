@@ -682,7 +682,9 @@ public class SettingsManager: ObservableObject {
     /// provider path/name overrides and enablement, ignored items — except what
     /// `SettingsResetKeeps` names (the Never show Claude list, spending limits and spend records,
     /// what he made by hand, and migration marks), and republishes this manager's own settings at their defaults. `@AppStorage`-backed values
-    /// elsewhere pick the removal up automatically. Files on disk are untouched.
+    /// elsewhere pick the removal up automatically. This touches no file; the app's full reset
+    /// (`ContentView.applyFullSettingsReset`) also deletes setup's draft, so his files, not every
+    /// file on disk, are what Reset All leaves alone.
     ///
     /// Key by key rather than `removePersistentDomain` and writing the kept keys back: in between,
     /// the hidden list would be absent, and a reader on another thread would show Claude every

@@ -157,6 +157,18 @@ import Sync
         #expect(SettingsWriter.canWrite(SettingsCatalog.entry("sources.openAt")!))
     }
 
+    /// Tint depends on Accent color, which is off at None, not at a switch's Off: Settings disables
+    /// Tint there, and a card or Claude can't change it either.
+    @Test func tintCantChangeWhileAccentColorIsNone() {
+        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        defaults.set(LiquidGlassHue.none.rawValue, forKey: LiquidGlass.hueKey)
+        let w = writer(defaults, nil, Calls())
+        #expect(w.write("appearance.tint", .double(0.5)) == .refused("Accent color is None, so Tint can’t change. Change it first."))
+        #expect(defaults.object(forKey: LiquidGlass.tintKey) == nil)
+        defaults.set(LiquidGlassHue.blue.rawValue, forKey: LiquidGlass.hueKey)
+        #expect(w.write("appearance.tint", .double(0.5)) == .done)
+    }
+
     /// Every setting `canWrite` admits really is written: its default goes in without the
     /// "can't be changed from a card" refusal.
     @Test func everySettingACardCanHoldIsWritten() throws {

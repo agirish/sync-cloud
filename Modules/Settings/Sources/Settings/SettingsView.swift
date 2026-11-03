@@ -413,7 +413,12 @@ public struct SettingsView: View {
                 IntelligenceSettingsTab(syncManager: syncManager, onOpenHelp: onOpenHelp)
             case .advanced:
                 AdvancedSettingsTab(syncManager: syncManager, onResetAllSettings: onResetAllSettings,
-                                    onResetSetup: onResetSetup)
+                                    onResetSetup: onResetSetup, resetAllRaises: { [settings, syncManager] in
+                    SettingsActions(settings: settings, sync: syncManager,
+                                    lookup: SettingsLookup(defaults: .standard, settings: settings, keyIsSaved: { false },
+                                                           hiddenCount: { 0 }, isHidden: { _ in false },
+                                                           loginItemIsOn: { false })).resetAllRaises()
+                })
             }
         }
     }
@@ -3962,6 +3967,9 @@ struct AdvancedSettingsTab: View {
     /// every construction site at once, including `SettingsLayoutTests.mustFitTabs`, which builds
     /// the tab views directly.
     var onResetSetup: (() -> Void)? = nil
+    /// What Reset All would raise for Claude from the values now, named in its confirmation as the
+    /// card's question names it. Defaulted for the same reason as `onResetSetup`.
+    var resetAllRaises: () -> [String] = { [] }
 
     @AppStorage(Logger.minimumLevelDefaultsKey) private var minimumLevelRaw: String = LogLevel.debug.rawValue
     /// Human-readable size of the log file, refreshed on appear and after Clear Log.
@@ -4168,7 +4176,13 @@ struct AdvancedSettingsTab: View {
         informativeText: "SyncCloud forgets that setup has run and which location it learns from, and opens setup now, from the beginning. On a Mac that hasn’t learned a folder tree yet, the name and household answers setup was holding are discarded with it. Your folder profile, people and other settings stay.")
 
     /// What Reset All Settings takes and what it keeps, in the confirmation.
-    static let resetAllExplanation = "Settings return to their defaults, apart from what is kept below. Folders you added as sources, ignored items, and source names and paths are removed, and SyncCloud forgets that setup has run.\n\nKept: your Rules, saved signatures, Favorites and pins, and the choices you made while organizing (corrections, groups kept separate, names kept); the folders you hid from Claude; and your spending limits for Claude and the record of what it has cost. Your Claude API key, folder profile, Ask Claude chats and your files are not touched."
+    static let resetAllExplanation = "Settings return to their defaults, apart from what is kept below. Folders you added as sources, ignored items, and source names and paths are removed, and SyncCloud forgets that setup has run.\n\nKept: your Rules, saved signatures, Favorites and pins, and the choices you made while organizing (corrections, groups kept separate, names kept); the folders you hid from Claude; and your spending limits for Claude and the record of what it has cost. One-Way Sync stays set up as it is, with its choices for a Dropbox file deleted, renamed, moved or edited, and Launch at login stays as it is: macOS holds it. Your Claude API key, folder profile, Ask Claude chats and your files are not touched."
+
+    /// The confirmation's words, with what the reset would raise for Claude from the values now
+    /// (`SettingsActions.resetAllRaises`) — the same in Settings and on an Ask Claude card.
+    static func resetAllQuestion(raising raised: [String]) -> String {
+        resetAllExplanation + (raised.isEmpty ? "" : "\n\nThis also raises what Claude may do: " + raised.joined(separator: "; ") + ".")
+    }
 
     /// Confirmation ahead of the defaults wipe; Cancel is the default button (Return must
     /// not reset, same convention as the permanent-delete alert).
@@ -4180,7 +4194,7 @@ struct AdvancedSettingsTab: View {
         // the whole of the reassurance, which read as "nothing you care about is lost" while the
         // curated list of folder sources went with the defaults domain. What stays is
         // `SettingsResetKeeps`.
-        alert.informativeText = Self.resetAllExplanation
+        alert.informativeText = Self.resetAllQuestion(raising: resetAllRaises())
         alert.addButton(withTitle: "Reset")
         alert.addButton(withTitle: "Cancel")
         if let resetButton = alert.buttons.first {

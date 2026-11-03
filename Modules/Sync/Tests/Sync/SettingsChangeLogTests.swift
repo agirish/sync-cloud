@@ -81,6 +81,40 @@ import Testing
         #expect(Set(SettingsChangeLog(fileURL: url).changes.map(\.name)) == ["Mine", "Other", "Third"])
     }
 
+    /// With two copies running, a row one copy trimmed or cleared stays gone when the other writes:
+    /// it isn't added back as the newest, and a Clear isn't undone.
+    @Test func whatAnotherCopyTrimmedOrClearedStaysGone() throws {
+        let url = file(); defer { try? FileManager.default.removeItem(at: url) }
+        let now = Date()
+        let full = (0..<SettingsChangeLog.maxChanges).map { change("\($0)", at: now.addingTimeInterval(Double($0) - 1_000)) }
+        try JSONEncoder().encode(full).write(to: url)
+        let one = SettingsChangeLog(fileURL: url)
+        let other = SettingsChangeLog(fileURL: url)
+        one.record(change("One", at: now))
+        other.record(change("Other", at: now.addingTimeInterval(1)))
+        let names = SettingsChangeLog(fileURL: url).changes.map(\.name)
+        #expect(!names.contains("0"), "a row the other copy trimmed came back")
+        #expect(names.count == SettingsChangeLog.maxChanges)
+        #expect(names.suffix(2) == ["One", "Other"])
+
+        one.clear()
+        other.record(change("After", at: now.addingTimeInterval(2)))
+        #expect(SettingsChangeLog(fileURL: url).changes.map(\.name) == ["After"])
+    }
+
+    /// A row this copy couldn't write is still written by its next write.
+    @Test func aRowThatCouldntBeWrittenIsWrittenNextTime() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("SettingsChangeLogTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("changes.json")
+        let log = SettingsChangeLog(fileURL: url)
+        log.record(change("First"))
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        log.record(change("Second"))
+        #expect(SettingsChangeLog(fileURL: url).changes.map(\.name) == ["First", "Second"])
+    }
+
     @Test func aFileThatIsntARecordIsSetAsideNotOverwritten() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("SettingsChangeLogTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

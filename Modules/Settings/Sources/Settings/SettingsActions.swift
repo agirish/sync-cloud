@@ -77,10 +77,8 @@ public struct SettingsActions {
             let count = stored.flatMap(ColumnWidthOverrides.init(rawValue:))?.widths.count ?? 0
             return count > 0 ? .releaseColumnWidths(count: count) : nil
         case "advanced.resetAll":
-            let raised = resetAllRaises()
-            let raises = raised.isEmpty ? "" : "\n\nThis also raises what Claude may do: " + raised.joined(separator: "; ") + "."
-            return RemovalPrompt(messageText: "Reset all settings?", informativeText: AdvancedSettingsTab.resetAllExplanation + raises,
-                                 confirmTitle: "Reset")
+            return RemovalPrompt(messageText: "Reset all settings?",
+                                 informativeText: AdvancedSettingsTab.resetAllQuestion(raising: resetAllRaises()), confirmTitle: "Reset")
         default:
             return nil
         }

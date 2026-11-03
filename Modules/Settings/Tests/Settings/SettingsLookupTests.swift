@@ -130,4 +130,11 @@ import Sync
         let model = await lookup.get(["intelligence.cloudModel"])
         #expect(model.contains("disabled: until Suggest folders with on-device AI is on"))
     }
+
+    @Test func tintSaysItIsDisabledWhileAccentColorIsNone() async {
+        let name = suiteName(); defer { wipeDefaultsSuite(name) }
+        let (lookup, defaults) = lookup(name)
+        defaults.set(LiquidGlassHue.none.rawValue, forKey: LiquidGlass.hueKey)
+        #expect(await lookup.get(["appearance.tint"]).contains("disabled: while Accent color is None"))
+    }
 }

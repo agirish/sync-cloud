@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import Events
+import Settings
 import Sync
 @testable import Dashboard
 
@@ -58,5 +59,32 @@ import Sync
         let theme = change("Theme", "Light", "Dark")
         let ids = SyncHistoryView.items(records: [newer, older], changes: [theme]).map(\.id)
         #expect(ids == ["record-\(newer.id)", "setting-\(theme.id)", "record-\(older.id)"])
+    }
+
+    /// Revert's "Show to Claude again?" asks as Settings' Remove and the card do, with Cancel the
+    /// default (decision IP); a Revert that only raises asks as a change, Return confirming.
+    @Test func showingAFolderToClaudeAgainAsksAsSettingsDoes() {
+        let name = "HistorySettingsChangesTests.\(#function).\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name + ".json")
+        defer { wipeDefaultsSuite(name); try? FileManager.default.removeItem(at: url) }
+        let log = SettingsChangeLog(fileURL: url)
+        let lookup = SettingsLookup(defaults: defaults, settings: nil, keyIsSaved: { false }, hiddenCount: { 0 },
+                                    isHidden: { _ in false }, loginItemIsOn: { false })
+        let writer = SettingsWriter(defaults: defaults, settings: nil)
+        let lists = SettingsLists(settings: SettingsManager(autoDiscover: false, userDefaults: defaults), sync: nil, defaults: defaults)
+        #expect(lists.add("intelligence.hidden", "/Users/me/Medical") == .done)
+        let hid = SettingsChange(setting: "intelligence.hidden", target: "/Users/me/Medical", name: "Hidden from Claude",
+                                 from: "false", to: "true", fromLabel: nil, toLabel: "hid a folder", how: .card)
+        defaults.set(false, forKey: AskClaudePrivacy.readsFilesKey)
+        let off = SettingsChange(setting: "intelligence.readsFiles", name: "Let Claude read files", from: "true", to: "false",
+                                 fromLabel: "On", toLabel: "Off", how: .claude)
+        var asked: [RemovalPrompt] = []
+        for change in [hid, off] {
+            SettingsRevert.revert(change, lookup: lookup, writer: writer, lists: lists, log: log,
+                                  center: NotificationCenter(), confirmRaising: { asked.append($0); return false })
+        }
+        #expect(asked.map(\.messageText) == ["Show “Medical” to Claude again?", "Put Let Claude read files back to On?"])
+        #expect(asked.map(HistorySettingsChanges.asksAsSettings) == [true, false])
     }
 }

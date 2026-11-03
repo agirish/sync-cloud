@@ -71,10 +71,18 @@ public struct HistorySettingsChanges {
     }
 
     /// Asks before a Revert that raises Claude's spending or access, in the question's own words:
-    /// a change, not a deletion.
+    /// a change, not a deletion. Showing a folder to Claude again asks as Settings' Remove does,
+    /// with Cancel the default (decision IP).
     public static func ask(_ prompt: RemovalPrompt) -> Bool {
-        NativeAlerts.confirmChange(messageText: prompt.messageText, informativeText: prompt.informativeText,
-                                   confirmTitle: prompt.confirmTitle)
+        if asksAsSettings(prompt) { return prompt.ask() }
+        return NativeAlerts.confirmChange(messageText: prompt.messageText, informativeText: prompt.informativeText,
+                                          confirmTitle: prompt.confirmTitle)
+    }
+
+    /// Whether `prompt` is one of Settings' own questions rather than Revert's, and so asks the way
+    /// Settings does.
+    static func asksAsSettings(_ prompt: RemovalPrompt) -> Bool {
+        prompt.confirmTitle != SettingsRevert.confirmTitle
     }
 
     /// Asks before Clear Settings Changes empties the list, which can't be brought back.

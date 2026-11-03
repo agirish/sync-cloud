@@ -58,9 +58,11 @@ public struct SettingsWriter {
         guard Self.accepts(entry, value) else {
             return .refused("\(value) isn’t one of \(entry.label)’s choices.")
         }
-        // Settings disables a control while a switch it depends on is off; a card can't get round it.
+        // Settings disables a control while what it depends on is off; a card can’t get round it.
         if let parent = switchedOff(entry, target: target) {
-            return .refused("\(parent.label) is off, so \(entry.label) can’t change. Turn it on first.")
+            let isSwitch = parent.offValue == .bool(false)
+            return .refused("\(parent.label) is \(isSwitch ? "off" : SettingsLookup.label(parent.offValue, parent)), so \(entry.label) "
+                            + "can’t change. \(isSwitch ? "Turn it on" : "Change it") first.")
         }
         switch (entry.id, value) {
         // Owned by SettingsManager: set there, never on the key.
@@ -177,7 +179,7 @@ public struct SettingsWriter {
         let lookup = SettingsLookup(defaults: defaults, settings: settings, keyIsSaved: { false }, hiddenCount: { 0 },
                                     isHidden: { _ in false }, loginItemIsOn: { false })
         return entry.dependsOn.compactMap(SettingsCatalog.entry).first { parent in
-            lookup.currentValue(parent, target: parent.target == .app ? nil : target) == .bool(false)
+            lookup.currentValue(parent, target: parent.target == .app ? nil : target) == parent.offValue
         }
     }
 

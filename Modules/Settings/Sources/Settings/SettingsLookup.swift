@@ -258,8 +258,9 @@ public struct SettingsLookup {
         if !effects.isEmpty { lines.append("effects: " + effects.joined(separator: "; ")) }
         for dependency in entry.dependsOn {
             guard let parent = SettingsCatalog.entry(dependency) else { continue }
-            if case .value(.bool(false)) = await read(parent) {
-                lines.append("disabled: until \(parent.label) is on")
+            if await read(parent) == .value(parent.offValue) {
+                lines.append(parent.offValue == .bool(false) ? "disabled: until \(parent.label) is on"
+                                                             : "disabled: while \(parent.label) is \(Self.label(parent.offValue, parent))")
             }
         }
         return lines.joined(separator: "\n")

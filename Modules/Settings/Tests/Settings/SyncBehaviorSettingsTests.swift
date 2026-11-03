@@ -246,5 +246,26 @@ import Sync
         // The full reset deletes setup's draft, a file in Application Support, so "files on disk"
         // would overclaim; the person's own files are what is untouched.
         #expect(!AdvancedSettingsTab.resetAllExplanation.contains("files on disk"))
+        // Neither is in the defaults domain: One-Way Sync is saved in Application Support, and
+        // macOS holds Launch at login. "Settings return to their defaults" must not take them in.
+        for phrase in ["One-Way Sync", "Launch at login"] {
+            #expect(parts[1].contains(phrase), "\(phrase)")
+            #expect(!parts[0].contains(phrase), "\(phrase) is also named as reset")
+        }
+    }
+
+    /// Settings' own Reset All names what it would raise for Claude, as the card's question does.
+    @MainActor
+    @Test func settingsResetAllNamesWhatItWouldRaise() throws {
+        let question = AdvancedSettingsTab.resetAllQuestion(raising: ["Model back to Sonnet"])
+        #expect(question == AdvancedSettingsTab.resetAllExplanation + "\n\nThis also raises what Claude may do: Model back to Sonnet.")
+        #expect(AdvancedSettingsTab.resetAllQuestion(raising: []) == AdvancedSettingsTab.resetAllExplanation)
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/Settings/SettingsView.swift")
+        let text = SettingsAsksBeforeRemovingTests.withoutComments(try String(contentsOf: url, encoding: .utf8))
+        try #require(text.count > 1_000, "SettingsView.swift is implausibly short")
+        #expect(text.contains("alert.informativeText = Self.resetAllQuestion(raising: resetAllRaises())"),
+                "Settings' Reset All alert doesn't name what it raises")
+        #expect(text.contains(".resetAllRaises()\n"), "Settings never hands Advanced what Reset All raises")
     }
 }

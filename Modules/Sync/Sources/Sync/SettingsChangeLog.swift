@@ -92,6 +92,9 @@ public final class SettingsChangeLog: ObservableObject {
     /// Rows this build can't read — written by a newer one, say — kept as they were and written
     /// back, so running an older build never deletes them.
     private var unreadable: [Data] = []
+    /// Rows this copy holds that it couldn't write. Only these are written back over the file: a row
+    /// it wrote that is gone from the file was trimmed or cleared by another copy.
+    private var unwritten: Set<UUID> = []
 
     public static let maxChanges = 500
     public static let maxAge: TimeInterval = 90 * 86_400
@@ -116,22 +119,25 @@ public final class SettingsChangeLog: ObservableObject {
     }
 
     /// Adds a change and writes the file at once. Rows another copy of the app wrote since this one
-    /// read the file are kept: the file is read again and merged, by id, before it is written.
+    /// read the file are kept: the file is read again and merged, by id, before it is written. Rows
+    /// another copy trimmed or cleared stay gone; only a row this copy couldn't write is added back.
     public func record(_ change: SettingsChange) {
-        // In the file's order, oldest first: what's on disk, then what only this copy holds, then
-        // the new change.
         let disk = Self.load(fileURL, setAsideIfUnreadable: false)
         let onDisk = Set(disk.changes.map(\.id))
-        let merged = disk.changes + changes.filter { !onDisk.contains($0.id) } + [change]
-        changes = Self.trimmed(merged, now: Date())
-        unreadable = Array(Set(unreadable + disk.unreadable))
-        save()
+        let merged = disk.changes + changes.filter { unwritten.contains($0.id) && !onDisk.contains($0.id) } + [change]
+        // Oldest first by when each was made, so the trim drops the oldest whichever copy wrote it.
+        let ordered = merged.enumerated().sorted { ($0.element.at, $0.offset) < ($1.element.at, $1.offset) }.map(\.element)
+        changes = Self.trimmed(ordered, now: Date())
+        // Rows this build can't read only ever come from the file.
+        unreadable = disk.unreadable
+        unwritten = save() ? [] : unwritten.union([change.id])
     }
 
     /// Activity's Clear: the record goes; the settings stay as they are.
     public func clear() {
         changes = []
         unreadable = []
+        unwritten = []
         save()
     }
 
@@ -206,14 +212,18 @@ public final class SettingsChangeLog: ObservableObject {
         return (changes, unreadable)
     }
 
-    private func save() {
+    /// - Returns: Whether the file was written.
+    @discardableResult
+    private func save() -> Bool {
         do {
             let encoded = try JSONEncoder().encode(changes)
             let rows = ((try JSONSerialization.jsonObject(with: encoded)) as? [Any] ?? [])
                 + unreadable.compactMap { try? JSONSerialization.jsonObject(with: $0) }
             try JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys]).write(to: fileURL, options: .atomic)
+            return true
         } catch {
             Logger.shared.error("Changed from Chat: couldn’t write \(fileURL.lastPathComponent): \(error.localizedDescription)")
+            return false
         }
     }
 }

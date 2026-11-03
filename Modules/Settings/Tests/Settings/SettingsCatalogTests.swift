@@ -190,6 +190,21 @@ import Sync
         }
     }
 
+    /// What `get` tells Claude it may change itself, the writer can set: Size & spacing has no value
+    /// of its own, so it was Direct while every set of it was refused.
+    @Test func whatClaudeMayChangeItselfCanBeWritten() {
+        for entry in SettingsCatalog.all where entry.tier == .direct || entry.tier == .directWhenTightening {
+            #expect(SettingsWriter.canWrite(entry), "\(entry.id) is \(entry.tier) but can’t be written")
+        }
+    }
+
+    /// On, Refine sends Claude excerpts of the files it read, so turning it on raises its access.
+    @Test func readingFileContentsRaisesWhatClaudeSees() throws {
+        let contents = try #require(SettingsCatalog.entry("intelligence.readContents"))
+        #expect(contents.raises(from: .bool(false), to: .bool(true)))
+        #expect(!contents.raises(from: .bool(true), to: .bool(false)))
+    }
+
     @Test func tighteningIsOnlyForWhatRaisesClaudesReach() {
         for entry in SettingsCatalog.all where entry.tier == .directWhenTightening {
             #expect(entry.raises != nil, "\(entry.id) tightens but nothing raises it")

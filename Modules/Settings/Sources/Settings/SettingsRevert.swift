@@ -11,6 +11,8 @@ public enum SettingsRevert {
 
     /// Posted after a Revert, with the line for Claude in `userInfo["line"]`.
     public static let didRevert = Notification.Name("SettingsRevertDidRevert")
+    /// The button of Revert's own question; any other question it asks is Settings'.
+    public static let confirmTitle = "Revert"
 
     public enum State: Equatable {
         /// It can go back; `raises` when going back raises Claude's spending or access.
@@ -80,7 +82,7 @@ public enum SettingsRevert {
             spoken = back
         }
         if raises, !confirmRaising(RemovalPrompt(messageText: "Put \(change.name) back to \(back)?",
-                                                 informativeText: "That raises Claude’s spending or access.", confirmTitle: "Revert")) {
+                                                 informativeText: "That raises Claude’s spending or access.", confirmTitle: confirmTitle)) {
             return .refused("Not changed: you chose Cancel.")
         }
         let outcome = writer.write(entry.id, before, target: change.target)
@@ -114,7 +116,7 @@ public enum SettingsRevert {
         let question = change.setting == "intelligence.hidden"
             ? RemovalPrompt.showToClaude(named: (shown as NSString).lastPathComponent, isFolder: true)
             : RemovalPrompt(messageText: "\(change.name): \(words)?", informativeText: "That raises Claude’s spending or access.",
-                            confirmTitle: "Revert")
+                            confirmTitle: confirmTitle)
         if raises, !confirmRaising(question) {
             return .refused("Not changed: you chose Cancel.")
         }
