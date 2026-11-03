@@ -39,8 +39,9 @@ enum AskClaudeReading {
     /// more than fill `onDeviceChars`, and the passage that answers is chosen from them.
     static let maxOCRPages = 10
     /// How long OCR may run, after the text layer is read: the pages read by then are used. A warm
-    /// Vision reads a page in 0.1–0.5 s (2026-11-02), but its first request under a new bundle id,
-    /// or after macOS recompiles its models, waits 60–90 s; that question is told to ask again.
+    /// Vision reads a page in 0.1–0.5 s (2026-11-02), but a request that needs a model Vision
+    /// hasn't loaded under this bundle id yet — its first, or the first of a language — waits
+    /// 25–90 s, and the question that runs out of time is told asking again may read more.
     static let ocrTimeout: Duration = .seconds(30)
     /// A page whose text layer has fewer letters and digits than this is read by OCR: a scanner
     /// may lay its own name, or a page number, over the picture.
@@ -58,20 +59,21 @@ enum AskClaudeReading {
         var blank: [Int] = []
         /// The pages that didn't draw, or that Vision failed on with both processors.
         var failed: [Int] = []
-        /// The pages with little or no text layer that OCR didn't reach.
-        var unread: [Int] = []
-        /// Why OCR didn't reach `unread`.
-        var stoppedBy: Stop?
+        /// The pages with little or no text layer past the first `maxOCRPages` of them: not read.
+        var pastLimit: [Int] = []
+        /// The pages within the limit that OCR hadn't reached when its time ran out.
+        var timedOut: [Int] = []
+        /// The time OCR had, said when it ran out.
+        var secondsAllowed: Int64 = AskClaudeReading.ocrTimeout.components.seconds
         /// Locked with a password: nothing in it can be read.
         var locked = false
-
-        enum Stop: Equatable, Sendable { case pageLimit, time(seconds: Int64) }
 
         var hasText: Bool { pages.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } }
 
         /// What Claude is told about OCR, or nil when no page needed it.
         var ocrNote: String? {
             func have(_ pages: [Int]) -> String { pages.count == 1 ? "has" : "have" }
+            func were(_ pages: [Int]) -> String { pages.count == 1 ? "wasn’t" : "weren’t" }
             func named(_ pages: [Int]) -> String { AskClaudeReading.pages(pages) }
             var sentences: [String] = []
             if !recognized.isEmpty {
@@ -79,18 +81,19 @@ enum AskClaudeReading {
             }
             if !blank.isEmpty { sentences.append("OCR found no words on \(named(blank)).") }
             if !failed.isEmpty { sentences.append("Text recognition failed on \(named(failed)).") }
-            if let stoppedBy, !unread.isEmpty {
-                let past = pageCount > AskClaudeReading.maxPages ? ", nor anything past page \(AskClaudeReading.maxPages)" : ""
-                switch stoppedBy {
-                case .pageLimit:
-                    sentences.append("OCR stopped at its \(AskClaudeReading.maxOCRPages)-page limit, so \(named(unread)) \(unread.count == 1 ? "wasn’t" : "weren’t") read\(past).")
-                case .time(let seconds) where recognized.isEmpty && blank.isEmpty && failed.isEmpty:
-                    // Nothing finished: most likely Vision's first request, which keeps going and
-                    // leaves it ready for the next one.
-                    sentences.append("\(named(unread).capitalizedFirst) of \(pageCount) \(have(unread)) little or no text layer, and OCR stopped after \(seconds) second\(seconds == 1 ? "" : "s"), before reading \(unread.count == 1 ? "it" : "them")\(past). Text recognition can take a minute or two the first time it runs, so asking again shortly may work.")
-                case .time(let seconds):
-                    sentences.append("OCR stopped after \(seconds) second\(seconds == 1 ? "" : "s"), so \(named(unread)) \(unread.count == 1 ? "wasn’t" : "weren’t") read\(past).")
-                }
+            if !timedOut.isEmpty {
+                let after = "after \(secondsAllowed) second\(secondsAllowed == 1 ? "" : "s")"
+                sentences.append(recognized.isEmpty && blank.isEmpty && failed.isEmpty
+                    ? "\(named(timedOut).capitalizedFirst) of \(pageCount) \(have(timedOut)) little or no text layer, and OCR stopped \(after), before reading \(timedOut.count == 1 ? "it" : "them")."
+                    : "OCR stopped \(after), so \(named(timedOut)) \(were(timedOut)) read.")
+                // A request waiting on a model Vision is loading keeps going, and leaves it loaded.
+                sentences.append("Text recognition can take a minute or two to get ready, so asking again shortly may read \(timedOut.count == 1 ? "it" : "them").")
+            }
+            if !pastLimit.isEmpty {
+                sentences.append("OCR reads at most \(AskClaudeReading.maxOCRPages) pages of a file, so \(named(pastLimit)) \(were(pastLimit)) read.")
+            }
+            if !sentences.isEmpty, pageCount > AskClaudeReading.maxPages {
+                sentences.append("Nothing past page \(AskClaudeReading.maxPages) was looked at.")
             }
             return sentences.isEmpty ? nil : sentences.joined(separator: " ")
         }
@@ -120,28 +123,35 @@ enum AskClaudeReading {
     /// **The question stops waiting; the read can't be stopped.** A task group would wait for its
     /// slow child however it was cancelled, so the first answer of the read and a timer wins, and a
     /// read past the limit finishes on its own and is dropped. A PDF's read still holds the app's
-    /// one PDFKit lane until it ends; only the question is let go.
+    /// one PDFKit lane until it ends; only the question is let go. A question stopped while it waits
+    /// lets go the same way, at once.
     nonisolated static func extract(_ path: String) async -> [String]? {
-        await bounded(extractTimeout, work: { await extractNow(path) }) {
-            Logger.shared.warning("Ask Claude: reading \((path as NSString).lastPathComponent) took over \(extractTimeout) and was left to finish")
+        await bounded(extractTimeout, work: { await extractNow(path) }) { stopped in
+            if !stopped { Logger.shared.warning("Ask Claude: reading \((path as NSString).lastPathComponent) took over \(extractTimeout) and was left to finish") }
             return nil
         }
     }
 
-    /// The first answer of `work` and a timer: on time, `work`'s; at `limit`, `late`'s. `work` is
-    /// left to finish on its own.
+    /// The first answer of `work`, a timer and the question being stopped: on time, `work`'s; at
+    /// `limit`, or once the calling task is cancelled, `late`'s, told which (`true` for stopped).
+    /// `work` is left to finish on its own.
     nonisolated private static func bounded<T: Sendable>(_ limit: Duration, work: @escaping @Sendable () async -> T?,
-                                                         late: @escaping @Sendable () -> T?) async -> T? {
-        await withCheckedContinuation { (continuation: CheckedContinuation<T?, Never>) in
-            let once = ExtractOnce()
-            Task.detached(priority: .userInitiated) {
-                let value = await work()
-                if once.claim() { continuation.resume(returning: value) }
+                                                         late: @escaping @Sendable (_ stopped: Bool) -> T?) async -> T? {
+        let race = Race<T>()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<T?, Never>) in
+                race.install(continuation)
+                Task.detached(priority: .userInitiated) {
+                    let value = await work()
+                    race.finish { value }
+                }
+                Task.detached {
+                    try? await Task.sleep(for: limit)
+                    race.finish { late(false) }
+                }
             }
-            Task.detached {
-                try? await Task.sleep(for: limit)
-                if once.claim() { continuation.resume(returning: late()) }
-            }
+        } onCancel: {
+            race.finish { late(true) }
         }
     }
 
@@ -156,8 +166,8 @@ enum AskClaudeReading {
                                  recognize: @escaping @Sendable (CGImage) -> String? = { PictureText.text(in: $0, reader: "Ask Claude") }) async -> Read? {
         guard isPaged(path) else { return await extract(path).map { Read(pages: $0, pageCount: $0.count) } }
         let url = URL(fileURLWithPath: path)
-        let layer = await bounded(extractTimeout, work: { await textLayer(url) }) {
-            Logger.shared.warning("Ask Claude: reading \(url.lastPathComponent) took over \(extractTimeout) and was left to finish")
+        let layer = await bounded(extractTimeout, work: { await textLayer(url) }) { stopped in
+            if !stopped { Logger.shared.warning("Ask Claude: reading \(url.lastPathComponent) took over \(extractTimeout) and was left to finish") }
             return nil
         }
         guard let layer else { return nil }
@@ -186,13 +196,13 @@ enum AskClaudeReading {
                     progress.add(index, text)
                 }
                 return true
-            }) {
+            }) { stopped in
                 progress.stop()
+                if !stopped { Logger.shared.warning("Ask Claude: OCR of \(url.lastPathComponent) took over \(limit); using the pages it read") }
                 return false
             } ?? false
-            if !finished {
-                Logger.shared.warning("Ask Claude: OCR of \(url.lastPathComponent) took over \(limit); using the pages it read")
-            }
+            // A stopped question wants nothing back, and the pages it didn't read aren't late.
+            if Task.isCancelled { return nil }
             let results = progress.texts
             for index in scanned {
                 guard let result = results[index] else { continue }
@@ -203,9 +213,12 @@ enum AskClaudeReading {
                     read.recognized.append(index)
                 }
             }
+            read.pastLimit = Array(scanned.dropFirst(maxOCRPages))
             // By key: a page Vision failed on holds nil, and was read.
-            read.unread = scanned.filter { !results.keys.contains($0) }
-            if !read.unread.isEmpty { read.stoppedBy = finished ? .pageLimit : .time(seconds: limit.components.seconds) }
+            if !finished {
+                read.timedOut = reading.filter { !results.keys.contains($0) }
+                read.secondsAllowed = limit.components.seconds
+            }
         }
         return read.hasText || read.ocrNote != nil ? read : nil
     }
@@ -305,10 +318,14 @@ enum AskClaudeReading {
         }
         let start = scores.indices.max { scores[$0] < scores[$1] }.flatMap { scores[$0] > 0 ? $0 : nil } ?? 0
         var text = ""
-        var last = start
+        var first = start, last = start
         for index in start..<pages.count {
             let page = pages[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            // A page with no text adds nothing and doesn't stretch the pages named: a scan's pages
+            // past OCR's limit would have made "pages 1–34" of ten pages read.
+            guard !page.isEmpty else { continue }
             if !text.isEmpty && text.count + page.count > limit { break }
+            if text.isEmpty { first = index }
             text += (text.isEmpty ? "" : "\n\n") + page
             last = index
             if text.count >= limit { break }
@@ -317,8 +334,8 @@ enum AskClaudeReading {
         if cut { text = String(text.prefix(limit)) }
         let place: String
         if pages.count == 1 { place = cut ? "the start of the text" : start == 0 && scores.first == 0 ? "the start" : "the text" }
-        else if !paged { place = start == 0 && last == pages.count - 1 && !cut ? "the text" : "part of the text" }
-        else { place = start == last ? "page \(start + 1)" : "pages \(start + 1)–\(last + 1)" }
+        else if !paged { place = first == 0 && last == pages.count - 1 && !cut ? "the text" : "part of the text" }
+        else { place = first == last ? "page \(first + 1)" : "pages \(first + 1)–\(last + 1)" }
         return (text, place)
     }
 
@@ -338,6 +355,8 @@ enum AskClaudeReading {
     enum OnDeviceAnswer: Equatable {
         case answer(String)
         case unavailable
+        /// The passage didn't fit the model's window: a shorter one may.
+        case tooLong
         /// The model was there and gave no answer: why, in a few words.
         case failed(String)
     }
@@ -366,7 +385,7 @@ enum AskClaudeReading {
                 return .answer(trimmed.count > maxAnswerChars ? String(trimmed.prefix(maxAnswerChars)) + "…" : trimmed)
             } catch let error as LanguageModelSession.GenerationError {
                 switch error {
-                case .exceededContextWindowSize: return .failed("the passage was too long for it")
+                case .exceededContextWindowSize: return .tooLong
                 case .guardrailViolation, .refusal: return .failed("it declined to answer")
                 default: return .failed("it stopped with an error")
                 }
@@ -375,7 +394,8 @@ enum AskClaudeReading {
             }
         }
         let timeout = Task { try? await Task.sleep(for: .seconds(60)); work.cancel() }
-        let answer = await work.value
+        // An unstructured task doesn't hear its caller stop; this passes the stop on.
+        let answer = await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
         timeout.cancel()
         return answer
         #else
@@ -430,16 +450,35 @@ private extension String {
     var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
 }
 
-/// True for the first caller only: the read or the timer, whichever answers first.
-private final class ExtractOnce: @unchecked Sendable {
+/// The first of a read, a timer and a stop to finish, handed to the one continuation waiting for it
+/// — whether the stop comes before the continuation is there or after.
+private final class Race<T: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
-    private var claimed = false
+    private var continuation: CheckedContinuation<T?, Never>?
+    /// What the first finisher gave, while no continuation was there to take it.
+    private var early: T??
+    private var done = false
 
-    func claim() -> Bool {
-        lock.withLock {
-            if claimed { return false }
-            claimed = true
-            return true
+    func install(_ continuation: CheckedContinuation<T?, Never>) {
+        lock.lock()
+        if let early {
+            lock.unlock()
+            continuation.resume(returning: early)
+        } else {
+            self.continuation = continuation
+            lock.unlock()
         }
+    }
+
+    /// The first call's `value` is the answer; later calls don't run theirs.
+    func finish(_ value: () -> T?) {
+        lock.lock()
+        guard !done else { lock.unlock(); return }
+        done = true
+        let answer = value()
+        guard let continuation else { early = .some(answer); lock.unlock(); return }
+        self.continuation = nil
+        lock.unlock()
+        continuation.resume(returning: answer)
     }
 }

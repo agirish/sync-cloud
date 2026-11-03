@@ -81,7 +81,7 @@ enum ScanFixture {
         #expect(layer[0].isEmpty && layer[1].contains("Monthly rent"))
 
         let read = try #require(await AskClaudeReading.read(url.path, ocrWithin: Self.patience))
-        #expect(read.recognized == [0] && read.unread.isEmpty && read.stoppedBy == nil)
+        #expect(read.recognized == [0] && read.timedOut.isEmpty && read.pastLimit.isEmpty)
         #expect(read.pages[0].contains("Parking space number 17"), "OCR read: \(read.pages[0])")
         #expect(read.pages[1] == layer[1])
         #expect(read.ocrNote == "Page 1 of 2 has little or no text layer, so it was read by OCR on this Mac: a word may be misread.")
@@ -96,10 +96,10 @@ enum ScanFixture {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let read = try #require(await AskClaudeReading.read(url.path, ocrWithin: Self.patience))
         #expect(read.recognized == [0] + Array(2...10))
-        #expect(read.unread == [11] && read.stoppedBy == .pageLimit)
+        #expect(read.pastLimit == [11] && read.timedOut.isEmpty)
         #expect(read.pages[10].contains("page number 11"), "OCR read: \(read.pages[10])")
         #expect(read.pages[11].isEmpty)
-        #expect(read.ocrNote == "Pages 1 and 3–11 of 12 have little or no text layer, so they were read by OCR on this Mac: a word may be misread. OCR stopped at its 10-page limit, so page 12 wasn’t read.")
+        #expect(read.ocrNote == "Pages 1 and 3–11 of 12 have little or no text layer, so they were read by OCR on this Mac: a word may be misread. OCR reads at most 10 pages of a file, so page 12 wasn’t read.")
     }
 
     /// **What a page's crop hides is not read.** The page is cropped to its top half, with a line in
@@ -138,22 +138,60 @@ enum ScanFixture {
             if calls.next() > 1 { Thread.sleep(forTimeInterval: 15) }
             return "Words read from page one"
         })
-        #expect(read.recognized == [0] && read.unread == [1, 2] && read.stoppedBy == .time(seconds: 10))
+        #expect(read.recognized == [0] && read.timedOut == [1, 2] && read.secondsAllowed == 10)
         #expect(read.pages[0] == "Words read from page one")
-        #expect(read.ocrNote == "Page 1 of 3 has little or no text layer, so it was read by OCR on this Mac: a word may be misread. OCR stopped after 10 seconds, so pages 2–3 weren’t read.")
+        #expect(read.ocrNote == "Page 1 of 3 has little or no text layer, so it was read by OCR on this Mac: a word may be misread. OCR stopped after 10 seconds, so pages 2–3 weren’t read. Text recognition can take a minute or two to get ready, so asking again shortly may read them.")
     }
 
-    /// **When nothing is read in time, Claude is told to ask again**: a first request that waits
-    /// on Vision's models keeps going, and leaves Vision ready.
+    /// **When nothing is read in time, Claude is told to ask again**, for the pages a second ask
+    /// would read: the first ten. Those past the limit are said apart, as never read at all.
     @Test func nothingReadInTimeSaysAskAgain() async throws {
-        let url = try ScanFixture.pdf((1...2).map { .picture("Scanned page \($0)") })
+        let url = try ScanFixture.pdf((1...12).map { .picture("Scanned page \($0)") })
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let read = try #require(await AskClaudeReading.read(url.path, ocrWithin: .seconds(1)) { _ in
             Thread.sleep(forTimeInterval: 4)
             return "Too late"
         })
-        #expect(!read.hasText && read.recognized.isEmpty && read.unread == [0, 1])
-        #expect(read.ocrNote == "Pages 1–2 of 2 have little or no text layer, and OCR stopped after 1 second, before reading them. Text recognition can take a minute or two the first time it runs, so asking again shortly may work.")
+        #expect(!read.hasText && read.recognized.isEmpty && read.timedOut == Array(0..<10) && read.pastLimit == [10, 11])
+        #expect(read.ocrNote == "Pages 1–10 of 12 have little or no text layer, and OCR stopped after 1 second, before reading them. Text recognition can take a minute or two to get ready, so asking again shortly may read them. OCR reads at most 10 pages of a file, so pages 11–12 weren’t read.")
+    }
+
+    /// **Stopping the question stops the reading**: no page is read after it, and it answers at
+    /// once rather than at the time limit.
+    @Test func stoppingTheQuestionStopsOCR() async throws {
+        let url = try ScanFixture.pdf((1...5).map { .picture("Scanned page \($0)") })
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let calls = Calls()
+        let reading = Task {
+            await AskClaudeReading.read(url.path, ocrWithin: .seconds(120)) { _ in
+                _ = calls.next()
+                Thread.sleep(forTimeInterval: 1)
+                return "Words"
+            }
+        }
+        let deadline = Date().addingTimeInterval(60)
+        while calls.count == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        try #require(calls.count == 1, "the first page never began")
+        let stoppedAt = Date()
+        reading.cancel()
+        #expect(await reading.value == nil)
+        #expect(Date().timeIntervalSince(stoppedAt) < 10)
+        // The page under way finishes on its own; none starts after it.
+        try await Task.sleep(for: .seconds(2))
+        #expect(calls.count == 1)
+    }
+
+    /// **What `read` draws for Vision is the crop box, capped**: the top half of a letter page is
+    /// 612 by 396 points, so 1920 by 1242 pixels. A media box would be 1484 by 1920.
+    @Test func ocrIsGivenTheCropBoxAtTheReadSize() async throws {
+        let url = try ScanFixture.pdf([.picture("Statement for the month of October", cropTop: true)])
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let sizes = Sizes()
+        _ = await AskClaudeReading.read(url.path) { image in
+            sizes.add(image.width, image.height)
+            return "Statement for the month of October"
+        }
+        #expect(sizes.all.count == 1 && sizes.all.first?.0 == 1920 && sizes.all.first?.1 == 1242)
     }
 
     /// **A short real text layer stands when OCR reads no more**, and the page isn't said to be
@@ -188,8 +226,8 @@ enum ScanFixture {
         let url = try ScanFixture.pdf((1...12).map { .picture("Scanned page \($0)") })
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let read = try #require(await AskClaudeReading.read(url.path) { _ in "" })
-        #expect(!read.hasText && read.blank == Array(0..<10) && read.unread == [10, 11] && read.stoppedBy == .pageLimit)
-        #expect(read.ocrNote == "OCR found no words on pages 1–10. OCR stopped at its 10-page limit, so pages 11–12 weren’t read.")
+        #expect(!read.hasText && read.blank == Array(0..<10) && read.pastLimit == [10, 11])
+        #expect(read.ocrNote == "OCR found no words on pages 1–10. OCR reads at most 10 pages of a file, so pages 11–12 weren’t read.")
     }
 
     /// **A PDF locked with a password says so**, and nothing is read from it.
@@ -202,12 +240,20 @@ enum ScanFixture {
         })
         #expect(read.locked && !read.hasText)
         // Not tried: a locked page draws as nothing, which would read as a failed recognition.
-        #expect(read.failed.isEmpty && read.blank.isEmpty && read.unread.isEmpty && read.ocrNote == nil)
+        #expect(read.failed.isEmpty && read.blank.isEmpty && read.timedOut.isEmpty && read.pastLimit.isEmpty && read.ocrNote == nil)
     }
 
     private final class Calls: @unchecked Sendable {
         private let lock = NSLock()
-        private var count = 0
-        func next() -> Int { lock.withLock { count += 1; return count } }
+        private var made = 0
+        var count: Int { lock.withLock { made } }
+        func next() -> Int { lock.withLock { made += 1; return made } }
+    }
+
+    private final class Sizes: @unchecked Sendable {
+        private let lock = NSLock()
+        private var seen: [(Int, Int)] = []
+        var all: [(Int, Int)] { lock.withLock { seen } }
+        func add(_ width: Int, _ height: Int) { lock.withLock { seen.append((width, height)) } }
     }
 }

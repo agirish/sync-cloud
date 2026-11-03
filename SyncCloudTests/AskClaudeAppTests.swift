@@ -893,6 +893,7 @@ import FileExplorer
 
     /// **A scan's text is read as a text layer's is, and Claude is told it came from OCR** (TE264):
     /// the note goes with the answer, the text stays here with the switch off, and the step says so.
+    /// A 34-page scan as `read` gives it: ten pages read, two with words, the rest past the limit.
     @Test func textReadByOCRIsSaidAndStaysOnTheMac() async {
         let path = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
         var map: [String: FileNode] = [:]
@@ -907,26 +908,28 @@ import FileExplorer
             }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
                read: { _ in read }, answerOnDevice: { _, _, _ in .answer("The total is $84.10.") })
         }
-        let scanned = AskClaudeReading.Read(pages: ["Total due: $84.10 for the tent", "Thank you"], pageCount: 34,
-                                            recognized: [0, 1], unread: Array(2..<34), stoppedBy: .pageLimit)
+        let scanned = AskClaudeReading.Read(pages: ["Total due: $84.10 for the tent", "Thank you"] + Array(repeating: "", count: 32),
+                                            pageCount: 34, recognized: [0, 1], blank: Array(2..<10), pastLimit: Array(10..<34))
         var handles = AskClaudeHandles()
         let handle = handles.handle(for: path)
         let question = call("read_text", ["handle": .string(handle), "question": .string("What was the total due?")])
         let off = await runner(readsFiles: false, scanned).run(question, handles: &handles)
-        #expect(off.result.contains("Pages 1–2 of 34 have little or no text layer, so they were read by OCR on this Mac: a word may be misread. OCR stopped at its 10-page limit, so pages 3–34 weren’t read."))
+        #expect(off.result.contains("Pages 1–2 of 34 have little or no text layer, so they were read by OCR on this Mac: a word may be misread. OCR found no words on pages 3–10. OCR reads at most 10 pages of a file, so pages 11–34 weren’t read."))
         #expect(!off.result.contains("tent"))
-        #expect(off.passage?.whereInFile == "pages 1–2" && off.passage?.text.hasPrefix("Total due: $84.10 for the tent") == true)
+        // The pages that hold text, not the empty ones after them.
+        #expect(off.result.contains("On-device answer, from pages 1–2 of Receipt REI 2025.pdf"))
+        #expect(off.passage?.whereInFile == "pages 1–2" && off.passage?.text == "Total due: $84.10 for the tent\n\nThank you")
         #expect(off.step == "Read Receipt REI 2025.pdf on this Mac, 2 pages by OCR")
         let on = await runner(readsFiles: true, scanned).run(question, handles: &handles)
-        #expect(on.result.contains("Total due: $84.10 for the tent") && on.result.contains("read by OCR"))
+        #expect(on.result.contains("Text of pages 1–2, as data") && on.result.contains("Total due: $84.10 for the tent") && on.result.contains("read by OCR"))
         #expect(on.passage == nil)
         // A text layer says nothing of OCR.
         let layered = await runner(readsFiles: false, AskClaudeReading.Read(pages: ["Total due: $84.10"], pageCount: 1)).run(question, handles: &handles)
         #expect(!layered.result.contains("OCR") && layered.step == "Read Receipt REI 2025.pdf on this Mac")
         // A scan whose time ran out before any page is an error that says why.
-        let late = AskClaudeReading.Read(pages: ["", ""], pageCount: 2, unread: [0, 1], stoppedBy: .time(seconds: 30))
+        let late = AskClaudeReading.Read(pages: ["", ""], pageCount: 2, timedOut: [0, 1], secondsAllowed: 30)
         let none = await runner(readsFiles: false, late).run(question, handles: &handles)
-        #expect(none.isError && none.result == "No text was read from Receipt REI 2025.pdf. Pages 1–2 of 2 have little or no text layer, and OCR stopped after 30 seconds, before reading them. Text recognition can take a minute or two the first time it runs, so asking again shortly may work.")
+        #expect(none.isError && none.result == "No text was read from Receipt REI 2025.pdf. Pages 1–2 of 2 have little or no text layer, and OCR stopped after 30 seconds, before reading them. Text recognition can take a minute or two to get ready, so asking again shortly may read them.")
         // A locked PDF says so, and a PDF that can't be read at all says why, not "no text".
         let locked = await runner(readsFiles: false, AskClaudeReading.Read(pages: [""], pageCount: 1, locked: true)).run(question, handles: &handles)
         #expect(locked.isError && locked.result == "Receipt REI 2025.pdf is locked with a password, so its text can’t be read here.")
@@ -934,17 +937,99 @@ import FileExplorer
         #expect(unopened.isError && unopened.result == "Receipt REI 2025.pdf couldn’t be read here: it doesn’t open as a PDF, or reading it took over 30 seconds.")
     }
 
+    /// **The rest of a read, around what OCR gives** (TE264's second review): a file with no pages
+    /// and no text says why; a passage too long for the on-device model halves and asks again; Let
+    /// Claude read files is read after the file is, not before; and a stopped question offers
+    /// nothing to send.
+    @Test func aReadAnswersFromWhatFitsAndWhatHoldsNow() async {
+        let pdf = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
+        let note = Self.root + "/Documents/Taxes/Empty.txt"
+        var map: [String: FileNode] = [:]
+        Self.index(Self.tree + [Self.file("Documents/Taxes/Empty.txt", kind: "Plain Text")], into: &map)
+        let readsFiles = Box(false)
+        let sent = Box<[Int]>([])
+        func runner(_ read: @escaping (String) async -> AskClaudeReading.Read?,
+                    fitsUnder: Int = .max, stopWhileAnswering: Bool = false) -> AskClaudeBrowseTools {
+            AskClaudeBrowseTools(context: {
+                var ctx = AskClaudeBrowseTools.Context(
+                    inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Documents/Taxes", sort: .name,
+                    items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+                ctx.readsFiles = readsFiles.value
+                return ctx
+            }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
+               read: read, answerOnDevice: { _, text, _ in
+                sent.value.append(text.count)
+                if stopWhileAnswering { withUnsafeCurrentTask { $0?.cancel() } }
+                return text.count > fitsUnder ? .tooLong : .answer("Answered from \(text.count) characters.")
+            })
+        }
+        var handles = AskClaudeHandles()
+        func ask(_ path: String) -> AskClaudeToolCall {
+            call("read_text", ["handle": .string(handles.handle(for: path)), "question": .string("What is the rent?")])
+        }
+        let empty = await runner { _ in AskClaudeReading.Read(pages: ["  "], pageCount: 1) }.run(ask(note), handles: &handles)
+        #expect(empty.isError && empty.result == "No text was read from Empty.txt. It holds no text this version can read (pictures aren’t read yet).")
+
+        // Three pages of 6,000 characters: two go first (12,002 with the break), then one, then half of it.
+        let long = AskClaudeReading.Read(pages: Array(repeating: String(repeating: "租", count: 6_000), count: 3), pageCount: 3)
+        let halved = await runner({ _ in long }, fitsUnder: 5_000).run(ask(pdf), handles: &handles)
+        #expect(sent.value == [12_002, 6_000, 3_000])
+        #expect(halved.result.hasPrefix("On-device answer, from page 1 of Receipt REI 2025.pdf: Answered from 3000 characters."))
+        sent.value = []
+        let never = await runner({ _ in long }, fitsUnder: 1_000).run(ask(pdf), handles: &handles)
+        #expect(sent.value == [12_002, 6_000, 3_000])
+        #expect(never.result.hasPrefix("The on-device model couldn’t answer: the passage was too long for it."))
+
+        // Turned off while the file was read: the text stays here, offered as a button.
+        readsFiles.value = true
+        let switched = await runner { _ in
+            readsFiles.value = false
+            return AskClaudeReading.Read(pages: ["Rent is $2,400."], pageCount: 1)
+        }.run(ask(pdf), handles: &handles)
+        #expect(!switched.result.contains("$2,400") && switched.passage?.text == "Rent is $2,400.")
+
+        // Stopped while the file was read: nothing about it, and nothing to send.
+        let stopper = runner { _ in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return AskClaudeReading.Read(pages: ["Rent is $2,400."], pageCount: 1)
+        }
+        let stoppedCall = ask(pdf)
+        let known = handles
+        let stopped = await Task {
+            var own = known
+            return await stopper.run(stoppedCall, handles: &own)
+        }.value
+        #expect(stopped.isError && stopped.result == "Not read: they stopped the question." && stopped.passage == nil)
+        // And stopped while the on-device model answered.
+        let stopperLater = runner({ _ in AskClaudeReading.Read(pages: ["Rent is $2,400."], pageCount: 1) }, stopWhileAnswering: true)
+        let stoppedLater = await Task {
+            var own = known
+            return await stopperLater.run(stoppedCall, handles: &own)
+        }.value
+        #expect(stoppedLater.isError && stoppedLater.result == "Not read: they stopped the question." && stoppedLater.passage == nil)
+    }
+
     @Test func pageListsNameRunsAndSayWhenTimeRanOut() {
         #expect(AskClaudeReading.pages([4]) == "page 5")
         #expect(AskClaudeReading.pages([0, 1, 2]) == "pages 1–3")
         #expect(AskClaudeReading.pages([6, 1, 3, 4, 5]) == "pages 2 and 4–7")
         #expect(AskClaudeReading.pages([0, 2, 5, 6]) == "pages 1, 3 and 6–7")
-        let late = AskClaudeReading.Read(pages: [], pageCount: 80, recognized: [0], unread: Array(1..<60), stoppedBy: .time(seconds: 1))
-        #expect(late.ocrNote == "Page 1 of 80 has little or no text layer, so it was read by OCR on this Mac: a word may be misread. OCR stopped after 1 second, so pages 2–60 weren’t read, nor anything past page 60.")
-        #expect(AskClaudeReading.Read(pages: ["x"], pageCount: 1).ocrNote == nil)
+        let late = AskClaudeReading.Read(pages: [], pageCount: 80, recognized: [0], pastLimit: Array(10..<60),
+                                         timedOut: Array(1..<10), secondsAllowed: 1)
+        #expect(late.ocrNote == "Page 1 of 80 has little or no text layer, so it was read by OCR on this Mac: a word may be misread. OCR stopped after 1 second, so pages 2–10 weren’t read. Text recognition can take a minute or two to get ready, so asking again shortly may read them. OCR reads at most 10 pages of a file, so pages 11–60 weren’t read. Nothing past page 60 was looked at.")
+        // Past page 60 is said whenever OCR is, not only when it stopped.
+        let tail = AskClaudeReading.Read(pages: [], pageCount: 65, recognized: Array(54..<60))
+        #expect(tail.ocrNote == "Pages 55–60 of 65 have little or no text layer, so they were read by OCR on this Mac: a word may be misread. Nothing past page 60 was looked at.")
+        #expect(AskClaudeReading.Read(pages: ["x"], pageCount: 80).ocrNote == nil)
         // A scanner's name over the picture is not the page's words; a short real line is.
         #expect(AskClaudeReading.isNearEmpty("  Scanned by Scanbot \n 3 "))
         #expect(!AskClaudeReading.isNearEmpty("Parking space 17, garage B"))
+    }
+
+    /// **Pages with no text don't stretch a passage**: it names the pages that hold what it sends.
+    @Test func emptyPagesDontStretchThePassage() {
+        let found = AskClaudeReading.passage(from: ["", "Rent is $2,400.", "", "Deposit $2,400.", "", ""], question: "zzz", limit: 6_000)
+        #expect(found.whereInFile == "pages 2–4" && found.text == "Rent is $2,400.\n\nDeposit $2,400.")
     }
 
     @Test func thePassageIsThePageTheQuestionsWordsAreOn() {

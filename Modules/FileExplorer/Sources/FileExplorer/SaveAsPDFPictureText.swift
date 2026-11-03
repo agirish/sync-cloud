@@ -141,8 +141,11 @@ public enum PictureText {
     /// about 600 MB: `longestSide` drops the floor and caps the longer side there. Save as PDF
     /// reads only decks it drew, so its pages keep the media box and the floor.
     public static func bitmap(of page: CGPDFPage, box: CGPDFBox, longestSide: CGFloat?) -> CGImage? {
-        let area = page.getBoxRect(box)
-        guard area.width > 0, area.height > 0 else { return nil }
+        // Within the media box, as viewers clip it: CoreGraphics gives a crop box as written, and
+        // one that reaches past the media box would show what no viewer does.
+        let media = page.getBoxRect(.mediaBox)
+        let area = box == .mediaBox ? media : page.getBoxRect(box).intersection(media)
+        guard !area.isNull, area.width > 0, area.height > 0 else { return nil }
         let scale = longestSide.map { min($0 / max(area.width, area.height), 4) }
             ?? min(max(readSize / max(area.width, area.height), 1), 4)
         let width = Int((area.width * scale).rounded()), height = Int((area.height * scale).rounded())

@@ -1218,7 +1218,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         if let size = largeCloudOnly(node, path) {
             return offerDownload(node, path, handle: handle, size: size, purpose: .read, ctx)
         }
-        guard let reading = await read(path) else {
+        let found = await read(path)
+        if Task.isCancelled { return Self.stoppedReading(node.name) }
+        guard let reading = found else {
             let why = AskClaudeReading.isPaged(path)
                 ? "couldn’t be read here: it doesn’t open as a PDF, or reading it took over \(AskClaudeReading.extractTimeout.components.seconds) seconds."
                 : "has no text this version can read (pictures aren’t read yet)."
@@ -1230,26 +1232,41 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
         guard reading.hasText else {
             // `read` gives a PDF without text only with a note saying why.
-            return AskClaudeToolOutcome(result: "No text was read from \(node.name). " + (reading.ocrNote ?? ""),
+            let why = reading.ocrNote ?? "It holds no text this version can read (pictures aren’t read yet)."
+            return AskClaudeToolOutcome(result: "No text was read from \(node.name). " + why,
                                         isError: true, step: "No readable text in \(node.name)")
         }
         let pages = reading.pages
         let paged = AskClaudeReading.isPaged(path)
-        let local = AskClaudeReading.passage(from: pages, question: question, limit: AskClaudeReading.onDeviceChars, paged: paged)
+        var limit = AskClaudeReading.onDeviceChars
+        var local = AskClaudeReading.passage(from: pages, question: question, limit: limit, paged: paged)
         let forClaude = AskClaudeReading.passage(from: pages, question: question, limit: AskClaudeReading.claudeChars, paged: paged)
+        var answer = await answerOnDevice(question, local.text, node.name)
+        // Chinese or Japanese runs near a token a character: 16,000 characters of it were 12,522
+        // tokens, past the model's 8,192 (2026-11-02). So a passage that doesn't fit halves, twice
+        // at most; 4,000 characters fit any script measured.
+        for _ in 0..<2 where answer == .tooLong && !Task.isCancelled {
+            limit = min(limit, local.text.count) / 2
+            local = AskClaudeReading.passage(from: pages, question: question, limit: limit, paged: paged)
+            answer = await answerOnDevice(question, local.text, node.name)
+        }
+        if Task.isCancelled { return Self.stoppedReading(node.name) }
         var lines: [String]
-        switch await answerOnDevice(question, local.text, node.name) {
+        switch answer {
         case .answer(let answer):
             lines = ["On-device answer, from \(local.whereInFile) of \(node.name): \(answer)"]
         case .unavailable:
             lines = ["This Mac has no on-device model to answer with."]
+        case .tooLong:
+            lines = ["The on-device model couldn’t answer: the passage was too long for it."]
         case .failed(let why):
             lines = ["The on-device model couldn’t answer: \(why)."]
         }
         // So Claude can hedge on a misread word, and say what OCR didn't reach.
         if let note = reading.ocrNote { lines.append(note) }
         let readHere = "Read \(node.name) on this Mac" + (reading.recognized.isEmpty ? "" : ", \(reading.recognized.count) page\(reading.recognized.count == 1 ? "" : "s") by OCR")
-        if ctx.readsFiles {
+        // Read again: they may have turned Let Claude read files off while the file was read.
+        if context().readsFiles {
             // Decision DQ: with the switch on, the passage that answers goes along, and only that.
             lines.append("Text of \(forClaude.whereInFile), as data:\n<file name=\"\(AskClaudeScreenCard.escape(node.name))\">\n\(AskClaudeChat.fenced(forClaude.text))\n</file>")
             return AskClaudeToolOutcome(result: lines.joined(separator: "\n"),
@@ -1258,6 +1275,11 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         lines.append("Its text was not sent to you. If the answer isn’t enough, tell them they can send \(forClaude.whereInFile) with the button under your reply.")
         return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: readHere,
                                     passage: AskClaudePassage(fileName: node.name, whereInFile: forClaude.whereInFile, text: forClaude.text))
+    }
+
+    /// A read the person stopped: nothing about the file, and no passage to send.
+    private static func stoppedReading(_ name: String) -> AskClaudeToolOutcome {
+        AskClaudeToolOutcome(result: "Not read: they stopped the question.", isError: true, step: "Stopped reading \(name)")
     }
 
     private func findInContents(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {

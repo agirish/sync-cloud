@@ -7,14 +7,15 @@ import Foundation
 /// crop box, clipped, and a size cap. Pure CoreGraphics, so any Mac.
 @Suite struct PictureTextBitmapTests {
 
-    /// One page of `size` points, black in its bottom half, cropped to its top half when `crop`.
-    private static func page(_ size: CGSize, cropTop crop: Bool = false) throws -> CGPDFPage {
+    /// One page of `size` points, black in its bottom half, cropped to its top half when `crop`,
+    /// or to `cropBox` when given.
+    private static func page(_ size: CGSize, cropTop crop: Bool = false, cropBox: CGRect? = nil) throws -> CGPDFPage {
         let data = NSMutableData()
         var media = CGRect(origin: .zero, size: size)
         let consumer = try #require(CGDataConsumer(data: data as CFMutableData))
         let context = try #require(CGContext(consumer: consumer, mediaBox: &media, nil))
-        var top = CGRect(x: 0, y: size.height / 2, width: size.width, height: size.height / 2)
-        let info = crop ? [kCGPDFContextCropBox as String: Data(bytes: &top, count: MemoryLayout<CGRect>.size)] : nil
+        var top = cropBox ?? CGRect(x: 0, y: size.height / 2, width: size.width, height: size.height / 2)
+        let info = crop || cropBox != nil ? [kCGPDFContextCropBox as String: Data(bytes: &top, count: MemoryLayout<CGRect>.size)] : nil
         context.beginPDFPage(info as CFDictionary?)
         context.setFillColor(CGColor(gray: 0, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: size.width, height: size.height / 2))
@@ -45,6 +46,17 @@ import Foundation
         let cropped = try #require(PictureText.bitmap(of: page, box: .cropBox, longestSide: PictureText.readSize))
         #expect(cropped.width == 1920 && cropped.height == 1242)
         #expect(try Self.darkest(cropped) > 200)
+    }
+
+    /// **A crop box reaching past the media box draws no more than the media box**, as viewers
+    /// clip it; CoreGraphics gives the crop as written. And a crop wholly outside it draws nothing.
+    @Test func aCropBoxIsClippedToTheMediaBox() throws {
+        let wide = try Self.page(CGSize(width: 612, height: 792), cropBox: CGRect(x: -100, y: -100, width: 812, height: 992))
+        try #require(wide.getBoxRect(.cropBox).width == 812, "CoreGraphics clipped the crop itself; the case isn't staged")
+        let bitmap = try #require(PictureText.bitmap(of: wide, box: .cropBox, longestSide: PictureText.readSize))
+        #expect(bitmap.width == 1484 && bitmap.height == 1920)
+        let outside = try Self.page(CGSize(width: 612, height: 792), cropBox: CGRect(x: 700, y: 900, width: 100, height: 100))
+        #expect(PictureText.bitmap(of: outside, box: .cropBox, longestSide: PictureText.readSize) == nil)
     }
 
     /// **A page one picture pixel to a point is drawn at `longestSide`, not at its own size.** The
