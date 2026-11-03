@@ -15,8 +15,8 @@ public enum OneWaySyncStepOutcome: Equatable, Sendable {
     /// Written, but Dropbox didn't report the upload by the deadline: not counted in the pass's
     /// synced count, and History shows the step "Not yet uploaded"; but the record takes what
     /// SyncCloud wrote, so the next pass reads the copy as SyncCloud's own and not as an edit made
-    /// in Dropbox. A refusal Dropbox reports later isn't heard (RD68's 30-minute "not uploading"
-    /// is what catches a copy that never goes).
+    /// in Dropbox. The record keeps it as a pending upload, read again before the next pass looks
+    /// (`OneWaySyncRun.recheckPending`), which hears a refusal reported later.
     case unconfirmed
     /// Written, and Dropbox won't take it (ES): never synced, and listed as skipped until iCloud's
     /// file changes (`OneWaySyncRecord.refused`). `why` is Dropbox's words; `copy` is the refused

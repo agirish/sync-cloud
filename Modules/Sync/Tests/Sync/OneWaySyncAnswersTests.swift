@@ -200,4 +200,44 @@ import Testing
         #expect(Set(left) == Set(pending.prefix(10).map(\.iCloudPath)))
         #expect(sync.state.confirmed.isEmpty)
     }
+
+    /// Writing into iCloud keeps iCloud's version first; a file that arrives at the name after
+    /// that check, before the write, has no copy kept, so the name taken stops the write.
+    @Test func aFileArrivingInICloudBeforeTheWriteIsNotWrittenOver() throws {
+        let world = try OneWayDiskWorld()
+        defer { world.remove() }
+        let source = try world.write(.dropbox, "Legal/POA.pdf", "Dropbox's")
+        let target = world.iCloud.appendingPathComponent("Legal/POA.pdf")
+        // Writes the file as the coordinated write asks for the name: after the first check.
+        let arriving = Arriving(target, contents: "arrived meanwhile")
+        NSFileCoordinator.addFilePresenter(arriving)
+        defer { NSFileCoordinator.removeFilePresenter(arriving) }
+        let writer = try world.writer()
+        #expect(throws: OneWaySyncWriteError.self) {
+            try writer.writeIntoICloud(from: source, at: target, iCloudPath: "Legal/POA.pdf", expected: nil)
+        }
+        #expect(arriving.arrived)
+        #expect(world.read(.iCloud, "Legal/POA.pdf") == "arrived meanwhile")
+    }
+
+    final class Arriving: NSObject, NSFilePresenter, @unchecked Sendable {
+        let presentedItemURL: URL?
+        let presentedItemOperationQueue = OperationQueue()
+        let contents: String
+        private(set) var arrived = false
+
+        init(_ url: URL, contents: String) {
+            presentedItemURL = url
+            self.contents = contents
+        }
+
+        func relinquishPresentedItem(toWriter writer: @escaping @Sendable ((@Sendable () -> Void)?) -> Void) {
+            if !arrived, let url = presentedItemURL {
+                arrived = true
+                try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? Data(contents.utf8).write(to: url)
+            }
+            writer(nil)
+        }
+    }
 }

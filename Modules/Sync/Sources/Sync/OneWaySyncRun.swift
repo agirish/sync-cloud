@@ -180,7 +180,8 @@ extension OneWaySyncRunResult {
 public enum OneWaySyncRun {
 
     /// How long a manual *Sync Now* waits for Dropbox to report its uploads. A file not reported
-    /// by then isn't recorded; the next pass finds it identical and records it.
+    /// by then isn't counted as synced, but is recorded as SyncCloud's own copy, and its upload
+    /// read again before the next pass looks (``recheckPending(_:dropboxParent:now:confirm:)``).
     public static let uploadDeadline: Duration = .seconds(180)
 
     // MARK: Look
@@ -209,6 +210,7 @@ public enum OneWaySyncRun {
         var dropbox = dropboxLister.list(syncedFolders: dropboxSynced)
         exclude(exclusions, from: &iCloud.listing, side: .iCloud)
         exclude(exclusions, from: &dropbox.listing, side: .dropbox)
+        exclude(setAside(iCloud.skipped, record: record), from: &dropbox.listing, side: .dropbox)
 
         // An item emptied from SyncCloud Removed since it went there (Choose Items to Empty…, or by
         // hand) can't be moved back: a file of its ID back in iCloud syncs as a new one.
@@ -241,6 +243,23 @@ public enum OneWaySyncRun {
         listing.items.removeAll { item in
             item.kind == .file && (paths.contains(side.nameKey(item.path)) || item.documentID.map(ids.contains) == true)
         }
+    }
+
+    /// iCloud packages the lister skipped as holding a symlink, set aside as files you stopped
+    /// syncing are: Dropbox's item of the same name, and the copy a record holds of one synced
+    /// before, aren't seen either. So none is replaced (the copy would be refused) and none is
+    /// removed as gone from iCloud; a record of one is dropped, its Dropbox copy left as it is.
+    static func setAside(_ skipped: [OneWaySyncSkippedItem], record: OneWaySyncRecord) -> OneWaySyncExclusions {
+        let iKey = OneWaySyncSide.iCloud.nameKey
+        var files: [OneWaySyncExclusion] = []
+        for item in skipped where item.reason == OneWaySyncSkippedItem.holdsSymlink {
+            files.append(OneWaySyncExclusion(iCloudPath: item.path, dropboxPath: item.path, stoppedAt: 0))
+            for file in record.files where iKey(file.iCloudPath) == iKey(item.path) {
+                files.append(OneWaySyncExclusion(iCloudPath: file.iCloudPath, dropboxPath: file.dropboxPath, dropboxID: file.dropboxID,
+                                                 stoppedAt: 0))
+            }
+        }
+        return OneWaySyncExclusions(files: files)
     }
 
     /// On a first run, files only content can pair: one of a size and type on each side, with
@@ -645,7 +664,8 @@ public enum OneWaySyncRun {
                 tick(index, .skipped("the sync was stopped"))
                 continue
             }
-            if touched.contains(where: { held.contains(dKey($0)) }) {
+            // A path inside the step's holds it too: saving a package changes the files in it.
+            if touched.contains(where: { path in held.contains { OneWaySyncDisk.isWithin($0, dKey(path)) } }) {
                 notDone.append((touched.first ?? "", "it is still changing in Dropbox"))
                 tick(index, .skipped("still changing in Dropbox"))
                 continue
@@ -783,8 +803,10 @@ public enum OneWaySyncRun {
     /// the same way, up to (never including) the synced folder. A folder holding anything stays.
     static func removeFoldersLeftEmpty(_ plan: OneWaySyncPlan, outcomes: [OneWaySyncStepOutcome], iCloud: OneWaySyncListing,
                                        dropboxParent: URL) -> [String] {
-        let iKey = OneWaySyncSide.iCloud.nameKey
-        let iCloudFolders = Set(iCloud.items.filter { $0.kind == .folder }.map { iKey($0.path) })
+        // A Dropbox path is compared as Dropbox compares names: a synced folder "Family" in iCloud
+        // may be "family" in Dropbox.
+        let key = OneWaySyncSide.dropbox.nameKey
+        let iCloudFolders = Set(iCloud.items.filter { $0.kind == .folder }.map { key($0.path) })
         var left = Set<String>()
         for (index, step) in plan.steps.enumerated() where outcomes[index].happened {
             guard case .moveInDropbox(let from, let to) = step.action,
@@ -795,7 +817,7 @@ public enum OneWaySyncRun {
         var removed: [String] = []
         for start in left.sorted(by: { OneWaySyncPath.depth($0) > OneWaySyncPath.depth($1) }) {
             var folder = start
-            while OneWaySyncPath.depth(folder) > 1, !iCloudFolders.contains(iKey(folder)),
+            while OneWaySyncPath.depth(folder) > 1, !iCloudFolders.contains(key(folder)),
                   let url = try? OneWaySyncDisk.url(folder, in: dropboxParent), OneWaySyncDisk.kind(at: url.path) == .folder,
                   let names = try? FileManager.default.contentsOfDirectory(atPath: url.path), names.allSatisfy({ $0 == ".DS_Store" }) {
                 unlink(url.appendingPathComponent(".DS_Store").path)

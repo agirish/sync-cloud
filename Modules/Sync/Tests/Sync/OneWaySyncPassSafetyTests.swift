@@ -419,6 +419,28 @@ import Testing
         #expect(result.record.files.first?.size == 3)
     }
 
+    /// A package Dropbox is still saving into is left alone too: the changes arrive on the files
+    /// inside it, not on the package.
+    @Test func aPackageStillChangingInsideInDropboxIsLeftThisPass() async throws {
+        let world = try OneWayDiskWorld()
+        defer { world.remove() }
+        try run.write(world, .iCloud, "Finance/Brief.rtfd/TXT.rtf", "one", modified: OneWaySyncRunTests.earliest)
+        let sync = try Sync(world: world, folders: ["Finance"])
+        // A replace whatever Dropbox's copy reads as: this is about the hold, not the dates.
+        sync.state.settings.whenEdited = .useICloud
+        try await sync.run()
+        try run.write(world, .iCloud, "Finance/Brief.rtfd/TXT.rtf", "two, longer", modified: OneWaySyncRunTests.earlier)
+        let look = sync.look()
+        #expect(look.plan.actions.first.map { if case .replace = $0 { true } else { false } } == true,
+                "\(look.plan.actions) \(look.plan.waits)")
+        let result = try await OneWaySyncRun.apply(
+            look, state: sync.state, firstRun: sync.firstRun, store: sync.store, writer: world.writer(), marker: nil,
+            hardwareID: "HW-1", macName: "Test Mac", holdingBack: ["finance/Brief.rtfd/TXT.rtf"],
+            confirmUploads: { _ in [:] }, now: { OneWayDiskWorld.day0 })
+        #expect(world.read(.dropbox, "Finance/Brief.rtfd/TXT.rtf") == "one")
+        #expect(result.notDone.map(\.why) == ["it is still changing in Dropbox"])
+    }
+
     /// A folder move in Dropbox that doesn't go through leaves its files recorded where they were,
     /// so the next pass moves the folder again rather than reading its files as moved in Dropbox.
     @Test func aFolderMoveThatFailsLeavesTheRecordAsItWas() async throws {
@@ -465,6 +487,25 @@ import Testing
         #expect(world.read(.dropbox, "Finance/Old/mine.txt") == "only in Dropbox")
         // Not even Finder's file in it is touched.
         #expect(world.read(.dropbox, "Finance/Old/.DS_Store") == "Finder's")
+    }
+
+    /// A folder iCloud still has stays in Dropbox once a move empties it, though the synced folder
+    /// is spelled in another case there ("Family" in iCloud, "family" in Dropbox).
+    @Test func aFolderICloudStillHasStaysWhenTheSyncedFolderIsSpelledInAnotherCase() async throws {
+        let world = try OneWayDiskWorld()
+        defer { world.remove() }
+        try FileManager.default.createDirectory(at: world.iCloud.appendingPathComponent("Family"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: world.dropbox.appendingPathComponent("family"), withIntermediateDirectories: true)
+        try run.write(world, .iCloud, "Family/Sub/a.pdf", "a", modified: OneWaySyncRunTests.earlier)
+        let sync = try Sync(world: world, folders: ["Family"])
+        #expect(sync.record.syncedFolders.map(\.dropboxPath) == ["family"])
+        try await sync.run()
+        #expect(world.read(.dropbox, "family/Sub/a.pdf") == "a")
+        try run.move(world, .iCloud, "Family/Sub/a.pdf", "Family/a.pdf")
+        try await sync.run()
+        #expect(world.read(.dropbox, "family/a.pdf") == "a")
+        // iCloud keeps Family/Sub, empty: so does Dropbox.
+        #expect(OneWaySyncDisk.kind(at: world.dropbox.appendingPathComponent("family/Sub").path) == .folder)
     }
 
     /// A file you stopped syncing stays out by its ID after a rename in iCloud.

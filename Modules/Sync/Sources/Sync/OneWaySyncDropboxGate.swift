@@ -35,7 +35,9 @@ public struct OneWaySyncArrivals: Equatable, Sendable {
             !OneWaySyncPath.name(path).hasPrefix(OneWaySyncPlanner.temporaryNamePrefix)
                 && syncedFolders.contains { OneWaySyncDisk.isWithin(path, $0) }
         }
-        let changed = Set(batch.events.filter { !$0.isOwn && inside($0.path) }.map(\.path))
+        // Not attribute-only changes (FU): an opened stamp, quarantine, a tag, Dropbox marking an
+        // upload. They change nothing a write could land on stale.
+        let changed = Set(batch.events.filter { !$0.isOwn && !$0.change.isOnlyExtendedAttributes && inside($0.path) }.map(\.path))
         let rescanned = batch.rescans.contains { rescan in
             syncedFolders.contains { OneWaySyncDisk.isWithin(rescan.path, $0) || OneWaySyncDisk.isWithin($0, rescan.path) }
         }

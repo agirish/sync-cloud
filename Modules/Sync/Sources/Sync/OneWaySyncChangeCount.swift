@@ -101,7 +101,8 @@ public struct OneWaySyncChangeScope: Sendable {
 ///   document ID, so a rename (old path, new path) or an app's safe save is one item. A file and a
 ///   folder are each an item.
 /// - Not counted at all: attribute-only changes (FU: an opened stamp, quarantine, tags), names the
-///   sync never lists, symlinks, live libraries, files you stopped syncing; a change inside a
+///   sync never lists, symlinks, live libraries, iCloud packages holding a symlink, files you
+///   stopped syncing; a change inside a
 ///   package counts as the package. This process's own changes count — they are your edits in
 ///   SyncCloud's panes. On a side the sync or Reverse is writing to (``holdOwnWrites(on:until:)``)
 ///   they are held, and judged against the record once the hold ends: what the pass recorded
@@ -443,9 +444,13 @@ public final class OneWaySyncChangeCount: @unchecked Sendable {
                 guard let recorded else { return true }
                 return Int64(info.st_size) != recorded.size || Int64(info.st_mtimespec.tv_sec) != recorded.modified
             case S_IFDIR where isPackage:
-                guard let recorded else { return true }
                 // Offloaded: reading inside would download it, as the lister never does.
-                if MaterializationStatus.isDataless(flags: info.st_flags) { return nil }
+                let offloaded = MaterializationStatus.isDataless(flags: info.st_flags)
+                // An iCloud package holding a symlink is skipped, as a symlink is: never synced,
+                // and a recorded one is gone.
+                if side == .iCloud, !offloaded, OneWaySyncDisk.firstSymlink(inside: full) != nil { return recorded != nil }
+                guard let recorded else { return true }
+                if offloaded { return nil }
                 guard let state = try? OneWaySyncDisk.state(at: full) else { return true }
                 return state.size != recorded.size || state.modifiedSecond != recorded.modified
             case S_IFDIR:

@@ -257,7 +257,9 @@ public enum OneWaySyncRows {
         if links > 0 { parts.append(links == 1 ? "1 symlink" : "\(links) symlinks") }
         let libraries = skipped.filter { $0.reason == "a live library" }.count
         if libraries > 0 { parts.append(libraries == 1 ? "1 live library" : "\(libraries) live libraries") }
-        let others = skipped.count - refused.count - links - libraries
+        let packages = skipped.filter { $0.reason == OneWaySyncSkippedItem.holdsSymlink }.count
+        if packages > 0 { parts.append(packages == 1 ? "1 package holding a symlink" : "\(packages) packages holding symlinks") }
+        let others = skipped.count - refused.count - links - libraries - packages
         if others > 0 { parts.append("\(others) more") }
         return parts.joined(separator: ", ") + " · nothing else waits"
     }

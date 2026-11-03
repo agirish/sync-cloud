@@ -174,6 +174,16 @@ public enum OneWaySyncDisk {
         return nil
     }
 
+    /// The first symlink anywhere inside the folder at `path`, or nil. A package holding one can't
+    /// be copied whole: ``copy(_:to:)`` refuses it, and the lister skips it.
+    static func firstSymlink(inside path: String) -> String? {
+        for case let child as String in FileManager.default.enumerator(atPath: path) ?? NSEnumerator()
+        where kind(at: path + "/" + child) == .symlink {
+            return path + "/" + child
+        }
+        return nil
+    }
+
     /// Whether `path` is `folder` or inside it, both canonical.
     static func isWithin(_ path: String, _ folder: String) -> Bool {
         path == folder || path.hasPrefix(folder.hasSuffix("/") ? folder : folder + "/")
@@ -294,10 +304,7 @@ public enum OneWaySyncDisk {
         case .symlink: throw OneWaySyncWriteError.symlink(source.path)
         case .none: throw OneWaySyncWriteError.missing(source.path)
         case .folder:
-            for case let child as String in FileManager.default.enumerator(atPath: source.path) ?? NSEnumerator()
-            where kind(at: source.path + "/" + child) == .symlink {
-                throw OneWaySyncWriteError.symlink(source.path + "/" + child)
-            }
+            if let link = firstSymlink(inside: source.path) { throw OneWaySyncWriteError.symlink(link) }
         case .file: break
         }
         if clonefile(source.path, destination.path, UInt32(CLONE_NOFOLLOW | CLONE_NOFOLLOW_ANY)) != 0 {
@@ -314,6 +321,25 @@ public enum OneWaySyncDisk {
             // The lock first: a locked item refuses to have its attributes removed.
             unlock(path)
             stripDropboxAttributes(at: path)
+        }
+        if kind(at: source.path) == .folder { keepFolderDates(from: source.path, to: destination.path) }
+    }
+
+    /// Dates each folder of a copied package as its source is. A clone dates them now (measured
+    /// 2026-11-03: the files keep theirs), and a package's date is the latest of anything in it,
+    /// so a copy in Dropbox would read as edited there at the next pass.
+    static func keepFolderDates(from source: String, to destination: String) {
+        var folders = [""]
+        for case let child as String in FileManager.default.enumerator(atPath: source) ?? NSEnumerator()
+        where kind(at: source + "/" + child) == .folder {
+            folders.append(child)
+        }
+        for folder in folders {
+            var info = stat()
+            guard lstat(folder.isEmpty ? source : source + "/" + folder, &info) == 0 else { continue }
+            // Only the modification date; setting it changes no folder's contents, so none above.
+            var times = [timespec(tv_sec: 0, tv_nsec: Int(UTIME_OMIT)), info.st_mtimespec]
+            utimensat(AT_FDCWD, folder.isEmpty ? destination : destination + "/" + folder, &times, AT_SYMLINK_NOFOLLOW)
         }
     }
 

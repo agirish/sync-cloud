@@ -8,10 +8,13 @@ import Darwin
 import Foundation
 
 /// Something the lister left out on purpose, which Now lists as skipped: a symlink, a live
-/// library, or a name Dropbox won't take.
+/// library, a package holding a symlink, or a name Dropbox won't take.
 public struct OneWaySyncSkippedItem: Equatable, Sendable {
     /// The reason for a name Dropbox never syncs, and for a copy Dropbox refused (ES).
     public static let dropboxWontTakeIt = "Dropbox won’t take it"
+    /// The reason for an iCloud package with a symlink inside (an app's `Versions/Current`): no
+    /// symlink is copied, so it can't go whole.
+    public static let holdsSymlink = "holds a symlink"
 
     public var path: String
     public var reason: String
@@ -44,7 +47,8 @@ public struct OneWaySyncSideListing: Equatable, Sendable {
 /// in the parent, and everything inside the synced folders, each with the ID the provider keeps on
 /// it (DH). It only reads: no file is opened, so an offloaded iCloud file stays offloaded.
 ///
-/// - Every path is read with `lstat`; no symlink is followed or listed. Symlinks are skipped.
+/// - Every path is read with `lstat`; no symlink is followed or listed. Symlinks are skipped,
+///   and so is an iCloud package holding one.
 /// - A package is one file: its size and date are totals over what is inside it, as
 ///   `OneWaySyncDisk.state` reports them, so the writer's re-check reads the same numbers.
 /// - A folder macOS reports as shared, at any depth, is listed with everything in it excluded:
@@ -161,6 +165,12 @@ public struct OneWaySyncLister: Sendable {
                 case S_IFDIR where isPackage(url):
                     if Self.liveLibraryExtensions.contains((name as NSString).pathExtension.lowercased()) {
                         if !folderExcluded { skipped.append(OneWaySyncSkippedItem(path: path, reason: "a live library")) }
+                        continue
+                    }
+                    // Its copy would always be refused, pass after pass. Dropbox's item of its name
+                    // is set aside too (`OneWaySyncRun.look`), so nothing is written for it.
+                    if side == .iCloud, !folderExcluded, OneWaySyncDisk.firstSymlink(inside: url.path) != nil {
+                        skipped.append(OneWaySyncSkippedItem(path: path, reason: OneWaySyncSkippedItem.holdsSymlink))
                         continue
                     }
                     guard let state = try? OneWaySyncDisk.state(at: url.path) else {

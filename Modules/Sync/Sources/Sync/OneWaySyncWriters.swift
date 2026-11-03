@@ -176,8 +176,11 @@ public struct OneWaySyncMarkerFile: Sendable {
         return !hardwareID.isEmpty && marker.hardwareID == hardwareID ? .thisMac(marker) : .otherMac(marker)
     }
 
-    /// Writes `marker`, replacing the file in one step so Dropbox uploads only a whole one.
-    public func write(_ marker: OneWaySyncMacMarker) throws {
+    /// Writes `marker`, replacing the file in one step so Dropbox uploads only a whole one. A
+    /// temporary file an earlier write left beside it (the app quit mid-write) goes first: it is in
+    /// Dropbox, so it would upload and stay.
+    public func write(_ marker: OneWaySyncMacMarker, now: Date = Date()) throws {
+        OneWaySyncFiles.removeLeftoverTemporaryFiles(in: folder, now: now)
         try OneWaySyncFiles.writeDurably(OneWaySyncStore.encode(marker), to: url)
     }
 

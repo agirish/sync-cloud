@@ -28,9 +28,10 @@ enum OneWaySyncFiles {
     static func writeDurably(_ data: Data, to url: URL) throws {
         let folder = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        // The sync's own temporary prefix: the lister skips it, and a sweep of SyncCloud's
-        // temporary files takes one a crash left behind, in Dropbox too (the marker).
-        let temp = folder.appendingPathComponent("\(OneWaySyncPlanner.temporaryNamePrefix)\(UUID().uuidString).tmp")
+        // The sync's own temporary prefix, so the lister skips it. One a crash left behind stays;
+        // beside the marker, in Dropbox, the marker's next write removes it
+        // (`removeLeftoverTemporaryFiles`).
+        let temp = folder.appendingPathComponent(temporaryName(UUID()))
         let fd = open(temp.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw WriteError(step: "open", path: temp.path, code: errno) }
         var closed = false
@@ -54,6 +55,29 @@ enum OneWaySyncFiles {
         guard close(fd) == 0 else { throw WriteError(step: "close", path: temp.path, code: errno) }
         guard rename(temp.path, url.path) == 0 else { throw WriteError(step: "rename", path: url.path, code: errno) }
         syncFolder(folder)
+    }
+
+    /// The name `writeDurably` writes through: the sync's prefix, a UUID as `uuidString` spells
+    /// it, and `.tmp`.
+    static func temporaryName(_ id: UUID) -> String { "\(OneWaySyncPlanner.temporaryNamePrefix)\(id.uuidString).tmp" }
+
+    /// A write takes milliseconds; a temporary file this old was left by one that never finished.
+    static let leftoverAge: TimeInterval = 60 * 60
+
+    /// Removes from `folder` the temporary files `writeDurably` left there over `leftoverAge` ago.
+    /// Only names it could have made, exactly: nothing else is touched, and nothing below.
+    static func removeLeftoverTemporaryFiles(in folder: URL, now: Date) {
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [] {
+            let prefix = OneWaySyncPlanner.temporaryNamePrefix
+            guard name.hasPrefix(prefix), name.hasSuffix(".tmp"),
+                  let id = UUID(uuidString: String(name.dropFirst(prefix.count).dropLast(".tmp".count))),
+                  temporaryName(id) == name else { continue }
+            let path = folder.appendingPathComponent(name).path
+            var info = stat()
+            guard lstat(path, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
+                  now.timeIntervalSince1970 - TimeInterval(info.st_mtimespec.tv_sec) > leftoverAge else { continue }
+            unlink(path)
+        }
     }
 
     /// Appends one line to `url`, creating it, and flushes it. Used for a History entry's ticks:

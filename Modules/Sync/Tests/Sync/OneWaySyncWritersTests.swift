@@ -124,6 +124,28 @@ import Testing
         #expect(!OneWaySyncMarkerFile.fileName.hasPrefix(".SyncCloud-"))
     }
 
+    /// A temporary file a marker write left (the app quit mid-write) is in Dropbox and would stay:
+    /// the next write removes it once it is an hour old, and nothing that only looks like one.
+    @Test func theMarkersWriteRemovesATemporaryFileAnEarlierOneLeft() throws {
+        let scratch = OneWayScratch()
+        let marker = OneWaySyncMarkerFile(folder: scratch.url)
+        try FileManager.default.createDirectory(at: scratch.url, withIntermediateDirectories: true)
+        let now = Date(timeIntervalSince1970: 1_790_010_000)
+        let old = now.addingTimeInterval(-2 * 3600)
+        let leftover = OneWaySyncFiles.temporaryName(UUID())
+        let fresh = OneWaySyncFiles.temporaryName(UUID())
+        let lookalikes = [".SyncCloud-notes.tmp", OneWaySyncFiles.temporaryName(UUID()).lowercased(), ".SyncCloud-swap-1-a.tmp"]
+        for name in [leftover] + lookalikes {
+            try Data("x".utf8).write(to: scratch.url.appendingPathComponent(name))
+            try FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: scratch.url.appendingPathComponent(name).path)
+        }
+        try Data("x".utf8).write(to: scratch.url.appendingPathComponent(fresh))
+        try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-60)],
+                                              ofItemAtPath: scratch.url.appendingPathComponent(fresh).path)
+        try marker.write(Self.thisMac, now: now)
+        #expect(Set(scratch.names(in: scratch.url)) == Set([OneWaySyncMarkerFile.fileName, fresh] + lookalikes))
+    }
+
     @Test func aConflictedCopyOfTheMarkerStopsEveryMac() throws {
         let scratch = OneWayScratch()
         let marker = OneWaySyncMarkerFile(folder: scratch.url)

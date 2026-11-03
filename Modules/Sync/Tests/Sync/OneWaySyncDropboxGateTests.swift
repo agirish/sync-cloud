@@ -143,6 +143,19 @@ import Testing
         #expect(arrivals.lastArrival == at)
     }
 
+    /// FU: extended attributes alone (an opened stamp, a tag, Dropbox marking an upload) aren't an
+    /// arrival, so opening files doesn't hold Sync Now.
+    @Test func attributesAloneAreNoArrival() {
+        var arrivals = OneWaySyncArrivals()
+        let path = "/Dropbox/Documents/Finance/a.pdf"
+        let tagged = FolderWatchEvent(id: 1, root: "/Dropbox/Documents", path: path, realPath: path, change: [.extendedAttributes, .isFile])
+        arrivals.note(batch([tagged]), syncedFolders: Self.synced, at: Self.t0)
+        #expect(arrivals.lastArrival == nil)
+        let edited = FolderWatchEvent(id: 2, root: "/Dropbox/Documents", path: path, realPath: path, change: [.modified, .extendedAttributes, .isFile])
+        arrivals.note(batch([edited]), syncedFolders: Self.synced, at: Self.t0)
+        #expect(arrivals.lastArrival == Self.t0)
+    }
+
     @Test func aRescanOverTheSyncedFoldersCountsAsAnArrival() {
         var arrivals = OneWaySyncArrivals()
         arrivals.note(batch(rescans: [FolderWatchRescan(root: "/Dropbox/Documents", path: "/Dropbox/Documents/Work", reason: .mustScanSubDirs, id: 1)]),

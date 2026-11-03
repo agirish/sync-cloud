@@ -367,4 +367,72 @@ import Testing
         #expect(look.plan.waits.isEmpty)
         #expect(look.plan.dropboxOnly.isEmpty)
     }
+
+    // MARK: Packages
+
+    /// A package's copy in Dropbox is dated as iCloud's is, so the next pass finds nothing edited
+    /// in Dropbox. A clone dates its folders now; a package's date is the latest inside it.
+    @Test func aCopiedPackageIsNotReadAsEditedInDropboxNextPass() async throws {
+        let world = try OneWayDiskWorld()
+        defer { world.remove() }
+        try write(world, .iCloud, "Finance/Brief.rtfd/Pictures/one.jpg", "jpg", modified: Self.earlier)
+        try write(world, .iCloud, "Finance/Brief.rtfd/TXT.rtf", "brief", modified: Self.earlier)
+        for folder in ["Finance/Brief.rtfd/Pictures", "Finance/Brief.rtfd"] {
+            try FileManager.default.setAttributes([.modificationDate: Self.earlier], ofItemAtPath: world.iCloud.appendingPathComponent(folder).path)
+        }
+        let sync = try Sync(world: world, folders: ["Finance"])
+        try await sync.run()
+        #expect(world.read(.dropbox, "Finance/Brief.rtfd/TXT.rtf") == "brief")
+        let copied = try OneWaySyncDisk.state(at: world.dropbox.appendingPathComponent("Finance/Brief.rtfd").path)
+        #expect(copied.modifiedSecond == Int64(Self.earlier.timeIntervalSince1970))
+        let next = sync.look()
+        #expect(next.plan.steps.isEmpty)
+        #expect(next.plan.waits.isEmpty)
+    }
+
+    // MARK: Packages holding a symlink
+
+    /// A package with a symlink inside (an app's `Versions/Current`) can't be copied whole, so it
+    /// is listed as skipped rather than planned as a copy every pass refuses.
+    @Test func aPackageHoldingASymlinkIsSkippedNotCopiedPassAfterPass() async throws {
+        let world = try OneWayDiskWorld()
+        defer { world.remove() }
+        try write(world, .iCloud, "Finance/Brief.rtfd/TXT.rtf", "brief", modified: Self.earlier)
+        try FileManager.default.createSymbolicLink(atPath: world.iCloud.appendingPathComponent("Finance/Brief.rtfd/Current").path,
+                                                   withDestinationPath: "TXT.rtf")
+        try write(world, .iCloud, "Finance/a.pdf", "a", modified: Self.earlier)
+        let sync = try Sync(world: world, folders: ["Finance"])
+        let look = sync.look()
+        #expect(look.plan.actions == [.copy(from: "Finance/a.pdf", to: "Finance/a.pdf", needsDownload: false)])
+        #expect(look.skipped == [OneWaySyncSkippedItem(path: "Finance/Brief.rtfd", reason: OneWaySyncSkippedItem.holdsSymlink)])
+        #expect(OneWaySyncRows.skippedDetail(look.skipped) == "1 package holding a symlink · nothing else waits")
+        let result = try await sync.run()
+        #expect(result.notDone.isEmpty)
+        #expect(result.leftForLater(record: sync.record).isEmpty)
+        #expect(sync.look().plan.steps.isEmpty)
+        #expect(OneWaySyncDisk.kind(at: world.dropbox.appendingPathComponent("Finance/Brief.rtfd").path) == nil)
+    }
+
+    /// One synced before it held a symlink stays in Dropbox as it was: neither replaced (the copy
+    /// would be refused) nor moved to SyncCloud Removed as gone from iCloud.
+    @Test func aSyncedPackageThatGainsASymlinkIsLeftAsItIsInDropbox() async throws {
+        let world = try OneWayDiskWorld()
+        defer { world.remove() }
+        try write(world, .iCloud, "Finance/Brief.rtfd/TXT.rtf", "brief", modified: Self.earlier)
+        let sync = try Sync(world: world, folders: ["Finance"])
+        try await sync.run()
+        #expect(world.read(.dropbox, "Finance/Brief.rtfd/TXT.rtf") == "brief")
+        #expect(sync.file("Finance/Brief.rtfd") != nil)
+
+        try FileManager.default.createSymbolicLink(atPath: world.iCloud.appendingPathComponent("Finance/Brief.rtfd/Current").path,
+                                                   withDestinationPath: "TXT.rtf")
+        let look = sync.look()
+        #expect(look.plan.actions == [.forget(dropboxPath: "Finance/Brief.rtfd")])
+        #expect(look.plan.waits.isEmpty)
+        let result = try await sync.run()
+        #expect(result.notDone.isEmpty)
+        #expect(world.read(.dropbox, "Finance/Brief.rtfd/TXT.rtf") == "brief")
+        #expect(try world.writer().removed.items().isEmpty)
+        #expect(sync.look().plan.steps.isEmpty)
+    }
 }

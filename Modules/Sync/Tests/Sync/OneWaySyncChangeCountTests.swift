@@ -175,6 +175,20 @@ import Testing
         #expect(count.tally == .init(count: 1), "a package's inside counted per file")
     }
 
+    /// An iCloud package holding a symlink is skipped as a symlink is, so a change inside it
+    /// never counts; one without counts as the package.
+    @Test func anICloudPackageHoldingASymlinkNeverCounts() throws {
+        let world = try World()
+        let count = world.count()
+        try world.write(world.iCloud + "/Legal/Brief.rtfd/TXT.rtf", "1")
+        try FileManager.default.createSymbolicLink(atPath: world.iCloud + "/Legal/Brief.rtfd/Current", withDestinationPath: "TXT.rtf")
+        count.note(FolderWatchBatch(events: [world.event(world.iCloud + "/Legal/Brief.rtfd/TXT.rtf", [.created, .isFile])]))
+        #expect(count.tally == .init())
+        try world.write(world.iCloud + "/Legal/Plain.rtfd/TXT.rtf", "1")
+        count.note(FolderWatchBatch(events: [world.event(world.iCloud + "/Legal/Plain.rtfd/TXT.rtf", [.created, .isFile])]))
+        #expect(count.tally == .init(count: 1))
+    }
+
     /// A folder unticked in Choose Folders takes what it counted with it.
     @Test func aFolderNoLongerSyncedStopsCounting() throws {
         let world = try World()
@@ -532,7 +546,10 @@ import Testing
         try Self.writeElsewhere("edited in Pages", to: will)
         await waitUntil("the iCloud edit never raised the count", timeout: 10) { count.tally.count == 1 }
         #expect(count.tally == .init(count: 1))
-        #expect(inbox.events.contains { $0.path == will && !$0.isOwn })
+        // The handler notes the count before the inbox: wait for the inbox too, not just the count.
+        await waitUntil("the iCloud edit wasn't reported as someone else's", timeout: 10) {
+            inbox.events.contains { $0.path == will && !$0.isOwn }
+        }
     }
 
     /// At launch the watcher replays what changed while SyncCloud was closed, from its stored

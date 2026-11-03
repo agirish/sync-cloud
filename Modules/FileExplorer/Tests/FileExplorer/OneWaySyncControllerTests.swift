@@ -180,6 +180,44 @@ import Sync
         #expect(controller.syncNowRefusal == "Set up one-way sync first")
     }
 
+    /// Reverse in iCloud and Choose Items to Empty write as an answer does: on the write queue, with
+    /// no Sync Now while they do, since a pass clears the staging folder a restore copies through.
+    @Test func reverseAndEmptyHoldSyncNowWhileTheyWrite() async throws {
+        let scratch = try Scratch()
+        let controller = OneWaySyncController(store: nil, center: ActivityCenter(), cloudApps: CloudAppMonitor(), refusal: nil,
+                                              staging: scratch.root.appendingPathComponent("Staging"))
+        var record = scratch.record
+        // iCloud's parent around the staging folder: the writer refuses it before making anything,
+        // so nothing outside the scratch folders is touched.
+        record.iCloudParent = OneWaySyncParentRecord(path: scratch.root.path)
+        controller.adopt(record, state: OneWaySyncSavedState())
+        let answers: [(String, @MainActor @Sendable () async -> Void)] = [
+            ("reverse", { _ = await controller.reverse([]) }),
+            ("empty", { _ = await controller.empty([]) }),
+        ]
+        for (name, answer) in answers {
+            let gate = DispatchSemaphore(value: 0)
+            OneWaySyncRun.writeQueue.async { gate.wait() }
+            let running = Task { @MainActor in await answer() }
+            var waited = 0
+            while !controller.isAnswering, waited < 200 {
+                try await Task.sleep(for: .milliseconds(10))
+                waited += 1
+            }
+            #expect(controller.isAnswering, "\(name)")
+            #expect(controller.syncNowRefusal == "Wait for the change you asked for to finish", "\(name)")
+            gate.signal()
+            await running.value
+            #expect(!controller.isAnswering, "\(name)")
+            // Reverse syncs after: that pass (with no store, it returns at once) ends first.
+            waited = 0
+            while controller.isRunning, waited < 200 {
+                try await Task.sleep(for: .milliseconds(10))
+                waited += 1
+            }
+        }
+    }
+
     /// Turn Off removes this Mac's own marker in Dropbox, and never another Mac's: on a Mac the
     /// sync was taken over from, removing it would stop the Mac that syncs now.
     @Test func turnOffLeavesAnotherMacsMarker() throws {
@@ -189,7 +227,9 @@ import Sync
         for (hardwareID, kept) in [("HW-OTHER", true), (OneWaySyncBinding.platformUUID() ?? "", false)] {
             _ = try store.startFirstRun(scratch.record, state: OneWaySyncSavedState())
             try marker.claim(OneWaySyncMacMarker(hardwareID: hardwareID, macName: "A Mac", claimedAt: 1_790_000_000))
-            let controller = OneWaySyncController(store: store, center: ActivityCenter(), cloudApps: CloudAppMonitor(), refusal: nil)
+            // Its own staging folder: Turn Off empties it, and the real one may hold a pass in flight.
+            let controller = OneWaySyncController(store: store, center: ActivityCenter(), cloudApps: CloudAppMonitor(), refusal: nil,
+                                                  staging: scratch.root.appendingPathComponent("Staging"))
             controller.adopt(scratch.record, state: OneWaySyncSavedState())
             controller.turnOff()
             #expect(controller.isSetUp == false)

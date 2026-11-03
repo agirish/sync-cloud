@@ -546,11 +546,13 @@ extension OneWaySyncWriter {
         }
         try OneWaySyncDisk.coordinatedWrite(target, deadline: coordinationDeadline) { write in
             try OneWaySyncDisk.makeFolders(OneWaySyncPath.parent(iCloudPath), in: places.iCloudParent)
-            if OneWaySyncDisk.kind(at: write.path) != nil {
+            if let kept, OneWaySyncDisk.kind(at: write.path) != nil {
                 // An edit since the version was kept would be lost: it waits instead.
-                if let kept, try OneWaySyncDisk.state(at: write.path) != kept { throw OneWaySyncWriteError.changedSinceDiff(write.path) }
+                if try OneWaySyncDisk.state(at: write.path) != kept { throw OneWaySyncWriteError.changedSinceDiff(write.path) }
                 try OneWaySyncDisk.moveOver(staged, onto: write)
             } else {
+                // Nothing was there to keep: a file that arrived since has no copy kept, so its
+                // name taken stops the write rather than losing it.
                 try OneWaySyncDisk.moveExclusively(staged, to: write)
             }
         }

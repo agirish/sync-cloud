@@ -159,6 +159,9 @@ public final class OneWaySyncController: ObservableObject {
     public let store: OneWaySyncStore?
     let center: ActivityCenter
     let cloudApps: CloudAppMonitor
+    /// Where the writer stages copies, and what Turn Off and each pass empty. A test passes its own,
+    /// so it never empties the staging folder of the app running on this Mac.
+    let staging: URL
     private var lock: OneWaySyncProcessLock?
     private var watcher: FolderWatcher?
     private var arrivals = OneWaySyncArrivals()
@@ -173,14 +176,16 @@ public final class OneWaySyncController: ObservableObject {
     /// Asked between a pass's steps, off the main thread: Pause and Stop reach a pass that writes.
     private let stopFlag = OneWaySyncStopFlag()
     /// An answer is writing: no pass starts until it is done, and no second answer.
-    @Published public private(set) var isAnswering = false
+    @Published public internal(set) var isAnswering = false
     /// When the setup sheet opened: Start needs Dropbox running and quiet since.
     public private(set) var setupOpenedAt: Date?
 
     public init(store: OneWaySyncStore? = OneWaySyncStore.defaultDirectory().map(OneWaySyncStore.init),
                 center: ActivityCenter = .shared, cloudApps: CloudAppMonitor = .shared,
-                refusal: OneWaySyncLaunchRefusal? = OneWaySyncLaunchGate.refusalForThisProcess()) {
+                refusal: OneWaySyncLaunchRefusal? = OneWaySyncLaunchGate.refusalForThisProcess(),
+                staging: URL = OneWaySyncPlaces.defaultStaging()) {
         self.store = store
+        self.staging = staging
         self.center = center
         self.cloudApps = cloudApps
         self.refusal = refusal
@@ -423,7 +428,7 @@ public final class OneWaySyncController: ObservableObject {
             iCloudParent: URL(fileURLWithPath: OneWaySyncDisk.canonicalPath(URL(fileURLWithPath: record.iCloudParent.path)), isDirectory: true),
             dropboxParent: URL(fileURLWithPath: OneWaySyncDisk.canonicalPath(URL(fileURLWithPath: record.dropboxParent.path)), isDirectory: true),
             dropboxAccountFolder: URL(fileURLWithPath: record.binding.dropboxAccountFolder, isDirectory: true),
-            staging: OneWaySyncPlaces.defaultStaging())
+            staging: staging)
     }
 
     func marker(for record: OneWaySyncRecord) -> OneWaySyncMarkerFile {
@@ -662,14 +667,15 @@ public final class OneWaySyncController: ObservableObject {
         let places = places(for: record)
         let writer: OneWaySyncWriter
         do { writer = try OneWaySyncWriter(places: places) } catch { return stopped(.failed(OneWaySyncRun.describe(error))) }
-        writer.removeTemporaryFiles()
+        nonisolated(unsafe) let unsafeWriter = writer
+        // On the write queue, behind anything an answer still has staged there.
+        await OneWaySyncRun.onWriteQueue { unsafeWriter.removeTemporaryFiles() }
         let marker = marker(for: record)
         let held = holdingBack(parent: places.dropboxParent.path)
         let total = look.plan.steps.count
         activity = total == 0 ? "Comparing" : "Syncing \(total)"
         let hardwareID = OneWaySyncBinding.platformUUID() ?? ""
         let macName = Self.macName
-        nonisolated(unsafe) let unsafeWriter = writer
         let stopFlag = self.stopFlag
         let progressBeat = OneWaySyncProgressBeat()
         let result: OneWaySyncRunResult
@@ -802,7 +808,6 @@ public final class OneWaySyncController: ObservableObject {
         guard let record else { return "One-way sync isn’t set up" }
         guard !isRunning, !isAnswering else { return "Wait for the sync that is running to finish" }
         isAnswering = true
-        defer { isAnswering = false }
         let places = places(for: record)
         // On the pass's own write queue, one thing at a time.
         let failure: String? = await OneWaySyncRun.onWriteQueue {
@@ -814,6 +819,8 @@ public final class OneWaySyncController: ObservableObject {
                 return OneWaySyncRun.describe(error)
             }
         }
+        // Done writing, before the pass below: one asked for while answering is refused.
+        isAnswering = false
         if let failure {
             Logger.shared.warning("One-way sync: \(what) didn’t go through: \(failure)")
             return failure
@@ -913,8 +920,9 @@ public final class OneWaySyncController: ObservableObject {
         Logger.shared.info("One-way sync: a Dropbox file edited now \(value == .useICloud ? "takes iCloud’s version" : "asks you")")
     }
 
-    /// *Turn Off One-Way Sync*: the record, the state, the marker and SyncCloud's temporary files
-    /// go, and Now's rows. Dropbox's copies and SyncCloud Removed stay.
+    /// *Turn Off One-Way Sync*: the record, the state, the marker and what is in SyncCloud's
+    /// staging folder go, and Now's rows. Dropbox's copies and SyncCloud Removed stay, and so does
+    /// a file a swap of names parked in Dropbox and couldn't put back (`.SyncCloud-swap-…`).
     public func turnOff() {
         guard let store, refusal == nil, !isRunning, !isAnswering else { return }
         cancel()
@@ -1031,7 +1039,7 @@ public final class OneWaySyncController: ObservableObject {
     public func preview(_ draft: OneWaySyncSetupDraft, folders: [String], settings: OneWaySyncSettings) async -> OneWaySyncLook? {
         guard let record = firstRunRecord(draft, folders: folders) else { return nil }
         let places = OneWaySyncPlaces(iCloudParent: draft.iCloudParent, dropboxParent: draft.dropboxParent,
-                                      dropboxAccountFolder: draft.dropboxAccount!, staging: OneWaySyncPlaces.defaultStaging())
+                                      dropboxAccountFolder: draft.dropboxAccount!, staging: staging)
         let exclusions = self.exclusions
         let state = OneWaySyncSavedState(settings: settings)
         return await Task.detached(priority: .userInitiated) {
@@ -1155,8 +1163,16 @@ public final class OneWaySyncController: ObservableObject {
     @discardableResult
     public func empty(_ chosen: [OneWaySyncRemovedItem]) async -> Int {
         guard let record else { return 0 }
+        // Its button waits while a sync or an answer writes; this is the backstop.
+        guard !isRunning, !isAnswering else {
+            Logger.shared.warning("One-way sync: nothing emptied from SyncCloud Removed: a sync or an answer was writing")
+            return 0
+        }
         let account = places(for: record).dropboxAccountFolder
-        let result = await Task.detached(priority: .userInitiated) { OneWaySyncRemovedStore(accountFolder: account).empty(chosen) }.value
+        // On the write queue, and no pass starts meanwhile: one moves into SyncCloud Removed.
+        isAnswering = true
+        let result = await OneWaySyncRun.onWriteQueue { OneWaySyncRemovedStore(accountFolder: account).empty(chosen) }
+        isAnswering = false
         Logger.shared.info("One-way sync: emptied \(result.emptied.count) items (\(OneWaySyncWords.bytes(result.bytes))) from SyncCloud Removed"
                            + (result.failed.isEmpty ? "" : "; \(result.failed.count) had changed and were left"))
         removedRevision += 1
@@ -1173,7 +1189,10 @@ public final class OneWaySyncController: ObservableObject {
     /// to Dropbox as usual. Nil when done, or why not.
     public func restoreToICloud(_ item: OneWaySyncRemovedItem) async -> String? {
         guard let record else { return "One-way sync isn’t set up" }
+        guard !isRunning, !isAnswering else { return "Wait for the sync that is running to finish" }
         let places = places(for: record)
+        // No pass starts meanwhile: it would clear the staging folder this copies through.
+        isAnswering = true
         let failure: String? = await OneWaySyncRun.onWriteQueue {
             do {
                 let writer = try OneWaySyncWriter(places: places)
@@ -1184,6 +1203,7 @@ public final class OneWaySyncController: ObservableObject {
                 return OneWaySyncRun.describe(error)
             }
         }
+        isAnswering = false
         if let failure {
             Logger.shared.warning("One-way sync: \(item.path) couldn’t be restored to iCloud: \(failure)")
             return failure
