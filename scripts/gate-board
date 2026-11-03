@@ -15,7 +15,8 @@ tree, its base (the merge-base with origin/main), the files it changes, the pack
 run and whether it runs `xcodebuild test` ("app"), the state of the gate, the session's address,
 and when. Packages default to every changed package and every package that depends on one (read
 from each Package.swift); app defaults to on for any change outside docs/, scripts/, .github/,
-SyncCloudCLI/ and root-level Markdown. Say --packages or --app/--no-app when the gate differs.
+.claude/, SyncCloudCLI/ and root-level Markdown. Say --packages or --app/--no-app when the gate
+differs.
   --state     announced (the default), running, passed or red. A passed entry records the tree it
               passed on, which `verify` compares against.
   --passed    suites this worktree's own runs have already passed, so a partner can see how far
@@ -57,7 +58,7 @@ BOARD_DIR = os.environ.get("GATE_BOARD_DIR") or os.path.expanduser(
 STATES = ("announced", "running", "passed", "red")
 APP = "app"
 # Paths whose changes need no `xcodebuild test`: they are not compiled into the app.
-NO_APP = re.compile(r"^(docs/|scripts/|\.github/|SyncCloudCLI/|[^/]+\.md$)")
+NO_APP = re.compile(r"^(docs/|scripts/|\.github/|\.claude/|SyncCloudCLI/|[^/]+\.md$)")
 
 
 def note(message):

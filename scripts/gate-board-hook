@@ -1,0 +1,159 @@
+#!/usr/bin/python3
+"""Claude Code PreToolUse hook: when a session starts a landing-gate run, point it at gate-board.
+
+Reads the Bash tool call as JSON on stdin. If the command starts a whole-suite run — `swift test`
+without --filter or --skip, `scripts/test-shards` other than --measure, or `xcodebuild test`
+without -only-testing — from a worktree bound for main, the session gets a note in its context
+(never a refusal; COMMIT.md §8 is opt-in):
+  - not announced at this HEAD: announce first, and any announced gate a quick check already
+    finds shareable with this one, with its session's address;
+  - announced: each announced gate that could share with it, once per partner.
+A session hears each note once per HEAD, so iterating on a red does not repeat it. Narrow runs,
+light commands, maintenance-line worktrees and anything it cannot read pass silently, and any
+error in the hook passes too: a nudge must never stop a session's work.
+
+Registered beside build-slot-hook in .claude/settings.json; a session reads its hooks when it
+starts. What it has said to which session is kept in $GATE_BOARD_DIR/nudged/. Tests:
+scripts/test-gate-board-hook.
+"""
+
+import importlib.machinery
+import importlib.util
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+FORGET_SECONDS = 7 * 86400
+HERE = os.path.dirname(os.path.realpath(__file__))
+SEPARATORS = re.compile(r"&&|\|\||[;|\n]")
+
+
+def gate_run(command):
+    """True if some part of the command runs a whole suite: the shape of a landing gate."""
+    for part in SEPARATORS.split(command):
+        words = part.split()
+        if "swift" in words and "test" in words:
+            if not {"--filter", "--skip"} & set(words) and \
+                    not any(w.startswith(("--filter=", "--skip=")) for w in words):
+                return True
+        if any(os.path.basename(w) == "test-shards" for w in words) and "--measure" not in words:
+            return True
+        if any(os.path.basename(w) == "xcodebuild" for w in words) and \
+                {"test", "test-without-building"} & set(words) and \
+                not any(w.startswith("-only-testing") for w in words):
+            return True
+    return False
+
+
+def load_board():
+    loader = importlib.machinery.SourceFileLoader("gate_board", os.path.join(HERE, "gate-board"))
+    spec = importlib.util.spec_from_loader("gate_board", loader)
+    board = importlib.util.module_from_spec(spec)
+    loader.exec_module(board)
+    return board
+
+
+def maintenance(board, worktree):
+    """True if HEAD carries a maintenance line's own commits (never shared, CLAUDE.md §1)."""
+    refs = board.git("for-each-ref", "--format=%(refname)", "refs/remotes/origin/",
+                     cwd=worktree, check=False) or ""
+    for ref in refs.splitlines():
+        if not re.search(r"/v\d+\.x$", ref):
+            continue
+        base = board.git("merge-base", "HEAD", ref, cwd=worktree, check=False)
+        if base and subprocess.run(["git", "merge-base", "--is-ancestor", base, "origin/main"],
+                                   cwd=worktree, stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL).returncode != 0:
+            return True
+    return False
+
+
+def memory_path(board, session):
+    return os.path.join(board.BOARD_DIR, "nudged", re.sub(r"[^A-Za-z0-9_.-]", "_", session) + ".json")
+
+
+def nudge(event):
+    command = (event.get("tool_input") or {}).get("command") or ""
+    if any(os.path.basename(word) == "gate-board" for word in command.split()) \
+            or not gate_run(command):
+        return None
+    board = load_board()
+    worktree = board.toplevel(event.get("cwd") or None)
+    if not worktree or not os.path.isfile(os.path.join(worktree, "COMMIT.md")):
+        return None  # not a SyncCloud checkout
+    mine = board.snapshot(worktree)
+    if not mine["base"] or not mine["files"] or maintenance(board, worktree):
+        return None
+    entries = board.read_entries()
+    own = next((e for e in entries if e["worktree"] == worktree), None)
+    announced = own is not None and own["head"] == mine["head"]
+    if announced:
+        mine = own
+    else:
+        mine["packages"], mine["app"] = board.gate_of(worktree, mine["files"])
+    origin = board.git("rev-parse", "--verify", "-q", "origin/main", cwd=worktree, check=False)
+    partners = []
+    for entry in entries:
+        if entry["worktree"] == worktree:
+            continue
+        said = board.verdict(mine, entry, origin)
+        if said.startswith(("maybe", "its gate carries")):
+            partners.append((entry, said))
+
+    session = event.get("session_id") or "unknown"
+    path = memory_path(board, session)
+    try:
+        with open(path) as handle:
+            memory = json.load(handle)
+    except (OSError, ValueError):
+        memory = {}
+    if memory.get("head") != mine["head"]:
+        memory = {"head": mine["head"], "said": []}
+    lines = []
+    if not announced and "announce" not in memory["said"]:
+        memory["said"].append("announce")
+        lines.append("This runs a whole suite. If it is part of your landing gate, run "
+                     "`scripts/gate-board announce` first, then `scripts/gate-board list`: "
+                     "another session's gate may cover yours, or yours theirs, and one run "
+                     "would serve both (COMMIT.md §8). Opt-in; ignore this if sharing does not "
+                     "pay. Your gate: %s." % board.gate_text(mine))
+    for entry, said in partners:
+        key = "%s@%s" % (entry["worktree"], entry["head"])
+        if key in memory["said"]:
+            continue
+        memory["said"].append(key)
+        lines.append("gate-board: %s (session %s, %s) — %s. Its gate: %s. If sharing would "
+                     "save you time, SendMessage that session before queueing this; see "
+                     "COMMIT.md §8 for when it pays." % (
+                         board.place(entry["worktree"]), entry.get("session") or "unknown",
+                         entry["state"], said, board.gate_text(entry)))
+    if not lines:
+        return None
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    for name in os.listdir(os.path.dirname(path)):  # sessions long gone
+        old = os.path.join(os.path.dirname(path), name)
+        if time.time() - os.path.getmtime(old) > FORGET_SECONDS:
+            os.remove(old)
+    temporary = "%s.%d.tmp" % (path, os.getpid())
+    with open(temporary, "w") as handle:
+        json.dump(memory, handle)
+    os.rename(temporary, path)
+    return "\n".join(lines)
+
+
+def main():
+    try:
+        text = nudge(json.load(sys.stdin))
+    except Exception:  # never let a nudge stop a session's work
+        return 0
+    if text:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                                 "additionalContext": text}}))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

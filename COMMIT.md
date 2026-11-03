@@ -160,6 +160,12 @@ Announce again with `--state running|passed|red` and `--passed <suites>` as your
 `local_…` id `list` shows (`ListAgents` lists who is live). An entry drops itself when its
 session's process is gone. `scripts/gate-board --help` has the rest.
 
+A hook reminds you. The first time a session starts a whole-suite run at a given HEAD (`swift
+test` without `--filter`, `test-shards`, `xcodebuild test` without `-only-testing:`) and has not
+announced, `scripts/gate-board-hook` adds a note to its context saying so, naming any announced
+gate it could share with and that session's address; announced, it names each new partner once.
+It never refuses a command, and stays quiet for narrow runs and maintenance lines.
+
 **It pays when all of these hold** — `list` checks the first three and says `maybe`:
 
 - the two changes touch no common file;

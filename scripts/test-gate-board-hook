@@ -1,0 +1,136 @@
+#!/bin/bash
+# Tests for scripts/gate-board-hook: feeds it Bash tool calls as Claude Code does, against a
+# private board and a fixture repository, and checks when it speaks. Takes about ten seconds;
+# prints one line per check and exits non-zero if any check fails.
+set -u
+HERE="$(cd "$(dirname "$0")" && pwd)"
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/gate-board-hook-test.XXXXXX")
+WORK=$(cd "$WORK" && pwd -P)
+trap 'kill $(jobs -p) 2>/dev/null; rm -rf "$WORK"' EXIT
+export GATE_BOARD_DIR="$WORK/board"
+unset CLAUDE_PID CLAUDE_CODE_HOST_SESSION_ID
+mkdir -p "$WORK/bin"
+cp "$HERE/gate-board" "$WORK/bin/gate-board"
+cp "${GATE_BOARD_HOOK:-$HERE/gate-board-hook}" "$WORK/bin/gate-board-hook"  # override to test a copy
+printf '#!/bin/sh\necho "0 of 3 slots held, 0 waiting (/x)"\n' > "$WORK/bin/build-slot"
+chmod +x "$WORK/bin/build-slot"
+BOARD="$WORK/bin/gate-board"
+HOOK="$WORK/bin/gate-board-hook"
+failures=0
+
+check() {  # check <description> <command…>
+  local what=$1; shift
+  if "$@"; then echo "ok   - $what"; else echo "FAIL - $what"; failures=$((failures + 1)); fi
+}
+call() {  # call <cwd> <command> [session]: the hook's stdout goes to $WORK/out, status to $status
+  /usr/bin/python3 -c 'import json, sys
+print(json.dumps({"tool_name": "Bash", "tool_input": {"command": sys.argv[2]}, "cwd": sys.argv[1],
+                  "session_id": sys.argv[3], "hook_event_name": "PreToolUse"}))' \
+    "$1" "$2" "${3:-s1}" | "$HOOK" > "$WORK/out" 2> "$WORK/err"
+  status=$?
+  /usr/bin/python3 -c 'import json, sys
+try:
+    print(json.load(open(sys.argv[1]))["hookSpecificOutput"]["additionalContext"])
+except Exception:
+    pass' "$WORK/out" > "$WORK/said"
+}
+has() { grep -qF -- "$1" "$WORK/said"; }
+silent() { [ ! -s "$WORK/out" ] && [ "$status" = 0 ]; }
+spoke() { [ -s "$WORK/out" ] && [ "$status" = 0 ]; }
+valid() { /usr/bin/python3 -c 'import json, sys
+out = json.load(open(sys.argv[1]))["hookSpecificOutput"]
+assert out["hookEventName"] == "PreToolUse" and out["additionalContext"]
+assert "permissionDecision" not in out' "$WORK/out"; }
+
+REPO="$WORK/repo"
+git init -q -b main "$REPO"
+cd "$REPO" || exit 1
+git config user.email t@t && git config user.name t && git config commit.gpgsign false
+for p in Events Design Settings; do mkdir -p Modules/$p && echo x > Modules/$p/file.swift; done
+echo '' > Modules/Events/Package.swift
+echo '.package(path: "../Events")' > Modules/Design/Package.swift
+echo '.package(path: "../Design")' > Modules/Settings/Package.swift
+mkdir -p MacApp && echo x > MacApp/App.swift && echo x > COMMIT.md
+git add -A && git commit -qm base
+git update-ref refs/remotes/origin/main HEAD
+git worktree add -q "$REPO/.claude/worktrees/a" -b a origin/main
+git worktree add -q "$REPO/.claude/worktrees/b" -b b origin/main
+A="$REPO/.claude/worktrees/a"
+B="$REPO/.claude/worktrees/b"
+edit() { (cd "$1" && echo "$3" >> "$2" && git add -A && git commit -qm "$2"); }
+sleep 600 & PB=$!
+
+GATE="scripts/build-slot swift test --package-path Modules/Settings"
+call "$A" "$GATE"
+check "a fresh branch with nothing to land hears nothing" silent
+edit "$A" Modules/Settings/file.swift a1
+
+# What counts as a gate run.
+call "$A" "scripts/build-slot swift test --package-path Modules/Settings --filter Foo"
+check "a narrowed swift test passes silently" silent
+call "$A" "git status && ls"
+check "a light command passes silently" silent
+call "$A" "scripts/build-slot xcodebuild test -scheme S -only-testing:T/Foo"
+check "a narrowed xcodebuild test passes silently" silent
+call "$A" "scripts/test-shards --measure Modules/FileExplorer"
+check "test-shards --measure passes silently" silent
+call "$A" "scripts/gate-board announce && $GATE"
+check "a command that runs gate-board itself passes silently" silent
+call "$A" "$GATE"
+check "a whole-suite run, not announced, hears to announce" has "scripts/gate-board announce"
+check "  …as context, never a decision" valid
+check "  …naming its own gate" has "Your gate: Settings app."
+call "$A" "$GATE"
+check "  …once per HEAD" silent
+call "$A" "$GATE" s2
+check "  …per session" spoke
+edit "$A" MacApp/App.swift a2
+call "$A" "cd $A && scripts/build-slot xcodebuild test -scheme SyncCloud"
+check "a new HEAD hears again, and xcodebuild test counts" has "scripts/gate-board announce"
+call "$A" "$WORK/bin/test-shards Modules/FileExplorer" s3
+check "test-shards counts" has "scripts/gate-board announce"
+
+# A partner on the board.
+edit "$B" Modules/Design/file.swift b1
+(cd "$B" && "$BOARD" announce --pid "$PB" --session local_b > /dev/null)
+call "$A" "$GATE" s4
+check "an unannounced session hears of a covering gate" has "(session local_b, announced) — maybe: its gate covers yours"
+(cd "$A" && "$BOARD" announce --pid $$ --session local_a > /dev/null)
+call "$A" "$GATE" s5
+check "an announced session hears of its partner" has "session local_b"
+check "  …and is not told to announce" bash -c "! grep -qF 'gate-board announce\`' '$WORK/said'"
+call "$A" "$GATE" s5
+check "  …once" silent
+edit "$B" Modules/Events/file.swift b2
+(cd "$B" && "$BOARD" announce --pid "$PB" --session local_b > /dev/null)
+call "$A" "$GATE" s5
+check "a partner that moves on is news again" has "session local_b"
+edit "$B" Modules/Settings/file.swift b3
+(cd "$B" && "$BOARD" announce --pid "$PB" --session local_b > /dev/null)
+call "$A" "$GATE" s6
+check "a partner sharing files is not offered" silent
+
+# Where it never speaks.
+(cd "$REPO" && git checkout -q -b v6.x-tip && echo m > maint && git add maint &&
+  git commit -qm maint && git update-ref refs/remotes/origin/v6.x HEAD && git checkout -q main)
+git worktree add -q "$REPO/.claude/worktrees/m" -b m origin/v6.x
+M="$REPO/.claude/worktrees/m"
+edit "$M" Modules/Settings/file.swift m1
+call "$M" "$GATE" s7
+check "a maintenance-line worktree hears nothing" silent
+edit "$A" MacApp/App.swift a3
+call "$A" "$GATE" s8
+check "  …while a main-bound one beside it still does" has "scripts/gate-board announce"
+mkdir -p "$WORK/other" && (cd "$WORK/other" && git init -q && git commit -q --allow-empty -m x)
+call "$WORK/other" "$GATE" s9
+check "outside a SyncCloud checkout it hears nothing" silent
+printf 'not json' | "$HOOK" > "$WORK/out"; status=$?
+check "unreadable input passes silently" silent
+mv "$WORK/bin/gate-board" "$WORK/bin/gone"
+call "$A" "$GATE" s10
+check "a broken gate-board passes silently" silent
+
+kill "$PB" 2>/dev/null; wait "$PB" 2>/dev/null
+echo
+if [ "$failures" -eq 0 ]; then echo "all passed"; else echo "$failures failed"; fi
+[ "$failures" -eq 0 ]
