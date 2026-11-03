@@ -321,14 +321,26 @@ fake() {  # fake <name> <wait-file or ""> <build-slot args…>: run in wtA with 
       FAKE_LOG="$WORK/order" exec "$SLOT" "$@" )
 }
 classify() { ( cd "$WORK/wtA" && "$SLOT" --classify "$@" ); }
+# A filter is told from a whole test target by the targets the package declares.
+package() { mkdir -p "$1" && printf '.testTarget(\n  name: "%s",\n  dependencies: [])\n' "$2" > "$1/Package.swift"; }
+package "$WORK/wtA" ATests
+package "$WORK/wtA/Modules/Sync" SyncTests
 check "--classify: a --filter of up to 4 suites is light" \
-  eval "classify swift test --package-path Modules/Sync --filter 'A|B|C|D' | grep -q '^light'"
+  eval "classify swift test --package-path Modules/Sync --filter 'Alpha|Bravo|Carol|Delta' | grep -q '^light'"
 check "--classify: a --filter of 5 suites is heavy" \
-  eval "classify swift test --package-path Modules/Sync --filter 'A|B|C|D|E' | grep -q '^heavy'"
+  eval "classify swift test --package-path Modules/Sync --filter 'Alpha|Bravo|Carol|Delta|Echo' | grep -q '^heavy'"
+check "--classify: a --filter naming the test target, or part of its name, is heavy" \
+  eval "classify swift test --package-path Modules/Sync --filter SyncTests | grep -q '^heavy' && classify swift test --package-path Modules/Sync --filter Sync | grep -q '^heavy'"
+check "--classify: a --filter that is a pattern is heavy" \
+  eval "classify swift test --package-path Modules/Sync --filter 'Alpha.*' | grep -q '^heavy' && classify swift test --package-path Modules/Sync --filter . | grep -q '^heavy'"
+check "--classify: a --filter without a Package.swift to read is heavy" \
+  eval "classify swift test --package-path Modules/Nope --filter Alpha | grep -q '^heavy'"
 check "--classify: a full run of a small package is light, of Sync heavy" \
   eval "classify swift test --package-path Modules/Events | grep -q '^light' && classify swift test --package-path Modules/Sync | grep -q '^heavy'"
 check "--classify: xcodebuild test with -only-testing is light; without it, or a build, heavy" \
   eval "classify xcodebuild test -only-testing:T/S | grep -q '^light' && classify xcodebuild test | grep -q '^heavy' && classify xcodebuild -configuration Release build | grep -q '^heavy'"
+check "--classify: -only-testing of a whole target, a clean, a build-for-testing or release is heavy" \
+  eval "classify xcodebuild test -only-testing:SyncCloudTests | grep -q '^heavy' && classify xcodebuild clean test -only-testing:T/S | grep -q '^heavy' && classify xcodebuild build-for-testing test-without-building -only-testing:T/S | grep -q '^heavy' && classify xcodebuild test -configuration release -only-testing:T/S | grep -q '^heavy'"
 check "--classify: test-shards is heavy" eval "classify scripts/test-shards Modules/FileExplorer | grep -q '^heavy'"
 
 export BUILD_SLOTS=1
@@ -408,6 +420,28 @@ BUILD_SLOT_TIMEOUT=2 fake S "" swift test --filter Slow 2>/dev/null
 check "...and waits for a general slot, the lane free ($?)" same "$?:$(cat "$WORK/order" 2>/dev/null)" "75:"
 touch "$WORK/release"; wait "$gate"
 rm -f "$BUILD_SLOT_DIR/history"
+
+# An --exclusive run is any holder of two slots, so nothing runs beside one from an older copy,
+# which does not hold the lane, nor in a general slot added since it began.
+export BUILD_SLOTS=2
+rm -f "$WORK/order"
+/usr/bin/python3 -c "
+import fcntl, os, sys, time
+for i in (1, 2):
+    fd = os.open('$BUILD_SLOT_DIR/slot-%d' % i, os.O_RDWR | os.O_CREAT | os.O_TRUNC)
+    os.write(fd, ('pid=%d\nstarted=%f\ncwd=/\ncommand=probe\nargv=[\"probe\"]\n' % (os.getpid(), time.time())).encode())
+    fcntl.flock(fd, fcntl.LOCK_EX)
+open('$WORK/older-excl', 'w').close()
+time.sleep(30)" &
+older=$!
+wait_for 10 test -e "$WORK/older-excl"
+BUILD_SLOT_TIMEOUT=2 fake L7 "" swift test --filter Seven 2>/dev/null
+check "an older copy's --exclusive holding both general slots: a light run waits ($?)" \
+  same "$?:$(cat "$WORK/order" 2>/dev/null)" "75:"
+BUILD_SLOTS=3 BUILD_SLOT_TIMEOUT=2 "$SLOT" sh -c "echo N >> '$WORK/order'" 2>/dev/null
+check "...and a heavy one waits, though a third slot was added since it began ($?)" \
+  same "$?:$(cat "$WORK/order" 2>/dev/null)" "75:"
+kill "$older"; wait "$older" 2>/dev/null
 
 # An older build-slot (another worktree's copy, from before turns were shared) waits in the same
 # queue first come, first served, with an empty entry. Mixed in, every command still runs, one at a
@@ -522,6 +556,39 @@ wait "$first" "$second"
 check "...and they run in their places once it ends ($(tr '\n' ' ' < "$WORK/order"))" \
   same "$(tr '\n' ' ' < "$WORK/order")" "A B "
 
+# A newcomer arriving just after a sweep waits for the holder to re-take its slot, rather than
+# taking the fresh slot file itself.
+"$SLOT" sleep 32.4 2>/dev/null &
+holder=$!
+wait_for 10 held 1
+rm -rf "$BUILD_SLOT_DIR"
+BUILD_SLOT_TIMEOUT=3 "$SLOT" echo should-not-run > "$WORK/sweep-new-out" 2>/dev/null
+check "slot directory deleted, a newcomer at once: it waits for the holder's re-take ($?)" \
+  same "$?:$(cat "$WORK/sweep-new-out")" "75:"
+kill "$holder"; wait "$holder" 2>/dev/null
+
+# A sweep while a waiter is blocked on the mutex: it neither crashes nor runs without a slot.
+sleep 3.5  # until the remade directory has settled
+rm -f "$WORK/order"
+"$SLOT" sleep 32.5 2>/dev/null &
+holder=$!
+wait_for 10 held 1
+"$SLOT" sh -c "echo W >> '$WORK/order'" 2> "$WORK/sweep-mutex-err" &
+waiter=$!
+wait_for 10 waiting 1
+/usr/bin/python3 -c "
+import fcntl, os, shutil, time
+fd = os.open('$BUILD_SLOT_DIR/mutex', os.O_RDWR)
+fcntl.flock(fd, fcntl.LOCK_EX)
+time.sleep(1.5)  # the waiter's next poll blocks on this mutex
+shutil.rmtree('$BUILD_SLOT_DIR')"
+sleep 4
+check "slot directory deleted while a waiter was blocked on the mutex: it waits on, no traceback" \
+  eval "alive $waiter && [ ! -s '$WORK/order' ] && ! grep -q 'Traceback\|without a slot' '$WORK/sweep-mutex-err'"
+kill "$holder"; wait "$holder" 2>/dev/null
+wait "$waiter"
+check "...and runs once the holder ends" grep -q W "$WORK/order"
+
 # 4. Release paths: every way a holder ends frees the slot and leaves nothing running.
 for sig in INT TERM HUP; do
   int_default "$SLOT" sleep 31.$((${#sig})) 2>/dev/null &
@@ -575,6 +642,13 @@ touch "$WORK/release2"; wait "$gate"
 "$SLOT" sh -c 'exit 42'; check "exit 42 passes through" same $? 42
 "$SLOT" no-such-command-xyz 2>/dev/null; check "a missing command exits 127" same $? 127
 "$SLOT" sh -c 'kill -TERM $$'; check "a command killed by SIGTERM reads as 143" same $? 143
+"$SLOT" sh -c 'kill -KILL $$' 2> "$WORK/kill9-err"; status=$?
+check "a command killed by SIGKILL reads as 137, no traceback ($status)" \
+  eval "[ $status = 137 ] && ! grep -q Traceback '$WORK/kill9-err'"
+printf 'echo no shebang\n' > "$WORK/no-shebang"; chmod +x "$WORK/no-shebang"
+"$SLOT" "$WORK/no-shebang" 2> "$WORK/noexec-err"; status=$?
+check "a command that cannot be executed exits 126, no traceback ($status)" \
+  eval "[ $status = 126 ] && ! grep -q Traceback '$WORK/noexec-err'"
 # The wrapper must exit 134, not die of SIGABRT: a python3 that dies of it files a crash report.
 touch "$WORK/abrt-mark"
 abrt=$(perl -e 'system(@ARGV); printf "%d/%d", $? >> 8, $? & 127' "$SLOT" sh -c 'kill -ABRT $$')

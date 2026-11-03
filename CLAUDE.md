@@ -144,13 +144,14 @@ test on GitHub (`hosted-ci.yml`), so the runner here takes only the nightly run,
   then the one served least recently; within a worktree it is first come, first served. A queued
   landing gate holds up another session's single run by one command at most, not the whole gate.
 - **Plus one light lane**, for short test runs only, so peak concurrency is 3 heavy + 1 light. Light
-  means a `swift test` whose `--filter` names at most 4 suites, a full run of Dashboard, Events,
-  Settings, SyncCloudCLI or Design, or an `xcodebuild test` with at most 4 `-only-testing` and no
-  build action or Release configuration, unless its recent runs took 2 minutes or more at the
-  median. Nothing else is light: no build, no `test-shards`, no full Sync or FileExplorer run. The
-  cap of 3 exists because timing-sensitive suites flake under load (`docs/flaky-tests.md`), so
-  keep the lane short by these rules rather than widening them. A light command still takes a
-  general slot when one is free. `scripts/build-slot --classify <command…>` says which a command is.
+  means a `swift test` whose `--filter` names at most 4 suites by name (not a pattern or a test
+  target), a full run of Dashboard, Events, Settings, SyncCloudCLI or Design, or an
+  `xcodebuild test` with at most 4 `-only-testing:Target/Suite` and no build or clean action or
+  Release configuration, unless its recent runs took 2 minutes or more at the median. Nothing else
+  is light: no build, no `test-shards`, no full Sync or FileExplorer run. The cap of 3 exists
+  because timing-sensitive suites flake under load (`docs/flaky-tests.md`), so keep the lane short
+  by these rules rather than widening them. A light command still takes a general slot when one is
+  free. `scripts/build-slot --classify <command…>` says which a command is.
 - **A duplicate is refused at once** (exit 3): the same command, from the same directory, already
   queued or running. The message names its PID — wait for that run, or stop it first.
   `BUILD_SLOT_ALLOW_DUPLICATE=1` runs a deliberate repeat.
