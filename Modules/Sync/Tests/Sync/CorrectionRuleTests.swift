@@ -229,6 +229,46 @@ import Testing
         if case .suggested(let h) = hidden.outcome { #expect(!h.contains { $0.relativePath.hasPrefix("Travel") }) }
     }
 
+    /// A rule taught in Ask Claude is relative to the survey it was taught in, so it carries that
+    /// survey's root and files nothing in another source's scan — a Dropbox scan must not get a
+    /// High card into Dropbox/Travel/… from a rule taught for iCloud's Travel.
+    @Test func aTaughtRuleActsOnlyInItsSurveysTree() throws {
+        let root = "/never-on-disk-correction-scope/Documents"
+        let m = FileSyncManager()
+        m.filingRuleDefaults = ScratchDefaults("CorrectionScope")
+        let folders = ["Travel/Trips/IN-US/2026/Sep"]
+        m.filingFolderProfile = FolderProfile(
+            profileId: "scope", root: root,
+            folders: Dictionary(uniqueKeysWithValues: folders.map {
+                ($0, FolderProfileEntry(path: $0, role: .destination, naming: nil, anchors: [], acceptsNewFiles: nil,
+                                        fileCount: 2, subfolderCount: 0, axes: [:]))
+            }), personTokens: [])
+        let offer = try #require(m.ruleFromCorrection("/Users/someone/Downloads/JAL eTicket.pdf",
+                                                      into: root + "/Travel/Trips/IN-US/2026/Sep", name: "Airline tickets",
+                                                      phrases: Self.airlines, also: [], pageSample: Self.jalPage)).get()
+        #expect(offer.rule.surveyRoot == root)
+
+        let ticket = FileNode(id: "/Users/someone/Downloads/JAL eTicket.pdf", name: "JAL eTicket.pdf", isDirectory: false,
+                              fileSize: 5000)
+        func home(in providerRoot: String, _ rule: AutomationRule) -> FilingDestination? {
+            FilingEngine.suggest(looseFiles: [ticket], taxonomy: [], providerRoot: providerRoot, automations: [rule],
+                                 automationSnippets: [ticket.id: Self.jalPage]).first?.candidates.first { $0.remembered }
+        }
+        #expect(home(in: root, offer.rule)?.path == root + "/Travel/Trips/IN-US/2026/Sep")
+        #expect(home(in: "/never-on-disk-correction-scope/Dropbox", offer.rule) == nil, "it filed into another source's tree")
+
+        // A rule saved before it carried a root still loads, and acts in every tree as it did.
+        var old = offer.rule
+        old.surveyRoot = nil
+        let data = try JSONEncoder().encode(old)
+        #expect(!String(decoding: data, as: UTF8.self).contains("surveyRoot"))
+        let loaded = try JSONDecoder().decode(AutomationRule.self, from: data)
+        #expect(loaded.surveyRoot == nil && loaded.isRunnable)
+        #expect(home(in: "/never-on-disk-correction-scope/Dropbox", loaded) != nil)
+        // And the root round-trips.
+        #expect(try JSONDecoder().decode(AutomationRule.self, from: JSONEncoder().encode(offer.rule)) == offer.rule)
+    }
+
     /// To File's path: the scan's walked folders give the month's spelling, and a ticket not yet
     /// read files into the trip's folder at Medium.
     @Test func theScanFilesByTheRuleIntoTheMonthFolderThere() throws {

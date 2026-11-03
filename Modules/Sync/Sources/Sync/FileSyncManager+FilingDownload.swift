@@ -62,6 +62,14 @@ extension FileSyncManager {
             }
             guard filingSuggestionsGeneration == generation, filingLastProviderRoot == root else { break }
             read += 1
+            // His rules first, as in the scan: a rule that matches by the page, or names its folder
+            // from it ("read the file for its month"), says where it goes — not the router's best.
+            if let ruled = savedRuleHome(live, text: text, providerRoot: root) {
+                filingPageSamples[live.filePath] = String(text.prefix(FilingRouter.contentSampleChars))
+                replaceFilingSuggestion(live.id, candidates: [ruled])
+                homed += 1
+                continue
+            }
             if let best = routeWithPage(live, text: text, providerRoot: root, index: index).best {
                 replaceFilingSuggestion(live.id, candidates: [best])
                 homed += 1
@@ -75,6 +83,27 @@ extension FileSyncManager {
         banner = Self.downloadAndReadBanner(asked: targets.count, landed: landed.count, homed: homed,
                                             stillDownloading: pending.count, refused: refused)
         return homed
+    }
+
+    /// The home his saved rules give `live` now that page 1 is in hand, or nil when none matches:
+    /// the scan's own rule pass, run for one file with its page — the same rules, rejections and
+    /// walked folders (for a month folder's spelling), so the two agree about the file.
+    func savedRuleHome(_ live: FilingSuggestion, text: String, providerRoot root: String) -> FilingDestination? {
+        ensureAutomationRulesLoaded()
+        let rootURL = URL(fileURLWithPath: root)
+        let rules = filingRuleDefaults.bool(forKey: Self.filingRulesMigratedKey) ? [] : filingRules(under: rootURL)
+        guard !automationRules.isEmpty || !rules.isEmpty else { return nil }
+        let existing = Set(filingLastExistingFolders.map { root + "/" + $0 }).union([root])
+        let file = FileNode(id: live.filePath, name: live.fileName, isDirectory: false,
+                            modificationDate: live.modificationDate, fileSize: live.size)
+        let rejected = Self.rejectedPaths(forFileNamed: live.fileName, in: filingRejections(under: rootURL))
+            .union(filingSessionRejections[live.id] ?? [])
+        let suggested = FilingEngine.suggest(
+            looseFiles: [file], learned: FilingEngine.LearnedTaxonomy(profiles: [], existingPaths: existing),
+            providerRoot: root, contentTokens: filingTokensFromText.map { [live.filePath: $0(text)] } ?? [:],
+            rules: rules, automations: automationRules, registry: filingPersonRegistry, identity: filingPersonIdentity,
+            automationSnippets: [live.filePath: text], rejectedByFile: rejected.isEmpty ? [:] : [live.filePath: rejected])
+        return suggested.first?.candidates.first { $0.remembered }
     }
 
     /// Asks the provider for each of `targets` and waits up to ``filingDownloadWait`` for them to

@@ -153,6 +153,8 @@ extension FileSyncManager {
             var rows: [Int: AskClaudePlanOutcome.Row] = [:]
             var created: [URL] = []
             var moved: [MoveItemState] = []
+            /// Files (not folders) moved into a folder: filings, which teach the router (GW).
+            var filed: [(from: URL, to: URL)] = []
             /// Trashed items, original and where the Trash put it.
             var trashed: [(original: URL, trashed: URL?)] = []
         }
@@ -182,9 +184,12 @@ extension FileSyncManager {
                         guard fm.fileExists(atPath: src.path) else { done.rows[id] = .refused("It isn’t there any more"); continue }
                         var dst = URL(fileURLWithPath: toFolder).appendingPathComponent(src.lastPathComponent)
                         if fm.fileExists(atPath: dst.path) { dst = Self.generateUniqueURL(for: dst, fileManager: fm) }
+                        var isFolder: ObjCBool = false
+                        let isFile = fm.fileExists(atPath: src.path, isDirectory: &isFolder) && !isFolder.boolValue
                         let overwritten = try Self.safeMoveItem(at: src, to: dst, fileManager: fm,
                                                                 caseSensitiveVolume: Self.volumeSupportsCaseSensitiveNames(for: src))
                         done.moved.append((from: src, to: dst, overwritten: overwritten))
+                        if isFile { done.filed.append((from: src, to: dst)) }
                         done.rows[id] = .done(dst.lastPathComponent == src.lastPathComponent ? "Moved" : "Moved, as \(dst.lastPathComponent)")
                     case .trash(let path):
                         let url = URL(fileURLWithPath: path)
@@ -247,6 +252,12 @@ extension FileSyncManager {
         recordSyncHistory(records, pairedWithUndo: outcome.undoName != nil)
         for url in done.created { noteOwnWrite(atPath: url.path) }
         for item in done.moved { noteOwnWrite(atPath: item.to.path) }
+        // A file Claude's card filed teaches the folder as a To File filing does (GW); the router
+        // keeps it only for a folder in the tree it ranks, and drops it when Undo moves it back.
+        for item in done.filed {
+            learnFromFiling(fileName: item.from.lastPathComponent, sourcePath: item.from.path,
+                            into: item.to.deletingLastPathComponent().path, filedPath: item.to.path)
+        }
         Logger.shared.info("Ask Claude applied “\(actionName)”: \(outcome.doneCount) of \(rows.count) done"
             + (outcome.rows.count > outcome.doneCount ? ", \(outcome.rows.count - outcome.doneCount) skipped or failed" : ""))
         return outcome

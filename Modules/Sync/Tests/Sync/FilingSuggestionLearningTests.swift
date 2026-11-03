@@ -323,9 +323,40 @@ import Testing
         #expect(FilingRouter.rank(fileName: next, contentSnippet: page, index: after).best?.relativePath == shipments,
                 "the folder just filed into is what the next courier invoice should be offered")
 
+        // Undone — the file back where it came from — it stops teaching, at the next router build.
+        let landed = root.appendingPathComponent(shipments).appendingPathComponent(first.lastPathComponent)
+        try FileManager.default.moveItem(at: landed, to: first)
+        m.prepareFilingRouter(destinations: Set(folders), providerRoot: root.path)
+        let undone = try #require(m.filingRouterIndex)
+        #expect(m.filingFiledSinceSurvey.isEmpty)
+        #expect(FilingRouter.rank(fileName: next, contentSnippet: page, index: undone).best?.relativePath != shipments,
+                "an undone filing still taught the folder")
+
         // A survey that has looked since has the document itself: the filing is not counted twice.
+        m.learnFromFiling(fileName: first.lastPathComponent, sourcePath: first.path,
+                          into: root.appendingPathComponent(shipments).path)
         m.filingSurveyedAt = Date().addingTimeInterval(60)
         #expect(m.filedSinceSurvey(under: root.path).isEmpty)
+    }
+
+    /// GW covers Ask Claude's filings too: a file its card moves teaches the folder, and a folder
+    /// moved or a rename teaches nothing.
+    @Test func aMoveAskClaudeAppliesTeachesTheRouter() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingGWAskClaude")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let shipments = root.appendingPathComponent("Immigration/Customs/USA/Shipments")
+        try FileManager.default.createDirectory(at: shipments, withIntermediateDirectories: true)
+        let file = root.appendingPathComponent("TODO/FedEx invoice - India courier .pdf")
+        try Self.write(file)
+        let folder = root.appendingPathComponent("TODO/Old Trip")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let m = Self.manager(root, folders: ["Immigration/Customs/USA/Shipments"])
+        let outcome = await m.applyPlan([(id: 0, change: .move(from: file.path, toFolder: shipments.path)),
+                                         (id: 1, change: .move(from: folder.path, toFolder: shipments.path))],
+                                        actionName: "File", isHidden: { _ in false }, protected: [])
+        #expect(outcome.doneCount == 2)
+        #expect(m.filingFiledSinceSurvey.map(\.folder) == [shipments.path])
+        #expect(m.filingFiledSinceSurvey.first?.filedPath == shipments.appendingPathComponent(file.lastPathComponent).path)
     }
 
     @Test func theMergeKeepsTheBuildersRules() {

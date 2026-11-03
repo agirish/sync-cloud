@@ -1589,6 +1589,9 @@ public class FileSyncManager: ObservableObject {
     /// next filing scan and nothing else re-reads them.
     var filingSatelliteHomes: [String: Set<String>] = [:]
     var filingSatelliteKey: [Date]?
+    /// The provider root the map was built for. Its folders are relative to that tree, so filing
+    /// help uses the map only when it answers for the same one.
+    var filingSatelliteRoot: String?
     /// So a test can tell a reused map from a rebuilt one — same reason as `filingRouterIndexBuilds`.
     var filingSatelliteBuilds = 0
 
@@ -1599,6 +1602,7 @@ public class FileSyncManager: ObservableObject {
         else {
             filingSatelliteHomes = [:]
             filingSatelliteKey = nil
+            filingSatelliteRoot = nil
             return
         }
         let hashURL = directory.appendingPathComponent("content-hash-index.json")
@@ -1608,7 +1612,7 @@ public class FileSyncManager: ObservableObject {
             (try? fm.attributesOfItem(atPath: $0.path)[.modificationDate] as? Date) ?? nil
                 ?? Date.distantPast
         }
-        if filingSatelliteKey == stamps { return }
+        if filingSatelliteKey == stamps, filingSatelliteRoot == providerRoot { return }
         let index = DocumentIdentityIndex.build(
             hashes: ContentHashIndexStore.load(from: hashURL),
             fingerprints: ContentHashIndexStore.load(from: fpURL),
@@ -1621,6 +1625,7 @@ public class FileSyncManager: ObservableObject {
             profile.acceptsNewFiles($0)
         }
         filingSatelliteKey = stamps
+        filingSatelliteRoot = providerRoot
         filingSatelliteBuilds += 1
         if !filingSatelliteHomes.isEmpty {
             Logger.shared.info("Filing: \(filingSatelliteHomes.count) folder(s) hold copies of another "

@@ -25,6 +25,8 @@ extension FileSyncManager {
         // tree's shape held still, which is most of the time.
         let before = filingSatelliteHomes
         refreshSatelliteHomes(providerRoot: providerRoot)
+        // Before the early-out too: an undone filing moves the generation the index is keyed on.
+        forgetUndoneFilings()
         if filingRouterIndex != nil, filingRouterIndexKey == destinations,
            before == filingSatelliteHomes,
            filingRouterIndexFiledGeneration == filingFiledSinceSurveyGeneration { return }
@@ -264,11 +266,15 @@ public struct FilingFiledSinceSurvey: Codable, Sendable, Equatable {
     /// Page 1's readable words and the name's — see ``FilingSurvey/filedAnchors(fileName:page1:)``.
     public let anchors: [String]
     public let filedAt: Date
+    /// Where the file landed, so a filing undone — the file gone from there — stops teaching.
+    /// Nil for entries saved before it was recorded; those are kept.
+    public let filedPath: String?
 
-    public init(folder: String, anchors: [String], filedAt: Date) {
+    public init(folder: String, anchors: [String], filedAt: Date, filedPath: String? = nil) {
         self.folder = folder
         self.anchors = anchors
         self.filedAt = filedAt
+        self.filedPath = filedPath
     }
 }
 
@@ -295,12 +301,27 @@ extension FileSyncManager {
     }
 
     /// Teaches the router what `folder` now holds (GW): the next scan ranks by it, without waiting
-    /// for the survey. Called for every filing SyncCloud makes, whatever chose the folder.
-    func learnFromFiling(fileName: String, sourcePath: String, into folder: String, now: Date = Date()) {
+    /// for the survey. Called for every filing SyncCloud makes, whatever chose the folder — To
+    /// File's and Ask Claude's. `filedPath` is where the file landed: a filing undone stops
+    /// teaching (``forgetUndoneFilings()``).
+    func learnFromFiling(fileName: String, sourcePath: String, into folder: String, filedPath: String? = nil,
+                         now: Date = Date()) {
         let anchors = FilingSurvey.filedAnchors(fileName: fileName, page1: filingPageSamples[sourcePath])
         guard !anchors.isEmpty else { return }
         filingFiledSinceSurvey.append(FilingFiledSinceSurvey(folder: folder, anchors: anchors.sorted(),
-                                                             filedAt: now))
+                                                             filedAt: now, filedPath: filedPath))
+        filingFiledSinceSurveyGeneration += 1
+    }
+
+    /// Drops what a filing taught once its file is no longer where it was filed — Undo moved it
+    /// back, or he moved it on — so the folder stops ranking for words it does not hold. One stat
+    /// per entry, at most ``filedSinceSurveyCap``, before each router build.
+    func forgetUndoneFilings() {
+        let entries = filingFiledSinceSurvey
+        let kept = entries.filter { entry in entry.filedPath.map { fileManager.fileExists(atPath: $0) } ?? true }
+        guard kept.count != entries.count else { return }
+        Logger.shared.info("Filing: forgot \(entries.count - kept.count) filing(s) no longer in their folder")
+        filingFiledSinceSurvey = kept
         filingFiledSinceSurveyGeneration += 1
     }
 

@@ -118,6 +118,9 @@ extension FileSyncManager {
         case noSourceSurvey
         /// The source's documents have been read already. A source has no Refresh yet.
         case sourceAlreadyRead
+        /// The source's folders are being learned again. The learn retires the survey a reading
+        /// would read into, and the reading would then recreate its folder and date the new one.
+        case learningFolders
 
         public var sentence: String {
             switch self {
@@ -163,6 +166,8 @@ extension FileSyncManager {
                 return "This source has no folder survey of its own yet. Learn its folders first."
             case .sourceAlreadyRead:
                 return "This source’s documents have been read already."
+            case .learningFolders:
+                return "Its folders are being learned. Read its documents when that finishes."
             }
         }
     }
@@ -267,6 +272,7 @@ extension FileSyncManager {
         guard !filingSurveyLifecycle.isRunning else { return .failure(.alreadyRunning) }
         guard let directory = filingProfilesDirectory else { return .failure(.noProfileDirectory) }
         guard filingSnippetExtractor != nil else { return .failure(.noExtractor) }
+        guard !isLearningFolders(ofSource: sourceRoot) else { return .failure(.learningFolders) }
         guard let entry = SourceSurveyStore.entry(forRoot: sourceRoot, in: directory),
               let profileId = entry.profileId,
               let profile = sourceSurveyProfile(id: profileId) else {
@@ -447,6 +453,8 @@ extension FileSyncManager {
         guard !filingSurveyLifecycle.isRunning else { return .failure(.alreadyRunning) }
         guard let directory = filingProfilesDirectory else { return .failure(.noProfileDirectory) }
         guard let extractor = filingSnippetExtractor else { return .failure(.noExtractor) }
+        // A learn started after the plan: it would trash the survey this reads into, mid-reading.
+        if let source = plan.sourceRoot, isLearningFolders(ofSource: source) { return .failure(.learningFolders) }
         // The id the plan was made with, asked the way the plan asks it — for a source, the id its
         // entry names now, so a survey learned again or forgotten meanwhile is not read into.
         let currentId = plan.sourceRoot.map { SourceSurveyStore.entry(forRoot: $0, in: directory)?.profileId }

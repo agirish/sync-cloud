@@ -11,7 +11,7 @@ extension FileSyncManager {
     func ruleAnswer(_ path: String, snippet: String?, root: String, profile: FolderProfile,
                     isHidden: (String) -> Bool) -> FilingHelpAnswer.Suggestion? {
         ensureAutomationRulesLoaded()
-        let rules = AutomationRuleSet.eligible(automationRules)
+        let rules = AutomationRuleSet.eligible(automationRules).narrowed { $0.acts(in: root) }
         guard !rules.isEmpty else { return nil }
         let name = (path as NSString).lastPathComponent
         let parent = (path as NSString).deletingLastPathComponent
@@ -59,6 +59,10 @@ extension FileSyncManager {
     /// The rule a correction teaches (TE286): `path` goes into `folder` (absolute, inside the
     /// survey that covers it), and `phrases` are the words of its kind. Nothing is saved.
     /// `.failure(nil)` when the folder isn't in a survey.
+    ///
+    /// The rule is that survey's: its folder is relative to the survey's root, so it carries that
+    /// root and acts only in that tree's scans — a ticket rule taught for iCloud's Travel never
+    /// files a Dropbox ticket into Dropbox/Travel. Only rules that act there are weighed against it.
     public func ruleFromCorrection(_ path: String, into folder: String, name: String, phrases: [String],
                                    also: [String], pageSample: String?) -> Result<AutomationRuleProposer.Correction, AutomationRuleProposer.CorrectionRefusal>? {
         guard let survey = filingHelpSurvey(for: folder),
@@ -68,7 +72,14 @@ extension FileSyncManager {
         return AutomationRuleProposer.correction(
             fileName: (path as NSString).lastPathComponent, destinationRelativePath: relative, name: name,
             phrases: phrases, also: also, pageSample: pageSample, modificationDate: modified,
-            existingRules: automationRules)
+            existingRules: automationRules.filter { $0.acts(in: survey.root) })
+        .map { (correction: AutomationRuleProposer.Correction) -> AutomationRuleProposer.Correction in
+            // Words added to a rule keep the rule's own scope; a new rule or a sibling takes this one.
+            if case .addWords = correction.kind { return correction }
+            var rule = correction.rule
+            rule.surveyRoot = survey.root
+            return .init(kind: correction.kind, rule: rule, example: correction.example, checkedDate: correction.checkedDate)
+        }
     }
 
     /// Saves a correction's rule on his click: a new rule at the end, words added in place, a

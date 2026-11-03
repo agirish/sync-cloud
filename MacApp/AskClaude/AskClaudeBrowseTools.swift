@@ -89,6 +89,12 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var surveyFolder: (_ name: String) -> String? = { _ in nil }
         /// The folder the survey covers, absolute; nil with no survey.
         var surveyRoot: String?
+        /// The root of the survey filing help answers from for a path (GM: it follows the source —
+        /// Google Drive's own survey for a place in Google Drive); nil uses ``surveyRoot``.
+        var surveyRootFor: ((_ path: String) -> String?)?
+
+        /// The survey that answers for `path`, absolute; nil with no survey.
+        func survey(for path: String) -> String? { surveyRootFor.map { $0(path) } ?? surveyRoot }
         /// Why a change can't run (TE262): hidden, gone, taken, another disk…; nil when it can.
         /// `creating` are folders the same card makes.
         var planRefusal: (_ change: AskClaudePlan.Change, _ creating: Set<String>) -> String? = { _, _ in nil }
@@ -1630,7 +1636,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
         if ctx.isHidden(folder.absolute) { return hiddenFolder() }
         let shown = Self.breadcrumb(folder.absolute, sources: ctx.sources, fallback: folder.label)
-        guard let surveyRoot = ctx.surveyRoot else {
+        // The survey that answers for these files (GM): their source's own, or the primary one.
+        guard let surveyRoot = ctx.survey(for: folder.absolute) else {
             let card = AskClaudeFilingCard(fileName: shown, filePath: folder.absolute, kind: .noProfile)
             return AskClaudeToolOutcome(result: AskClaudeFiling.result(card, readsFiles: ctx.readsFiles),
                                         step: "No folder survey to go by", filing: card)
@@ -1658,15 +1665,22 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                 result: "\(AskClaudeScreenCard.escape(shown)) has \(counted). Their folder survey covers \(AskClaudeScreenCard.escape(surveyLabel)). They have two buttons: “Into \(surveyName), by how I file” and “Somewhere else…”. Ask where these should go in one short sentence, with the count, and stop.",
                 step: "Counted \(total) loose file\(total == 1 ? "" : "s") in \(folder.label)", choices: choices)
         }
-        guard let place = Self.place(into, ctx) else {
+        // "Into <survey>" — the button's words — names the survey offered, even a source's own one,
+        // whose folder the primary survey's names don't know.
+        let namesSurvey = into.trimmingCharacters(in: CharacterSet(charactersIn: "/ ")).caseInsensitiveCompare(surveyName) == .orderedSame
+        guard let place = namesSurvey ? surveyRoot : Self.place(into, ctx) else {
             return AskClaudeToolOutcome(result: "There’s no folder called \(into) in their folder survey or their sources. Ask where they mean.",
                                         isError: true, step: "No place called \(into)")
         }
         if ctx.isHidden(place) { return hiddenFolder() }
         let placeLabel = Self.breadcrumb(place, sources: ctx.sources, fallback: (place as NSString).lastPathComponent)
+        // A named place decides the survey, as filing help decides it: "into Google Drive's Finance"
+        // is Google Drive's survey, wherever the files sit.
+        let placeSurvey = ctx.survey(for: place) ?? surveyRoot
         // Decision FY: a place the survey doesn't cover is said, and the survey offered instead.
-        guard FileSyncManager.isAtOrUnderSurvey(place, root: surveyRoot) else {
-            let card = AskClaudeFilingCard(fileName: shown, filePath: folder.absolute, kind: .outside(surveyed: surveyLabel), place: placeLabel)
+        guard FileSyncManager.isAtOrUnderSurvey(place, root: placeSurvey) else {
+            let placeSurveyLabel = Self.breadcrumb(placeSurvey, sources: ctx.sources, fallback: (placeSurvey as NSString).lastPathComponent)
+            let card = AskClaudeFilingCard(fileName: shown, filePath: folder.absolute, kind: .outside(surveyed: placeSurveyLabel), place: placeLabel)
             return AskClaudeToolOutcome(result: AskClaudeFiling.result(card, readsFiles: ctx.readsFiles),
                                         step: "\(placeLabel) is outside the folder survey", filing: card,
                                         choices: [AskClaudeChoice("Into \(surveyName), by how I file", sends: "Into \(surveyName), by how I file"),
@@ -1678,7 +1692,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             return AskClaudeToolOutcome(result: "There are only \(total) loose files; none from \(from).", isError: true,
                                         step: "No loose files past \(total)")
         }
-        let preferring = AskClaudeBrowseTools.samePath(place, surveyRoot) ? nil : place
+        // Always the place, the survey's root included: it is what picks the survey each file is
+        // answered from, so the card's rows and its "into" title come from the same one.
+        let preferring: String? = place
         var rows: [AskClaudePlan.Row] = []
         var noHome = 0
         for file in page {
@@ -1761,10 +1777,6 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         if !found.installers.isEmpty { text += "; \(found.installers.count) apps or installers stay" }
         if found.truncated { text += "; the folder holds more than SyncCloud looked through" }
         return text
-    }
-
-    static func samePath(_ a: String, _ b: String) -> Bool {
-        URL(fileURLWithPath: a).resolvingSymlinksInPath().path == URL(fileURLWithPath: b).resolvingSymlinksInPath().path
     }
 
     /// "iCloud › Documents › Taxes", from the source holding `absolute`.

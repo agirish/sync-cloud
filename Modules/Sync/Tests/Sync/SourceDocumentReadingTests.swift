@@ -191,6 +191,28 @@ import Testing
         #expect(await m.stopDocumentSurveyBeforeReplacingProfile(savingFolder: x.f.primary) == .nothingStopped)
     }
 
+    /// The other way round: while its folders are learned again, a reading is neither planned nor
+    /// started — the learn trashes the survey it would read into — and a reading that finishes for
+    /// a survey the entry no longer names dates nothing.
+    @Test func aSourceBeingLearnedIsNotRead() async throws {
+        let x = try await Self.learned()
+        defer { try? FileManager.default.removeItem(at: x.f.base) }
+        let m = x.manager
+        let id = try #require(m.filingSurveyInUse?.ownProfileId)
+        let plan = try await m.planSourceDocumentSurvey(sourceRoot: x.f.google.path).get()
+
+        m.learningSourceSurveyRoot = x.f.google.path
+        #expect(await m.planSourceDocumentSurvey(sourceRoot: x.f.google.path) == .failure(.learningFolders))
+        #expect(await m.runDocumentSurvey(plan: plan) == .failure(.learningFolders))
+        #expect(SourceSurveyStore.entry(forRoot: x.f.google.path, in: x.f.profiles)?.documentsReadAt == nil)
+        m.learningSourceSurveyRoot = nil
+
+        m.recordSourceDocumentsRead(sourceRoot: x.f.google.path, profileId: id + "-replaced", memory: nil,
+                                    documentsRead: 3, in: x.f.profiles, now: Date())
+        #expect(SourceSurveyStore.entry(forRoot: x.f.google.path, in: x.f.profiles)?.documentsReadAt == nil,
+                "a reading of a survey the entry no longer names dated the new one")
+    }
+
     /// Forgetting a read survey forgets the reading with it.
     @Test(.timeLimit(.minutes(1)))
     func forgettingDropsTheReading() async throws {

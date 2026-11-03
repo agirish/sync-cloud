@@ -97,7 +97,7 @@ import Testing
 
     /// One cloud-only PDF and one downloaded scan with no text layer, filed against a survey that
     /// knows where leases go. The snippet extractor refuses a cloud-only file, as the app's does.
-    static func makeScan(lands: Bool = true, refuses: Bool = false) async throws
+    static func makeScan(lands: Bool = true, refuses: Bool = false, rule: AutomationRule? = nil) async throws
         -> (FileSyncManager, URL, Cloud, String) {
         let root = try makeCanonicalTempRoot(prefix: "FilingDownloadRead")
         try FilingScanRouterWiringTests.write(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
@@ -106,6 +106,8 @@ import Testing
         try FilingScanRouterWiringTests.write(root.appendingPathComponent("Downloads/scanned.pdf"))
         let cloud = Cloud([ticket], lands: lands)
         let m = FileSyncManager()
+        m.filingRuleDefaults = ScratchDefaults("FilingDownloadRead-\(UUID().uuidString)")
+        if let rule { m.upsertAutomationRule(rule) }
         m.filingContentExtractor = { _ in [] }
         m.filingSnippetExtractor = { p in
             cloud.isCloudOnly(p) || p.hasSuffix("scanned.pdf") ? nil : "lease tenancy landlord rent"
@@ -156,6 +158,23 @@ import Testing
         #expect(m.banner?.severity == .success)
         #expect(m.banner?.message == "Downloaded and read 1 file; 1 has a home from the page.")
         #expect(!m.isDownloadingFilingFiles)
+    }
+
+    /// His saved rule decides where the downloaded page goes, as in the scan: a rule that needed
+    /// the page to match is not overruled by the router's best.
+    @Test func downloadAndReadFollowsASavedRuleOverTheRouter() async throws {
+        let rule = AutomationRule(name: "Rentals", conditions: [.mentionsAny(["tenancy"])],
+                                  destinationTemplate: "Documents/Home/Rentals")
+        let (m, root, _, ticket) = try await Self.makeScan(rule: rule)
+        defer { try? FileManager.default.removeItem(at: root) }
+        #expect(m.filingSuggestions.first { $0.filePath == ticket }?.best?.remembered != true,
+                "premise: the rule can't match a file whose page wasn't read")
+
+        #expect(await m.downloadAndReadFiling(m.filingSuggestions) == 1)
+        let after = try #require(m.filingSuggestions.first { $0.filePath == ticket }?.best)
+        #expect(after.path == root.appendingPathComponent("Documents/Home/Rentals").path,
+                "the router's Leases replaced the rule's folder")
+        #expect(after.remembered)
     }
 
     /// A download still on its way when the wait runs out is left marked and said, so a second

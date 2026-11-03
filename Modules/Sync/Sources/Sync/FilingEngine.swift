@@ -448,7 +448,8 @@ public enum FilingEngine {
         })
         // Which rules are allowed to act does not depend on the file, so it is decided once for
         // the scan rather than once per loose file — the shared eligibility bar, one array.
-        let actingAutomations = AutomationRuleSet.eligible(automations)
+        // A rule taught for another survey's tree is inert here (TE286), as an absolute one is.
+        let actingAutomations = AutomationRuleSet.eligible(automations).narrowed { $0.acts(in: providerRoot) }
 
         return looseFiles.compactMap { file -> FilingSuggestion? in
             guard !file.isDirectory else { return nil }

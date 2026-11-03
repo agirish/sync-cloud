@@ -754,6 +754,7 @@ extension ContentView {
             },
             surveyFolder: { syncManager.filingSurveyFolder(named: $0) },
             surveyRoot: syncManager.filingFolderProfile?.recordedFolderPath,
+            surveyRootFor: { syncManager.filingHelpSurveyRoot(for: $0) },
             planRefusal: { change, creating in
                 let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
                 return syncManager.planRefusal(change, creating: creating, isHidden: { hidden.isHidden($0) },

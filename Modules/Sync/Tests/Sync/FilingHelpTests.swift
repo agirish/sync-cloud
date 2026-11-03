@@ -123,6 +123,23 @@ import Testing
         #expect(s.first?.relativePath == "Taxes/2025" && s.first?.outsidePlace == true)
     }
 
+    /// The satellite map is built by each To File scan for that scan's tree. After a Dropbox scan
+    /// its folders are Dropbox's, and the same relative paths in iCloud must not be demoted by it.
+    @Test func aSatelliteMapFromAnotherTreeDemotesNothing() async {
+        let m = manager("help-satellite", root: root, anchors: ["Taxes/2025": ["wages", "employer", "w2"],
+                                                               "Archive/Taxes": ["wages"]])
+        m.filingSatelliteHomes = ["Taxes/2025": ["Archive/Taxes"]]
+        m.filingSatelliteRoot = "/never-on-disk-filing-help/Dropbox"
+        let elsewhere = await m.whereToFile(root + "/w2.pdf", snippet: "wages employer w2", isHidden: { _ in false })
+        guard case .suggested(let s) = elsewhere.outcome else { Issue.record("no suggestion: \(elsewhere)"); return }
+        #expect(s.first?.relativePath == "Taxes/2025", "Dropbox's map demoted iCloud's folder")
+        // The control: built for this tree, the map applies, and the copy gives way to its home.
+        m.filingSatelliteRoot = root
+        let own = await m.whereToFile(root + "/w2.pdf", snippet: "wages employer w2", isHidden: { _ in false })
+        guard case .suggested(let o) = own.outcome else { Issue.record("no suggestion: \(own)"); return }
+        #expect(o.first?.relativePath == "Archive/Taxes")
+    }
+
     @Test func aSurveyFolderIsFoundByPathOrByItsName() {
         let m = manager("help-named", root: root, anchors: ["Travel": [], "Travel/Trips": [], "Work/Trips": [],
                                                            "Work/Old/Trips": []])

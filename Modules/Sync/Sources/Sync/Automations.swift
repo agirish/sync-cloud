@@ -351,6 +351,11 @@ public struct AutomationRule: Sendable, Equatable, Codable, Identifiable, Hashab
     public var conditions: [AutomationCondition]
     /// Provider-relative destination folder, may contain tokens (see ``AutomationEvaluator``).
     public var destinationTemplate: String
+    /// The folder survey's root the destination is relative to, for a rule taught by a correction
+    /// in Ask Claude (TE286): such a rule acts only in that tree, and is inert in every other
+    /// source's scan, as an absolute rule is outside its own. Nil — every rule written before this,
+    /// and every rule made by hand — resolves against whichever tree is scanned.
+    public var surveyRoot: String?
 
     /// Top-level keys this build has **no case for**, kept verbatim so a round-trip through it is
     /// not a silent downgrade of the user's data. Harmless: a rule carrying one still runs, because
@@ -379,7 +384,8 @@ public struct AutomationRule: Sendable, Equatable, Codable, Identifiable, Hashab
         enabled: Bool = true,
         matchMode: MatchMode = .all,
         conditions: [AutomationCondition] = [],
-        destinationTemplate: String = ""
+        destinationTemplate: String = "",
+        surveyRoot: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -387,6 +393,7 @@ public struct AutomationRule: Sendable, Equatable, Codable, Identifiable, Hashab
         self.matchMode = matchMode
         self.conditions = conditions
         self.destinationTemplate = destinationTemplate
+        self.surveyRoot = surveyRoot
         self.unknownFields = [:]
         self.unreadableFields = [:]
     }
@@ -426,6 +433,12 @@ public struct AutomationRule: Sendable, Equatable, Codable, Identifiable, Hashab
     /// The destination is named from page 1, so a file the rule matches by name alone still needs
     /// its text read to know where it goes.
     public var destinationReadsContent: Bool { AutomationTravelDate.isUsed(in: destinationTemplate) }
+
+    /// Whether the rule may act in a scan of `providerRoot`: a rule taught for one survey's tree
+    /// (``surveyRoot``) acts only there, in either spelling of a link on the way.
+    public func acts(in providerRoot: String) -> Bool {
+        surveyRoot.map { SourceSurveyStore.sameFolder($0, providerRoot) } ?? true
+    }
 
     /// A one-line plain-words summary, e.g. "PDF · text contains “invoice” → Documents/Invoices/{year}".
     public var summary: String {
@@ -471,7 +484,7 @@ public struct AutomationRule: Sendable, Equatable, Codable, Identifiable, Hashab
 extension AutomationRule {
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
-        case id, name, enabled, matchMode, conditions, destinationTemplate
+        case id, name, enabled, matchMode, conditions, destinationTemplate, surveyRoot
     }
 
     /// A key made from a string at runtime — needed to reach the keys this build has no case for.
@@ -509,6 +522,7 @@ extension AutomationRule {
         matchMode = value(MatchMode.self, .matchMode) ?? .all
         conditions = value([AutomationCondition].self, .conditions) ?? []
         destinationTemplate = value(String.self, .destinationTemplate) ?? ""
+        surveyRoot = value(String.self, .surveyRoot)
         unreadableFields = unreadable
 
         let known = Set(CodingKeys.allCases.map(\.stringValue))
@@ -534,6 +548,8 @@ extension AutomationRule {
         try c.encode(matchMode, forKey: AnyKey(.matchMode))
         try c.encode(conditions, forKey: AnyKey(.conditions))
         try c.encode(destinationTemplate, forKey: AnyKey(.destinationTemplate))
+        // Only when set, so a rule without one writes the bytes it always did.
+        if let surveyRoot { try c.encode(surveyRoot, forKey: AnyKey(.surveyRoot)) }
         // LAST, deliberately: these overwrite the defaults substituted above, so what goes back to
         // disk for a field this build could not read is what came off it.
         for (name, fragment) in unreadableFields.sorted(by: { $0.key < $1.key }) {

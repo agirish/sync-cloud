@@ -317,4 +317,30 @@ import Testing
         f.manager.setSourceSurveyChoice(root: f.google.path, .primary)
         #expect(f.manager.filingHelpSurvey(for: inGoogle)?.profile.profileId == "primary")
     }
+
+    /// Read Documents changes Google Drive's survey and not the primary's, so Ask Claude must rank
+    /// with what the reading learned rather than the index it built from folder names alone.
+    @Test func askClaudeRanksWithWhatReadingASourceLearned() async throws {
+        let f = try Self.fixture()
+        defer { try? FileManager.default.removeItem(at: f.base) }
+        _ = await f.manager.learnSourceSurvey(root: f.google.path)
+        let id = try #require(SourceSurveyStore.entry(forRoot: f.google.path, in: f.profiles)?.profileId)
+        let file = f.google.appendingPathComponent("scan.pdf").path
+        let page = "fragomen petition receipt notice uscis"
+        let before = await f.manager.whereToFile(file, snippet: page, isHidden: { _ in false })
+        if case .suggested(let s) = before.outcome {
+            #expect(s.first?.relativePath != "Work Authorization/H-1B", "premise: the folder names alone don't place it")
+        }
+
+        let memory = FilingMemory(profileId: id, salt: "s", folders: [
+            "Work Authorization/H-1B": FilingMemoryEntry(docs: 4, anchors: ["fragomen", "petition", "uscis"].map {
+                FilingMemoryToken(token: $0, weight: 4.0)
+            }, idHashes: []),
+        ])
+        f.manager.recordSourceDocumentsRead(sourceRoot: f.google.path, profileId: id, memory: memory,
+                                            documentsRead: 4, in: f.profiles, now: Date())
+        let after = await f.manager.whereToFile(file, snippet: page, isHidden: { _ in false })
+        guard case .suggested(let s) = after.outcome else { Issue.record("no suggestion after the reading: \(after)"); return }
+        #expect(s.first?.relativePath == "Work Authorization/H-1B", "ranked with the index from before the reading")
+    }
 }

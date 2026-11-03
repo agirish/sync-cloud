@@ -343,7 +343,7 @@ extension FileSyncManager {
         // outcome are read. This keeps the two surfaces in agreement — a rule that matches a file
         // in the lens preview matches it here — at zero cost when no rule reads content.
         var automationSnippets: [String: String] = [:]
-        let actingRules = AutomationRuleSet.eligible(automations)
+        let actingRules = AutomationRuleSet.eligible(automations).narrowed { $0.acts(in: providerRoot.path) }
         if filingReadsContents, let extractor = filingSnippetExtractor, actingRules.readsContent {
             let candidates = looseFiles.filter { file in
                 let facts = FilingEngine.automationFacts(for: file, registry: filingPersonRegistry,
@@ -2056,7 +2056,7 @@ extension FileSyncManager {
         case .moved(let dst, let overwritten):
             filingSuggestions.removeAll { $0.id == suggestion.id }
             learnFromFiling(fileName: suggestion.fileName, sourcePath: suggestion.filePath,
-                            into: dst.deletingLastPathComponent().path)
+                            into: dst.deletingLastPathComponent().path, filedPath: dst.path)
             return .moved((from: src, to: dst, overwritten: overwritten))
         }
     }

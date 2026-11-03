@@ -2848,7 +2848,8 @@ private final class OffersADownload: AskClaudeToolRunning {
                                         ?? "Fits how this folder is used", evidenceToken: token)
     }
 
-    private func runner(survey: Bool = true, token: Bool = false) -> AskClaudeBrowseTools {
+    private func runner(survey: Bool = true, token: Bool = false,
+                        configure: @escaping (inout AskClaudeBrowseTools.Context) -> Void = { _ in }) -> AskClaudeBrowseTools {
         let dir = self.dir
         let homes: [String: [FilingHelpAnswer.Suggestion]] = [
             "JAL Ticket.pdf": [s("Travel/Trips", .high, token: token ? "Japan Airlines" : nil)], "Ticket.pdf": [s("Travel/Trips", .high)],
@@ -2867,6 +2868,7 @@ private final class OffersADownload: AskClaudeToolRunning {
                 let list = homes[(path as NSString).lastPathComponent]
                 return FilingHelpAnswer(outcome: list.map { .suggested($0) } ?? .noMatch, surveyedAt: nil)
             }
+            configure(&ctx)
             return ctx
         }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
     }
@@ -2926,6 +2928,39 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(first.result.contains("call again with the same folder and into, and from 10"))
         let last = await call(["into": .string("Documents"), "from": .integer(60)], runner())
         #expect(last.plan?.more == nil && last.plan?.nextAsk == nil)
+    }
+
+    /// What the tool asked filing help, per file.
+    final class Asked: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _places: [String?] = []
+        var places: [String?] { lock.withLock { _places } }
+        func note(_ place: String?) { lock.withLock { _places.append(place) } }
+    }
+
+    /// GM: a place in Google Drive, which has its own survey, is answered from Google Drive's
+    /// survey — not refused as outside the primary one — and filing help is handed the place, so
+    /// the card's rows come from the survey its title names.
+    @Test func aPlaceInASourceWithItsOwnSurveyIsFiledFromThatSurvey() async throws {
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let google = dir + "/Google", googleSurvey = dir + "/Google/My Drive"
+        try FileManager.default.createDirectory(atPath: googleSurvey + "/Finance", withIntermediateDirectories: true)
+        let asked = Asked()
+        let primary = dir + "/Documents"
+        let tools = runner { ctx in
+            ctx.sources.append(.init(id: "google", name: "Google", root: google))
+            ctx.surveyRootFor = { $0 == google || $0.hasPrefix(google + "/") ? googleSurvey : primary }
+            let answer = ctx.whereToFile
+            ctx.whereToFile = { path, place in asked.note(place); return await answer(path, place) }
+        }
+        let out = await call(["into": .string("Google/My Drive/Finance")], tools)
+        #expect(out.filing == nil, "refused as outside the primary survey: \(String(describing: out.filing))")
+        #expect(out.plan?.subtitle == "into Google › My Drive › Finance")
+        #expect(!asked.places.isEmpty && asked.places.allSatisfy { $0 == googleSurvey + "/Finance" })
+
+        // The survey's own root, named as the button names it, is handed over too.
+        let whole = await call(["into": .string("Documents")], tools)
+        #expect(whole.plan != nil && asked.places.last == dir + "/Documents")
     }
 
     /// The card is on their Mac: a row says which word decided it and what the file is.

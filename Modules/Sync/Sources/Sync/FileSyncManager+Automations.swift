@@ -288,9 +288,11 @@ extension FileSyncManager {
         // provider is inert here — filtered up front so it can't claim a file another rule would
         // handle. Compared on raw paths, the same strings the legacy provider scoping compared.
         let anchorPath = destinationAnchor.path
+        // So is a rule taught for another survey's tree (TE286).
         func isInert(_ rule: AutomationRule) -> Bool {
-            rule.destinationTemplate.hasPrefix("/")
-                && AutomationEvaluator.absoluteDestination(rule.destinationTemplate, providerRoot: anchorPath) == nil
+            (rule.destinationTemplate.hasPrefix("/")
+                && AutomationEvaluator.absoluteDestination(rule.destinationTemplate, providerRoot: anchorPath) == nil)
+                || !rule.acts(in: anchorPath)
         }
         // Previewing exactly one provider-inert rule must SAY so — a silent empty report reads as
         // "the conditions match nothing", which is the wrong diagnosis.

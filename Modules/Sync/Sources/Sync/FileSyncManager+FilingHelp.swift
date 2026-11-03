@@ -106,11 +106,16 @@ extension FileSyncManager {
             return FilingHelpAnswer(outcome: .suggested([ruled]), surveyedAt: surveyedAt)
         }
         let memory = survey.memory, registry = filingPersonRegistry
-        // The satellite map is the primary survey's tree; a source's own survey has none.
-        let satellites = survey.profile.profileId == filingFolderProfile?.profileId ? filingSatelliteHomes : [:]
+        // The satellite map is the primary survey's tree, and only when the last To File scan
+        // built it for that tree: after a Dropbox scan it names Dropbox's folders, and the same
+        // relative paths in iCloud would be demoted as copies. A source's own survey has none.
+        let satellites = survey.profile.profileId == filingFolderProfile?.profileId
+            && filingSatelliteRoot.map({ SourceSurveyStore.sameFolder($0, root) }) == true ? filingSatelliteHomes : [:]
         // Asked here, once per folder: the list's matcher reads the disk and stays on this actor.
         let hidden = Set(profile.folders.keys.filter { isHidden(root + "/" + $0) })
-        let key = FilingHelpIndexCache.Key(profileId: profile.profileId, generation: filingHelpProfileStamp,
+        let key = FilingHelpIndexCache.Key(profileId: profile.profileId,
+                                           generation: filingHelpStamp(memory: memory, surveyedAt: surveyedAt,
+                                                                       satellites: satellites),
                                            hidden: hidden)
         let index = await Task.detached(priority: .userInitiated) {
             FilingHelpIndexCache.shared.index(for: key) {
@@ -229,16 +234,35 @@ extension FileSyncManager {
         var hasher = Hasher()
         hasher.combine(filingProfileDirectoryId)
         hasher.combine(filingSurveyedAt)
-        hasher.combine(filingMemory?.profileId)
         // The folders themselves, not their counts: two surveys of the same size are not the same
         // survey. Thousands of short strings, well under a millisecond.
         for folder in (filingFolderProfile?.folders.keys).map({ $0.sorted() }) ?? [] { hasher.combine(folder) }
-        for (folder, entry) in (filingMemory?.folders ?? [:]).sorted(by: { $0.key < $1.key }) {
+        Self.combine(filingMemory, into: &hasher)
+        hasher.combine(filingPersonRegistry == nil)
+        return hasher.finalize()
+    }
+
+    /// ``filingHelpProfileStamp`` plus what the survey answering this question brings: a source's
+    /// own survey changes when its documents are read (its memory and date), which the primary
+    /// survey's stamp never sees; and the satellite map, which moves with each To File scan.
+    func filingHelpStamp(memory: FilingMemory?, surveyedAt: Date?, satellites: [String: Set<String>]) -> Int {
+        var hasher = Hasher()
+        hasher.combine(filingHelpProfileStamp)
+        hasher.combine(surveyedAt)
+        Self.combine(memory, into: &hasher)
+        for (satellite, homes) in satellites.sorted(by: { $0.key < $1.key }) {
+            hasher.combine(satellite)
+            hasher.combine(homes.sorted())
+        }
+        return hasher.finalize()
+    }
+
+    private static func combine(_ memory: FilingMemory?, into hasher: inout Hasher) {
+        hasher.combine(memory?.profileId)
+        for (folder, entry) in (memory?.folders ?? [:]).sorted(by: { $0.key < $1.key }) {
             hasher.combine(folder)
             hasher.combine(entry.docs)
         }
-        hasher.combine(filingPersonRegistry == nil)
-        return hasher.finalize()
     }
 }
 

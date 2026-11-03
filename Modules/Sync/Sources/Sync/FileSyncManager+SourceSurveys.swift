@@ -115,6 +115,7 @@ extension FileSyncManager {
             invalidateFilingRouterIndex()
             filingSatelliteKey = nil
             filingSatelliteHomes = [:]
+            filingSatelliteRoot = nil
             Logger.shared.info("Filing: placing files in \((providerRoot as NSString).lastPathComponent) with "
                 + Self.surveyLogPhrase(use))
         }
@@ -317,6 +318,10 @@ extension FileSyncManager {
         return (profile, filingMemory, root, filingSurveyedAt)
     }
 
+    /// The root of the survey Ask Claude answers from for `path` — ``filingHelpSurvey(for:)``'s,
+    /// absolute; nil with no survey.
+    public func filingHelpSurveyRoot(for path: String) -> String? { filingHelpSurvey(for: path)?.root }
+
     /// A source survey's folder, to the Trash rather than deleted (``sourceSurveyRetire``).
     func retireSourceSurveyFolder(_ id: String, in directory: URL) {
         sourceSurveyProfiles[id] = nil
@@ -350,10 +355,22 @@ extension FileSyncManager {
         documentSurveySourceRoot.map { SourceSurveyStore.sameFolder($0, root) } ?? false
     }
 
+    /// Whether Learn Its Folders is running for `root` now.
+    public func isLearningFolders(ofSource root: String) -> Bool {
+        learningSourceSurveyRoot.map { SourceSurveyStore.sameFolder($0, root) } ?? false
+    }
+
     /// What a finished Read Documents leaves behind for a source: its memory in use, its entry
     /// dated, and the scan on screen re-decided so the cards follow at the next scan.
+    ///
+    /// Only while the entry still names the survey that was read: one learned again or forgotten
+    /// meanwhile must not be dated with a reading it never had.
     func recordSourceDocumentsRead(sourceRoot: String, profileId: String, memory: FilingMemory?,
                                    documentsRead: Int, in directory: URL, now: Date) {
+        guard SourceSurveyStore.entry(forRoot: sourceRoot, in: directory)?.profileId == profileId else {
+            Logger.shared.warning("Source survey: the reading of \(sourceRoot) was for '\(profileId)', which it no longer uses — not recorded")
+            return
+        }
         if let memory { sourceSurveyMemories[profileId] = memory }
         sourceSurveyFingerprints[profileId] = nil
         do {

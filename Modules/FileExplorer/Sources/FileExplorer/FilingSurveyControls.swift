@@ -135,7 +135,8 @@ struct FilingSurveyMenu: View {
                     Button(FilingSurveyText.readItem(sourceName: names.source)) {
                         count(root: use.root, sourceName: names.source)
                     }
-                    .disabled(counting || syncManager.filingSurveyLifecycle.isRunning)
+                    .disabled(counting || syncManager.filingSurveyLifecycle.isRunning
+                              || syncManager.isLearningFolders(ofSource: use.root))
                     .help(FilingSurveyText.readHelp)
                 }
                 Button(use.ownProfileId == nil ? "Learn \(FilingSurveyText.possessive(names.source)) Own Folders"
