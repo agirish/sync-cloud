@@ -159,25 +159,10 @@
   .card p{margin:0;color:var(--ink-dim);font-size:14.5px}
   .card .tag{position:absolute;top:16px;right:16px;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--blue);background:rgba(76,141,255,.12);border:1px solid rgba(76,141,255,.25);padding:3px 8px;border-radius:6px}
 
-  /* ---------- New-feature link and Ask Claude chat illustration ---------- */
+  /* ---------- New-feature link ---------- */
   .newtag{display:flex;width:fit-content;max-width:100%;align-items:center;gap:8px;margin:0 auto 18px;padding:6px 14px;border-radius:999px;font-size:13.5px;font-weight:600;color:var(--ink);text-decoration:none;border:1px solid rgba(154,123,255,.35);background:rgba(154,123,255,.12)}
   .newtag .k{color:#b9a6ff;font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-size:11px}
   .newtag:hover{border-color:rgba(154,123,255,.6)}
-  .chat{width:100%;border:1px solid var(--stroke);border-radius:14px;background:var(--bg-2);box-shadow:var(--shadow);font-size:14px;overflow:hidden}
-  .chat-head{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--stroke);font-weight:650}
-  .chat-head .kb{margin-left:auto;color:var(--ink-faint);font-weight:500;font-size:12.5px}
-  .chat-body{display:grid;gap:10px;padding:14px}
-  .bub{max-width:88%;padding:9px 12px;border-radius:12px;line-height:1.45}
-  .bub.you{justify-self:end;background:rgba(76,141,255,.22);border:1px solid rgba(76,141,255,.3)}
-  .bub.claude{justify-self:start;background:var(--panel);border:1px solid var(--stroke);color:var(--ink-dim)}
-  .bub.claude b{color:var(--ink)}
-  .plan{border:1px solid var(--stroke-strong);border-radius:12px;padding:12px;background:var(--panel-2);display:grid;gap:6px}
-  .plan .t{font-weight:650}
-  .plan .row{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:var(--ink-dim)}
-  .plan .foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:4px;font-size:12.5px;color:var(--ink-faint)}
-  .plan .foot .apply{margin-left:auto;padding:5px 12px;border-radius:8px;background:var(--grad);color:#fff;font-weight:600}
-  .chat-cap{margin:10px 2px 0;font-size:12.5px;color:var(--ink-faint);text-align:center}
-  .spotlight .shot.col{flex-direction:column;justify-content:center}
 
   /* ---------- AI spotlight ---------- */
   .spotlight{
@@ -307,23 +292,8 @@
             <span class="pill"><span class="k">Limit:</span> $25 a month to start</span>
           </div>
         </div>
-        <div class="shot col">
-          <div class="chat" role="img" aria-label="Illustration of the Ask Claude panel: a question about Compare, an answer, and a card proposing four moves">
-            <div class="chat-head">✦ Ask Claude <span class="kb">⌘J</span></div>
-            <div class="chat-body">
-              <div class="bub you">Which files are only on Dropbox?</div>
-              <div class="bub claude"><b>Four, all in Taxes:</b> two W-2s and two receipts. I've selected them in Compare's list.</div>
-              <div class="bub you">Move them into Finance ▸ 2024.</div>
-              <div class="plan">
-                <div class="t">Move 4 files</div>
-                <div class="row">Taxes/2024 W-2.pdf → Finance/2024/</div>
-                <div class="row">Taxes/W-2 (second job).pdf → Finance/2024/</div>
-                <div class="row">+ 2 receipts</div>
-                <div class="foot"><span>Nothing changes until you click Apply.</span><span class="apply">Apply 4</span></div>
-              </div>
-            </div>
-          </div>
-          <p class="chat-cap">Illustration, not a screenshot.</p>
+        <div class="shot">
+          <img src="assets/screenshots/ask-claude-panel.png" alt="The Ask Claude panel beside Compare: Claude names the four files only on Dropbox and proposes moving them on a card with Apply 4" loading="lazy">
         </div>
       </div>
     </div>

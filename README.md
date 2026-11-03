@@ -62,6 +62,10 @@ you ask.
 - Pick Sonnet, Opus or Haiku from the chat; every answer says what it sent and what it cost,
   against a monthly limit ($25 to start).
 
+<p align="center">
+  <img src="docs/assets/screenshots/ask-claude.png" alt="The Ask Claude panel beside Compare, proposing four moves on a card" width="900">
+</p>
+
 ### 📁 Browse
 - **Folder sidebar** (⌃⌘S) in every workspace: **Favorites** you curate, **Locations** for every
   signed-in account and disk, and **Recents** — switchable to **Revisited** (folders you come back
