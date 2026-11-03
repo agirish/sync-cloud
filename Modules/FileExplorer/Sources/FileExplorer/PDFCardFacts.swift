@@ -64,6 +64,9 @@ public enum PDFCardFactsReader {
         var pageCount: Int
         var protection: PDFCardFacts.Protection
         var fieldCount: Int
+        /// A catalog form, even one with no named fields: what the run asks, and what Clean
+        /// Metadata cleans in place for.
+        var hasForm: Bool
         var formLoss: Bool
         var droppedParts: [PDFToolkit.DroppedCatalogPart]
     }
@@ -72,14 +75,16 @@ public enum PDFCardFactsReader {
     nonisolated static func laneRead(_ input: URL, tool: EditorPDFTool) -> LaneFacts? {
         guard let document = PDFDocument(url: input) else { return nil }
         if document.isLocked {
-            return LaneFacts(pageCount: 0, protection: .locked, fieldCount: 0, formLoss: false, droppedParts: [])
+            return LaneFacts(pageCount: 0, protection: .locked, fieldCount: 0, hasForm: false, formLoss: false, droppedParts: [])
         }
         let protection: PDFCardFacts.Protection = document.isEncrypted ? .restricted : .none
         let fields = (try? PDFToolkit.formFields(at: input))?.count ?? 0
-        let formLoss = fields > 0
-            && OutputFidelityWarning.detect(in: [input], formLoss: tool.formLoss, checksBookmarks: false) != nil
+        // The run's own question, asked the same way: a form with no named fields still counts
+        // there, and a card that didn't say so would have its click declined, again and again.
+        let formLoss = OutputFidelityWarning.detect(in: [input], formLoss: tool.formLoss, checksBookmarks: false) != nil
         return LaneFacts(pageCount: document.pageCount, protection: protection, fieldCount: fields,
-                         formLoss: formLoss, droppedParts: PDFToolkit.droppedCatalogParts(in: document))
+                         hasForm: PDFToolkit.hasInteractiveForm(at: input), formLoss: formLoss,
+                         droppedParts: PDFToolkit.droppedCatalogParts(in: document))
     }
 
     /// **The tool's losses for this file, only those it has** — Compress's redraw always, since
@@ -91,7 +96,7 @@ public enum PDFCardFactsReader {
         if lane.formLoss {
             said.append(tool.formLoss == .formFlattened ? formFlattened : formStopsWorking)
         }
-        if tool.dropsCatalogParts(fileHasForm: lane.fieldCount > 0), let note = EditorPDFTools.droppedPartsNote(lane.droppedParts) {
+        if tool.dropsCatalogParts(fileHasForm: lane.hasForm), let note = EditorPDFTools.droppedPartsNote(lane.droppedParts) {
             said.append(note)
         }
         if lane.protection == .restricted, tool.rebuildsDocument { said.append(restrictionsGo) }

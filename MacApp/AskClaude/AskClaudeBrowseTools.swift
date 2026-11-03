@@ -1314,7 +1314,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         let paged = AskClaudeReading.isPaged(path)
         var limit = AskClaudeReading.onDeviceChars
         var local = AskClaudeReading.passage(from: pages, question: question, limit: limit, paged: paged)
-        let forClaude = AskClaudeReading.passage(from: pages, question: question, limit: AskClaudeReading.claudeChars, paged: paged)
+        let forClaude = AskClaudeReading.claudePassage(from: pages, question: question, paged: paged)
         var answer = await answerOnDevice(question, local.text, node.name)
         // Chinese or Japanese runs near a token a character: 16,000 characters of it were 12,522
         // tokens, past the model's 8,192 (2026-11-02). So a passage that doesn't fit halves, twice

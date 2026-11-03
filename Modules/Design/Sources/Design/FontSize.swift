@@ -580,7 +580,7 @@ public extension ScaledFont {
         // already the digits font — so a face this Mac does not have costs the *design*, never the
         // digit-width guarantee that is the reason this branch exists.
         let base = usesMonospacedDigits
-            ? NSFont.monospacedDigitSystemFont(ofSize: size, weight: appKitWeight)
+            ? NSFont.checkedMonospacedDigitSystemFont(ofSize: size, weight: appKitWeight)
             : NSFont.systemFont(ofSize: size, weight: appKitWeight)
         guard let systemDesign = Self.systemDesign(design) else { return base }
         // `withDesign` returns nil if the face is unavailable; the base face is the honest fallback.
@@ -679,6 +679,14 @@ public extension NSFont {
         fallingBack(from: NSFont.monospacedSystemFont(ofSize: size, weight: weight),
                     size: size, weight: weight)
     }
+
+    /// `monospacedDigitSystemFont(ofSize:weight:)`, safe the same way: AppKit declares it
+    /// non-null too, and its answer goes into the same attribute dictionaries. Not seen to answer
+    /// nil; guarded because nothing says it can't, and a nil there aborts the app.
+    static func checkedMonospacedDigitSystemFont(ofSize size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        fallingBackToDigits(from: NSFont.monospacedDigitSystemFont(ofSize: size, weight: weight),
+                            size: size, weight: weight)
+    }
 }
 
 extension NSFont {
@@ -703,5 +711,18 @@ extension NSFont {
             return font
         }
         return NSFont.userFixedPitchFont(ofSize: size) ?? base
+    }
+
+    /// `answer`, or the system face with equal-width digits asked of its descriptor, when AppKit's
+    /// non-null answer was nil — bit-cast to check, as ``fallingBack(from:size:weight:)`` is.
+    /// The system face itself is last: its digits are proportional, but it draws.
+    static func fallingBackToDigits(from answer: NSFont, size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        if let font = unsafeBitCast(answer, to: NSFont?.self) { return font }
+        let base = NSFont.systemFont(ofSize: size, weight: weight)
+        let digits = base.fontDescriptor.addingAttributes([.featureSettings: [[
+            NSFontDescriptor.FeatureKey.typeIdentifier: kNumberSpacingType,
+            NSFontDescriptor.FeatureKey.selectorIdentifier: kMonospacedNumbersSelector,
+        ]]])
+        return NSFont(descriptor: digits, size: size) ?? base
     }
 }

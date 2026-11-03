@@ -10,6 +10,29 @@ import Sync
 /// the pages a card draws.
 ///
 /// Serialized, because the reads take `PDFKitSerialAccess`'s one lane, and one test holds it.
+extension PDFFixtures {
+    /// One page whose catalog has an `/AcroForm` naming no fields — a form to the toolkit, with
+    /// nothing in it to fill.
+    static func writeEmptyAcroForm(_ path: String) throws {
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [] >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+        ]
+        var pdf = "%PDF-1.7\n"
+        var offsets: [Int] = []
+        for (index, body) in objects.enumerated() {
+            offsets.append(pdf.utf8.count)
+            pdf += "\(index + 1) 0 obj\n\(body)\nendobj\n"
+        }
+        let xref = pdf.utf8.count
+        pdf += "xref\n0 \(objects.count + 1)\n0000000000 65535 f \n"
+        for offset in offsets { pdf += String(format: "%010d 00000 n \n", offset) }
+        pdf += "trailer\n<< /Size \(objects.count + 1) /Root 1 0 R >>\nstartxref\n\(xref)\n%%EOF\n"
+        try Data(pdf.utf8).write(to: URL(fileURLWithPath: path))
+    }
+}
+
 @MainActor
 @Suite(.serialized) final class PDFCardFactsTests {
     let folder = NSTemporaryDirectory() + "pdf-card-facts-" + UUID().uuidString
@@ -23,8 +46,15 @@ import Sync
     private func path(_ name: String) -> String { (folder as NSString).appendingPathComponent(name) }
 
     /// Long enough for any load: another suite in this process may hold the lane for seconds. The
-    /// app's own 5 s bound is pinned on its own, by ``aHeldLaneAnswersBusyInTime()``.
+    /// app's own 5 s bound is pinned on its own, by ``theAppWaitsFiveSecondsOnTheLane()``; that
+    /// a held lane answers busy at all, by ``aHeldLaneAnswersBusyWhileItIsHeld()``.
     static let wait: Duration = .seconds(120)
+
+    /// The bound the app's cards and thumbnails wait on, as decided: long enough for a turn under
+    /// load, short enough not to hold Claude's turn behind a scan.
+    @Test func theAppWaitsFiveSecondsOnTheLane() {
+        #expect(PDFCardFactsReader.laneWait == .seconds(5))
+    }
 
     private func facts(_ read: PDFCardRead) -> PDFCardFacts? {
         if case .facts(let facts) = read { return facts }
@@ -70,6 +100,27 @@ import Sync
                                                                        timeout: Self.wait, isCloudOnly: { _ in false })))
         #expect(!rotateForm.losses.contains { $0 == PDFCardFactsReader.formFlattened || $0 == PDFCardFactsReader.formStopsWorking },
                 "Rotate keeps a form: \(rotateForm.losses)")
+    }
+
+    /// **A form with no named fields is a form, as the run asks it** — a catalog `/AcroForm` with
+    /// an empty `/Fields`, as some generators write. The card said no loss while the run found
+    /// one, so the click was declined as "changed since the card said", every time.
+    @Test func aFormWithNoFieldsLosesWhatTheRunSays() async throws {
+        let file = path("Empty form.pdf")
+        try PDFFixtures.writeEmptyAcroForm(file)
+        let url = URL(fileURLWithPath: file)
+        for tool: EditorPDFTool in [.extract([0]), .reorder([0]), .compress(.quality(0.6)), .removePassword(EditorPDFSecret(""))] {
+            let read = try #require(facts(await PDFCardFactsReader.read(file, for: tool, timeout: Self.wait,
+                                                                     isCloudOnly: { _ in false })))
+            #expect(read.fieldCount == 0, "the fixture has a named field, so this proves nothing")
+            let runAsks = await EditorPDFToolEngine.fidelityWarning(for: tool, input: url) != nil
+            try #require(runAsks, "the run finds no form either, so this proves nothing")
+            let said = read.losses.contains { $0 == PDFCardFactsReader.formFlattened || $0 == PDFCardFactsReader.formStopsWorking }
+            #expect(said, "\(tool.logDetail): the card said \(read.losses), the run will ask about the form")
+        }
+        // Clean Metadata cleans such a file in place, as the toolkit decides it: by the form, not its fields.
+        let lane = try #require(await PDFKitSerialAccess.perform { PDFCardFactsReader.laneRead(url, tool: .cleanMetadataCleared) })
+        #expect(lane.hasForm)
     }
 
     /// **Protection, as the card needs it**: restricted opens and counts its pages, and a copy that

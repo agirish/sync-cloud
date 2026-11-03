@@ -47,6 +47,8 @@ extension ContentView {
                     guard card.rows.indices.contains(index), card.rows.indices.contains(target) else { return }
                     card.rows.swapAt(index, target)
                 }
+                // Combine writes into its first file's folder: a new first file is asked again.
+                if min(index, index + step) == 0, askClaudeChat.pdfCard(id)?.action == .combine { cards.askClaudePDFRead(id) }
             },
             run: { cards.askClaudePDFRun($0, password: $1) },
             notNow: { id in
@@ -99,6 +101,17 @@ extension ContentView {
     }
 
     /// What protection keeps `action` from running on a file, in the menu's words; nil when it can.
+    /// **The rows whose folder has to take a new file and can't, refused**: each file's own folder,
+    /// but Combine's first file's only — the one folder its one new file goes into.
+    static func askClaudePDFUnwritable(_ action: AskClaudePDFCard.Action, _ rows: [AskClaudePDFCard.Row],
+                                       _ unwritable: Set<String>) -> [AskClaudePDFCard.Row] {
+        var rows = rows
+        for index in rows.indices where unwritable.contains(rows[index].path) && (action != .combine || index == 0) {
+            rows[index].refusal = AskClaudePDFCardView.unwritableFolder
+        }
+        return rows
+    }
+
     static func askClaudePDFRefusal(_ action: AskClaudePDFCard.Action, _ facts: PDFCardFacts) -> String? {
         switch (facts.protection, action) {
         case (.locked, .removePassword): return nil
@@ -128,7 +141,7 @@ extension ContentView {
                 return nil
             }
         case .rotate:
-            guard let pages = card.options.pages, !pages.isEmpty else { return nil }
+            guard let pages = askClaudePDFRotatePages(card) else { return nil }
             if case .failure(let problem) = PDFCardPages.parse(pages, extract: true, pageCount: count) { return problem.sentence }
             return nil
         case .split:
@@ -159,6 +172,12 @@ extension ContentView {
         return .quality(quality[options.strength ?? .balanced] ?? 0.6)
     }
 
+    /// The pages typed for Rotate, or nil for every page: a field he cleared holds "", not nil.
+    static func askClaudePDFRotatePages(_ card: AskClaudePDFCard) -> String? {
+        guard let pages = card.options.pages, !pages.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return pages
+    }
+
     /// A card's tool on its one file, with the pages typed read as Edit reads them.
     static func askClaudePDFTool(_ card: AskClaudePDFCard, password: EditorPDFSecret?) -> EditorPDFTool? {
         let count = card.rows.first?.pageCount ?? 0
@@ -171,7 +190,7 @@ extension ContentView {
         case .compress: return .compress(askClaudePDFCompression(card.options))
         case .rotate:
             let turns = card.options.quarterTurns ?? 1
-            if card.options.pages != nil { return pages(extract: true).map { .rotate(pages: $0, quarterTurns: turns) } }
+            if askClaudePDFRotatePages(card) != nil { return pages(extract: true).map { .rotate(pages: $0, quarterTurns: turns) } }
             return .rotate(pages: Array(0..<count), quarterTurns: turns)
         case .cleanMetadata: return .cleanMetadataCleared
         case .protect:
@@ -367,6 +386,7 @@ struct AskClaudePDFCards {
         let tool = ContentView.askClaudePDFFactsTool(card)
         Task { @MainActor in
             var read: [String: AskClaudePDFCard.Row] = [:]
+            var unwritable: Set<String> = []
             var losses: [String] = []
             for row in card.rows {
                 var fresh = row
@@ -394,9 +414,7 @@ struct AskClaudePDFCards {
                         fresh.bytes = facts.bytes
                         fresh.stamp = AskClaudeFileStamp(facts.stamp)
                         fresh.refusal = ContentView.askClaudePDFRefusal(card.action, facts)
-                        if fresh.refusal == nil, card.folder == nil, !facts.folderIsWritable {
-                            fresh.refusal = AskClaudePDFCardView.unwritableFolder
-                        }
+                        if fresh.refusal == nil, card.folder == nil, !facts.folderIsWritable { unwritable.insert(path) }
                         for loss in facts.losses where !losses.contains(loss) { losses.append(loss) }
                     case .cloudOnly: fresh.cloudOnly = true
                     case .gone: fresh.refusal = ContentView.askClaudePDFGone
@@ -431,7 +449,8 @@ struct AskClaudePDFCards {
             // Into the card as it is now, by file: a row moved while the files were read stays
             // where it was moved to, and the options typed since stay too.
             askClaudeChat.updatePDFCard(id) { now in
-                now.rows = now.rows.map { current in read[current.path] ?? current }
+                now.rows = ContentView.askClaudePDFUnwritable(now.action, now.rows.map { current in read[current.path] ?? current },
+                                                              unwritable)
                 now.losses = losses
                 now.pagesProblem = ContentView.askClaudePDFPagesProblem(now, pageCount: now.rows.first?.pageCount)
                 now.state = .offered

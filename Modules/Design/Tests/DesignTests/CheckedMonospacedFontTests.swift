@@ -29,6 +29,25 @@ import Testing
         }
     }
 
+    /// **The digits font has the same guard** (`ScaledFont.nsFont` measures every count pill with
+    /// it): a nil falls back to the system face with equal-width digits, measuring as AppKit's does.
+    @Test func aNilDigitsAnswerFallsBackToEqualWidthDigits() throws {
+        let font = NSFont.fallingBackToDigits(from: nilFont, size: 16, weight: .semibold)
+        try #require(unsafeBitCast(font, to: NSFont?.self) != nil)
+        #expect(font.pointSize == 16)
+        let real = NSFont.monospacedDigitSystemFont(ofSize: 16, weight: .semibold)
+        try #require(unsafeBitCast(real, to: NSFont?.self) != nil, "AppKit answered nil for the reference face")
+        func width(_ text: String, _ font: NSFont) -> CGFloat { (text as NSString).size(withAttributes: [.font: font]).width }
+        // "1" is narrower than "0" in the proportional face, so a fallback without the feature fails here.
+        #expect(width("1", font) == width("0", font), "the fallback's digits are proportional")
+        for text in ["1", "1234", "410"] {
+            #expect(width(text, font) == width(text, real), "\(text)")
+        }
+        let appKit = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        #expect(NSFont.checkedMonospacedDigitSystemFont(ofSize: 13, weight: .regular) === appKit)
+        #expect(NSFont.fallingBackToDigits(from: appKit, size: 13, weight: .regular) === appKit)
+    }
+
     /// The everyday path hands back AppKit's own object, not a copy — `LabelMetrics` keys its
     /// caches on `NSFont` identity, so a lookalike would be a permanent cache miss.
     @Test func aRealAnswerIsReturnedAsIs() {

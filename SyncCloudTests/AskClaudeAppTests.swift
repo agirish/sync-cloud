@@ -1226,6 +1226,25 @@ import FileExplorer
         #expect(AskClaudeReading.passage(from: ["just one text"], question: "zzz", limit: 100).whereInFile == "the start")
     }
 
+    /// **What Claude may get is about 1,500 tokens in any script**, and Send says so: 6,000
+    /// characters of Japanese are near 4,700 tokens, which "about 1,500" undersold threefold.
+    @Test func claudesPassageIsHeldToItsTokensInAnyScript() {
+        #expect(AskClaudePassage.estimatedTokens(String(repeating: "Rent is due. ", count: 100)) == 325)
+        #expect(AskClaudePassage.estimatedTokens(String(repeating: "家賃は毎月払う。", count: 100)) == 800)
+        #expect(AskClaudePassage.estimatedTokens("Café — “déjà vu”") == 4, "accented Latin counts as Latin")
+        #expect(AskClaudePassage.estimatedTokens(String(repeating: "мир", count: 100)) == 150, "Cyrillic counts at two characters a token")
+
+        let latin = Array(repeating: String(repeating: "Rent and parking terms. ", count: 60), count: 8)
+        let english = AskClaudeReading.claudePassage(from: latin, question: "parking")
+        #expect(english.text.count > 5_000, "Latin text keeps its 6,000 characters: \(english.text.count)")
+        #expect(english.text.count <= AskClaudeReading.claudeChars)
+
+        let japanese = Array(repeating: String(repeating: "駐車場は地下にあります。", count: 120), count: 8)
+        let held = AskClaudeReading.claudePassage(from: japanese, question: "駐車場")
+        let tokens = AskClaudePassage(fileName: "a.pdf", whereInFile: held.whereInFile, text: held.text).tokens
+        #expect(tokens <= AskClaudeReading.claudeTokens && tokens > 1_200, "\(held.text.count) characters, about \(tokens) tokens")
+    }
+
     @Test func showInAppOpensSettingsActivityHelpAndTrash() async {
         var opened: [String] = []
         let runner = AskClaudeBrowseTools(context: {

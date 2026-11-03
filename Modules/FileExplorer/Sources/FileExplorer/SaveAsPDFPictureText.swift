@@ -94,8 +94,11 @@ public enum PictureText {
         }
     }
 
-    /// The words Vision reads in `image`, a line each in Vision's order, in whatever language it
-    /// finds; nil when Vision fails on both processors, so a failure isn't taken for a blank page.
+    /// The words Vision reads in `image`, a line each in Vision's order, in whichever of its
+    /// languages it finds; nil when Vision fails on both processors, so a failure isn't taken for a
+    /// blank page. Its languages are its own list, not every script: 33 on macOS 27 (2026-11-02),
+    /// among them Chinese, Japanese, Korean, Russian, Arabic, Thai, Hindi and Marathi, but not
+    /// Greek, Hebrew, Bengali or Tamil.
     /// For a caller that draws the page itself, as Ask Claude does on the PDFKit lane.
     ///
     /// **The language is detected**, where Save as PDF reads English only, Vision's default: a

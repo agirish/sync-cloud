@@ -409,8 +409,7 @@ struct AskClaudePDFCardView: View {
         case .replaced:
             note("A newer card took this one’s place.")
         case .quitWhileRunning:
-            // What it wrote before the quit is on disk, but the card never heard of it.
-            note("SyncCloud quit while this ran. Any new files it had made are next to the originals; nothing else changed.")
+            note(Self.quitNote(card))
         }
     }
 
@@ -466,6 +465,20 @@ struct AskClaudePDFCardView: View {
         }
         return "Undo isn’t kept once SyncCloud quits or the chat starts over. Move the new "
             + (one ? "file" : "files") + " to the Trash yourself if you don’t want " + (one ? "it." : "them.")
+    }
+
+    /// **A card SyncCloud quit under**: what it wrote before the quit is on disk, but the card
+    /// never heard of it — so it says where to look, the folder chosen if one was.
+    static func quitNote(_ card: AskClaudePDFCard) -> String {
+        let place: String
+        if let folder = card.folder {
+            place = "in “\((folder as NSString).lastPathComponent)”"
+        } else if card.action == .combine, let first = card.rows.first {
+            place = "next to “\(first.name)”"
+        } else {
+            place = card.rows.count == 1 ? "next to the original" : "next to the originals"
+        }
+        return "SyncCloud quit while this ran. Any new files it had made are \(place); nothing else changed."
     }
 
     /// A refusal the card answers with Choose Folder….

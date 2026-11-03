@@ -105,8 +105,40 @@ public struct AskClaudePassage: Codable, Equatable, Sendable {
         self.path = path
     }
 
-    /// About four characters to a token.
-    public var tokens: Int { max(1, text.count / 4) }
+    /// About how many tokens the passage is: ``estimatedTokens(_:)``.
+    public var tokens: Int { Self.estimatedTokens(text) }
+
+    /// **About how many tokens `text` is, by script.** About four characters to a token in Latin
+    /// script; near one a character in Chinese, Japanese and Korean — 16,000 characters of Chinese
+    /// or Japanese were 12,522 tokens to Apple's on-device model (2026-11-02); Claude's count was
+    /// not measured, so each counts as one — and two characters to a token in any other script, a
+    /// guess, made high.
+    public static func estimatedTokens(_ text: String) -> Int {
+        var quarters = 0
+        for character in text {
+            guard let scalar = character.unicodeScalars.first else { continue }
+            if isCJK(scalar) { quarters += 4 } else if scalar.isASCII || isLatin(scalar) { quarters += 1 } else { quarters += 2 }
+        }
+        return max(1, quarters / 4)
+    }
+
+    private static func isCJK(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x1100...0x11FF, 0x2E80...0x2FDF, 0x3000...0x30FF, 0x3130...0x318F, 0x31F0...0x9FFF,
+             0xA960...0xA97F, 0xAC00...0xD7FF, 0xF900...0xFAFF, 0xFF00...0xFFEF, 0x20000...0x3FFFF:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Latin letters past ASCII, their accents, and the punctuation Latin text uses.
+    private static func isLatin(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x00A0...0x024F, 0x0300...0x036F, 0x1E00...0x1EFF, 0x2000...0x206F, 0x20A0...0x20CF: return true
+        default: return false
+        }
+    }
 }
 
 /// A file only in the cloud that Claude wanted to read or open, offered to the person as a card

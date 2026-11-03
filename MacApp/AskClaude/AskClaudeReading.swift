@@ -24,7 +24,9 @@ enum AskClaudeReading {
     /// What the on-device model gets: its window here is 8,192 tokens (macOS 27), shared with its
     /// instructions and answer, so about 4,000 tokens of text.
     static let onDeviceChars = 16_000
-    /// What Claude may get: about 1,500 tokens, the cap deep dive 1 set.
+    /// What Claude may get: about 1,500 tokens, the cap deep dive 1 set — 6,000 characters of
+    /// Latin text, fewer of a script nearer a token a character (``claudePassage(from:question:paged:)``).
+    static let claudeTokens = 1_500
     static let claudeChars = 6_000
 
     /// The most of a text file read: enough for any question, and bounded for a multi-gigabyte log.
@@ -337,6 +339,21 @@ enum AskClaudeReading {
         else if !paged { place = first == 0 && last == pages.count - 1 && !cut ? "the text" : "part of the text" }
         else { place = first == last ? "page \(first + 1)" : "pages \(first + 1)–\(last + 1)" }
         return (text, place)
+    }
+
+    /// **The passage Claude may get, held to about `claudeTokens` whatever the script**: 6,000
+    /// characters of Chinese or Japanese would be some 4,700 tokens, not 1,500. Cut again by the
+    /// estimate, three times at most: a mixed passage may land on other pages the second time.
+    nonisolated static func claudePassage(from pages: [String], question: String, paged: Bool = true) -> (text: String, whereInFile: String) {
+        var limit = claudeChars
+        var found = passage(from: pages, question: question, limit: limit, paged: paged)
+        for _ in 0..<3 {
+            let tokens = AskClaudePassage.estimatedTokens(found.text)
+            guard tokens > claudeTokens, found.text.count > 1 else { break }
+            limit = max(1, min(limit, found.text.count) * claudeTokens / tokens)
+            found = passage(from: pages, question: question, limit: limit, paged: paged)
+        }
+        return found
     }
 
     /// Whether a file's text comes in real pages (a PDF) rather than parts cut here.

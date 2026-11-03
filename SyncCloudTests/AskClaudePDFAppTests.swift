@@ -304,6 +304,53 @@ import Sync
         #expect(AskClaudePDFCardView.planned(empty, empty.rows[0]) == nil)
     }
 
+    /// **Rotate's Pages field cleared means every page** — he cleared it, so it holds "", not nil —
+    /// and the click runs, where it said "Check the pages typed." every time.
+    @Test func rotateWithItsPagesClearedTurnsEveryPage() throws {
+        let one = try file("Scan.pdf")
+        func card(_ pages: String?) -> AskClaudePDFCard {
+            AskClaudePDFCard(action: .rotate, rows: [.init(path: one, name: "Scan.pdf", folderLabel: "d", pageCount: 3)],
+                             options: .init(quarterTurns: 1, pages: pages), state: .offered)
+        }
+        for cleared in ["", "  "] {
+            #expect(ContentView.askClaudePDFPagesProblem(card(cleared), pageCount: 3) == nil, "“\(cleared)”")
+            #expect(ContentView.askClaudePDFTool(card(cleared), password: nil) == .rotate(pages: [0, 1, 2], quarterTurns: 1),
+                    "“\(cleared)” made no tool to run")
+        }
+        #expect(ContentView.askClaudePDFTool(card(nil), password: nil) == .rotate(pages: [0, 1, 2], quarterTurns: 1))
+        #expect(ContentView.askClaudePDFTool(card("2"), password: nil) == .rotate(pages: [1], quarterTurns: 1))
+        #expect(ContentView.askClaudePDFTool(card("9"), password: nil) == nil, "a page past the end ran")
+        #expect(ContentView.askClaudePDFPagesProblem(card("9"), pageCount: 3) != nil)
+    }
+
+    /// **Combine is refused only for its first file's folder** — the one its new file goes into;
+    /// each other tool, for each file's own.
+    @Test func combineAsksOnlyTheFirstFilesFolder() {
+        let rows: [AskClaudePDFCard.Row] = ["/a/A.pdf", "/locked/B.pdf"].map {
+            .init(path: $0, name: ($0 as NSString).lastPathComponent, folderLabel: "d", pageCount: 1)
+        }
+        let combine = ContentView.askClaudePDFUnwritable(.combine, rows, ["/locked/B.pdf"])
+        #expect(combine.allSatisfy { $0.refusal == nil }, "\(combine.map(\.refusal))")
+        let first = ContentView.askClaudePDFUnwritable(.combine, rows.reversed(), ["/locked/B.pdf"])
+        #expect(first.map(\.refusal) == [AskClaudePDFCardView.unwritableFolder, nil])
+        let compress = ContentView.askClaudePDFUnwritable(.compress, rows, ["/locked/B.pdf"])
+        #expect(compress.map(\.refusal) == [nil, AskClaudePDFCardView.unwritableFolder])
+    }
+
+    /// **After a quit, the card says where the new files are** — in the folder chosen, if one was.
+    @Test func aQuitCardNamesTheFolderChosen() {
+        var card = AskClaudePDFCard(action: .compress, rows: [.init(path: "/d/A.pdf", name: "A.pdf", folderLabel: "d")],
+                                    state: .quitWhileRunning)
+        #expect(AskClaudePDFCardView.quitNote(card)
+                == "SyncCloud quit while this ran. Any new files it had made are next to the original; nothing else changed.")
+        card.folder = "/Users/me/Out"
+        #expect(AskClaudePDFCardView.quitNote(card).contains("are in “Out”;"), "\(AskClaudePDFCardView.quitNote(card))")
+        let combine = AskClaudePDFCard(action: .combine, rows: [.init(path: "/a/A.pdf", name: "A.pdf", folderLabel: "a"),
+                                                                .init(path: "/b/B.pdf", name: "B.pdf", folderLabel: "b")],
+                                       state: .quitWhileRunning)
+        #expect(AskClaudePDFCardView.quitNote(combine).contains("next to “A.pdf”"))
+    }
+
     // MARK: The extras
 
     /// **Each row says the file it will make** — in the folder chosen, when there is one; Split names
