@@ -71,6 +71,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var rescan: () -> Bool = { false }
         /// Narrows Compare's differences list to a kind and selects rows there; false when it can't.
         var showDifferences: (_ kind: AskClaudeDifferences.Kind, _ ids: Set<UUID>) -> Bool = { _, _ in false }
+        /// Why Compare's list can't show rows right now, though nothing else is busy — a guided
+        /// review holds it (TE295); nil when it can. Asked before Compare is switched to.
+        var differencesHeldBy: () -> String? = { nil }
         /// Clock, for how old a comparison is.
         var now: () -> Date = Date.init
         /// How long a Scan Again asked for is given to land before the list read before it is
@@ -1768,7 +1771,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         // Shown in the list too (decision EI): Compare opens, its list narrows to the kind, and
         // these rows are selected.
         if call.input["show"]?.boolValue == true, !rows.isEmpty {
-            if let busy = ctx.busyReason {
+            if let busy = ctx.busyReason ?? ctx.differencesHeldBy() {
                 result += "\nNot shown in the list: \(busy)."
             } else if ctx.switchWorkspace("Compare"), ctx.showDifferences(kind, Set(rows.map(\.id))) {
                 result += "\nShowing these \(rows.count) in Compare’s differences list, selected."

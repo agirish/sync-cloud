@@ -652,13 +652,14 @@ import FileExplorer
         }
     }
 
-    private func differencesTools(_ fake: CompareFake, busy: String? = nil) -> AskClaudeBrowseTools {
+    private func differencesTools(_ fake: CompareFake, busy: String? = nil, heldBy: String? = nil) -> AskClaudeBrowseTools {
         AskClaudeBrowseTools(context: {
             var ctx = AskClaudeBrowseTools.Context(
                 inBrowse: true, sourceName: "iCloud", root: "/i", folder: "Documents", sort: .name,
                 items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: busy, goTo: { _ in }, select: { _ in })
             ctx.hidden = ["/d/Documents/Private"]
             ctx.differences = { fake.rows }
+            ctx.differencesHeldBy = { heldBy }
             ctx.comparison = { fake.read() }
             ctx.now = { Date(timeIntervalSince1970: 1_792_000_000) }
             ctx.scanStartWait = .seconds(2)
@@ -718,6 +719,19 @@ import FileExplorer
         #expect(out.movedView == "Showing 1 difference (only on Dropbox) in Compare’s list")
         let bad = await differencesTools(fake).run(call("differences", ["kind": .string("newest")]), handles: &handles)
         #expect(bad.isError)
+    }
+
+    /// A review holds Compare's list (TE295): the rows are read, not shown, and Claude is told
+    /// why rather than "Showing these…" over a list nobody can see.
+    @Test func showDuringAReviewReadsTheRowsAndSaysWhyTheyArentShown() async {
+        let fake = CompareFake()
+        fake.comparison.readAt = Date(timeIntervalSince1970: 1_792_000_000 - 60)
+        var handles = AskClaudeHandles()
+        let out = await differencesTools(fake, heldBy: "a review is open in Compare")
+            .run(call("differences", ["kind": .string("only_right"), "show": .bool(true)]), handles: &handles)
+        #expect(out.result.contains("w2.pdf"))
+        #expect(out.result.contains("Not shown in the list: a review is open in Compare."))
+        #expect(fake.workspaces.isEmpty && fake.shown.isEmpty && out.movedView == nil)
     }
 
     @Test func openNeverStartsAProgram() {

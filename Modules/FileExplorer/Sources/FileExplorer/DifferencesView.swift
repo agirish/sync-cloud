@@ -444,11 +444,16 @@ public struct DifferencesView: View {
         // after the request, or as it comes while the table is on screen. The scroll to them
         // (TE295) waits for the rows — see `reveal`. A pane collapsed to its bar has no table, so
         // it opens: Claude was asked to show them.
+        //
+        // Not during a review, which the host refuses `show` for: the list is not on screen, so
+        // the rows would be selected and scrolled to when it ends, unasked, and opening the bar
+        // would overwrite the preference the review is overriding (`isCollapsedToHeaderStrip`).
         .onChange(of: session.requestedSelection, initial: true) { _, requested in
             guard let requested else { return }
+            session.requestedSelection = nil
+            guard !reviewStore.isReviewing else { return }
             selection = requested
             pendingReveal = requested
-            session.requestedSelection = nil
             if isCollapsed?.wrappedValue == true { isCollapsed?.wrappedValue = false }
         }
         // The same argument for the filter. `.failed` is set when a partial run publishes failures

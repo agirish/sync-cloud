@@ -54,6 +54,40 @@ import Testing
         // It was a scroll: the row would not have been on the screen the table opened on.
         #expect(!NSLocationInRange(shown.row, topRows))
         #expect(shown.row > 20)
+        // And to the middle, where the rows after it show too, not just onto the bottom edge.
+        let visible = table.rows(in: table.visibleRect)
+        let middle = Double(visible.location) + Double(visible.length - 1) / 2
+        #expect(abs(Double(shown.row) - middle) <= 2, "row \(shown.row) in \(visible)")
+    }
+
+    /// Grouped, the scroll goes to the first selected row the table DRAWS, and a Size sort makes
+    /// that a different row from the first one sorted. Delta's biggest file puts its section
+    /// first, so Delta's selected row draws 40 rows above Charlie's, which sorts before it.
+    @Test func groupedTablesScrollToTheFirstRowDrawnNotTheFirstSorted() async throws {
+        let rows = ["Charlie", "Delta"].flatMap { folder in
+            (1...40).map { index in
+                Self.row("\(folder)/\(folder.lowercased())-\(String(format: "%02d", index)).txt", onlyRight: true,
+                         size: ["delta-01": 1000, "charlie-01": 999, "delta-02": 998][
+                             "\(folder.lowercased())-\(String(format: "%02d", index))"] ?? 10)
+            }
+        }
+        let session = DifferencesSession()
+        session.sortOrder = [KeyPathComparator(\FileDifference.displaySizeSort, order: .reverse)]
+        let mounted = Self.mount(rows: rows, filter: .missingOnLeft, session: session)
+        defer { mounted.window.contentView = nil }
+        let filled = await LayoutPumpWait.pump(mounted.host, upTo: 15) {
+            (mounted.table()?.numberOfRows ?? 0) == 82
+        }
+        try #require(filled.held, "the table never drew both sections")
+        let table = try #require(mounted.table())
+        table.scrollRowToVisible(table.numberOfRows - 1)
+        try #require(!NSLocationInRange(2, table.rows(in: table.visibleRect)))
+
+        mounted.session.show(.missingOnLeft, selecting: [mounted.ids["charlie-01"]!, mounted.ids["delta-02"]!])
+
+        let shown = await Self.waitForFirstSelectedOnScreen(mounted)
+        #expect(shown.row == 2, "Delta's header, delta-01, then the row asked for")
+        #expect(shown.held, "first drawn selected row \(shown.row) never came into view")
     }
 
     /// `show` opens Compare, so the request usually lands before the table exists.
@@ -79,7 +113,8 @@ import Testing
         let pane = PaneCollapse(true)
         let mounted = Self.mount(filter: .missingOnLeft, collapse: pane)
         defer { mounted.window.contentView = nil }
-        _ = await LayoutPumpWait.pump(mounted.host, upTo: 0.5) { false }
+        // Ample for the rows' pass, which takes milliseconds: they are built before the table is.
+        _ = await LayoutPumpWait.pump(mounted.host, upTo: 1) { false }
         try #require(mounted.table() == nil, "a collapsed Compare still drew its table")
 
         mounted.session.show(.missingOnLeft, selecting: [mounted.ids["delta-30"]!])
@@ -87,6 +122,37 @@ import Testing
         #expect(!pane.isCollapsed)
         #expect(shown.held, "first selected row \(shown.row) never came into view")
         #expect(shown.row > 20)
+    }
+
+    /// A review takes the list's place, and the host refuses `show` while one runs. A request
+    /// that reaches the view anyway is dropped: when the review ends the pane goes back to its
+    /// bar, as the review promised, and opening it shows nothing selected or scrolled to.
+    @Test func aRequestDuringAReviewIsDropped() async throws {
+        let pane = PaneCollapse(true)
+        let rows = Self.fixture()
+        let review = ReviewSessionStore()
+        review.session = ReviewSession(queue: Array(rows.prefix(3)), isMove: false, pathRootName: nil)
+        try #require(review.isReviewing)
+        let mounted = Self.mount(rows: rows, filter: .missingOnLeft, collapse: pane, review: review)
+        defer { mounted.window.contentView = nil }
+        _ = await LayoutPumpWait.pump(mounted.host, upTo: 0.5) { false }
+
+        mounted.session.show(.missingOnLeft, selecting: [mounted.ids["delta-30"]!])
+        _ = await LayoutPumpWait.pump(mounted.host, upTo: 0.5) { false }
+        #expect(pane.isCollapsed, "the request overwrote the preference the review is overriding")
+
+        review.session = nil
+        _ = await LayoutPumpWait.pump(mounted.host, upTo: 0.5) { false }
+        #expect(mounted.table() == nil, "the pane did not go back to its bar")
+        pane.isCollapsed = false
+        let filled = await LayoutPumpWait.pump(mounted.host, upTo: 15) {
+            (mounted.table()?.numberOfRows ?? 0) > 40
+        }
+        try #require(filled.held, "the reopened table never filled")
+        _ = await LayoutPumpWait.pump(mounted.host, upTo: 0.6) { false }
+        let table = try #require(mounted.table())
+        #expect(table.selectedRowIndexes.isEmpty)
+        #expect(NSLocationInRange(0, table.rows(in: table.visibleRect)))
     }
 
     /// A request is answered once. A republish of the rows after it — a bulk sync does one per
@@ -123,13 +189,13 @@ import Testing
         }
     }
 
-    private static func row(_ path: String, onlyRight: Bool = false) -> FileDifference {
+    private static func row(_ path: String, onlyRight: Bool = false, size: Int = 1024) -> FileDifference {
         FileDifference(relativePath: path,
                        leftItemPath: "/left/\(path)",
                        rightItemPath: "/right/\(path)",
                        type: onlyRight ? .missingOnLeft : .missingOnRight,
                        action: onlyRight ? .copyToLeft : .copyToRight,
-                       description: "", leftFileSize: 1024)
+                       description: "", leftFileSize: size, rightFileSize: size)
     }
 
     private struct Mounted {
@@ -158,7 +224,7 @@ import Testing
         @ObservedObject var pane: PaneCollapse
         let manager: FileSyncManager
         let session: DifferencesSession
-        let reviewStore = ReviewSessionStore()
+        let reviewStore: ReviewSessionStore
         var body: some View {
             DifferencesView(syncManager: manager, reviewStore: reviewStore,
                             isCollapsed: $pane.isCollapsed, session: session)
@@ -168,7 +234,8 @@ import Testing
     /// A 400pt-tall Compare: about a dozen rows show, so row 20 and below need a scroll.
     private static func mount(rows: [FileDifference] = fixture(), filter: DifferenceFilter? = nil,
                               session: DifferencesSession = DifferencesSession(),
-                              collapse: PaneCollapse? = nil) -> Mounted {
+                              collapse: PaneCollapse? = nil,
+                              review: ReviewSessionStore = ReviewSessionStore()) -> Mounted {
         let store = ScratchDefaults("DifferencesRevealTests")
         store.set(true, forKey: "differencesGroupByFolder")
         if let filter { session.selectedFilter = filter }
@@ -176,9 +243,8 @@ import Testing
         manager.differences = rows
         manager.hasScanned = true
         let compare = collapse.map {
-            AnyView(CollapsibleCompare(pane: $0, manager: manager, session: session))
-        } ?? AnyView(DifferencesView(syncManager: manager, reviewStore: ReviewSessionStore(),
-                                     session: session))
+            AnyView(CollapsibleCompare(pane: $0, manager: manager, session: session, reviewStore: review))
+        } ?? AnyView(DifferencesView(syncManager: manager, reviewStore: review, session: session))
         let host = NSHostingView(rootView: AnyView(compare.defaultAppStorage(store)))
         // Held at its frame. By default the host sizes its window to the view, and Compare
         // collapsed to its bar is a header strip: reopened, the table came back with no height

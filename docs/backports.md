@@ -14027,7 +14027,9 @@ text is unchanged; the `pdf` tool turns it on (TE294 step 4). Ask Claude exists 
 2026-11-02, for v7.0. On `main`: when Ask Claude's `differences` tool shows rows, Compare's table
 scrolls the first selected row, in the order the table draws it, to the middle of the view once the
 filter it set has applied — including when the request opened Compare — and a list collapsed to
-its bar opens. It used to only select. `DifferencesSession.show` (TE261) exists only on `main`:
+its bar opens. It used to only select. A person gather holding the list's slot is closed first; a
+guided review holding it refuses, and Claude is told why. `DifferencesSession.show` (TE261) exists
+only on `main`:
 
 ```sh
 for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \

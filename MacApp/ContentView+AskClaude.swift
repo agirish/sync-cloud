@@ -683,9 +683,16 @@ extension ContentView {
                 default: filter = .all
                 }
                 Logger.shared.info("Ask Claude showed \(ids.count) difference\(ids.count == 1 ? "" : "s") in Compare’s list")
+                // A person gather takes the list's slot, and a switch from another workspace
+                // clears it only in the next update. Left open, the request would wait unseen for
+                // whenever the list next mounts.
+                clearPersonScope()
                 differencesSession.show(filter, selecting: ids)
                 return true
             },
+            // A review takes the list's place until Done, so rows shown there would be selected
+            // and scrolled to minutes later, unasked.
+            differencesHeldBy: { reviewStore.isReviewing ? "a review is open in Compare" : nil },
             whereToFile: { path, place in
                 // Page 1 read on this Mac (decision EW) by To File's reader, which leaves a file
                 // only in the cloud unread rather than fetch it (`FilingSurvey.isAvailable`), so
