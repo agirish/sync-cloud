@@ -14148,3 +14148,14 @@ backup. Ask Claude exists only on `main` (see TE290 step 0b).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Folder names link only as spelled in Ask Claude's answers (TE245) — main only
+
+2026-11-02, for v7.0. On `main`: a name without a file extension, nearly always a folder, links in
+Claude's answer only when spelled as the folder is and not right before 's, so "scans" no longer
+links to a Scans folder and "Shweta's" no longer links to a Shweta folder. File names still link
+whatever their case. Ask Claude exists only on `main` (see TE290 step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

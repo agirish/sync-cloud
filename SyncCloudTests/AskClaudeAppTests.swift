@@ -888,6 +888,17 @@ import FileExplorer
         #expect(found.map(\.path) == ["/a/2024 Tax.pdf", "/a/Tax.pdf", "/a/notes"])
     }
 
+    @Test func aFolderNameLinksOnlyAsTheFolderIsSpelled() {
+        let targets = ["Scans": "/a/Scans", "Shweta": "/a/Passport/Shweta", "1. Jan 2023.PDF": "/a/1. Jan 2023.PDF"]
+        let text = "Shweta's copies, all-pages scans, are in Passport/Shweta; see 1. jan 2023.pdf and Scans."
+        let found = AskClaudeLinks.matches(of: targets, in: text).sorted { $0.range.lowerBound < $1.range.lowerBound }
+        #expect(found.map { String(text[$0.range]) } == ["Shweta", "1. jan 2023.pdf", "Scans"])
+        #expect(found.first.map { text.distance(from: text.startIndex, to: $0.range.lowerBound) } == text.distance(
+            from: text.startIndex, to: text.range(of: "Passport/Shweta")!.lowerBound) + "Passport/".count)
+        #expect(AskClaudeLinks.hasExtension("Tax.pdf") && !AskClaudeLinks.hasExtension("Checking 6436")
+            && !AskClaudeLinks.hasExtension("v1.2") && !AskClaudeLinks.hasExtension("Scans"))
+    }
+
     @Test func onlyLinksCarryTheUnderline() {
         let linked = AskClaudeLinks.linked(try! AttributedString(markdown: "Open Tax.pdf, not [this](https://example.com)."),
                                            targets: ["Tax.pdf": "/a/Tax.pdf"], scheme: "synccloud-askclaude", underline: .purple)

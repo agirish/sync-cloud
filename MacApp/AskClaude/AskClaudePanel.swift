@@ -1247,17 +1247,39 @@ enum AskClaudeLinks {
     /// Each place in `text` naming one of `targets` (name → path): longest names first, whole
     /// words only, never overlapping, so "2024 Tax.pdf" isn't cut into by "Tax.pdf" and "notes"
     /// doesn't link inside "footnotes".
+    ///
+    /// A name without an extension (a folder, nearly always) is often an ordinary word too: it
+    /// links only spelled as the folder is, and never before 's. So "all-pages scans" leaves the
+    /// Scans folder alone and "Shweta's passport" leaves the Shweta folder, while
+    /// "Passport/Shweta" still links.
     static func matches(of targets: [String: String], in text: String) -> [(range: Range<String.Index>, path: String)] {
         var found: [(range: Range<String.Index>, path: String)] = []
         for (name, path) in targets.sorted(by: { ($0.key.count, $0.key) > ($1.key.count, $1.key) }) {
+            let isWord = !hasExtension(name)
             var search = text.startIndex..<text.endIndex
-            while let hit = text.range(of: name, options: [.caseInsensitive], range: search) {
+            while let hit = text.range(of: name, options: isWord ? [] : [.caseInsensitive], range: search) {
                 search = hit.upperBound..<text.endIndex
                 guard isWholeWord(hit, in: text), !found.contains(where: { $0.range.overlaps(hit) }) else { continue }
+                if isWord, isPossessive(after: hit, in: text) { continue }
                 found.append((hit, path))
             }
         }
         return found
+    }
+
+    /// Whether `name` ends in a file extension: a dot and one to five letters or digits, not all
+    /// digits ("Tax.pdf" does; "Checking 6436" and "v1.2" don't).
+    static func hasExtension(_ name: String) -> Bool {
+        let ext = (name as NSString).pathExtension
+        return (1...5).contains(ext.count) && ext.allSatisfy { $0.isLetter || $0.isNumber } && !ext.allSatisfy(\.isNumber)
+    }
+
+    /// Whether 's or ’s follows `range`, ending a word.
+    static func isPossessive(after range: Range<String.Index>, in text: String) -> Bool {
+        let rest = text[range.upperBound...]
+        guard rest.hasPrefix("'s") || rest.hasPrefix("’s") else { return false }
+        let end = rest.index(rest.startIndex, offsetBy: 2)
+        return end == text.endIndex || !(text[end].isLetter || text[end].isNumber)
     }
 
     /// `attributed` with its own links dropped and each of `targets` linked under `scheme`. A link
