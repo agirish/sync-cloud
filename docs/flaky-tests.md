@@ -1731,6 +1731,24 @@ test's wait began, so the wait it checks for was never entered. Five local runs 
 (3.2–5.0 s each), and so did a rerun of the failed job. The suite's second sighting in a day, both
 on hosted VMs and neither reproduced; a third is the point to look at the latch itself.
 
+#### Seen: `DifferenceResolutionTests` and `OneWaySyncDropboxGateTests`, 2026-11-03 — a new chunk layout
+
+Red on all three hosted runs after the v7.0 review's fixes landed (`21768afdc`, `9096b548a` twice),
+green on the two before. Each run lost a different set:
+`testPrefetchFastPathClearsStaleLoadingSpinner`, `testCancelledLoadWithNoSuccessorClearsItsLoadingSpinner`
+and `testSyncAllDropsReentrantRunWhileFirstIsInFlight` at `!gate.releasedByTimeout` after ~12.2 s,
+and `OneWaySyncDropboxGateTests.aCancelDuringAHungReadEndsTheWait` after 33.5 s, its read answering
+at its own 30 s release bound before the cancel got a thread. The code under test didn't change.
+**What did is the chunking:** `hosted-ci.yml` runs Sync as `test-shards --jobs 2`, and with no
+`scripts/test-costs/Sync.tsv` every test costs the same, so the review's 42 new Sync tests re-dealt
+the suites. `DifferenceResolutionTests` now shares chunk 4 with `FileSyncManagerDuplicatesTests`,
+whose six-wide reservation is admitted alone, and `OneWaySyncDropboxGateTests` shares chunk 3 with
+`FileSyncManagerTests` and `CancellationTests`. Each red chunk's suites all ended within 0.2 s of
+the gates' bound, so the whole chunk stalled. The layout is the same on this Mac, where both
+chunks pass, twice (`test-shards --jobs 2 Modules/Sync`, 4,639 tests): ten pool threads absorb
+what CI's three cannot. Not fixed. `parkThreadBudget` is `max(2, cores / 4)`, so on a 3-vCPU
+runner the parks may hold two of the pool's three threads, and a wider reservation more.
+
 ---
 
 ### 11. Five palette tests the fixture dismissed out from under itself — FIXED
