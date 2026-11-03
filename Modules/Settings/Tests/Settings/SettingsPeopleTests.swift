@@ -76,4 +76,15 @@ import Sync
         #expect(people.refusal == "Can’t change people: people.json is unreadable.")
         #expect(people.add(name: "Jane", relationship: nil, fullNames: [], aliases: []).person == nil)
     }
+
+    @Test func aPersonsValueIsTheSameWhateverItsKeyOrder() {
+        let person = Person(id: "jane", displayName: "Jane", relationship: "sister", fullNames: ["Jane Doe"], aliases: ["Janie"])
+        let stored = SettingsPeople.encode(person)
+        #expect(stored == #"{"aliases":["Janie"],"displayName":"Jane","fullNames":["Jane Doe"],"relationship":"sister"}"#)
+        let shuffled = #"{"relationship":"sister","fullNames":["Jane Doe"],"displayName":"Jane","aliases":["Janie"]}"#
+        #expect(SettingsPeople.same(stored, shuffled))
+        #expect(!SettingsPeople.same(stored, shuffled.replacingOccurrences(of: "Janie", with: "JJ")))
+        #expect(SettingsPeople.same("default\njane", "default\njane"))
+        #expect(!SettingsPeople.same("default\njane", "custom\njane"))
+    }
 }

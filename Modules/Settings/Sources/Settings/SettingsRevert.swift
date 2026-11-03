@@ -29,7 +29,8 @@ public enum SettingsRevert {
         if change.setting == "people.add" || change.how == .rule { return .none }
         if change.setting == "people.edit" {
             guard let people, let to = change.to, change.from != nil else { return .none }
-            return people.value("people.edit", target: change.target) == .string(to) ? .ready(raises: false) : .changedSince
+            guard case .string(let now)? = people.value("people.edit", target: change.target) else { return .changedSince }
+            return SettingsPeople.same(now, to) ? .ready(raises: false) : .changedSince
         }
         guard change.how != .rule, let entry = SettingsCatalog.entry(change.setting),
               let before = change.from.flatMap({ value($0, entry) }), let after = change.to.flatMap({ value($0, entry) })

@@ -149,6 +149,11 @@ import Sync
         let edit = SettingsChange(setting: "people.edit", target: jane.id, name: "People", from: before, to: after,
                                   fromLabel: nil, toLabel: "saved Janet", how: .card)
         #expect(SettingsRevert.state(edit, lookup: rig.lookup, people: people) == .ready(raises: false))
+        // A row recorded with its keys in another order is still the same person.
+        let reordered = SettingsChange(setting: "people.edit", target: jane.id, name: "People", from: before,
+                                       to: #"{"fullNames":[],"displayName":"Janet","aliases":[]}"#,
+                                       fromLabel: nil, toLabel: "saved Janet", how: .card)
+        #expect(SettingsRevert.state(reordered, lookup: rig.lookup, people: people) == .ready(raises: false))
         #expect(SettingsRevert.revert(edit, lookup: rig.lookup, writer: rig.writer, people: people, log: rig.log,
                                       center: rig.center, confirmRaising: { _ in false }) == .done)
         #expect(people.person(named: jane.id)?.displayName == "Jane")

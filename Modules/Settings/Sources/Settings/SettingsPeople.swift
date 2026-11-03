@@ -32,12 +32,25 @@ public struct SettingsPeople {
 
     // MARK: Values, for undo and the record
 
-    /// A person as one stored value; "" when there is no such person.
+    /// A person as one stored value; "" when there is no such person. Keys sorted: without it,
+    /// older Foundations order them differently from one encode to the next, and an unchanged
+    /// person would read as changed since.
     public static func encode(_ person: Person?) -> String {
         guard let person else { return "" }
         let fields = Fields(displayName: person.displayName, relationship: person.relationship,
                             fullNames: person.fullNames, aliases: person.aliases)
-        return (try? JSONEncoder().encode(fields)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return (try? encoder.encode(fields)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+    }
+
+    /// Whether two stored values are the same person, or the same order: by their fields, so a
+    /// value recorded with its keys in another order still matches.
+    public static func same(_ a: String, _ b: String) -> Bool {
+        let decoder = JSONDecoder()
+        guard let first = try? decoder.decode(Fields.self, from: Data(a.utf8)),
+              let second = try? decoder.decode(Fields.self, from: Data(b.utf8)) else { return a == b }
+        return first == second
     }
 
     /// The order as one stored value: whether it is Settings' default arrangement or their own,
