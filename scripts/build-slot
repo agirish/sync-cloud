@@ -537,8 +537,9 @@ def acquire(command, exclusive, worktree, light=False):
                                  lane_open, swept_at)
                     ahead = taken.pop("ahead")
                 if taken:
+                    held_text = record_text(command, worktree, light)  # started: now, not queued
                     for fd in taken.values():
-                        write_record(fd, text)
+                        write_record(fd, held_text)
                     note_served(read_served(), worktree)
                     waited = time.monotonic() - began
                     if waited >= POLL_SECONDS:

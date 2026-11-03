@@ -84,6 +84,22 @@ check "FIFO: the fifth waiter was told 4 were ahead" grep -q '4 ahead in line' "
 check "FIFO: each waiter reported getting its slot" \
   same "$(cat "$WORK"/fifo-err? | grep -c 'got slot 1 after waiting')" 5
 
+# A holder's time in --status counts from when it got its slot, not from when it queued.
+rm -f "$WORK/release"
+"$SLOT" sh -c "while [ ! -e '$WORK/release' ]; do sleep 0.05; done" &
+gate=$!
+wait_for 10 held 1
+"$SLOT" sleep 32.2 2>/dev/null &
+late=$!
+wait_for 10 waiting 1
+sleep 3
+touch "$WORK/release"
+wait "$gate"
+wait_for 10 held 1
+check "a holder's time counts from getting the slot, not from queueing" \
+  eval "'$SLOT' --status | grep -q '^  \[1\] pid $late, [^,]*, 0m0[0-2]s: sleep 32.2'"
+kill "$late"; wait "$late" 2>/dev/null
+
 # A command run again and again in a loop must not re-take the slot ahead of a queued waiter
 # (seen: a Dashboard run looping on one slot kept a waiter out for 51 minutes).
 # loop1 holds the slot until the waiter is in line, not for a fixed time: under load a waiter
