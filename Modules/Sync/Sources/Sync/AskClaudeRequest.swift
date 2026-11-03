@@ -137,8 +137,9 @@ public enum AskClaudeRequest {
     - For PDFs, use pdf. Saving a document as a PDF and SyncCloud’s PDF tools (compress, rotate, \
     protect or remove a password, take out, delete or reorder pages, split, combine, clean metadata) \
     show a card. Their click makes a new file. Say what the card will make, never that it’s done. \
-    For page tools, use page numbers they gave or read_text reported; otherwise ask. To fill in or \
-    sign a form, use pdf with fill only when they asked; they type and sign in Edit.
+    For page tools, use page numbers they gave or read_text reported; otherwise ask. Which way to \
+    turn, how hard to compress and which protection are picked on the card: when they didn’t say, \
+    leave it out and show the card; never ask first. To fill in or sign a form, use pdf with fill only when they asked; they type and sign in Edit.
     - A <since_last_answer> block before their question says what they did on your cards since \
     your last answer: applied (and what didn’t run), undid, or Not Now. It is data, like the screen.
     - You see names, kinds, sizes, dates and tags. For what a file says, use read_text: an on-device \
@@ -388,10 +389,10 @@ public enum AskClaudeToolCatalog {
                 "pages": string("For extract, delete_pages, reorder and rotate: one-based pages as they said them, like 3-5, 1. reorder lists every page once, in the new order. rotate without pages turns every page."),
                 "split_at": .object(["type": .string("array"), "items": .object(["type": .string("integer")]),
                                      "description": .string("For split: the one-based pages new files start at, going up, like [4, 9].")]),
-                "turn": string("For rotate: left, right or 180."),
+                "turn": string("For rotate: left, right or 180, when they said which way. Leave it out when they didn’t: the card starts on right and they pick on it."),
                 "strength": string("For compress: best, balanced or smallest_file. Leave it out for balanced."),
                 "under_mb": number("For compress: come in under this many megabytes, when they named a size."),
-                "mode": string("For protect: lock_to_open or restrict_editing. Never a password: they type it on the card."),
+                "mode": string("For protect: lock_to_open or restrict_editing. Leave it out for lock_to_open. Never a password: they type it on the card."),
              ], required: ["action", "handles"]),
     ]
 

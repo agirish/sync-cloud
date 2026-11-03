@@ -15,7 +15,7 @@ private let askClaudeLiveKey = ProcessInfo.processInfo.environment["ASK_CLAUDE_L
 /// **Off unless asked for.** It runs only when `ASK_CLAUDE_LIVE_KEY` holds an API key — never the
 /// Keychain, which a test must never touch — and never on CI. It spends real money: each question
 /// is short and most of each request is cached, and the run prints what it cost. A skipped run is
-/// a vacuous green: the gate quotes the count line, 16 prompts × 2 models × 3 runs.
+/// a vacuous green: the gate quotes the count line, 17 prompts × 2 models × 3 runs.
 @Suite(.serialized, .enabled(if: askClaudeLiveKey != nil, "no ASK_CLAUDE_LIVE_KEY — the live check is skipped"))
 struct AskClaudeLivePDFTests {
     static let key = askClaudeLiveKey
@@ -127,6 +127,9 @@ struct AskClaudeLivePDFTests {
             call.input["split_at"]?.arrayValue?.compactMap(\.intValue) == [4] ? nil : "split_at \(String(describing: call.input["split_at"]))" })),
         Prompt(question: "combine the three hotel receipts into one PDF", check: offered("combine", ["r5", "r6", "r7"])),
         Prompt(question: "rotate the tax scan to the right", check: offered("rotate", ["r2"], also: { call in
+            (call.string("turn") ?? "right") == "right" ? nil : "turn \(String(describing: call.string("turn")))" })),
+        // No direction: the card has the choice, so it's offered at once rather than asked about.
+        Prompt(question: "rotate the tax scan", check: offered("rotate", ["r2"], also: { call in
             (call.string("turn") ?? "right") == "right" ? nil : "turn \(String(describing: call.string("turn")))" })),
         Prompt(question: "remove the password from Locked Notice", check: offered("remove_password", ["r9"])),
         Prompt(question: "clean the metadata off the Chase statement", check: offered("clean_metadata", ["r4"])),

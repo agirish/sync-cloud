@@ -14104,3 +14104,14 @@ no survey yet or people.json can't be read or repeats an ID. Ask Claude exists o
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Ask Claude shows a PDF card instead of asking which way (TE294) — main only
+
+2026-11-02, for v7.0. On `main`: when someone asks to rotate, compress or protect a PDF without
+naming the direction, strength or protection, Claude shows the card at once on its default
+(Right, Balanced, Lock to open) and doesn't ask first; the choice is made on the card. Ask Claude
+exists only on `main` (see TE290 step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

@@ -174,6 +174,14 @@ extension AskClaudeBrowseTools {
         let card = AskClaudePDFCard(action: action, rows: rows, options: options)
         let files = rows.map { "“\(AskClaudeScreenCard.escape($0.name))”" }.joined(separator: ", ")
         var lines = ["Offered them a card: \(card.title) — \(files). Nothing has happened: they click \(AskClaudePDFCardView.runTitle(card)) or Not Now. The card reads the files, says what the copy loses, and makes a new file next to each original; the original stays as it was."]
+        // A choice they didn't name starts on the card's default; they change it there, not in the chat.
+        let picked: String? = switch action {
+        case .rotate where call.string("turn") == nil: "They didn’t say which way: the card starts on Right, with Left and 180° beside it."
+        case .compress where call.string("strength") == nil && options.underMB == nil: "They didn’t say how hard: the card starts on Balanced, with Best and Smallest beside it."
+        case .protect where call.string("mode") == nil: "They didn’t say which protection: the card starts on Lock to open, with Restrict editing beside it."
+        default: nil
+        }
+        if let picked { lines.append(picked) }
         if action == .protect || action == .removePassword {
             lines.append("They type the password on the card. Never ask for it, suggest one or repeat one.")
         }
