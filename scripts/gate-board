@@ -1,0 +1,479 @@
+#!/usr/bin/python3
+"""A board where sessions say they are about to run a landing gate, so two can share one run.
+
+    scripts/gate-board announce [--packages Design,Sync|all] [--app|--no-app] [--state STATE]
+                                [--passed Dashboard,app] [--join WORKTREE] [--note TEXT]
+    scripts/gate-board list [--json]
+    scripts/gate-board verify WORKTREE|TREE
+    scripts/gate-board clear
+
+COMMIT.md §8 is the practice; this is only how sessions find each other. Nothing here runs a build
+or takes a slot, and an entry commits its session to nothing.
+
+announce, run in a worktree, writes or replaces that worktree's entry: its path, branch, HEAD and
+tree, its base (the merge-base with origin/main), the files it changes, the packages its gate will
+run and whether it runs `xcodebuild test` ("app"), the state of the gate, the session's address,
+and when. Packages default to every changed package and every package that depends on one (read
+from each Package.swift); app defaults to on for any change outside docs/, scripts/, .github/,
+SyncCloudCLI/ and root-level Markdown. Say --packages or --app/--no-app when the gate differs.
+  --state     announced (the default), running, passed or red. A passed entry records the tree it
+              passed on, which `verify` compares against.
+  --passed    suites this worktree's own runs have already passed, so a partner can see how far
+              along it is (the 2026-11-03 NOW case: Dashboard already green, FileExplorer next).
+  --join      a worktree whose announced commit this gate now carries, cherry-picked.
+Announcing again keeps the first announcement's time, and keeps --passed, --join and --note from
+before unless given again, as long as HEAD has not moved.
+
+list prints every live entry, oldest first, with the session's address for SendMessage, how many
+build slots its worktree holds and waits for (from `build-slot --status`), and, run from a
+worktree, a verdict on sharing with each one: whether either gate covers the other, whether they
+touch common files, whether both are on today's origin/main and unchanged since announcing. An
+entry is dropped as stale when its session's process is gone (the PID and its start time both
+have to match, so a reused PID never keeps one alive) or its worktree no longer exists.
+
+verify, run by the second lander after rebasing onto the first, checks that this HEAD's tree is
+byte-identical to the one the shared gate passed on (a worktree's passed entry, or a tree SHA).
+Exit 0 if so; exit 1, listing the differing files, if not: rerun your own gate.
+
+clear removes this worktree's entry. Do it once you have landed, or declined.
+
+The session address is $CLAUDE_CODE_HOST_SESSION_ID (a `local_…` id), else --session. Liveness is
+read from $CLAUDE_PID, the session's own process; outside Claude Code, from the calling shell.
+Entries live in $GATE_BOARD_DIR, else ~/Library/Caches/SyncCloud-build-slots/gates/, one JSON
+file per worktree. Tests: scripts/test-gate-board.
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+BOARD_DIR = os.environ.get("GATE_BOARD_DIR") or os.path.expanduser(
+    "~/Library/Caches/SyncCloud-build-slots/gates")
+STATES = ("announced", "running", "passed", "red")
+APP = "app"
+# Paths whose changes need no `xcodebuild test`: they are not compiled into the app.
+NO_APP = re.compile(r"^(docs/|scripts/|\.github/|SyncCloudCLI/|[^/]+\.md$)")
+
+
+def note(message):
+    sys.stderr.write("gate-board: %s\n" % message)
+
+
+def git(*args, cwd=None, check=True):
+    result = subprocess.run(["git"] + list(args), cwd=cwd, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, errors="surrogateescape")
+    if check and result.returncode != 0:
+        raise RuntimeError("git %s: %s" % (" ".join(args), result.stderr.strip()))
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def toplevel(cwd=None):
+    return git("rev-parse", "--show-toplevel", cwd=cwd, check=False)
+
+
+def place(path):
+    """The name build-slot --status shows for a worktree."""
+    marker = "/.claude/worktrees/"
+    if marker in path:
+        return path.split(marker, 1)[1].split("/", 1)[0]
+    home = os.path.expanduser("~")
+    return "~" + path[len(home):] if path.startswith(home) else path
+
+
+def entry_path(worktree):
+    digest = hashlib.sha1(worktree.encode("utf-8", "surrogateescape")).hexdigest()[:8]
+    return os.path.join(BOARD_DIR, "%s-%s.json" % (os.path.basename(worktree), digest))
+
+
+def process_started(pid):
+    """The process's start time as ps prints it, or None if there is no such process."""
+    result = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], stdout=subprocess.PIPE,
+                            stderr=subprocess.DEVNULL, errors="replace")
+    return result.stdout.strip() or None
+
+
+def alive(entry):
+    return (bool(entry.get("pid")) and os.path.isdir(entry.get("worktree", ""))
+            and process_started(entry.get("pid", 0)) == entry.get("pid_started"))
+
+
+def read_entries():
+    """Every live entry, oldest announcement first; stale ones are deleted on the way."""
+    entries = []
+    try:
+        names = sorted(os.listdir(BOARD_DIR))
+    except FileNotFoundError:
+        return entries
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        path = os.path.join(BOARD_DIR, name)
+        try:
+            with open(path) as handle:
+                entry = json.load(handle)
+        except (OSError, ValueError):
+            continue  # half-written by a crashed announce is impossible (rename); skip the odd one
+        if not alive(entry):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            continue
+        entries.append(entry)
+    entries.sort(key=lambda entry: entry.get("announced", 0))
+    return entries
+
+
+def package_graph(worktree):
+    """{package: set of packages it depends on}, read from each Package.swift's local paths."""
+    graph = {}
+    roots = [os.path.join(worktree, "Modules", name)
+             for name in sorted(os.listdir(os.path.join(worktree, "Modules")))]
+    roots.append(os.path.join(worktree, "SyncCloudCLI"))
+    for root in roots:
+        manifest = os.path.join(root, "Package.swift")
+        if not os.path.isfile(manifest):
+            continue
+        with open(manifest, errors="replace") as handle:
+            text = handle.read()
+        graph[os.path.basename(root)] = {
+            os.path.basename(dep) for dep in re.findall(r'path:\s*"\.\./([^"]+)"', text)}
+    return graph
+
+
+def gate_of(worktree, files):
+    """(packages, app) a landing gate runs for these changed files (COMMIT.md §4 gate 3)."""
+    graph = package_graph(worktree)
+    changed = set()
+    for path in files:
+        parts = path.split("/")
+        if parts[0] == "Modules" and len(parts) > 2 and parts[1] in graph:
+            changed.add(parts[1])
+        elif parts[0] == "SyncCloudCLI" and "SyncCloudCLI" in graph:
+            changed.add("SyncCloudCLI")
+    packages = set(changed)
+    while True:
+        more = {name for name, deps in graph.items() if deps & packages} - packages
+        if not more:
+            break
+        packages |= more
+    app = any(not NO_APP.match(path) for path in files)
+    return sorted(packages), app
+
+
+def parse_list(text, worktree=None):
+    if text is None:
+        return None
+    if text.strip() == "all":
+        return sorted(package_graph(worktree))
+    return sorted({item.strip() for item in text.split(",") if item.strip()})
+
+
+def snapshot(worktree):
+    """What git says about a worktree now: branch, head, tree, base, files, rebased."""
+    origin = git("rev-parse", "--verify", "-q", "origin/main", cwd=worktree, check=False)
+    head = git("rev-parse", "HEAD", cwd=worktree)
+    base = git("merge-base", "HEAD", "origin/main", cwd=worktree, check=False) if origin else None
+    files = git("diff", "--name-only", base, "HEAD", cwd=worktree).splitlines() if base else []
+    return {
+        "worktree": worktree,
+        "branch": git("symbolic-ref", "-q", "--short", "HEAD", cwd=worktree, check=False) or "",
+        "head": head,
+        "tree": git("rev-parse", "HEAD^{tree}", cwd=worktree),
+        "base": base or "",
+        "origin_main": origin or "",
+        "files": files,
+    }
+
+
+def write_entry(entry):
+    os.makedirs(BOARD_DIR, exist_ok=True)
+    path = entry_path(entry["worktree"])
+    temporary = "%s.%d.tmp" % (path, os.getpid())
+    with open(temporary, "w") as handle:
+        json.dump(entry, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    os.rename(temporary, path)  # readers see the old entry or the new one, never half of one
+
+
+def own_entry(worktree):
+    for entry in read_entries():
+        if entry["worktree"] == worktree:
+            return entry
+    return None
+
+
+def announce(args):
+    worktree = toplevel()
+    if not worktree:
+        note("run this inside a worktree")
+        return 2
+    now = snapshot(worktree)
+    if not now["base"]:
+        note("no origin/main here; fetch first")
+        return 2
+    previous = own_entry(worktree)
+    same_head = previous is not None and previous.get("head") == now["head"]
+    packages, app = gate_of(worktree, now["files"])
+    if args.packages is not None:
+        packages = parse_list(args.packages, worktree)
+    if args.app is not None:
+        app = args.app
+    pid = args.pid or int(os.environ.get("CLAUDE_PID") or os.getppid())
+    started = process_started(pid)
+    if not started:
+        note("no process %d to tie the entry to" % pid)
+        return 2
+    joins = []
+    for name in args.join or []:
+        partner = find_entry(name)
+        if partner is None:
+            note("no live entry for %s" % name)
+            return 2
+        joins.append({"worktree": partner["worktree"], "head": partner["head"],
+                      "session": partner.get("session", "")})
+
+    def kept(field, given, default):
+        if given is not None:
+            return given
+        return previous.get(field, default) if same_head else default
+
+    entry = dict(now)
+    entry.update({
+        "version": 1,
+        "packages": packages,
+        "app": app,
+        "state": args.state,
+        "tested_tree": now["tree"] if args.state == "passed" else "",
+        "passed": kept("passed", parse_list(args.passed), []),
+        "joins": kept("joins", joins or None, []),
+        "note": kept("note", args.note, ""),
+        "session": args.session or os.environ.get("CLAUDE_CODE_HOST_SESSION_ID", ""),
+        "pid": pid,
+        "pid_started": started,
+        "announced": previous["announced"] if same_head else time.time(),
+        "updated": time.time(),
+    })
+    write_entry(entry)
+    print("announced %s at %s: %s" % (place(worktree), now["head"][:9], gate_text(entry)))
+    if not entry["session"]:
+        note("no session address ($CLAUDE_CODE_HOST_SESSION_ID); pass --session")
+    return 0
+
+
+def find_entry(name):
+    """A live entry by worktree path, its basename, or its build-slot place name."""
+    path = os.path.abspath(os.path.expanduser(name))
+    for entry in read_entries():
+        if name in (entry["worktree"], os.path.basename(entry["worktree"]), place(entry["worktree"])) \
+                or path == entry["worktree"]:
+            return entry
+    return None
+
+
+def gate_text(entry):
+    parts = list(entry["packages"]) + ([APP] if entry["app"] else [])
+    return " ".join(parts) if parts else "nothing to run"
+
+
+def covers(a, b):
+    return set(b["packages"]) <= set(a["packages"]) and (a["app"] or not b["app"])
+
+
+def current_head(entry):
+    worktree = entry["worktree"]
+    if entry.get("branch"):
+        head = git("rev-parse", "-q", "--verify", "refs/heads/" + entry["branch"],
+                   cwd=worktree, check=False)
+        if head:
+            return head
+    return git("rev-parse", "HEAD", cwd=worktree, check=False)
+
+
+def verdict(mine, other, origin):
+    """One line on whether `other`'s gate and mine could be one run (COMMIT.md §8)."""
+    if any(join["worktree"] == mine["worktree"] for join in other.get("joins", [])):
+        return "its gate carries your commit (%s)" % other["state"]
+    if any(join["worktree"] == other["worktree"] for join in mine.get("joins", [])):
+        return "your gate carries its commit"
+    common = sorted(set(mine["files"]) & set(other["files"]))
+    if common:
+        shown = ", ".join(common[:3]) + (", …" if len(common) > 3 else "")
+        return "no: %d common file%s (%s)" % (len(common), "" if len(common) == 1 else "s", shown)
+    if not mine["files"] or not other["files"]:
+        return "no: nothing to share (one side changes nothing)"
+    behind = (mine["base"] != origin, other["base"] != origin)
+    if all(behind):
+        return "not yet: both must rebase on origin/main"
+    if behind[0]:
+        return "not yet: rebase yours on origin/main, then announce again"
+    if behind[1]:
+        return "not yet: it must rebase on origin/main"
+    if current_head(other) != other["head"]:
+        return "not yet: it changed since announcing"
+    if mine.get("announced") and current_head(mine) != mine["head"]:
+        return "not yet: yours changed since announcing; announce again"
+    if covers(other, mine) and covers(mine, other):
+        return "maybe: same gate, either can run it"
+    if covers(other, mine):
+        return "maybe: its gate covers yours"
+    if covers(mine, other):
+        return "maybe: your gate covers its"
+    return "no: neither gate covers the other"
+
+
+def slot_usage():
+    """{place: (held, waiting)} from build-slot --status; empty if it cannot be read."""
+    here = os.path.dirname(os.path.realpath(__file__))
+    script = os.path.join(here, "build-slot")
+    if not os.path.isfile(script):  # a maintenance line's checkout: use the primary's copy
+        common = git("rev-parse", "--path-format=absolute", "--git-common-dir", check=False)
+        script = os.path.join(os.path.dirname(common or "/"), "scripts", "build-slot")
+    try:
+        text = subprocess.run([script, "--status"], stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL, errors="replace", timeout=20).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    usage = {}
+    for line in text.splitlines():
+        held = re.match(r"^  \[\d+\] pid \d+, (.+?), \d+[mh]\d+[sm]: ", line)
+        if held:
+            count, waiting = usage.get(held.group(1), (0, 0))
+            usage[held.group(1)] = (count + 1, waiting)
+            continue
+        group = re.match(r"^  (\S.*): holds (\d+), (\d+) waiting$", line)
+        if group:
+            usage[group.group(1)] = (int(group.group(2)), int(group.group(3)))
+    return usage
+
+
+def ago(stamp):
+    seconds = int(time.time() - stamp)
+    if seconds < 3600:
+        return "%dm ago" % (seconds // 60)
+    return "%dh%02dm ago" % (seconds // 3600, seconds % 3600 // 60)
+
+
+def list_entries(args):
+    entries = read_entries()
+    if args.json:
+        print(json.dumps(entries, indent=2, sort_keys=True))
+        return 0
+    worktree = toplevel()
+    mine = None
+    if worktree:
+        mine = next((entry for entry in entries if entry["worktree"] == worktree), None)
+        if mine is None:
+            mine = snapshot(worktree)
+            if mine["base"]:
+                mine["packages"], mine["app"] = gate_of(worktree, mine["files"])
+            else:
+                mine = None
+    origin = git("rev-parse", "--verify", "-q", "origin/main", cwd=worktree, check=False) \
+        if worktree else None
+    others = [entry for entry in entries if mine is None or entry["worktree"] != mine["worktree"]]
+    if not entries:
+        print("no gates announced (%s)" % BOARD_DIR)
+    else:
+        print("%d gate%s announced (%s)" % (len(entries), "" if len(entries) == 1 else "s",
+                                             BOARD_DIR))
+    usage = slot_usage()
+    for entry in entries:
+        held, waiting = usage.get(place(entry["worktree"]), (0, 0))
+        print("  %s  %s at %s, %s %s" % (
+            place(entry["worktree"]), entry.get("branch") or "(detached)", entry["head"][:9],
+            entry["state"], ago(entry["announced"])))
+        print("    session %s; gate: %s; %d file%s; slots: %d held, %d waiting" % (
+            entry.get("session") or "(unknown)", gate_text(entry), len(entry["files"]),
+            "" if len(entry["files"]) == 1 else "s", held, waiting))
+        if entry.get("passed"):
+            print("    already passed: %s" % " ".join(entry["passed"]))
+        for join in entry.get("joins", []):
+            print("    carries %s at %s" % (place(join["worktree"]), join["head"][:9]))
+        if entry.get("tested_tree"):
+            print("    passed on tree %s" % entry["tested_tree"])
+        if entry.get("note"):
+            print("    note: %s" % entry["note"])
+        if mine is not None and entry in others:
+            print("    sharing with you: %s" % verdict(mine, entry, origin))
+    if mine is not None and others and mine not in entries:
+        print("you (%s, not announced): gate %s" % (place(mine["worktree"]), gate_text(mine)))
+    return 0
+
+
+def verify(args):
+    target = args.target
+    entry = find_entry(target)
+    if entry is not None:
+        if not entry.get("tested_tree"):
+            note("%s has not passed a gate yet (state %s)" % (place(entry["worktree"]),
+                                                              entry["state"]))
+            return 2
+        tree = entry["tested_tree"]
+    else:
+        tree = git("rev-parse", "-q", "--verify", target + "^{tree}", check=False)
+        if not tree:
+            note("%s is neither a live entry nor a tree" % target)
+            return 2
+    head_tree = git("rev-parse", "HEAD^{tree}")
+    if head_tree == tree:
+        print("HEAD's tree %s is the tested tree: the shared gate covers this landing" % tree[:9])
+        return 0
+    print("HEAD's tree %s differs from the tested tree %s; rerun your own gate:" % (
+        head_tree[:9], tree[:9]))
+    print(git("diff", "--name-status", tree, head_tree))
+    return 1
+
+
+def clear(_args):
+    worktree = toplevel()
+    if not worktree:
+        note("run this inside a worktree")
+        return 2
+    try:
+        os.remove(entry_path(worktree))
+        print("cleared %s" % place(worktree))
+    except FileNotFoundError:
+        print("nothing announced for %s" % place(worktree))
+    return 0
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(prog="gate-board", description=__doc__.split("\n\n")[0])
+    commands = parser.add_subparsers(dest="command", required=True)
+    said = commands.add_parser("announce")
+    said.add_argument("--packages")
+    said.add_argument("--app", dest="app", action="store_true", default=None)
+    said.add_argument("--no-app", dest="app", action="store_false")
+    said.add_argument("--state", choices=STATES, default="announced")
+    said.add_argument("--passed")
+    said.add_argument("--join", action="append")
+    said.add_argument("--note")
+    said.add_argument("--session")
+    said.add_argument("--pid", type=int)
+    said.set_defaults(run=announce)
+    shown = commands.add_parser("list")
+    shown.add_argument("--json", action="store_true")
+    shown.set_defaults(run=list_entries)
+    checked = commands.add_parser("verify")
+    checked.add_argument("target")
+    checked.set_defaults(run=verify)
+    commands.add_parser("clear").set_defaults(run=clear)
+    if not argv or argv[0] in ("-h", "--help"):
+        sys.stdout.write(__doc__)
+        return 0
+    args = parser.parse_args(argv)
+    try:
+        return args.run(args)
+    except RuntimeError as error:
+        note(str(error))
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

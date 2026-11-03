@@ -162,6 +162,9 @@ test on GitHub (`hosted-ci.yml`), so the runner here takes only the nightly run,
 - **Compile-only commands run at `nice` 10; tests never do**, because a slower test run is a
   flakier one (`docs/flaky-tests.md`). The CI runner takes no slot, by decision: its verdict is
   never queued behind a session's build.
+- **Share a gate when one covers another's** (`COMMIT.md` §8): `scripts/gate-board announce`
+  before you queue yours, `scripts/gate-board list` to see who else is about to, and one run on a
+  tree carrying both saves a whole gate. Opt-in, always.
 - **Iterate narrow, gate wide:** `--filter` or `-only-testing:` while working; the full
   seven-package run and `xcodebuild test` only as the landing gate (`COMMIT.md` §4).
 - **Debug while iterating; Release only for the install** (`install-sync-cloud`).

@@ -1,0 +1,193 @@
+#!/bin/bash
+# Tests for scripts/gate-board. Runs a copy against a private board, a fixture repository and a
+# fake build-slot, so it never reads or writes the real board. Takes about ten seconds; prints one line
+# per check and exits non-zero if any check fails.
+set -u
+HERE="$(cd "$(dirname "$0")" && pwd)"
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/gate-board-test.XXXXXX")
+WORK=$(cd "$WORK" && pwd -P)  # git prints the resolved path; compare like with like
+trap 'kill $(jobs -p) 2>/dev/null; rm -rf "$WORK"' EXIT
+export GATE_BOARD_DIR="$WORK/board"
+unset CLAUDE_PID CLAUDE_CODE_HOST_SESSION_ID
+mkdir -p "$WORK/bin"
+cp "${GATE_BOARD:-$HERE/gate-board}" "$WORK/bin/gate-board"  # override to test a modified copy
+cat > "$WORK/bin/build-slot" <<'EOF'
+#!/bin/bash
+cat <<'STATUS'
+3 of 3 slots held, 2 waiting (/somewhere)
+  [1] pid 11, a, 1m02s: swift test --package-path Modules/Design
+  [2] pid 12, ~/elsewhere, 1h05m: xcodebuild build
+  [3] pid 13, a, 0m01s: swift test --package-path Modules/Settings
+waiting, by worktree; #n is the turn each would get as slots free:
+  b: holds 0, 2 waiting
+    #1       pid 14, waited 3m00s: swift test --package-path Modules/Dashboard
+STATUS
+EOF
+chmod +x "$WORK/bin/build-slot"
+BOARD="$WORK/bin/gate-board"
+failures=0
+
+check() {  # check <description> <command…>
+  local what=$1; shift
+  if "$@"; then echo "ok   - $what"; else echo "FAIL - $what"; failures=$((failures + 1)); fi
+}
+has() { grep -qF -- "$1" "$WORK/out"; }
+lacks() { ! grep -qF -- "$1" "$WORK/out"; }
+run() { (cd "$1" && shift && "$@") > "$WORK/out" 2>&1; }  # run <dir> <command…>
+entries() { ls "$GATE_BOARD_DIR"/*.json 2>/dev/null | wc -l | tr -d ' '; }
+
+# The fixture: SyncCloud's package graph, and two worktrees under .claude/worktrees/ so their
+# build-slot names are a and b.
+REPO="$WORK/repo"
+git init -q -b main "$REPO"
+cd "$REPO" || exit 1
+git config user.email t@t && git config user.name t && git config commit.gpgsign false
+package() {  # package <dir> <dependency…>
+  mkdir -p "$1"
+  { echo '// swift-tools-version:6.0'; for dep in "${@:2}"; do echo ".package(path: \"../$dep\"),"; done
+  } > "$1/Package.swift"
+  echo x > "$1/file.swift"
+}
+package Modules/Events
+package Modules/Sync Events
+package Modules/Design
+package Modules/Settings Sync Events Design
+package Modules/FileExplorer Sync Events Design
+package Modules/Dashboard Sync Events FileExplorer Settings Design
+package SyncCloudCLI Modules/Sync Modules/Settings Modules/Events
+mkdir -p MacApp docs && echo x > MacApp/App.swift && echo x > docs/a.md && echo x > README.md
+git add -A && git commit -qm base
+git update-ref refs/remotes/origin/main HEAD
+git worktree add -q "$REPO/.claude/worktrees/a" -b a origin/main
+git worktree add -q "$REPO/.claude/worktrees/b" -b b origin/main
+A="$REPO/.claude/worktrees/a"
+B="$REPO/.claude/worktrees/b"
+edit() { (cd "$1" && echo "$3" >> "$2" && git add -A && git commit -qm "$2"); }
+
+sleep 600 & PA=$!
+sleep 600 & PB=$!
+
+# Inference: what a gate runs for which files.
+edit "$A" Modules/Design/file.swift a1
+run "$A" "$BOARD" announce --pid "$PA" --session local_a
+check "a Design change runs Design and everything above it, plus the app" \
+  has ": Dashboard Design FileExplorer Settings SyncCloudCLI app"
+edit "$B" docs/a.md b1
+run "$B" "$BOARD" announce --pid "$PB"
+check "a docs change runs nothing" has "nothing to run"
+check "a missing session address is said" has "no session address"
+edit "$B" SyncCloudCLI/file.swift b2
+run "$B" "$BOARD" announce --pid "$PB"
+check "a CLI change runs the CLI package without the app" has "SyncCloudCLI" && check "  …and no app" lacks " app"
+edit "$B" MacApp/App.swift b3
+run "$B" "$BOARD" announce --pid "$PB" --session local_b
+check "an app change runs the app" has ": SyncCloudCLI app"
+run "$B" "$BOARD" announce --pid "$PB" --session local_b --packages Events,Sync --no-app
+check "--packages and --no-app override the inference" has ": Events Sync" && check "  …and drop the app" lacks " app"
+run "$B" "$BOARD" announce --pid "$PB" --session local_b --packages all
+check "--packages all is every package" \
+  has "Dashboard Design Events FileExplorer Settings Sync SyncCloudCLI app"
+
+# Listing: verdicts from each side, slot use, session addresses.
+run "$B" "$BOARD" announce --pid "$PB" --session local_b --packages Settings --passed Settings
+run "$A" "$BOARD" list
+check "list shows both entries" has "2 gates announced"
+check "list shows the session address" has "session local_b"
+check "list shows slots from build-slot --status" has "slots: 2 held, 0 waiting"
+check "  …held and waiting alike" has "slots: 0 held, 2 waiting"
+check "list shows what already passed" has "already passed: Settings"
+check "a's gate covers b's" has "sharing with you: maybe: your gate covers its"
+run "$B" "$BOARD" list
+check "seen from b, a's covers it" has "sharing with you: maybe: its gate covers yours"
+announced_b() { "$BOARD" list --json | /usr/bin/python3 -c 'import json, sys
+print([e["announced"] for e in json.load(sys.stdin) if e["worktree"].endswith("/b")][0])'; }
+first=$(announced_b)
+run "$B" "$BOARD" announce --pid "$PB" --session local_b --app
+run "$A" "$BOARD" list
+check "the passed list is kept while HEAD stays put" has "already passed: Settings"
+check "  …and so is the first announcement's time" [ "$first" = "$(announced_b)" ]
+run "$B" "$BOARD" announce --pid "$PB" --session local_b --packages Sync --app
+run "$A" "$BOARD" list
+check "a gate missing the other's package covers nothing" has "no: neither gate covers the other"
+run "$B" "$BOARD" announce --pid "$PB" --session local_b --packages Settings --app
+run "$A" "$BOARD" announce --pid "$PA" --session local_a --no-app
+run "$A" "$BOARD" list
+check "a gate without the app covers no gate with it" has "no: neither gate covers the other"
+run "$A" "$BOARD" announce --pid "$PA" --session local_a
+run "$B" "$BOARD" announce --pid "$PB" --session local_b --packages Settings
+"$BOARD" list --json > "$WORK/out"
+check "list --json is JSON" /usr/bin/python3 -c 'import json, sys; json.load(open(sys.argv[1]))' "$WORK/out"
+
+# Reasons not to share.
+edit "$B" Modules/Design/file.swift b4
+run "$A" "$BOARD" list
+check "b moving its HEAD after announcing says so" has "not yet: it changed since announcing"
+run "$B" "$BOARD" announce --pid "$PB" --session local_b
+run "$A" "$BOARD" list
+check "common files rule it out" has "no: 1 common file (Modules/Design/file.swift)"
+(cd "$B" && git revert --no-edit HEAD > /dev/null)
+run "$B" "$BOARD" announce --pid "$PB" --session local_b --packages Settings
+(cd "$REPO" && echo y > other && git add other && git commit -qm moved && git update-ref refs/remotes/origin/main HEAD)
+run "$A" "$BOARD" list
+check "a moved origin/main asks both to rebase" has "not yet: both must rebase on origin/main"
+(cd "$A" && git rebase -q origin/main) && (cd "$B" && git rebase -q origin/main)
+# Each side squashes to one commit before its gate (COMMIT.md §3); b's is b-themed.
+(cd "$B" && git checkout -q -b b-themed origin/main && git merge -q --squash b > /dev/null &&
+  git commit -qm "b's change")
+run "$A" "$BOARD" announce --pid "$PA" --session local_a
+run "$B" "$BOARD" announce --pid "$PB" --session local_b --packages Settings
+run "$A" "$BOARD" list
+check "rebased, they may share again" has "maybe: your gate covers its"
+
+# The shared run: a carries b's commit, passes, lands; b stacks onto it and verifies.
+(cd "$A" && git checkout -q -b a-gate && git cherry-pick b-themed > /dev/null)
+run "$A" "$BOARD" announce --pid "$PA" --session local_a --join b --state passed
+check "announce --join needs a live entry and takes it" has "announced a"
+tested=$(cd "$A" && git rev-parse 'HEAD^{tree}')
+run "$B" "$BOARD" list
+check "b sees its commit in a's gate" has "its gate carries your commit (passed)"
+check "the tested tree is listed" has "passed on tree $tested"
+(cd "$A" && git checkout -q a && git update-ref refs/remotes/origin/main a)  # a lands
+(cd "$B" && git rebase -q origin/main)
+run "$B" "$BOARD" verify a
+check "the stacked tree verifies against a's passed entry" has "is the tested tree"
+run "$B" "$BOARD" verify "$tested"
+check "  …and against the tree SHA" has "is the tested tree"
+edit "$B" MacApp/App.swift b5
+run "$B" "$BOARD" verify a; status=$?
+check "a different tree fails verify" [ "$status" = 1 ]
+check "  …naming the file" has "MacApp/App.swift"
+run "$B" "$BOARD" verify nothing-here; status=$?
+check "verify of an unknown name is a usage error" [ "$status" = 2 ]
+run "$B" "$BOARD" announce --pid "$PB" --join nobody; status=$?
+check "joining an unknown worktree is refused" [ "$status" = 2 ]
+
+# Staleness and clearing.
+before=$(entries)
+kill "$PB"; wait "$PB" 2>/dev/null
+run "$A" "$BOARD" list
+check "a dead session's entry is dropped" has "1 gate announced"
+check "  …and its file deleted" [ "$before" = 2 ] && check "  …leaving one" [ "$(entries)" = 1 ]
+/usr/bin/python3 - "$GATE_BOARD_DIR" <<'EOF'
+import glob, json, sys
+path = glob.glob(sys.argv[1] + "/*.json")[0]
+entry = json.load(open(path))
+entry["pid_started"] = "Mon Jan  1 00:00:00 2001"  # the same PID, a different process
+json.dump(entry, open(path, "w"))
+EOF
+run "$A" "$BOARD" list
+check "a reused PID does not keep an entry alive" has "no gates announced"
+run "$A" "$BOARD" announce --pid "$PA"
+run "$A" "$BOARD" clear
+check "clear removes the entry" [ "$(entries)" = 0 ]
+run "$A" "$BOARD" clear
+check "clearing twice is harmless" has "nothing announced"
+run "$WORK" "$BOARD" announce --pid "$PA"; status=$?
+check "announce outside a worktree is refused" [ "$status" = 2 ]
+run "$WORK" "$BOARD" list
+check "list works outside a worktree" has "no gates announced"
+
+kill "$PA" 2>/dev/null; wait "$PA" 2>/dev/null
+echo
+if [ "$failures" -eq 0 ]; then echo "all passed"; else echo "$failures failed"; fi
+[ "$failures" -eq 0 ]
