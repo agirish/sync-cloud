@@ -14304,3 +14304,20 @@ Ask Claude exists only on `main` (see TE290 step 0b).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## The v7.0 adversarial review's fixes — main only
+
+2026-11-03, for v7.0. A review of `v6.2..main` found about 90 defects in what v7.0 adds: Ask Claude
+(what reaches Claude from hidden folders and passages, pasted keys, filing cards, settings cards,
+PDF cards), one-way sync, Filter by Type, To File's surveys and the cloud app line. Every fix is to
+code that exists only on `main`. Two checked by hand:
+
+- **The launch font guard** (`NSFont.checkedMonospacedDigitSystemFont`) widens `efd847717`'s guard
+  to the equal-width-digits face. `v6.x` calls `monospacedDigitSystemFont` once unguarded, in
+  `ScaledFont.nsFont`, as it calls the monospaced one (row above): no abort traced to it.
+- **"Files on disk are untouched."** The comment fixed in `SettingsManager.resetAllSettings` is true
+  on `v6.x`, whose reset deletes no file.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | None of the reviewed features; one unguarded digits-font call | RECORDED — not owed |

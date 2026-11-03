@@ -137,7 +137,9 @@ When the next major opens on `main`, cut the shipped major's line from its last 
 that creates the branch:
 
 - add its row to the branch table in `CLAUDE.md`;
-- add it to `branches:` in `.github/workflows/tests.yml`;
+- leave CI alone: a push to a maintenance line starts no run (`hosted-ci.yml` runs on `main`,
+  `tests.yml` on tags, nightly and by hand), so test the line's pushes with a `workflow_dispatch`
+  run on that branch;
 - re-bump its tip to the next marker (§4 step 5);
 - add it to the table check's line list (§2) and the `git ls-remote` expectation in `CLAUDE.md` §1.
 

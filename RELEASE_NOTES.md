@@ -61,7 +61,7 @@ Requires **macOS 26**, unchanged from v6.2.
 - **What's inside a file is read on this Mac.** An on-device model reads it and Claude gets a short
   answer. A passage of the file goes to Claude only when you click Send under the answer, or every
   time with Let Claude read files on. A scanned PDF is read too: pages with little or no text are
-  read by recognizing the words, in the scan's own language, up to 10 pages, and Claude is told
+  read by recognizing the words, in most major languages, up to 10 pages, and Claude is told
   which pages those were and that a word may be misread. Stop ends the reading.
 - **Ask about Compare's differences.** "Which files are only on Dropbox?" is answered from the list
   Compare shows, with both sides' sizes and dates. A comparison over an hour old is scanned again
@@ -246,7 +246,7 @@ Requires **macOS 26**, unchanged from v6.2.
   folder survey nor Refine with Claude could replace it. Now the survey's pick leads, the name match
   stays as a second choice, and one shared word is never more than Medium. Replayed over a fifth of
   the documents already filed in a real tree, the first suggestion went from right 5% of the time to
-  42%, and a High card is right 77% of the time, up from 4%. File All Confident moves only High
+  42%, and a High card is right 77% of the time, up from 4%. File All N Confident moves only High
   cards. Refine with Claude now replaces a card's home when Claude picks a folder the survey
   shortlisted, and downloads files that are only in the cloud first so Claude reads their first
   page rather than their name; its cost prompt says how many will download, and they stay
@@ -266,10 +266,12 @@ Requires **macOS 26**, unchanged from v6.2.
 - **Filter a pane by file type.** The Filter button on the pane bar lists every type of file in the
   folder and the folders inside it, grouped as Images, PDFs, Apps & installers, Archives and so on,
   with counts. Tick the types to show, or click Only beside one. Folders that hold a match stay where
-  they are with a count beside them, and the rest are hidden. The status bar says how many items are
-  shown, with a chip that clears the filter. Each tab keeps its own filter until you quit. A folder
-  you have open stays while it is open, unticking a type from no filter reads "All but Images", and a
-  copy, move or Trash of a folder says what the filter was hiding inside it.
+  they are with a count beside them, and the rest are hidden. In Browse the status bar says how many
+  items are shown, with a chip that clears the filter. View ▸ Filter by Type sets it from the menu,
+  and in Compare, Use on Both Panes puts it on the other pane too. Each tab keeps its own filter
+  until you quit. A folder you have open stays while it is open, unticking a type from no filter
+  reads "All but Images", and a copy, move or Trash of a folder says what the filter was hiding
+  inside it.
 - **Move to… opens where the item is.** The folder picker behind File ▸ Move to… and Copy to… opens on
   the item's own folder and the one above, with the item drawn in place and nothing picked. Its left
   column starts with Here, then a year-folder suggestion when the item's neighbors plainly imply one,
@@ -308,8 +310,8 @@ Requires **macOS 26**, unchanged from v6.2.
 - **SyncCloud no longer quits at launch** when macOS fails to hand it the monospaced font the
   toolbar's ⌘K keycap is measured with.
 - **Cloud Filing prices Sonnet 5 at $2/$10.** v6.2 quoted and counted it at Sonnet 4.6's $3/$15 per
-  million tokens, so a scan cost half as much again as the quote said and reached the spend caps
-  early.
+  million tokens, so the quote and the spend caps counted half as much again as a scan cost, and
+  the caps were reached early.
 - **A remembered check on a FAT or exFAT disk now expires.** Those disks can't show that a file
   was rewritten under the same date and size, so v6.2 trusted such a check for as long as scans kept
   finding the file. It now lapses 30 days after the file was read.
@@ -342,7 +344,10 @@ Requires **macOS 26**, unchanged from v6.2.
 - In SyncCloud's Dropbox pane, a copy that replaces a synced file, and Compare's copies and syncs
   into Dropbox, aren't refused. The next Sync Now finds it edited in Dropbox, and the “If a
   Dropbox file is edited” setting decides.
-- The check that runs after each scan still skips files over 100 MB. Verify All checks them.
+- The pill doesn't count an edit that keeps a file's size and modification date. Sync Now still
+  copies it.
+- With Settings ▸ Sync ▸ "Verify same-size files during scans" on, that check still skips files
+  over 100 MB. Verify All checks them.
 - A pane that reaches a cloud account through a link in your home folder, such as `~/OneDrive`, shows
   no cloud app line.
 
