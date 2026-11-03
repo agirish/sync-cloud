@@ -1017,6 +1017,35 @@ reached this Mac (expected: a conflicted copy, which then waits for you).
 
 ---
 
+## 24. Settings from Ask Claude's chat — the last two steps (TE290), deferred
+
+**What:** Ask Claude reads every setting and offers it as a card holding the setting's real
+control; Claude changes look-and-feel itself, and may lower its own spending or access, never raise
+them. The reviewed design, with mockups and every control's tier, is
+<https://claude.ai/code/artifact/0b9cb8c0-828c-4b6d-996c-24e067297fec>.
+
+**On `main`:** steps 0a–10, from `e56a691ed` to `21b1d2932`: the catalog and the settings tool,
+cards with Undo, Claude's own changes, Changed from Chat in Activity ▸ History with Revert, badges
+and the at-limit card, the API key card and the pasted-key catch, the four lists, Sources and
+People, and Settings' buttons with their question asked inside the card.
+
+**Deferred** (his call, 2026-11-02), in the design's order:
+1. **Step 11 — One-Way Sync and folder surveys** on cards: One-Way Sync's pickers, Pause, Resume,
+   Show, Set Up and Turn Off with their confirms inside the card and save failures shown; the
+   surveys' Learn Its Folders, Read Documents…, Stop and Forget…. Until then those buttons open
+   Settings at their place.
+2. **Step 12 — keyboard, VoiceOver and focus:** Escape cancels a card field's edit, then an open
+   question, before it closes the panel; Return in a card field saves the field, never the message;
+   labels for each card and control with Claude's pick as a hint; one announcement per answer for
+   Claude's own changes; focus back on the card after Settings opened from it.
+
+**Also left, smaller:** a new ignore pattern's "hides N items now" count, and its ⚠ Less safe
+badge past 50 (both need the comparison's current tree); Revert for People's rows in Changed from
+Chat; Provider settings, Look for Names and Suggested names, which open Settings rather than run
+from the card; and no hand check yet of any card.
+
+---
+
 ## Interface — visual polish and information design
 
 Everything below changes how something **already shipped** reads. Not capability, but planned work
@@ -1220,6 +1249,7 @@ the question hundreds of keeper picks actually raise.
 | 18 | PDF content fingerprint | Medium | High |
 | 20 | Restructure — is the shape itself right | High | **High** |
 | 22 | People — what remains is person buckets and the classifier brief (search, tags and rules shipped) | Medium, staged | **High** |
+| 24 | Settings from Ask Claude's chat — One-Way Sync and surveys on cards, then keyboard and VoiceOver (deferred) | Medium | Medium |
 
 ### Interface
 
