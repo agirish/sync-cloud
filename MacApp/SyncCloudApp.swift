@@ -1759,10 +1759,18 @@ private struct ActivityWindowHost: View {
                        scans: ActivityScanRows.rows(syncManager) { ActivityCenter.shared.doors.showScan($0) }) {
             // One-way sync's History entries (RD67), with Reverse in iCloud…, above Sync History.
             OneWaySyncHistoryHost()
-            // Settings changed from Ask Claude's chat (TE290 step 5), with Revert.
-            ChangedFromChatHost(settings: settings, syncManager: syncManager)
             SyncHistoryView(
                 store: .shared,
+                // Settings changed from Ask Claude's chat (TE290 step 5), with Revert, among the records.
+                settings: HistorySettingsChanges(
+                    lookup: {
+                        SettingsLookup(defaults: .standard, settings: settings, keyIsSaved: { AnthropicKeychain.isConfigured },
+                                       hiddenCount: { 0 }, isHidden: { _ in false }, loginItemIsOn: { LoginItemController.shared.isOn })
+                    },
+                    writer: { SettingsWriter(defaults: .standard, settings: settings) },
+                    hiddenNames: { AskClaudePrivacy.hiddenFolders(in: .standard).map { ($0 as NSString).lastPathComponent } },
+                    lists: { SettingsLists(settings: settings, sync: syncManager, defaults: .standard) },
+                    people: { SettingsPeople(store: syncManager.filingPeopleStore) }),
                 runFilter: Binding(get: { ActivityCenter.shared.historyRun },
                                    set: { ActivityCenter.shared.historyRun = $0 }),
                 showsTitle: false,
@@ -1772,38 +1780,11 @@ private struct ActivityWindowHost: View {
                     // itself — it used to land in the main window's banner, out of sight.
                     syncManager.undoLastSyncRunAskingFirst(confirm: SyncOperationAlerts.confirmUndoLastSyncRun)
                 })
+            // Launch at login is macOS's: read before a settings change's Revert compares with it.
+            .task { await LoginItemController.shared.refresh().value }
         }
         // One-way sync's sheets opened from Now's rows and History (RD67), over this window.
         .oneWaySyncSheets(host: .activity)
-    }
-}
-
-/// Changed from Chat over Sync History's records, in a height of their own, only when it has
-/// any (TE290 step 5).
-private struct ChangedFromChatHost: View {
-    @ObservedObject var log = SettingsChangeLog.shared
-    let settings: SettingsManager
-    let syncManager: FileSyncManager
-
-    var body: some View {
-        if !log.changes.isEmpty {
-            ScrollView {
-                ChangedFromChatRows(
-                    lookup: {
-                        SettingsLookup(defaults: .standard, settings: settings, keyIsSaved: { AnthropicKeychain.isConfigured },
-                                       hiddenCount: { 0 }, isHidden: { _ in false }, loginItemIsOn: { LoginItemController.shared.isOn })
-                    },
-                    writer: { SettingsWriter(defaults: .standard, settings: settings) },
-                    hiddenNames: { AskClaudePrivacy.hiddenFolders(in: .standard).map { ($0 as NSString).lastPathComponent } },
-                    lists: { SettingsLists(settings: settings, sync: syncManager, defaults: .standard) },
-                    people: { SettingsPeople(store: syncManager.filingPeopleStore) })
-            }
-            .frame(maxHeight: 200)
-            .fixedSize(horizontal: false, vertical: true)
-            // Launch at login is macOS's: read before a row's Revert compares with it.
-            .task { await LoginItemController.shared.refresh().value }
-            Divider()
-        }
     }
 }
 

@@ -14292,3 +14292,15 @@ step 0b).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Settings changed from the chat listed in History's own list (TE290 step 5) — main only
+
+2026-11-03, for v7.0. On `main`: Activity ▸ History lists each settings change among the sync
+records, by time, as a Setting entry in plain words ("Claude changed it"), instead of a Changed
+from Chat box above the filter bar. The path filter and date range reach them, All Actions gains
+Settings Changes, and the trash is a menu: Clear Sync History… and Clear Settings Changes….
+Ask Claude exists only on `main` (see TE290 step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

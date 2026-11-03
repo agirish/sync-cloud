@@ -38,8 +38,8 @@ import Foundation
     @Test func theLogAndHistoryHeadersUseGlassButtons() throws {
         #expect(Self.count(".chromeGlassBorderedButtonStyle()", in: try Self.source("LogViewer.swift")) == 3,
                 "Copy, Clear and Open log file")
-        #expect(Self.count(".chromeGlassBorderedButtonStyle()", in: try Self.source("SyncHistoryView.swift")) == 3,
-                "Undo Last Run, Export and Clear — one header, one kind of button")
+        #expect(Self.count(".chromeGlassBorderedButtonStyle()", in: try Self.source("SyncHistoryView.swift")) == 4,
+                "Undo Last Run, Export and Clear (a menu beside settings changes, a button without) — one header, one kind of button")
     }
 
     /// The level chips are a pick-one row like every other that wears a lens; the row scrolls, so

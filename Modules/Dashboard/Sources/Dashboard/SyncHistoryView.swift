@@ -3,6 +3,7 @@ import AppKit
 import UniformTypeIdentifiers
 import Design
 import Events
+import Sync
 
 /// The Sync History window (X2): the durable, exportable, reversible counterpart to the Activity
 /// Log. Where `LogViewer` shows the in-memory event stream that forgets on quit, this shows the
@@ -12,8 +13,15 @@ import Events
 ///
 /// Built deliberately in the same shape as `LogViewer` (pure `SyncHistoryFilter`, a toolbar of
 /// controls, a lazy list, an empty state) so the two read as one system.
+///
+/// Settings changed from Ask Claude's chat are listed among the records, by time, when `settings`
+/// is given (TE290 step 5): the path, date and action filters reach them; Undo Last Run and Export
+/// are the records' only.
 public struct SyncHistoryView: View {
     @ObservedObject public var store = SyncHistoryStore.shared
+    /// The settings changes listed among the records, or nil for records alone.
+    private let settings: HistorySettingsChanges?
+    @ObservedObject private var settingsLog: SettingsChangeLog
 
     /// Reverses the most recent sync run. Injected so the (data-touching) NSAlert confirmation
     /// lives at the app boundary, keeping this view free of the manager and of Sync's types.
@@ -36,11 +44,14 @@ public struct SyncHistoryView: View {
     private let showsTitle: Bool
 
     public init(store: SyncHistoryStore = .shared,
+                settings: HistorySettingsChanges? = nil,
                 runFilter: Binding<UUID?> = .constant(nil),
                 showsTitle: Bool = true,
                 onUndoLastSyncRun: @escaping @MainActor () -> String? = { nil },
                 confirmClearHistory: @escaping @MainActor () -> Bool = SyncHistoryView.defaultClearConfirmation) {
         self.store = store
+        self.settings = settings
+        settingsLog = settings?.log ?? Self.noSettingsChanges
         _runFilter = runFilter
         self.showsTitle = showsTitle
         self.onUndoLastSyncRun = onUndoLastSyncRun
@@ -81,8 +92,12 @@ public struct SyncHistoryView: View {
         return NativeAlerts.runModalCancellingOnEscape(alert) == .alertFirstButtonReturn
     }
 
-    /// The action gate — nil is "All actions".
-    @State private var selectedAction: SyncAction? = nil
+    /// Observed when no settings changes are listed: a log that is never written.
+    private static let noSettingsChanges = SettingsChangeLog(
+        fileURL: URL(fileURLWithPath: "/var/empty/sync-cloud-no-settings-changes.json"))
+
+    /// The action gate.
+    @State private var selectedAction: ActionChoice = .all
     /// The date-range gate, as a preset the picker offers.
     @State private var dateRange: DateRange = .all
     @State private var searchText: String = ""
@@ -120,28 +135,80 @@ public struct SyncHistoryView: View {
         }
     }
 
-    /// The Action filter's choices. `.delete` is "Moves to Trash & Deletes" (FD2, RD7): its rows say
-    /// Move to Trash, except the rare permanent delete, whose row says Delete and is listed too.
-    static let actionOptions: [(label: String, action: SyncAction?)] = [
-        ("All Actions", nil),
-        ("Copies", .copy),
-        ("Moves", .move),
-        ("Moves to Trash & Deletes", .delete),
-        ("Date Matches", .matchDates),
-        ("New Folders", .newFolder),
+    /// What the Action filter keeps: everything, one kind of record, or the settings changes.
+    enum ActionChoice: Hashable {
+        case all
+        case action(SyncAction)
+        case settings
+    }
+
+    /// The Action filter's record choices. `.delete` is "Moves to Trash & Deletes" (FD2, RD7): its
+    /// rows say Move to Trash, except the rare permanent delete, whose row says Delete and is listed
+    /// too. Settings Changes follows them, under a line, when settings changes are listed.
+    static let actionOptions: [(label: String, action: ActionChoice)] = [
+        ("All Actions", .all),
+        ("Copies", .action(.copy)),
+        ("Moves", .action(.move)),
+        ("Moves to Trash & Deletes", .action(.delete)),
+        ("Date Matches", .action(.matchDates)),
+        ("New Folders", .action(.newFolder)),
     ]
+    static let settingsOption = (label: "Settings Changes", action: ActionChoice.settings)
+
+    /// One row of the list: a sync record or a settings change.
+    enum Item: Identifiable {
+        case record(SyncHistoryRecord)
+        case setting(SettingsChange)
+
+        var id: String {
+            switch self {
+            case .record(let record): "record-\(record.id)"
+            case .setting(let change): "setting-\(change.id)"
+            }
+        }
+
+        var date: Date {
+            switch self {
+            case .record(let record): record.timestamp
+            case .setting(let change): change.at
+            }
+        }
+    }
+
+    /// The list, newest first: the records the filters keep, and the settings changes they keep.
+    /// One run's records (Show in History) are records alone.
+    static func items(records: [SyncHistoryRecord], changes: [SettingsChange]) -> [Item] {
+        (records.map(Item.record) + changes.map(Item.setting)).sorted { $0.date > $1.date }
+    }
+
+    /// The records the filters keep; none when only settings changes are asked for.
+    private func filteredRecords() -> [SyncHistoryRecord] {
+        let action: SyncAction?
+        switch selectedAction {
+        case .settings: return []
+        case .all: action = nil
+        case .action(let kind): action = kind
+        }
+        return SyncHistoryFilter.apply(store.records, action: action, search: searchText,
+                                       start: dateRange.start(), runId: runFilter)
+    }
+
+    /// The settings changes the filters keep; none for one kind of record or one run's records.
+    static func shownChanges(_ all: [SettingsChange], choice: ActionChoice, runId: UUID?,
+                             search: String, start: Date?) -> [SettingsChange] {
+        guard choice == .all || choice == .settings, runId == nil else { return [] }
+        return HistorySettingsChanges.filter(all, search: search, start: start)
+    }
 
     public var body: some View {
         // One filter pass per body render, shared by the count badges, the list, and Export.
-        let filtered = SyncHistoryFilter.apply(
-            store.records,
-            action: selectedAction,
-            search: searchText,
-            start: dateRange.start(),
-            runId: runFilter
-        )
+        let filtered = filteredRecords()
+        let allChanges = settings.map { settingsLog.visible(hiding: $0.hiddenNames()) } ?? []
+        let items = Self.items(records: filtered,
+                               changes: Self.shownChanges(allChanges, choice: selectedAction, runId: runFilter,
+                                                          search: searchText, start: dateRange.start()))
         VStack(spacing: 0) {
-            toolbar(filtered: filtered)
+            toolbar(filtered: filtered, hasChanges: !allChanges.isEmpty)
             Divider().opacity(0.6)
             if runFilter != nil {
                 ActivityFilterChip(text: "One run · \(filtered.count) record\(filtered.count == 1 ? "" : "s")",
@@ -154,7 +221,7 @@ public struct SyncHistoryView: View {
                 searchBar
                 Divider().opacity(0.6)
             }
-            list(filtered: filtered)
+            list(items: items, total: store.records.count + allChanges.count)
         }
         .frame(minWidth: 460, minHeight: 320)
         .alert(Self.undoRefusalTitle,
@@ -172,7 +239,7 @@ public struct SyncHistoryView: View {
     // MARK: Toolbar
 
     @ViewBuilder
-    private func toolbar(filtered: [SyncHistoryRecord]) -> some View {
+    private func toolbar(filtered: [SyncHistoryRecord], hasChanges: Bool) -> some View {
         HStack(spacing: 10) {
             if showsTitle {
                 Text("Sync History")
@@ -193,6 +260,10 @@ public struct SyncHistoryView: View {
             Picker("Action", selection: $selectedAction) {
                 ForEach(Self.actionOptions, id: \.label) { option in
                     Text(option.label).tag(option.action)
+                }
+                if settings != nil {
+                    Divider()
+                    Text(Self.settingsOption.label).tag(Self.settingsOption.action)
                 }
             }
             .pickerStyle(.menu)
@@ -238,9 +309,44 @@ public struct SyncHistoryView: View {
             .frame(width: 34)
             .chromeHover()
             .disabled(filtered.isEmpty)
-            .help("Export the \(filtered.count) shown \(filtered.count == 1 ? "record" : "records")")
+            // The sync records shown: settings changes aren't exported.
+            .help("Export the \(filtered.count) shown sync \(filtered.count == 1 ? "record" : "records")")
             .accessibilityLabel("Export the shown records")
 
+            clearControl(hasChanges: hasChanges)
+        }
+        .padding(.horizontal, showsTitle ? 20 : 16)
+        .padding(.vertical, showsTitle ? 14 : 10)
+        // A bar of its own in the window; on the window's glass in Activity's tab, as the log's
+        // controls are, with the path field the only bar in the row.
+        .modifier(HistoryToolbarBar(applies: showsTitle, level: glassLevel))
+    }
+
+    /// The trash: Clear Sync History…, and Clear Settings Changes… beside it when settings changes
+    /// are listed — two records, each cleared on its own, each asking first.
+    @ViewBuilder
+    private func clearControl(hasChanges: Bool) -> some View {
+        if let settings {
+            Menu {
+                Button("Clear Sync History…") { Self.clearIfConfirmed(store: store, confirm: confirmClearHistory) }
+                    .disabled(store.records.isEmpty)
+                Button("Clear Settings Changes…") { if settings.confirmClear() { settings.log.clear() } }
+                    .disabled(!hasChanges)
+            } label: {
+                Image(systemName: "trash")
+            }
+            .menuStyle(.button)
+            // The trash it was, with no arrow to crowd Export's beside it.
+            .menuIndicator(.hidden)
+            .chromeGlassBorderedButtonStyle()
+            .controlSize(.small)
+            .fixedSize()
+            .frame(width: 34)
+            .chromeHover()
+            .disabled(store.records.isEmpty && !hasChanges)
+            .accessibilityLabel("Clear the history")
+            .help("Clear sync history or settings changes…")
+        } else {
             Button(action: { Self.clearIfConfirmed(store: store, confirm: confirmClearHistory) }) {
                 Image(systemName: "trash")
             }
@@ -254,11 +360,6 @@ public struct SyncHistoryView: View {
             // Run" here, "Reset All Settings…" in Settings.
             .help("Clear all history…")
         }
-        .padding(.horizontal, showsTitle ? 20 : 16)
-        .padding(.vertical, showsTitle ? 14 : 10)
-        // A bar of its own in the window; on the window's glass in Activity's tab, as the log's
-        // controls are, with the path field the only bar in the row.
-        .modifier(HistoryToolbarBar(applies: showsTitle, level: glassLevel))
     }
 
     // MARK: Search
@@ -275,7 +376,7 @@ public struct SyncHistoryView: View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField("Filter by path…", text: $searchText)
+            TextField(settings == nil ? "Filter by path…" : "Filter by path or setting…", text: $searchText)
                 .textFieldStyle(.plain)
             if !searchText.isEmpty {
                 Button(action: { searchText = "" }) {
@@ -293,19 +394,26 @@ public struct SyncHistoryView: View {
     // MARK: List
 
     @ViewBuilder
-    private func list(filtered: [SyncHistoryRecord]) -> some View {
+    private func list(items: [Item], total: Int) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: densityMetrics.logListSpacing) {
-                ForEach(filtered) { record in
-                    SyncHistoryRow(record: record, density: density)
+                ForEach(items) { item in
+                    switch item {
+                    case .record(let record):
+                        SyncHistoryRow(record: record, density: density)
+                    case .setting(let change):
+                        if let settings {
+                            SettingsChangeHistoryRow(change: change, settings: settings, density: density)
+                        }
+                    }
                 }
             }
             .padding(16)
         }
         .background(.regularMaterial.opacity(0.5))
         .overlay {
-            if filtered.isEmpty {
-                if store.records.isEmpty {
+            if items.isEmpty {
+                if total == 0 {
                     EmptyStateView(
                         icon: "clock.arrow.circlepath",
                         title: "No sync history yet",
@@ -319,13 +427,13 @@ public struct SyncHistoryView: View {
                     EmptyStateView(
                         icon: "line.3.horizontal.decrease.circle",
                         title: "No matching records",
-                        message: "The current \(runFilter == nil ? "" : "run, ")action, date range, and search hide all \(store.records.count) \(store.records.count == 1 ? "record" : "records").",
+                        message: "The current \(runFilter == nil ? "" : "run, ")action, date range, and search hide all \(total) \(total == 1 ? "record" : "records").",
                         primary: .init("Clear Filters", systemImage: "xmark.circle",
                                        help: "Show every record — clears the \(runFilter == nil ? "" : "run, ")action, date range, and search filters") {
                             // The run a Recent row's Show in History picked too: its records may
                             // have been trimmed from the history since.
                             runFilter = nil
-                            selectedAction = nil
+                            selectedAction = .all
                             dateRange = .all
                             searchText = ""
                         }

@@ -119,9 +119,11 @@ Requires **macOS 26**, unchanged from v6.2.
   key goes to the Keychain. A message with your Anthropic API key in it isn't sent: its card shows it masked, with
   Save as API Key and Edit Message, and the key is never saved with the chat.
 - **Settings changed from the chat are kept in History.** The Activity window's History tab lists
-  Changed from Chat above Sync History: every setting changed from the chat and every rule saved
-  from a card, for 90 days, after the chat is gone. Revert puts a value back while the setting still
-  holds what was set there, and asks first when that would raise Claude's spending or access.
+  every setting changed from the chat and every rule saved from a card among the copies and moves,
+  by time, for 90 days, after the chat is gone. Each says who changed it; the path filter finds a
+  setting by name, and the action menu's Settings Changes shows them alone. Revert puts a value back
+  while the setting still holds what was set there, and asks first when that would raise Claude's
+  spending or access.
 - **Every answer says what it sent and what it cost.** Spending counts against a monthly limit in
   Settings, $25 to start, with a note at 80%. At the limit a question isn't sent: the chat shows the
   Monthly limit as a card, and once you raise it there, Ask Again sends the question.
