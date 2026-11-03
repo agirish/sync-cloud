@@ -106,9 +106,125 @@ import Events
         #expect(out.rows[5] == .refused("It’s already there"))
         #expect(out.rows[6] == .refused("It’s a source’s own folder"))
         #expect(out.rows[7] == .refused("It’s inside a document"))
-        #expect(out.rows[8] == .refused("It’s already there") || out.rows[8] == .refused("A folder can’t go inside itself"))
+        #expect(out.rows[8] == .refused("A folder can’t go inside itself"))
         #expect(out.rows[9] == .done("Moved"))
         #expect(FileManager.default.fileExists(atPath: dir + "/Documents/Travel/Ticket.pdf"))
+    }
+
+    /// Into its own subfolder, however the folder's name is cased on a disk that folds case.
+    @Test func aFolderCantGoIntoItsOwnSubfolder() async throws {
+        defer { cleanUp() }
+        try FileManager.default.createDirectory(atPath: dir + "/Downloads/Trip/Sub", withIntermediateDirectories: true)
+        #expect(!FileSyncManager.volumeSupportsCaseSensitiveNames(for: URL(fileURLWithPath: dir)), "needs a disk that folds case")
+        let out = await apply([.move(from: dir + "/Downloads/Trip", toFolder: dir + "/Downloads/Trip/Sub"),
+                               .move(from: dir + "/Downloads/Trip", toFolder: dir + "/Downloads/trip/Sub")])
+        #expect(out.rows[0] == .refused("A folder can’t go inside itself"))
+        #expect(out.rows[1] == .refused("A folder can’t go inside itself"))
+        #expect(FileManager.default.fileExists(atPath: dir + "/Downloads/Trip/plan.pdf"))
+    }
+
+    /// Renames run first, so a later row's item is found under its new name: a renamed file is
+    /// filed, and files move out of a folder the same card renames.
+    @Test func aMoveFindsItsItemUnderTheCardsRename() async throws {
+        defer { cleanUp() }
+        let before = tree()
+        let out = await apply([
+            .move(from: dir + "/Downloads/old.txt", toFolder: dir + "/Documents/Taxes"),
+            .rename(path: dir + "/Downloads/old.txt", to: "W-2 2025.txt"),
+            .move(from: dir + "/Downloads/Trip/plan.pdf", toFolder: dir + "/Documents/Travel"),
+            .rename(path: dir + "/Downloads/Trip", to: "Japan"),
+        ])
+        #expect(out.doneCount == 4, "\(out.rows)")
+        #expect(FileManager.default.fileExists(atPath: dir + "/Documents/Taxes/W-2 2025.txt"))
+        #expect(FileManager.default.fileExists(atPath: dir + "/Documents/Travel/plan.pdf"))
+        #expect(FileManager.default.fileExists(atPath: dir + "/Downloads/Japan"))
+        manager.undoManager?.undo()
+        await waitUntil("one undo restores the tree", timeout: 20) { self.tree() == before }
+        #expect(tree() == before)
+    }
+
+    /// Decision GA: a folder whose files all left goes with its emptied subfolders; one holding a
+    /// file at any depth stays.
+    @Test func anEmptiedFolderGoesWithItsEmptySubfolders() async throws {
+        defer { cleanUp() }
+        try write("Downloads/Trip/Inner/b.pdf")
+        try write("Downloads/Keep/Inner/.env")
+        try FileManager.default.createDirectory(atPath: dir + "/Downloads/Trip/Empty", withIntermediateDirectories: true)
+        try Data().write(to: URL(fileURLWithPath: dir + "/Downloads/Trip/Inner/.DS_Store"))
+        let before = tree()
+        let out = await apply([
+            .move(from: dir + "/Downloads/Trip/plan.pdf", toFolder: dir + "/Documents/Travel"),
+            .move(from: dir + "/Downloads/Trip/Inner/b.pdf", toFolder: dir + "/Documents/Travel"),
+            .trashIfEmptied(folders: [dir + "/Downloads/Trip", dir + "/Downloads/Keep"]),
+        ])
+        #expect(out.rows[2] == .done("Moved 1 of 2 to Trash; the rest still hold files"), "\(out.rows)")
+        #expect(!FileManager.default.fileExists(atPath: dir + "/Downloads/Trip"))
+        #expect(FileManager.default.fileExists(atPath: dir + "/Downloads/Keep/Inner/.env"), "a hidden file is a file")
+        manager.undoManager?.undo()
+        await waitUntil("one undo restores the tree", timeout: 20) { self.tree() == before }
+        #expect(tree() == before)
+    }
+
+    /// Decision GF at the click: a copy goes only while its twin is another file with its bytes.
+    @Test func aCopyIsTrashedOnlyWhileItsTwinStillHoldsItsBytes() async throws {
+        defer { cleanUp() }
+        try write("Downloads/a.pdf", "same")
+        try write("Documents/Travel/a copy.pdf", "same")
+        try write("Downloads/b.pdf", "same")
+        try write("Documents/Travel/b copy.pdf", "SAME")
+        try FileManager.default.createSymbolicLink(atPath: dir + "/Link", withDestinationPath: dir + "/Downloads")
+        let out = await apply([
+            .trash(path: dir + "/Downloads/a.pdf", copyOf: dir + "/Documents/Travel/a copy.pdf"),
+            .trash(path: dir + "/Downloads/b.pdf", copyOf: dir + "/Documents/Travel/b copy.pdf"),
+            .trash(path: dir + "/Downloads/old.txt", copyOf: dir + "/Link/old.txt"),
+            .trash(path: dir + "/Downloads/Ticket.pdf", copyOf: dir + "/Documents/Gone.pdf"),
+        ])
+        #expect(out.rows[0] == .done("Moved to Trash"))
+        #expect(out.rows[1] == .refused("b copy.pdf isn’t the same file any more"))
+        #expect(out.rows[2] == .refused("old.txt is this same file, not a copy"))
+        #expect(out.rows[3] == .refused("The copy, Gone.pdf, isn’t there any more"))
+        #expect(FileManager.default.fileExists(atPath: dir + "/Downloads/old.txt"), "the only copy was kept")
+    }
+
+    /// Two cards share a name; a card's Undo acts only on its own Apply, and never after an
+    /// outside undo.
+    @Test func aCardsUndoActsOnlyOnItsOwnApply() async throws {
+        defer { cleanUp() }
+        let first = await apply([.move(from: dir + "/Downloads/old.txt", toFolder: dir + "/Documents")])
+        let second = await apply([.move(from: dir + "/Downloads/Ticket.pdf", toFolder: dir + "/Documents")])
+        #expect(first.undoName == second.undoName, "the same name: File 1 Items")
+        let applied = [(id: 0, change: AskClaudePlan.Change.move(from: dir + "/Downloads/old.txt", toFolder: dir + "/Documents"))]
+        let firstToken = try #require(first.undoToken), secondToken = try #require(second.undoToken)
+        #expect(manager.undoPlan(firstToken, named: "File 1 Items", applied: applied) == nil,
+                "the first card's Undo would take back the second")
+        #expect(FileManager.default.fileExists(atPath: dir + "/Documents/Ticket.pdf"))
+        // ⌘Z takes the second back; the first is on top again, but nothing can say it is.
+        manager.undoManager?.undo()
+        await waitUntil("the second card is undone", timeout: 20) { FileManager.default.fileExists(atPath: self.dir + "/Downloads/Ticket.pdf") }
+        #expect(manager.undoPlan(secondToken, named: "File 1 Items", applied: []) == nil)
+        #expect(manager.undoPlan(firstToken, named: "File 1 Items", applied: applied) == nil)
+        #expect(FileManager.default.fileExists(atPath: dir + "/Documents/old.txt"))
+    }
+
+    /// Undo says what it did once it has run: a file taken from where the card put it stays out.
+    @Test func aCardsUndoReportsWhatDidntGoBack() async throws {
+        defer { cleanUp() }
+        let changes: [AskClaudePlan.Change] = [.move(from: dir + "/Downloads/old.txt", toFolder: dir + "/Documents"),
+                                               .move(from: dir + "/Downloads/Ticket.pdf", toFolder: dir + "/Documents")]
+        let out = await apply(changes)
+        try FileManager.default.removeItem(atPath: dir + "/Documents/Ticket.pdf")
+        let token = try #require(out.undoToken)
+        let undoing = try #require(manager.undoPlan(token, named: "File 2 Items",
+                                                    applied: Array(changes.enumerated()).map { (id: $0.offset, change: $0.element) }))
+        let notBack = await undoing.value
+        #expect(notBack == [1])
+        #expect(FileManager.default.fileExists(atPath: dir + "/Downloads/old.txt"), "the undo had run when it answered")
+        var plan = AskClaudePlan(title: "File 2 Items", subtitle: "", rows: [
+            .init(id: 0, name: "old.txt", change: changes[0], ticked: true), .init(id: 1, name: "Ticket.pdf", change: changes[1], ticked: true)])
+        plan.recordUndo(notBack: [1])
+        #expect(plan.state == .undone && plan.summary == "Undone, except 1: Ticket.pdf didn’t go back.")
+        plan.recordUndo(notBack: [])
+        #expect(plan.summary == "Undone: everything is back where it was.")
     }
 
     @Test func aOneWaySyncedFileIsRefused() async throws {

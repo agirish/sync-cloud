@@ -12,16 +12,18 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         case move(from: String, toFolder: String)
         case rename(path: String, to: String)
         case newFolder(in: String, name: String)
-        case trash(path: String)
+        /// `copyOf`, for a file already filed (decision GF): the other file holding its bytes. It
+        /// goes only while that is still another file with the same bytes.
+        case trash(path: String, copyOf: String? = nil)
         /// Folders the card's moves leave empty (decision GA): each goes to the Trash only if,
-        /// once the moves have run, it holds nothing else.
+        /// once the moves have run, it holds no file.
         case trashIfEmptied(folders: [String])
 
         /// The item the change acts on.
         public var path: String {
             switch self {
             case .move(let from, _): return from
-            case .rename(let path, _), .trash(let path): return path
+            case .rename(let path, _), .trash(let path, _): return path
             case .newFolder(let parent, let name): return (parent as NSString).appendingPathComponent(name)
             case .trashIfEmptied(let folders): return folders.first ?? ""
             }
@@ -86,6 +88,9 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         public var size: Int?
         public var modified: Date?
         public var fromLabel: String?
+        /// A new folder the card makes for its own moves (a saved rule's month folder): ticked
+        /// only while a ticked move goes into it.
+        public var forMoves: Bool?
 
         public init(id: Int, name: String, change: Change, ticked: Bool, confidence: String? = nil, reason: String? = nil,
                     note: String? = nil, folderLabel: String? = nil, choices: [Choice] = [], chosen: Bool = false,
@@ -136,7 +141,7 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
     public var rows: [Row]
     /// "Left here: 4 installers, 2 files no folder fits"; nil when none were.
     public let leftHere: String?
-    /// "50 of 132 · 82 more: ask for the next 50"; nil when the card holds them all.
+    /// "1–10 of 132 · 122 more"; nil when the card holds them all.
     public let more: String?
 
     private var savedState: State?
@@ -147,7 +152,10 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
     /// The undo step Apply registered; the card's Undo acts only while it tops the stack. Never
     /// saved: the undo history ends with the app, so a restored card offers no Undo.
     public var undoName: String?
-    /// After Apply: "Moved 31 files and made 1 folder."
+    /// Which Apply registered it (`AskClaudePlanOutcome.undoToken`): cards share names ("File 10
+    /// Loose Files"), so the name alone can't say the step on top is this card's. Never saved.
+    public var undoToken: UUID?
+    /// After Apply: "Moved 31 files and made 1 folder."; after Undo, what came back.
     public var summary: String?
     /// What Next asks, the same words they could type: "Show me the next 10 loose files."
     /// Nil when the card holds the last of them (decision GG).
@@ -184,6 +192,7 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
             }
         }
         undoName = outcome.undoName
+        undoToken = outcome.undoToken
         let done = outcome.doneCount
         state = done == 0 ? .proposed : (done < outcome.rows.count ? .partlyApplied : .applied)
         summary = Self.summary(rows.filter { $0.applied == true }, failed: outcome.rows.count - done)
@@ -249,14 +258,67 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         rows[index].folderLabel = choice.label
         rows[index].confidence = choice.confidence ?? rows[index].confidence
         rows[index].reason = choice.reason ?? "Your pick"
-        // A note about the name in the old folder says nothing about the new one.
+        // A note about the old folder says nothing about the new one; the name is found again.
         rows[index].note = nil
         rows[index].chosen = true
         rows[index].ticked = true
+        tickNeededFolders()
+        noteLandingNames()
     }
 
     public mutating func setTicked(_ ticked: Bool, row id: Int) {
         guard let index = rows.firstIndex(where: { $0.id == id }) else { return }
         rows[index].ticked = ticked
+        guard case .move = rows[index].change else { return }
+        tickNeededFolders()
+        noteLandingNames()
+    }
+
+    /// "Kept as Ticket 2.pdf: the name is taken" (decision GE).
+    public static func landingNote(_ landing: String) -> String { "Kept as \(landing): the name is taken" }
+
+    /// Each move's landing name noted on its row (decision GE), in the order Apply runs them: a
+    /// name taken in its folder, on the disk or by a ticked move above it, lands numbered.
+    public mutating func noteLandingNames(fileManager fm: FileManager = .default) {
+        // Paths by the folder each resolves to, so two spellings of one folder share their names.
+        var reserved = Set<String>()
+        for index in rows.indices {
+            guard case .move(let from, let toFolder) = rows[index].change else { continue }
+            let name = (from as NSString).lastPathComponent
+            let folder = URL(fileURLWithPath: toFolder).resolvingSymlinksInPath()
+            let caseSensitive = FileSyncManager.volumeSupportsCaseSensitiveNamesForNewItem(at: folder)
+            // Apply's own naming, with the names the rows above take counted as taken.
+            let landing = FileSyncManager.generateUniqueURL(for: folder.appendingPathComponent(name), fileManager: fm,
+                                                            reserved: reserved, caseSensitiveVolume: caseSensitive)
+            if rows[index].ticked { reserved.insert(landing.path) }
+            let landingName = landing.lastPathComponent
+            var notes = (rows[index].note ?? "").components(separatedBy: " · ")
+                .filter { !$0.isEmpty && !($0.hasPrefix("Kept as ") && $0.hasSuffix(": the name is taken")) }
+            if landingName != name { notes.insert(Self.landingNote(landingName), at: 0) }
+            rows[index].note = notes.isEmpty ? nil : notes.joined(separator: " · ")
+        }
+    }
+
+    /// A new folder made for the card's moves is ticked while a ticked move goes into it, and
+    /// unticked once none does, so Apply never makes an empty one.
+    public mutating func tickNeededFolders() {
+        for index in rows.indices where rows[index].forMoves == true && rows[index].refusal == nil {
+            let folder = rows[index].change.path
+            rows[index].ticked = rows.contains { row in
+                guard row.ticked, case .move(_, let to) = row.change else { return false }
+                return to == folder || to.hasPrefix(folder + "/")
+            }
+        }
+    }
+
+    /// What Undo did, once it ran: rows `notBack` are those it didn't put back as they were.
+    public mutating func recordUndo(notBack: [Int]) {
+        state = .undone
+        undoName = nil
+        undoToken = nil
+        let missed = rows.filter { notBack.contains($0.id) }.map(\.name)
+        summary = missed.isEmpty ? "Undone: everything is back where it was."
+            : "Undone, except \(missed.count): " + ListFormatter.localizedString(byJoining: missed.prefix(5).map { $0 })
+                + (missed.count > 5 ? " and \(missed.count - 5) more" : "") + " didn’t go back."
     }
 }

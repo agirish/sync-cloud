@@ -62,18 +62,21 @@ public enum AutomationTravelDate {
         var year: Int?
         let month: Int
         let day: Int
+        /// The year is four digits after only spaces, which a time reads as too: "23SEP 2015".
+        var yearCouldBeATime = false
         var label = ""
         var isExcluded: Bool { AutomationTravelDate.notTravel.contains { label.contains($0) } }
         var isIssue: Bool { AutomationTravelDate.issued.contains { label.contains($0) } }
     }
 
     private static let monthAlternation = (longMonths + ["sept"] + shortMonths).joined(separator: "|")
-    // 23 sep 2026 · 23-sep-26 · 23sep2026 · 23SEP (no year)
+    // 23 sep 2026 · 23-sep-26 · 23sep2026 · 23SEP (no year). Group 3 is what stands between the
+    // month and the year, as in monthDay.
     private static let dayMonth = try! NSRegularExpression(
-        pattern: "(?<![a-z0-9])(\\d{1,2})[\\s\\-/.]*(\(monthAlternation))(?![a-z])[\\s\\-/.,]*(\\d{4}|\\d{2}(?!\\d))?", options: [])
+        pattern: "(?<![a-z0-9])(\\d{1,2})[\\s\\-/.]*(\(monthAlternation))(?![a-z])([\\s\\-/.,]*)(\\d{4}|\\d{2}(?!\\d))?", options: [])
     // sep 23, 2026 · september 23 (no year)
     private static let monthDay = try! NSRegularExpression(
-        pattern: "(?<![a-z0-9])(\(monthAlternation))(?![a-z])\\.?\\s*(\\d{1,2})(?!\\d)(?:st|nd|rd|th)?,?\\s*(\\d{4})?", options: [])
+        pattern: "(?<![a-z0-9])(\(monthAlternation))(?![a-z])\\.?\\s*(\\d{1,2})(?!\\d)(?:st|nd|rd|th)?(,?\\s*)(\\d{4})?", options: [])
     // 2026-09-23 · 2026/09/23
     private static let iso = try! NSRegularExpression(
         pattern: "(?<!\\d)(\\d{4})[\\-/.](\\d{1,2})[\\-/.](\\d{1,2})(?!\\d)", options: [])
@@ -82,7 +85,12 @@ public enum AutomationTravelDate {
         pattern: "(?<![\\d/])(\\d{1,2})[/.\\-](\\d{1,2})[/.\\-](\\d{4})(?![\\d/])", options: [])
 
     /// The first date of travel on page 1, or nil when there is none to go by.
-    public static func first(in text: String) -> Day? {
+    public static func first(in text: String) -> Day? { first(in: text, now: Date()) }
+
+    /// `now` bounds the years read: no page names one more than five years on, so a ticket's
+    /// "23SEP 2145" is a time.
+    static func first(in text: String, now: Date) -> Day? {
+        let latestYear = Calendar(identifier: .gregorian).component(.year, from: now) + 5
         let text = text.lowercased()
         let ns = text as NSString
         var found: [(range: NSRange, Found)] = []
@@ -98,13 +106,15 @@ public enum AutomationTravelDate {
             }
             return prefix
         }
-        func add(_ regex: NSRegularExpression, _ make: (NSTextCheckingResult) -> (Int?, Int, Int)?) {
+        func add(_ regex: NSRegularExpression, _ make: (NSTextCheckingResult) -> (Int?, Int, Int)?,
+                 yearCouldBeATime: (NSTextCheckingResult) -> Bool = { _ in false }) {
             for match in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
                 guard !taken.contains(where: { NSIntersectionRange($0, match.range).length > 0 }),
                       let (year, month, day) = make(match),
                       (1...12).contains(month), (1...31).contains(day) else { continue }
                 taken.append(match.range)
-                found.append((match.range, Found(year: year, month: month, day: day)))
+                found.append((match.range, Found(year: year, month: month, day: day,
+                                                 yearCouldBeATime: year != nil && yearCouldBeATime(match))))
             }
         }
         func group(_ m: NSTextCheckingResult, _ i: Int) -> String? {
@@ -113,21 +123,40 @@ public enum AutomationTravelDate {
         }
         func fullYear(_ s: String?) -> Int? {
             guard let s, let n = Int(s) else { return nil }
-            return s.count == 2 ? 2000 + n : n
+            let year = s.count == 2 ? 2000 + n : n
+            // A ticket prints its times beside its dates: "14OCT 0930" is no year 930, nor
+            // "23SEP 2145" the year 2145.
+            return (1900...latestYear).contains(year) ? year : nil
+        }
+        /// A day-month or month-day date's year group, unless a time: the "21" of "23 SEP 21:45".
+        func year(_ m: NSTextCheckingResult, _ i: Int) -> Int? {
+            let r = m.range(at: i)
+            guard r.location != NSNotFound else { return nil }
+            if NSMaxRange(r) < ns.length, [":", "h"].contains(ns.substring(with: NSRange(location: NSMaxRange(r), length: 1))) {
+                return nil
+            }
+            return fullYear(ns.substring(with: r))
+        }
+        /// Four digits after only spaces, which read as a time (HHMM) as readily as a year:
+        /// "23SEP 2015" is 20:15. Glued ("23SEP2015"), or after a comma or dash, they are a year.
+        func couldBeATime(_ m: NSTextCheckingResult, separator: Int, year: Int) -> Bool {
+            guard let sep = group(m, separator), !sep.isEmpty, sep.allSatisfy(\.isWhitespace),
+                  let digits = group(m, year), digits.count == 4, let n = Int(digits) else { return false }
+            return n / 100 <= 23 && n % 100 <= 59
         }
         add(iso) { m in
             guard let y = fullYear(group(m, 1)), let mo = group(m, 2).flatMap({ Int($0) }),
                   let d = group(m, 3).flatMap({ Int($0) }) else { return nil }
             return (y, mo, d)
         }
-        add(dayMonth) { m in
+        add(dayMonth, { m in
             guard let d = group(m, 1).flatMap({ Int($0) }), let mo = group(m, 2).flatMap(month(named:)) else { return nil }
-            return (fullYear(group(m, 3)), mo, d)
-        }
-        add(monthDay) { m in
+            return (year(m, 4), mo, d)
+        }, yearCouldBeATime: { couldBeATime($0, separator: 3, year: 4) })
+        add(monthDay, { m in
             guard let mo = group(m, 1).flatMap(month(named:)), let d = group(m, 2).flatMap({ Int($0) }) else { return nil }
-            return (fullYear(group(m, 3)), mo, d)
-        }
+            return (year(m, 4), mo, d)
+        }, yearCouldBeATime: { couldBeATime($0, separator: 3, year: 4) })
         add(numeric) { m in
             guard let a = group(m, 1).flatMap({ Int($0) }), let b = group(m, 2).flatMap({ Int($0) }),
                   let y = fullYear(group(m, 3)) else { return nil }
@@ -137,11 +166,19 @@ public enum AutomationTravelDate {
         }
         found.sort { $0.range.location < $1.range.location }
         var previousEnd = 0
-        let dates: [Found] = found.map { range, f in
+        var dates: [Found] = found.map { range, f in
             var f = f
             f.label = label(before: range, after: previousEnd)
             previousEnd = NSMaxRange(range)
             return f
+        }
+        // A year that could be a time is a year only near the page's sure ones (and its issue
+        // date's): on a ticket issued in 2026, "23SEP 2015" departs at 20:15.
+        let sureYears = dates.filter { !$0.yearCouldBeATime || $0.isIssue }.compactMap(\.year)
+        if !sureYears.isEmpty {
+            for i in dates.indices where dates[i].yearCouldBeATime && !dates[i].isIssue {
+                if let y = dates[i].year, !sureYears.contains(where: { abs($0 - y) <= 1 }) { dates[i].year = nil }
+            }
         }
 
         // A date with no year takes the year of the dates around it: the issue date's, else the

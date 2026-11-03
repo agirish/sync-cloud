@@ -1527,7 +1527,9 @@ private struct AskClaudeThreadRow: View, Equatable {
                     }
                 }
             case .undone:
-                Label("Undone: everything is back where it was.", systemImage: "arrow.uturn.backward")
+                // What the undo did, once it ran (`recordUndo`); a card saved before that says
+                // only that it was undone.
+                Label(plan.summary.flatMap { $0.hasPrefix("Undone") ? $0 : nil } ?? "Undone.", systemImage: "arrow.uturn.backward")
                     .scaledFont(.callout).foregroundStyle(.secondary)
             case .declined:
                 Text("Not applied.").scaledFont(.callout).foregroundStyle(.secondary)

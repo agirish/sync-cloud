@@ -2848,14 +2848,18 @@ private final class OffersADownload: AskClaudeToolRunning {
                                         ?? "Fits how this folder is used", evidenceToken: token)
     }
 
-    private func runner(survey: Bool = true, token: Bool = false,
+    /// `extra` adds homes by file name; `fallback` is the home of every file without one;
+    /// `shown` is what the chat's cards so far showed.
+    private func runner(survey: Bool = true, token: Bool = false, extra: [String: [FilingHelpAnswer.Suggestion]] = [:],
+                        fallback: FilingHelpAnswer.Suggestion? = nil, shown: Set<String> = [],
                         configure: @escaping (inout AskClaudeBrowseTools.Context) -> Void = { _ in }) -> AskClaudeBrowseTools {
         let dir = self.dir
         let homes: [String: [FilingHelpAnswer.Suggestion]] = [
             "JAL Ticket.pdf": [s("Travel/Trips", .high, token: token ? "Japan Airlines" : nil)], "Ticket.pdf": [s("Travel/Trips", .high)],
             "W-2 2025.pdf": [s("Taxes/2025", .medium), s("Work", .medium)], "Statement.pdf": [s("Bank/Chase", .high)],
             "scan0042.pdf": [s("Health", .low), s("Insurance", .low)], "plan.pdf": [s("Travel/Trips", .high)],
-        ]
+        ].merging(extra) { _, new in new }
+        let manager = FileSyncManager()
         return AskClaudeBrowseTools(context: {
             var ctx = AskClaudeBrowseTools.Context(
                 inBrowse: true, sourceName: "Home", root: dir, folder: "Downloads", sort: .name,
@@ -2865,8 +2869,12 @@ private final class OffersADownload: AskClaudeToolRunning {
             ctx.surveyFolder = { $0.lowercased() == "documents" ? dir + "/Documents" : nil }
             ctx.isCloudOnly = { _ in false }
             ctx.whereToFile = { path, _ in
-                let list = homes[(path as NSString).lastPathComponent]
+                let list = homes[(path as NSString).lastPathComponent] ?? fallback.map { [$0] }
                 return FilingHelpAnswer(outcome: list.map { .suggested($0) } ?? .noMatch, surveyedAt: nil)
+            }
+            ctx.shownOnCards = shown
+            ctx.planRefusal = { change, creating in
+                manager.planRefusal(change, creating: creating, isHidden: { _ in false }, protected: [])
             }
             configure(&ctx)
             return ctx
@@ -2910,7 +2918,8 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(row("W-2 2025.pdf")?.ticked == false && row("W-2 2025.pdf")?.choices.count == 2)
         #expect(row("scan0042.pdf")?.group == .needsPick)
         let statement = try #require(row("Statement.pdf"))
-        #expect(statement.change == .trash(path: dir + "/Downloads/Statement.pdf") && statement.alreadyFiled && !statement.ticked)
+        #expect(statement.change == .trash(path: dir + "/Downloads/Statement.pdf", copyOf: dir + "/Documents/Bank/Chase/Sep.pdf")
+                && statement.alreadyFiled && !statement.ticked)
         let emptied = try #require(plan.rows.first { if case .trashIfEmptied = $0.change { true } else { false } })
         #expect(emptied.change == .trashIfEmptied(folders: [dir + "/Downloads/JAL Itinerary"]) && !emptied.ticked)
         #expect(plan.leftHere == "Left here: 1 app or installer, 1 file no folder fits")
@@ -2961,6 +2970,61 @@ private final class OffersADownload: AskClaudeToolRunning {
         // The survey's own root, named as the button names it, is handed over too.
         let whole = await call(["into": .string("Documents")], tools)
         #expect(whole.plan != nil && asked.places.last == dir + "/Documents")
+    }
+
+    /// Next after Apply: the files the first card moved are gone, and the next card is still the
+    /// eleventh to twentieth, not three past them.
+    @Test func nextAfterApplyShowsTheFilesNoCardShowed() async throws {
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        for i in 0..<25 { try Data("\(i)".utf8).write(to: URL(fileURLWithPath: dir + "/Downloads/n\(i).txt")) }
+        let order = AskClaudeLooseFiles.collect(in: dir + "/Downloads", isHidden: { _ in false }).files.map(\.path)
+        let everywhere = s("Travel/Trips", .high)
+        let first = try #require(await call(["into": .string("Documents")], runner(fallback: everywhere)).plan)
+        let shown = Set(first.rows.map(\.change.path))
+        #expect(shown.isSuperset(of: order.prefix(10)))
+        // Three of them were applied: moved out of Downloads.
+        for path in order.prefix(3) { try FileManager.default.removeItem(atPath: path) }
+        let next = try #require(await call(["into": .string("Documents"), "from": .integer(10)],
+                                           runner(fallback: everywhere, shown: shown)).plan)
+        let files = Set(next.rows.compactMap { row -> String? in if case .move(let from, _) = row.change { from } else { nil } })
+        #expect(files == Set(order[10..<20]), "the second card skipped files")
+        #expect(next.more == "11–20 of 32 · 12 more")
+    }
+
+    /// A home not made yet (a saved rule's month folder) gets the card's own new-folder rows, and
+    /// Apply files into it.
+    @Test func aHomeNotMadeYetIsMadeByTheCard() async throws {
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        try Data("rule".utf8).write(to: URL(fileURLWithPath: dir + "/Downloads/Boarding.pdf"))
+        let out = await call(["into": .string("Documents")], runner(extra: ["Boarding.pdf": [s("Travel/2026/Oct", .high)]]))
+        let plan = try #require(out.plan)
+        let made = plan.rows.filter { if case .newFolder = $0.change { true } else { false } }
+        let year = try #require(made.first { $0.change == .newFolder(in: dir + "/Documents/Travel", name: "2026") })
+        let month = try #require(made.first { $0.change == .newFolder(in: dir + "/Documents/Travel/2026", name: "Oct") })
+        #expect(year.ticked && month.ticked && year.refusal == nil && month.refusal == nil)
+        let boarding = try #require(plan.rows.first { $0.name == "Boarding.pdf" })
+        #expect(boarding.ticked && boarding.refusal == nil)
+        #expect(made.allSatisfy { $0.change.path.hasPrefix(dir + "/Documents/Travel/2026") || !$0.ticked },
+                "a folder no ticked move needs is unticked")
+        #expect(plan.title == "File 7 Loose Files", "new folders aren't counted as files")
+        let manager = FileSyncManager()
+        manager.undoManager = UndoManager()
+        let applied = await manager.applyPlan(plan.runnable.map { (id: $0.id, change: $0.change) }, actionName: plan.title,
+                                              isHidden: { _ in false }, protected: [])
+        #expect(applied.rows[boarding.id] == .done("Moved"), "\(applied.rows)")
+        #expect(FileManager.default.fileExists(atPath: dir + "/Documents/Travel/2026/Oct/Boarding.pdf"))
+    }
+
+    /// A file already in its home, through another spelling of its folder, is left out: never a
+    /// copy of itself to trash.
+    @Test func aFileAlreadyInItsHomeIsLeftHere() async throws {
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        try FileManager.default.createSymbolicLink(atPath: dir + "/CloudDocs", withDestinationPath: dir + "/Downloads")
+        let home = FilingHelpAnswer.Suggestion(folder: dir + "/CloudDocs", relativePath: "Downloads", confidence: .high,
+                                               reason: "Fits how this folder is used", evidenceToken: nil)
+        let plan = try #require(await call(["into": .string("Documents")], runner(extra: ["JAL Ticket.pdf": [home]])).plan)
+        #expect(!plan.rows.contains { $0.name == "JAL Ticket.pdf" }, "\(plan.rows.map(\.name))")
+        #expect(plan.leftHere?.contains("1 file already in its folder") == true)
     }
 
     /// The card is on their Mac: a row says which word decided it and what the file is.

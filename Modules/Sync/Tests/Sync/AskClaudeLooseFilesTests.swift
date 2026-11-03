@@ -85,6 +85,83 @@ import Testing
                                              isCloudOnly: { $0.hasSuffix("Chase Sep.pdf") }) == nil, "a cloud-only file is never read")
     }
 
+    /// The file itself under another spelling (iCloud's Documents is a link to ~/Documents) is
+    /// never its own copy, and its own folder offers none.
+    @Test func aFileIsNeverItsOwnCopyThroughALink() throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        try write(dir + "/Documents/Scans/scan.pdf", "scan")
+        try write(dir + "/Documents/Scans/scan copy.pdf", "scan")
+        try FileManager.default.createSymbolicLink(atPath: dir + "/CloudDocs", withDestinationPath: dir + "/Documents")
+        let viaLink = dir + "/CloudDocs/Scans/scan.pdf"
+        #expect(AskClaudeLooseFiles.sameFile(as: viaLink, in: dir + "/Documents/Scans", size: 4, isCloudOnly: { _ in false }) == nil)
+        #expect(AskClaudeLooseFiles.sameFile(as: viaLink, in: dir + "/CloudDocs/Scans", size: 4, isCloudOnly: { _ in false }) == nil)
+        try write(dir + "/Documents/Filed/scan.pdf", "scan")
+        try FileManager.default.linkItem(atPath: dir + "/Documents/Scans/scan.pdf", toPath: dir + "/Documents/Filed/hard.pdf")
+        #expect(AskClaudeLooseFiles.sameFile(as: viaLink, in: dir + "/Documents/Filed", size: 4, isCloudOnly: { _ in false })
+                == dir + "/Documents/Filed/scan.pdf", "a hard link is the file itself; the real copy is found")
+    }
+
+    /// After a card is applied, the next card is the files no card showed, however many moved.
+    @Test func theNextCardIsTheFilesNoCardShowed() {
+        let files = (0..<25).map { AskClaudeLooseFiles.File(path: "/d/f\($0)", name: "f\($0)", size: 1, modified: nil) }
+        let first = AskClaudeLooseFiles.page(files, from: 0, shown: [])
+        #expect(first.files.map(\.name) == (0..<10).map { "f\($0)" } && first.total == 25)
+        // Three of the first ten moved away; the list is collected again without them.
+        let left = files.filter { !["f1", "f4", "f7"].contains($0.name) }
+        let next = AskClaudeLooseFiles.page(left, from: 10, shown: Set(first.files.map(\.path)))
+        #expect(next.files.map(\.name) == (10..<20).map { "f\($0)" } && next.total == 25)
+        // No card showed any: from counts from the start.
+        #expect(AskClaudeLooseFiles.page(files, from: 20, shown: []).files.map(\.name) == (20..<25).map { "f\($0)" })
+    }
+
+    /// Decision GE: two files of one name going to one folder both land under their own name,
+    /// said on each row, and a pick from the menu says the new folder's.
+    @Test func eachRowSaysTheNameItLandsUnderAfterTheRowsAbove() throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        try write(dir + "/Trips/Ticket.pdf")
+        try FileManager.default.createDirectory(atPath: dir + "/Work", withIntermediateDirectories: true)
+        func move(_ id: Int, _ from: String, to: String) -> AskClaudePlan.Row {
+            AskClaudePlan.Row(id: id, name: "Ticket.pdf", change: .move(from: from, toFolder: to), ticked: true,
+                              note: "Outside Travel", folderLabel: (to as NSString).lastPathComponent)
+        }
+        var plan = AskClaudePlan(title: "", subtitle: "", rows: [move(0, dir + "/a/Ticket.pdf", to: dir + "/Work"),
+                                                                 move(1, dir + "/b/Ticket.pdf", to: dir + "/Work"),
+                                                                 move(2, dir + "/c/Ticket.pdf", to: dir + "/Trips")])
+        plan.noteLandingNames()
+        #expect(plan.rows.map(\.note) == ["Outside Travel", "Kept as Ticket 2.pdf: the name is taken · Outside Travel",
+                                          "Kept as Ticket 2.pdf: the name is taken · Outside Travel"])
+        plan.choose(.init(label: "Trips", path: dir + "/Trips"), forRow: 0)
+        #expect(plan.rows.map(\.note) == ["Kept as Ticket 2.pdf: the name is taken", "Outside Travel",
+                                          "Kept as Ticket 3.pdf: the name is taken · Outside Travel"])
+        plan.setTicked(false, row: 0)
+        #expect(plan.rows[2].note == "Kept as Ticket 2.pdf: the name is taken · Outside Travel", "an unticked row takes no name")
+    }
+
+    /// A folder the card makes for its moves is ticked only while a ticked move goes into it.
+    @Test func aNewFolderForTheMovesFollowsTheirTicks() {
+        var made = AskClaudePlan.Row(id: 1, name: "New folder “Oct”", change: .newFolder(in: "/t/2026", name: "Oct"), ticked: true)
+        made.forMoves = true
+        var plan = AskClaudePlan(title: "", subtitle: "", rows: [
+            AskClaudePlan.Row(id: 0, name: "a.pdf", change: .move(from: "/d/a.pdf", toFolder: "/t/2026/Oct"), ticked: true), made])
+        plan.setTicked(false, row: 0)
+        #expect(plan.rows[1].ticked == false)
+        plan.setTicked(true, row: 0)
+        #expect(plan.rows[1].ticked == true)
+        plan.choose(.init(label: "Work", path: "/t/Work"), forRow: 0)
+        #expect(plan.rows[1].ticked == false, "no move goes into it now")
+    }
+
+    /// A card saved before a copy named its twin still reads.
+    @Test func aSavedTrashRowWithoutItsTwinStillReads() throws {
+        let old = #"{"trash":{"path":"\/d\/s.pdf"}}"#
+        let change = try JSONDecoder().decode(AskClaudePlan.Change.self, from: Data(old.utf8))
+        #expect(change == .trash(path: "/d/s.pdf"))
+        let twin = AskClaudePlan.Change.trash(path: "/d/s.pdf", copyOf: "/b/s.pdf")
+        #expect(try JSONDecoder().decode(AskClaudePlan.Change.self, from: JSONEncoder().encode(twin)) == twin)
+    }
+
     /// Decision GE: a taken name lands numbered, as filing's own move names it.
     @Test func aTakenNameLandsNumbered() throws {
         let dir = try scratch()

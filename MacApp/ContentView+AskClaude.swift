@@ -280,19 +280,26 @@ extension ContentView {
             }
         case .undo:
             guard let plan = askClaudeChat.plan(id), let name = plan.undoName else { return }
-            // Only while it is still the step on top: an Undo under something done since would
-            // take back that instead.
-            guard let undo = syncManager.undoManager, undo.canUndo, undo.undoActionName == name else {
-                askClaudeChat.addNote("This card can’t be undone from here: something else was done since. Edit ▸ Undo takes back the latest step first.")
+            // Only while this card's own Apply is the step on top: cards share names, and an Undo
+            // under something done since would take back that instead.
+            let applied = plan.rows.filter { $0.applied == true }.map { (id: $0.id, change: $0.change) }
+            guard let token = plan.undoToken, let undoing = syncManager.undoPlan(token, named: name, applied: applied) else {
+                askClaudeChat.addNote("This card can’t be undone from here: something else was done or undone since. Edit ▸ Undo takes back the latest step first.")
                 return
             }
-            Logger.shared.info("Ask Claude card: Undo “\(name)”")
-            undo.undo()
             askClaudeChat.updatePlan(id) {
-                $0.state = .undone
                 $0.undoName = nil
+                $0.undoToken = nil
             }
-            askClaudeChat.tellClaude("They undid your card “\(plan.title)”: everything it did is back where it was.")
+            // Said once it has run, as it ran: an item changed since stays where it is.
+            Task { @MainActor in
+                let notBack = await undoing.value
+                askClaudeChat.updatePlan(id) { $0.recordUndo(notBack: notBack) }
+                let missed = plan.rows.filter { notBack.contains($0.id) }.map(\.name)
+                askClaudeChat.tellClaude(missed.isEmpty
+                    ? "They undid your card “\(plan.title)”: everything it did is back where it was."
+                    : "They undid your card “\(plan.title)”, but \(missed.count) didn’t go back: \(missed.prefix(10).joined(separator: "; ")).")
+            }
         }
     }
 
@@ -760,6 +767,10 @@ extension ContentView {
                 return syncManager.planRefusal(change, creating: creating, isHidden: { hidden.isHidden($0) },
                                                protected: Set(askClaudeSources.map(\.root)))
             },
+            shownOnCards: Set(askClaudeChat.items.flatMap { item -> [String] in
+                guard case .plan(let plan) = item.kind else { return [] }
+                return plan.rows.map(\.change.path)
+            }),
             canRefineFiling: syncManager.filingHelpCanRefine,
             history: { forward in
                 let columns = paneDrawsColumns(isLeft: true)

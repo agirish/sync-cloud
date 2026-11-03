@@ -163,7 +163,7 @@ public enum AskClaudeRequest {
     and month folders when they named them. The rule is saved only if they click Save.
     - To file a folder’s loose files, use file_loose_files. If they haven’t said where in this chat, \
     call it without into first: it counts the files and gives them buttons. Ask where in one short \
-    sentence and stop. Once they say, call it with into; it shows them one card, up to 50 files.
+    sentence and stop. Once they say, call it with into; it shows them one card, up to \(AskClaudeLooseFiles.perCard) files.
     - Your look-up tools and open work from any workspace. Tools that move or select in the Browse \
     pane take them to Browse first; in Edit, prefer answering without moving them.
 
@@ -313,10 +313,10 @@ public enum AskClaudeToolCatalog {
                           "into": string("Optional: where they said it should go, as they said it: a folder of their survey (Travel, Taxes/2025) or a source and folder (Dropbox, iCloud/Documents/Travel). Its folders are preferred; one outside the survey is answered as that.")],
              required: ["handle"]),
         tool(.fileLooseFiles,
-             "File a folder’s loose files by how they file: every file in it and its subfolders, newest first, up to 50 per call, each placed by their folder survey as where_to_file places one. Without into, only counts them and gives them buttons asking where. With into, they get one card grouped by folder, which they review and apply; nothing moves until they click Apply.",
+             "File a folder’s loose files by how they file: every file in it and its subfolders, newest first, up to \(AskClaudeLooseFiles.perCard) per call, each placed by their folder survey as where_to_file places one. Without into, only counts them and gives them buttons asking where. With into, they get one card grouped by folder, which they review and apply; nothing moves until they click Apply.",
              properties: ["folder": string("Folder relative to the source, e.g. Downloads. Default: the folder on screen."),
                           "into": string("Where they said the files go, as for where_to_file: a folder of their survey (Documents, Travel) or a source and folder (Dropbox)."),
-                          "from": integer("Zero-based file to start at, for the next 50. Default 0.")],
+                          "from": integer("Zero-based file to start at, for the next \(AskClaudeLooseFiles.perCard). Default 0.")],
              required: []),
         tool(.proposeChanges,
              "Offer them a card of changes: moves, renames, new folders and moves to the Trash, up to 50, on their Mac’s disk. Nothing happens until they click Apply; one Undo takes it all back. Each change is checked now and again at Apply; one that can’t run is shown with why. A move can go into a folder a new_folder on the same card makes.",

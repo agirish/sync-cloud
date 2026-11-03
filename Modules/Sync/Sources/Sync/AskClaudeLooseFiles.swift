@@ -108,19 +108,61 @@ public enum AskClaudeLooseFiles {
 
     /// A file in `folder` holding exactly the bytes of `path` (decision GF), or nil. Only files of
     /// the same size are read, and never one only in the cloud: reading it would download it.
+    ///
+    /// **Never the file itself under another spelling.** iCloud's Documents is a link to
+    /// ~/Documents, so a folder named one way can list the file named the other way: compared by
+    /// path, it was its own twin, and the card offered to Trash the only copy. The file's own
+    /// folder, however spelled, has no twin to offer; every candidate is compared by identity.
     public static func sameFile(as path: String, in folder: String, size: Int?,
                                 isCloudOnly: (String) -> Bool = { MaterializationStatus.isCloudOnlyIfKnown(atPath: $0) == true },
                                 fileManager fm: FileManager = .default) -> String? {
-        guard let size, size > 0, !isCloudOnly(path), let names = try? fm.contentsOfDirectory(atPath: folder) else { return nil }
+        guard let size, size > 0, !isCloudOnly(path),
+              !PathBoundary.resolvesToSameDirectory((path as NSString).deletingLastPathComponent, folder, caseSensitive: false),
+              let names = try? fm.contentsOfDirectory(atPath: folder) else { return nil }
         for name in names.sorted() where !name.hasPrefix(".") {
             let other = (folder as NSString).appendingPathComponent(name)
-            guard other != path,
+            guard other != path, !isSameItem(path, other),
                   let values = try? URL(fileURLWithPath: other).resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
                   values.isRegularFile == true, values.fileSize == size, !isCloudOnly(other) else { continue }
             if sameBytes(path, other) { return other }
         }
         return nil
     }
+
+    /// The two paths name one item on disk: one volume, one file number, links followed. A path
+    /// that can't be read counts as the same, so nothing is ever trashed on it.
+    public static func isSameItem(_ a: String, _ b: String) -> Bool {
+        var sa = stat(), sb = stat()
+        guard stat(a, &sa) == 0, stat(b, &sb) == 0 else { return true }
+        return sa.st_dev == sb.st_dev && sa.st_ino == sb.st_ino
+    }
+
+    /// Why a copy already filed can't go to the Trash now (decision GF, checked again at Apply),
+    /// or nil: `twin` must still be another file, holding the same bytes. `readBytes` false checks
+    /// only what needs no read.
+    public static func copyRefusal(_ path: String, of twin: String, readBytes: Bool,
+                                   isCloudOnly: (String) -> Bool = { MaterializationStatus.isCloudOnlyIfKnown(atPath: $0) == true }) -> String? {
+        let name = (twin as NSString).lastPathComponent
+        guard FileManager.default.fileExists(atPath: twin) else { return "The copy, \(name), isn’t there any more" }
+        if isSameItem(path, twin) { return "\(name) is this same file, not a copy" }
+        guard readBytes else { return nil }
+        if isCloudOnly(path) || isCloudOnly(twin) { return "Checking the copy would download it" }
+        let size = { (p: String) in (try? URL(fileURLWithPath: p).resourceValues(forKeys: [.fileSizeKey]))?.fileSize }
+        guard size(path) == size(twin), sameBytes(path, twin) else { return "\(name) isn’t the same file any more" }
+        return nil
+    }
+
+    /// The files a card shows, from `from` (decision GG): after the first card, those no card
+    /// before it showed, so files moved since don't shift the rest past it. `shown` holds what
+    /// earlier cards showed from this folder; with none, `from` counts from the start. `total` is
+    /// `from` plus what is left, the count the card numbers against.
+    public static func page(_ files: [File], from: Int, shown: Set<String>, count: Int = perCard) -> (files: [File], total: Int) {
+        let rest = from > 0 && !shown.isEmpty ? files.filter { !shown.contains($0.path) } : Array(files.dropFirst(from))
+        return (Array(rest.prefix(count)), from + rest.count)
+    }
+
+    /// Files on one filing card (decision GG, after his first use: 50 was too many to read).
+    public static let perCard = 10
 
     /// The two files hold the same bytes, read a megabyte at a time.
     public static func sameBytes(_ a: String, _ b: String) -> Bool {

@@ -98,6 +98,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         /// Why a change can't run (TE262): hidden, gone, taken, another disk…; nil when it can.
         /// `creating` are folders the same card makes.
         var planRefusal: (_ change: AskClaudePlan.Change, _ creating: Set<String>) -> String? = { _, _ in nil }
+        /// The items on this chat's cards so far, absolute: a filing card's Next shows the files
+        /// none of them showed.
+        var shownOnCards: Set<String> = []
         /// Whether a file is only in the cloud, for the already-filed check, which never reads one.
         var isCloudOnly: (_ path: String) -> Bool = { MaterializationStatus.isCloudOnlyIfKnown(atPath: $0) == true }
         /// Organize's Refine with Claude is set up, so the card may offer it (decision EY).
@@ -1625,8 +1628,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
 
     // MARK: Loose files (TE285)
 
-    /// Files on one filing card (decision GG, after his first use: 50 was too many to read).
-    static let looseFilesPerCard = 10
+    /// Files on one filing card (decision GG).
+    static let looseFilesPerCard = AskClaudeLooseFiles.perCard
     /// Changes on one card Claude proposes (decision FC).
     static let changesPerCard = 50
 
@@ -1687,7 +1690,12 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                                   AskClaudeChoice("Name a \(placeLabel.components(separatedBy: " › ").last ?? placeLabel) folder…", sends: nil)])
         }
         let from = max(0, call.int("from") ?? 0)
-        let page = Array(found.files.dropFirst(from).prefix(Self.looseFilesPerCard))
+        // Next pages by what no card showed: files the last card moved are gone from the list,
+        // and counting from `from` again would skip as many as it moved.
+        let paged = AskClaudeLooseFiles.page(found.files, from: from, shown: ctx.shownOnCards.filter {
+            AskClaudeBrowseTools.relativeIfInside($0, root: folder.absolute) != nil
+        }, count: Self.looseFilesPerCard)
+        let page = paged.files
         guard !page.isEmpty else {
             return AskClaudeToolOutcome(result: "There are only \(total) loose files; none from \(from).", isError: true,
                                         step: "No loose files past \(total)")
@@ -1696,11 +1704,17 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         // answered from, so the card's rows and its "into" title come from the same one.
         let preferring: String? = place
         var rows: [AskClaudePlan.Row] = []
-        var noHome = 0
+        var noHome = 0, atHome = 0
         for file in page {
             guard let answer = await ctx.whereToFile(file.path, preferring), case .suggested(let list) = answer.outcome,
                   let best = list.first else {
                 noHome += 1
+                continue
+            }
+            // Already in its home, under this spelling or another (iCloud's Documents is a link
+            // to ~/Documents): nothing to do, and no copy of it to trash.
+            if PathBoundary.resolvesToSameDirectory((file.path as NSString).deletingLastPathComponent, best.folder, caseSensitive: false) {
+                atHome += 1
                 continue
             }
             // The card is on their Mac, so it says which word decided it; what Claude is told
@@ -1717,50 +1731,88 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             if let twin = await Task.detached(priority: .userInitiated, operation: {
                 AskClaudeLooseFiles.sameFile(as: file.path, in: best.folder, size: file.size, isCloudOnly: isCloudOnly)
             }).value {
-                var row = AskClaudePlan.Row(id: rows.count, name: file.name, change: .trash(path: file.path), ticked: false,
+                var row = AskClaudePlan.Row(id: rows.count, name: file.name, change: .trash(path: file.path, copyOf: twin), ticked: false,
                                             reason: "The same file is in \(label)", note: (twin as NSString).lastPathComponent == file.name ? nil : "As \((twin as NSString).lastPathComponent)",
                                             folderLabel: label, choices: choices, alreadyFiled: true)
                 (row.size, row.modified, row.fromLabel) = (file.size, file.modified, fromLabel)
                 rows.append(row)
                 continue
             }
-            // Decision GE: a taken name is kept with a number, said before Apply.
-            let landing = AskClaudeLooseFiles.landingName(for: file.name, in: best.folder)
-            var notes: [String] = []
-            if landing != file.name { notes.append("Kept as \(landing): the name is taken") }
-            if best.outsidePlace { notes.append("Outside \((place as NSString).lastPathComponent)") }
+            // Decision GE's landing name is noted once the card is built, after the rows above it.
             var row = AskClaudePlan.Row(id: rows.count, name: file.name, change: .move(from: file.path, toFolder: best.folder),
                                         ticked: best.confidence == .high, confidence: AskClaudeFiling.label(best.confidence),
-                                        reason: choices[0].reason, note: notes.isEmpty ? nil : notes.joined(separator: " · "),
+                                        reason: choices[0].reason,
+                                        note: best.outsidePlace ? "Outside \((place as NSString).lastPathComponent)" : nil,
                                         folderLabel: label, choices: choices)
             (row.size, row.modified, row.fromLabel) = (file.size, file.modified, fromLabel)
             rows.append(row)
         }
         // Decision GA: subfolders these files would leave empty, as one unticked Trash row.
         let emptied = AskClaudeLooseFiles.emptiedFolders(found, onCard: Set(rows.map(\.change.path)))
+        // A home not made yet (a saved rule's new month folder, "2026 › Oct"): the card makes it,
+        // a row per folder, outermost first, ticked while a ticked move goes into it.
+        var making: [String] = []
+        for row in rows {
+            guard case .move(_, let to) = row.change else { continue }
+            var missing: [String] = []
+            var folder = to
+            while !folder.isEmpty, folder != "/", !FileManager.default.fileExists(atPath: folder), !making.contains(folder) {
+                missing.insert(folder, at: 0)
+                folder = (folder as NSString).deletingLastPathComponent
+            }
+            making += missing
+        }
+        for path in making {
+            let parent = (path as NSString).deletingLastPathComponent, name = (path as NSString).lastPathComponent
+            var row = AskClaudePlan.Row(id: rows.count, name: "New folder “\(name)”", change: .newFolder(in: parent, name: name),
+                                        ticked: false, reason: "For the files filed in it",
+                                        folderLabel: Self.breadcrumb(parent, sources: ctx.sources, fallback: (parent as NSString).lastPathComponent))
+            row.forMoves = true
+            rows.append(row)
+        }
         if !emptied.isEmpty {
             let names = emptied.map { "“\(($0 as NSString).lastPathComponent)”" }
             rows.append(AskClaudePlan.Row(id: rows.count, name: "Move \(emptied.count) emptied folder\(emptied.count == 1 ? "" : "s") to Trash",
                                           change: .trashIfEmptied(folders: emptied), ticked: false,
                                           reason: ListFormatter.localizedString(byJoining: names) + ", once their files are filed"))
         }
+        // Each row checked now, as a proposed card's are (TE262), with the folders it makes counted
+        // as there: one that can't run says why and has no tick, rather than failing at Apply.
+        let creating = Set(making)
+        for index in rows.indices {
+            if let why = ctx.planRefusal(rows[index].change, creating) {
+                rows[index].refusal = why
+                rows[index].ticked = false
+            }
+        }
         var left: [String] = []
         if !found.installers.isEmpty { left.append("\(found.installers.count) app\(found.installers.count == 1 ? "" : "s") or installer\(found.installers.count == 1 ? "" : "s")") }
+        if atHome > 0 { left.append("\(atHome) file\(atHome == 1 ? "" : "s") already in \(atHome == 1 ? "its" : "their") folder") }
         if noHome > 0 { left.append("\(noHome) file\(noHome == 1 ? "" : "s") no folder fits") }
         if found.unfinished > 0 { left.append("\(found.unfinished) unfinished download\(found.unfinished == 1 ? "" : "s")") }
+        // Numbered as the first card numbered them, by what is left past the ones shown.
+        let numbered = paged.total
         let end = from + page.count
-        let next = min(Self.looseFilesPerCard, total - end)
-        let more = end < total ? "\(from + 1)–\(end) of \(total) · \(total - end) more" : nil
-        let files = rows.filter { !$0.isTrash || $0.alreadyFiled }.count
+        let next = min(Self.looseFilesPerCard, numbered - end)
+        let more = end < numbered ? "\(from + 1)–\(end) of \(numbered) · \(numbered - end) more" : nil
+        let files = rows.filter { row in
+            if case .newFolder = row.change { return false }
+            return !row.isTrash || row.alreadyFiled
+        }.count
         var plan = AskClaudePlan(title: "File \(files) Loose File\(files == 1 ? "" : "s")", subtitle: "into \(placeLabel)", rows: rows,
                                  leftHere: left.isEmpty ? nil : "Left here: " + left.joined(separator: ", "), more: more)
+        plan.tickNeededFolders()
+        plan.noteLandingNames()
         if end < total {
             // The same words they could type; Claude has the place and where to start from.
             plan.nextAsk = "Show me the next \(next) loose file\(next == 1 ? "" : "s")."
             plan.nextLabel = "Next \(next)"
         }
         Logger.shared.info("Ask Claude filing card: \(rows.count) rows from \(page.count) of \(total) loose files in \(folder.label), \(noHome) with no home")
-        let sure = rows.filter(\.ticked).count
+        let sure = plan.rows.filter { row in
+            if case .newFolder = row.change { return false }
+            return row.ticked
+        }.count
         return AskClaudeToolOutcome(result: AskClaudeLooseFiles.result(plan, leftHereCount: left.count, nextFrom: more == nil ? nil : end),
                                     step: "Found homes for \(files - rows.filter(\.alreadyFiled).count) of \(page.count) files · \(sure) sure", plan: plan)
     }

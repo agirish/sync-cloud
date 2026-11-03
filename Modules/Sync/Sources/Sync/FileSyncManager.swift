@@ -229,6 +229,9 @@ public class FileSyncManager: ObservableObject {
     /// happened", so the refusal doesn’t claim history changed "since the last sync
     /// run" on a fresh launch that never had one.
     private(set) var hasArmedRunPairingThisSession = false
+    /// The Ask Claude card whose Apply tops the undo stack (`applyPlan`); cleared by every undo
+    /// registration (`invalidateUndoableBanner`) and every undo or redo (`invalidateRunUndoPairing`).
+    var planUndoToken: UUID?
 
     /// Records a run's history entries, if any. A thin funnel so every op site records the same
     /// way and a future change (e.g. off switch) has one place to live. Never fails the caller.
@@ -273,6 +276,7 @@ public class FileSyncManager: ObservableObject {
         lastRecordedRunUndoName = nil
         lastRecordedRunRecords = []
         lastRecordedRunToken = nil
+        planUndoToken = nil
     }
 
     /// A preview of what "Undo Last Run" would reverse, or nil when it must not act: nil unless the
@@ -3051,6 +3055,9 @@ public class FileSyncManager: ObservableObject {
     
     /// Chains file operations so they run one after another (avoids concurrent copy/move/undo conflicts).
     private var fileOperationTask: Task<Void, Swift.Error> = Task {}
+
+    /// Returns once every file operation claimed so far has finished; claims nothing itself.
+    func fileOperationsSettled() async { _ = await fileOperationTask.result }
 
     /// Captures a single scan request (left/right providers and paths) for re-entrancy and cancellation.
     struct ScanRequest: Sendable {

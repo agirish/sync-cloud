@@ -911,6 +911,8 @@ extension FileSyncManager {
     /// (warning/error) banners are left alone — an error must not vanish because an unrelated op ran.
     func invalidateUndoableBanner() {
         if banner?.isUndoable == true { banner = nil }
+        // An Ask Claude card's Undo is the same kind of affordance (`undoPlan`).
+        planUndoToken = nil
     }
 
     /// Convenience for call sites whose copied items are fully known at registration time: wraps

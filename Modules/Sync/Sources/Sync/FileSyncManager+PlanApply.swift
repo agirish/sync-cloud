@@ -18,10 +18,13 @@ public struct AskClaudePlanOutcome: Sendable, Equatable {
     /// The undo step's name when anything changed; the card's Undo acts only while it tops the
     /// stack.
     public var undoName: String?
+    /// This Apply's own step: `undoPlan` acts only while it is the one on top.
+    public var undoToken: UUID?
 
-    public init(rows: [Int: Row] = [:], undoName: String? = nil) {
+    public init(rows: [Int: Row] = [:], undoName: String? = nil, undoToken: UUID? = nil) {
         self.rows = rows
         self.undoName = undoName
+        self.undoToken = undoToken
     }
 
     public var doneCount: Int { rows.values.filter(\.isDone).count }
@@ -76,7 +79,7 @@ extension FileSyncManager {
         case .move(let from, let toFolder):
             if let why = checkItem(from) ?? checkFolder(toFolder) { return why }
             if PathBoundary.resolvesToSameDirectory(parent(from), toFolder, caseSensitive: false) { return "It’s already there" }
-            if toFolder == from || toFolder.hasPrefix(from + "/") { return "A folder can’t go inside itself" }
+            if Self.isAtOrInside(toFolder, from) { return "A folder can’t go inside itself" }
             if !Self.onSameDisk(from, toFolder) { return "That’s on another disk; only moves on this Mac’s disk can be applied" }
             return checkName(name(from))
         case .rename(let path, let to):
@@ -89,12 +92,27 @@ extension FileSyncManager {
             if let why = checkFolder(folder) ?? checkName(new) { return why }
             if exists((folder as NSString).appendingPathComponent(new)) { return "\(new) is already there" }
             return nil
-        case .trash(let path):
-            return checkItem(path)
+        case .trash(let path, let copyOf):
+            if let why = checkItem(path) { return why }
+            // The bytes are read in the file queue, off the main actor; here, only what needs no read.
+            return copyOf.flatMap { AskClaudeLooseFiles.copyRefusal(path, of: $0, readBytes: false) }
         case .trashIfEmptied(let folders):
             for folder in folders { if let why = checkItem(folder) { return why } }
             return nil
         }
+    }
+
+    /// `path` is `folder` or inside it, by the volume's own case rules and through links: "Trip"
+    /// can't go into "trip/Sub" on a disk that folds case.
+    nonisolated static func isAtOrInside(_ path: String, _ folder: String) -> Bool {
+        let caseSensitive = volumeSupportsCaseSensitiveNames(for: URL(fileURLWithPath: folder))
+        func inside(_ p: String, _ f: String) -> Bool {
+            let (p, f) = caseSensitive ? (p, f) : (p.lowercased(), f.lowercased())
+            return p == f || p.hasPrefix(f + "/")
+        }
+        let standard = { (s: String) in URL(fileURLWithPath: s).standardizedFileURL.path }
+        let resolved = { (s: String) in URL(fileURLWithPath: s).resolvingSymlinksInPath().path }
+        return inside(standard(path), standard(folder)) || inside(resolved(path), resolved(folder))
     }
 
     /// Both paths are on one volume: a move is a rename, quick and fully undone (decision FD).
@@ -152,15 +170,38 @@ extension FileSyncManager {
         struct Done: Sendable {
             var rows: [Int: AskClaudePlanOutcome.Row] = [:]
             var created: [URL] = []
+            /// Renames, as they ran.
+            var renames: [MoveItemState] = []
+            /// Moves, spelled as the card found them, before its renames: Undo takes the renames
+            /// back first, and the moves then go back to where the card found each item.
             var moved: [MoveItemState] = []
             /// Files (not folders) moved into a folder: filings, which teach the router (GW).
             var filed: [(from: URL, to: URL)] = []
+            /// Where each of `moved` is now.
+            var movedTo: [String] = []
             /// Trashed items, original and where the Trash put it.
             var trashed: [(original: URL, trashed: URL?)] = []
         }
         let done: Done = await enqueueFileOperation {
             var done = Done()
-            for (id, change) in ordered {
+            // Renames run first, and a later row names its item as the card found it: "rename to
+            // W-2 2025.pdf and file in Taxes" moves the renamed file, and a file in a folder the
+            // card renames moves out from under its new name.
+            var renamed: [(old: String, new: String)] = []
+            func live(_ path: String) -> String {
+                renamed.reduce(path) { path, r in
+                    path == r.old ? r.new : path.hasPrefix(r.old + "/") ? r.new + path.dropFirst(r.old.count) : path
+                }
+            }
+            for (id, card) in ordered {
+                let change: AskClaudePlan.Change
+                switch card {
+                case .move(let from, let to): change = .move(from: live(from), toFolder: live(to))
+                case .rename(let path, let to): change = .rename(path: live(path), to: to)
+                case .newFolder(let folder, let name): change = .newFolder(in: live(folder), name: name)
+                case .trash(let path, let copyOf): change = .trash(path: live(path), copyOf: copyOf.map(live))
+                case .trashIfEmptied(let folders): change = .trashIfEmptied(folders: folders.map(live))
+                }
                 do {
                     switch change {
                     case .newFolder(let folder, let name):
@@ -177,7 +218,8 @@ extension FileSyncManager {
                         guard caseOnly || !fm.fileExists(atPath: dst.path) else { done.rows[id] = .refused("\(to) is taken there"); continue }
                         let overwritten = try Self.safeMoveItem(at: src, to: dst, fileManager: fm,
                                                                 caseSensitiveVolume: Self.volumeSupportsCaseSensitiveNames(for: src))
-                        done.moved.append((from: src, to: dst, overwritten: overwritten))
+                        done.renames.append((from: src, to: dst, overwritten: overwritten))
+                        renamed.append((old: src.path, new: dst.path))
                         done.rows[id] = .done("Renamed")
                     case .move(let from, let toFolder):
                         let src = URL(fileURLWithPath: from)
@@ -188,12 +230,24 @@ extension FileSyncManager {
                         let isFile = fm.fileExists(atPath: src.path, isDirectory: &isFolder) && !isFolder.boolValue
                         let overwritten = try Self.safeMoveItem(at: src, to: dst, fileManager: fm,
                                                                 caseSensitiveVolume: Self.volumeSupportsCaseSensitiveNames(for: src))
-                        done.moved.append((from: src, to: dst, overwritten: overwritten))
+                        guard case .move(let cardFrom, let cardFolder) = card else { continue }
+                        // An item the card renamed and then moved is one move, from where the card
+                        // found it: its rename's undo would look for it under the new name.
+                        done.renames.removeAll { $0.to.path == src.path }
+                        done.moved.append((from: URL(fileURLWithPath: cardFrom),
+                                           to: URL(fileURLWithPath: cardFolder).appendingPathComponent(dst.lastPathComponent),
+                                           overwritten: overwritten))
+                        done.movedTo.append(dst.path)
                         if isFile { done.filed.append((from: src, to: dst)) }
                         done.rows[id] = .done(dst.lastPathComponent == src.lastPathComponent ? "Moved" : "Moved, as \(dst.lastPathComponent)")
-                    case .trash(let path):
+                    case .trash(let path, let copyOf):
                         let url = URL(fileURLWithPath: path)
                         guard fm.fileExists(atPath: url.path) else { done.rows[id] = .refused("It isn’t there any more"); continue }
+                        // A copy goes only while its twin still holds the same bytes, read now.
+                        if let copyOf, let why = AskClaudeLooseFiles.copyRefusal(path, of: copyOf, readBytes: true) {
+                            done.rows[id] = .refused(why)
+                            continue
+                        }
                         var resulting: NSURL?
                         try fm.trashItem(at: url, resultingItemURL: &resulting)
                         done.trashed.append((original: url, trashed: resulting as URL?))
@@ -202,8 +256,10 @@ extension FileSyncManager {
                         var went = 0
                         for folder in folders {
                             let url = URL(fileURLWithPath: folder)
-                            // After the moves: only a folder left holding nothing but OS noise goes.
-                            guard fm.fileExists(atPath: url.path), Self.mergeLeftNothing(in: url, fileManager: fm) else { continue }
+                            // After the moves: only a folder left with no file at any depth goes —
+                            // its own empty subfolders and OS noise go with it. A folder not fully
+                            // read counts as holding files.
+                            guard fm.fileExists(atPath: url.path), Self.visibleFileCount(atPath: url.path, fm: fm) == 0 else { continue }
                             var resulting: NSURL?
                             try fm.trashItem(at: url, resultingItemURL: &resulting)
                             done.trashed.append((original: url, trashed: resulting as URL?))
@@ -222,13 +278,17 @@ extension FileSyncManager {
         outcome.rows.merge(done.rows) { _, new in new }
 
         // One undo step, registered in this turn with no await inside the group. Undo runs the
-        // registrations last first, which is the apply backwards: out of the Trash, moves back
-        // (the latest first), then the folders the card made, each removed only if empty.
-        let anything = !done.created.isEmpty || !done.moved.isEmpty || done.trashed.contains { $0.trashed != nil }
+        // registrations last first, which is the apply backwards: out of the Trash, renames back
+        // (the latest first), moves back to where the card found each item, then the folders the
+        // card made, each removed only if empty.
+        let movedOrRenamed = done.renames + done.moved
+        let anything = !done.created.isEmpty || !movedOrRenamed.isEmpty || done.trashed.contains { $0.trashed != nil }
         if anything, let undo = undoManager {
             undo.beginUndoGrouping()
             for url in done.created { registerCreateFolderUndo(url: url, fileManager: fm) }
-            if !done.moved.isEmpty { _ = registerMoveUndo(items: done.moved.reversed(), actionName: actionName, fileManager: fm) }
+            if !movedOrRenamed.isEmpty {
+                _ = registerMoveUndo(items: done.renames.reversed() + done.moved.reversed(), actionName: actionName, fileManager: fm)
+            }
             let restorable = done.trashed.filter { $0.trashed != nil }
             if !restorable.isEmpty {
                 _ = registerRestoreItems(urls: restorable.map(\.original), trashedItems: restorable.map(\.trashed),
@@ -237,12 +297,21 @@ extension FileSyncManager {
             undo.endUndoGrouping()
             undo.setActionName(actionName)
             outcome.undoName = actionName
+            // After the registrations, each of which clears it: any later one, or any undo or
+            // redo outside `undoPlan`, clears it again.
+            let token = UUID()
+            planUndoToken = token
+            outcome.undoToken = token
         }
         // History: folders made, moves and renames as moves, the Trash as a move to the Trash.
         let runId = UUID()
         var records = done.created.map { SyncHistoryRecord(runId: runId, action: .newFolder, sourcePath: $0.path) }
-        records += done.moved.map { item in
+        records += done.renames.map { item in
             SyncHistoryRecord(runId: runId, action: .move, sourcePath: item.from.path, destPath: item.to.path,
+                              backupPath: item.overwritten?.path)
+        }
+        records += zip(done.moved, done.movedTo).map { item, landed in
+            SyncHistoryRecord(runId: runId, action: .move, sourcePath: item.from.path, destPath: landed,
                               backupPath: item.overwritten?.path)
         }
         records += done.trashed.map { item in
@@ -251,7 +320,7 @@ extension FileSyncManager {
         }
         recordSyncHistory(records, pairedWithUndo: outcome.undoName != nil)
         for url in done.created { noteOwnWrite(atPath: url.path) }
-        for item in done.moved { noteOwnWrite(atPath: item.to.path) }
+        for path in done.renames.map(\.to.path) + done.movedTo { noteOwnWrite(atPath: path) }
         // A file Claude's card filed teaches the folder as a To File filing does (GW); the router
         // keeps it only for a folder in the tree it ranks, and drops it when Undo moves it back.
         for item in done.filed {
@@ -261,5 +330,31 @@ extension FileSyncManager {
         Logger.shared.info("Ask Claude applied “\(actionName)”: \(outcome.doneCount) of \(rows.count) done"
             + (outcome.rows.count > outcome.doneCount ? ", \(outcome.rows.count - outcome.doneCount) skipped or failed" : ""))
         return outcome
+    }
+
+    /// A card's Undo: undoes its Apply only while that step, by `token`, is the one on top, and
+    /// nil without touching anything when it isn't — two cards can share a name, so the name
+    /// alone can't say whose step it is. The task ends once the undo has run on the disk, with
+    /// the rows of `applied` it didn't put back as they were.
+    public func undoPlan(_ token: UUID, named name: String,
+                         applied: [(id: Int, change: AskClaudePlan.Change)]) -> Task<[Int], Never>? {
+        guard let undoManager, undoManager.canUndo, planUndoToken == token, undoManager.undoActionName == name else { return nil }
+        Logger.shared.info("Ask Claude card: Undo “\(name)”")
+        undoManager.undo()
+        planUndoToken = nil
+        return Task { @MainActor in
+            // Each part of the undo claimed its place in the file queue inside undo(), so the
+            // queue settling is the undo done.
+            await self.fileOperationsSettled()
+            let fm = FileManager.default
+            return applied.filter { row in
+                switch row.change {
+                case .move(let from, _): return !fm.fileExists(atPath: from)
+                case .rename(let path, _), .trash(let path, _): return !fm.fileExists(atPath: path)
+                case .newFolder: return fm.fileExists(atPath: row.change.path)
+                case .trashIfEmptied(let folders): return folders.contains { !fm.fileExists(atPath: $0) }
+                }
+            }.map(\.id)
+        }
     }
 }
