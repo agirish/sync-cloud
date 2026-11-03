@@ -66,8 +66,19 @@ public enum SettingsRevert {
               let before = change.from.flatMap({ value($0, entry) }), let after = change.to.flatMap({ value($0, entry) })
         else { return .refused("\(change.name) has changed since, so it isn’t put back.") }
         let back = SettingsLookup.label(before, entry)
-        // A folder hidden from Claude is never named to it, even one hidden since the change.
-        let spoken = entry.privacy == .hiddenFiltered && isHidden(back) ? "a folder hidden from you" : back
+        // A folder hidden from Claude is never named to it, even one hidden since the change; nor
+        // is a source whose own folder is hidden, or a name or path set on it.
+        let source = change.target.flatMap { id in lookup.settings?.availableProviders.first { $0.id == id } }
+        let sourceHidden = source.map { lookup.isHidden($0.rootPath) } ?? false
+        let spokenName = sourceHidden ? "\(entry.label) for \(SettingsLookup.hiddenSource)" : change.name
+        let spoken: String
+        if entry.privacy == .hiddenFiltered, isHidden(back) || sourceHidden {
+            spoken = "a folder hidden from you"
+        } else if sourceHidden, case .string = before {
+            spoken = "a name hidden from you"
+        } else {
+            spoken = back
+        }
         if raises, !confirmRaising(RemovalPrompt(messageText: "Put \(change.name) back to \(back)?",
                                                  informativeText: "That raises Claude’s spending or access.", confirmTitle: "Revert")) {
             return .refused("Not changed: you chose Cancel.")
@@ -79,7 +90,7 @@ public enum SettingsRevert {
                                   fromLabel: SettingsLookup.label(after, entry), toLabel: back, how: .revert))
         let raisesWords = raises ? " This raises Claude’s spending or access." : ""
         center.post(name: didRevert, object: nil,
-                    userInfo: ["line": "They put \(change.name) back to \(spoken) with Revert in Activity.\(raisesWords)"])
+                    userInfo: ["line": "They put \(spokenName) back to \(spoken) with Revert in Activity.\(raisesWords)"])
         return .done
     }
 

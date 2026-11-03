@@ -256,7 +256,7 @@ public protocol FileActionDelegate: Sendable {
     /// Opens Ask Claude with these rows attached above its text box.
     func handleAskClaude(_ nodes: [FileNode])
 
-    /// Whether this row is on the Never show Claude list, itself or through a folder above it.
+    /// Whether this row is on the Hidden from Claude list, itself or through a folder above it.
     /// Read when the menu is built, so the label can be a render old; the item acts on what its
     /// label said (`FileContextMenu.favoriteLabelStillHolds`), as Favorites does.
     func isHiddenFromClaude(_ node: FileNode) -> Bool
@@ -265,7 +265,7 @@ public protocol FileActionDelegate: Sendable {
     /// Show to Claude takes that whole folder off the list, so the item says so.
     func hiddenFromClaudeCover(_ node: FileNode) -> String?
 
-    /// Puts this row on the Never show Claude list, or takes it off.
+    /// Puts this row on the Hidden from Claude list, or takes it off.
     func handleSetHiddenFromClaude(_ node: FileNode, hidden: Bool)
 }
 
@@ -400,9 +400,9 @@ struct AskClaudeMenuItems: View {
             } label: {
                 Label(Self.hideTitle(hidden: hidden, cover: cover), systemImage: hidden ? "eye" : "eye.slash")
             }
-            .help(!hidden ? "Puts it on the Never show Claude list: Claude is never told it’s there, or what’s in it."
-                  : cover.map { "It’s hidden because \($0) is. This takes \($0) off the Never show Claude list, with everything in it." }
-                  ?? "Takes it off the Never show Claude list.")
+            .help(!hidden ? "Puts it on the Hidden from Claude list: Claude is never told it’s there, or what’s in it."
+                  : cover.map { "It’s hidden because \($0) is. This takes \($0) off the Hidden from Claude list, with everything in it." }
+                  ?? "Takes it off the Hidden from Claude list.")
         }
     }
 }

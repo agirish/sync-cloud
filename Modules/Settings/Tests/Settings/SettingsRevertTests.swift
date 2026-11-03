@@ -134,6 +134,28 @@ import Sync
         #expect(lines == ["They put Open at for Dropbox back to a folder hidden from you with Revert in Activity."])
     }
 
+    /// A source whose own folder is hidden: its Revert line names neither the source nor the name
+    /// it goes back to.
+    @Test func aRevertLineNeverNamesASourceHiddenFromClaude() throws {
+        let rig = Rig(#function); defer { rig.done() }
+        let settings = SettingsManager(autoDiscover: false, userDefaults: rig.defaults, overridesDomainName: rig.name,
+                                       cloudStorageLister: { .read([]) }, pathValidator: { _ in true })
+        settings.availableProviders = [CloudProvider(id: "folder:1", displayName: "Clinic", imageName: "folder",
+                                                     rootPath: "/Users/me/Medical Records", type: .localFolder)]
+        let lookup = SettingsLookup(defaults: rig.defaults, settings: settings, keyIsSaved: { false }, hiddenCount: { 1 },
+                                    isHidden: { $0.hasPrefix("/Users/me/Medical Records") }, loginItemIsOn: { false })
+        let renamed = SettingsChange(setting: "sources.name", target: "folder:1", name: "Source name for Medical Records",
+                                     from: "Medical Records", to: "Clinic", fromLabel: "Medical Records", toLabel: "Clinic", how: .card)
+        var lines: [String] = []
+        let observer = rig.center.addObserver(forName: SettingsRevert.didRevert, object: nil, queue: nil) {
+            lines.append($0.userInfo?["line"] as? String ?? "")
+        }
+        defer { rig.center.removeObserver(observer) }
+        #expect(SettingsRevert.revert(renamed, lookup: lookup, writer: SettingsWriter(defaults: rig.defaults, settings: settings),
+                                      log: rig.log, center: rig.center, confirmRaising: { _ in true }) == .done)
+        #expect(lines == ["They put Source name for a source hidden from you back to a name hidden from you with Revert in Activity."])
+    }
+
     /// TE290 review: a person's edit goes back as that person; an added person isn't taken out here.
     @Test func aPersonsEditIsRevertedAndAnAddIsNot() throws {
         let rig = Rig(#function); defer { rig.done() }

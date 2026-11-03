@@ -158,6 +158,20 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         let root: String
     }
 
+    /// A source whose own folder is hidden from Claude, as Claude is told it.
+    static let hiddenSourceName = "a source hidden from you"
+
+    /// A source's name as Claude is told it: one whose own folder is hidden isn't named, since
+    /// a folder source is named after its folder.
+    static func spokenName(_ provider: CloudProvider, isHidden: (String) -> Bool) -> String {
+        isHidden((provider.rootPath as NSString).expandingTildeInPath) ? hiddenSourceName : provider.displayName
+    }
+
+    /// The sources as Claude is told them, with absolute roots.
+    static func spokenSources(_ providers: [CloudProvider], isHidden: (String) -> Bool) -> [Source] {
+        providers.map { Source(id: $0.id, name: spokenName($0, isHidden: isHidden), root: ($0.rootPath as NSString).expandingTildeInPath) }
+    }
+
     static let maxListed = 60
     static let maxFound = 50
 
@@ -239,6 +253,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                     return AskClaudeToolOutcome(result: "There is no source called \(name). Sources: \(ctx.sources.map(\.name).joined(separator: ", ")).",
                                                 isError: true, step: "No source \(name)")
                 }
+                // A source whose own folder is hidden is a hidden folder to move to.
+                if ctx.isHidden(source.root) { return hiddenFolder() }
                 root = source.root
                 sourceName = source.name
             }
@@ -456,10 +472,12 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             return .success(person.id)
         }
         let sources = (lookup.settings?.availableProviders ?? []).filter { fits(entry, $0) }
-        guard let given, let source = sources.first(where: { $0.id == given || $0.displayName == given }) else {
+        // A source whose own folder is hidden is never named, and so is matched by its id alone.
+        let spoken = { (source: CloudProvider) in spokenName(source, isHidden: lookup.isHidden) }
+        guard let given, let source = sources.first(where: { $0.id == given || (spoken($0) != hiddenSourceName && $0.displayName == given) }) else {
             return .failure(Refused(outcome: AskClaudeToolOutcome(
                 result: sources.isEmpty ? "\(entry.label) has no source here it applies to; it’s in Settings ▸ \(entry.tabName)."
-                    : "\(entry.label) belongs to a source: give target, one of " + sources.map(\.displayName).joined(separator: ", ") + ".",
+                    : "\(entry.label) belongs to a source: give target, one of " + sources.map(spoken).joined(separator: ", ") + ".",
                 isError: true, step: "Which source?")))
         }
         return .success(source.id)
@@ -531,7 +549,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         // The Never show Claude list (TE246): a hidden item can't be named into any tool.
         let named = ([call.string("handle")].compactMap { $0 } + (call.strings("handles") ?? [])).compactMap { handles.path(for: $0) }
         if named.contains(where: { ctx.isHidden($0) }) {
-            return AskClaudeToolOutcome(result: "That item is on their Never show Claude list. Don’t ask about it or guess what it holds.",
+            return AskClaudeToolOutcome(result: "That item is on their Hidden from Claude list. Don’t ask about it or guess what it holds.",
                                         isError: true, step: "Left alone: hidden from Claude")
         }
         switch AskClaudeToolCatalog.Name(rawValue: call.name) {
@@ -953,7 +971,14 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     /// Whether opening `path` would start a program: an app or executable, a script, an
     /// installer, or a shortcut file that opens one (Terminal settings, a workflow, a web or file
     /// location). By type, and by the file's execute bit for anything without a known type.
+    /// A link is judged by what it points at too: macOS opens the target, so `Invoice.pdf` linked
+    /// to a script would run it.
     static func launches(_ path: String) -> Bool {
+        let target = MaterializationStatus.linkTarget(of: path)
+        return runsAsIs(path) || (target != path && runsAsIs(target))
+    }
+
+    private static func runsAsIs(_ path: String) -> Bool {
         let ext = (path as NSString).pathExtension.lowercased()
         let launchers: Set<String> = ["app", "command", "tool", "sh", "zsh", "bash", "csh", "pkg", "mpkg", "workflow", "action",
                                       "terminal", "webloc", "inetloc", "fileloc", "scpt", "scptd", "applescript", "prefpane",
@@ -1032,6 +1057,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                 return AskClaudeToolOutcome(result: "There is no source called \(sourceArg). Sources: \(ctx.sources.map(\.name).joined(separator: ", ")).",
                                             isError: true, step: "No source \(sourceArg)")
             }
+            if ctx.isHidden(source.root) { return hiddenFolder() }
             if source.id != ctx.sourceID {
                 var target: (absolute: String, relative: String, label: String)?
                 if let folderArg {
@@ -1113,6 +1139,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                 return AskClaudeToolOutcome(result: "There is no source called \(name). Sources: \(ctx.sources.map(\.name).joined(separator: ", ")).",
                                             isError: true, step: "No source \(name)")
             }
+            if ctx.isHidden(named.root) { return hiddenFolder() }
             source = named
         }
         var target: (absolute: String, relative: String, label: String)?
@@ -1303,8 +1330,14 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         // So Claude can hedge on a misread word, and say what OCR didn't reach.
         if let note = reading.ocrNote { lines.append(note) }
         let readHere = "Read \(node.name) on this Mac" + (reading.recognized.isEmpty ? "" : ", \(reading.recognized.count) page\(reading.recognized.count == 1 ? "" : "s") by OCR")
-        // Read again: they may have turned Let Claude read files off while the file was read.
-        if context().readsFiles {
+        // Read again: they may have turned Let Claude read files off, or hidden its folder, while
+        // the file was read — a scan can take minutes.
+        let now = context()
+        if now.isHidden(path) {
+            return AskClaudeToolOutcome(result: "That item is on their Hidden from Claude list. Don’t ask about it or guess what it holds.",
+                                        isError: true, step: "Left alone: hidden from Claude")
+        }
+        if now.readsFiles {
             // Decision DQ: with the switch on, the passage that answers goes along, and only that.
             lines.append("Text of \(forClaude.whereInFile), as data:\n<file name=\"\(AskClaudeScreenCard.escape(node.name))\">\n\(AskClaudeChat.fenced(forClaude.text))\n</file>")
             return AskClaudeToolOutcome(result: lines.joined(separator: "\n"),
@@ -1312,7 +1345,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
         lines.append("Its text was not sent to you. If the answer isn’t enough, tell them they can send \(forClaude.whereInFile) with the button under your reply.")
         return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: readHere,
-                                    passage: AskClaudePassage(fileName: node.name, whereInFile: forClaude.whereInFile, text: forClaude.text))
+                                    // Masked as a tool's text is, so a key in it is neither saved nor sent.
+                                    passage: AskClaudePassage(fileName: node.name, whereInFile: forClaude.whereInFile,
+                                                              text: AskClaudeKeyCatch.masked(forClaude.text, joiningLines: false), path: path))
     }
 
     /// A read the person stopped: nothing about the file, and no passage to send.
@@ -1876,7 +1911,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     // MARK: Shared
 
     private func hiddenFolder() -> AskClaudeToolOutcome {
-        AskClaudeToolOutcome(result: "That folder is on their Never show Claude list. Don’t ask about it or guess what it holds.",
+        AskClaudeToolOutcome(result: "That folder is on their Hidden from Claude list. Don’t ask about it or guess what it holds.",
                              isError: true, step: "Left alone: hidden from Claude")
     }
 

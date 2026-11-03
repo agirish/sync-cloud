@@ -52,6 +52,9 @@ public enum AskClaudeDifferences {
         /// Each side's compared folder, relative to its source; empty at the source's top.
         public var leftFolder: String
         public var rightFolder: String
+        /// A compared folder on the Hidden from Claude list: its path isn't named.
+        public var leftFolderHidden = false
+        public var rightFolderHidden = false
         /// When the folders behind the rows were read; nil before the first scan.
         public var readAt: Date?
         public var isScanning: Bool
@@ -78,8 +81,10 @@ public enum AskClaudeDifferences {
         }
 
         var sides: String {
-            func side(_ name: String, _ folder: String) -> String { folder.isEmpty ? name : "\(name) › \(folder)" }
-            return "\(side(leftName, leftFolder))  vs  \(side(rightName, rightFolder))"
+            func side(_ name: String, _ folder: String, hidden: Bool) -> String {
+                hidden ? "\(name) › (a folder hidden from Claude)" : folder.isEmpty ? name : "\(name) › \(folder)"
+            }
+            return "\(side(leftName, leftFolder, hidden: leftFolderHidden))  vs  \(side(rightName, rightFolder, hidden: rightFolderHidden))"
         }
     }
 

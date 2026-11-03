@@ -1765,7 +1765,8 @@ private struct ActivityWindowHost: View {
                 settings: HistorySettingsChanges(
                     lookup: {
                         SettingsLookup(defaults: .standard, settings: settings, keyIsSaved: { AnthropicKeychain.isConfigured },
-                                       hiddenCount: { 0 }, isHidden: { _ in false }, loginItemIsOn: { LoginItemController.shared.isOn })
+                                       hiddenCount: { 0 }, isHidden: { AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard)).isHidden($0) },
+                                       loginItemIsOn: { LoginItemController.shared.isOn })
                     },
                     writer: { SettingsWriter(defaults: .standard, settings: settings) },
                     hiddenNames: { AskClaudePrivacy.hiddenFolders(in: .standard).map { ($0 as NSString).lastPathComponent } },

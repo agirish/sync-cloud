@@ -464,6 +464,11 @@ extension ContentView {
         settings.availableProviders.first { $0.id == leftProviderId }?.displayName ?? leftProviderId
     }
 
+    /// A source's name as Claude is told it: a source whose own folder is hidden isn't named.
+    private func askClaudeSpokenName(_ id: String) -> String {
+        settings.availableProviders.first { $0.id == id }.map { AskClaudeBrowseTools.spokenName($0, isHidden: askClaudeIsHidden) } ?? id
+    }
+
     /// The Browse pane’s folder, relative to its source: the one its header names.
     private var askClaudeFolder: String {
         syncManager.paneLocation(isLeft: true, drawsColumns: paneDrawsColumns(isLeft: true))
@@ -489,7 +494,7 @@ extension ContentView {
         let absolute = AskClaudeBrowseTools.absolute(folder, root: askClaudeRoot)
         let all = askClaudeItems(absolute) ?? fallbackRows ?? []
         let shown = hidden.isEmpty ? all : all.filter { !hidden.isHidden($0.id) }
-        var screen = AskClaudeScreen(workspace: selectedWorkspace.title, source: askClaudeSourceName, folder: folder,
+        var screen = AskClaudeScreen(workspace: selectedWorkspace.title, source: askClaudeSpokenName(leftProviderId), folder: folder,
                                      sort: syncManager.sortOption.rawValue, rows: shown.map(AskClaudeBrowseTools.row),
                                      selection: syncManager.selectedLeftPaths, toolsAvailable: true,
                                      sources: askClaudeSources.map(\.name))
@@ -560,7 +565,7 @@ extension ContentView {
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
         return [true, false].map { isLeft in
             let id = isLeft ? leftProviderId : rightProviderId
-            let name = settings.availableProviders.first { $0.id == id }?.displayName ?? id
+            let name = askClaudeSpokenName(id)
             let root = (settings.rootPath(for: id) as NSString).expandingTildeInPath
             let folder = syncManager.paneLocation(isLeft: isLeft, drawsColumns: paneDrawsColumns(isLeft: isLeft))
             let shown = hidden.isHidden(AskClaudeBrowseTools.absolute(folder, root: root)) ? "(a folder hidden from Claude)"
@@ -571,16 +576,21 @@ extension ContentView {
 
     /// Compare's two sides and how fresh their comparison is (TE261); nil without two sources.
     var askClaudeComparison: AskClaudeDifferences.Comparison? {
-        func name(_ id: String) -> String { settings.availableProviders.first { $0.id == id }?.displayName ?? id }
         guard !leftProviderId.isEmpty, !rightProviderId.isEmpty else { return nil }
-        let left = name(leftProviderId), right = name(rightProviderId)
-        return AskClaudeDifferences.Comparison(
+        let left = askClaudeSpokenName(leftProviderId), right = askClaudeSpokenName(rightProviderId)
+        func hidden(_ id: String, _ folder: String) -> Bool {
+            askClaudeIsHidden(AskClaudeBrowseTools.absolute(folder, root: (settings.rootPath(for: id) as NSString).expandingTildeInPath))
+        }
+        var comparison = AskClaudeDifferences.Comparison(
             leftName: left, rightName: right,
             leftFolder: syncManager.leftRelativePath, rightFolder: syncManager.rightRelativePath,
             readAt: syncManager.lastScanReadAt ?? syncManager.lastScanDate,
             // The folders' reads count: the scan itself starts only once both are read.
             isScanning: syncManager.isScanning || syncManager.isRefreshing, hasScanned: syncManager.hasScanned,
             partial: syncManager.lastScanCoverage.message(leftName: left, rightName: right))
+        comparison.leftFolderHidden = hidden(leftProviderId, syncManager.leftRelativePath)
+        comparison.rightFolderHidden = hidden(rightProviderId, syncManager.rightRelativePath)
+        return comparison
     }
 
     /// One side's live source and folder, for go_to's pane moves.
@@ -635,15 +645,13 @@ extension ContentView {
     /// The sources the Browse pane can switch to, with absolute roots.
     private var askClaudeSources: [AskClaudeBrowseTools.Source] {
         // The pane's own list: a source switched off in Settings is one no refresh walks.
-        settings.enabledProviders.map {
-            AskClaudeBrowseTools.Source(id: $0.id, name: $0.displayName, root: ($0.rootPath as NSString).expandingTildeInPath)
-        }
+        AskClaudeBrowseTools.spokenSources(settings.enabledProviders, isHidden: askClaudeIsHidden)
     }
 
     func askClaudeToolsContext() -> AskClaudeBrowseTools.Context {
         AskClaudeBrowseTools.Context(
             inBrowse: askClaudeInBrowse,
-            sourceName: askClaudeSourceName,
+            sourceName: askClaudeSpokenName(leftProviderId),
             root: askClaudeRoot,
             folder: askClaudeFolder,
             sort: syncManager.sortOption,
@@ -830,11 +838,17 @@ extension ContentView {
     /// isn't named.
     func askClaudeSettingName(_ entry: SettingEntry, target: String?) -> String {
         guard let target else { return entry.label }
-        if let provider = settings.availableProviders.first(where: { $0.id == target }) {
-            let hidden = askClaudeIsHidden((provider.rootPath as NSString).expandingTildeInPath)
-            return "\(entry.label) for \(hidden ? "a source hidden from you" : provider.displayName)"
+        if settings.availableProviders.contains(where: { $0.id == target }) {
+            return "\(entry.label) for \(askClaudeSpokenName(target))"
         }
         return "\(entry.label) for \(askClaudePeople.person(named: target)?.displayName ?? target)"
+    }
+
+    /// Whether `target` is a source whose own folder is hidden from Claude: neither its name nor
+    /// a name or path set on it is told to Claude.
+    func askClaudeSourceIsHidden(_ target: String?) -> Bool {
+        guard let target, let provider = settings.availableProviders.first(where: { $0.id == target }) else { return false }
+        return askClaudeIsHidden((provider.rootPath as NSString).expandingTildeInPath)
     }
 
     /// The settings tool's reads (TE290), over this window's SettingsManager.
@@ -852,7 +866,7 @@ extension ContentView {
             changesFromChat: {
                 SettingsChangeLog.shared.visible(hiding: AskClaudePrivacy.hiddenFolders(in: .standard).map {
                     ($0 as NSString).lastPathComponent
-                })
+                }, hidingTargets: { askClaudeSourceIsHidden($0) })
             }, people: { syncManager.filingPeopleStore?.people ?? [] })
     }
 
@@ -1001,11 +1015,15 @@ extension ContentView {
     }
 
     /// A value in words for Claude: a folder setting's path is left out when it names something
-    /// hidden from Claude (TE290 step 9).
-    func askClaudeWords(_ value: SettingValue?, _ entry: SettingEntry) -> String {
+    /// hidden from Claude (TE290 step 9), and so is any name or path set on a source whose own
+    /// folder is hidden — renaming it would otherwise say what it was called.
+    func askClaudeWords(_ value: SettingValue?, _ entry: SettingEntry, target: String?) -> String {
         guard let value else { return "unknown" }
-        if entry.privacy == .hiddenFiltered, case .string(let path) = value, askClaudeNamesHidden(path) {
-            return "a folder hidden from you"
+        if case .string(let text) = value {
+            if entry.privacy == .hiddenFiltered, askClaudeNamesHidden(text) || askClaudeSourceIsHidden(target) {
+                return "a folder hidden from you"
+            }
+            if askClaudeSourceIsHidden(target) { return "a name hidden from you" }
         }
         return SettingsLookup.label(value, entry)
     }
@@ -1273,7 +1291,7 @@ extension ContentView {
             let name = askClaudeSettingName(entry, target: change.key.target)
             askClaudeRecordChange(entry, target: change.key.target, from: undone ? change.after : change.before,
                                   to: undone ? change.before : change.after, how: undone ? .undo : .redo)
-            let now = askClaudeWords(undone ? change.before : change.after, entry)
+            let now = askClaudeWords(undone ? change.before : change.after, entry, target: change.key.target)
             let raises = entry.raises(from: undone ? change.after : change.before, to: undone ? change.before : change.after)
                 ? " This raises Claude’s spending or access." : ""
             askClaudeChat.tellClaude("They set \(name) back with \(undone ? "Undo" : "Redo"): now \(now).\(raises)",
@@ -1334,7 +1352,7 @@ extension ContentView {
                                          outcome: SettingsWriter.Outcome, before: SettingValue?, wrote: SettingValue?,
                                          undoable: Bool) {
         let name = askClaudeSettingName(entry, target: target)
-        let label = { (v: SettingValue?) in askClaudeWords(v, entry) }
+        let label = { (v: SettingValue?) in askClaudeWords(v, entry, target: target) }
         let prefix = "They set \(name) "
         switch outcome {
         case .done:

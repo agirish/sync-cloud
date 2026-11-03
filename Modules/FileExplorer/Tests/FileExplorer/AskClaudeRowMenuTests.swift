@@ -87,7 +87,7 @@ import Testing
         let items = Self.menu(selecting: [], row: file, delegate: stub)
         let show = try #require(items.first { $0.title.hasPrefix("Show") }, "the menu reads \(items.map(\.title))")
         #expect(show.title == "Show “Taxes” to Claude")
-        #expect(show.toolTip?.contains("takes Taxes off the Never show Claude list, with everything in it") == true,
+        #expect(show.toolTip?.contains("takes Taxes off the Hidden from Claude list, with everything in it") == true,
                 "the tooltip reads \(show.toolTip ?? "nothing")")
     }
 

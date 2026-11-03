@@ -104,6 +104,22 @@ import Testing
         #expect(shown[0].how == .rule)
         #expect(log.visible(hiding: []).first?.name == "Rule “Tickets into Travel”")
     }
+
+    /// A source's display name needn't hold its folder's name: Google Drive's folder is
+    /// GoogleDrive-a@b.com, its name Google Drive (a@b.com). A change made before the folder was
+    /// hidden goes by its target, then; one with no target by its words alone.
+    @Test func aChangeOnASourceHiddenSinceIsShownWithoutItsWords() {
+        let url = file(); defer { try? FileManager.default.removeItem(at: url) }
+        let log = SettingsChangeLog(fileURL: url)
+        log.record(SettingsChange(setting: "sources.openAt", target: "GoogleDrive-a@b.com", name: "Open at for Google Drive (a@b.com)",
+                                  from: "My Drive", to: "My Drive/Work", fromLabel: "My Drive", toLabel: "My Drive/Work", how: .card))
+        log.record(change())
+        let hidden = { (target: String) in target == "GoogleDrive-a@b.com" }
+        let shown = log.visible(hiding: ["GoogleDrive-a@b.com"], hidingTargets: hidden)
+        #expect(shown.map(\.name) == ["Theme", "A change about an item hidden from Claude"])
+        #expect(shown[1].from == nil && shown[1].toLabel == nil)
+        #expect(log.visible(hiding: ["GoogleDrive-a@b.com"]).last?.name == "Open at for Google Drive (a@b.com)")
+    }
 }
 
 /// Off the main actor: resolving the test file sweeps the temp directory, which took 1.3 s on the

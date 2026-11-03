@@ -245,6 +245,34 @@ import FileExplorer
         #expect(await show([["id": .string("organize.inbox"), "pick": .string("../../Medical")]]).isError)
     }
 
+    /// A card's target: a source whose own folder is hidden is never listed by name, and can't be
+    /// aimed at by name — only by its id.
+    @Test func aCardNeverNamesOrFindsASourceHiddenFromClaudeByName() async {
+        let suite = "AskClaudeSettingsHiddenTarget.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { wipeDefaultsSuite(suite) }
+        let settings = SettingsManager(autoDiscover: false, userDefaults: defaults, overridesDomainName: suite,
+                                       cloudStorageLister: { .read([]) }, pathValidator: { _ in true })
+        settings.availableProviders = [
+            CloudProvider(id: "Dropbox", displayName: "Dropbox", imageName: "dropbox", rootPath: "/Users/me/Dropbox", type: .dropBox),
+            CloudProvider(id: "folder:1", displayName: "Medical Records", imageName: "folder", rootPath: "/Users/me/Medical Records", type: .localFolder)]
+        let lookup = SettingsLookup(defaults: defaults, settings: settings, keyIsSaved: { false }, hiddenCount: { 1 },
+                                    isHidden: { AskClaudePrivacy.isHidden($0, by: ["/Users/me/Medical Records"]) }, loginItemIsOn: { false })
+        let runner = tools(settingsLookup: lookup)
+        var handles = AskClaudeHandles()
+        func show(_ target: String?) async -> AskClaudeToolOutcome {
+            var item: [String: JSONFragment] = ["id": .string("sources.enabled")]
+            if let target { item["target"] = .string(target) }
+            return await runner.run(call("settings", ["action": .string("show"), "items": .array([.object(item)])]), handles: &handles)
+        }
+        let which = await show(nil)
+        #expect(which.isError && which.result.hasSuffix("give target, one of Dropbox, a source hidden from you."))
+        let byName = await show("Medical Records")
+        #expect(byName.isError && !byName.result.contains("Medical"))
+        #expect(await show("folder:1").settings?.rows.first?.target == "folder:1")
+        #expect(await show("Dropbox").settings?.rows.first?.target == "Dropbox")
+    }
+
     @Test func aFolderArgumentCannotClimbOutOfTheSource() {
         #expect(AskClaudeBrowseTools.resolve("../../Desktop", root: Self.root) == nil)
         #expect(AskClaudeBrowseTools.resolve("Documents/../../x", root: Self.root) == nil)
@@ -469,6 +497,41 @@ import FileExplorer
         let edit = await runner.run(call("go_to", ["workspace": .string("Edit")]), handles: &handles)
         #expect(workspaces == ["Edit"])
         #expect(edit.movedView == "Moved you to Edit")
+    }
+
+    /// A folder source is named after its folder, so one whose folder is hidden is never named to
+    /// Claude, in the sources it is told or a refusal listing them, and isn't a place to go.
+    @Test func aSourceWhoseFolderIsHiddenIsNeverNamedOrGoneTo() async {
+        let medical = "/Users/me/Medical Records"
+        let providers = [CloudProvider(id: "iCloud", displayName: "iCloud", imageName: "icloud", rootPath: Self.root, type: .iCloud),
+                         CloudProvider(id: "folder:1", displayName: "Medical Records", imageName: "folder", rootPath: medical, type: .localFolder)]
+        let hidden = { (path: String) in AskClaudePrivacy.isHidden(path, by: [medical]) }
+        let sources = AskClaudeBrowseTools.spokenSources(providers, isHidden: hidden)
+        #expect(sources.map(\.name) == ["iCloud", "a source hidden from you"])
+        #expect(sources.map(\.root) == [Self.root, medical])
+        #expect(AskClaudeBrowseTools.spokenName(providers[1], isHidden: hidden) == "a source hidden from you")
+        var switched: [String] = []
+        let runner = AskClaudeBrowseTools(context: {
+            var ctx = AskClaudeBrowseTools.Context(
+                inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "", sort: .name, items: { _ in [] },
+                node: { _ in nil }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+            ctx.sourceID = "iCloud"
+            ctx.sources = sources
+            ctx.hidden = [medical]
+            ctx.switchSource = { id, _ in switched.append(id) }
+            ctx.movePane = { _, id, _ in switched.append(id ?? "") }
+            return ctx
+        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+        var handles = AskClaudeHandles()
+        let unknown = await runner.run(call("go_to", ["source": .string("Box")]), handles: &handles)
+        #expect(unknown.isError && unknown.result.hasSuffix("Sources: iCloud, a source hidden from you."))
+        #expect(!unknown.result.contains("Medical"))
+        #expect(await runner.run(call("go_to", ["source": .string("Medical Records")]), handles: &handles).isError)
+        let named = await runner.run(call("go_to", ["source": .string("a source hidden from you")]), handles: &handles)
+        #expect(named.isError && named.result.contains("Hidden from Claude list"))
+        let pane = await runner.run(call("go_to", ["pane": .string("right"), "source": .string("a source hidden from you")]), handles: &handles)
+        #expect(pane.isError && pane.result.contains("Hidden from Claude list"))
+        #expect(switched.isEmpty)
     }
 
     @Test func aSourceIsMatchedByNameOrAWordNeverASubstring() {
@@ -789,6 +852,21 @@ import FileExplorer
         }
     }
 
+    /// macOS opens what a link points at: a document's name on a link to a script runs the script.
+    @Test func aLinkIsJudgedByWhatItPointsAt() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudeLaunchLink-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let script = dir.appendingPathComponent("run.command"), receipt = dir.appendingPathComponent("Receipt.pdf")
+        try Data("echo hi\n".utf8).write(to: script)
+        try Data("%PDF-1.4\n".utf8).write(to: receipt)
+        let disguised = dir.appendingPathComponent("Invoice.pdf").path, plain = dir.appendingPathComponent("Copy.pdf").path
+        try FileManager.default.createSymbolicLink(atPath: disguised, withDestinationPath: script.path)
+        try FileManager.default.createSymbolicLink(atPath: plain, withDestinationPath: receipt.path)
+        #expect(AskClaudeBrowseTools.launches(disguised))
+        #expect(!AskClaudeBrowseTools.launches(plain))
+    }
+
     @Test func closingEveryTabButThisOneKeepsPinnedTabsAndCountsEachTabOnce() async {
         let work = UUID(), taxes = UUID(), pinned = UUID()
         var closed: [[UUID]] = []
@@ -897,6 +975,16 @@ import FileExplorer
         let found = AskClaudeLinks.matches(of: targets, in: text).sorted { $0.range.lowerBound < $1.range.lowerBound }
         #expect(found.map { String(text[$0.range]) } == ["2024 Tax.pdf", "Tax.pdf", "notes"])
         #expect(found.map(\.path) == ["/a/2024 Tax.pdf", "/a/Tax.pdf", "/a/notes"])
+    }
+
+    /// Two files whose names differ only in case: each links spelled as it is, and neither in
+    /// another case, so iCloud's Notes.txt never opens Dropbox's notes.txt.
+    @Test func namesThatDifferOnlyInCaseLinkOnlyAsSpelled() {
+        let targets = ["Notes.txt": "/icloud/Notes.txt", "notes.txt": "/dropbox/notes.txt", "Tax.pdf": "/a/Tax.pdf"]
+        let text = "Notes.txt, notes.txt, NOTES.TXT and tax.pdf."
+        let found = AskClaudeLinks.matches(of: targets, in: text).sorted { $0.range.lowerBound < $1.range.lowerBound }
+        #expect(found.map { String(text[$0.range]) } == ["Notes.txt", "notes.txt", "tax.pdf"])
+        #expect(found.map(\.path) == ["/icloud/Notes.txt", "/dropbox/notes.txt", "/a/Tax.pdf"])
     }
 
     @Test func aFolderNameLinksOnlyAsTheFolderIsSpelled() {
@@ -1069,6 +1157,42 @@ import FileExplorer
             return await stopperLater.run(stoppedCall, handles: &own)
         }.value
         #expect(stoppedLater.isError && stoppedLater.result == "Not read: they stopped the question." && stoppedLater.passage == nil)
+    }
+
+    /// v7.0 review: the Never show Claude list was read only before a read that can take minutes,
+    /// so a folder hidden meanwhile still had its text answered from and sent; and the passage
+    /// offered as a button held a key in the clear, saved with the chat and sent by the button.
+    @Test func aReadChecksTheHiddenListAfterAndMasksItsPassage() async {
+        let path = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
+        var map: [String: FileNode] = [:]
+        Self.index(Self.tree, into: &map)
+        let hidden = Box<[String]>([])
+        let key = "sk-ant-api03-" + String(repeating: "aB3_-", count: 6)
+        func runner(readsFiles: Bool, hideWhileReading: Bool) -> AskClaudeBrowseTools {
+            AskClaudeBrowseTools(context: {
+                var ctx = AskClaudeBrowseTools.Context(
+                    inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Documents/Taxes", sort: .name,
+                    items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+                ctx.readsFiles = readsFiles
+                ctx.hidden = hidden.value
+                return ctx
+            }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
+               read: { _ in
+                if hideWhileReading { hidden.value = [Self.root + "/Documents/Taxes"] }
+                return AskClaudeReading.Read(pages: ["ANTHROPIC_API_KEY=\(key)\nTotal due: $84.10"], pageCount: 1)
+            }, answerOnDevice: { _, _, _ in .answer("The total is $84.10.") })
+        }
+        var handles = AskClaudeHandles()
+        let question = call("read_text", ["handle": .string(handles.handle(for: path)), "question": .string("What was the total due?")])
+        for readsFiles in [false, true] {
+            hidden.value = []
+            let late = await runner(readsFiles: readsFiles, hideWhileReading: true).run(question, handles: &handles)
+            #expect(late.isError && late.passage == nil && !late.result.contains("84.10"), "readsFiles: \(readsFiles)")
+        }
+        hidden.value = []
+        let offered = await runner(readsFiles: false, hideWhileReading: false).run(question, handles: &handles)
+        #expect(offered.passage?.text == "ANTHROPIC_API_KEY=sk-ant-api03-••••••••••••\nTotal due: $84.10")
+        #expect(offered.passage?.path == path)
     }
 
     @Test func pageListsNameRunsAndSayWhenTimeRanOut() {
@@ -1809,6 +1933,87 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(chat.items.first?.kind == .user("one"))
     }
 
+    /// v7.0 review: a folder hidden when the chat began, shown to Claude for a question, and hidden
+    /// again matched the list the chat began with, so the next question resent what Claude saw of it.
+    @Test func aFolderShownForAQuestionAndHiddenAgainStartsTheNextQuestionFresh() async {
+        let d = defaults()
+        let center = NotificationCenter()
+        AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
+                                 readKey: { "k" }, keyChanges: center)
+        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        AskClaudePrivacy.setHiddenFolders([], in: d)
+        center.post(name: AskClaudePrivacy.didChange, object: nil)
+        chat.ask("what's in Medical?", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        #expect(chat.items.first?.kind == .user("one"))
+        AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
+        center.post(name: AskClaudePrivacy.didChange, object: nil)
+        chat.ask("three", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        #expect(chat.items.first?.kind == .note("Started a new chat: a folder was hidden, so nothing Claude saw of it stays."))
+        #expect(!chat.items.contains { $0.kind == .user("what's in Medical?") })
+    }
+
+    /// v7.0 review: a passage offered while its folder was shown kept its Send to Claude after the
+    /// folder was hidden, and the restart that followed sent the passage into the new chat.
+    @Test func aPassageFromAFolderHiddenSinceIsNotSent() async throws {
+        let d = defaults()
+        let center = NotificationCenter()
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
+                                 readKey: { "k" }, keyChanges: center)
+        chat.ask("what were my results?", screen: screen, tools: OffersAPassage()); await waitUntilIdle(chat)
+        let offer = try #require(chat.items.first { if case .offer = $0.kind { true } else { false } }?.id)
+        AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
+        center.post(name: AskClaudePrivacy.didChange, object: nil)
+        #expect(chat.takeOffer(offer)?.question == nil)
+        #expect(chat.items.contains { $0.kind == .note("Didn’t send page 1 of Lab Results.pdf: it’s in a folder hidden from Claude now.") })
+        // The card goes, and its text with it: the note takes its place.
+        #expect(!chat.items.contains { if case .offer = $0.kind { true } else { false } })
+    }
+
+    /// The same for a question holding a passage sent while its folder was shown, asked again: an
+    /// at-limit card's Ask Again, or a download's question once it lands.
+    @Test func aQuestionHoldingAPassageFromAFolderHiddenSinceIsNotAskedAgain() async throws {
+        let d = defaults()
+        let center = NotificationCenter()
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
+                                 readKey: { "k" }, keyChanges: center)
+        chat.ask("what were my results?", screen: screen, tools: OffersAPassage()); await waitUntilIdle(chat)
+        let offer = try #require(chat.items.first { if case .offer = $0.kind { true } else { false } }?.id)
+        let sent = try #require(chat.takeOffer(offer))
+        #expect(sent.question.contains("Cholesterol 182"))
+        chat.ask(sent.question, shown: sent.shown, screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
+        center.post(name: AskClaudePrivacy.didChange, object: nil)
+        let before = chat.items.count
+        chat.ask(sent.question, shown: sent.shown, screen: screen, tools: NoTools())
+        #expect(!chat.isRunning)
+        #expect(chat.items.count == before + 1)
+        #expect(chat.items.last?.kind == .note("Didn’t ask again: the question holds page 1 of Lab Results.pdf, which is in a folder hidden from Claude now."))
+    }
+
+    /// A key in a passage is masked when it's sent, even one offered before passages were masked.
+    @Test func aPassageIsSentMasked() {
+        let key = "sk-ant-api03-" + String(repeating: "aB3_-", count: 6)
+        let question = AskClaudeChat.offerQuestion(AskClaudePassage(fileName: ".env", whereInFile: "the start", text: "KEY=\(key)\nB=1"))
+        #expect(!question.contains("aB3_") && question.contains("KEY=sk-ant-api03-••••••••••••\nB=1"))
+    }
+
+    /// Un-hidden and hidden again before any question: Claude saw nothing of it, so nothing restarts.
+    @Test func unhidingAndHidingAgainBeforeTheNextQuestionStartsNothingNew() async {
+        let d = defaults()
+        let center = NotificationCenter()
+        AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
+                                 readKey: { "k" }, keyChanges: center)
+        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        AskClaudePrivacy.setHiddenFolders([], in: d)
+        center.post(name: AskClaudePrivacy.didChange, object: nil)
+        AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
+        center.post(name: AskClaudePrivacy.didChange, object: nil)
+        chat.ask("two", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        #expect(chat.items.first?.kind == .user("one"))
+    }
+
     /// A restart for privacy keeps the lines about what he did on cards, less any that name what
     /// he hid, and says one was left out.
     @Test func aRestartForPrivacyLeavesOutLinesNamingWhatWasHidden() {
@@ -2361,6 +2566,15 @@ private final class ShowsASettingCard: AskClaudeToolRunning {
     init(_ card: AskClaudeSettingCard) { self.card = card }
     func run(_ call: AskClaudeToolCall, handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
         AskClaudeToolOutcome(result: "Showed a card", step: "Showed Theme", settings: card)
+    }
+}
+
+@MainActor
+private final class OffersAPassage: AskClaudeToolRunning {
+    static let passage = AskClaudePassage(fileName: "Lab Results.pdf", whereInFile: "page 1", text: "Cholesterol 182",
+                                          path: "/Users/me/Medical/Lab Results.pdf")
+    func run(_ call: AskClaudeToolCall, handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
+        AskClaudeToolOutcome(result: "offered", step: "Read Lab Results.pdf on this Mac", passage: Self.passage)
     }
 }
 

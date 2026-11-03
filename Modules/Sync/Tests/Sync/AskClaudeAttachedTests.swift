@@ -34,6 +34,6 @@ import Testing
         screen.attached = [AskClaudeScreen.Attached(row: row("/d/Work/Lease.pdf"), place: "Dropbox › Work")]
         var handles = AskClaudeHandles()
         let text = AskClaudeScreenCard.render(screen, handles: &handles).text
-        #expect(text.contains("Lease.pdf") && text.contains("Never show Claude list"))
+        #expect(text.contains("Lease.pdf") && text.contains("Hidden from Claude list"))
     }
 }

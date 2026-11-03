@@ -138,11 +138,17 @@ public final class SettingsChangeLog: ObservableObject {
     /// Newest first, with the words of any change that names a hidden item taken out.
     /// - Parameters:
     ///   - names: The names hidden from Claude, by their last path component.
+    ///   - hidingTargets: Whether a change's target is hidden now — a source whose own folder is
+    ///     hidden, whose name the words can hold without holding the folder's ("Google Drive (a@b.com)"
+    ///     for `GoogleDrive-a@b.com`). A change with no target is judged by its words alone.
     ///   - limit: How many of the newest to give; all when nil.
-    public func visible(hiding names: [String], limit: Int? = nil) -> [SettingsChange] {
+    public func visible(hiding names: [String], hidingTargets: (String) -> Bool = { _ in false },
+                        limit: Int? = nil) -> [SettingsChange] {
         let newest = changes.reversed().prefix(limit ?? changes.count)
         let matchers = Self.matchers(names)
-        return newest.map { Self.redacted($0, matching: matchers) }
+        return newest.map { change in
+            change.target.map(hidingTargets) == true ? Self.hiddenChange(change) : Self.redacted(change, matching: matchers)
+        }
     }
 
     static func redacted(_ change: SettingsChange, hiding names: [String]) -> SettingsChange {
@@ -165,7 +171,11 @@ public final class SettingsChangeLog: ObservableObject {
         guard matchers.contains(where: { matcher in
             words.contains { matcher.firstMatch(in: $0, range: NSRange($0.startIndex..., in: $0)) != nil }
         }) else { return change }
-        return SettingsChange(id: change.id, at: change.at, setting: change.setting, target: change.target,
+        return hiddenChange(change)
+    }
+
+    private static func hiddenChange(_ change: SettingsChange) -> SettingsChange {
+        SettingsChange(id: change.id, at: change.at, setting: change.setting, target: change.target,
                               name: "A change about an item hidden from Claude", from: nil, to: nil,
                               fromLabel: nil, toLabel: nil, how: change.how)
     }

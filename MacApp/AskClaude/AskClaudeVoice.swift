@@ -115,6 +115,9 @@ final class AskClaudeVoice: ObservableObject {
     /// In a room too loud ever to count as quiet, a settled turn ends this long after the last
     /// words came in, so it can't listen for good.
     var settledLimit: Duration = .seconds(3)
+    /// Words left tentative that nothing new has changed for this long end the turn too, so a
+    /// transcriber that stalls mid-word can't keep the microphone open for good (v7.0 review).
+    var tentativeLimit: Duration = .seconds(10)
     /// How long listening waits for a first word, counted from the last time the input was loud:
     /// a transcriber behind on a busy Mac mustn't end the turn while they are still talking.
     var firstWordLimit: Duration = .seconds(8)
@@ -194,6 +197,9 @@ final class AskClaudeVoice: ObservableObject {
                 } catch {
                     Logger.shared.warning("Ask Claude: transcription stopped: \(error.localizedDescription)")
                 }
+                // Ended by itself while listening: nothing more will come, so the turn ends with
+                // what it heard, as a second tap would.
+                self?.resultsEnded(turn: turn)
             }
             let converter = AskClaudeVoiceConverter(to: format)
             try source.start { [weak self] buffer in
@@ -213,7 +219,8 @@ final class AskClaudeVoice: ObservableObject {
                     let now = ContinuousClock.now
                     switch Self.ending(settled: self.settled, tentative: self.tentative, quiet: now - self.lastLoud,
                                        sinceWords: now - self.lastWords, endSilence: self.endSilence,
-                                       settledLimit: self.settledLimit, firstWordLimit: self.firstWordLimit) {
+                                       settledLimit: self.settledLimit, tentativeLimit: self.tentativeLimit,
+                                       firstWordLimit: self.firstWordLimit) {
                     case .goOn: continue
                     case .heardNothing:
                         self.cancel(notice: Self.heardNothing)
@@ -245,16 +252,26 @@ final class AskClaudeVoice: ObservableObject {
         tentative = ""
     }
 
+    /// The transcriber's results ended while still listening — it threw, or stopped — and the turn
+    /// would otherwise wait on words that never settle.
+    private func resultsEnded(turn: Int) {
+        guard turn == self.turn, phase == .listening else { return }
+        Logger.shared.info("Ask Claude: the transcriber stopped, so the question ends with what it heard")
+        finish()
+    }
+
     enum Ending: Equatable { case goOn, send, heardNothing }
 
     /// Whether a turn still listening should end, and how. It sends once words have settled,
     /// none are still tentative, and the input has been quiet for `endSilence` — or, in a room
-    /// that never falls quiet, once nothing new has come in for `settledLimit`. With no words
-    /// at all it gives up after `firstWordLimit` of quiet.
+    /// that never falls quiet, once nothing new has come in for `settledLimit`; with words still
+    /// tentative, once nothing new has come in for `tentativeLimit`. With no words at all it gives
+    /// up after `firstWordLimit` of quiet.
     nonisolated static func ending(settled: String, tentative: String, quiet: Duration, sinceWords: Duration,
-                       endSilence: Duration, settledLimit: Duration, firstWordLimit: Duration) -> Ending {
+                       endSilence: Duration, settledLimit: Duration, tentativeLimit: Duration,
+                       firstWordLimit: Duration) -> Ending {
         if settled.isEmpty && tentative.isEmpty { return quiet >= firstWordLimit ? .heardNothing : .goOn }
-        guard !settled.isEmpty, tentative.isEmpty else { return .goOn }
+        if !tentative.isEmpty { return sinceWords >= tentativeLimit ? .send : .goOn }
         return quiet >= endSilence || sinceWords >= settledLimit ? .send : .goOn
     }
 

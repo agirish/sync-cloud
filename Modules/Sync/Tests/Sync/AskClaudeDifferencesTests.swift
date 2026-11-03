@@ -97,6 +97,19 @@ import Testing
         #expect(text.contains("held back (sizes differ and neither side is newer); not copied by bulk runs"))
     }
 
+    /// A compared folder on the Hidden from Claude list isn't named in the answer's first line,
+    /// though every row in it is left out anyway.
+    @Test func aHiddenComparedFolderIsntNamed() {
+        var handles = AskClaudeHandles()
+        var hidden = comparison
+        hidden.leftFolder = "Documents/Medical"
+        hidden.leftFolderHidden = true
+        let text = AskClaudeDifferences.render([], allRows: [], hiddenCount: 5, comparison: hidden, from: 0,
+                                               handles: &handles, now: now, timeZone: utc)
+        #expect(text.hasPrefix("differences: iCloud › (a folder hidden from Claude)  vs  Dropbox › Documents/H-1B\n"))
+        #expect(!text.contains("Medical"))
+    }
+
     @Test func aLongListPagesAndSaysWhereToGoOn() {
         let many = (0..<75).map { row(String(format: "f%02d.txt", $0), .missingOnRight, .copyToRight, left: 1) }
         var handles = AskClaudeHandles()

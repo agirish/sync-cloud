@@ -94,11 +94,15 @@ public struct AskClaudePassage: Codable, Equatable, Sendable {
     /// “page 3”, “pages 2–4”, or “the start”.
     public let whereInFile: String
     public let text: String
+    /// The file, so Send to Claude can refuse it once its folder is hidden; nil in a passage
+    /// saved before it was kept.
+    public let path: String?
 
-    public init(fileName: String, whereInFile: String, text: String) {
+    public init(fileName: String, whereInFile: String, text: String, path: String? = nil) {
         self.fileName = fileName
         self.whereInFile = whereInFile
         self.text = text
+        self.path = path
     }
 
     /// About four characters to a token.

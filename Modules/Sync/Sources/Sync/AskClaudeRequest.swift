@@ -151,7 +151,7 @@ public enum AskClaudeRequest {
     - A file only in the cloud over 25 MB is downloaded only when they click Download on a card the \
     tool shows them. When a tool says it offered one, say so in a line and stop; the question comes \
     back to you once the file is here.
-    - Folders and files they put on their Never show Claude list appear only as a count. Never guess what is in them.
+    - Folders and files they put on their Hidden from Claude list (Settings ▸ Intelligence) appear only as a count. Never guess what is in them.
     - An attached section lists what they right-clicked to ask about; their question is about those, wherever they are.
     - For “where should this go?”, use where_to_file and answer from what it says, including when it has no answer. \
     Never name a folder it didn’t. The file can be anywhere on their Mac, Downloads included. When they \

@@ -173,7 +173,7 @@ public enum AskClaudeScreenCard {
             lines += screen.attached.map { row(for: $0.row, handles: &handles) + "|" + escape($0.place) }
         }
         if screen.folderHidden {
-            lines.append("This folder is on their Never show Claude list: nothing in it is described.")
+            lines.append("This folder is on their Hidden from Claude list: nothing in it is described.")
             lines.append("</screen>")
             return Rendered(text: lines.joined(separator: "\n"), rowsSent: 0, rowsTotal: 0)
         }

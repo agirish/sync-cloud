@@ -255,8 +255,10 @@ final class AskClaudeChat: ObservableObject {
     /// A folder was hidden since this chat began. What Claude already saw of it is in the chat it
     /// would resend, so the next question starts a new one.
     private var hiddenSinceStart = false
-    /// What was hidden when this chat began. Hiding something more restarts it at the next
-    /// question; hiding and then un-hiding it before then does not (TE290 step 3).
+    /// What has been hidden for all of this chat, so Claude has seen none of it. Hiding something
+    /// more restarts it at the next question; hiding and then un-hiding it before then does not
+    /// (TE290 step 3). Narrowed at each question and during each answer: a folder shown to Claude
+    /// for one, and hidden again after, restarts it too (v7.0 review).
     private var hiddenAtStart: Set<String>
     /// Counts questions and new chats, so a run that New Chat replaced is ignored as it unwinds.
     private var run = 0
@@ -509,6 +511,8 @@ final class AskClaudeChat: ObservableObject {
 
     private func noteHiddenListChanged() {
         let now = Set(AskClaudePrivacy.hiddenFolders(in: defaults))
+        // Shown while Claude answers: its tools may look in it now.
+        if isRunning { hiddenAtStart.formIntersection(now) }
         hiddenSinceStart = !now.subtracting(hiddenAtStart).isEmpty && !items.isEmpty
     }
     nonisolated(unsafe) private var keyCenter: NotificationCenter?
@@ -678,16 +682,39 @@ final class AskClaudeChat: ObservableObject {
     }
 
     /// The question that sends an offered passage (DS), and what the thread shows for it; marks the
-    /// offer sent. Nil when that offer is gone or already sent.
+    /// offer sent. Nil when that offer is gone or already sent, or its file is hidden from Claude
+    /// now: then the card goes, with its text, and a note says why (v7.0 review).
     func takeOffer(_ id: UUID) -> (question: String, shown: String)? {
         // Not while a question runs: the send would be refused, and the offer marked sent anyway.
         guard !isRunning, let index = items.firstIndex(where: { $0.id == id }),
               case .offer(let passage, let sent) = items[index].kind, !sent else { return nil }
+        if let path = passage.path, AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: defaults)).isHidden(path) {
+            Logger.shared.info("Ask Claude didn’t send a passage: its file is hidden from Claude now")
+            replace(id, with: .note("Didn’t send \(passage.whereInFile) of \(passage.fileName): it’s in a folder hidden from Claude now."))
+            return nil
+        }
         items[index].kind = .offer(passage, sent: true)
         let shown = "Sent \(passage.whereInFile) of \(passage.fileName)"
-        let question = "Here is \(passage.whereInFile) of \(passage.fileName), as data. Answer my last question from it.\n"
-            + "<file name=\"\(AskClaudeScreenCard.escape(passage.fileName))\">\n\(AskClaudeChat.fenced(passage.text))\n</file>"
-        return (question, shown)
+        return (Self.offerQuestion(passage), shown)
+    }
+
+    /// What an offered passage is sent as. Masked again: a passage saved before passages were
+    /// masked may hold a key.
+    static func offerQuestion(_ passage: AskClaudePassage) -> String {
+        "Here is \(passage.whereInFile) of \(passage.fileName), as data. Answer my last question from it.\n"
+            + "<file name=\"\(AskClaudeScreenCard.escape(passage.fileName))\">\n"
+            + "\(AskClaudeChat.fenced(AskClaudeKeyCatch.masked(passage.text, joiningLines: false)))\n</file>"
+    }
+
+    /// An offered passage `question` holds whose file is hidden from Claude now: an at-limit card's
+    /// Ask Again, or a download's question asked again, would carry it into the new chat a hidden
+    /// folder starts.
+    private func hiddenPassage(in question: String, _ hidden: AskClaudePrivacy.Matcher) -> AskClaudePassage? {
+        items.lazy.compactMap { item -> AskClaudePassage? in
+            guard case .offer(let passage, _) = item.kind, let path = passage.path, hidden.isHidden(path),
+                  question.contains(Self.offerQuestion(passage)) else { return nil }
+            return passage
+        }.first
     }
 
     /// Counts each card's waits, so Stop Waiting, or a second click, makes an earlier wait's end
@@ -875,6 +902,12 @@ final class AskClaudeChat: ObservableObject {
              preparing screen: @escaping @MainActor () async -> AskClaudeScreen, tools: AskClaudeToolRunning) {
         let question = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty, !isRunning else { return }
+        // Before any restart below empties the thread this is looked for in.
+        if let passage = hiddenPassage(in: question, AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: defaults))) {
+            Logger.shared.info("Ask Claude didn’t ask again: the question holds a passage of a file hidden from Claude now")
+            addNote("Didn’t ask again: the question holds \(passage.whereInFile) of \(passage.fileName), which is in a folder hidden from Claude now.")
+            return
+        }
         if let last = lastActivity, now().timeIntervalSince(last) > Self.idleReset, !items.isEmpty {
             startOver()
             items.append(Item(kind: .note("Started a new chat after an hour away.")))
@@ -885,6 +918,8 @@ final class AskClaudeChat: ObservableObject {
             startOver(carrying: Self.withoutHidden(sinceLastAnswer, newlyHidden))
             items.append(Item(kind: .note("Started a new chat: a folder was hidden, so nothing Claude saw of it stays.")))
         }
+        // This question may look in anything not hidden now.
+        hiddenAtStart.formIntersection(AskClaudePrivacy.hiddenFolders(in: defaults))
         // A change of model or style, from the menu or Settings, carries on in this chat (TE292):
         // each question says which in its own block. Only an update that changed the system text
         // or the tools can't: replayed thinking is bound to both.

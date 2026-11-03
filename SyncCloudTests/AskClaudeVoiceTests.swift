@@ -152,7 +152,7 @@ private final class Heard {
         -> AskClaudeVoice.Ending {
         AskClaudeVoice.ending(settled: settled, tentative: tentative, quiet: .milliseconds(Int(quiet * 1000)),
                               sinceWords: .milliseconds(Int(sinceWords * 1000)), endSilence: .milliseconds(1800),
-                              settledLimit: .seconds(3), firstWordLimit: .seconds(8))
+                              settledLimit: .seconds(3), tentativeLimit: .seconds(10), firstWordLimit: .seconds(8))
     }
 
     @Test func aPauseMidQuestionGoesOnThoughWordsHaveSettled() {
@@ -167,6 +167,14 @@ private final class Heard {
     @Test func wordsStillTentativeKeepItListening() {
         #expect(ending(tentative: "tax form", quiet: 5, sinceWords: 5) == .goOn)
         #expect(ending(settled: "", tentative: "Find", quiet: 9, sinceWords: 9) == .goOn)
+    }
+
+    /// v7.0 review: words left tentative kept the turn listening for good when the transcriber
+    /// stalled; ten seconds with nothing new ends it, in a quiet room or a loud one.
+    @Test func wordsTentativeForTenSecondsSend() {
+        #expect(ending(tentative: "tax form", quiet: 10, sinceWords: 10) == .send)
+        #expect(ending(settled: "", tentative: "Find", quiet: 0, sinceWords: 10) == .send)
+        #expect(ending(settled: "", tentative: "Find", quiet: 0, sinceWords: 9.9) == .goOn)
     }
 
     /// A room never quiet enough for the meter: settled words still send once nothing new comes.

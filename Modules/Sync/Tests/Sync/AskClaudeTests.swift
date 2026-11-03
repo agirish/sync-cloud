@@ -368,7 +368,7 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
         #expect(AskClaudeScreenCard.render(screen, handles: &handles).text.contains("2 items here hidden from Claude"))
         screen.folderHidden = true
         let hidden = AskClaudeScreenCard.render(screen, handles: &handles).text
-        #expect(hidden.contains("Never show Claude list") && !hidden.contains("a.pdf"))
+        #expect(hidden.contains("Hidden from Claude list") && !hidden.contains("a.pdf"))
         // The hidden folder's own path isn't named either.
         let legal = AskClaudeScreen(workspace: "Browse", source: "iCloud Drive", folder: "Documents/Legal/Wills", sort: "Name",
                                     rows: [row("will.pdf", 1)], selection: [], toolsAvailable: true)

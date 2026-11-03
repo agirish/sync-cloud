@@ -1597,12 +1597,17 @@ enum AskClaudeLinks {
     /// links only spelled as the folder is, and never before 's. So "all-pages scans" leaves the
     /// Scans folder alone and "Shweta's passport" leaves the Shweta folder, while
     /// "Passport/Shweta" still links.
+    ///
+    /// A name with an extension links in any case, unless another file's name differs from it
+    /// only in case (iCloud's Notes.txt, Dropbox's notes.txt): then only the exact spelling links.
     static func matches(of targets: [String: String], in text: String) -> [(range: Range<String.Index>, path: String)] {
         var found: [(range: Range<String.Index>, path: String)] = []
+        let caseVariants = Dictionary(grouping: targets.keys, by: { $0.lowercased() })
         for (name, path) in targets.sorted(by: { ($0.key.count, $0.key) > ($1.key.count, $1.key) }) {
             let isWord = !hasExtension(name)
+            let exactOnly = isWord || (caseVariants[name.lowercased()]?.count ?? 0) > 1
             var search = text.startIndex..<text.endIndex
-            while let hit = text.range(of: name, options: isWord ? [] : [.caseInsensitive], range: search) {
+            while let hit = text.range(of: name, options: exactOnly ? [] : [.caseInsensitive], range: search) {
                 search = hit.upperBound..<text.endIndex
                 guard isWholeWord(hit, in: text), !found.contains(where: { $0.range.overlaps(hit) }) else { continue }
                 if isWord, isPossessive(after: hit, in: text) { continue }
