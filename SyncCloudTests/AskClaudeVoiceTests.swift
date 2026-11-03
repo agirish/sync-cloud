@@ -144,6 +144,43 @@ private final class Heard {
     }
 }
 
+/// When a turn ends by itself (`AskClaudeVoice.ending`). His hand check, 2026-11-02: his voice
+/// settled words at a one-second pause mid-question, and the turn sent the first half.
+@Suite struct AskClaudeVoiceEndingTests {
+
+    private func ending(settled: String = "Find my latest", tentative: String = "", quiet: Double, sinceWords: Double = 0)
+        -> AskClaudeVoice.Ending {
+        AskClaudeVoice.ending(settled: settled, tentative: tentative, quiet: .milliseconds(Int(quiet * 1000)),
+                              sinceWords: .milliseconds(Int(sinceWords * 1000)), endSilence: .milliseconds(1800),
+                              settledLimit: .seconds(3), firstWordLimit: .seconds(8))
+    }
+
+    @Test func aPauseMidQuestionGoesOnThoughWordsHaveSettled() {
+        #expect(ending(quiet: 1.0, sinceWords: 0.2) == .goOn)
+        #expect(ending(quiet: 1.7, sinceWords: 1.5) == .goOn)
+    }
+
+    @Test func quietAfterSettledWordsSends() {
+        #expect(ending(quiet: 1.8, sinceWords: 1.0) == .send)
+    }
+
+    @Test func wordsStillTentativeKeepItListening() {
+        #expect(ending(tentative: "tax form", quiet: 5, sinceWords: 5) == .goOn)
+        #expect(ending(settled: "", tentative: "Find", quiet: 9, sinceWords: 9) == .goOn)
+    }
+
+    /// A room never quiet enough for the meter: settled words still send once nothing new comes.
+    @Test func aLoudRoomSendsOnceNothingNewComes() {
+        #expect(ending(quiet: 0, sinceWords: 2.9) == .goOn)
+        #expect(ending(quiet: 0, sinceWords: 3.0) == .send)
+    }
+
+    @Test func noWordsAtAllGivesUpAfterTheFirstWordLimit() {
+        #expect(ending(settled: "", quiet: 7.9) == .goOn)
+        #expect(ending(settled: "", quiet: 8.0) == .heardNothing)
+    }
+}
+
 /// The spoken flag on a question: a mic in its bubble, kept with the chat.
 @MainActor
 @Suite struct AskClaudeSpokenItemTests {
@@ -198,10 +235,11 @@ private final class Heard {
         #expect(!source.isStreaming)
     }
 
-    /// The second tap. Silence can't end this turn: its grace is longer than the test.
+    /// The second tap. Silence can't end this turn: its limits are longer than the test.
     @Test func aSecondTapSendsWhatWasSaidSoFar() async throws {
         let voice = AskClaudeVoice()
-        voice.settleGrace = .seconds(120)
+        voice.endSilence = .seconds(120)
+        voice.settledLimit = .seconds(120)
         let source = AskClaudeClipSource(try AskClaudeVoiceClips.receipts)
         let heard = Heard()
         voice.start(from: source, hints: [], onHeard: heard.take)

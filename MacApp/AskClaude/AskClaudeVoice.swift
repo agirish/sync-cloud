@@ -15,10 +15,11 @@ import Events
 // - **DictationTranscriber, given the words of the names on screen.** SpeechTranscriber ignores
 //   contextual strings; this one heard 88% of the name words in his reading with them, 83%
 //   without. A whole name as a hint does nothing (`AskClaudeVoiceHints`).
-// - **A second tap finalizes in about 0.06 s.** Without one, silence ends the turn: with
-//   `.frequentFinalization` the transcriber settles everything about 2 s after the last word, and
-//   pauses of 0.8 and 1.4 s mid-sentence, or 14 s of talking, settled nothing early (measured
-//   again for this, same day). Without that option nothing settles until a finalize.
+// - **A second tap finalizes in about 0.06 s.** Without one, silence ends the turn: 1.8 s of
+//   quiet input once words have settled (`ending`). The transcriber's settling alone is not the
+//   end: `say` clips settled only ~2 s after the last word, but his own voice settled at a
+//   one-second pause and sent half a question. Without `.frequentFinalization` nothing settles
+//   until a finalize, so it stays on.
 // - **The microphone is the only prompt.** Dictation asked for nothing, even unauthorized.
 // - **The speech model's status says `.supported` while it works**, so it isn't gated on; only a
 //   non-nil installation request means there is something to download.
@@ -106,8 +107,14 @@ final class AskClaudeVoice: ObservableObject {
     static let micRefused = "SyncCloud isn’t allowed to use the microphone. Allow it in System Settings ▸ Privacy & Security ▸ Microphone."
     static let heardNothing = "Didn’t hear anything."
 
-    /// How long a settled turn waits for more words before it ends by itself.
-    var settleGrace: Duration = .milliseconds(400)
+    /// How long the input must be quiet, after words have settled, for the turn to end by itself.
+    /// **Not the transcriber's own settling.** With his voice it settles words at a one-second
+    /// pause mid-question, and a turn that ended there sent half of it (hand check, 2026-11-02);
+    /// `say` clips never settled before about 2 s, so the tests hadn't seen it.
+    var endSilence: Duration = .milliseconds(1800)
+    /// In a room too loud ever to count as quiet, a settled turn ends this long after the last
+    /// words came in, so it can't listen for good.
+    var settledLimit: Duration = .seconds(3)
     /// How long listening waits for a first word, counted from the last time the input was loud:
     /// a transcriber behind on a busy Mac mustn't end the turn while they are still talking.
     var firstWordLimit: Duration = .seconds(8)
@@ -125,10 +132,10 @@ final class AskClaudeVoice: ObservableObject {
     /// Each turn's number: work left over from a turn that ended checks it and stops.
     private var turn = 0
     private var starting: Task<Void, Never>?
-    private var ending: Task<Void, Never>?
-    private var waitingForWords: Task<Void, Never>?
+    private var watching: Task<Void, Never>?
     private var onHeard: (String) -> Void = { _ in }
     private var lastLoud = ContinuousClock.now
+    private var lastWords = ContinuousClock.now
 
     /// Starts listening. `onHeard` gets the words once the turn ends with some, by a second tap
     /// (`finish`) or by silence; Esc (`cancel`) ends it with nothing.
@@ -198,15 +205,23 @@ final class AskClaudeVoice: ObservableObject {
             phase = .listening
             Logger.shared.info("Ask Claude: listening, with \(hints.count) word\(hints.count == 1 ? "" : "s") from the screen as hints")
             lastLoud = .now
-            waitingForWords = Task { [weak self, firstWordLimit] in
+            lastWords = .now
+            watching = Task { [weak self] in
                 while !Task.isCancelled {
-                    try? await Task.sleep(for: .milliseconds(250))
-                    guard let self, turn == self.turn, self.phase == .listening,
-                          self.settled.isEmpty, self.tentative.isEmpty else { return }
-                    if ContinuousClock.now - self.lastLoud >= firstWordLimit {
+                    try? await Task.sleep(for: .milliseconds(150))
+                    guard let self, turn == self.turn, self.phase == .listening else { return }
+                    let now = ContinuousClock.now
+                    switch Self.ending(settled: self.settled, tentative: self.tentative, quiet: now - self.lastLoud,
+                                       sinceWords: now - self.lastWords, endSilence: self.endSilence,
+                                       settledLimit: self.settledLimit, firstWordLimit: self.firstWordLimit) {
+                    case .goOn: continue
+                    case .heardNothing:
                         self.cancel(notice: Self.heardNothing)
-                        return
+                    case .send:
+                        Logger.shared.info("Ask Claude: the question ended in silence")
+                        self.finish()
                     }
+                    return
                 }
             }
         } catch {
@@ -221,22 +236,26 @@ final class AskClaudeVoice: ObservableObject {
     private func take(_ text: String, isFinal: Bool, turn: Int) {
         guard turn == self.turn, phase == .listening || phase == .finishing else { return }
         let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        ending?.cancel()
+        lastWords = .now
         guard isFinal else {
             tentative = words
             return
         }
         if !words.isEmpty { settled = settled.isEmpty ? words : settled + " " + words }
         tentative = ""
-        // Settled with nothing after it: the transcriber's own end of speech. Words that come
-        // within the grace mean they paused and went on.
-        guard phase == .listening, !settled.isEmpty else { return }
-        ending = Task { [weak self, settleGrace] in
-            try? await Task.sleep(for: settleGrace)
-            guard let self, !Task.isCancelled, turn == self.turn, self.phase == .listening, self.tentative.isEmpty else { return }
-            Logger.shared.info("Ask Claude: the question ended in silence")
-            self.finish()
-        }
+    }
+
+    enum Ending: Equatable { case goOn, send, heardNothing }
+
+    /// Whether a turn still listening should end, and how. It sends once words have settled,
+    /// none are still tentative, and the input has been quiet for `endSilence` — or, in a room
+    /// that never falls quiet, once nothing new has come in for `settledLimit`. With no words
+    /// at all it gives up after `firstWordLimit` of quiet.
+    nonisolated static func ending(settled: String, tentative: String, quiet: Duration, sinceWords: Duration,
+                       endSilence: Duration, settledLimit: Duration, firstWordLimit: Duration) -> Ending {
+        if settled.isEmpty && tentative.isEmpty { return quiet >= firstWordLimit ? .heardNothing : .goOn }
+        guard !settled.isEmpty, tentative.isEmpty else { return .goOn }
+        return quiet >= endSilence || sinceWords >= settledLimit ? .send : .goOn
     }
 
     private func hear(_ level: Double, turn: Int) {
@@ -255,8 +274,7 @@ final class AskClaudeVoice: ObservableObject {
         }
         guard let session else { cancel(); return }
         phase = .finishing
-        ending?.cancel()
-        waitingForWords?.cancel()
+        watching?.cancel()
         let turn = turn
         session.source.stop()
         session.feed.finish()
@@ -293,8 +311,7 @@ final class AskClaudeVoice: ObservableObject {
         turn += 1
         session = nil
         starting = nil
-        ending?.cancel()
-        waitingForWords?.cancel()
+        watching?.cancel()
         settled = ""
         tentative = ""
         levels = Array(repeating: 0, count: Self.meterBars)
