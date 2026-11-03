@@ -217,12 +217,17 @@ final class AskClaudeChat: ObservableObject {
         var engine: AskClaudeEngine.Snapshot
         /// Lines for Claude not yet sent; absent in a chat saved before they existed.
         var sinceLastAnswer: [String]?
+        /// What was hidden from Claude when the chat began, so a folder hidden just before a quit
+        /// still starts a new chat after the relaunch (TE290 review); absent in older chats.
+        var hiddenAtStart: [String]?
 
-        init(items: [Item], lastActivity: Date, engine: AskClaudeEngine.Snapshot, sinceLastAnswer: [String]?) {
+        init(items: [Item], lastActivity: Date, engine: AskClaudeEngine.Snapshot, sinceLastAnswer: [String]?,
+             hiddenAtStart: [String]?) {
             self.items = items
             self.lastActivity = lastActivity
             self.engine = engine
             self.sinceLastAnswer = sinceLastAnswer
+            self.hiddenAtStart = hiddenAtStart
         }
 
         /// Items one at a time, so one that won't decode costs a note rather than the whole chat
@@ -234,6 +239,7 @@ final class AskClaudeChat: ObservableObject {
             lastActivity = try container.decode(Date.self, forKey: .lastActivity)
             engine = try container.decode(AskClaudeEngine.Snapshot.self, forKey: .engine)
             sinceLastAnswer = try container.decodeIfPresent([String].self, forKey: .sinceLastAnswer)
+            hiddenAtStart = try container.decodeIfPresent([String].self, forKey: .hiddenAtStart)
         }
     }
 
@@ -285,6 +291,17 @@ final class AskClaudeChat: ObservableObject {
     /// A message for the text box to take back: Edit Message on a caught-key card.
     @Published var draftToRestore: String?
 
+    /// The question last asked, as shown and with what it was about, for an at-limit card's Ask
+    /// Again (TE290 review); and that, per card. In memory only.
+    var lastAsked: (shown: String?, attached: [Attachment]) = (nil, [])
+    private var askAgainContexts: [UUID: (shown: String?, attached: [Attachment])] = [:]
+
+    /// What an at-limit card's question was about, when the chat still has it.
+    func askAgainContext(_ id: UUID) -> (shown: String?, attached: [Attachment]) { askAgainContexts[id] ?? (nil, []) }
+
+    /// The card buttons being pressed now, so a second click while one runs does nothing.
+    var pressing: Set<String> = []
+
     /// Holds back a message with an API key in it, putting a card in its place.
     /// - Returns: Whether it held the message back.
     func catchKey(_ message: String) -> Bool {
@@ -318,10 +335,11 @@ final class AskClaudeChat: ObservableObject {
         if !isRunning { save() }
     }
 
-    /// A line that replaces an unsent one starting `prefix`: five clicks through a setting reach
-    /// Claude as one line, first value to last (TE290).
+    /// A line that replaces an unsent one about the same setting: five clicks through a setting
+    /// reach Claude as one line, first value to last (TE290). Only "`prefix`to …" and "`prefix`back
+    /// …" are its own lines; "They set Theme " must not take "They set Theme for Dropbox (Work) …".
     func tellClaude(_ line: String, replacing prefix: String) {
-        sinceLastAnswer.removeAll { $0.hasPrefix(prefix) }
+        sinceLastAnswer.removeAll { $0.hasPrefix(prefix + "to ") || $0.hasPrefix(prefix + "back ") }
         tellClaude(line)
     }
 
@@ -455,6 +473,17 @@ final class AskClaudeChat: ObservableObject {
         sinceLastAnswer = stored.sinceLastAnswer ?? []
         items = Self.withoutRepeatedSteps(stored.items).map(Self.notWaiting)
         lastActivity = stored.lastActivity
+        // Judged against what was hidden when the chat began, not at this launch: a folder hidden
+        // and then a quit must still keep what Claude saw of it out of the next question. A chat
+        // saved before this was kept can't be judged, so it starts over once if anything is hidden.
+        let hiddenNow = Set(AskClaudePrivacy.hiddenFolders(in: defaults))
+        if let atStart = stored.hiddenAtStart {
+            hiddenAtStart = Set(atStart)
+            hiddenSinceStart = !hiddenNow.subtracting(hiddenAtStart).isEmpty && !items.isEmpty
+        } else {
+            hiddenAtStart = []
+            hiddenSinceStart = !hiddenNow.isEmpty && !items.isEmpty
+        }
         refreshLinkTargets()
     }
 
@@ -508,7 +537,8 @@ final class AskClaudeChat: ObservableObject {
             return
         }
         let stored = Stored(items: items, lastActivity: lastActivity, engine: engine.snapshot,
-                            sinceLastAnswer: sinceLastAnswer.isEmpty ? nil : sinceLastAnswer)
+                            sinceLastAnswer: sinceLastAnswer.isEmpty ? nil : sinceLastAnswer,
+                            hiddenAtStart: hiddenAtStart.sorted())
         do {
             let data = try JSONEncoder().encode(stored)
             try FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -902,6 +932,7 @@ final class AskClaudeChat: ObservableObject {
         // The cards are gone; so are their undo steps. Their changes stay.
         settingsUndo.clear()
         caughtMessages = [:]
+        askAgainContexts = [:]
         save()
     }
 
@@ -1001,8 +1032,10 @@ final class AskClaudeChat: ObservableObject {
             // At the limit, the panel shows the limit itself (TE290 step 6): raising it there
             // offers Ask Again with the question.
             if problem.kind == .limitReached, case .overLimit(let spent, let limit) = AskClaudeSpend.state(in: defaults, now: now()) {
-                items.append(Item(kind: .settings(.atLimit(spent: spent, limit: limit,
-                                                           resets: AskClaudeSpend.resetDate(after: now()), question: askedQuestion))))
+                let item = Item(kind: .settings(.atLimit(spent: spent, limit: limit,
+                                                         resets: AskClaudeSpend.resetDate(after: now()), question: askedQuestion)))
+                items.append(item)
+                askAgainContexts[item.id] = lastAsked
                 break
             }
             items.append(Item(kind: .problem(problem)))

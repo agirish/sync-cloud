@@ -58,6 +58,10 @@ public struct SettingsWriter {
         guard Self.accepts(entry, value) else {
             return .refused("\(value) isn’t one of \(entry.label)’s choices.")
         }
+        // Settings disables a control while a switch it depends on is off; a card can't get round it.
+        if let parent = switchedOff(entry, target: target) {
+            return .refused("\(parent.label) is off, so \(entry.label) can’t change. Turn it on first.")
+        }
         switch (entry.id, value) {
         // Owned by SettingsManager: set there, never on the key.
         case ("general.sortPanesBy", .string(let raw)):
@@ -167,6 +171,30 @@ public struct SettingsWriter {
         return .done
     }
 
+    /// The switch `entry` depends on, when it is off.
+    private func switchedOff(_ entry: SettingEntry, target: String?) -> SettingEntry? {
+        guard !entry.dependsOn.isEmpty else { return nil }
+        let lookup = SettingsLookup(defaults: defaults, settings: settings, keyIsSaved: { false }, hiddenCount: { 0 },
+                                    isHidden: { _ in false }, loginItemIsOn: { false })
+        return entry.dependsOn.compactMap(SettingsCatalog.entry).first { parent in
+            lookup.currentValue(parent, target: parent.target == .app ? nil : target) == .bool(false)
+        }
+    }
+
+    /// The settings `write` sets through an owner rather than a preferences key.
+    static let ownedWrites: Set<String> = [
+        "general.sortPanesBy", "sources.folderNameRule", "sync.whenFileExists", "sync.dateTolerance", "sync.verifySameSize",
+        "sync.rescanOnChange", "sync.ignoreGoogleDriveNewer", "sync.rememberIgnored", "sources.enabled", "general.launchAtLogin",
+        "sources.name", "sources.path", "sources.openAt",
+    ]
+
+    /// Whether `write` can set this setting at all: a card must never offer a control whose click is
+    /// always refused.
+    public static func canWrite(_ entry: SettingEntry) -> Bool {
+        if case .appStorage = entry.storage { return true }
+        return ownedWrites.contains(entry.id)
+    }
+
     private func unavailable(_ entry: SettingEntry) -> Outcome {
         .refused("\(entry.label) can’t be changed here. It’s in Settings ▸ \(entry.tabName).")
     }
@@ -233,8 +261,12 @@ extension SettingsCatalog {
         case .stepper:
             return Int(trimmed.replacingOccurrences(of: "%", with: "")).map(SettingValue.int)
         case .slider:
-            let number = Double(trimmed.replacingOccurrences(of: "%", with: ""))
-            return number.map { .double(trimmed.hasSuffix("%") || $0 > 1 ? $0 / 100 : $0) }
+            // "40%" and "40" are percents; "0.4" is the stored fraction. Anything else — "1.05" —
+            // is neither, and is refused rather than guessed.
+            guard let number = Double(trimmed.replacingOccurrences(of: "%", with: "")) else { return nil }
+            if trimmed.hasSuffix("%") { return .double(number / 100) }
+            if number <= 1 { return .double(number) }
+            return number == number.rounded() && number <= 100 ? .double(number / 100) : nil
         case .text, .folder:
             return .string(text)
         default:

@@ -2,15 +2,16 @@ import Foundation
 import Settings
 import Sync
 
-/// Which change a setting's value came from (TE290 step 4b): a new token every time the value
-/// moves, whoever moved it — a card, Settings, the View menu, the toolbar, the shield, a reset.
+/// Which change a setting's value came from (TE290 step 4b): a new token every time the value is
+/// seen to have moved, whoever moved it — a card, Settings, the View menu, the toolbar, a reset.
 ///
-/// **Watched, not told.** Only a card's writes come through the chat; everything else writes the
-/// preferences or a store directly. So the ledger compares the live values each time it is asked,
-/// and a value that differs from the last one it saw gets a fresh token. A card that holds the
-/// current token made the latest change; one that doesn't, didn't — and its Undo would overwrite
-/// something newer, so it offers none. Tokens last for the session: a card restored after a relaunch
-/// holds none, and offers no Undo.
+/// **Compared when asked, not watched.** Only a card's writes come through the chat; everything
+/// else writes the preferences or a store directly. So the ledger compares the live value each
+/// time it is asked — on every draw of a card, which follows every preferences change — and a
+/// value that differs from the last one it saw gets a fresh token. A card that holds the current
+/// token made the latest change; one that doesn't, didn't, and offers no Undo. A change and a
+/// change back made while no card was drawn look like no change at all. Tokens last for the
+/// session: a card restored after a relaunch holds none, and offers no Undo.
 @MainActor
 final class AskClaudeSettingsLedger {
     struct Key: Hashable {
@@ -27,6 +28,12 @@ final class AskClaudeSettingsLedger {
         seen[key] = (value, token)
         return token
     }
+
+    /// An undo's own write: the value it put back is the one an earlier step made, so that step's
+    /// token comes back with it, and a second Undo can reach it.
+    func restore(_ key: Key, value: SettingValue, token: UUID) {
+        seen[key] = (value, token)
+    }
 }
 
 /// One change a card made, undoable: the setting, what it was and what it became, and the token
@@ -37,6 +44,9 @@ struct AskClaudeSettingsStep {
         let before: SettingValue
         let after: SettingValue
         var token: UUID
+        /// The token `before` had: an earlier step's, when one made it, so an Undo that writes
+        /// `before` back makes that step the latest again.
+        var beforeToken = UUID()
     }
 
     let card: UUID
@@ -47,6 +57,9 @@ struct AskClaudeSettingsStep {
     /// Undoing it would raise Claude's spending or access, so only the card's own Undo — badged —
     /// takes it back; ⌘Z passes over it and can't quietly turn reading back on.
     let cardOnly: Bool
+    /// Redoing it would raise, so ⇧⌘Z passes over it too (TE290 review): the change came from a
+    /// click, and only a click makes it again.
+    var redoRaises = false
 }
 
 /// The chat's own undo and redo of settings changes (TE290 step 4b), separate from typing's.
@@ -70,8 +83,19 @@ final class AskClaudeSettingsUndo {
     /// The current token of `key`'s value.
     func token(_ key: AskClaudeSettingsLedger.Key) -> UUID { ledger.token(key, value: read(key)) }
 
-    /// Records a change a card just made.
+    /// Refused while undoing or redoing — the write came back no — with the step kept where it was.
+    var didRefuse: (_ step: AskClaudeSettingsStep) -> Void = { _ in }
+
+    /// Records a change a card just made. Where an earlier step made the value this one changed,
+    /// that step's token is this one's way back.
     func record(_ step: AskClaudeSettingsStep) {
+        var step = step
+        for (index, change) in step.changes.enumerated() {
+            if let earlier = undoSteps.last(where: { $0.changes.contains { $0.key == change.key } })?
+                .changes.first(where: { $0.key == change.key }), earlier.after == change.before {
+                step.changes[index].beforeToken = earlier.token
+            }
+        }
         undoSteps.append(step)
         redoSteps.removeAll()
     }
@@ -114,30 +138,41 @@ final class AskClaudeSettingsUndo {
     }
 
     /// The newest step ⌘Z may take: still current (an undo never overwrites something newer), and
-    /// not one only its card's Undo takes back.
-    private func menuIndex(in steps: [AskClaudeSettingsStep]) -> Int? {
-        steps.indices.reversed().first { !steps[$0].cardOnly && isCurrent(steps[$0]) }
+    /// not one only its card's Undo takes back — or, for ⇧⌘Z, one whose redo would raise.
+    private func menuIndex(in steps: [AskClaudeSettingsStep], redoing: Bool = false) -> Int? {
+        steps.indices.reversed().first { index in
+            let step = steps[index]
+            return !(redoing ? step.redoRaises : step.cardOnly) && isCurrent(step)
+        }
     }
 
     var canUndo: Bool { menuIndex(in: undoSteps) != nil }
-    var canRedo: Bool { menuIndex(in: redoSteps) != nil }
+    var canRedo: Bool { menuIndex(in: redoSteps, redoing: true) != nil }
     var undoTitle: String? { menuIndex(in: undoSteps).map { "Undo \(undoSteps[$0].name)" } }
-    var redoTitle: String? { menuIndex(in: redoSteps).map { "Redo \(redoSteps[$0].name)" } }
+    var redoTitle: String? { menuIndex(in: redoSteps, redoing: true).map { "Redo \(redoSteps[$0].name)" } }
 
     /// Edit ▸ Undo and ⌘Z.
     func undo() {
         guard let index = menuIndex(in: undoSteps) else { return }
         let step = undoSteps.remove(at: index)
-        guard let done = apply(step, undoing: true) else { return }
+        guard let done = apply(step, undoing: true) else {
+            undoSteps.insert(step, at: index)
+            didRefuse(step)
+            return
+        }
         redoSteps.append(done)
         didStep(done, true)
     }
 
     /// Edit ▸ Redo and ⇧⌘Z.
     func redo() {
-        guard let index = menuIndex(in: redoSteps) else { return }
+        guard let index = menuIndex(in: redoSteps, redoing: true) else { return }
         let step = redoSteps.remove(at: index)
-        guard let done = apply(step, undoing: false) else { return }
+        guard let done = apply(step, undoing: false) else {
+            redoSteps.insert(step, at: index)
+            didRefuse(step)
+            return
+        }
         undoSteps.append(done)
         didStep(done, false)
     }
@@ -146,8 +181,14 @@ final class AskClaudeSettingsUndo {
     /// that row, put back while it is still the latest change, and kept for Redo.
     func undoCard(_ card: UUID, row: Int) {
         guard let index = undoSteps.lastIndex(where: { $0.card == card && $0.rows.contains(row) }) else { return }
-        let step = undoSteps.remove(at: index)
-        guard isCurrent(step), let done = apply(step, undoing: true) else { return }
+        let step = undoSteps[index]
+        guard isCurrent(step) else { return }
+        undoSteps.remove(at: index)
+        guard let done = apply(step, undoing: true) else {
+            undoSteps.insert(step, at: index)
+            didRefuse(step)
+            return
+        }
         redoSteps.append(done)
         didStep(done, true)
     }
@@ -169,6 +210,9 @@ final class AskClaudeSettingsUndo {
         var done = step
         for (index, change) in step.changes.enumerated() {
             guard write(change.key, undoing ? change.before : change.after) else { return nil }
+            // The value an undo puts back carries the token it had, so the step that made it —
+            // the one below this on the stack — is the latest change again.
+            if undoing, read(change.key) == change.before { ledger.restore(change.key, value: change.before, token: change.beforeToken) }
             done.changes[index].token = token(change.key)
         }
         return done

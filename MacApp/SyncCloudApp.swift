@@ -1795,10 +1795,13 @@ private struct ChangedFromChatHost: View {
                     },
                     writer: { SettingsWriter(defaults: .standard, settings: settings) },
                     hiddenNames: { AskClaudePrivacy.hiddenFolders(in: .standard).map { ($0 as NSString).lastPathComponent } },
-                    lists: { SettingsLists(settings: settings, sync: syncManager, defaults: .standard) })
+                    lists: { SettingsLists(settings: settings, sync: syncManager, defaults: .standard) },
+                    people: { SettingsPeople(store: syncManager.filingPeopleStore) })
             }
             .frame(maxHeight: 200)
             .fixedSize(horizontal: false, vertical: true)
+            // Launch at login is macOS's: read before a row's Revert compares with it.
+            .task { await LoginItemController.shared.refresh().value }
             Divider()
         }
     }

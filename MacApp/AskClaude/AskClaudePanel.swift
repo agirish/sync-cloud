@@ -192,7 +192,8 @@ struct AskClaudePanel: View {
         // Edit Message on a caught-key card: the message comes back to the box (TE290 step 7).
         .onChange(of: chat.draftToRestore) { _, message in
             guard let message else { return }
-            draft = message
+            // Added to what's being typed, never in its place.
+            draft = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? message : draft + "\n" + message
             chat.draftToRestore = nil
             composerFocused = true
         }

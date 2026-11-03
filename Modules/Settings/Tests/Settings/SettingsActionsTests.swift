@@ -69,6 +69,23 @@ import Sync
         #expect(await actions.run("people.lookForNames", target: nil) == .refused("That button is in Settings."))
     }
 
+    /// TE290 review: Clear All asked about one pair of sources clears nothing once another is open.
+    @Test func clearAllRefusesOnceThePairHasChanged() async throws {
+        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        let sync = FileSyncManager()
+        let store = IgnoredItemsStore(userDefaults: defaults)
+        sync.ignoredItemsStore = store
+        store.activate(pairKey: IgnoredItemsStore.pairKey("icloud", "dropbox"))
+        store.add(["Taxes"])
+        let actions = SettingsActions(settings: nil, sync: sync, lookup: lookup(defaults, nil))
+        let asked = actions.scope("sync.ignoredItemsClearAll")
+        store.activate(pairKey: IgnoredItemsStore.pairKey("icloud", "local"))
+        store.add(["Work"])
+        #expect(await actions.run("sync.ignoredItemsClearAll", target: nil, scope: asked)
+                == .refused("The comparison changed since you were asked, so nothing was cleared."))
+        #expect(store.rootRelativePaths == ["Work"])
+    }
+
     @Test func aRefusedKeyRemovalSaysTheKeyIsStillThere() async {
         final class Locked: KeychainStore, @unchecked Sendable {
             func delete(_ query: [String: Any]) -> OSStatus { errSecInteractionNotAllowed }

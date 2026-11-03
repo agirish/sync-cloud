@@ -108,6 +108,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var showPlace: (_ place: String, _ tab: String?, _ visible: Bool) -> Bool = { _, _, _ in false }
         /// The settings tool's answers (TE290); nil where there is no app to read.
         var settingsLookup: SettingsLookup?
+        /// Whether the chat panel is on screen; Claude changes nothing itself while it isn't.
+        var chatIsOpen = true
         /// Writes a setting Claude may change itself, through its owner (TE290 step 4c).
         var setSetting: (_ id: String, _ value: SettingValue, _ target: String?) -> SettingsWriter.Outcome = { _, _, _ in
             .refused("Settings can’t be changed here.")
@@ -342,7 +344,25 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     /// it is a person or Add Person, which bring their own fields (TE290 step 9).
     static func cardHolds(_ entry: SettingEntry) -> Bool {
         if entry.id.hasPrefix("people.") { return entry.id == "people.edit" || entry.id == "people.add" || SettingsActions.ids.contains(entry.id) }
-        return cardHolds(entry.control) || SettingsLists.ids.contains(entry.id)
+        if SettingsLists.ids.contains(entry.id) { return true }
+        switch entry.control {
+        case .button, .secret: return true
+        case .folder where entry.id == "sources.addFolder": return true
+        default:
+            // A control whose click the writer always refuses is never offered (TE290 review).
+            return cardHolds(entry.control) && SettingsWriter.canWrite(entry)
+        }
+    }
+
+    /// Whether `source` is the kind of source `entry` is about: a folder you added, a cloud
+    /// account, or any; a sync pair isn't a source at all.
+    static func fits(_ entry: SettingEntry, _ source: CloudProvider) -> Bool {
+        switch entry.target {
+        case .folderSource: FolderSource.isFolderSourceId(source.id)
+        case .cloudSource: !source.isLocalFolder
+        case .syncPair: false
+        default: true
+        }
     }
 
     /// Puts a card of settings in the chat. Every item is checked first — a setting that exists,
@@ -391,7 +411,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             } else if let text = item["pick"]?.stringValue, entry.control == .text {
                 let trimmed = text.trimmingCharacters(in: .whitespaces)
                 let others = (lookup.settings?.availableProviders ?? []).filter { $0.id != targetID }.map(\.displayName)
-                guard SettingsWriter.acceptsClaudesText(trimmed), !(entry.id == "sources.name" && others.contains(trimmed)) else {
+                // The inbox is a folder name inside the source: never a path that leaves it.
+                let leaves = entry.id == "organize.inbox" && (trimmed.contains("/") || trimmed.contains("..") || trimmed.hasPrefix("~"))
+                guard SettingsWriter.acceptsClaudesText(trimmed), !leaves, !(entry.id == "sources.name" && others.contains(trimmed)) else {
                     return AskClaudeToolOutcome(result: "“\(text)” can’t be offered for \(entry.label): one line of up to 64 characters, and not another source’s name.",
                                                 isError: true, step: "Not a pick for \(entry.label)")
                 }
@@ -433,10 +455,11 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             }
             return .success(person.id)
         }
-        let sources = lookup.settings?.availableProviders ?? []
+        let sources = (lookup.settings?.availableProviders ?? []).filter { fits(entry, $0) }
         guard let given, let source = sources.first(where: { $0.id == given || $0.displayName == given }) else {
             return .failure(Refused(outcome: AskClaudeToolOutcome(
-                result: "\(entry.label) belongs to a source: give target, one of " + sources.map(\.displayName).joined(separator: ", ") + ".",
+                result: sources.isEmpty ? "\(entry.label) has no source here it applies to; it’s in Settings ▸ \(entry.tabName)."
+                    : "\(entry.label) belongs to a source: give target, one of " + sources.map(\.displayName).joined(separator: ", ") + ".",
                 isError: true, step: "Which source?")))
         }
         return .success(source.id)
@@ -449,6 +472,10 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         guard let id = call.string("id"), let entry = SettingsCatalog.entry(id) else {
             return AskClaudeToolOutcome(result: "\(call.string("id") ?? "That") isn’t a setting id. Use find.", isError: true,
                                         step: "No such setting")
+        }
+        guard ctx.chatIsOpen else {
+            return AskClaudeToolOutcome(result: "Not changed: the chat is closed, so they wouldn’t see the change or its Undo.",
+                                        isError: true, step: "Left \(entry.label) alone: the chat is closed")
         }
         if let busy = ctx.busyReason {
             return AskClaudeToolOutcome(

@@ -534,7 +534,8 @@ public final class AskClaudeEngine {
         var result: [String: JSONFragment] = [
             "type": .string("tool_result"),
             "tool_use_id": .string(call.id),
-            "content": .string(AskClaudeRequest.defused(text)),
+            // A key in a file a tool read — a .env, a shell profile — never reaches Claude (TE290).
+            "content": .string(AskClaudeRequest.defused(AskClaudeKeyCatch.masked(text, joiningLines: false))),
         ]
         if isError { result["is_error"] = .bool(true) }
         return .object(result)

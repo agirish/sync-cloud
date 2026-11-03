@@ -55,8 +55,13 @@ public struct SettingsLists {
         return present ? add(id, item) : remove(id, item)
     }
 
-    /// Adds `item` as Settings would: a pattern is normalized, and a repeat or a blank refused.
+    /// Adds `item` as Settings would: a pattern is normalized, and a repeat or a blank refused. An
+    /// item already there is refused too, so nothing records an edit that changed nothing.
     public func add(_ id: String, _ item: String) -> SettingsWriter.Outcome {
+        let same = id == "intelligence.hidden" ? (item as NSString).standardizingPath : item
+        if id != "sync.ignorePatterns", items(id)?.contains(where: { $0 == item || $0 == same }) == true {
+            return .refused(id == "intelligence.hidden" ? "That folder is already hidden from Claude." : "That’s already in the list.")
+        }
         switch id {
         case "sync.ignorePatterns":
             guard let settings else { return .refused("Ignored name patterns can’t be changed here.") }

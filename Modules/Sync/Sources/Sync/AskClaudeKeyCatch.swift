@@ -13,24 +13,39 @@ public enum AskClaudeKeyCatch {
 
     private static let pattern = try! NSRegularExpression(pattern: "sk-ant-[A-Za-z0-9_-]{\(minimumTail),}")
 
-    /// The first key in `text`, or nil when there is none.
+    /// The first key in `text`, or nil when there is none — including a key a paste broke across
+    /// lines, which is caught with the line breaks taken out.
     public static func key(in text: String) -> String? {
-        let range = NSRange(text.startIndex..., in: text)
-        guard let match = pattern.firstMatch(in: text, range: range), let found = Range(match.range, in: text) else { return nil }
-        return String(text[found])
+        for candidate in [text, text.replacingOccurrences(of: "\r", with: "").replacingOccurrences(of: "\n", with: "")] {
+            let range = NSRange(candidate.startIndex..., in: candidate)
+            if let match = pattern.firstMatch(in: candidate, range: range), let found = Range(match.range, in: candidate) {
+                return String(candidate[found])
+            }
+        }
+        return nil
     }
 
-    /// `text` with every key cut to its first 13 characters and 12 dots — "sk-ant-api03-••••••••••••"
-    /// — safe to show and to save with the chat.
+    /// How much of a key is kept when it is masked: `sk-ant-` and its kind ("api03-"), never a
+    /// character of the secret.
+    private static let kept = try! NSRegularExpression(pattern: "^sk-ant-(?:[a-z]+[0-9]*-)?")
+
+    /// `text` with every key cut to its prefix and 12 dots — "sk-ant-api03-••••••••••••" — safe to
+    /// show and to save with the chat. With `joiningLines`, a message whose key a paste broke across
+    /// lines is masked with its line breaks taken out; a tool's text keeps its lines.
     ///
-    /// Each match in the message is replaced once, last first so the earlier ranges hold: a loop
-    /// that searched again after each replacement would never end if what it kept still matched.
-    public static func masked(_ text: String) -> String {
-        var result = text
-        let matches = pattern.matches(in: text, range: NSRange(text.startIndex..., in: text))
+    /// Each match is replaced once, last first so the earlier ranges hold: a loop that searched
+    /// again after each replacement would never end if what it kept still matched.
+    public static func masked(_ text: String, joiningLines: Bool = true) -> String {
+        let whole = pattern.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+        var result = !joiningLines || whole || key(in: text) == nil
+            ? text : text.replacingOccurrences(of: "\r", with: "").replacingOccurrences(of: "\n", with: "")
+        let matches = pattern.matches(in: result, range: NSRange(result.startIndex..., in: result))
         for match in matches.reversed() {
             guard let range = Range(match.range, in: result) else { continue }
-            result.replaceSubrange(range, with: String(result[range].prefix(13)) + String(repeating: "•", count: 12))
+            let found = String(result[range])
+            let prefix = kept.firstMatch(in: found, range: NSRange(found.startIndex..., in: found))
+                .flatMap { Range($0.range, in: found) }.map { String(found[$0]) } ?? "sk-ant-"
+            result.replaceSubrange(range, with: prefix + String(repeating: "•", count: 12))
         }
         return result
     }

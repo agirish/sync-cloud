@@ -23,9 +23,16 @@ public struct SettingsLookup {
         /// A setting whose value Claude can't read yet.
         case notReadable
 
+        /// One source's value. The value is the real one, for a card and its Undo; what is hidden
+        /// from Claude is left out only when it is put in words (`words(for:_:)`).
         struct Target: Equatable {
             let name: String
+            let id: String
             let value: SettingValue
+            /// The source's own folder is hidden from Claude, so its name isn't said.
+            var nameHidden = false
+            /// The value is a folder hidden from Claude, so it isn't said.
+            var valueHidden = false
         }
     }
 
@@ -106,7 +113,7 @@ public struct SettingsLookup {
                 lines.append("\(entry.label) (\(entry.tabName)): \(Self.label(value, entry)) — default \(Self.label(base, entry))")
             case .targets(let targets) where entry.id == "sources.enabled":
                 for off in targets where off.value == .bool(false) {
-                    lines.append("\(off.name) (Sources): turned off — default on")
+                    lines.append("\(off.nameHidden ? Self.hiddenSource : off.name) (Sources): turned off — default on")
                 }
             case .count(let count) where count > 0:
                 lines.append("\(entry.label) (\(entry.tabName)): \(count) item\(count == 1 ? "" : "s")")
@@ -142,8 +149,8 @@ public struct SettingsLookup {
         case .targets(let targets):
             guard let target, let settings else { return nil }
             if entry.id == "sources.enabled" { return .bool(settings.isEnabled(target)) }
-            let name = settings.availableProviders.first { $0.id == target }?.displayName
-            return targets.first { $0.name == name || $0.name == target }?.value
+            // By id: two sources can share a name ("Documents" on two volumes).
+            return targets.first { $0.id == target }?.value
         default:
             return nil
         }
@@ -197,18 +204,25 @@ public struct SettingsLookup {
         case "sync.rememberIgnored": return .value(.bool(settings.rememberIgnoredItems))
         case "sync.ignorePatterns": return .value(.string(settings.ignorePatterns.joined(separator: ", ")))
         case "sources.enabled":
-            return .targets(settings.availableProviders.map { .init(name: $0.displayName, value: .bool(settings.isEnabled($0.id))) })
+            return .targets(settings.availableProviders.map {
+                .init(name: $0.displayName, id: $0.id, value: .bool(settings.isEnabled($0.id)), nameHidden: isHidden($0.rootPath))
+            })
         case "sources.name":
-            return .targets(settings.availableProviders.map { .init(name: $0.id, value: .string($0.displayName)) })
+            return .targets(settings.availableProviders.map {
+                let hidden = isHidden($0.rootPath)
+                return .init(name: $0.displayName, id: $0.id, value: .string($0.displayName), nameHidden: hidden, valueHidden: hidden)
+            })
         case "sources.path":
             return .targets(settings.availableProviders.filter(\.isLocalFolder).map {
-                .init(name: $0.displayName, value: .string(isHidden($0.rootPath) ? "(hidden from Claude)" : $0.rootPath))
+                let hidden = isHidden($0.rootPath)
+                return .init(name: $0.displayName, id: $0.id, value: .string($0.rootPath), nameHidden: hidden, valueHidden: hidden)
             })
         case "sources.openAt":
             return .targets(settings.availableProviders.filter { !$0.isLocalFolder }.map { provider in
                 let folder = settings.openAt(for: provider.id)
                 let path = (provider.rootPath as NSString).appendingPathComponent(folder)
-                return .init(name: provider.displayName, value: .string(isHidden(path) ? "(hidden from Claude)" : folder))
+                return .init(name: provider.displayName, id: provider.id, value: .string(folder),
+                             nameHidden: isHidden(provider.rootPath), valueHidden: isHidden(path))
             })
         default:
             return .notReadable
@@ -267,12 +281,17 @@ public struct SettingsLookup {
         switch reading {
         case .value(let value): label(value, entry)
         case .targets(let targets) where targets.isEmpty: "none"
-        case .targets(let targets): targets.map { "\($0.name): \(label($0.value, entry))" }.joined(separator: "; ")
+        case .targets(let targets):
+            targets.map { "\($0.nameHidden ? hiddenSource : $0.name): \($0.valueHidden ? "(hidden from Claude)" : label($0.value, entry))" }
+                .joined(separator: "; ")
         case .count(let count): count == 1 ? "1 item hidden" : "\(count) items hidden"
         case .saved(let saved): saved ? "a key is saved" : "no key saved"
         case .notReadable: "shown in Settings ▸ \(entry.tabName)"
         }
     }
+
+    /// A source whose own folder is hidden from Claude, in words for Claude.
+    static let hiddenSource = "a source hidden from you"
 
     /// A value as Settings shows it: a choice's label when it is one.
     public static func label(_ value: SettingValue, _ entry: SettingEntry) -> String {

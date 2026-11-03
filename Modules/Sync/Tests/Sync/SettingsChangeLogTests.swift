@@ -52,6 +52,47 @@ import Testing
         #expect(SettingsChangeLog(fileURL: url).changes == [good])
     }
 
+    /// TE290 review: a hidden name is matched as a whole word or path part, never inside another
+    /// word — a hidden "Old" once blanked every "Folder" setting's row, and its Revert.
+    @Test func aHiddenNameIsMatchedAsAWordNotInsideOne() {
+        let folder = SettingsChange(setting: "sources.folderNameRule", name: "Check folder names against", from: "oneDrive",
+                                    to: "dropBox", fromLabel: "OneDrive (strictest)", toLabel: "Dropbox", how: .card)
+        #expect(SettingsChangeLog.redacted(folder, hiding: ["Old"]) == folder)
+        let path = SettingsChange(setting: "sources.openAt", name: "Open at for Dropbox", from: "Archive/Old", to: "Work",
+                                  fromLabel: "Archive/Old", toLabel: "Work", how: .card)
+        #expect(SettingsChangeLog.redacted(path, hiding: ["old"]).name == "A change about an item hidden from Claude")
+    }
+
+    /// Rows this build can't read survive its writes; another copy's rows are merged in, not lost.
+    @Test func rowsItCantReadAndRowsAnotherCopyWroteAreKept() throws {
+        let url = file(); defer { try? FileManager.default.removeItem(at: url) }
+        let mine = change("Mine")
+        let other = change("Other")
+        let json = String(data: try JSONEncoder().encode([mine]), encoding: .utf8)!
+        try ("[{\"how\":\"someday\",\"name\":\"Future\"}," + json.dropFirst()).write(to: url, atomically: true, encoding: .utf8)
+        let log = SettingsChangeLog(fileURL: url)
+        #expect(log.changes == [mine])
+        // Another copy of the app adds a row behind this one's back.
+        let elsewhere = SettingsChangeLog(fileURL: url)
+        elsewhere.record(other)
+        log.record(change("Third"))
+        let text = try String(contentsOf: url, encoding: .utf8)
+        #expect(text.contains("someday") && text.contains("Future"))
+        #expect(Set(SettingsChangeLog(fileURL: url).changes.map(\.name)) == ["Mine", "Other", "Third"])
+    }
+
+    @Test func aFileThatIsntARecordIsSetAsideNotOverwritten() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("SettingsChangeLogTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("changes.json")
+        try "{ not a list".write(to: url, atomically: true, encoding: .utf8)
+        let log = SettingsChangeLog(fileURL: url)
+        log.record(change())
+        let names = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        #expect(names.contains { $0.hasPrefix("changes.unreadable-") })
+    }
+
     @Test func whatNamesAHiddenItemIsShownWithoutItsWords() {
         let url = file(); defer { try? FileManager.default.removeItem(at: url) }
         let log = SettingsChangeLog(fileURL: url)

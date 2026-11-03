@@ -129,6 +129,52 @@ import Sync
         #expect(undo.redoTitle == "Redo Source name")
     }
 
+    /// TE290 review: two changes to one setting on one card, then Undo twice, walks back to the
+    /// first value — the value an Undo puts back carries the token the earlier step holds.
+    @Test func undoTwiceOnOneSettingWalksBackToTheStart() {
+        let store = Store(); store.values["appearance.theme"] = .string("system")
+        let undo = stack(store)
+        let card = change(undo, store, "appearance.theme", to: .string("light"), name: "Theme")
+        _ = change(undo, store, card: card, "appearance.theme", to: .string("dark"), name: "Theme")
+        undo.undoCard(card, row: 0)
+        #expect(store.values["appearance.theme"] == .string("light"))
+        #expect(undo.offersUndo(card, row: 0))
+        undo.undo()
+        #expect(store.values["appearance.theme"] == .string("system"))
+    }
+
+    /// A redo that would raise Claude's access waits for a click, as an undo that would does.
+    @Test func aRedoThatRaisesIsntOnTheMenu() {
+        let store = Store(); store.values["intelligence.readsFiles"] = .bool(false)
+        let undo = stack(store)
+        let key = AskClaudeSettingsLedger.Key(id: "intelligence.readsFiles", target: nil)
+        store.values["intelligence.readsFiles"] = .bool(true)
+        var step = AskClaudeSettingsStep(card: UUID(), rows: [0], changes: [.init(key: key, before: .bool(false), after: .bool(true),
+                                                                                  token: undo.token(key))],
+                                         name: "Let Claude read files", cardOnly: false)
+        step.redoRaises = true
+        undo.record(step)
+        undo.undo()
+        #expect(store.values["intelligence.readsFiles"] == .bool(false))
+        #expect(!undo.canRedo)
+        undo.redo()
+        #expect(store.values["intelligence.readsFiles"] == .bool(false))
+    }
+
+    /// An undo whose write is refused keeps its step and says so, rather than losing both.
+    @Test func aRefusedUndoKeepsItsStep() {
+        let store = Store(); store.values["sources.path"] = .string("/Old")
+        let undo = stack(store)
+        var refused = 0
+        undo.didRefuse = { _ in refused += 1 }
+        let card = change(undo, store, "sources.path", to: .string("/New"), name: "Synchronized path")
+        undo.write = { _, _ in false }
+        undo.undoCard(card, row: 0)
+        #expect(refused == 1)
+        #expect(undo.offersUndo(card, row: 0))
+        #expect(store.values["sources.path"] == .string("/New"))
+    }
+
     @Test func newChatClearsTheStepsAndKeepsTheChanges() {
         let d = UserDefaults(suiteName: "AskClaudeSettingsUndoTests.newChat")!
         defer { wipeDefaultsSuite("AskClaudeSettingsUndoTests.newChat") }

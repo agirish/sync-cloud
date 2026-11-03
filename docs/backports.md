@@ -14171,3 +14171,19 @@ only on `main` (see TE290 step 0b).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Review of Ask Claude's settings cards (TE290 steps 1–10) — main only
+
+2026-11-02, for v7.0. On `main`: fixes from an adversarial review of the settings cards. A source
+hidden from Claude keeps its real path and name in Settings and is never named to Claude, in a
+card, a refusal or a Revert. A setting whose parent is off refuses to change. Changed from Chat
+keeps rows it can't read and merges with other windows' writes; hidden names match whole words
+only. A pasted API key broken across lines is caught, and keys are masked in tool results. Undo
+twice walks back to the start, a redo that would raise isn't offered, and a refused undo keeps its
+step. Revert covers people edits and order, and asks before showing a folder to Claude again. A
+folder hidden before a relaunch still starts a new chat. Clear All refuses after the pair changes.
+Ask Claude exists only on `main` (see TE290 step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

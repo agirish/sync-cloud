@@ -61,6 +61,8 @@ import Sync
         #expect(people.value("people.edit", target: nil) != before)
         #expect(people.set("people.edit", target: nil, before) == .done)
         #expect(people.value("people.edit", target: nil) == before)
+        // The default arrangement comes back as the default, not a custom order that looks like it.
+        #expect(people.store?.orderIsCustom == false)
         let first = try #require(people.people.first)
         #expect(people.move(first.id, up: true) == .refused("They’re already at the top."))
     }

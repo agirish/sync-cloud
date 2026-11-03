@@ -21,8 +21,16 @@ public enum SettingsRevert {
         case none
     }
 
-    public static func state(_ change: SettingsChange, lookup: SettingsLookup, lists: SettingsLists? = nil) -> State {
+    public static func state(_ change: SettingsChange, lookup: SettingsLookup, lists: SettingsLists? = nil,
+                             people: SettingsPeople? = nil) -> State {
         if SettingsLists.ids.contains(change.setting) { return listState(change, lists: lists) }
+        // A person edited or the order changed is put back as that person, or that order; an
+        // added person isn't taken back out here — removing someone asks first, in People.
+        if change.setting == "people.add" || change.how == .rule { return .none }
+        if change.setting == "people.edit" {
+            guard let people, let to = change.to, change.from != nil else { return .none }
+            return people.value("people.edit", target: change.target) == .string(to) ? .ready(raises: false) : .changedSince
+        }
         guard change.how != .rule, let entry = SettingsCatalog.entry(change.setting),
               let before = change.from.flatMap({ value($0, entry) }), let after = change.to.flatMap({ value($0, entry) })
         else { return .none }
@@ -34,17 +42,33 @@ public enum SettingsRevert {
     /// chat. A Revert that raises runs only when `confirmRaising` says yes.
     @discardableResult
     public static func revert(_ change: SettingsChange, lookup: SettingsLookup, writer: SettingsWriter,
-                              lists: SettingsLists? = nil, isHidden: (String) -> Bool = { _ in false },
+                              lists: SettingsLists? = nil, people: SettingsPeople? = nil,
+                              isHidden: (String) -> Bool = { _ in false },
                               log: SettingsChangeLog = .shared, center: NotificationCenter = .default,
-                              confirmRaising: (String) -> Bool) -> SettingsWriter.Outcome {
+                              confirmRaising: (RemovalPrompt) -> Bool) -> SettingsWriter.Outcome {
         if SettingsLists.ids.contains(change.setting) {
             return revertListEdit(change, lists: lists, isHidden: isHidden, log: log, center: center, confirmRaising: confirmRaising)
+        }
+        if change.setting == "people.edit" {
+            guard let people, state(change, lookup: lookup, people: people) == .ready(raises: false), let from = change.from else {
+                return .refused("\(change.name) has changed since, so it isn’t put back.")
+            }
+            let outcome = people.set("people.edit", target: change.target, .string(from))
+            guard outcome == .done else { return outcome }
+            let words = change.target == nil ? "put People back in the order they were" : "put back \(SettingsPeople.words(from))"
+            log.record(SettingsChange(setting: change.setting, target: change.target, name: change.name, from: change.to, to: from,
+                                      fromLabel: nil, toLabel: words, how: .revert))
+            center.post(name: didRevert, object: nil, userInfo: ["line": "They \(words) in People with Revert in Activity."])
+            return .done
         }
         guard case .ready(let raises) = state(change, lookup: lookup), let entry = SettingsCatalog.entry(change.setting),
               let before = change.from.flatMap({ value($0, entry) }), let after = change.to.flatMap({ value($0, entry) })
         else { return .refused("\(change.name) has changed since, so it isn’t put back.") }
         let back = SettingsLookup.label(before, entry)
-        if raises, !confirmRaising("Put \(change.name) back to \(back)? That raises Claude’s spending or access.") {
+        // A folder hidden from Claude is never named to it, even one hidden since the change.
+        let spoken = entry.privacy == .hiddenFiltered && isHidden(back) ? "a folder hidden from you" : back
+        if raises, !confirmRaising(RemovalPrompt(messageText: "Put \(change.name) back to \(back)?",
+                                                 informativeText: "That raises Claude’s spending or access.", confirmTitle: "Revert")) {
             return .refused("Not changed: you chose Cancel.")
         }
         let outcome = writer.write(entry.id, before, target: change.target)
@@ -54,7 +78,7 @@ public enum SettingsRevert {
                                   fromLabel: SettingsLookup.label(after, entry), toLabel: back, how: .revert))
         let raisesWords = raises ? " This raises Claude’s spending or access." : ""
         center.post(name: didRevert, object: nil,
-                    userInfo: ["line": "They put \(change.name) back to \(back) with Revert in Activity.\(raisesWords)"])
+                    userInfo: ["line": "They put \(change.name) back to \(spoken) with Revert in Activity.\(raisesWords)"])
         return .done
     }
 
@@ -67,13 +91,19 @@ public enum SettingsRevert {
 
     private static func revertListEdit(_ change: SettingsChange, lists: SettingsLists?, isHidden: (String) -> Bool,
                                        log: SettingsChangeLog, center: NotificationCenter,
-                                       confirmRaising: (String) -> Bool) -> SettingsWriter.Outcome {
+                                       confirmRaising: (RemovalPrompt) -> Bool) -> SettingsWriter.Outcome {
         guard let lists, case .ready(let raises) = listState(change, lists: lists),
               let item = change.target, let after = change.to.map({ $0 == "true" }) else {
             return .refused("\(change.name) has changed since, so it isn’t put back.")
         }
         let words = SettingsLists.edit(change.setting, SettingsLists.shown(change.setting, item), present: !after, isHidden: isHidden)
-        if raises, !confirmRaising("\(change.name): \(words)? That raises Claude’s spending or access.") {
+        // Showing a folder to Claude again asks in Settings' words (decision IP).
+        let shown = SettingsLists.shown(change.setting, item)
+        let question = change.setting == "intelligence.hidden"
+            ? RemovalPrompt.showToClaude(named: (shown as NSString).lastPathComponent, isFolder: true)
+            : RemovalPrompt(messageText: "\(change.name): \(words)?", informativeText: "That raises Claude’s spending or access.",
+                            confirmTitle: "Revert")
+        if raises, !confirmRaising(question) {
             return .refused("Not changed: you chose Cancel.")
         }
         let outcome = lists.set(change.setting, scoped: item, present: !after)

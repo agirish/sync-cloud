@@ -17,7 +17,9 @@ public struct ChangedFromChatRows: View {
     /// The lists a list edit's Revert puts an item back in or takes it out of (TE290 step 8).
     let lists: () -> SettingsLists?
     /// A Revert that raises Claude's spending or access asks once more.
-    let confirmRaising: @MainActor (String) -> Bool
+    let confirmRaising: @MainActor (RemovalPrompt) -> Bool
+    /// People, for a person edit's Revert (TE290 review).
+    let people: () -> SettingsPeople?
     let confirmClear: @MainActor () -> Bool
 
     @State private var showsAll = false
@@ -30,21 +32,25 @@ public struct ChangedFromChatRows: View {
     public init(log: SettingsChangeLog = .shared, lookup: @escaping () -> SettingsLookup,
                 writer: @escaping () -> SettingsWriter, hiddenNames: @escaping () -> [String],
                 lists: @escaping () -> SettingsLists? = { nil },
-                confirmRaising: @escaping @MainActor (String) -> Bool = ChangedFromChatRows.ask,
+                people: @escaping () -> SettingsPeople? = { nil },
+                confirmRaising: @escaping @MainActor (RemovalPrompt) -> Bool = ChangedFromChatRows.ask,
                 confirmClear: @escaping @MainActor () -> Bool = ChangedFromChatRows.askToClear) {
         self.log = log
         self.lookup = lookup
         self.writer = writer
         self.hiddenNames = hiddenNames
         self.lists = lists
+        self.people = people
         self.confirmRaising = confirmRaising
         self.confirmClear = confirmClear
     }
 
     public var body: some View {
-        let changes = log.visible(hiding: hiddenNames())
+        // Only the rows shown are filtered: this runs on every preferences change in the app.
+        let changes = log.visible(hiding: hiddenNames(), limit: showsAll ? nil : Self.firstShown)
+        let total = log.changes.count
         VStack(alignment: .leading, spacing: 0) {
-            if !changes.isEmpty {
+            if total > 0 {
                 HStack {
                     Text("Changed from Chat")
                         .scaledFont(.system(size: 11, weight: .semibold))
@@ -61,12 +67,13 @@ public struct ChangedFromChatRows: View {
                 .padding(.bottom, 4)
                 let lookup = self.lookup()
                 let lists = self.lists()
-                ForEach(showsAll ? changes : Array(changes.prefix(Self.firstShown))) { change in
+                let people = self.people()
+                ForEach(changes) { change in
                     Divider().padding(.leading, 12)
-                    row(change, SettingsRevert.state(change, lookup: lookup, lists: lists))
+                    row(change, SettingsRevert.state(change, lookup: lookup, lists: lists, people: people))
                 }
-                if !showsAll, changes.count > Self.firstShown {
-                    Button("Show \(changes.count - Self.firstShown) Older") { showsAll = true }
+                if !showsAll, total > Self.firstShown {
+                    Button("Show \(total - Self.firstShown) Older") { showsAll = true }
                         .buttonStyle(.link)
                         .scaledFont(.system(size: 11))
                         .padding(.horizontal, 12)
@@ -107,7 +114,7 @@ public struct ChangedFromChatRows: View {
             switch state {
             case .ready(let raises):
                 Button(raises ? "Revert ↑" : "Revert") {
-                    if case .refused(let why) = SettingsRevert.revert(change, lookup: lookup(), writer: writer(), lists: lists(), isHidden: isHidden,
+                    if case .refused(let why) = SettingsRevert.revert(change, lookup: lookup(), writer: writer(), lists: lists(), people: people(), isHidden: isHidden,
                                                                      log: log, confirmRaising: confirmRaising),
                        why != "Not changed: you chose Cancel." {
                         refusal = why
@@ -130,9 +137,11 @@ public struct ChangedFromChatRows: View {
         .accessibilityElement(children: .contain)
     }
 
-    /// Asks before a Revert that raises Claude's spending or access: a change, not a deletion.
-    public static func ask(_ message: String) -> Bool {
-        NativeAlerts.confirmChange(messageText: "Revert this change?", informativeText: message, confirmTitle: "Revert")
+    /// Asks before a Revert that raises Claude's spending or access, in the question's own words:
+    /// a change, not a deletion.
+    public static func ask(_ prompt: RemovalPrompt) -> Bool {
+        NativeAlerts.confirmChange(messageText: prompt.messageText, informativeText: prompt.informativeText,
+                                   confirmTitle: prompt.confirmTitle)
     }
 
     /// Asks before Clear empties the list, which can't be brought back.

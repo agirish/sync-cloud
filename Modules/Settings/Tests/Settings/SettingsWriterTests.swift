@@ -141,6 +141,42 @@ import Sync
         #expect(!SettingsWriter.acceptsClaudesText("Work\u{202E}xob"))
     }
 
+    /// TE290 review: what Settings shows disabled, a card can't change either; and a card is never
+    /// offered for a setting the writer can't set.
+    @Test func aSettingWhoseSwitchIsOffIsRefused() {
+        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        defaults.set(false, forKey: FileSyncManager.usesAIDefaultsKey)
+        let w = writer(defaults, nil, Calls())
+        let refused = w.write("intelligence.cloudRefine", .bool(true))
+        #expect(refused == .refused("Suggest folders with on-device AI is off, so Use Claude (cloud) to refine suggestions can’t change. Turn it on first."))
+        #expect(defaults.object(forKey: FileSyncManager.usesCloudDefaultsKey) == nil)
+        defaults.set(true, forKey: FileSyncManager.usesAIDefaultsKey)
+        #expect(w.write("intelligence.cloudRefine", .bool(true)) == .done)
+        #expect(!SettingsWriter.canWrite(SettingsCatalog.entry("readability.presets")!))
+        #expect(!SettingsWriter.canWrite(SettingsCatalog.entry("oneWay.whenDeleted")!))
+        #expect(SettingsWriter.canWrite(SettingsCatalog.entry("sources.openAt")!))
+    }
+
+    /// Every setting `canWrite` admits really is written: its default goes in without the
+    /// "can't be changed from a card" refusal.
+    @Test func everySettingACardCanHoldIsWritten() throws {
+        for entry in SettingsCatalog.all where SettingsWriter.canWrite(entry) {
+            guard case .appStorage = entry.storage, let base = entry.defaultValue else { continue }
+            let (name, defaults) = scratch("\(#function).\(entry.id)"); defer { wipeDefaultsSuite(name) }
+            let outcome = writer(defaults, SettingsManager(userDefaults: defaults), Calls()).write(entry.id, base)
+            if case .refused(let why) = outcome { #expect(!why.contains("can’t be changed from a card"), "\(entry.id): \(why)") }
+        }
+    }
+
+    @Test func aSliderReadsPercentsAndFractionsAndNothingInBetween() throws {
+        let tint = try #require(SettingsCatalog.entry("appearance.tint"))
+        #expect(SettingsCatalog.value("40%", for: tint) == .double(0.4))
+        #expect(SettingsCatalog.value("40", for: tint) == .double(0.4))
+        #expect(SettingsCatalog.value("0.4", for: tint) == .double(0.4))
+        #expect(SettingsCatalog.value("1", for: tint) == .double(1))
+        #expect(SettingsCatalog.value("1.05", for: tint) == nil)
+    }
+
     @Test func launchAtLoginGoesToTheLoginItem() {
         let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
         let calls = Calls()

@@ -40,8 +40,12 @@ public struct SettingsPeople {
         return (try? JSONEncoder().encode(fields)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
     }
 
-    /// The order as one stored value.
-    public var order: String { people.map(\.id).joined(separator: "\n") }
+    /// The order as one stored value: whether it is Settings' default arrangement or their own,
+    /// then the ids. Without the first line, an undone move would leave the list in a "custom"
+    /// order that only looks like the default.
+    public var order: String {
+        ([store?.orderIsCustom == true ? "custom" : "default"] + people.map(\.id)).joined(separator: "\n")
+    }
 
     /// `people.edit` with a person's id is that person; with none, the order. `people.add` with
     /// an id is whether the card's added person is there.
@@ -55,7 +59,7 @@ public struct SettingsPeople {
     public func set(_ id: String, target: String?, _ value: SettingValue) -> SettingsWriter.Outcome {
         if let refusal { return .refused(refusal) }
         guard case .string(let text) = value, let store else { return .refused("That isn’t a person.") }
-        guard let target else { return setOrder(text.split(separator: "\n").map(String.init)) }
+        guard let target else { return setOrder(text) }
         if text.isEmpty {
             guard store.person(id: target) != nil else { return .done }
             store.remove(id: target)
@@ -98,9 +102,17 @@ public struct SettingsPeople {
         return store?.move(id: id, up: up) == true ? .done : .refused("They’re already at the \(up ? "top" : "bottom").")
     }
 
-    /// The list in `ids`' order, one move at a time, as the buttons would make it.
-    private func setOrder(_ ids: [String]) -> SettingsWriter.Outcome {
+    /// The list in `order`'s order: back to the default arrangement as Use Default Order makes it,
+    /// or one move at a time, as the buttons would.
+    private func setOrder(_ order: String) -> SettingsWriter.Outcome {
+        var lines = order.split(separator: "\n").map(String.init)
+        let kind = lines.first == "custom" || lines.first == "default" ? lines.removeFirst() : "custom"
+        let ids = lines
         guard let store, Set(ids) == Set(people.map(\.id)) else { return .refused("The list has changed since.") }
+        if kind == "default" {
+            store.useDefaultOrder()
+            return .done
+        }
         // Each person moves up to their place: at most as many moves as places above them, so a
         // move that didn't move anyone can't keep this going.
         for (place, id) in ids.enumerated() {
@@ -109,7 +121,7 @@ public struct SettingsPeople {
                 guard store.move(id: id, up: true) else { return .refused("The list has changed since.") }
             }
         }
-        return order == ids.joined(separator: "\n") ? .done : .refused("The list has changed since.")
+        return people.map(\.id) == ids ? .done : .refused("The list has changed since.")
     }
 
     /// "Jane · sister · also Janie": a person in words, for the card, the record and Claude.

@@ -53,7 +53,7 @@ import FileExplorer
     private func tools(inBrowse: Bool = true, busy: String? = nil, folder: String = "Documents/Taxes",
                        root: String = AskClaudeBrowseToolsTests.root, recorder: Recorder = Recorder(),
                        disk: [String: [FileNode]] = [:], spotlight: [String]? = nil, extra: [FileNode] = [],
-                       moveAfter: Duration? = nil, settingsLookup: SettingsLookup? = nil,
+                       moveAfter: Duration? = nil, settingsLookup: SettingsLookup? = nil, chatIsOpen: Bool = true,
                        setSetting: ((String, SettingValue, String?) -> SettingsWriter.Outcome)? = nil) -> AskClaudeBrowseTools {
         var map: [String: FileNode] = [:]
         Self.index(Self.tree + extra, into: &map)
@@ -81,6 +81,7 @@ import FileExplorer
                 },
                 select: { recorder.selected.append($0) },
                 settingsLookup: settingsLookup,
+                chatIsOpen: chatIsOpen,
                 setSetting: setSetting ?? { _, _, _ in .refused("Settings can’t be changed here.") })
         }, listDisk: { disk[$0] }, searchNames: { _, _ in spotlight }, statDisk: { _ in nil },
            openFile: { recorder.opened.append($0); return true })
@@ -140,6 +141,9 @@ import FileExplorer
         #expect(!again.isError && again.settings == nil)
         #expect(again.result == "Theme is already Dark. Nothing changed.")
 
+        let closed = await tools(settingsLookup: lookup, chatIsOpen: false, setSetting: write)
+            .run(call("settings", ["action": .string("set"), "id": .string("appearance.theme"), "value": .string("Light")]), handles: &handles)
+        #expect(closed.isError && closed.result.hasPrefix("Not changed: the chat is closed"))
         let hidden = await set("appearance.theme", "Light", busy: "Settings is open")
         #expect(hidden.isError && hidden.result.hasPrefix("Not changed: Settings is open"))
         #expect(defaults.string(forKey: LiquidGlass.appearanceModeKey) == AppearanceMode.dark.rawValue)
@@ -232,6 +236,13 @@ import FileExplorer
         #expect(!(await show([["id": .string("people.remove"), "target": .string("Jane")]])).isError)
         #expect(!(await show([["id": .string("advanced.resetAll")]])).isError)
         #expect(await show([["id": .string("intelligence.apiKeyReveal")]]).isError)
+
+        // TE290 review: never a card whose click is always refused, a target of the wrong kind, or
+        // an inbox outside the source.
+        #expect(await show([["id": .string("readability.presets")]]).isError)
+        #expect(await show([["id": .string("oneWay.whenDeleted")]]).isError)
+        #expect(await show([["id": .string("sources.removeFolder"), "target": .string("iCloud Drive")]]).isError)
+        #expect(await show([["id": .string("organize.inbox"), "pick": .string("../../Medical")]]).isError)
     }
 
     @Test func aFolderArgumentCannotClimbOutOfTheSource() {
@@ -1679,6 +1690,37 @@ private final class NoTools: AskClaudeToolRunning {
         chat.tellClaude("They set Theme to Dark on your card (was System).", replacing: "They set Theme ")
         #expect(chat.sinceLastAnswer == ["They set Text size to 105% on your card (was 100%).",
                                          "They set Theme to Dark on your card (was System)."])
+    }
+
+    /// TE290 review: a folder hidden and then a quit still starts a new chat after the relaunch —
+    /// judged against what was hidden when the chat began, which is saved with it.
+    @Test func aFolderHiddenBeforeARelaunchStillStartsANewChat() async throws {
+        let d = defaults()
+        let store = FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudeRelaunchHide-\(UUID().uuidString)/chat.json")
+        defer { try? FileManager.default.removeItem(at: store.deletingLastPathComponent()) }
+        let make = { AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "hi"), defaults: d) },
+                                   readKey: { "k" }, storeURL: store) }
+        let first = make()
+        first.ask("what's in Medical?", screen: screen, tools: NoTools())
+        await waitUntilIdle(first)
+        #expect(!first.startsOverAtNextQuestion)
+        AskClaudePrivacy.hide("/Users/me/Medical", in: d)
+        let relaunched = make()
+        #expect(!relaunched.items.isEmpty)
+        #expect(relaunched.startsOverAtNextQuestion)
+    }
+
+    /// TE290 review: a setting's later line replaces its own earlier one, never another source's.
+    @Test func aSettingsLineReplacesOnlyItsOwn() {
+        let d = defaults()
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "hi"), defaults: d) },
+                                 readKey: { "k" })
+        chat.tellClaude("They set Enable for Dropbox (Work) to Off on your card (was On).", replacing: "They set Enable for Dropbox (Work) ")
+        chat.tellClaude("They set Enable for Dropbox to Off on your card (was On).", replacing: "They set Enable for Dropbox ")
+        #expect(chat.sinceLastAnswer.count == 2)
+        chat.tellClaude("They set Enable for Dropbox back to On on your card.", replacing: "They set Enable for Dropbox ")
+        #expect(chat.sinceLastAnswer == ["They set Enable for Dropbox (Work) to Off on your card (was On).",
+                                         "They set Enable for Dropbox back to On on your card."])
     }
 
     /// TE290 step 7: a message holding an API key is held back in favour of a card. The key stays

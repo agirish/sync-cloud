@@ -70,7 +70,7 @@ import Sync
         #expect(SettingsRevert.state(off, lookup: rig.lookup) == .ready(raises: true))
         var asked: [String] = []
         let cancelled = SettingsRevert.revert(off, lookup: rig.lookup, writer: rig.writer, log: rig.log, center: rig.center,
-                                              confirmRaising: { asked.append($0); return false })
+                                              confirmRaising: { asked.append($0.messageText); return false })
         #expect(cancelled != .done)
         #expect(asked.count == 1)
         #expect(rig.defaults.bool(forKey: AskClaudePrivacy.readsFilesKey) == false)
@@ -103,9 +103,59 @@ import Sync
         #expect(SettingsRevert.state(hid, lookup: rig.lookup, lists: lists) == .ready(raises: true))
         var asked: [String] = []
         #expect(SettingsRevert.revert(hid, lookup: rig.lookup, writer: rig.writer, lists: lists, log: rig.log, center: rig.center,
-                                      confirmRaising: { asked.append($0); return false }) != .done)
-        #expect(asked == ["Hidden from Claude: unhid a folder? That raises Claude’s spending or access."])
+                                      confirmRaising: { asked.append($0.messageText); return false }) != .done)
+        #expect(asked == ["Show “Medical” to Claude again?"])
         #expect(AskClaudePrivacy.hiddenFolders(in: rig.defaults) == ["/Users/me/Medical"])
+    }
+
+    /// TE290 review: a Revert line never names a folder hidden from Claude, even one hidden since.
+    @Test func aRevertLineNeverNamesAHiddenFolder() throws {
+        let rig = Rig(#function); defer { rig.done() }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SettingsRevertTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Medical"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Work"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let settings = SettingsManager(autoDiscover: false, userDefaults: rig.defaults, overridesDomainName: rig.name,
+                                       cloudStorageLister: { .read([]) }, pathValidator: { _ in true })
+        settings.availableProviders = [CloudProvider(id: "Acct", displayName: "Dropbox", imageName: "cloud", rootPath: root.path,
+                                                     openAt: "Work", type: .dropBox)]
+        let lookup = SettingsLookup(defaults: rig.defaults, settings: settings, keyIsSaved: { false }, hiddenCount: { 0 },
+                                    isHidden: { _ in false }, loginItemIsOn: { false })
+        let moved = SettingsChange(setting: "sources.openAt", target: "Acct", name: "Open at for Dropbox", from: "Medical", to: "Work",
+                                   fromLabel: "Medical", toLabel: "Work", how: .card)
+        var lines: [String] = []
+        let observer = rig.center.addObserver(forName: SettingsRevert.didRevert, object: nil, queue: nil) {
+            lines.append($0.userInfo?["line"] as? String ?? "")
+        }
+        defer { rig.center.removeObserver(observer) }
+        #expect(SettingsRevert.revert(moved, lookup: lookup, writer: SettingsWriter(defaults: rig.defaults, settings: settings),
+                                      isHidden: { $0.contains("Medical") }, log: rig.log, center: rig.center,
+                                      confirmRaising: { _ in true }) == .done)
+        #expect(lines == ["They put Open at for Dropbox back to a folder hidden from you with Revert in Activity."])
+    }
+
+    /// TE290 review: a person's edit goes back as that person; an added person isn't taken out here.
+    @Test func aPersonsEditIsRevertedAndAnAddIsNot() throws {
+        let rig = Rig(#function); defer { rig.done() }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("SettingsRevertTests-people-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let people = SettingsPeople(store: PeopleStore(directory: dir, profileId: "t", profile: nil))
+        let jane = try #require(people.add(name: "Jane", relationship: nil, fullNames: [], aliases: []).person)
+        let before = try #require(people.value("people.edit", target: jane.id)).stored
+        var renamed = jane
+        renamed.displayName = "Janet"
+        #expect(people.update(renamed) == .done)
+        let after = try #require(people.value("people.edit", target: jane.id)).stored
+        let edit = SettingsChange(setting: "people.edit", target: jane.id, name: "People", from: before, to: after,
+                                  fromLabel: nil, toLabel: "saved Janet", how: .card)
+        #expect(SettingsRevert.state(edit, lookup: rig.lookup, people: people) == .ready(raises: false))
+        #expect(SettingsRevert.revert(edit, lookup: rig.lookup, writer: rig.writer, people: people, log: rig.log,
+                                      center: rig.center, confirmRaising: { _ in false }) == .done)
+        #expect(people.person(named: jane.id)?.displayName == "Jane")
+        #expect(SettingsRevert.state(edit, lookup: rig.lookup, people: people) == .changedSince)
+        let add = SettingsChange(setting: "people.add", target: jane.id, name: "People", from: "", to: before,
+                                 fromLabel: nil, toLabel: "added Jane", how: .card)
+        #expect(SettingsRevert.state(add, lookup: rig.lookup, people: people) == .none)
     }
 
     @Test func aSavedRuleHasNoRevert() {

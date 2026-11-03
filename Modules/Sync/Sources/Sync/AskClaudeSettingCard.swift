@@ -3,10 +3,11 @@ import Foundation
 /// A card of SyncCloud settings in Ask Claude's chat (TE290 step 4a): each row is one setting,
 /// drawn with its real control at its live value, and a click on the control changes it.
 ///
-/// **It holds ids and words, never values read from the settings.** The value on screen is read
-/// live when the card is drawn, so a card restored from a saved chat can't show a stale one, and
-/// nothing here is a key, a path or a hidden name. What a row remembers is only what the card
-/// itself did: the value it found before its first change, so it can say "was X".
+/// **It holds ids and what the card itself did, never the settings' live values.** The value on
+/// screen is read live when the card is drawn, so a card restored from a saved chat can't show a
+/// stale one. What a row remembers is only its own doing: the value it found before its first
+/// change, so it can say "was X" (for a folder setting, that is a path), and the list items it put
+/// in or took out. It never holds a key, a folder on Hidden from Claude, or an item inside one.
 public struct AskClaudeSettingCard: Codable, Equatable, Sendable {
 
     /// One item a card put in a list or took out of it (TE290 step 8).

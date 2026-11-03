@@ -1,4 +1,5 @@
 import AppKit
+import Design
 import Events
 import Foundation
 import Sync
@@ -70,6 +71,11 @@ public struct SettingsActions {
         case "advanced.resetSetup":
             return RemovalPrompt(messageText: AdvancedSettingsTab.resetSetupPrompt.messageText,
                                  informativeText: AdvancedSettingsTab.resetSetupPrompt.informativeText, confirmTitle: "Reset")
+        case "readability.columnWidths":
+            // Asked only when All columns would release columns sized on their own.
+            let stored = lookup?.defaults.string(forKey: PaneViewMode.columnWidthOverridesDefaultsKey)
+            let count = stored.flatMap(ColumnWidthOverrides.init(rawValue:))?.widths.count ?? 0
+            return count > 0 ? .releaseColumnWidths(count: count) : nil
         case "advanced.resetAll":
             let raised = resetAllRaises()
             let raises = raised.isEmpty ? "" : "\n\nThis also raises what Claude may do: " + raised.joined(separator: "; ") + "."
@@ -91,14 +97,20 @@ public struct SettingsActions {
                   !Self.keptByReset(entry), entry.raises(from: now, to: base) else { continue }
             raised.append("\(entry.label) back to \(SettingsLookup.label(base, entry))")
         }
-        for source in settings?.availableProviders ?? [] where settings?.isEnabled(source.id) == false {
-            raised.append("\(source.displayName) turned back on")
+        // A folder you added is removed by the reset, not turned back on.
+        for source in settings?.availableProviders ?? []
+        where settings?.isEnabled(source.id) == false && !FolderSource.isFolderSourceId(source.id) {
+            raised.append("\(sourceName(source.id)) turned back on")
         }
         return raised
     }
 
-    /// Presses the button. For one that asks twice, only after the card's question was answered.
-    public func run(_ id: String, target: String?) async -> Result {
+    /// Presses the button. For one that asks twice, only after the card's question was answered;
+    /// `scope` is what `scope(_:)` gave when it opened.
+    public func run(_ id: String, target: String?, scope asked: String? = nil) async -> Result {
+        if let asked, asked != scope(id) {
+            return .refused("The comparison changed since you were asked, so nothing was cleared.")
+        }
         switch id {
         case "general.runSetupAgain":
             runSetup()
@@ -187,8 +199,16 @@ public struct SettingsActions {
 
     private var unavailable: Result { .refused("That can’t be done here right now.") }
 
+    /// A source by name, unless its own folder is hidden from Claude: these words reach Claude.
     private func sourceName(_ target: String?) -> String {
-        target.flatMap { id in settings?.availableProviders.first { $0.id == id }?.displayName } ?? "this source"
+        guard let provider = target.flatMap({ id in settings?.availableProviders.first { $0.id == id } }) else { return "this source" }
+        return lookup?.isHidden(provider.rootPath) == true ? "a source hidden from Claude" : provider.displayName
+    }
+
+    /// What a question is about, taken when it opens: the pair of sources whose ignored items Clear
+    /// All would empty. A press after the pair changed is refused, as Settings' own Clear All is.
+    public func scope(_ id: String) -> String? {
+        id == "sync.ignoredItemsClearAll" ? sync?.ignoredItemsStore?.activeKey : nil
     }
 
     /// Whether Reset All keeps this setting as it is.

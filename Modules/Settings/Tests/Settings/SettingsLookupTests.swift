@@ -23,6 +23,26 @@ import Sync
 
     private func suiteName(_ test: String = #function) -> String { "SettingsLookupTests.\(test).\(UUID().uuidString)" }
 
+    /// TE290 review: a card and its Undo get a hidden folder's real value; only the words for
+    /// Claude leave it out. The placeholder was once both, and an Undo wrote it back as a folder.
+    @Test func aHiddenFolderIsRealForTheCardAndHiddenForClaude() async throws {
+        let name = suiteName()
+        let defaults = UserDefaults(suiteName: name)!
+        defer { wipeDefaultsSuite(name) }
+        let settings = SettingsManager(autoDiscover: false, userDefaults: defaults, overridesDomainName: name,
+                                       cloudStorageLister: { .read([]) }, pathValidator: { _ in true })
+        settings.availableProviders = [
+            CloudProvider(id: "Acct", displayName: "Dropbox", imageName: "cloud", rootPath: "/Volumes/x/Dropbox", openAt: "Medical", type: .dropBox),
+        ]
+        let lookup = SettingsLookup(defaults: defaults, settings: settings, keyIsSaved: { false }, hiddenCount: { 1 },
+                                    isHidden: { $0.hasSuffix("/Medical") }, loginItemIsOn: { false })
+        let openAt = try #require(SettingsCatalog.entry("sources.openAt"))
+        #expect(lookup.currentValue(openAt, target: "Acct") == .string("Medical"))
+        let words = await lookup.get(["sources.openAt"])
+        #expect(words.contains("(hidden from Claude)"))
+        #expect(!words.contains("Medical"))
+    }
+
     @Test func findMatchesTheWordsPeopleUse() async {
         let name = suiteName(); defer { wipeDefaultsSuite(name) }
         let (lookup, _) = lookup(name)

@@ -89,13 +89,18 @@ public final class SettingsChangeLog: ObservableObject {
     /// Oldest first.
     @Published public private(set) var changes: [SettingsChange] = []
     public let fileURL: URL
+    /// Rows this build can't read — written by a newer one, say — kept as they were and written
+    /// back, so running an older build never deletes them.
+    private var unreadable: [Data] = []
 
     public static let maxChanges = 500
     public static let maxAge: TimeInterval = 90 * 86_400
 
     public init(fileURL: URL = SettingsChangeLog.defaultFileURL()) {
         self.fileURL = fileURL
-        changes = Self.trimmed(Self.load(fileURL), now: Date())
+        let loaded = Self.load(fileURL, setAsideIfUnreadable: true)
+        changes = Self.trimmed(loaded.changes, now: Date())
+        unreadable = loaded.unreadable
     }
 
     /// `SYNCCLOUD_SETTINGS_CHANGES_FILE`, else a per-process temp file under a test runner, else
@@ -110,28 +115,56 @@ public final class SettingsChangeLog: ObservableObject {
         return URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("sync-cloud-settings-changes.json")
     }
 
-    /// Adds a change and writes the file at once.
+    /// Adds a change and writes the file at once. Rows another copy of the app wrote since this one
+    /// read the file are kept: the file is read again and merged, by id, before it is written.
     public func record(_ change: SettingsChange) {
-        changes = Self.trimmed(changes + [change], now: Date())
+        // In the file's order, oldest first: what's on disk, then what only this copy holds, then
+        // the new change.
+        let disk = Self.load(fileURL, setAsideIfUnreadable: false)
+        let onDisk = Set(disk.changes.map(\.id))
+        let merged = disk.changes + changes.filter { !onDisk.contains($0.id) } + [change]
+        changes = Self.trimmed(merged, now: Date())
+        unreadable = Array(Set(unreadable + disk.unreadable))
         save()
     }
 
     /// Activity's Clear: the record goes; the settings stay as they are.
     public func clear() {
         changes = []
+        unreadable = []
         save()
     }
 
     /// Newest first, with the words of any change that names a hidden item taken out.
-    /// - Parameter hiding: The names hidden from Claude, by their last path component.
-    public func visible(hiding names: [String]) -> [SettingsChange] {
-        changes.reversed().map { Self.redacted($0, hiding: names) }
+    /// - Parameters:
+    ///   - names: The names hidden from Claude, by their last path component.
+    ///   - limit: How many of the newest to give; all when nil.
+    public func visible(hiding names: [String], limit: Int? = nil) -> [SettingsChange] {
+        let newest = changes.reversed().prefix(limit ?? changes.count)
+        let matchers = Self.matchers(names)
+        return newest.map { Self.redacted($0, matching: matchers) }
     }
 
     static func redacted(_ change: SettingsChange, hiding names: [String]) -> SettingsChange {
-        let words = [change.name, change.fromLabel, change.toLabel, change.from, change.to].compactMap { $0 }
-        guard names.contains(where: { name in !name.isEmpty && words.contains { $0.localizedCaseInsensitiveContains(name) } })
-        else { return change }
+        redacted(change, matching: matchers(names))
+    }
+
+    /// One matcher per hidden name, matching it as a whole word or path component only: a hidden
+    /// "Old" names "Old" and "Archive/Old", never "Folder" (TE290 review).
+    private static func matchers(_ names: [String]) -> [NSRegularExpression] {
+        names.compactMap { name in
+            let plain = name.precomposedStringWithCanonicalMapping
+            guard !plain.isEmpty else { return nil }
+            return try? NSRegularExpression(pattern: "(?<![\\p{L}\\p{N}])" + NSRegularExpression.escapedPattern(for: plain)
+                                            + "(?![\\p{L}\\p{N}])", options: [.caseInsensitive])
+        }
+    }
+
+    private static func redacted(_ change: SettingsChange, matching matchers: [NSRegularExpression]) -> SettingsChange {
+        let words = [change.name, change.fromLabel, change.toLabel, change.from, change.to].compactMap { $0?.precomposedStringWithCanonicalMapping }
+        guard matchers.contains(where: { matcher in
+            words.contains { matcher.firstMatch(in: $0, range: NSRange($0.startIndex..., in: $0)) != nil }
+        }) else { return change }
         return SettingsChange(id: change.id, at: change.at, setting: change.setting, target: change.target,
                               name: "A change about an item hidden from Claude", from: nil, to: nil,
                               fromLabel: nil, toLabel: nil, how: change.how)
@@ -142,26 +175,33 @@ public final class SettingsChangeLog: ObservableObject {
         return Array(recent.suffix(maxChanges))
     }
 
-    private static func load(_ url: URL) -> [SettingsChange] {
-        guard let data = try? Data(contentsOf: url) else { return [] }
-        // One change that can't be read is left out, not the whole record.
-        guard let items = try? JSONDecoder().decode([Tolerant].self, from: data) else {
-            Logger.shared.error("Changed from Chat: \(url.lastPathComponent) can’t be read; starting a new record")
-            return []
+    /// The rows on disk: those this build reads, and the rest as raw JSON. A file that isn't a list
+    /// at all is moved aside once, so the next write can't replace the only copy.
+    private static func load(_ url: URL, setAsideIfUnreadable: Bool) -> (changes: [SettingsChange], unreadable: [Data]) {
+        guard let data = try? Data(contentsOf: url) else { return ([], []) }
+        guard let items = (try? JSONSerialization.jsonObject(with: data)) as? [Any] else {
+            if setAsideIfUnreadable {
+                let aside = url.deletingPathExtension().appendingPathExtension("unreadable-\(Int(Date().timeIntervalSince1970)).json")
+                try? FileManager.default.moveItem(at: url, to: aside)
+                Logger.shared.error("Changed from Chat: \(url.lastPathComponent) can’t be read; moved it to \(aside.lastPathComponent) and started a new record")
+            }
+            return ([], [])
         }
-        return items.compactMap(\.change)
-    }
-
-    private struct Tolerant: Decodable {
-        let change: SettingsChange?
-        init(from decoder: Decoder) throws { change = try? SettingsChange(from: decoder) }
+        var changes: [SettingsChange] = []
+        var unreadable: [Data] = []
+        for item in items {
+            guard let row = try? JSONSerialization.data(withJSONObject: item, options: [.sortedKeys]) else { continue }
+            if let change = try? JSONDecoder().decode(SettingsChange.self, from: row) { changes.append(change) } else { unreadable.append(row) }
+        }
+        return (changes, unreadable)
     }
 
     private func save() {
         do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(changes).write(to: fileURL, options: .atomic)
+            let encoded = try JSONEncoder().encode(changes)
+            let rows = ((try JSONSerialization.jsonObject(with: encoded)) as? [Any] ?? [])
+                + unreadable.compactMap { try? JSONSerialization.jsonObject(with: $0) }
+            try JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys]).write(to: fileURL, options: .atomic)
         } catch {
             Logger.shared.error("Changed from Chat: couldn’t write \(fileURL.lastPathComponent): \(error.localizedDescription)")
         }

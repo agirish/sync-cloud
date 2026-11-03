@@ -72,6 +72,17 @@ import Sync
         #expect(SettingsLists.shown("sync.ignoredItems", scoped) == "Taxes/2023")
     }
 
+    /// TE290 review: an item already there is refused, so nothing records an edit that changed
+    /// nothing — and Undo of such a "hide" can't unhide a folder that was hidden all along.
+    @Test func addingWhatIsAlreadyThereIsRefused() {
+        let rig = Rig(#function); defer { wipeDefaultsSuite(rig.name) }
+        let lists = rig.lists
+        #expect(lists.add("intelligence.hidden", "/Users/me/Taxes") == .done)
+        #expect(lists.add("intelligence.hidden", "/Users/me/Taxes/") == .refused("That folder is already hidden from Claude."))
+        #expect(lists.add("organize.keptNames", "a") == .done)
+        #expect(lists.add("organize.keptNames", "a") == .refused("That’s already in the list."))
+    }
+
     @Test func anEditInWordsNeverNamesWhatIsHidden() {
         #expect(SettingsLists.edit("sync.ignorePatterns", "~$*", present: true, isHidden: { _ in false }) == "added ~$*")
         #expect(SettingsLists.edit("sync.ignoredItems", "Medical/scan.pdf", present: false, isHidden: { $0.hasPrefix("Medical") })

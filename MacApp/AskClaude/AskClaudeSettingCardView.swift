@@ -47,7 +47,10 @@ struct AskClaudeSettingsBridge {
     /// A list's rows (TE290 step 8): what is in it now, an item put in or taken out, Hidden from
     /// Claude's Add… (a folder chooser), and whether an item would be hidden from Claude.
     var listItems: @MainActor (_ entry: SettingEntry) -> [String]? = { _ in nil }
+    var listContains: @MainActor (_ entry: SettingEntry, _ scoped: String) -> Bool? = { _, _ in nil }
     var setListItem: @MainActor (_ item: UUID, _ row: Int, _ value: String, _ present: Bool) -> Void = { _, _, _, _ in }
+    /// Puts back an item this card took out, as it was edited: for an ignored item, with its pair.
+    var putBack: @MainActor (_ item: UUID, _ row: Int, _ scoped: String) -> Void = { _, _, _ in }
     var chooseHidden: @MainActor (_ item: UUID, _ row: Int) -> Void = { _, _ in }
     var isHiddenItem: @MainActor (_ value: String) -> Bool = { _ in false }
     /// A folder setting's Choose… (TE290 step 9): the panel opens; Claude never fills a path in.
@@ -62,7 +65,13 @@ struct AskClaudeSettingsBridge {
     var addPerson: @MainActor (_ item: UUID, _ row: Int, _ person: Person) -> Void = { _, _, _ in }
     /// A button (TE290 step 10): Settings' question, for one that asks twice, and the press.
     var actionPrompt: @MainActor (_ entry: SettingEntry, _ target: String?) -> RemovalPrompt? = { _, _ in nil }
-    var runAction: @MainActor (_ item: UUID, _ row: Int) -> Void = { _, _ in }
+    /// What a question is about when it opens (the pair whose ignored items Clear All empties).
+    var actionScope: @MainActor (_ entry: SettingEntry) -> String? = { _ in nil }
+    var runAction: @MainActor (_ item: UUID, _ row: Int, _ scope: String?) -> Void = { _, _, _ in }
+    /// A change whose question the card asked and they answered yes (Column widths' All columns).
+    var changeConfirmed: @MainActor (_ item: UUID, _ row: Int, _ value: SettingValue) -> Void = { _, _, _ in }
+    /// Launch at login lives in macOS: read again when its card appears.
+    var refreshLoginItem: @MainActor () async -> Void = {}
 }
 
 /// What a change does beyond its value, shown beside it on a card (TE290 step 6): judged from the
@@ -132,6 +141,14 @@ struct AskClaudeSettingCardView: View {
     /// saved: a chat restored later comes back with every question closed.
     @State private var confirming: Set<Int> = []
     @State private var confirmingShow: [Int: String] = [:]
+    /// What each open question is about, taken when it opened.
+    @State private var confirmingScope: [Int: String] = [:]
+    /// A value waiting on its question (Column widths' All columns), and an Undo waiting on one.
+    @State private var confirmingValue: [Int: SettingValue] = [:]
+    @State private var confirmingUndo: Set<Int> = []
+    /// Whether a key is saved, read when the card appears and after a save — not on every draw,
+    /// which a preferences change anywhere in the app causes.
+    @State private var keySaved = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -169,6 +186,11 @@ struct AskClaudeSettingCardView: View {
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.well))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(card.title ?? card.rows.compactMap { SettingsCatalog.entry($0.id)?.label }.joined(separator: ", "))
+        .task {
+            if card.rows.contains(where: { $0.id == "intelligence.apiKey" }) { keySaved = bridge.keyIsSaved() }
+            // Launch at login is macOS's: read it again rather than show what this launch assumed.
+            if card.rows.contains(where: { $0.id == "general.launchAtLogin" }) { await bridge.refreshLoginItem() }
+        }
     }
 
     @ViewBuilder
@@ -256,9 +278,24 @@ struct AskClaudeSettingCardView: View {
             textControl(index, entry, current, pick)
         case .folder:
             folderControl(index, entry, current)
+        case .segmented(let choices) where confirmingValue[index] != nil:
+            if let prompt = bridge.actionPrompt(entry, nil), let value = confirmingValue[index] {
+                confirmation(prompt, cancel: { confirmingValue[index] = nil }) {
+                    confirmingValue[index] = nil
+                    bridge.changeConfirmed(itemID, index, value)
+                }
+            }
         case .segmented(let choices):
             Picker(entry.label, selection: Binding(get: { current ?? choices[0].value },
-                                                   set: { bridge.change(itemID, index, $0) })) {
+                                                   set: { value in
+                // All columns erases the columns sized on their own: asked here first, as Settings asks.
+                if entry.id == "readability.columnWidths", value == .string(ColumnResizeMode.allColumns.rawValue),
+                   bridge.actionPrompt(entry, nil) != nil {
+                    confirmingValue[index] = value
+                } else {
+                    bridge.change(itemID, index, value)
+                }
+            })) {
                 ForEach(choices, id: \.value) { Text($0.label).tag($0.value) }
             }
             .pickerStyle(.segmented)
@@ -348,15 +385,24 @@ struct AskClaudeSettingCardView: View {
                 .controlSize(.small)
                 .help("\(title) is in Settings ▸ \(entry.tabName)")
         } else if confirming.contains(index), let prompt = bridge.actionPrompt(entry, row.target) {
-            confirmation(prompt, cancel: { confirming.remove(index) }) {
+            confirmation(prompt, cancel: { confirming.remove(index); confirmingScope[index] = nil }) {
                 confirming.remove(index)
-                bridge.runAction(itemID, index)
+                bridge.runAction(itemID, index, confirmingScope.removeValue(forKey: index))
             }
         } else {
             Button(title) {
-                if bridge.actionPrompt(entry, row.target) != nil { confirming.insert(index) } else { bridge.runAction(itemID, index) }
+                if bridge.actionPrompt(entry, row.target) != nil {
+                    confirmingScope[index] = bridge.actionScope(entry)
+                    confirming.insert(index)
+                } else {
+                    bridge.runAction(itemID, index, nil)
+                }
             }
             .controlSize(.small)
+            // Use Default Order changes the order, which a card can put back.
+            if entry.id == "people.defaultOrder", bridge.offersUndo(itemID, index) {
+                Button("Undo") { bridge.undo(itemID, index) }.controlSize(.small)
+            }
             if entry.tier == .asksTwice {
                 Text("Asks once more. Can’t be undone.").scaledFont(.footnote).foregroundStyle(.secondary)
             }
@@ -408,7 +454,9 @@ struct AskClaudeSettingCardView: View {
             Label(refusal, systemImage: "lock").scaledFont(.footnote).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         } else if entry.id == "people.add" {
-            let suggested: String? = { if case .string(let x)? = pick { x } else { nil } }()
+            // Claude's name only until someone is added from this card: a second click must not
+            // add them again.
+            let suggested: String? = { if case .string(let x)? = pick, row.outcome == nil { x } else { nil } }()
             let blank = Person(id: "", displayName: suggested ?? "")
             personFields(index, blank, commits: false)
             Button("Add Person") { bridge.addPerson(itemID, index, draftPerson(index, blank)); personDrafts[index] = nil }
@@ -486,10 +534,10 @@ struct AskClaudeSettingCardView: View {
     @ViewBuilder
     private func textControl(_ index: Int, _ entry: SettingEntry, _ current: SettingValue?, _ pick: SettingValue?) -> some View {
         let shown: String = { if case .string(let x)? = current { x } else { "" } }()
+        // What's typed stays until the setting shows it, so a refused name isn't lost.
         let commit = {
             guard let typed = typedItems[index], typed != shown else { return }
             bridge.change(itemID, index, .string(typed))
-            typedItems[index] = nil
         }
         TextField(entry.label, text: Binding(get: { typedItems[index] ?? shown }, set: { typedItems[index] = $0 }))
             .textFieldStyle(.roundedBorder)
@@ -497,6 +545,7 @@ struct AskClaudeSettingCardView: View {
             .onSubmit(commit)
             .focused($focusedField, equals: index)
             .onChange(of: focusedField) { was, now in if was == index, now != index { commit() } }
+            .onChange(of: shown) { _, now in if typedItems[index] == now { typedItems[index] = nil } }
             .accessibilityLabel(entry.label)
         if case .string(let suggested)? = pick, suggested != shown {
             useButton(index, entry, pick, true)
@@ -542,10 +591,11 @@ struct AskClaudeSettingCardView: View {
     @ViewBuilder
     private func listControl(_ index: Int, _ entry: SettingEntry, _ pick: SettingValue?) -> some View {
         let items = bridge.listItems(entry) ?? []
+        // Taken out here and still out, under the pair of sources it was taken from: put back
+        // as it was, never into whichever comparison is open now.
         let removedHere = (card.rows[index].listEdits ?? []).compactMap { edit -> String? in
-            guard !edit.present, let item = edit.item else { return nil }
-            let shown = SettingsLists.shown(entry.id, item)
-            return items.contains(shown) ? nil : shown
+            guard !edit.present, let item = edit.item, bridge.listContains(entry, item) == false else { return nil }
+            return item
         }
         VStack(alignment: .leading, spacing: 4) {
             if items.isEmpty, removedHere.isEmpty {
@@ -570,8 +620,8 @@ struct AskClaudeSettingCardView: View {
                 Text("and \(items.count - Self.listShown) more, in Settings ▸ \(entry.tabName)")
                     .scaledFont(.footnote).foregroundStyle(.secondary)
             }
-            ForEach(removedHere, id: \.self) { item in
-                listItemRow(item, struck: true) { bridge.setListItem(itemID, index, item, true) }
+            ForEach(removedHere, id: \.self) { scoped in
+                listItemRow(SettingsLists.shown(entry.id, scoped), struck: true) { bridge.putBack(itemID, index, scoped) }
             }
             if case .string(let suggested)? = pick, SettingsLists.takesClaudesPick(entry.id) {
                 Toggle(isOn: Binding(get: { items.contains(suggested) },
@@ -651,7 +701,7 @@ struct AskClaudeSettingCardView: View {
                     VStack(alignment: .leading, spacing: 6) { caughtButtons(index) }
                 }
             } else {
-                if bridge.keyIsSaved() {
+                if keySaved {
                     Text("Saved key: ••••••••••••••••").scaledFont(.footnote).foregroundStyle(.secondary)
                 }
                 HStack(spacing: 6) {
@@ -687,6 +737,7 @@ struct AskClaudeSettingCardView: View {
         guard !key.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         bridge.saveKey(itemID, index, key)
         typedKeys[index] = nil
+        keySaved = bridge.keyIsSaved()
     }
 
     // MARK: Status
@@ -710,14 +761,24 @@ struct AskClaudeSettingCardView: View {
                     .foregroundStyle(.green)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 4)
-                if bridge.offersUndo(itemID, index), let last = edits.last {
+                if bridge.offersUndo(itemID, index), let last = edits.last, !confirmingUndo.contains(index) {
                     let raises = SettingsLists.raises(entry.id, present: !last.present)
-                    Button(raises ? "Undo ↑" : "Undo") { bridge.undo(itemID, index) }
-                        .controlSize(.small)
-                        .help(raises ? "Undoing this raises Claude’s spending or access" : "Undoes the last change here")
+                    Button(raises ? "Undo ↑" : "Undo") {
+                        // Undoing a hide shows the folder to Claude again: asked first, as Remove asks.
+                        if entry.id == "intelligence.hidden", last.present { confirmingUndo.insert(index) } else { bridge.undo(itemID, index) }
+                    }
+                    .controlSize(.small)
+                    .help(raises ? "Undoing this raises Claude’s spending or access" : "Undoes the last change here")
                 }
             }
             .scaledFont(.footnote)
+            if confirmingUndo.contains(index) {
+                // The card keeps no hidden folder's name, so the question names it generically.
+                confirmation(.showToClaude(named: "the folder you hid", isFolder: true), cancel: { confirmingUndo.remove(index) }) {
+                    confirmingUndo.remove(index)
+                    bridge.undo(itemID, index)
+                }
+            }
             if entry.id == "intelligence.hidden", edits.last?.present == true {
                 Text("Hidden. Your next question starts a new chat, and the cards above lose their Undo. Their changes stay, in Activity.")
                     .scaledFont(.footnote).foregroundStyle(.secondary)

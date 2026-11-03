@@ -137,8 +137,9 @@ import Sync
                                                                           accent: .blue, hue: .blue))
         #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
         let question = SettingsActions(settings: nil, sync: nil, lookup: nil).prompt("advanced.resetAll", target: nil)!
+        // Inside the card's 10 pt padding: 220 pt is what the question has.
         let open = NSHostingController(rootView: AskClaudeSettingConfirmation(prompt: question, cancel: {}, confirm: {}))
-        #expect(open.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
+        #expect(open.sizeThatFits(in: CGSize(width: 220, height: 2_000)).width <= 220)
     }
 
     @Test func aCardOfSeveralWithATitleFits240() {

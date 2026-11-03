@@ -76,6 +76,8 @@ extension ContentView {
     }
 
     func askClaudeAsk(_ question: String, shown: String? = nil, attached: [AskClaudeChat.Attachment] = [], spoken: Bool = false) {
+        // Kept for the at-limit card's Ask Again, which asks this same question again.
+        askClaudeChat.lastAsked = (shown, attached)
         let tools = askClaudeTools()
         let attachedRows = askClaudeAttachedRows(attached)
         // TE241: a folder the pane hasn't loaded is read from disk first, so the screen is never
@@ -779,6 +781,7 @@ extension ContentView {
                 return true
             },
             settingsLookup: askClaudeSettingsLookup,
+            chatIsOpen: askClaudeHolder.visibility.isOpen,
             setSetting: { id, value, target in
                 let before = SettingsCatalog.entry(id).flatMap { askClaudeSettingsLookup.currentValue($0, target: target) }
                 let outcome = SettingsWriter(defaults: .standard, settings: settings).write(id, value, target: target)
@@ -799,8 +802,15 @@ extension ContentView {
     }
 
     /// "Theme", or "Show in Sidebar for Dropbox" for a setting that belongs to a source.
+    /// These words reach Claude and the record: a source whose own folder is hidden from Claude
+    /// isn't named.
     func askClaudeSettingName(_ entry: SettingEntry, target: String?) -> String {
-        target.map { id in "\(entry.label) for \(settings.availableProviders.first { $0.id == id }?.displayName ?? id)" } ?? entry.label
+        guard let target else { return entry.label }
+        if let provider = settings.availableProviders.first(where: { $0.id == target }) {
+            let hidden = askClaudeIsHidden((provider.rootPath as NSString).expandingTildeInPath)
+            return "\(entry.label) for \(hidden ? "a source hidden from you" : provider.displayName)"
+        }
+        return "\(entry.label) for \(askClaudePeople.person(named: target)?.displayName ?? target)"
     }
 
     /// The settings tool's reads (TE290), over this window's SettingsManager.
@@ -849,6 +859,14 @@ extension ContentView {
             return done
         }
         undo.didStep = { step, undone in askClaudeSettingsStepped(step, undone: undone) }
+        // An undo whose write was refused keeps its step and says so on its card.
+        undo.didRefuse = { [weak chat] step in
+            chat?.updateSettingCard(step.card) { card in
+                for row in step.rows where card.rows.indices.contains(row) {
+                    card.rows[row].refusal = "Couldn’t put it back: it can’t be set to that now."
+                }
+            }
+        }
         AskClaudePanelWindow.settingsUndo = { [weak chat] in chat?.settingsUndo }
         return AskClaudeSettingsBridge(
             read: { lookup.currentValue($0, target: $1) },
@@ -874,7 +892,9 @@ extension ContentView {
             },
             editCaught: { [weak chat] id in chat?.editCaught(id) },
             listItems: { lists.items($0.id) },
+            listContains: { entry, scoped in lists.contains(entry.id, scoped: scoped) },
             setListItem: { id, row, item, present in askClaudeListEdit(id, row, item, present: present) },
+            putBack: { id, row, scoped in askClaudeListEdit(id, row, scoped, present: true, scoped: true) },
             chooseHidden: { id, row in askClaudeChooseHidden(id, row) },
             isHiddenItem: askClaudeNamesHidden,
             chooseFolder: { id, row in askClaudeChooseFolder(id, row) },
@@ -891,7 +911,10 @@ extension ContentView {
             },
             addPerson: { id, row, person in askClaudeAddPerson(id, row, person) },
             actionPrompt: { entry, target in askClaudeActions.prompt(entry.id, target: target) },
-            runAction: { id, row in askClaudeRunAction(id, row) })
+            actionScope: { entry in askClaudeActions.scope(entry.id) },
+            runAction: { id, row, scope in askClaudeRunAction(id, row, scope: scope) },
+            changeConfirmed: { id, row, value in askClaudeSettingChange(id, row, value, confirmed: true) },
+            refreshLoginItem: { await LoginItemController.shared.refresh().value })
     }
 
     /// The buttons a card presses (TE290 step 10), with the app's own flows for setup and the
@@ -909,34 +932,44 @@ extension ContentView {
 
     /// A button pressed on a card — after the card's own question, for one that asks twice. It
     /// can't be undone, so it says what it did, in the record and to Claude, and goes on no stack.
-    func askClaudeRunAction(_ id: UUID, _ index: Int) {
+    func askClaudeRunAction(_ id: UUID, _ index: Int, scope: String? = nil) {
         guard let row = askClaudeChat.settingCard(id)?.rows, row.indices.contains(index),
               let entry = SettingsCatalog.entry(row[index].id) else { return }
         let target = row[index].target
         // Use Default Order is the one with an Undo: it changes the order, which a card can put back.
         if entry.id == "people.defaultOrder" {
-            askClaudePeopleEdit(id, index, key: .init(id: "people.edit", target: nil), name: "People") {
+            askClaudePeopleEdit(id, index, key: .init(id: "people.edit", target: nil), name: "People",
+                                words: "put People in the default order") {
                 syncManager.filingPeopleStore?.useDefaultOrder()
                 return syncManager.filingPeopleStore == nil ? .refused("People can’t be changed until the folder survey has run.") : .done
             }
             return
         }
+        // One press at a time: a second click while the first runs does nothing.
+        let pressing = "\(id)-\(index)"
+        guard !askClaudeChat.pressing.contains(pressing) else { return }
+        askClaudeChat.pressing.insert(pressing)
         let actions = askClaudeActions
         Task { @MainActor in
-            let result = await actions.run(entry.id, target: target)
+            defer { askClaudeChat.pressing.remove(pressing) }
+            let result = await actions.run(entry.id, target: target, scope: scope)
             let name = askClaudeSettingName(entry, target: target)
             switch result {
             case .done(let words):
+                SettingsChangeLog.shared.record(SettingsChange(setting: entry.id, target: target, name: name, from: nil, to: nil,
+                                                               fromLabel: nil, toLabel: words, how: .card))
                 askClaudeChat.updateSettingCard(id) { card in
+                    guard card.rows.indices.contains(index) else { return }
                     card.rows[index].refusal = nil
                     card.rows[index].outcome = words
                 }
-                SettingsChangeLog.shared.record(SettingsChange(setting: entry.id, target: target, name: name, from: nil, to: nil,
-                                                               fromLabel: nil, toLabel: words, how: .card))
                 let raises = entry.raises == .always ? " This raises Claude’s spending or access." : ""
                 askClaudeChat.tellClaude("They pressed \(name) on your card: \(words)\(raises)")
             case .refused(let why):
-                askClaudeChat.updateSettingCard(id) { $0.rows[index].refusal = why }
+                askClaudeChat.updateSettingCard(id) { card in
+                    guard card.rows.indices.contains(index) else { return }
+                    card.rows[index].refusal = why
+                }
                 askClaudeChat.tellClaude("They pressed \(name) on your card, and it didn’t run: \(why)")
             }
         }
@@ -990,7 +1023,8 @@ extension ContentView {
         }
         askClaudeChat.updateSettingCard(id) { $0.rows[index].outcome = "Added \(name) as a source." }
         SettingsChangeLog.shared.record(SettingsChange(setting: entry.id, name: "Local folders", from: nil, to: nil,
-                                                       fromLabel: nil, toLabel: "added \(name)", how: .card))
+                                                       fromLabel: nil, toLabel: hidden ? "added a folder hidden from Claude" : "added \(name)",
+                                                       how: .card))
         askClaudeChat.tellClaude(hidden ? "They added a folder hidden from you as a source." : "They added \(name) as a folder source.")
     }
 
@@ -1000,7 +1034,7 @@ extension ContentView {
     /// A person's fields saved, or a move, from a card: the step holds the person (or the order)
     /// before and after, so Undo puts back exactly that while nothing has changed it since.
     func askClaudePeopleEdit(_ id: UUID, _ index: Int, key: AskClaudeSettingsLedger.Key, name: String, moved up: Bool? = nil,
-                             _ write: () -> SettingsWriter.Outcome) {
+                             words given: String? = nil, _ write: () -> SettingsWriter.Outcome) {
         let people = askClaudePeople
         guard let before = people.value(key.id, target: key.target) else { return }
         let outcome = write()
@@ -1013,7 +1047,9 @@ extension ContentView {
                                           changes: [.init(key: key, before: before, after: after, token: undo.token(key))],
                                           name: "People", cardOnly: false))
         let words: String
-        if let up {
+        if let given {
+            words = given
+        } else if let up {
             words = "moved \(name) \(up ? "up" : "down")"
         } else if case .string(let now) = after {
             words = "saved \(SettingsPeople.words(now))"
@@ -1065,30 +1101,41 @@ extension ContentView {
 
     /// One item put in a list or taken out from a card (TE290 step 8): written through its owner,
     /// remembered on the card, undoable, recorded, and told to Claude without a hidden name.
-    func askClaudeListEdit(_ id: UUID, _ index: Int, _ item: String, present: Bool) {
+    func askClaudeListEdit(_ id: UUID, _ index: Int, _ item: String, present: Bool, scoped given: Bool = false) {
         guard let card = askClaudeChat.settingCard(id), card.rows.indices.contains(index),
               let entry = SettingsCatalog.entry(card.rows[index].id), SettingsLists.ids.contains(entry.id) else { return }
         let lists = askClaudeLists
-        let scoped = lists.scoped(entry.id, item)
-        let outcome = present ? lists.add(entry.id, item) : lists.remove(entry.id, item)
+        // A put-back names its item as it was edited, pair of sources and all, so it can't land in
+        // whichever comparison is open now.
+        let scoped = given ? item : lists.scoped(entry.id, item)
+        let outcome = given ? lists.set(entry.id, scoped: scoped, present: present)
+            : present ? lists.add(entry.id, item) : lists.remove(entry.id, item)
         guard outcome == .done else {
             if case .refused(let why) = outcome { askClaudeChat.updateSettingCard(id) { $0.rows[index].refusal = why } }
             return
         }
-        // Hidden from Claude's paths never go into the chat's file.
-        let kept = entry.id == "intelligence.hidden" ? nil : scoped
         askClaudeChat.updateSettingCard(id) { card in
             card.rows[index].refusal = nil
-            card.rows[index].listEdits = (card.rows[index].listEdits ?? []) + [.init(item: kept, present: present)]
+            card.rows[index].listEdits = (card.rows[index].listEdits ?? []) + [askClaudeListEditKept(entry.id, scoped, present: present)]
         }
         let undo = askClaudeChat.settingsUndo
         let key = AskClaudeSettingsLedger.Key(id: entry.id, target: scoped)
-        undo.record(AskClaudeSettingsStep(
+        var step = AskClaudeSettingsStep(
             card: id, rows: [index], changes: [.init(key: key, before: .bool(!present), after: .bool(present), token: undo.token(key))],
-            name: entry.label, cardOnly: SettingsLists.raises(entry.id, present: !present)))
+            name: entry.label, cardOnly: SettingsLists.raises(entry.id, present: !present))
+        step.redoRaises = SettingsLists.raises(entry.id, present: present)
+        undo.record(step)
         askClaudeRecordListEdit(entry, scoped: scoped, present: present, how: .card)
         let raises = SettingsLists.raises(entry.id, present: present) ? " This raises Claude’s spending or access." : ""
-        askClaudeChat.tellClaude("They \(SettingsLists.edit(entry.id, item, present: present, isHidden: askClaudeNamesHidden)) in \(entry.label) on your card.\(raises)")
+        let shown = SettingsLists.shown(entry.id, scoped)
+        askClaudeChat.tellClaude("They \(SettingsLists.edit(entry.id, shown, present: present, isHidden: askClaudeNamesHidden)) in \(entry.label) on your card.\(raises)")
+    }
+
+    /// What a card keeps of a list edit in the chat's file: nothing that names Hidden from
+    /// Claude's folders, or an item inside one.
+    func askClaudeListEditKept(_ id: String, _ scoped: String, present: Bool) -> AskClaudeSettingCard.ListEdit {
+        let hidden = id == "intelligence.hidden" || askClaudeNamesHidden(SettingsLists.shown(id, scoped))
+        return .init(item: hidden ? nil : scoped, present: present)
     }
 
     /// Changed from Chat's line for a list edit: the item, never the list.
@@ -1140,7 +1187,10 @@ extension ContentView {
         guard !askClaudeChat.isRunning, let question = askClaudeChat.settingCard(id)?.askAgain else { return }
         if case .overLimit = AskClaudeSpend.state(in: .standard) { return }
         askClaudeChat.updateSettingCard(id) { $0.askAgain = nil }
-        askClaudeAsk(question, shown: nil, attached: [])
+        // With what it was about, as it was first asked: a chip hidden since is dropped.
+        let asked = askClaudeChat.askAgainContext(id)
+        let attached = asked.attached.filter { !askClaudeIsHidden($0.path) }
+        askClaudeAsk(question, shown: attached.count == asked.attached.count ? asked.shown : nil, attached: attached)
     }
 
     /// A settings step undone or redone, from a card or Edit ▸ Undo: told to Claude in the line
@@ -1153,7 +1203,7 @@ extension ContentView {
                 let now = undone ? change.before : change.after
                 let words: String = {
                     guard case .string(let text) = now else { return "changed People" }
-                    if change.key.target == nil { return "put People back in their earlier order" }
+                    if change.key.target == nil { return undone ? "put People back in their earlier order" : "changed People’s order again" }
                     return text.isEmpty ? "removed the person they added" : "made it \(SettingsPeople.words(text))"
                 }()
                 SettingsChangeLog.shared.record(SettingsChange(setting: entry.id, target: change.key.target, name: "People",
@@ -1166,8 +1216,7 @@ extension ContentView {
                 let present = (undone ? change.before : change.after) == .bool(true)
                 askClaudeRecordListEdit(entry, scoped: scoped, present: present, how: undone ? .undo : .redo)
                 // The card's status follows: Undo takes its edit off, Redo puts it back.
-                let edit = AskClaudeSettingCard.ListEdit(item: entry.id == "intelligence.hidden" ? nil : scoped,
-                                                         present: change.after == .bool(true))
+                let edit = askClaudeListEditKept(entry.id, scoped, present: change.after == .bool(true))
                 askClaudeChat.updateSettingCard(step.card) { card in
                     for row in step.rows where card.rows.indices.contains(row) {
                         if undone {
@@ -1196,55 +1245,78 @@ extension ContentView {
     /// A click on a settings card: written through the setting's owner, remembered on the card as
     /// "was", and told to Claude as one line per setting (TE290 step 4a).
     /// `value` nil with a `write` of its own: an action that sets a value, such as Open at's
-    /// Reset, whose result is read back.
-    func askClaudeSettingChange(_ id: UUID, _ index: Int, _ value: SettingValue?,
+    /// Reset, whose result is read back. `confirmed`: the card's own question was answered yes —
+    /// Column widths' All columns, which releases columns sized on their own.
+    func askClaudeSettingChange(_ id: UUID, _ index: Int, _ value: SettingValue?, confirmed: Bool = false,
                                 write: (() -> SettingsWriter.Outcome)? = nil) {
         guard let card = askClaudeChat.settingCard(id), card.rows.indices.contains(index),
               let entry = SettingsCatalog.entry(card.rows[index].id) else { return }
-        let row = card.rows[index]
-        let lookup = askClaudeSettingsLookup
-        let before = lookup.currentValue(entry, target: row.target)
+        let target = card.rows[index].target
+        let before = askClaudeSettingsLookup.currentValue(entry, target: target)
         if let value { guard before != value else { return } }
-        let name = askClaudeSettingName(entry, target: row.target)
-        let label = { (v: SettingValue?) in askClaudeWords(v, entry) }
-        let prefix = "They set \(name) "
-        let outcome = write?() ?? value.map { SettingsWriter(defaults: .standard, settings: settings).write(entry.id, $0, target: row.target) }
+        // Releasing columns sized on their own can't be undone, so it asks in the card first and
+        // goes on no undo stack.
+        let releases = entry.id == "readability.columnWidths" && value == .string(ColumnResizeMode.allColumns.rawValue)
+            && askClaudeActions.prompt(entry.id, target: nil) != nil
+        let outcome = write?() ?? value.map { askClaudeWriter(card: id, row: index, confirmed: confirmed).write(entry.id, $0, target: target) }
             ?? .refused("Nothing to change.")
+        let finish = {
+            askClaudeSettingChanged(id, index, entry, target: target, outcome: outcome, before: before, wrote: value, undoable: !releases)
+        }
         // A source's name, path and Open at land when the sources are discovered again: the
         // card, its Undo and Claude's line wait for that, so each holds the value that landed.
         guard outcome == .done, SettingsWriter.appliedByDiscovery.contains(entry.id) else {
-            askClaudeSettingChanged(id, index, entry, outcome: outcome, before: before, wrote: value, prefix: prefix, label: label)
+            finish()
             return
         }
         Task { @MainActor in
             await settings.discoverProviders()
-            askClaudeSettingChanged(id, index, entry, outcome: outcome, before: before, wrote: value, prefix: prefix, label: label)
+            finish()
         }
     }
 
-    /// What a card's write did, once it has landed: the card, the undo step, the record, Claude's line.
-    private func askClaudeSettingChanged(_ id: UUID, _ index: Int, _ entry: SettingEntry, outcome: SettingsWriter.Outcome,
-                                         before: SettingValue?, wrote: SettingValue?, prefix: String,
-                                         label: (SettingValue?) -> String) {
-        guard let card = askClaudeChat.settingCard(id), card.rows.indices.contains(index) else { return }
-        let row = card.rows[index]
+    /// The writer a card's change goes through: Column widths' question already answered in the
+    /// card, and a notification permission macOS denies reported on the card and to Claude.
+    func askClaudeWriter(card id: UUID, row index: Int, confirmed: Bool = false) -> SettingsWriter {
+        SettingsWriter(defaults: .standard, settings: settings,
+                       confirmReleasingColumnWidths: { _ in confirmed },
+                       notificationsDenied: {
+                           askClaudeChat.updateSettingCard(id) { card in
+                               guard card.rows.indices.contains(index) else { return }
+                               card.rows[index].refusal = "On, but macOS blocks SyncCloud’s notifications. Allow them in System Settings ▸ Notifications."
+                           }
+                           askClaudeChat.tellClaude("Notify when done in the background is on, but macOS blocks SyncCloud’s notifications, so none will show.")
+                       })
+    }
+
+    /// What a card's write did, once it has landed: the record, then the card, its undo step and
+    /// Claude's line. The record comes first: a New Chat while it landed takes the card, not the change.
+    private func askClaudeSettingChanged(_ id: UUID, _ index: Int, _ entry: SettingEntry, target: String?,
+                                         outcome: SettingsWriter.Outcome, before: SettingValue?, wrote: SettingValue?,
+                                         undoable: Bool) {
+        let name = askClaudeSettingName(entry, target: target)
+        let label = { (v: SettingValue?) in askClaudeWords(v, entry) }
+        let prefix = "They set \(name) "
         switch outcome {
         case .done:
             // Read back, so the step and the line hold what is there (a path as stored, say).
-            guard let value = askClaudeSettingsLookup.currentValue(entry, target: row.target) ?? wrote, value != before else { return }
-            askClaudeRecordChange(entry, target: row.target, from: before, to: value, how: .card)
+            guard let value = askClaudeSettingsLookup.currentValue(entry, target: target) ?? wrote, value != before else { return }
+            askClaudeRecordChange(entry, target: target, from: before, to: value, how: .card)
+            guard let card = askClaudeChat.settingCard(id), card.rows.indices.contains(index) else { return }
             askClaudeChat.updateSettingCard(id) { card in
                 if card.rows[index].changedFrom == nil { card.rows[index].changedFrom = before?.stored }
                 card.rows[index].refusal = nil
                 card.rows[index].byClaude = nil
             }
-            if let before {
+            if let before, undoable {
                 let undo = askClaudeChat.settingsUndo
-                let key = AskClaudeSettingsLedger.Key(id: entry.id, target: row.target)
-                undo.record(AskClaudeSettingsStep(
+                let key = AskClaudeSettingsLedger.Key(id: entry.id, target: target)
+                var step = AskClaudeSettingsStep(
                     card: id, rows: [index],
                     changes: [.init(key: key, before: before, after: value, token: undo.token(key))],
-                    name: entry.label, cardOnly: entry.raises(from: value, to: before)))
+                    name: entry.label, cardOnly: entry.raises(from: value, to: before))
+                step.redoRaises = entry.raises(from: before, to: value)
+                undo.record(step)
             }
             let first = askClaudeChat.settingCard(id)?.rows[index].changedFrom
                 .flatMap { SettingsCatalog.value($0, for: entry) ?? AskClaudeSettingCardView.storedValue($0, like: value) } ?? before
@@ -1257,7 +1329,11 @@ extension ContentView {
                 askClaudeChat.tellClaude(prefix + "to \(label(value)) on \(whose) (was \(label(first))).\(raises)", replacing: prefix)
             }
         case .refused(let why):
-            askClaudeChat.updateSettingCard(id) { $0.rows[index].refusal = why }
+            guard askClaudeChat.settingCard(id) != nil else { return }
+            askClaudeChat.updateSettingCard(id) { card in
+                guard card.rows.indices.contains(index) else { return }
+                card.rows[index].refusal = why
+            }
             askClaudeChat.tellClaude(prefix + "to \(label(wrote)) on your card, and it wasn’t changed: \(why)", replacing: prefix)
         }
     }
