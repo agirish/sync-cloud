@@ -980,7 +980,7 @@ struct PaneColumnsView: View {
                           isUnexplored: childrenIndex.isUnexplored(atPath: directory),
                           isLoading: isLoading,
                           isBeingRead: graftsInFlight.contains(directory),
-                          typeFiltered: typeFilter != nil)
+                          typeFiltered: typeFilter?.hidesEverything(inFolder: directory) ?? false)
     }
 
     /// **Whether this column should ask for its directory's contents.**

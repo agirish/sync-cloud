@@ -288,11 +288,20 @@ public struct PaneTypeFilterDecor: Equatable {
     public var stamp: Int
     public var filter: PaneTypeFilter
     public var matchCounts: [String: Int]
+    /// `PaneTypeFilterFacts.keptEmptyFolders`: open or just-made folders with nothing in them at all.
+    public var emptyFolders: Set<String>
 
-    public init(stamp: Int, filter: PaneTypeFilter, matchCounts: [String: Int]) {
+    public init(stamp: Int, filter: PaneTypeFilter, matchCounts: [String: Int], emptyFolders: Set<String> = []) {
         self.stamp = stamp
         self.filter = filter
         self.matchCounts = matchCounts
+        self.emptyFolders = emptyFolders
+    }
+
+    /// Whether a column with no rows is that way because of the filter (G10): a folder that held
+    /// nothing before it is plainly empty, and "No matching files" would say the filter hid something.
+    func hidesEverything(inFolder path: String) -> Bool {
+        !emptyFolders.contains(path)
     }
 
     public static func == (lhs: Self, rhs: Self) -> Bool {

@@ -175,6 +175,37 @@ import Sync
         #expect(!DestinationPicker.picksNewFolder(highlighted: "/p/2026", suggestion: nil))
     }
 
+    /// A FILE named like the suggested year folder refuses Move (G7): the listing shows folders
+    /// only, so the suggestion read the name as free, and Move would have aimed at the file. A
+    /// folder of that name, or no item at all, is no reason to refuse.
+    @Test func testAFileNamedLikeTheNewFolderRefusesMove() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("picker-clash-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let item = dir.appendingPathComponent("W-2 2026.pdf").path
+        let request = DestinationRequest(sourcePaths: [item], firstItemName: "W-2 2026.pdf", isMove: true,
+                                         providerRoot: dir.path, providerName: "iCloud", openAt: dir.path)
+        let year = dir.appendingPathComponent("2026").path
+        func refusal(picksNew: Bool = true) -> String? {
+            DestinationPicker.refusal(highlighted: year, picksNewFolder: picksNew, request: request,
+                                      displayName: { ($0 as NSString).lastPathComponent })
+        }
+        #expect(refusal() == nil, "nothing there yet: Create and Move")
+
+        FileManager.default.createFile(atPath: year, contents: Data())
+        #expect(refusal() == "A file named “2026” is already there.")
+        #expect(refusal(picksNew: false) == nil, "an existing pick is judged by the move rules alone")
+
+        // …and the folder that cannot be made, for that file, says why.
+        let made = DestinationPicker.makeFolder(named: "2026", in: dir.path, parentName: "Taxes")
+        guard case .failure(let failure) = made else { Issue.record("made a folder over a file"); return }
+        #expect(failure.text.hasPrefix("Couldn’t make “2026” in “Taxes”: "))
+
+        try FileManager.default.removeItem(atPath: year)
+        try FileManager.default.createDirectory(atPath: year, withIntermediateDirectories: false)
+        #expect(refusal() == nil, "a folder by that name is where the move goes")
+    }
+
     /// A destination spelled through iCloud's link is the `~/Documents` folder every node names.
     @Test func testALinkSpelledDestinationIsReadTheRealWay() {
         let links: PathBoundary.LinkedFolders = ["/icloud": ["Documents": "/home/Documents"]]

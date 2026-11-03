@@ -1035,9 +1035,8 @@ struct ContentView: View {
             path,
             isLeft: isLeft,
             mirror: mirror,
-            otherIndex: isLeft
-                ? syncManager.rightChildrenIndex(treeRoot: otherRoot)
-                : syncManager.leftChildrenIndex(treeRoot: otherRoot),
+            // The sibling's tree before its type filter: a folder that filter hides is still there.
+            otherIndex: syncManager.mirrorChildrenIndex(isLeft: !isLeft, treeRoot: otherRoot),
             otherTreeRoot: otherRoot
         )
     }
@@ -1118,9 +1117,8 @@ struct ContentView: View {
             // click can be a browse move on one side and a re-root on the other.
             drawsColumns: paneDrawsColumns(isLeft: isLeft),
             otherDrawsColumns: paneDrawsColumns(isLeft: !isLeft),
-            otherIndex: isLeft
-                ? syncManager.rightChildrenIndex(treeRoot: otherRoot)
-                : syncManager.leftChildrenIndex(treeRoot: otherRoot),
+            // The sibling's tree before its type filter: a folder that filter hides is still there.
+            otherIndex: syncManager.mirrorChildrenIndex(isLeft: !isLeft, treeRoot: otherRoot),
             otherTreeRoot: otherRoot
         )
     }

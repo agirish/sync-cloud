@@ -769,6 +769,8 @@ extension FileSyncManager {
         // must not publish over the swapped state; the caller's refresh rebuilds them.
         supersedeInFlightPaneWork()
 
+        // Read before the path swap below, whose didSet empties them.
+        let typeFilterKeeps = (left: leftTypeFilterKeep, right: rightTypeFilterKeep)
         swap(&leftRelativePath, &rightRelativePath)
         swap(&selectedLeftPaths, &selectedRightPaths)
         // Travels with the selection: the pane the user was working in is now the other one, and
@@ -802,6 +804,18 @@ extension FileSyncManager {
         swap(&rawLeftTree, &rawRightTree)
         swap(&leftTree, &rightTree)
         swap(&leftItemCount, &rightItemCount)
+        // **And each pane's type filter, with what it keeps and what it learned** (RD70). The filter
+        // belongs to the pane's tree like everything above: left behind, the pass below ran each
+        // tree through the other pane's filter, so a row selected on one side could land hidden on
+        // the other — still selected, and in reach of ⌘⌫ — and the next tab switch parked the
+        // wrong pane's filter in the strip. The filters' own didSets empty the keep-sets, so those
+        // are written back after.
+        swap(&leftTypeFilter, &rightTypeFilter)
+        leftTypeFilterKeep = typeFilterKeeps.right
+        rightTypeFilterKeep = typeFilterKeeps.left
+        swap(&leftTypeFilterOpen, &rightTypeFilterOpen)
+        swap(&leftTypeFilterFacts, &rightTypeFilterFacts)
+        swap(&leftTreeBeforeTypeFilter, &rightTreeBeforeTypeFilter)
         swap(&lastLoadedLeftFocusPath, &lastLoadedRightFocusPath)
         // The walk's provenance travels with the walk: "which pane holds this file" must name the
         // pane the tree is on now.
@@ -838,8 +852,9 @@ extension FileSyncManager {
 
         // Same stale-filter-pass insurance as invalidateComparisonState: a pass holding a
         // pre-swap snapshot may publish after this method; a fresh pass over the swapped
-        // raws supersedes it within one in-memory recompute.
-        Task { await self.applyFilters() }
+        // raws supersedes it within one in-memory recompute. A row that pass hides leaves the
+        // selection, as after any filter change (TE276).
+        Task { await self.applyFilters(); self.scheduleSelectionPrune() }
         return true
     }
 

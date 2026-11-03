@@ -1712,8 +1712,8 @@ public class FileSyncManager: ObservableObject {
         }
     }
     /// What each pane's type filter pass learned, or `nil` while that pane has no filter.
-    @Published public private(set) var leftTypeFilterFacts: PaneTypeFilterFacts?
-    @Published public private(set) var rightTypeFilterFacts: PaneTypeFilterFacts?
+    @Published public internal(set) var leftTypeFilterFacts: PaneTypeFilterFacts?
+    @Published public internal(set) var rightTypeFilterFacts: PaneTypeFilterFacts?
     /// Each pane's tree after Hidden and before its type filter: the whole folder, for the census,
     /// the Trash prompt's hidden count, Ask Claude, and telling a filtered-out row from a missing one.
     public internal(set) var leftTreeBeforeTypeFilter: [FileNode] = []
@@ -1792,6 +1792,15 @@ public class FileSyncManager: ObservableObject {
     /// their children are the filtered ones; the tree before the filter holds the rest.
     public func itemsHiddenByTypeFilter(inside nodes: [FileNode]) -> Int {
         typeFilterHiddenCounts(inside: nodes).values.reduce(0, +)
+    }
+
+    /// The tree a search in one pane checks "is it on the other side too?" against: the OTHER
+    /// pane's tree before its type filter. A filter changes what that pane shows, not what is on
+    /// disk there, so a file it hides is still on both sides — read off the shown tree, a search
+    /// marked it "only on left". Nodes, not a `PaneTree`: projecting rows walks the whole tree, and
+    /// the caller does that off the main actor.
+    public func searchSideAnnotationNodes(forPaneIsLeft isLeft: Bool) -> [FileNode] {
+        isLeft ? rightTreeBeforeTypeFilter : leftTreeBeforeTypeFilter
     }
 
     /// `itemsHiddenByTypeFilter` per folder id, for a result that names only what landed. A folder
@@ -2239,6 +2248,21 @@ public class FileSyncManager: ObservableObject {
         let index = PaneChildrenIndex(tree: rightPaneTree, treeRoot: treeRoot, links: linkedFolders)
         rightChildrenCache = (publishedRightTreeVersion, treeRoot, index)
         return index
+    }
+
+    /// Path → children a drill or crumb mirrored ONTO this pane is pruned against: the tree before
+    /// its type filter. A folder that pane's filter hides is still there, so the linked drill walks
+    /// into it — and once it is open the filter keeps it in place (GQ) — instead of stopping at the
+    /// parent as if it were missing. With no filter on it is the cached index. With one, it is
+    /// built here, which is a walk of that pane's tree; only a mirrored click asks.
+    public func mirrorChildrenIndex(isLeft: Bool, treeRoot: String) -> PaneChildrenIndex {
+        guard (isLeft ? leftTypeFilter : rightTypeFilter) != nil else {
+            return isLeft ? leftChildrenIndex(treeRoot: treeRoot) : rightChildrenIndex(treeRoot: treeRoot)
+        }
+        let whole = isLeft
+            ? PaneTree(side: .left, version: publishedLeftTreeVersion, nodes: leftTreeBeforeTypeFilter)
+            : PaneTree(side: .right, version: publishedRightTreeVersion, nodes: rightTreeBeforeTypeFilter)
+        return PaneChildrenIndex(tree: whole, treeRoot: treeRoot, links: linkedFolders)
     }
 
     /// Right-pane counterpart of `leftPaneTree`.

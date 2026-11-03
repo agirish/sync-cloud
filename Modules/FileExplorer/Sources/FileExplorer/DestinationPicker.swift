@@ -285,13 +285,21 @@ public struct DestinationPicker: View {
     /// Why Move is withheld, or nil when it is offered. One string so the footer has a single place
     /// to explain itself and the button cannot disagree with the reason beside it.
     private var refusal: String? {
+        Self.refusal(highlighted: highlighted, picksNewFolder: picksNewFolder, request: request,
+                     displayName: displayName(of:))
+    }
+
+    /// `refusal`, pure but for one `fileExists`, so the rule can be asserted without the card.
+    nonisolated static func refusal(highlighted: String, picksNewFolder: Bool, request: DestinationRequest,
+                                    displayName: (String) -> String) -> String? {
         guard !highlighted.isEmpty else { return nil }
         // A new folder's name taken by a FILE: the listing shows folders only, so the suggestion
         // read the year as free — and Move would have aimed the transfer at that file.
-        if picksNewFolder, FileManager.default.fileExists(atPath: highlighted) {
+        if picksNewFolder {
             var isDirectory: ObjCBool = false
-            FileManager.default.fileExists(atPath: highlighted, isDirectory: &isDirectory)
-            if !isDirectory.boolValue { return "A file named “\(displayName(of: highlighted))” is already there." }
+            if FileManager.default.fileExists(atPath: highlighted, isDirectory: &isDirectory), !isDirectory.boolValue {
+                return "A file named “\(displayName(highlighted))” is already there."
+            }
         }
         if DestinationBrowser.destinationIsInsideSelection(highlighted, sources: request.sourcePaths) {
             let name = (request.sourcePaths.count == 1)
@@ -1247,6 +1255,22 @@ public struct DestinationPicker: View {
 
     /// Makes `name` in `parent` and tells the host, whatever happens to the transfer after it.
     private func makeFolder(named name: String, in parent: String) -> String? {
+        switch Self.makeFolder(named: name, in: parent, parentName: displayName(of: parent)) {
+        case .failure(let message):
+            failure = message.text
+            return nil
+        case .success(let created):
+            onFolderCreated(created)
+            return created
+        }
+    }
+
+    /// What the card says when its folder cannot be made — the reason, not a silent no-op.
+    struct FolderFailure: Error, Equatable { let text: String }
+
+    /// Makes `name` in `parent` on disk: its path, or the sentence the card shows instead.
+    nonisolated static func makeFolder(named name: String, in parent: String,
+                                       parentName: String) -> Result<String, FolderFailure> {
         let created = (parent as NSString).appendingPathComponent(name)
         do {
             try FileManager.default.createDirectory(
@@ -1254,12 +1278,10 @@ public struct DestinationPicker: View {
             )
         } catch {
             Logger.shared.warning("Could not create “\(name)” in \(parent): \(error.localizedDescription)")
-            failure = "Couldn’t make “\(name)” in “\(displayName(of: parent))”: \(error.localizedDescription)"
-            return nil
+            return .failure(FolderFailure(text: "Couldn’t make “\(name)” in “\(parentName)”: \(error.localizedDescription)"))
         }
         Logger.shared.info("Created “\(name)” from the destination picker")
-        onFolderCreated(created)
-        return created
+        return .success(created)
     }
 
     // MARK: - Helpers

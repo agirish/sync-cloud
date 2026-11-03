@@ -249,6 +249,16 @@ import Foundation
         #expect(Self.ids(with.tree).contains("notes.txt"))
     }
 
+    /// A kept folder that held nothing before the filter is named, so its column says "Empty"
+    /// rather than "No matching files" (G10); a kept folder the filter emptied is not.
+    @Test func aKeptFolderThatWasAlreadyEmptyIsNamed() {
+        let made = FileNode(id: "\(Self.root)/untitled folder", name: "untitled folder", isDirectory: true, children: [])
+        let (_, facts) = PaneTypeFilterPass.apply(PaneTypeFilter(families: [.images]), to: Self.tree + [made],
+                                                  keep: [made.id, "\(Self.root)/images/old"])
+        #expect(facts.keptEmptyFolders == [made.id])
+        #expect(PaneTypeFilterPass.census(of: Self.tree + [made]).keptEmptyFolders.isEmpty, "no filter, nothing to tell apart")
+    }
+
     @Test func noFilterPrunesNothingButStillCounts() {
         let facts = PaneTypeFilterPass.census(of: Self.tree)
         #expect(facts.census["jpg"] == 3)
@@ -328,6 +338,35 @@ import Foundation
         manager.setTypeFilterOpenFolders([], isLeft: true)
         await manager.applyFilters()
         #expect(manager.leftTree.findNodes(at: ["/Downloads/images/old"]).isEmpty, "closed, it goes")
+    }
+
+    /// Turning a filter on from none keeps a folder already open (GQ, G3): the host reports the
+    /// stack whatever the filter, so the filter's FIRST pass — the one its didSet starts at once —
+    /// already knows it. Reported only once the filter was on, that pass hid the folder and the
+    /// republish closed the stack before a second pass could keep it.
+    @Test func aFolderOpenBeforeTheFilterIsKeptByItsFirstPass() async {
+        let manager = FileSyncManager()
+        manager.rawLeftTree = PaneTypeFilterPassTests.tree
+        await manager.applyFilters()
+        manager.setTypeFilterOpenFolders(["/Downloads/images/old"], isLeft: true)
+        manager.leftTypeFilter = PaneTypeFilter(families: [.images])
+        await manager.applyFilters()
+        #expect(manager.leftTree.findNodes(at: ["/Downloads/images/old"]).first?.children == [])
+    }
+
+    /// A linked drill mirrors into a folder the other pane's filter hides (G4): it is still on disk
+    /// there. Pruned against the shown tree, the mirror stopped at the parent as if it were missing.
+    @Test func aMirroredDrillWalksIntoAFolderTheFilterHides() async {
+        let manager = FileSyncManager()
+        manager.rawRightTree = PaneTypeFilterPassTests.tree
+        manager.rightTypeFilter = PaneTypeFilter(families: [.images])
+        await manager.applyFilters()
+        #expect(manager.rightTree.findNodes(at: ["/Downloads/images/old"]).isEmpty, "premise: the filter hides it")
+
+        manager.applyColumnNavigation(PaneBrowsePath(components: ["images", "old"]), isLeft: true, mirror: true,
+                                      otherIndex: manager.mirrorChildrenIndex(isLeft: false, treeRoot: "/Downloads"),
+                                      otherTreeRoot: "/Downloads")
+        #expect(manager.rightBrowsePath.components == ["images", "old"])
     }
 
     /// A filter left on is never saved (FH): the stored strip brings the tab back without it.
@@ -436,5 +475,57 @@ import Foundation
         #expect(!manager.leftTreeHasOnlyHiddenEntries)
         #expect(manager.leftTreeIsEmptiedByTypeFilter)
         #expect(manager.leftTypeFilterFacts?.census == ["zip": 1])
+    }
+}
+
+@MainActor @Suite struct PaneTypeFilterSwapTests {
+
+    /// ⇄ moves each pane's filter with its tree (G1). Left behind, the left filter (PDFs) ran over
+    /// the tree that came from the right, hiding the notes.txt the swap had just selected there —
+    /// still selected, unseen, in reach of ⌘⌫ — and the right pane's tab parked the wrong filter.
+    @Test func aSwapCarriesEachPanesFilterWithItsTree() async {
+        let manager = FileSyncManager()
+        manager.rawLeftTree = [FileNode(id: "/l/W-2.pdf", name: "W-2.pdf", isDirectory: false),
+                               FileNode(id: "/l/photo.jpg", name: "photo.jpg", isDirectory: false)]
+        manager.rawRightTree = [FileNode(id: "/r/notes.txt", name: "notes.txt", isDirectory: false),
+                                FileNode(id: "/r/report.pdf", name: "report.pdf", isDirectory: false)]
+        manager.leftTypeFilter = PaneTypeFilter(families: [.pdfs])
+        manager.leftTypeFilterKeep = ["/l/untitled folder"]
+        await manager.applyFilters()
+        manager.selectedRightPaths = ["/r/notes.txt"]
+        #expect(manager.leftTree.map(\.id) == ["/l/W-2.pdf"], "premise: the left filter hides photo.jpg")
+
+        #expect(manager.swapPanes())
+        #expect(manager.leftTypeFilter == nil)
+        #expect(manager.rightTypeFilter == PaneTypeFilter(families: [.pdfs]))
+        #expect(manager.rightTypeFilterKeep == ["/l/untitled folder"], "what the pane wrote travels too")
+        #expect(manager.leftTypeFilterKeep.isEmpty)
+        #expect(manager.rightTypeFilterFacts != nil && manager.leftTypeFilterFacts == nil)
+        #expect(manager.captureTab(isLeft: false, providerId: "icloud").typeFilter == PaneTypeFilter(families: [.pdfs]))
+
+        await manager.applyFilters()
+        #expect(Set(manager.leftTree.map(\.id)) == ["/r/notes.txt", "/r/report.pdf"])
+        #expect(manager.rightTree.map(\.id) == ["/l/W-2.pdf"])
+        #expect(manager.selectedLeftPaths == ["/r/notes.txt"], "the row it selected is still on screen")
+    }
+}
+
+@MainActor @Suite struct PaneTypeFilterSearchTests {
+
+    /// Compare's search marks a hit "only on left" when the other pane has no such path (G2). A file
+    /// the other pane's filter hides is still there, so the check reads that pane's whole folder.
+    @Test func aFileTheOtherPanesFilterHidesIsStillOnBothSides() async {
+        let manager = FileSyncManager()
+        manager.rawLeftTree = [FileNode(id: "/l/notes.txt", name: "notes.txt", isDirectory: false)]
+        manager.rawRightTree = [FileNode(id: "/r/notes.txt", name: "notes.txt", isDirectory: false),
+                                FileNode(id: "/r/report.pdf", name: "report.pdf", isDirectory: false)]
+        manager.rightTypeFilter = PaneTypeFilter(families: [.pdfs])
+        await manager.applyFilters()
+        #expect(manager.rightTree.map(\.id) == ["/r/report.pdf"], "premise: the right filter hides notes.txt")
+
+        let other = PaneTree(side: .right, version: 0, nodes: manager.searchSideAnnotationNodes(forPaneIsLeft: true))
+        #expect(PaneTreeSearch.relativePaths(in: other) == ["notes.txt", "report.pdf"])
+        let left = PaneTree(side: .left, version: 0, nodes: manager.searchSideAnnotationNodes(forPaneIsLeft: false))
+        #expect(PaneTreeSearch.relativePaths(in: left) == ["notes.txt"])
     }
 }

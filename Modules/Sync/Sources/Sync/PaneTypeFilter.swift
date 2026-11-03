@@ -200,13 +200,19 @@ public struct PaneTypeFilterFacts: Equatable, Sendable {
     public var unexploredCount: Int
     /// Every file and folder before the type filter — the "of 52" in "28 of 52 items".
     public var itemCountBeforeFilter: Int
+    /// Folders kept (`keep`: made here, or open) that held nothing even before the filter. A column
+    /// for one is empty, not filtered: it says "Empty", where any other column the filter emptied
+    /// says "No matching files". Only kept ones, because a folder with nothing in it is otherwise
+    /// dropped by the filter and has no column — so the set stays a handful.
+    public var keptEmptyFolders: Set<String>
 
     public init(census: [String: Int] = [:], matchCounts: [String: Int] = [:],
-                unexploredCount: Int = 0, itemCountBeforeFilter: Int = 0) {
+                unexploredCount: Int = 0, itemCountBeforeFilter: Int = 0, keptEmptyFolders: Set<String> = []) {
         self.census = census
         self.matchCounts = matchCounts
         self.unexploredCount = unexploredCount
         self.itemCountBeforeFilter = itemCountBeforeFilter
+        self.keptEmptyFolders = keptEmptyFolders
     }
 
     /// How many files the census counted.
@@ -276,6 +282,9 @@ public enum PaneTypeFilterPass {
                     let (children, inside) = visit(node.children ?? [])
                     if inside > 0, filter != nil { facts.matchCounts[node.id] = inside }
                     matched += inside
+                    if filter != nil, children.isEmpty, keep.contains(node.id), (node.children ?? []).isEmpty {
+                        facts.keptEmptyFolders.insert(node.id)
+                    }
                     if filter == nil || !children.isEmpty || keep.contains(node.id) {
                         var copy = node
                         copy.children = filter == nil ? node.children : children

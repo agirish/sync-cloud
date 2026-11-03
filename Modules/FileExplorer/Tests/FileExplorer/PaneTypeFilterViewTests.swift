@@ -83,6 +83,21 @@ import Sync
         #expect(context.annotation == .containedMatches(1))
     }
 
+    /// An open column with no rows says "No matching files" only when the filter hid something in
+    /// it (G10); a folder that held nothing at all says "Empty", filter or not.
+    @Test func aGenuinelyEmptyColumnSaysEmptyUnderAFilter() {
+        let decor = PaneTypeFilterDecor(stamp: 4, filter: PaneTypeFilter(families: [.pdfs]), matchCounts: [:],
+                                        emptyFolders: ["/d/untitled folder"])
+        #expect(!decor.hidesEverything(inFolder: "/d/untitled folder"))
+        #expect(decor.hidesEverything(inFolder: "/d/photos"))
+        func caption(_ path: String) -> PaneColumnsView.Caption? {
+            PaneColumnsView.emptyCaption(rowsEmpty: true, depth: 1, isUnexplored: false, isLoading: false,
+                                         isBeingRead: false, typeFiltered: decor.hidesEverything(inFolder: path))
+        }
+        #expect(caption("/d/untitled folder")?.text == "Empty")
+        #expect(caption("/d/photos")?.text == "No matching files")
+    }
+
     @Test func theDecorComparesByStampAndFilterOnly() {
         let a = PaneTypeFilterDecor(stamp: 4, filter: PaneTypeFilter(families: [.images]), matchCounts: ["/x": 1])
         let b = PaneTypeFilterDecor(stamp: 4, filter: PaneTypeFilter(families: [.images]), matchCounts: ["/x": 2])

@@ -158,6 +158,45 @@ import Design
         }
     }
 
+    /// **The same promise in arithmetic, so it runs on CI too** (G9). The pixel test above is
+    /// machine-pinned, so nothing on the hosted runners held `panelGroundAccentScale` down. Here the
+    /// ground's brightest point — the deep base's top stop under the diagonal's first stop, at the
+    /// scale and Tint — is composited by hand, and on every accent at Tint 0 and 12% the worst glyph
+    /// must read at least as well on it as on the charcoal. The full diagonal (scale 1) fails this.
+    @Test func thePanelGroundsAccentShareKeepsEveryGlyphAsLegibleAsTheCharcoal() throws {
+        let charcoal = Self.cardFill(.darkAqua)
+        #expect(Self.luminance(charcoal) < 0.05, "premise: the charcoal resolved to a dark surface")
+        let glyphs = Self.darkGlyphTints()
+        #expect(glyphs.count == 8, "measured \(glyphs.count) tints, not the eight this vocabulary mints")
+        let charcoalWorst = glyphs.map { Self.contrast($0, on: charcoal) }.min() ?? 0
+
+        let base = LiquidGlass.darkBaseTop
+        let share = LiquidGlass.accentDiagonalOpacities(dark: true, accentT: GlassLevel.frosted.backgroundIntensity)[0]
+        for tint in [0.0, 0.12] {
+            let alpha = share * LiquidGlass.backgroundHueStrength(forTint: tint) * LiquidGlass.panelGroundAccentScale
+            for hue in LiquidGlassHue.allCases where hue != .none {
+                let stop = try #require(NSColor(hue.gradientColors[0]).usingColorSpace(.sRGB))
+                func over(_ ink: CGFloat, _ ground: Double) -> CGFloat { CGFloat(ground) + (ink - CGFloat(ground)) * CGFloat(alpha) }
+                let ground = NSColor(srgbRed: over(stop.redComponent, base.red), green: over(stop.greenComponent, base.green),
+                                     blue: over(stop.blueComponent, base.blue), alpha: 1)
+                let worst = glyphs.map { Self.contrast($0, on: ground) }.min() ?? 0
+                #expect(worst >= charcoalWorst,
+                        "\(hue) at Tint \(tint): the worst glyph is \(String(format: "%.2f", worst)):1 on the panel's ground, \(String(format: "%.2f", charcoalWorst)):1 on the charcoal")
+            }
+        }
+    }
+
+    /// Every identity tint, resolved in dark.
+    private static func darkGlyphTints() -> [NSColor] {
+        var tints: [NSColor] = []
+        NSAppearance(named: .darkAqua)?.performAsCurrentDrawingAppearance {
+            tints = FileTypeGlyph.Kind.allCases.compactMap { kind in
+                FileTypeGlyph.tint(for: kind).flatMap { NSColor($0).usingColorSpace(.sRGB) }
+            }
+        }
+        return tints
+    }
+
     /// The lowest contrast any identity tint has against the brightest point of a dark Frosted
     /// panel's ground, across every accent, over the window background it floats on.
     private static func worstGlyphContrast(groundLevel: GlassLevel, tint: Double) throws -> CGFloat {

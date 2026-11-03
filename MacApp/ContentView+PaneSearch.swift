@@ -104,13 +104,18 @@ extension ContentView {
         // `PaneTree`, which is a stamped snapshot, so the background pass cannot observe a
         // republish half-applied.
         let tree = pane.tree
-        let otherTree = pane.otherTree
+        // The other pane's tree BEFORE its type filter: a file that filter hides is still on that
+        // side, and reading the shown tree marked it "only on left".
+        let otherNodes = syncManager.searchSideAnnotationNodes(forPaneIsLeft: isLeft)
+        let otherSide = pane.otherTree.side
         let annotatesSides = plan.annotatesSides
 
         let results = await Task.detached(priority: .userInitiated) {
             PaneSearchResults(
                 side: plan.side, generation: generation, query: query, tree: tree,
-                otherPaths: annotatesSides ? PaneTreeSearch.relativePaths(in: otherTree) : nil)
+                otherPaths: annotatesSides
+                    ? PaneTreeSearch.relativePaths(in: PaneTree(side: otherSide, version: 0, nodes: otherNodes))
+                    : nil)
         }.value
 
         // **`Task.detached` does not inherit cancellation, and awaiting its `.value` does not

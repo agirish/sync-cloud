@@ -403,14 +403,17 @@ public class FileActionHandler {
     private func setTransferBanner(verb: String, _ nodes: [FileNode], to destinationName: String,
                                    hiddenByFilter: [String: Int] = [:]) {
         guard !nodes.isEmpty else { return }
-        let hidden = nodes.reduce(0) { $0 + (hiddenByFilter[$1.id] ?? 0) }
-        let includes = hidden == 0 ? ""
-            : ". Includes \(hidden == 1 ? "1 item" : "\(hidden.formatted()) items") the filter is hiding"
+        let includes = Self.filterHidingClause(nodes.reduce(0) { $0 + (hiddenByFilter[$1.id] ?? 0) })
         // copyItems/moveItems register one grouped undo for the whole batch, so a single Undo (⌘Z)
         // reverses it — the banner may offer the button.
         syncManager.banner = .success((nodes.count == 1
             ? "\(verb) “\(nodes[0].name)” to \(destinationName)"
             : "\(verb) \(nodes.count) items to \(destinationName)") + includes, undoable: true)
+    }
+
+    /// ". Includes 3 items the filter is hiding", or "" for none — the Trash prompt's words (FJ).
+    static func filterHidingClause(_ hidden: Int) -> String {
+        hidden == 0 ? "" : ". Includes \(hidden == 1 ? "1 item" : "\(hidden.formatted()) items") the filter is hiding"
     }
     
     // MARK: - Mutations
@@ -458,16 +461,31 @@ public class FileActionHandler {
     ///   reading of the defaults key.
     public func confirmDelete(_ nodes: [FileNode], alwaysConfirm: Bool = false) {
         guard !refusedWhileRunning() else { return }
+        // A folder goes with everything in it, including what the type filter hides (FJ). The
+        // prompt says so; with no prompt, the result has to.
+        var unsaidHidden: [String: Int] = [:]
         if alwaysConfirm || GeneralSettings.shouldConfirmBeforeDelete(defaults) {
-            // A folder goes with everything in it, including what the type filter hides (FJ).
             guard deleteConfirmer(nodes.map { $0.name }, syncManager.itemsHiddenByTypeFilter(inside: nodes)) else { return }
             Logger.shared.info("User confirmed deletion of \(nodes.count) item(s)")
         } else {
+            unsaidHidden = syncManager.typeFilterHiddenCounts(inside: nodes)
             Logger.shared.info("User deleted \(nodes.count) item(s) (confirmation disabled in Settings)")
         }
         Task {
-            await syncManager.deleteItems(at: nodes.map { $0.id }, fileManager: syncManager.fileManager,
-                                          reportsNothingToDo: true)
+            let outcome = await syncManager.deleteItems(at: nodes.map { $0.id }, fileManager: syncManager.fileManager,
+                                                        reportsNothingToDo: true)
+            guard !unsaidHidden.isEmpty,
+                  outcome.trashed + outcome.trashedWithoutLocation + outcome.permanentlyDeleted > 0,
+                  var banner = syncManager.banner, banner.severity == .success else { return }
+            // Only what left the disk counts, as a transfer counts only what landed.
+            let hidden = nodes.reduce(0) { total, node in
+                guard let count = unsaidHidden[node.id],
+                      !syncManager.fileManager.fileExists(atPath: node.id) else { return total }
+                return total + count
+            }
+            guard hidden > 0 else { return }
+            banner.message += Self.filterHidingClause(hidden)
+            syncManager.banner = banner
         }
     }
 }

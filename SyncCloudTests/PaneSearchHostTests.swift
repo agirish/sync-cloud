@@ -208,6 +208,22 @@ import Sync
                 "the idle check runs after the generation is bumped, so an empty republish still publishes")
     }
 
+    /// The side annotation reads the other pane's tree BEFORE its type filter (G2): a file that
+    /// filter hides is still on that side. Read from the source for the same reason as above.
+    @Test func testTheSideAnnotationReadsTheOtherPanesWholeFolder() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/ContentView+PaneSearch.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read ContentView+PaneSearch.swift — this check is vacuous")
+        let start = try #require(source.range(of: "func recomputeSearch(isLeft: Bool) async {"),
+                                 "`recomputeSearch` is gone or renamed — re-aim this check")
+        let body = source[start.upperBound...]
+        #expect(body.contains("syncManager.searchSideAnnotationNodes(forPaneIsLeft: isLeft)"))
+        #expect(!body.contains("relativePaths(in: otherTree)") && !body.contains("relativePaths(in: pane.otherTree)"),
+                "the annotation reads the other pane's filtered tree again")
+    }
+
     // MARK: - When the search re-runs
 
     /// `.task(id:)` restarts exactly when this compares unequal, so this `==` is the definition of

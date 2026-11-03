@@ -52,7 +52,8 @@ extension ContentView {
               let facts = isLeft ? syncManager.leftTypeFilterFacts : syncManager.rightTypeFilterFacts
         else { return nil }
         return PaneTypeFilterDecor(stamp: (isLeft ? syncManager.leftPaneTree : syncManager.rightPaneTree).version,
-                                   filter: filter, matchCounts: facts.matchCounts)
+                                   filter: filter, matchCounts: facts.matchCounts,
+                                   emptyFolders: facts.keptEmptyFolders)
     }
 
     /// The filter that left this pane showing nothing, for its empty state (TE274).
@@ -71,10 +72,11 @@ extension ContentView {
     }
 
     /// The folders open in a pane, for its type filter to keep in place while they are open (his
-    /// call GQ): the column stack in Columns, the expanded folders in Tree. Empty with no filter, so
-    /// an unfiltered pane's expanding and drilling never reach the manager.
+    /// call GQ): the column stack in Columns, the expanded folders in Tree. Reported with no filter
+    /// on too — the manager only stores them then, and runs no pass — because a filter turned on
+    /// from none runs its first pass at once: reported only once the filter was on, that pass did
+    /// not know the stack, hid an open folder with no match, and the stack closed past it.
     func typeFilterOpenFolders(_ pane: PaneContext) -> Set<String> {
-        guard (pane.isLeft ? syncManager.leftTypeFilter : syncManager.rightTypeFilter) != nil else { return [] }
         if pane.viewMode == .columns {
             let path = pane.isLeft ? syncManager.leftBrowsePath : syncManager.rightBrowsePath
             return Set(path.columnDirectories(treeRoot: pane.currentPath).dropFirst())

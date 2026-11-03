@@ -578,6 +578,44 @@ import Settings
                 "the file left the disk but never reached the test's own Trash")
     }
 
+    /// With no prompt to say it, the Trash's result says what the filter was hiding inside the
+    /// folder (FJ, G6) — the same clause the prompt and a copy's result use.
+    @MainActor
+    @Test func anUnconfirmedDeleteSaysWhatTheFilterHidInTheResult() async throws {
+        let dir = try makeTempDir("del-filter-noprompt")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let trash = ScratchTrash(in: dir)
+        let manager = FileSyncManager(fileManager: trash)
+        manager.undoManager = UndoManager()
+        let box = dir.appendingPathComponent("box")
+        try FileManager.default.createDirectory(at: box, withIntermediateDirectories: true)
+        let pdf = try makeFile(in: box, named: "a.pdf")
+        let jpg = try makeFile(in: box, named: "b.jpg")
+        manager.rawLeftTree = [FileNode(id: box.path, name: "box", isDirectory: true, children: [
+            FileNode(id: pdf.path, name: "a.pdf", isDirectory: false),
+            FileNode(id: jpg.path, name: "b.jpg", isDirectory: false),
+        ])]
+        manager.leftTypeFilter = PaneTypeFilter(families: [.pdfs])
+        await manager.applyFilters()
+        let defaults = ScratchDefaults("FAH-del-filter-noprompt")
+        defaults.set(false, forKey: GeneralSettings.confirmBeforeDeleteKey)
+        let handler = FileActionHandler(
+            syncManager: manager,
+            settings: makeSettings(providers: []),
+            defaults: defaults,
+            deleteConfirmer: { _, _ in false }
+        )
+
+        handler.confirmDelete(manager.leftTree)
+        await waitUntil("the result to name what the filter hid") {
+            manager.banner?.message.hasSuffix("the filter is hiding") == true
+        }
+        await waitForOperationsToFinish(manager)
+        #expect(manager.banner?.message == "Moved “box” to the Trash. Includes 1 item the filter is hiding")
+        #expect(manager.banner?.isUndoable == true, "the clause keeps the delete's own Undo")
+        #expect(!FileManager.default.fileExists(atPath: box.path))
+    }
+
     /// The pane bar's Delete asks even with the setting off — `alwaysConfirm: true`.
     ///
     /// Paired with `testConfirmDeleteSkipsPromptWhenSettingDisabled` above, which is the half that

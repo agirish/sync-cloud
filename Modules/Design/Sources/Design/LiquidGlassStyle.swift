@@ -334,6 +334,19 @@ public extension LiquidGlass {
     /// fell to 2.60. So 0.4 is the most the hue can take without a glyph reading worse than it did
     /// on the charcoal; `FileTypeGlyphContrastTests` holds it there.
     static let panelGroundAccentScale: Double = 0.4
+
+    /// The dark deep base's top stop, the brightest point of the window's dark ground before its
+    /// accent — and of a panel's ground (`glassPanelGround`). Its bottom stop is `darkBaseBottom`.
+    static let darkBaseTop = (red: 0.065, green: 0.082, blue: 0.115)
+    static let darkBaseBottom = (red: 0.02, green: 0.027, blue: 0.043)
+
+    /// The accent diagonal's three stop opacities, before the Tint scale (`backgroundHueStrength`)
+    /// and a panel's `panelGroundAccentScale`. `accentT` is the level's accent strength.
+    static func accentDiagonalOpacities(dark: Bool, accentT: Double) -> [Double] {
+        dark
+            ? [0.19 + 0.28 * accentT, 0.15 + 0.23 * accentT, 0.10 + 0.16 * accentT]
+            : [0.06 + 0.16 * accentT, 0.05 + 0.14 * accentT, 0.04 + 0.10 * accentT]
+    }
 }
 
 // MARK: - The "None" white ground
@@ -1076,9 +1089,7 @@ private struct LiquidGlassBackground: ViewModifier {
         // `BackgroundHuePaintsScaleTests` derives the set from this source and fails any paint that
         // does not carry it, including one added after this comment was written.
         let hueStrength = LiquidGlass.backgroundHueStrength(forTint: tint)
-        let opacities: [Double] = dark
-            ? [0.19 + 0.28 * accentT, 0.15 + 0.23 * accentT, 0.10 + 0.16 * accentT]
-            : [0.06 + 0.16 * accentT, 0.05 + 0.14 * accentT, 0.04 + 0.10 * accentT]
+        let opacities = LiquidGlass.accentDiagonalOpacities(dark: dark, accentT: accentT)
         let gradientColors = zip(hue.gradientColors, opacities)
             .map { $0.0.opacity($0.1 * hueStrength * (panelGround ? LiquidGlass.panelGroundAccentScale : 1)) }
 
@@ -1098,8 +1109,10 @@ private struct LiquidGlassBackground: ViewModifier {
                 // without giving up see-through).
                 if dark {
                     LinearGradient(
-                        colors: [Color(red: 0.065, green: 0.082, blue: 0.115),
-                                 Color(red: 0.02, green: 0.027, blue: 0.043)],
+                        colors: [Color(red: LiquidGlass.darkBaseTop.red, green: LiquidGlass.darkBaseTop.green,
+                                       blue: LiquidGlass.darkBaseTop.blue),
+                                 Color(red: LiquidGlass.darkBaseBottom.red, green: LiquidGlass.darkBaseBottom.green,
+                                       blue: LiquidGlass.darkBaseBottom.blue)],
                         startPoint: .top,
                         endPoint: .bottom
                     )
