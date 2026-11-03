@@ -177,7 +177,12 @@ import Testing
         window.appearance = NSAppearance(named: .aqua)
         window.contentView = host
         host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        // At 1× on every machine, as the hosted CI display draws, so a run here sees what CI sees.
+        let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(host.bounds.width.rounded(.up)),
+                                                pixelsHigh: Int(host.bounds.height.rounded(.up)), bitsPerSample: 8,
+                                                samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        rep.size = host.bounds.size
         host.cacheDisplay(in: host.bounds, to: rep)
         return rep
     }
@@ -186,13 +191,13 @@ import Testing
         try render(AskClaudeAnswerView(blocks: AskClaudeMarkdown.blocks(text)), width: width)
     }
 
-    /// Pixels below `top` (in points) that aren't white: a divider's light gray counts.
+    /// Pixels below `top` (in points) that aren't white; a rule's light gray counts.
     private static func ink(_ rep: NSBitmapImageRep, below top: CGFloat) -> Int {
         let scale = CGFloat(rep.pixelsHigh) / rep.size.height
         var count = 0
         for y in Int(top * scale)..<rep.pixelsHigh {
             for x in 0..<rep.pixelsWide {
-                if let c = rep.colorAt(x: x, y: y), min(c.redComponent, c.greenComponent, c.blueComponent) < 0.97 { count += 1 }
+                if let c = rep.colorAt(x: x, y: y), min(c.redComponent, c.greenComponent, c.blueComponent) < 0.995 { count += 1 }
             }
         }
         return count

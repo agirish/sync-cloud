@@ -235,8 +235,16 @@ struct AskClaudeAnswerView: View {
         case .table(let table):
             AskClaudeTableView(table: table)
         case .rule:
-            Divider().padding(.vertical, 2)
+            AskClaudeHairline().padding(.vertical, 2)
         }
+    }
+}
+
+/// A rule one point high in the separator colour. A `Divider` drew next to nothing at 1× (10
+/// pixels across a 340-point rule, offscreen), where this draws the whole line at any scale.
+struct AskClaudeHairline: View {
+    var body: some View {
+        Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 1).frame(maxWidth: .infinity)
     }
 }
 
@@ -292,7 +300,7 @@ struct AskClaudeTableView: View {
                 }
             }
             ForEach(table.rows.indices, id: \.self) { row in
-                Divider()
+                AskClaudeHairline()
                 GridRow {
                     ForEach(table.rows[row].indices, id: \.self) { column in
                         Text(table.rows[row][column])
