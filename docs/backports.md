@@ -14137,3 +14137,14 @@ relying on colour. Ask Claude exists only on `main` (see TE290 step 0b).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Ask Claude reveals what it finds; Archive and Backup copies come last — main only
+
+2026-11-02, for v7.0. On `main`: asked to find or show a file, Claude reveals the best match in
+Browse itself instead of only naming it. `find_by_name` lists items under a folder named Archive,
+Archived, Backup or Backups after every other match, unless the search words ask for an archive or
+backup. Ask Claude exists only on `main` (see TE290 step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

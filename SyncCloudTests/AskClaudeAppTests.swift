@@ -288,6 +288,38 @@ import FileExplorer
         #expect(!found.result.contains("Receipt notice"))
     }
 
+    @Test func archiveAndBackupCopiesComeLastUnlessAskedFor() async {
+        // The archived copy's name holds a year, so by year alone it would lead.
+        let archived = Self.file("Documents/Immigration/Passport/Shweta/Archive/Passport - Shweta - All Pages (Jul 2020).pdf")
+        let current = Self.file("Documents/Immigration/Passport/Shweta/Passport - Shweta - Bio Pages.pdf")
+        let backup = Self.file("Documents/Old Backups/Passport - Shweta 2024.pdf")
+        let scan = Self.file("Documents/Immigration/Passport/Shweta/Passport - Shweta - archive scan.pdf")
+        func rows(_ words: String) async -> [Substring] {
+            var handles = AskClaudeHandles()
+            let found = await tools(spotlight: [archived.id, backup.id, current.id, scan.id], extra: [archived, current, backup, scan])
+                .run(call("find_by_name", ["words": .string(words), "folder": .string("Documents")]), handles: &handles)
+            return found.result.split(separator: "\n").filter { $0.range(of: #"^r\d+\|"#, options: .regularExpression) != nil }
+        }
+        let plain = await rows("shweta passport")
+        #expect(plain.count == 4)
+        #expect(plain.prefix(2).allSatisfy { !$0.contains("All Pages") && !$0.contains("Old Backups") })
+        // Asked for an archived copy: the year decides again, so the Archive folder's 2020 copy
+        // leads the scan whose own name says archive.
+        let asked = await rows("shweta passport archive")
+        #expect(asked.count == 2 && asked.first?.contains("All Pages") == true)
+        #expect(AskClaudeBrowseTools.isSetAside("Old Backups/Taxes/2024.pdf"))
+        #expect(AskClaudeBrowseTools.isSetAside("Shweta/Back up/Scan.pdf"))
+        #expect(!AskClaudeBrowseTools.isSetAside("Shweta/Archive notes.pdf"))
+        #expect(AskClaudeBrowseTools.namesSetAside("Archived") && !AskClaudeBrowseTools.namesSetAside("arch"))
+    }
+
+    @Test func aSearchSaysToRevealTheBestRow() async {
+        var handles = AskClaudeHandles()
+        let found = await tools(spotlight: [Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"])
+            .run(call("find_by_name", ["words": .string("rei"), "folder": .string("")]), handles: &handles)
+        #expect(found.result.hasSuffix("If they asked to find or show something, reveal the best row now, without asking."))
+    }
+
     @Test func theLatestYearInAPathIsTheEndOfItsLatestPeriod() {
         #expect(AskClaudeBrowseTools.latestYear(in: "Immigration/H-1B/2026-2029/Approval") == 2029)
         #expect(AskClaudeBrowseTools.latestYear(in: "Taxes/2024 Return – filed.pdf") == 2024)

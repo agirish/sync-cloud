@@ -619,9 +619,16 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         // Newest first, judged the way the archive is filed: the latest year anywhere in the path
         // (“2026-2029” counts as 2029), then items whose own name holds every word, then the
         // modified date. So the newest period leads for every model, not only one that reasons it.
+        // Copies under an Archive or Backup folder come after all of those, unless the words ask
+        // for one: they are rarely the copy meant.
         let years = Dictionary(kept.map { ($0.id, Self.latestYear(in: Self.relative($0.id, root: ctx.root)) ?? 0) },
                                uniquingKeysWith: { a, _ in a })
+        let wantsSetAside = words.contains(where: Self.namesSetAside)
+        let setAside = Dictionary(kept.map { ($0.id, !wantsSetAside && Self.isSetAside(Self.relative($0.id, root: ctx.root))) },
+                                  uniquingKeysWith: { a, _ in a })
         kept.sort { a, b in
+            let aa = setAside[a.id] ?? false, ba = setAside[b.id] ?? false
+            if aa != ba { return ba }
             let ay = years[a.id] ?? 0, by = years[b.id] ?? 0
             if ay != by { return ay > by }
             let an = Self.holdsEvery(words, in: a.name), bn = Self.holdsEvery(words, in: b.name)
@@ -643,6 +650,10 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             return AskClaudeScreenCard.row(for: Self.row(node), handles: &handles) + "|" + AskClaudeScreenCard.escape(where_.isEmpty ? "(top level)" : where_)
         }
         if total > hits.count { lines.append("\(total - hits.count) more not listed; narrow the words or the folder.") }
+        if kept.contains(where: { setAside[$0.id] == true }) {
+            lines.append("Rows under an Archive or Backup folder are listed last: they are usually older copies.")
+        }
+        lines.append("If they asked to find or show something, reveal the best row now, without asking.")
         return AskClaudeToolOutcome(result: lines.joined(separator: "\n"),
                                     step: "Found \(total) for “\(label)”")
     }
@@ -1897,6 +1908,22 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             guard run.count == 4, let year = Int(run), (1900...2099).contains(year) else { return nil }
             return year
         }.max()
+    }
+
+    /// Whether a word names a set-aside copy: archive, archived, backups, back-up….
+    static func namesSetAside(_ word: String) -> Bool {
+        let word = word.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            .filter { $0.isLetter }
+        return word.hasPrefix("archiv") || word.hasPrefix("backup")
+    }
+
+    /// Whether any folder in `path` (not the item's own name) is an Archive or Backup folder:
+    /// “Passport/Shweta/Archive/All Pages.pdf”, “Old Backups/Taxes/2024.pdf”.
+    static func isSetAside(_ path: String) -> Bool {
+        path.split(separator: "/").dropLast().contains { folder in
+            folder.split(whereSeparator: { !$0.isLetter }).contains { namesSetAside(String($0)) }
+                || namesSetAside(String(folder))
+        }
     }
 
     /// Whether `text` holds every word, ignoring case and accents.
