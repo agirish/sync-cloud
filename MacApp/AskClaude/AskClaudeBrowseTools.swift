@@ -333,7 +333,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     /// The controls a card can hold in this version (TE290 step 4a); the rest open Settings.
     static func cardHolds(_ control: SettingControl) -> Bool {
         switch control {
-        case .toggle, .segmented, .menu, .stepper, .slider, .swatches, .secret, .text, .folder: true
+        case .toggle, .segmented, .menu, .stepper, .slider, .swatches, .secret, .text, .folder, .button: true
         default: false
         }
     }
@@ -341,7 +341,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     /// Whether `entry` can be a card in this version: its control can, it is one of the lists, or
     /// it is a person or Add Person, which bring their own fields (TE290 step 9).
     static func cardHolds(_ entry: SettingEntry) -> Bool {
-        if entry.id.hasPrefix("people.") { return entry.id == "people.edit" || entry.id == "people.add" }
+        if entry.id.hasPrefix("people.") { return entry.id == "people.edit" || entry.id == "people.add" || SettingsActions.ids.contains(entry.id) }
         return cardHolds(entry.control) || SettingsLists.ids.contains(entry.id)
     }
 

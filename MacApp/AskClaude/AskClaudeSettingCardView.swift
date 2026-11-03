@@ -60,6 +60,9 @@ struct AskClaudeSettingsBridge {
     var savePerson: @MainActor (_ item: UUID, _ row: Int, _ person: Person) -> Void = { _, _, _ in }
     var movePerson: @MainActor (_ item: UUID, _ row: Int, _ up: Bool) -> Void = { _, _, _ in }
     var addPerson: @MainActor (_ item: UUID, _ row: Int, _ person: Person) -> Void = { _, _, _ in }
+    /// A button (TE290 step 10): Settings' question, for one that asks twice, and the press.
+    var actionPrompt: @MainActor (_ entry: SettingEntry, _ target: String?) -> RemovalPrompt? = { _, _ in nil }
+    var runAction: @MainActor (_ item: UUID, _ row: Int) -> Void = { _, _ in }
 }
 
 /// What a change does beyond its value, shown beside it on a card (TE290 step 6): judged from the
@@ -125,6 +128,10 @@ struct AskClaudeSettingCardView: View {
     /// A person's fields as typed, by row and field, until they're saved.
     @State private var personDrafts: [Int: [PersonField: String]] = [:]
     @FocusState private var personFocus: PersonFocus?
+    /// The rows whose question is open, and the hidden folder a list card is asking about. Never
+    /// saved: a chat restored later comes back with every question closed.
+    @State private var confirming: Set<Int> = []
+    @State private var confirmingShow: [Int: String] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -243,6 +250,8 @@ struct AskClaudeSettingCardView: View {
             keyControl(index)
         case .list:
             listControl(index, entry, pick)
+        case .button(let title):
+            actionControl(index, entry, title)
         case .text:
             textControl(index, entry, current, pick)
         case .folder:
@@ -324,6 +333,50 @@ struct AskClaudeSettingCardView: View {
                 .controlSize(.small)
                 .help("Claude’s suggestion")
         }
+    }
+
+    // MARK: Buttons
+
+    /// A button (TE290 step 10). One that asks twice opens its question here, in Settings' words,
+    /// with Cancel — which Escape presses — and only the red button runs it; nothing on the card
+    /// can undo it. A button the card can't run opens Settings at it.
+    @ViewBuilder
+    private func actionControl(_ index: Int, _ entry: SettingEntry, _ title: String) -> some View {
+        let row = card.rows[index]
+        if !SettingsActions.ids.contains(entry.id) {
+            Button("Open in Settings") { bridge.openSettings(entry) }
+                .controlSize(.small)
+                .help("\(title) is in Settings ▸ \(entry.tabName)")
+        } else if confirming.contains(index), let prompt = bridge.actionPrompt(entry, row.target) {
+            confirmation(prompt, cancel: { confirming.remove(index) }) {
+                confirming.remove(index)
+                bridge.runAction(itemID, index)
+            }
+        } else {
+            Button(title) {
+                if bridge.actionPrompt(entry, row.target) != nil { confirming.insert(index) } else { bridge.runAction(itemID, index) }
+            }
+            .controlSize(.small)
+            if entry.tier == .asksTwice {
+                Text("Asks once more. Can’t be undone.").scaledFont(.footnote).foregroundStyle(.secondary)
+            }
+            if entry.raises == .always || entry.lessSafe == .always {
+                HStack(spacing: 6) {
+                    if entry.raises == .always { Text(AskClaudeSettingBadge.raises.rawValue).foregroundStyle(AskClaudeSettingBadge.raises.color) }
+                    if entry.lessSafe == .always { Text(AskClaudeSettingBadge.lessSafe.rawValue).foregroundStyle(AskClaudeSettingBadge.lessSafe.color) }
+                }
+                .scaledFont(.footnote)
+            }
+        }
+        if let outcome = row.outcome {
+            Label(outcome, systemImage: "checkmark.circle")
+                .scaledFont(.footnote).foregroundStyle(.green)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func confirmation(_ prompt: RemovalPrompt, cancel: @escaping () -> Void, confirm: @escaping () -> Void) -> some View {
+        AskClaudeSettingConfirmation(prompt: prompt, cancel: cancel, confirm: confirm)
     }
 
     // MARK: People
@@ -499,10 +552,19 @@ struct AskClaudeSettingCardView: View {
                 Text("Nothing here yet.").scaledFont(.footnote).foregroundStyle(.secondary)
             }
             ForEach(Array(items.prefix(Self.listShown)), id: \.self) { item in
-                listItemRow(entry.id == "intelligence.hidden" ? (item as NSString).lastPathComponent : item, struck: false) {
-                    bridge.setListItem(itemID, index, item, false)
+                if confirmingShow[index] == item {
+                    // Settings asks before showing a folder to Claude again (decision IP); so does the card.
+                    confirmation(.showToClaude(named: (item as NSString).lastPathComponent, isFolder: true),
+                                 cancel: { confirmingShow[index] = nil }) {
+                        confirmingShow[index] = nil
+                        bridge.setListItem(itemID, index, item, false)
+                    }
+                } else {
+                    listItemRow(entry.id == "intelligence.hidden" ? (item as NSString).lastPathComponent : item, struck: false) {
+                        if entry.id == "intelligence.hidden" { confirmingShow[index] = item } else { bridge.setListItem(itemID, index, item, false) }
+                    }
+                    .help(item)
                 }
-                .help(item)
             }
             if items.count > Self.listShown {
                 Text("and \(items.count - Self.listShown) more, in Settings ▸ \(entry.tabName)")
@@ -734,5 +796,37 @@ private struct SettingsCardSlider: View {
             }
         }
         .controlSize(.small)
+    }
+}
+
+/// Settings' question, inside a card (TE290 step 10): Cancel first — Escape presses it — and the
+/// red button takes no key, as Settings' own alerts are built.
+struct AskClaudeSettingConfirmation: View {
+    let prompt: RemovalPrompt
+    let cancel: () -> Void
+    let confirm: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(prompt.messageText).scaledFont(.callout).bold()
+                .fixedSize(horizontal: false, vertical: true)
+            Text(prompt.informativeText).scaledFont(.footnote).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) { buttons }
+                VStack(alignment: .leading, spacing: 6) { buttons }
+            }
+        }
+        .padding(8)
+        .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: Radius.control))
+        .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder private var buttons: some View {
+        Button("Cancel", action: cancel)
+            .keyboardShortcut(.cancelAction)
+            .controlSize(.small)
+        Button(prompt.confirmTitle, role: .destructive, action: confirm)
+            .controlSize(.small)
     }
 }

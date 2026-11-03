@@ -539,6 +539,10 @@ public class Logger: ObservableObject {
     /// The control's one name, for its title, its tooltip and its VoiceOver label alike. It was
     /// "Clear Logs", "Clear the log" and "Clear Log" across the two doors.
     public nonisolated static let clearLogName = "Clear Log"
+    /// What Clear Log asks, here so an Ask Claude card (TE290) asks in the same words.
+    public nonisolated static let clearPrompt = (
+        messageText: "Clear the Activity Log?",
+        informativeText: "Removes every entry from the Activity Log and empties the log file on disk, including earlier sessions. Your files aren’t affected, and this can’t be undone.")
 
     /// The clear gesture as one step: ask, and only then clear. Both doors call this, so neither
     /// can forget to ask; `confirm` is a seam so the decision is testable without a modal.
@@ -556,8 +560,8 @@ public class Logger: ObservableObject {
     public static func defaultClearConfirmation() -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Clear the Activity Log?"
-        alert.informativeText = "Removes every entry from the Activity Log and empties the log file on disk, including earlier sessions. Your files aren’t affected, and this can’t be undone."
+        alert.messageText = clearPrompt.messageText
+        alert.informativeText = clearPrompt.informativeText
         alert.addButton(withTitle: clearLogName)
         alert.addButton(withTitle: "Cancel")
         if let clearButton = alert.buttons.first {

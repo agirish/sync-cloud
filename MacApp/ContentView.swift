@@ -2828,7 +2828,7 @@ struct ContentView: View {
         if let draft = SetupDraftStore.defaultURL() { SetupDraftStore.clear(at: draft) }
     }
 
-    private func resetAllSettingsAction() {
+    func resetAllSettingsAction() {
         Self.applyFullSettingsReset(settings: settings, syncManager: syncManager)
     }
 
@@ -2836,7 +2836,7 @@ struct ContentView: View {
     ///
     /// The three keys and the draft, which is everything that says "this machine has been through
     /// setup". Nothing else is touched: the profile, the roster and every preference stay.
-    private func resetSetupAction() {
+    func resetSetupAction() {
         hasCompletedSetup = false
         hasSeenFirstRunWelcome = false
         UserDefaults.standard.removeObject(forKey: SetupFlow.primarySourceDefaultsKey)

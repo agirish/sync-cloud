@@ -879,7 +879,57 @@ extension ContentView {
                 guard let target = askClaudeChat.settingCard(id)?.rows[row].target, let person = people.person(named: target) else { return }
                 askClaudePeopleEdit(id, row, key: .init(id: "people.edit", target: nil), name: person.displayName, moved: up) { people.move(person.id, up: up) }
             },
-            addPerson: { id, row, person in askClaudeAddPerson(id, row, person) })
+            addPerson: { id, row, person in askClaudeAddPerson(id, row, person) },
+            actionPrompt: { entry, target in askClaudeActions.prompt(entry.id, target: target) },
+            runAction: { id, row in askClaudeRunAction(id, row) })
+    }
+
+    /// The buttons a card presses (TE290 step 10), with the app's own flows for setup and the
+    /// resets — the ones Settings' buttons call.
+    var askClaudeActions: SettingsActions {
+        var actions = SettingsActions(settings: settings, sync: syncManager, lookup: askClaudeSettingsLookup)
+        actions.runSetup = {
+            setupDismissedThisSession = false
+            showSetup = true
+        }
+        actions.resetSetup = { resetSetupAction() }
+        actions.resetAll = { resetAllSettingsAction() }
+        return actions
+    }
+
+    /// A button pressed on a card — after the card's own question, for one that asks twice. It
+    /// can't be undone, so it says what it did, in the record and to Claude, and goes on no stack.
+    func askClaudeRunAction(_ id: UUID, _ index: Int) {
+        guard let row = askClaudeChat.settingCard(id)?.rows, row.indices.contains(index),
+              let entry = SettingsCatalog.entry(row[index].id) else { return }
+        let target = row[index].target
+        // Use Default Order is the one with an Undo: it changes the order, which a card can put back.
+        if entry.id == "people.defaultOrder" {
+            askClaudePeopleEdit(id, index, key: .init(id: "people.edit", target: nil), name: "People") {
+                syncManager.filingPeopleStore?.useDefaultOrder()
+                return syncManager.filingPeopleStore == nil ? .refused("People can’t be changed until the folder survey has run.") : .done
+            }
+            return
+        }
+        let actions = askClaudeActions
+        Task { @MainActor in
+            let result = await actions.run(entry.id, target: target)
+            let name = askClaudeSettingName(entry, target: target)
+            switch result {
+            case .done(let words):
+                askClaudeChat.updateSettingCard(id) { card in
+                    card.rows[index].refusal = nil
+                    card.rows[index].outcome = words
+                }
+                SettingsChangeLog.shared.record(SettingsChange(setting: entry.id, target: target, name: name, from: nil, to: nil,
+                                                               fromLabel: nil, toLabel: words, how: .card))
+                let raises = entry.raises == .always ? " This raises Claude’s spending or access." : ""
+                askClaudeChat.tellClaude("They pressed \(name) on your card: \(words)\(raises)")
+            case .refused(let why):
+                askClaudeChat.updateSettingCard(id) { $0.rows[index].refusal = why }
+                askClaudeChat.tellClaude("They pressed \(name) on your card, and it didn’t run: \(why)")
+            }
+        }
     }
 
     /// A value in words for Claude: a folder setting's path is left out when it names something

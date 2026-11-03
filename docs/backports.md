@@ -14112,6 +14112,18 @@ naming the direction, strength or protection, Claude shows the card at once on i
 (Right, Balanced, Lock to open) and doesn't ask first; the choice is made on the card. Ask Claude
 exists only on `main` (see TE290 step 0b).
 
+## Buttons on Ask Claude's cards, asking first inside the card (TE290 step 10) — main only
+
+2026-11-02, for v7.0. On `main`: Settings' buttons can be Ask Claude cards (`SettingsActions`).
+Refresh, Show in Finder, Reset root and Open at, Use Default Order (with Undo), Sweep Now, the
+saved-data Clears and Run Setup Again run on a click. Those that can't be undone — removing a
+folder source, a person or the API key, the Clear Alls, clearing spend or saved suggestions, Clear
+Log, Reset Setup, Reset All — open Settings' own question inside the card, Cancel first (Escape),
+then run the owner's own "if confirmed" with a yes, so there's no second alert; Reset All also
+names what it would raise. A list card's Show to Claude now asks too, as Settings does since
+decision IP. Clear Log's and Reset Setup's words moved into shared constants, unchanged. Ask
+Claude exists only on `main` (see step 0b).
+
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

@@ -4148,8 +4148,8 @@ struct AdvancedSettingsTab: View {
     private func confirmResetSetup(_ reset: () -> Void) {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Run setup again from the beginning?"
-        alert.informativeText = "SyncCloud forgets that setup has run and which location it learns from, and opens setup now, from the beginning. On a Mac that hasn’t learned a folder tree yet, the name and household answers setup was holding are discarded with it. Your folder profile, people and other settings stay."
+        alert.messageText = Self.resetSetupPrompt.messageText
+        alert.informativeText = Self.resetSetupPrompt.informativeText
         alert.addButton(withTitle: "Reset")
         alert.addButton(withTitle: "Cancel")
         if let resetButton = alert.buttons.first {
@@ -4161,6 +4161,11 @@ struct AdvancedSettingsTab: View {
             reset()
         }
     }
+
+    /// What Reset Setup asks, here so an Ask Claude card (TE290) asks in the same words.
+    static let resetSetupPrompt = (
+        messageText: "Run setup again from the beginning?",
+        informativeText: "SyncCloud forgets that setup has run and which location it learns from, and opens setup now, from the beginning. On a Mac that hasn’t learned a folder tree yet, the name and household answers setup was holding are discarded with it. Your folder profile, people and other settings stay.")
 
     /// What Reset All Settings takes and what it keeps, in the confirmation.
     static let resetAllExplanation = "Settings return to their defaults, apart from what is kept below. Folders you added as sources, ignored items, and source names and paths are removed, and SyncCloud forgets that setup has run.\n\nKept: your Rules, saved signatures, Favorites and pins, and the choices you made while organizing (corrections, groups kept separate, names kept); the folders you hid from Claude; and your spending limits for Claude and the record of what it has cost. Your Claude API key, folder profile, Ask Claude chats and your files are not touched."

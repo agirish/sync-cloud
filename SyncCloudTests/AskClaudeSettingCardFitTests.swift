@@ -129,6 +129,18 @@ import Sync
         #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
     }
 
+    /// TE290 step 10: a button card at rest, with its outcome, and Reset All's question open in it.
+    @Test func buttonCardsAndTheirQuestionFit240() {
+        var card = AskClaudeSettingCard(rows: [.init(id: "intelligence.savedSuggestionsClear")])
+        card.rows[0].outcome = "Cleared 1,284 saved suggestions."
+        let host = NSHostingController(rootView: AskClaudeSettingCardView(itemID: UUID(), card: card, bridge: AskClaudeSettingsBridge(),
+                                                                          accent: .blue, hue: .blue))
+        #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
+        let question = SettingsActions(settings: nil, sync: nil, lookup: nil).prompt("advanced.resetAll", target: nil)!
+        let open = NSHostingController(rootView: AskClaudeSettingConfirmation(prompt: question, cancel: {}, confirm: {}))
+        #expect(open.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
+    }
+
     @Test func aCardOfSeveralWithATitleFits240() {
         let card = AskClaudeSettingCard(title: "Hide Identical Files in Compare", rows: [
             .init(id: "sync.verifySameSize", pick: "true"),

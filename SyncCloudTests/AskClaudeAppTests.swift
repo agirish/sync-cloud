@@ -207,7 +207,6 @@ import FileExplorer
         #expect(await show([["id": .string("appearance.theme"), "pick": .string("Purple")]]).isError)
         #expect(await show([["id": .string("no.such")]]).isError)
         #expect(await show([["id": .string("intelligence.apiKeyReveal")]]).isError)
-        #expect(await show([["id": .string("advanced.resetAll")]]).result.contains("can’t be a card in this version"))
         #expect(await show([["id": .string("sources.enabled")]]).result.contains("belongs to a source"))
         #expect(await show([]).isError)
 
@@ -228,7 +227,11 @@ import FileExplorer
         #expect(await show([["id": .string("people.edit")]]).result.contains("one of Jane"))
         let jane = await show([["id": .string("people.edit"), "target": .string("jane")]])
         #expect(!jane.isError && jane.settings?.rows == [AskClaudeSettingCard.Row(id: "people.edit", target: "jane")])
-        #expect(await show([["id": .string("people.remove"), "target": .string("Jane")]]).isError)
+        // TE290 step 10: buttons are cards, and asking twice doesn't stop one being shown; the
+        // key's Reveal never is one.
+        #expect(!(await show([["id": .string("people.remove"), "target": .string("Jane")]])).isError)
+        #expect(!(await show([["id": .string("advanced.resetAll")]])).isError)
+        #expect(await show([["id": .string("intelligence.apiKeyReveal")]]).isError)
     }
 
     @Test func aFolderArgumentCannotClimbOutOfTheSource() {
