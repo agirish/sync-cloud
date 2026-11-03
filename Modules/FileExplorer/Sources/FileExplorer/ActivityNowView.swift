@@ -57,8 +57,6 @@ public struct ActivityNowView: View {
         self.now = now
     }
 
-    @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
-
     public var body: some View {
         if let onOpenWindow {
             popover(onOpenWindow)
@@ -108,51 +106,42 @@ public struct ActivityNowView: View {
         .frame(width: ProgressCapsuleRunList.width, alignment: .leading)
     }
 
-    /// The Activity window's Now: Running and Recent each on a card of the window's glass, as the
-    /// panes sit on the main window's — Recent taking the rest of the height.
+    /// The Activity window's Now: the popover's sections at the window's width, set straight on the
+    /// window as History's are — a hairline between them, Recent taking the rest of the height.
     private var window: some View {
-        let level = GlassLevel(rawValue: glassLevelRaw) ?? .frosted
-        return VStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 0) {
             running(fillsWidth: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .glassSurface(level, cornerRadius: Radius.card)
             // One-way sync's rows (RD67, DC), saved: what needs you first, under what runs.
             if !center.oneWaySync.rows.isEmpty {
+                Divider()
                 ScrollView { OneWaySyncNowRows(center: center, host: .activity) }
                     .frame(maxHeight: 320)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .glassSurface(level, cornerRadius: Radius.card)
             }
             // A cloud app not syncing (RD68): information, between what runs and what was said.
             if !cloudApps.notices.isEmpty {
+                Divider()
                 CloudAppNoticeRows(monitor: cloudApps)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .glassSurface(level, cornerRadius: Radius.card)
             }
-            VStack(alignment: .leading, spacing: 0) {
-                recentHeader
-                if center.recent.isEmpty {
-                    nothingYet
-                    Spacer(minLength: 0)
-                } else {
-                    // A notification's click brings its row into view (TE227).
-                    ScrollViewReader { proxy in
-                        ScrollView { recentRows }
-                            .onChange(of: center.highlighted, initial: true) { _, id in
-                                guard let id else { return }
-                                withDesignAnimation(.default, reduceMotion: reduceMotion) {
-                                    proxy.scrollTo(id, anchor: .center)
-                                }
+            Divider()
+            recentHeader
+            if center.recent.isEmpty {
+                nothingYet
+                Spacer(minLength: 0)
+            } else {
+                // A notification's click brings its row into view (TE227).
+                ScrollViewReader { proxy in
+                    ScrollView { recentRows }
+                        .onChange(of: center.highlighted, initial: true) { _, id in
+                            guard let id else { return }
+                            withDesignAnimation(.default, reduceMotion: reduceMotion) {
+                                proxy.scrollTo(id, anchor: .center)
                             }
-                    }
+                        }
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .glassSurface(level, cornerRadius: Radius.card)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder private func running(fillsWidth: Bool) -> some View {

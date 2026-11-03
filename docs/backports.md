@@ -14243,3 +14243,15 @@ the tool list or system text. Ask Claude exists only on `main` (see TE290 step 0
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Activity ▸ Now straight on the window, as History is — main only
+
+2026-11-03, for v7.0. On `main`: the Activity window's Now drops its grey cards
+(`glassSurface(level, cornerRadius: Radius.card)` around Running, one-way sync, Cloud Apps and
+Recent) and lays its sections out as the capsule's popover does: plain titles, a `Divider` between
+sections, rows on the window. Looks only; no change to what Now lists or does.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` | The cards (`ActivityNowView.window`, two `glassSurface(level` calls) | RECORDED — not owed |
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No `ActivityNowView` | CLOSED — doesn't apply |

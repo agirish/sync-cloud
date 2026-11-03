@@ -277,7 +277,8 @@ import FileExplorer
     }
 
     /// **The Activity window's Now, at Solid** (Run Room TE232): the tabs in the title bar's row,
-    /// Running and Recent on cards, from the top. Its first build centred the stack in the window
+    /// Running and Recent straight on the window, as History's rows are, a hairline between them,
+    /// from the top. Its first build centred the stack in the window
     /// and drew no ground of its own, so the tabs floated mid-window and Clear showed straight
     /// through (seen on screen 2026-10-27).
     @Test func activityWindowNow() {
