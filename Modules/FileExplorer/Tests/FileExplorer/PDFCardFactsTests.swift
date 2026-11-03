@@ -99,8 +99,8 @@ import Sync
         #expect(await PDFCardFactsReader.read(junk, for: .compress(.quality(0.6)), timeout: Self.wait, isCloudOnly: { _ in false }) == .unreadable)
     }
 
-    /// **A lane held by other work answers "busy" while it is still held, not after** — and the
-    /// queued turn, cancelled, does nothing when it comes. Said without a clock: on a loaded
+    /// **A lane held by other work answers "busy" while it is still held, not after.** Said
+    /// without a clock: on a loaded
     /// 3-core runner even the 200 ms timer can take seconds to fire, so the claim is that the
     /// answer came back before the lane was let go, which a read that waited for it can't do.
     @Test func aHeldLaneAnswersBusyWhileItIsHeld() async throws {
@@ -145,7 +145,27 @@ import Sync
         PDFFixtures.write(file, pages: 3)
         let images = try #require(await PDFCardThumbnails.render(file, pages: [0, 2], height: 40, timeout: Self.wait))
         #expect(Set(images.keys) == [0, 2])
-        #expect(images[0].map { abs(CGFloat($0.height) - 40) <= 40 } == true)
+        // Points, drawn at the screen's scale: 40 tall, or 80 on a Retina backing.
+        #expect(images[0].map { [40, 80].contains($0.height) } == true, "\(images[0].map(\.height) ?? -1) px tall")
+    }
+
+    /// **A page turned a quarter is drawn on its side**, not squeezed into the unturned box.
+    @Test func drawsATurnedPageTurned() async throws {
+        let file = path("Turned.pdf")
+        PDFFixtures.write(file, pages: 1)
+        let document = try #require(PDFDocument(url: URL(fileURLWithPath: file)))
+        document.page(at: 0)?.rotation = 90
+        try #require(document.write(to: URL(fileURLWithPath: file)))
+        let images = try #require(await PDFCardThumbnails.render(file, pages: [0], height: 40, timeout: Self.wait))
+        let image = try #require(images[0])
+        #expect(image.width > image.height, "a turned letter page drew \(image.width) × \(image.height)")
+    }
+
+    /// Nothing reads a file only in the cloud for its pictures either.
+    @Test func drawsNothingForAFileOnlyInTheCloud() async {
+        let file = path("Cloud.pdf")
+        PDFFixtures.write(file, pages: 1)
+        #expect(await PDFCardThumbnails.render(file, pages: [0], height: 40, isCloudOnly: { _ in true }) == nil)
     }
 
     // MARK: Pages typed

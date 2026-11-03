@@ -31,8 +31,12 @@ extension ContentView {
         if askClaudeChat.pdfCardOffered == nil { askClaudeChat.pdfCardOffered = { id in askClaudePDFRead(id) } }
         return AskClaudePDFBridge(
             setOptions: { id, options in
+                let pagesChanged = askClaudeChat.pdfCard(id).map { $0.options.pages != options.pages
+                    || $0.options.splitAt != options.splitAt } ?? false
                 askClaudeChat.updatePDFCard(id) { $0.options = options }
-                askClaudePDFRead(id)
+                // A strength, a name or a mode changes nothing the card read; the pages typed are
+                // checked against the page count it has.
+                if pagesChanged { askClaudePDFRecheckPages(id) }
             },
             moveRow: { id, index, step in
                 askClaudeChat.updatePDFCard(id) { card in
@@ -95,80 +99,96 @@ extension ContentView {
     /// The card keeps saying it's checking and tries again in a few seconds.
     func askClaudePDFRead(_ id: UUID, attempt: Int = 0) {
         guard let card = askClaudeChat.pdfCard(id), card.isOpen else { return }
-        // Read again after an edit on the card (the pages typed, a strength) without waking the
-        // "checking" line on every keystroke; the click checks the files again anyway.
-        let first = card.rows.contains { $0.stamp == nil && !$0.cloudOnly }
-        if first { askClaudeChat.updatePDFCard(id) { $0.state = .checking } }
+        // The first read wakes the "checking" line; a read again after Download or a choice of
+        // folder keeps the card as it is until the answer is in.
+        if card.rows.contains(where: { $0.stamp == nil && !$0.cloudOnly }) {
+            askClaudeChat.updatePDFCard(id) { $0.state = .checking }
+        }
         let tool = Self.askClaudePDFFactsTool(card)
         Task { @MainActor in
-            var rows = card.rows
+            var read: [String: AskClaudePDFCard.Row] = [:]
             var losses: [String] = []
-            var busy = false
-            for index in rows.indices {
-                let path = rows[index].path
-                rows[index].refusal = nil
-                rows[index].cloudOnly = false
-                if card.action == .saveAsPDF {
+            for row in card.rows {
+                var fresh = row
+                fresh.refusal = nil
+                fresh.cloudOnly = false
+                let path = row.path
+                if askClaudeIsHidden(path) {
+                    fresh.refusal = Self.askClaudePDFHiddenNow
+                } else if card.action == .saveAsPDF {
                     if MaterializationStatus.isCloudOnly(atPath: MaterializationStatus.linkTarget(of: path)) {
-                        rows[index].cloudOnly = true
+                        fresh.cloudOnly = true
                     } else if let stamp = EditorFileStore.stamp(ofPath: path) {
-                        rows[index].stamp = AskClaudeFileStamp(stamp)
-                        rows[index].bytes = stamp.size
+                        fresh.stamp = AskClaudeFileStamp(stamp)
+                        fresh.bytes = stamp.size
                         if card.folder == nil, !FileManager.default.isWritableFile(atPath: (path as NSString).deletingLastPathComponent) {
-                            rows[index].refusal = AskClaudePDFCardView.unwritableFolder
+                            fresh.refusal = AskClaudePDFCardView.unwritableFolder
                         }
                     } else {
-                        rows[index].refusal = Self.askClaudePDFGone
+                        fresh.refusal = Self.askClaudePDFGone
                     }
-                    continue
-                }
-                switch await PDFCardFactsReader.read(path, for: tool) {
-                case .facts(let facts):
-                    rows[index].pageCount = facts.protection == .locked ? nil : facts.pageCount
-                    rows[index].bytes = facts.bytes
-                    rows[index].stamp = AskClaudeFileStamp(facts.stamp)
-                    rows[index].refusal = Self.askClaudePDFRefusal(card.action, facts)
-                    if rows[index].refusal == nil, card.folder == nil, !facts.folderIsWritable {
-                        rows[index].refusal = AskClaudePDFCardView.unwritableFolder
+                } else {
+                    switch await PDFCardFactsReader.read(path, for: tool) {
+                    case .facts(let facts):
+                        fresh.pageCount = facts.protection == .locked ? nil : facts.pageCount
+                        fresh.bytes = facts.bytes
+                        fresh.stamp = AskClaudeFileStamp(facts.stamp)
+                        fresh.refusal = Self.askClaudePDFRefusal(card.action, facts)
+                        if fresh.refusal == nil, card.folder == nil, !facts.folderIsWritable {
+                            fresh.refusal = AskClaudePDFCardView.unwritableFolder
+                        }
+                        for loss in facts.losses where !losses.contains(loss) { losses.append(loss) }
+                    case .cloudOnly: fresh.cloudOnly = true
+                    case .gone: fresh.refusal = Self.askClaudePDFGone
+                    case .unreadable: fresh.refusal = "It can’t be read as a PDF."
+                    case .busy:
+                        // A long scan holds the PDF lane: the card keeps what it had, says it is
+                        // checking, and asks again shortly.
+                        guard askClaudeChat.pdfCard(id)?.isOpen == true else { return }
+                        guard attempt < 24 else {
+                            askClaudeChat.updatePDFCard(id) {
+                                $0.state = .failed
+                                $0.message = "The PDF reader stayed busy with other work. Ask again in a while."
+                            }
+                            return
+                        }
+                        askClaudeChat.updatePDFCard(id) { $0.state = .checking }
+                        try? await Task.sleep(for: .seconds(5))
+                        askClaudePDFRead(id, attempt: attempt + 1)
+                        return
                     }
-                    for loss in facts.losses where !losses.contains(loss) { losses.append(loss) }
-                case .cloudOnly: rows[index].cloudOnly = true
-                case .gone: rows[index].refusal = Self.askClaudePDFGone
-                case .unreadable: rows[index].refusal = "It can’t be read as a PDF."
-                case .busy: busy = true
                 }
+                read[path] = fresh
             }
             guard askClaudeChat.pdfCard(id)?.isOpen == true else { return }
-            if busy {
-                // A long scan holds the PDF lane: still checking, and asked again shortly.
-                askClaudeChat.updatePDFCard(id) { $0.rows = rows }
-                guard attempt < 24 else {
-                    askClaudeChat.updatePDFCard(id) { $0.state = .failed; $0.message = "The PDF reader stayed busy with other work. Ask again in a while." }
-                    return
-                }
-                try? await Task.sleep(for: .seconds(5))
-                askClaudePDFRead(id, attempt: attempt + 1)
-                return
-            }
             if card.action == .combine { losses.append(EditorPDFCombineSplit.combineNote) }
             // Open in Edit with a new page order or Fill & Sign items not saved: the card runs on
             // the file as it is on disk, without them.
-            if let open = editorPDF.path, rows.contains(where: { $0.path == open }),
+            if let open = editorPDF.path, read.keys.contains(where: { AskClaudePaths.same($0, open) }),
                editorPDF.tools.arrangement != nil || editorPDF.fill.hasUnsavedChanges {
                 losses.append(Self.askClaudePDFUnsavedNote)
             }
-            if let problem = Self.askClaudePDFPagesProblem(card, pageCount: rows.first?.pageCount) {
-                rows[0].refusal = rows[0].refusal ?? problem
-            }
+            // Into the card as it is now, by file: a row moved while the files were read stays
+            // where it was moved to, and the options typed since stay too.
             askClaudeChat.updatePDFCard(id) { now in
-                now.rows = rows
+                now.rows = now.rows.map { current in read[current.path] ?? current }
                 now.losses = losses
+                now.pagesProblem = Self.askClaudePDFPagesProblem(now, pageCount: now.rows.first?.pageCount)
                 now.state = .offered
             }
             await askClaudePDFDrawPages(id)
         }
     }
 
+    /// The pages typed, checked again against what the card read — no file is read for it.
+    func askClaudePDFRecheckPages(_ id: UUID) {
+        askClaudeChat.updatePDFCard(id) { now in
+            now.pagesProblem = Self.askClaudePDFPagesProblem(now, pageCount: now.rows.first?.pageCount)
+        }
+        Task { @MainActor in await askClaudePDFDrawPages(id) }
+    }
+
+    static let askClaudePDFHiddenNow = "It’s in a folder hidden from Claude now."
     static let askClaudePDFUnsavedNote = "It runs on the file as saved: what you haven’t saved in Edit isn’t in it."
     static let askClaudePDFGone = "It’s no longer there; it may have moved or been renamed."
 
@@ -201,19 +221,26 @@ extension ContentView {
 
     /// The pages a page tool acts on, drawn small for its card.
     func askClaudePDFDrawPages(_ id: UUID) async {
-        guard let card = askClaudeChat.pdfCard(id), card.action.choosesPages, let row = card.rows.first,
-              let count = row.pageCount, row.refusal == nil else { return }
+        // Whatever was drawn for pages typed before is gone the moment they can't be drawn now.
+        guard let card = askClaudeChat.pdfCard(id), card.action.choosesPages || card.options.pages != nil,
+              let row = card.rows.first, let count = row.pageCount, row.refusal == nil, card.pagesProblem == nil
+        else {
+            askClaudeChat.pdfThumbnails[id] = nil
+            return
+        }
         let acted: [Int]
         switch card.action {
         case .split: acted = (card.options.splitAt ?? []).map { $0 - 1 }
         default:
             guard case .success(let pages) = PDFCardPages.parse(card.options.pages ?? "", extract: card.action != .deletePages,
-                                                               pageCount: count) else { return }
+                                                               pageCount: count) else {
+                askClaudeChat.pdfThumbnails[id] = nil
+                return
+            }
             acted = card.action == .reorder ? Array(pages.prefix(3)) : pages
         }
         let shown = PDFCardThumbnails.shown(acted, pageCount: count).compactMap { $0 }
-        guard !shown.isEmpty, let images = await PDFCardThumbnails.render(row.path, pages: Array(shown.prefix(12)), height: 34)
-        else { return }
+        let images = shown.isEmpty ? nil : await PDFCardThumbnails.render(row.path, pages: Array(shown.prefix(12)), height: 34)
         askClaudeChat.pdfThumbnails[id] = images
     }
 
@@ -231,7 +258,26 @@ extension ContentView {
     /// hidden, still as the card read it. One that changed is read again and the card asks again.
     func askClaudePDFRun(_ id: UUID, password: EditorPDFSecret?) {
         guard let card = askClaudeChat.pdfCard(id), card.state == .offered, !askClaudeChat.isRunning,
-              askClaudePDFWaitReason(id) == nil else { return }
+              card.pagesProblem == nil, askClaudePDFWaitReason(id) == nil else { return }
+        let paths = card.rows.map(\.path)
+        // A one-file tool is made before anything changes: one that can't be made (no password
+        // typed for Protect) leaves the card as it was, saying why.
+        let single: EditorPDFTool?
+        switch card.action {
+        case .saveAsPDF, .split, .combine: single = nil
+        default:
+            if paths.count > 1, Self.askClaudePDFBatchTool(card) != nil {
+                single = nil
+            } else if let tool = Self.askClaudePDFTool(card, password: password) {
+                single = tool
+            } else {
+                askClaudeChat.updatePDFCard(id) {
+                    $0.message = card.action == .protect ? "Type the password twice, the same both times."
+                        : Self.askClaudePDFPagesProblem(card, pageCount: card.rows.first?.pageCount) ?? "Check the pages typed."
+                }
+                return
+            }
+        }
         var expected: [String: EditorFileStore.Stamp] = [:]
         for row in card.rows {
             guard !askClaudeIsHidden(row.path), let stamp = row.stamp?.editorStamp,
@@ -246,8 +292,7 @@ extension ContentView {
         askClaudeChat.updatePDFCard(id) { $0.state = .running; $0.written = []; $0.message = nil; $0.detail = nil }
         let writer = "Ask Claude"
         let finish: @MainActor (PDFRunResult) -> Void = { askClaudePDFFinished(id, $0) }
-        let paths = card.rows.map(\.path)
-        let folders = card.folder.map { folder in Dictionary(uniqueKeysWithValues: paths.map { ($0, folder) }) } ?? [:]
+        let folders = card.folder.map { folder in Dictionary(paths.map { ($0, folder) }, uniquingKeysWith: { first, _ in first }) } ?? [:]
         let accepted = Set(card.losses)
         // The card showed the file's form loss, if it had one: that is the loss the click accepts.
         let allowsFormLoss = accepted.contains(PDFCardFactsReader.formFlattened) || accepted.contains(PDFCardFactsReader.formStopsWorking)
@@ -269,22 +314,14 @@ extension ContentView {
             paneSaveAsPDF.host = PaneSaveAsPDFHost(didWrite: { rereadPanesAfterEditorWrite($0, writer: "\(writer) wrote") })
             paneSaveAsPDF.startFromChat(paths: paths, folders: folders, expecting: expected, writer: writer, completion: finish)
         case .split:
-            panePDFTools.startCombineSplitFromChat(.split(paths[0]), splitAt: card.options.splitAt ?? [], expecting: expected,
-                                                   writer: writer, completion: finish)
+            panePDFTools.startCombineSplitFromChat(.split(paths[0]), splitAt: card.options.splitAt ?? [], folder: card.folder,
+                                                   expecting: expected, writer: writer, completion: finish)
         case .combine:
-            panePDFTools.startCombineSplitFromChat(.combine(paths), name: card.options.name, expecting: expected,
-                                                   writer: writer, completion: finish)
+            panePDFTools.startCombineSplitFromChat(.combine(paths), name: card.options.name, folder: card.folder,
+                                                   expecting: expected, writer: writer, completion: finish)
         default:
-            guard let tool = Self.askClaudePDFTool(card, password: password) else {
-                askClaudeChat.updatePDFCard(id) {
-                    $0.state = .offered
-                    $0.message = nil
-                    $0.rows[0].refusal = Self.askClaudePDFPagesProblem(card, pageCount: card.rows.first?.pageCount)
-                        ?? "Check the pages typed."
-                }
-                return
-            }
-            panePDFTools.startFromChat(tool, path: paths[0], folder: card.folder, expecting: expected[paths[0]], writer: writer,
+            guard let single else { return }
+            panePDFTools.startFromChat(single, path: paths[0], folder: card.folder, expecting: expected[paths[0]], writer: writer,
                                        allow: { _ in allowsFormLoss }, completion: finish)
         }
     }
@@ -335,6 +372,10 @@ extension ContentView {
 
     func askClaudePDFFinished(_ id: UUID, _ result: PDFRunResult) {
         guard let card = askClaudeChat.pdfCard(id) else { return }
+        // Nothing written and nothing ended for good — a wrong password, a name that can't be, a
+        // file that changed, another run first, a loss that changed: the card waits again, saying
+        // why, with its files read again.
+        let again = result.written.isEmpty && [.failed, .busy, .declined].contains(result.outcome)
         let reasons = Dictionary(result.skipped.map { ($0.path, $0.reason) }, uniquingKeysWith: { first, _ in first })
         askClaudeChat.updatePDFCard(id) { now in
             now.written = result.written.map {
@@ -342,21 +383,27 @@ extension ContentView {
             }
             now.message = result.message
             now.detail = result.detail
-            for index in now.rows.indices { now.rows[index].refusal = reasons[now.rows[index].path] }
+            for index in now.rows.indices {
+                now.rows[index].refusal = reasons[now.rows[index].path]
+                // Only in the cloud now: its row offers Download again.
+                if let download = result.download, AskClaudePaths.same(download, now.rows[index].path) {
+                    now.rows[index].cloudOnly = true
+                }
+            }
             switch result.outcome {
             case .wrote: now.state = .done
             case .partlyWrote: now.state = .partlyDone
             case .nothingWritten: now.state = .nothingWritten
             case .cancelled: now.state = result.written.isEmpty ? .nothingWritten : .partlyDone
-            case .declined:
-                // What the copy would lose changed since the card said: read again, ask again.
-                now.state = .checking
-            case .failed, .busy: now.state = .failed
+            case .busy: now.message = "Another PDF run started first. Click again when it ends."
+            case .declined: now.message = "What the copy would lose changed since the card said. Check it and click again."
+            case .failed: break
             }
+            if again { now.state = .offered } else if result.outcome == .failed || result.outcome == .busy { now.state = .failed }
         }
-        if result.outcome == .declined {
+        if again {
             askClaudePDFRead(id)
-            return
+            if result.outcome == .declined || result.outcome == .busy { return }
         }
         askClaudeChat.tellClaude(Self.askClaudePDFReport(card, result, isHidden: askClaudeIsHidden))
         if !result.written.isEmpty { askClaudePDFRegisterUndo(id, title: card.action.title) }
@@ -366,7 +413,10 @@ extension ContentView {
     /// name with a mark that becomes its handle when the line is sent; never a password, never a
     /// file's text. A file saved into a folder hidden from Claude is said to be there, unnamed.
     static func askClaudePDFReport(_ card: AskClaudePDFCard, _ result: PDFRunResult, isHidden: (String) -> Bool) -> String {
-        let sources = card.rows.map { "“\($0.name)”" }.joined(separator: ", ")
+        // Compress says what each file was, so Claude can say what it saved.
+        let sources = card.rows.map { row in
+            "“\(row.name)”" + (card.action == .compress ? row.bytes.map { " (\(FileSyncManager.formatBytes($0)))" } ?? "" : "")
+        }.joined(separator: ", ")
         func named(_ file: PDFWrittenFile) -> String {
             guard !isHidden(file.path) else { return "a file in a folder hidden from you" }
             var facts = [FileSyncManager.formatBytes(file.bytes)]
@@ -374,7 +424,10 @@ extension ContentView {
             return "“\((file.path as NSString).lastPathComponent)” \(AskClaudeChat.fileMark(file.path)), " + facts.joined(separator: ", ")
         }
         let made = result.written.map(named).joined(separator: "; ")
-        let place = card.folder != nil ? ""
+        // One folder is named only when every file is in it.
+        let folders = Set(card.rows.map(\.folderLabel))
+        let place = card.folder != nil ? ", in the folder they chose"
+            : folders.count > 1 ? ", next to each original"
             : card.rows.first.map { ", next to \(card.rows.count > 1 ? "each original" : "it") in \($0.folderLabel)" } ?? ""
         var line: String
         let wroteSome = !result.written.isEmpty && [.wrote, .partlyWrote, .cancelled].contains(result.outcome)
@@ -395,7 +448,12 @@ extension ContentView {
             case .combine: verb = "They combined \(sources)"
             }
             line = "\(verb): \(made)\(place)."
-            if card.action == .compress { line += " Its pages are pictures now." }
+            if card.action == .compress {
+                line += " Its pages are pictures now."
+                if result.message.contains("No setting reached") { line += " It didn’t get under the size asked; this is the smallest it got." }
+            }
+            // A deck's slides that were pictures, as the banner's second line says it.
+            if card.action == .saveAsPDF, result.skipped.isEmpty, let detail = result.detail { line += " " + detail }
             if !result.skipped.isEmpty {
                 line += " Not done: " + result.skipped.prefix(10).map { "“\(($0.path as NSString).lastPathComponent)” (\($0.reason))" }
                     .joined(separator: "; ") + "."
@@ -440,23 +498,24 @@ extension ContentView {
         if let step = askClaudeChat.pdfUndoSteps.removeValue(forKey: id), !fromMenu {
             step.manager.removeAllActions(withTarget: step.target)
         }
-        var trashed: [String] = [], left: [String] = []
+        // The card names every file for him; what Claude hears names none in a folder hidden from it.
+        var trashed: [String] = [], left: [String] = [], toldTrashed: [String] = [], toldLeft: [String] = []
         for file in card.written {
-            let name = (file.path as NSString).lastPathComponent
-            guard EditorFileStore.stamp(ofPath: file.path) == file.stamp.editorStamp else {
-                left.append("“\(name)” (changed since)")
-                continue
+            let name = "“\((file.path as NSString).lastPathComponent)”"
+            let told = askClaudeIsHidden(file.path) ? "a file in a folder hidden from you" : name
+            func leave(_ why: String) {
+                left.append("\(name) (\(why))")
+                toldLeft.append("\(told) (\(why))")
             }
-            guard editorPDF.path != file.path else {
-                left.append("“\(name)” (open in Edit)")
-                continue
-            }
+            guard EditorFileStore.stamp(ofPath: file.path) == file.stamp.editorStamp else { leave("changed since"); continue }
+            if let open = editorPDF.path, AskClaudePaths.same(open, file.path) { leave("open in Edit"); continue }
             do {
                 try FileManager.default.trashItem(at: URL(fileURLWithPath: file.path), resultingItemURL: nil)
-                trashed.append("“\(name)”")
+                trashed.append(name)
+                toldTrashed.append(told)
                 rereadPanesAfterEditorWrite(file.path, writer: "Ask Claude moved to the Trash")
             } catch {
-                left.append("“\(name)” (it couldn’t go to the Trash)")
+                leave("it couldn’t go to the Trash")
             }
         }
         Logger.shared.info("Ask Claude card: Undo “\(card.title)” — \(trashed.count) moved to the Trash, \(left.count) left")
@@ -464,10 +523,15 @@ extension ContentView {
             if !trashed.isEmpty { now.state = .undone }
             if !left.isEmpty { now.detail = "Left: " + left.joined(separator: ", ") + "." }
         }
-        var line = "They undid your card “\(card.title)”: "
+        askClaudeChat.tellClaude(Self.askClaudePDFUndoReport(card.title, trashed: toldTrashed, left: toldLeft))
+    }
+
+    /// What Claude hears after Undo — names already made safe for it by the caller.
+    static func askClaudePDFUndoReport(_ title: String, trashed: [String], left: [String]) -> String {
+        var line = "They undid your card “\(title)”: "
         line += trashed.isEmpty ? "nothing moved." : "\(trashed.joined(separator: ", ")) \(trashed.count == 1 ? "is" : "are") in the Trash."
         if !left.isEmpty { line += " Left where it was: \(left.joined(separator: ", "))." }
-        askClaudeChat.tellClaude(line)
+        return line
     }
 
     // MARK: Fill
@@ -485,6 +549,8 @@ extension ContentView {
         for _ in 0..<100 where !loaded() { try? await Task.sleep(for: .milliseconds(100)) }
         guard loaded() else { return .openedWithoutFillSign }
         if !editorPDF.fill.isOn { editorPDF.fill.toggle() }
+        // Said as on only once it is: toggle asks first when it can't turn on now.
+        guard editorPDF.fill.isOn else { return .openedWithoutFillSign }
         let chat = askClaudeChat
         chat.fillOpened = path
         editorPDF.fill.didSave = { original, copy in

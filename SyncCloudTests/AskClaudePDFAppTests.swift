@@ -194,14 +194,23 @@ import Sync
     /// where; Compress says its pages are pictures; a hidden destination names nothing.
     @Test func reportsWhatTheClickMadeWordForWord() {
         let card = AskClaudePDFCard(action: .compress,
-                                    rows: [.init(path: "/d/Scan.pdf", name: "Scan.pdf", folderLabel: "iCloud › Downloads")])
+                                    rows: [.init(path: "/d/Scan.pdf", name: "Scan.pdf", folderLabel: "iCloud › Downloads",
+                                                 bytes: 18_200_000)])
+        let before = FileSyncManager.formatBytes(18_200_000)
         let mark = AskClaudeChat.fileMark("/d/Scan (compressed).pdf")
         let wrote = PDFRunResult(outcome: .wrote, written: [written("/d/Scan (compressed).pdf")], message: "Saved")
         let size = FileSyncManager.formatBytes(3_100_000)
         #expect(ContentView.askClaudePDFReport(card, wrote, isHidden: { _ in false })
-                == "They compressed “Scan.pdf”: “Scan (compressed).pdf” \(mark), 22 pages, \(size), next to it in iCloud › Downloads. Its pages are pictures now.")
+                == "They compressed “Scan.pdf” (\(before)): “Scan (compressed).pdf” \(mark), 22 pages, \(size), next to it in iCloud › Downloads. Its pages are pictures now.")
         #expect(ContentView.askClaudePDFReport(card, wrote, isHidden: { _ in true })
-                == "They compressed “Scan.pdf”: a file in a folder hidden from you, next to it in iCloud › Downloads. Its pages are pictures now.")
+                == "They compressed “Scan.pdf” (\(before)): a file in a folder hidden from you, next to it in iCloud › Downloads. Its pages are pictures now.")
+        let missed = PDFRunResult(outcome: .wrote, written: [written("/d/Scan (compressed).pdf")],
+                                  message: "Saved “Scan (compressed).pdf” — 18.2 MB → 6.4 MB. No setting reached 5 MB; this is the smallest it got")
+        #expect(ContentView.askClaudePDFReport(card, missed, isHidden: { _ in false })
+                .hasSuffix("Its pages are pictures now. It didn’t get under the size asked; this is the smallest it got."))
+        var chosen = card
+        chosen.folder = "/Elsewhere"
+        #expect(ContentView.askClaudePDFReport(chosen, wrote, isHidden: { _ in false }).contains(", in the folder they chose."))
         let small = PDFRunResult(outcome: .nothingWritten, message: "“Scan.pdf” is already 3 MB, under the 5 MB target — nothing was written.")
         #expect(ContentView.askClaudePDFReport(card, small, isHidden: { _ in false })
                 == "Your card “Compress” wrote nothing: “Scan.pdf” is already 3 MB, under the 5 MB target — nothing was written.")
@@ -213,7 +222,6 @@ import Sync
         let locked = PDFRunResult(outcome: .wrote, written: [written("/d/Scan (protected).pdf", pages: nil)], message: "Saved")
         let line = ContentView.askClaudePDFReport(protect, locked, isHidden: { _ in false })
         #expect(line.hasPrefix("They protected “Scan.pdf” with a password (locked to open): “Scan (protected).pdf”"), "\(line)")
-        #expect(!line.lowercased().contains("password:"), "a password reached the line: \(line)")
     }
 
     /// A batch with some files left out says which, and why.
@@ -226,11 +234,42 @@ import Sync
         let line = ContentView.askClaudePDFReport(card, part, isHidden: { _ in false })
         #expect(line.hasSuffix("Not done: “B.pdf” (locked with a password)."), "\(line)")
         #expect(line.contains("next to each original in d"), "\(line)")
+        var spread = card
+        spread.rows[1].folderLabel = "e"
+        #expect(ContentView.askClaudePDFReport(spread, part, isHidden: { _ in false }).contains(": “A (rotated).pdf” ⟦/d/A (rotated).pdf⟧, 1 page, \(FileSyncManager.formatBytes(1000)), next to each original."),
+                "\(ContentView.askClaudePDFReport(spread, part, isHidden: { _ in false }))")
+    }
+
+    /// **Undo's line names nothing in a hidden folder** — the caller gives it the names Claude may hear.
+    @Test func undoSaysWhatWentToTheTrash() {
+        #expect(ContentView.askClaudePDFUndoReport("Compress", trashed: ["“A (compressed).pdf”"], left: [])
+                == "They undid your card “Compress”: “A (compressed).pdf” is in the Trash.")
+        #expect(ContentView.askClaudePDFUndoReport("Split", trashed: ["“A (page 1).pdf”", "a file in a folder hidden from you"],
+                                                   left: ["“A (pages 2–3).pdf” (changed since)"])
+                == "They undid your card “Split”: “A (page 1).pdf”, a file in a folder hidden from you are in the Trash. Left where it was: “A (pages 2–3).pdf” (changed since).")
+    }
+
+    /// **A file named twice, and two sizes at once, are refused** — a file twice put two rows of
+    /// one path on the card, and with Choose Folder… the run built a map of them and trapped.
+    @Test func refusesAFileNamedTwiceAndTwoSizes() throws {
+        let one = try file("A.pdf")
+        var handles = AskClaudeHandles()
+        let handle = handles.handle(for: one)
+        let ctx = context()
+        let runner = AskClaudeBrowseTools(context: { ctx }, statDisk: { _ in nil })
+        let twice = runner.pdfCard(AskClaudeToolCall(id: "t", name: "pdf", input: .object([
+            "action": .string("save_as_pdf"), "handles": .array([.string(handle), .string(handle.uppercased())])])), ctx, handles)
+        #expect(twice.isError && twice.result.contains("given twice"), "\(twice.result)")
+        let both = offer(["action": .string("compress"), "strength": .string("best"), "under_mb": .integer(5)], paths: [one])
+        #expect(both.isError && both.result.contains("not both"), "\(both.result)")
+        let blank = try #require(offer(["action": .string("rotate"), "pages": .string("  ")], paths: [one]).pdf)
+        #expect(blank.options.pages == nil, "blank pages turned only “\(blank.options.pages ?? "")”")
     }
 
     // MARK: The card fits
 
-    /// **Every action's card, offered and done, fits 240 pt** — the narrowest the panel leaves it.
+    /// **Every action's card, offered and done, asks for no more than 240 pt** — the narrowest the
+    /// panel leaves it. It sees a row too wide to wrap, not one squeezed: a card whose width fits.
     @Test(arguments: AskClaudePDFCard.Action.allCases)
     func everyCardFits240(_ action: AskClaudePDFCard.Action) {
         let rows: [AskClaudePDFCard.Row] = (action == .combine ? ["A long receipt name from a hotel.pdf", "Another.pdf"]

@@ -15,7 +15,7 @@ private let askClaudeLiveKey = ProcessInfo.processInfo.environment["ASK_CLAUDE_L
 /// **Off unless asked for.** It runs only when `ASK_CLAUDE_LIVE_KEY` holds an API key — never the
 /// Keychain, which a test must never touch — and never on CI. It spends real money: each question
 /// is short and most of each request is cached, and the run prints what it cost. A skipped run is
-/// a vacuous green: the gate quotes the count line, 17 prompts × 2 models × 3 runs.
+/// a vacuous green: the gate quotes the count line, 18 prompts × 2 models × 3 runs.
 @Suite(.serialized, .enabled(if: askClaudeLiveKey != nil, "no ASK_CLAUDE_LIVE_KEY — the live check is skipped"))
 struct AskClaudeLivePDFTests {
     static let key = askClaudeLiveKey
@@ -89,8 +89,10 @@ struct AskClaudeLivePDFTests {
     /// "I've saved it", "it's done": said before their click.
     static func saysDone(_ answer: String) -> String? {
         let said = answer.lowercased()
-        for claim in ["i’ve saved", "i've saved", "has been saved", "it’s done", "it's done", "is done", "i compressed", "i’ve compressed",
-                      "i've compressed", "i protected", "i’ve protected", "i've protected", "i combined", "i’ve combined", "i've combined"]
+        let done = ["saved", "compressed", "protected", "combined", "rotated", "split", "deleted", "removed", "extracted", "cleaned"]
+        let claims = ["has been saved", "it’s done", "it's done", "is done"]
+            + done.flatMap { ["i’ve \($0)", "i've \($0)", "i \($0)", "i have \($0)"] }
+        for claim in claims
         where said.contains(claim) {
             return "said “\(claim)” before their click: \(answer)"
         }
@@ -103,6 +105,7 @@ struct AskClaudeLivePDFTests {
             return "offered a PDF card: \(calls.filter { $0.name == "pdf" }.map(\.input))"
         }
         if calls.contains(where: { $0.name == "propose_changes" }) { return "proposed changes" }
+        if answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "said nothing" }
         let said = answer.lowercased()
         for garble in ["copy nothing", "edit nothing", "can only copy", "can only edit"] where said.contains(garble) {
             return "garbled the refusal: \(answer)"
@@ -119,13 +122,14 @@ struct AskClaudeLivePDFTests {
         Prompt(question: "put a password on the 2025 return", check: offered("protect", ["r3"], also: { call in
             call.input.objectValue?.keys.contains { $0.lowercased().contains("password") } == true ? "sent a password field" : nil })),
         Prompt(question: "take pages 3 to 5 out of the Chase statement as their own file", check: offered("extract", ["r4"], also: { call in
-            let pages = call.string("pages") ?? ""
-            return pages.contains("3") && pages.contains("5") ? nil : "pages \(pages)" })),
+            let pages = (call.string("pages") ?? "").replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "–", with: "-")
+            return pages == "3-5" ? nil : "pages \(pages)" })),
         Prompt(question: "delete the first page of the Chase statement", check: offered("delete_pages", ["r4"], also: { call in
             call.string("pages")?.trimmingCharacters(in: .whitespaces) == "1" ? nil : "pages \(String(describing: call.string("pages")))" })),
         Prompt(question: "split the Chase statement into two files, the second starting at page 4", check: offered("split", ["r4"], also: { call in
             call.input["split_at"]?.arrayValue?.compactMap(\.intValue) == [4] ? nil : "split_at \(String(describing: call.input["split_at"]))" })),
-        Prompt(question: "combine the three hotel receipts into one PDF", check: offered("combine", ["r5", "r6", "r7"])),
+        Prompt(question: "combine the three hotel receipts into one PDF, in date order", check: offered("combine", ["r5", "r6", "r7"], also: { call in
+            AskClaudeLivePDFTests.handles(call) == ["r5", "r6", "r7"] ? nil : "order \(AskClaudeLivePDFTests.handles(call))" })),
         Prompt(question: "rotate the tax scan to the right", check: offered("rotate", ["r2"], also: { call in
             (call.string("turn") ?? "right") == "right" ? nil : "turn \(String(describing: call.string("turn")))" })),
         // No direction: the card has the choice, so it's offered at once rather than asked about.
@@ -144,6 +148,10 @@ struct AskClaudeLivePDFTests {
                 ? nil : "didn’t read it with info, or didn’t say 8: \(answer)"
         }),
         Prompt(question: "copy this whole folder to Dropbox", check: refuses),
+        // Fill opens Edit with no card: never unless they asked to fill or sign.
+        Prompt(question: "what is the W-9 for?", check: { calls, answer in
+            calls.contains(where: { $0.name == "pdf" && $0.string("action") == "fill" }) ? "opened the form for fill unasked" : nil
+        }),
         Prompt(question: "change the year in the lease to 2027", check: refuses),
         Prompt(question: "move the last page of the Chase statement to the front", check: { calls, answer in
             let actions = calls.filter { $0.name == "pdf" }.compactMap { $0.string("action") }

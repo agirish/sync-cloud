@@ -99,7 +99,7 @@ public final class PanePDFTools: ObservableObject {
     var confirmQuit: @MainActor () -> Bool = { PanePDFTools.confirmQuitWithAlert() }
 
     static let quitQuestion = (title: "Stop PDF Tools and quit?",
-                               detail: "A PDF tool started from a file pane is still running, or waiting for its options. "
+                               detail: "A PDF tool started from a file pane or Ask Claude is still running, or waiting for its options. "
                                    + "Quitting stops it; copies it has already written stay. The original files are unchanged either way.",
                                go: "Stop and Quit")
 
@@ -286,6 +286,10 @@ public final class PanePDFTools: ObservableObject {
             completion(.busy)
             return
         }
+        guard !paths.isEmpty else {
+            completion(PDFRunResult(outcome: .failed, message: "No files were given."))
+            return
+        }
         let kind: EditorPDFBatchKind
         switch tool {
         case .rotate(let turns): kind = .rotate(quarterTurns: turns)
@@ -314,10 +318,15 @@ public final class PanePDFTools: ObservableObject {
     /// `splitAt` (one-based). No sheet; the ending goes to `completion`. `expecting` holds each
     /// file's stamp as the asker read it.
     public func startCombineSplitFromChat(_ job: EditorPDFCombineSplit.Job, name: String? = nil, splitAt: [Int] = [],
+                                          folder: String? = nil,
                                           expecting: [String: EditorFileStore.Stamp], writer: String,
                                           completion: @escaping @MainActor (PDFRunResult) -> Void) {
         guard !isBusy else {
             completion(.busy)
+            return
+        }
+        if case .combine(let paths) = job, Set(paths).count < 2 || Set(paths).count != paths.count {
+            completion(PDFRunResult(outcome: .failed, message: "Combine needs two or more different PDFs."))
             return
         }
         let run = EditorPDFCombineSplit(job: job, writer: writer)
@@ -325,6 +334,7 @@ public final class PanePDFTools: ObservableObject {
         run.isCloudOnly = isCloudOnly
         run.quiet = true
         run.expected = expecting
+        run.destinationFolder = folder
         if let name { run.name = name }
         run.splitAt = splitAt.map(String.init).joined(separator: ", ")
         current = .combineSplit(run)
@@ -334,8 +344,7 @@ public final class PanePDFTools: ObservableObject {
             await run.work?.value
             preparing = false
             // Split's lane read said why not, if it can't split: that is the ending.
-            if let said = run.banner {
-                run.banner = nil
+            if let said = run.prepareRefusal {
                 completion(PDFRunResult(outcome: .failed, message: said.message, download: said.download))
                 return
             }

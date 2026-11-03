@@ -151,7 +151,11 @@ final class AskClaudeChat: ObservableObject {
     /// window reads its files for it (TE294).
     var pdfCardOffered: ((UUID) -> Void)? {
         didSet {
-            for item in items { if case .pdf(let card) = item.kind, card.state == .checking { pdfCardOffered?(item.id) } }
+            // After the draw that installed it: reading a card publishes, and a view's body must not.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                for item in self.items { if case .pdf(let card) = item.kind, card.state == .checking { self.pdfCardOffered?(item.id) } }
+            }
         }
     }
 
@@ -460,7 +464,7 @@ final class AskClaudeChat: ObservableObject {
         case .download(let download, .downloading):
             item.kind = .download(download, state: .offered)
         case .pdf(var card) where card.state == .running:
-            // The app quit while it ran: the files it had written are on the card already.
+            // The app quit while it ran: what it wrote is on disk, but the card hadn't heard yet.
             card.state = .quitWhileRunning
             item.kind = .pdf(card)
         case .pdf(var card) where card.state == .offered:

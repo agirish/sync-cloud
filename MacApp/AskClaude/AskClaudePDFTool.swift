@@ -86,6 +86,9 @@ extension AskClaudeBrowseTools {
         }
         let given = call.strings("handles") ?? []
         guard !given.isEmpty else { return refuse("handles needs the file’s handle, such as r9.") }
+        if let twice = given.first(where: { handle in given.filter { $0.lowercased() == handle.lowercased() }.count > 1 }) {
+            return refuse("handles: \(twice) is given twice; give each file once.")
+        }
         if action == .combine, given.count < 2 { return refuse("combine needs two or more handles, in the order they go in.") }
         if !action.takesSeveral, given.count > 1 { return refuse("\(named) takes one handle; offer a card for each file.") }
         guard given.count <= AskClaudePDFCard.maxFiles else {
@@ -129,6 +132,7 @@ extension AskClaudeBrowseTools {
             }
             if let mb = Self.number(call.input["under_mb"]) {
                 guard mb > 0 else { return refuse("under_mb must be a number of megabytes above 0.") }
+                guard options.strength == nil else { return refuse("give strength or under_mb, not both.") }
                 options.underMB = mb
             }
             // “Make it smaller” with nothing more: Balanced, and the card says so.
@@ -140,7 +144,7 @@ extension AskClaudeBrowseTools {
             case "180": options.quarterTurns = 2
             default: return refuse("turn must be left, right or 180.")
             }
-            if let pages = call.string("pages") {
+            if let pages = call.string("pages")?.trimmingCharacters(in: .whitespaces), !pages.isEmpty {
                 guard rows.count == 1 else { return refuse("pages rotates one file’s pages; give one handle, or no pages to turn every page.") }
                 options.pages = pages
             }

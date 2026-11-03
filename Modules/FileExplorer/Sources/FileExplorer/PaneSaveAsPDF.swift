@@ -169,7 +169,7 @@ public final class PaneSaveAsPDF: ObservableObject {
             let name = (path as NSString).lastPathComponent
             progress = Progress(done: index, total: paths.count, name: name)
             if let reason = await save(path, writer: writer, into: &saved) {
-                failed.append(.init(name: name, reason: reason))
+                failed.append(.init(name: name, reason: reason, path: path))
                 Logger.shared.info("\(writer) could not save \(name) as PDF — \(reason)")
             }
         }
@@ -212,6 +212,11 @@ public final class PaneSaveAsPDF: ObservableObject {
         let started = Date()
         do {
             let output = try await SaveAsPDFRender.render(path, settings: settings)
+            // Asked again with the PDF in hand: a render takes seconds, and the file may have
+            // changed under it.
+            if let want = request?.expected[path], EditorFileStore.stamp(ofPath: path) != want {
+                return "it changed since it was chosen"
+            }
             let copy: String
             var stamp: EditorFileStore.Stamp?
             if let chosen {
@@ -262,6 +267,8 @@ enum SaveAsPDFSummary {
     struct Failed: Equatable {
         var name: String
         var reason: String
+        /// The original, for a request's result: two files can share a name.
+        var path: String?
     }
 
     static func pages(_ count: Int) -> String { count == 1 ? "1 page" : "\(count) pages" }
@@ -274,10 +281,10 @@ enum SaveAsPDFSummary {
                                   pageCount: one.pageCount)
         }
         let done = Set(saved.compactMap(\.source))
-        let reasons = Dictionary(failed.map { ($0.name, $0.reason) }, uniquingKeysWith: { first, _ in first })
+        let reasons = Dictionary(failed.compactMap { one in one.path.map { ($0, one.reason) } },
+                                 uniquingKeysWith: { first, _ in first })
         let skipped = paths.filter { !done.contains($0) }.map { path in
-            let name = (path as NSString).lastPathComponent
-            return PDFRunResult.Skipped(path: path, reason: reasons[name] ?? "stopped before it")
+            PDFRunResult.Skipped(path: path, reason: reasons[path] ?? "stopped before it")
         }
         let outcome: PDFRunResult.Outcome = written.isEmpty
             ? (failed.isEmpty ? .cancelled : .failed)

@@ -47,6 +47,10 @@ struct AskClaudePDFCardTests {
         #expect(!open.isReplaced(by: card(.compress, ["/d/A.pdf"])))
         #expect(!open.isReplaced(by: card(.rotate, ["/d/A.pdf", "/d/B.pdf"])))
         #expect(!card(.compress, ["/d/A.pdf"], state: .done).isReplaced(by: card(.compress, ["/d/A.pdf"])))
+        // Two cards for one file with other pages are two things asked for: both stay.
+        var otherPages = card(.extract, ["/d/A.pdf"])
+        otherPages.options.pages = "7-9"
+        #expect(!card(.extract, ["/d/A.pdf"]).isReplaced(by: otherPages))
     }
 
     /// The title counts several files, and Combine counts its PDFs.

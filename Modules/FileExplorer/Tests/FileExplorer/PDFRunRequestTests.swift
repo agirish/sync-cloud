@@ -201,6 +201,7 @@ import FileExplorerTestSupport
         #expect(second?.outcome == .busy)
         await model.work?.value
         #expect(first?.outcome == .wrote, "\(String(describing: first))")
+        #expect(first?.message.isEmpty == false, "the request's ending said nothing")
         #expect(tools.banner?.message != first?.message, "the request's ending reached the pane's banner")
     }
 
@@ -232,7 +233,7 @@ import FileExplorerTestSupport
         #expect(!batch.showsSheet)
     }
 
-    /// **A batch's copies go into the folder asked for**, and its form question goes to `allow`.
+    /// **A batch's copies go into the folder asked for.**
     @Test func aBatchsCopiesGoIntoTheFolderAskedFor() async throws {
         let paths = ["A.pdf", "B.pdf"].map { path($0) }
         for file in paths { PDFFixtures.write(file, pages: 1) }
@@ -285,6 +286,62 @@ import FileExplorerTestSupport
         #expect(result?.written.map(\.path) == ["Statement (page 1).pdf", "Statement (pages 2–3).pdf"].map { path($0) })
         #expect(!sheetSeen, "a request's split raised its sheet")
         #expect(run.banner == nil)
+    }
+
+    /// **Combine and Split write into the folder the asker chose**, for an original whose own
+    /// folder can't be written to.
+    @Test func combineAndSplitFromARequestWriteIntoTheFolderChosen() async throws {
+        let paths = ["A.pdf", "B.pdf"].map { path($0) }
+        for file in paths { PDFFixtures.write(file, pages: 2) }
+        let out = try subfolder("Chosen")
+        let model = PanePDFTools()
+        var combined: PDFRunResult?
+        model.startCombineSplitFromChat(.combine(paths), name: "Both", folder: out, expecting: [:], writer: "Ask Claude",
+                                        completion: { combined = $0 })
+        await model.work?.value
+        #expect(combined?.written.map(\.path) == [(out as NSString).appendingPathComponent("Both.pdf")],
+                "\(String(describing: combined))")
+        #expect(combined?.written.first?.pageCount == 4)
+        var split: PDFRunResult?
+        model.startCombineSplitFromChat(.split(paths[0]), splitAt: [2], folder: out, expecting: [:], writer: "Ask Claude",
+                                        completion: { split = $0 })
+        await model.work?.value
+        #expect(split?.written.map { ($0.path as NSString).deletingLastPathComponent } == [out, out],
+                "\(String(describing: split))")
+    }
+
+    /// **Combine from a request needs two different PDFs** — one, or one named twice, is refused
+    /// with a sentence, not an empty failure.
+    @Test func combineFromARequestNeedsTwoDifferentFiles() async throws {
+        let one = path("One.pdf")
+        PDFFixtures.write(one, pages: 1)
+        let model = PanePDFTools()
+        for paths in [[one], [one, one]] {
+            var result: PDFRunResult?
+            model.startCombineSplitFromChat(.combine(paths), expecting: [:], writer: "Ask Claude", completion: { result = $0 })
+            await model.work?.value
+            #expect(result?.outcome == .failed)
+            #expect(result?.message == "Combine needs two or more different PDFs.", "\(String(describing: result))")
+        }
+        #expect(files() == ["One.pdf"])
+    }
+
+    /// **Why a request's Split can't run is told to the asker only** — never set on the banner the
+    /// pane's layer posts.
+    @Test func aRequestsSplitRefusalNeverReachesThePane() async throws {
+        let file = path("Single.pdf")
+        PDFFixtures.write(file, pages: 1)
+        let model = PanePDFTools()
+        var result: PDFRunResult?
+        var posted: [EditorPDFToolBanner] = []
+        model.startCombineSplitFromChat(.split(file), splitAt: [2], expecting: [:], writer: "Ask Claude",
+                                        completion: { result = $0 })
+        guard case .combineSplit(let run)? = model.current else { Issue.record("no run"); return }
+        let watch = run.$banner.sink { if let said = $0 { posted.append(said) } }
+        await model.work?.value
+        watch.cancel()
+        #expect(result?.message == "“Single.pdf” has one page, so there’s nothing to split.", "\(String(describing: result))")
+        #expect(posted.isEmpty, "the refusal was set on the pane's banner: \(posted.map(\.message))")
     }
 
     /// A file changed since the asker read it is not split, and its sentence says why.
@@ -384,6 +441,22 @@ import FileExplorerTestSupport
         #expect(result?.message == "Couldn’t save “Locked.txt” as PDF: its folder can’t be written to.",
                 "\(result?.message ?? "")")
         #expect(asked == 0)
+    }
+
+    /// **Each left-out file keeps its own reason, by path** — two files of one name in two
+    /// folders were told apart by name only, and one took the other's reason.
+    @Test func reasonsGoToTheirOwnFileEvenWhenNamesMatch() async throws {
+        let first = (folder as NSString).appendingPathComponent("a")
+        let second = (folder as NSString).appendingPathComponent("b")
+        for dir in [first, second] { try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true) }
+        let one = (first as NSString).appendingPathComponent("Notes.txt"), two = (second as NSString).appendingPathComponent("Notes.txt")
+        try "One\n".write(toFile: one, atomically: true, encoding: .utf8)
+        try "Two\n".write(toFile: two, atomically: true, encoding: .utf8)
+        let chosen = [one: EditorFileStore.Stamp(modifiedAt: .distantPast, size: 1), two: EditorFileStore.stamp(ofPath: two)!]
+        let result = await run(model(), [one, two], expecting: chosen)
+        #expect(result?.skipped == [PDFRunResult.Skipped(path: one, reason: "it changed since it was chosen")],
+                "\(String(describing: result?.skipped))")
+        #expect(result?.written.map(\.path) == [(second as NSString).appendingPathComponent("Notes.pdf")])
     }
 
     /// **A file that changed since it was chosen is left alone; the others are saved.**

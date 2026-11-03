@@ -366,7 +366,7 @@ enum HelpBook {
                 blocks: [
                     .bullets([
                         "The card reads the files first and says what the new file will lose — Compress turns every page into a picture, so its text can’t be selected or searched — and its button waits until it has.",
-                        "Each new file is saved next to its original, named the way PDF Tools names its copies: “Lease.pdf”, “Scan (compressed).pdf”, “Statement (pages 3–5).pdf”. Nothing is ever written over a file, and the original never changes.",
+                        "Each new file is saved next to its original — or, when that folder can’t be written to, in one you choose on the card — named the way PDF Tools names its copies: “Lease.pdf”, “Scan (compressed).pdf”, “Statement (pages 3–5).pdf”. Nothing is ever written over a file, and the original never changes.",
                         "A password is typed on the card and goes nowhere else: not to Claude, and not into the saved chat.",
                         "The card checks each file again when you click. One that has changed since is read again, and the card asks you to click once more.",
                         "Undo on the card moves the files it made to the Trash, while they are as it made them; Edit ▸ Undo does too, while it is the latest step.",

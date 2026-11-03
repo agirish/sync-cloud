@@ -47,7 +47,8 @@ Requires **macOS 26**, unchanged from v6.2.
 - **PDFs from the chat.** Ask Claude to save a document as a PDF, compress a PDF, put a password on
   it or take it off, take pages out, delete or reorder them, split it or combine several, and it
   shows a card that runs SyncCloud's own PDF tool when you click. The card says what the new file will
-  lose before you click, the new file goes next to the original, and the original never changes.
+  lose before you click, the new file goes next to the original (or a folder you choose, when that
+  one can't be written to), and the original never changes.
   A password is typed on the card and never reaches Claude. Undo on the card moves what it made to
   the Trash. To fill in a form, Claude opens it in Edit with Fill & Sign on.
 - **What's inside a file is read on this Mac.** An on-device model reads it and Claude gets a short

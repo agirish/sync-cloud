@@ -151,14 +151,20 @@ public enum PDFCardThumbnails {
 
     /// The pages drawn `height` points tall, by page; `nil` when the lane didn't answer in time.
     public static func render(_ path: String, pages: [Int], height: CGFloat,
-                              timeout: Duration = PDFCardFactsReader.laneWait) async -> [Int: CGImage]? {
+                              timeout: Duration = PDFCardFactsReader.laneWait,
+                              isCloudOnly: @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) })
+    async -> [Int: CGImage]? {
+        // Nothing reads a file only in the cloud: that would download it.
+        if isCloudOnly(MaterializationStatus.linkTarget(of: path)) { return nil }
         let input = URL(fileURLWithPath: EditorFileStore.resolved(path))
         let boxed = await PDFCardFactsReader.bounded(timeout) { () -> [Int: SendableImage] in
             guard let document = PDFDocument(url: input), !document.isLocked else { return [:] }
             var images: [Int: SendableImage] = [:]
             for index in pages {
                 guard let page = document.page(at: index) else { continue }
-                let box = page.bounds(for: .cropBox)
+                // A page turned a quarter is drawn turned: its picture is the box on its side.
+                var box = page.bounds(for: .cropBox).size
+                if page.rotation % 180 != 0 { box = CGSize(width: box.height, height: box.width) }
                 let scale = box.height > 0 ? height / box.height : 1
                 let size = NSSize(width: max(1, box.width * scale), height: height)
                 if let image = page.thumbnail(of: size, for: .cropBox).cgImage(forProposedRect: nil, context: nil, hints: nil) {

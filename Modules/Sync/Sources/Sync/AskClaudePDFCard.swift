@@ -161,9 +161,11 @@ public struct AskClaudePDFCard: Codable, Equatable, Sendable {
     /// A folder chosen for the new files because the original's can't be written to.
     public var folder: String?
     public var written: [Written]
-    /// How the run ended, in the tool's own words.
+    /// How the run ended, in the tool's own words — or, while it waits, why the last click didn't run.
     public var message: String?
     public var detail: String?
+    /// Why the pages typed can't be, said under them; the button waits while there is one.
+    public var pagesProblem: String?
 
     public init(action: Action, rows: [Row], options: Options = Options(), state: State = .checking,
                 losses: [String] = [], folder: String? = nil, written: [Written] = [],
@@ -192,9 +194,11 @@ public struct AskClaudePDFCard: Codable, Equatable, Sendable {
     /// Whether the card still waits for its click.
     public var isOpen: Bool { state == .checking || state == .offered }
 
-    /// Whether a newer card for `other` takes this one's place: the same tool on the same files.
+    /// Whether a newer card `other` takes this one's place: the very same card again — the same
+    /// tool, files and options. Two cards for one file with different pages (pages 1–3, and 7–9)
+    /// are two things asked for, and both stay.
     public func isReplaced(by other: AskClaudePDFCard) -> Bool {
-        isOpen && action == other.action && Set(rows.map(\.path)) == Set(other.rows.map(\.path))
+        isOpen && action == other.action && Set(rows.map(\.path)) == Set(other.rows.map(\.path)) && options == other.options
     }
 
     /// The most files on one card, and the most parts a split makes (TE294).

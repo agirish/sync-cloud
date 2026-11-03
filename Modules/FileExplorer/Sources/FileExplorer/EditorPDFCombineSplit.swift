@@ -66,6 +66,9 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
     /// The stamp each file had when the asker read it, by path; a file that changed since is
     /// left alone. Empty for a menu, whose sheet read the file itself.
     var expected: [String: EditorFileStore.Stamp] = [:]
+    /// Where the new files go instead of beside the first file or the original — a request's
+    /// chosen folder, for one that can't be written to. `nil` for the menu.
+    var destinationFolder: String?
     private(set) var lastReport: EditorPDFToolBanner?
     /// Every file the last run wrote, with the stamp of the file the writer made.
     public private(set) var written: [PDFWrittenFile] = []
@@ -100,7 +103,7 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
         case .split(let path):
             let name = (path as NSString).lastPathComponent
             if isCloudOnly(MaterializationStatus.linkTarget(of: path)) {
-                banner = EditorPDFToolBanner(message: EditorPDFTools.cloudOnlyReason(name), kind: .note, download: path)
+                refuseToPrepare(EditorPDFToolBanner(message: EditorPDFTools.cloudOnlyReason(name), kind: .note, download: path))
                 return
             }
             isPreparing = true
@@ -109,15 +112,15 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
                 let input = URL(fileURLWithPath: EditorFileStore.resolved(path))
                 let stamp = EditorFileStore.stamp(ofPath: path)
                 guard case .facts(let pages, let encryption, let dropped) = await EditorPDFToolEngine.probe(input) else {
-                    banner = EditorPDFToolBanner(message: PanePDFTools.unreadableReason(name), kind: .failure)
+                    refuseToPrepare(EditorPDFToolBanner(message: PanePDFTools.unreadableReason(name), kind: .failure))
                     return
                 }
                 if encryption == .lockedToOpen {
-                    banner = EditorPDFToolBanner(message: EditorPDFTools.lockedReason, kind: .note)
+                    refuseToPrepare(EditorPDFToolBanner(message: EditorPDFTools.lockedReason, kind: .note))
                     return
                 }
                 guard pages > 1 else {
-                    banner = EditorPDFToolBanner(message: "“\(name)” has one page, so there’s nothing to split.", kind: .note)
+                    refuseToPrepare(EditorPDFToolBanner(message: "“\(name)” has one page, so there’s nothing to split.", kind: .note))
                     return
                 }
                 pageCount = pages
@@ -127,6 +130,14 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
                 showsSheet = !quiet
             }
         }
+    }
+
+    /// Why Split can't be readied: on the pane's banner for the menu; for a request, only where
+    /// the asker reads it — the pane's layer takes anything set on ``banner``.
+    private(set) var prepareRefusal: EditorPDFToolBanner?
+
+    private func refuseToPrepare(_ said: EditorPDFToolBanner) {
+        if quiet { prepareRefusal = said } else { banner = said }
     }
 
     static let splitFormNote = "Its fillable form won’t work in the new files."
@@ -286,12 +297,25 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
         if stopRequested { return end(stoppedNote) }
         progress = Progress(step: inputs.count + 1, steps: inputs.count + 1, detail: "Combining")
         let urls = inputs.map { URL(fileURLWithPath: EditorFileStore.resolved($0)) }
-        let merged = await PDFKitSerialAccess.perform {
-            Result { try PDFToolkit.mergeData(inputs: urls.map { (url: $0, pageIndices: nil) }) }
+        // The page count is the merged file's own, read in the same turn: the probes above were
+        // earlier turns, and a file could have changed in between.
+        let merged = await PDFKitSerialAccess.perform { () -> Result<(Data, Int), Error> in
+            Result {
+                let data = try PDFToolkit.mergeData(inputs: urls.map { (url: $0, pageIndices: nil) })
+                return (data, PDFDocument(data: data)?.pageCount ?? 0)
+            }
         }
         if stopRequested { return end(stoppedNote) }
-        let wanted = ((first as NSString).deletingLastPathComponent as NSString).appendingPathComponent(fileName)
-        switch merged {
+        // Asked again with the bytes in hand: the merge read every file once more.
+        for path in inputs {
+            if let want = expected[path], EditorFileStore.stamp(ofPath: path) != want {
+                return end(EditorPDFToolBanner(message: PanePDFTools.changedSinceAskedReason((path as NSString).lastPathComponent),
+                                               kind: .failure))
+            }
+        }
+        let folder = destinationFolder ?? (first as NSString).deletingLastPathComponent
+        let wanted = (folder as NSString).appendingPathComponent(fileName)
+        switch merged.map({ $0.0 }) {
         case .failure(let error):
             Logger.shared.info("\(writer) could not combine \(inputs.count) PDFs — \(error.localizedDescription)")
             return end(EditorPDFToolBanner(message: "Couldn’t combine them — \(error.localizedDescription)", kind: .failure))
@@ -304,6 +328,15 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
                 return end(EditorPDFToolBanner(message: "Couldn’t write the combined file — \(error.localizedDescription)",
                                                kind: .failure))
             case .success(let landed):
+                // Stop pressed while it was written still means nothing is written, as the
+                // capsule's Stop says: the file just made goes, if it is still the one made.
+                if stopRequested {
+                    if EditorFileStore.stamp(ofPath: landed.path) == landed.stamp {
+                        try? FileManager.default.removeItem(atPath: landed.path)
+                    }
+                    return end(stoppedNote)
+                }
+                if case .success(let (_, count)) = merged, count > 0 { pages = count }
                 let copyName = (landed.path as NSString).lastPathComponent
                 Logger.shared.info("\(writer) combined \(inputs.count) PDFs into \(copyName) — \(pages) pages")
                 self.written.append(PDFWrittenFile(source: first, path: landed.path, stamp: landed.stamp, bytes: data.count,
@@ -330,11 +363,12 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
         // The file as the sheet read it: one changed since is not split by its old page numbers.
         tools.shownStamp = expected[path] ?? facts.stamp
         tools.changedMessage = PanePDFTools.changedSinceAskedReason
+        tools.destinationFolder = destinationFolder
         let host = self.host
         tools.host = EditorPDFToolHost(didWrite: host.didWrite)
         self.tools = tools
         var copies: [String] = []
-        for (index, part) in parts.enumerated() {
+        parts: for (index, part) in parts.enumerated() {
             if stopRequested { break }
             progress = Progress(step: index + 1, steps: parts.count,
                                 detail: EditorPDFCopyName.pageList(part))
@@ -349,7 +383,7 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
             case .nothingWritten(let message):
                 return end(EditorPDFToolBanner(message: message, kind: .note))
             case .cancelled, .declined:
-                break
+                break parts
             }
         }
         Logger.shared.info("\(writer) split \(Self.logName(path)) into \(copies.count) of \(parts.count) files")

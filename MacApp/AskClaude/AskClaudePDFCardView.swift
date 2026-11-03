@@ -150,6 +150,11 @@ struct AskClaudePDFCardView: View {
             }
             .pickerStyle(.segmented).labelsHidden().controlSize(.small)
             .accentedSegments(hue)
+            // Some pages only: shown, and his to change.
+            if card.options.pages != nil {
+                pagesField("Pages")
+                thumbnailRow
+            }
         case .protect:
             Picker("Protection", selection: optionBinding(\.mode, default: .lockToOpen)) {
                 Text("Lock to open").tag(AskClaudePDFCard.Options.Mode?.some(.lockToOpen))
@@ -191,18 +196,25 @@ struct AskClaudePDFCardView: View {
                 SecureField("Again", text: $again)
                     .textFieldStyle(.roundedBorder).scaledFont(.callout)
             }
-            Text("Typed here and kept on this Mac. Claude never sees it.")
+            Text("Typed here and used only on this Mac. Claude never sees it.")
                 .scaledFont(.footnote).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private func pagesField(_ label: String) -> some View {
-        HStack(spacing: 6) {
-            Text(label).scaledFont(.callout)
-            TextField("3-5, 1", text: Binding(get: { card.options.pages ?? "" },
-                                              set: { pages in update { $0.pages = pages } }))
-                .textFieldStyle(.roundedBorder).scaledFont(.callout)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text(label).scaledFont(.callout)
+                TextField("3-5, 1", text: Binding(get: { card.options.pages ?? "" },
+                                                  set: { pages in update { $0.pages = pages } }))
+                    .textFieldStyle(.roundedBorder).scaledFont(.callout)
+            }
+            if let problem = card.pagesProblem {
+                Text(problem).scaledFont(.footnote)
+                    .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.error))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -228,9 +240,12 @@ struct AskClaudePDFCardView: View {
     private var footer: some View {
         switch card.state {
         case .checking:
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text("Checking the file…").scaledFont(.footnote).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                lastClick
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Checking the file…").scaledFont(.footnote).foregroundStyle(.secondary)
+                }
             }
         case .offered:
             offeredFooter
@@ -269,15 +284,32 @@ struct AskClaudePDFCardView: View {
         case .replaced:
             note("A newer card took this one’s place.")
         case .quitWhileRunning:
-            note(card.written.isEmpty ? "SyncCloud quit while this ran. Nothing was written."
-                 : "SyncCloud quit while this ran. It had written " + card.written.map { "“\(($0.path as NSString).lastPathComponent)”" }.joined(separator: ", ") + ".")
+            // What it wrote before the quit is on disk, but the card never heard of it.
+            note("SyncCloud quit while this ran. Any new files it had made are next to the originals; nothing else changed.")
         }
     }
 
+    /// Why the last click didn't run — a wrong password, a file changed since — said until the next.
+    @ViewBuilder
+    private var lastClick: some View {
+        if let message = card.message {
+            Text(message).scaledFont(.footnote)
+                .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.warning))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Read once a second: what the button waits on — a sync, another PDF run — comes and goes
+    /// with nothing in the chat changing, and the panel's rows redraw only when the chat does.
     private var offeredFooter: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { _ in offeredFooterNow }
+    }
+
+    private var offeredFooterNow: some View {
         let wait = isRunning ? "Waits for Claude to finish." : bridge.waitReason(itemID)
-        let blocked = card.rows.contains { $0.refusal != nil || $0.cloudOnly } || !passwordReady
+        let blocked = card.rows.contains { $0.refusal != nil || $0.cloudOnly } || !passwordReady || card.pagesProblem != nil
         return VStack(alignment: .leading, spacing: 6) {
+            lastClick
             Text(wait ?? "Nothing is written until you click.")
                 .scaledFont(.footnote).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -326,8 +358,13 @@ struct AskClaudePDFCardView: View {
         }
     }
 
-    @ViewBuilder
     private var doneButtons: some View {
+        // Read once a second: a file changed or moved since stops Undo from offering itself.
+        TimelineView(.periodic(from: .now, by: 1)) { _ in doneButtonsNow }
+    }
+
+    @ViewBuilder
+    private var doneButtonsNow: some View {
         HStack(spacing: 8) {
             if card.written.count == 1, let only = card.written.first {
                 Button("Open in Edit") { bridge.open(only.path) }
@@ -337,7 +374,8 @@ struct AskClaudePDFCardView: View {
             }
             if bridge.offersUndo(itemID) {
                 Button("Undo") { bridge.undo(itemID) }
-                    .help("Moves the new file to the Trash. Also in Edit ▸ Undo while it’s the latest step.")
+                    .help(card.written.count == 1 ? "Moves the new file to the Trash. Also in Edit ▸ Undo while it’s the latest step."
+                          : "Moves the new files to the Trash. Also in Edit ▸ Undo while it’s the latest step.")
             }
         }
         .controlSize(.small)

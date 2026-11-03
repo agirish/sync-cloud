@@ -562,7 +562,8 @@ and key refusals are tested; this is what is not.
 ## Ask Claude's PDF cards (TE294, 2026-11-02)
 
 Run in the installed app before the `pdf` tool is trusted. The live check covers what Claude
-says (`ASK_CLAUDE_LIVE_KEY=… swift test --package-path Modules/Sync --filter AskClaudeLivePDFTests`);
+says (`read -s "ASK_CLAUDE_LIVE_KEY?Key: " && export ASK_CLAUDE_LIVE_KEY`, then
+`scripts/build-slot swift test --package-path Modules/Sync --filter AskClaudeLivePDFTests`);
 these cover what only a person at the app can see.
 
 - [ ] **Save as PDF, four files, Stop between files.** The card shows progress and Stop; the files
@@ -572,10 +573,12 @@ these cover what only a person at the app can see.
 - [ ] **Edit the file between the offer and the click.** The card reads it again and asks for a
   second click.
 - [ ] **Click while Claude is answering.** The button is greyed: "Waits for Claude to finish."
-- [ ] **Close the panel mid-run and reopen it.** The result is on the card. ⌘Q mid-run asks first,
-  and after relaunch the card says SyncCloud quit while it ran.
-- [ ] **Undo from the card, then Edit ▸ Undo with the main window in front.** The new file goes to
-  the Trash; Finder's Put Back returns it.
+- [ ] **Close the panel mid-run and reopen it.** The result is on the card. ⌘Q during a Compress
+  card's run asks first (a Save as PDF card's doesn't, as from the menu); after relaunch the card
+  says SyncCloud quit while it ran.
+- [ ] **Undo, on two cards.** One card's own Undo; then, after a second card runs, Edit ▸ Undo with
+  the main window in front. Each new file goes to the Trash. (Whether Finder's Put Back returns it
+  is not promised: the app moves it with FileManager.)
 - [ ] **Undo after iCloud or Dropbox has uploaded the copy.** The card still offers Undo.
 - [ ] **A file only in the cloud.** The card's Download row, then its run button.
 - [ ] **Choose Folder… for a read-only folder, and for a folder hidden from Claude.** Claude is
@@ -583,5 +586,6 @@ these cover what only a person at the app can see.
 - [ ] **Protect.** Return in a password field doesn't send a question; closing the panel clears the
   fields; the password is in neither `chat.json`, `prompts.json` nor `~/sync-cloud.log`.
 - [ ] **Combine with ↑ and ↓**, and two files of one name in different folders show their folders.
-- [ ] **"Fill in the W-9" while Edit holds unsaved work.** Edit asks its own question first; then
-  the form opens with Fill & Sign on, and saving a filled copy is told to Claude.
+- [ ] **"Fill in the W-9".** The form opens in Edit with Fill & Sign on, and saving a filled copy
+  is told to Claude. With unsaved work open in Edit, Edit asks its own question first and Claude
+  says the form didn't open yet; ask again once it's answered.
