@@ -135,18 +135,25 @@ no throughput; they slow every build and make the timing-sensitive suites flake.
 test on GitHub (`hosted-ci.yml`), so the runner here takes only the nightly run, tags and hand runs.
 
 - **Queue every heavy command for a slot:** `scripts/build-slot xcodebuild …`,
-  `scripts/build-slot swift test --package-path Modules/Sync …`. Commands wait first come, first
-  served for one of a machine-wide number of slots (default **3**), then run with their output and
-  exit status untouched. `xcodegen`, `git` and everything light run directly. A worktree without
-  the script (a maintenance line) uses the primary checkout's copy,
+  `scripts/build-slot swift test --package-path Modules/Sync …`. Commands wait for one of a
+  machine-wide number of slots (default **3**), then run with their output and exit status
+  untouched. `xcodegen`, `git` and everything light run directly. A worktree without the script (a
+  maintenance line) uses the primary checkout's copy,
   `/Users/abhishek/Projects/SyncCloud/scripts/build-slot`.
+- **Turns are shared by worktree.** A free slot goes to the worktree holding the fewest slots,
+  then the one served least recently; within a worktree it is first come, first served. A queued
+  landing gate holds up another session's single run by one command at most, not the whole gate.
+- **A duplicate is refused at once** (exit 3): the same command, from the same directory, already
+  queued or running. The message names its PID — wait for that run, or stop it first.
+  `BUILD_SLOT_ALLOW_DUPLICATE=1` runs a deliberate repeat.
 - **A hook enforces it.** `.claude/settings.json` runs `scripts/build-slot-hook` before every Bash
   call; it refuses an unwrapped `xcodebuild` build or test, `swift build`, `swift test` or
   `swift run` and names the exact command to rerun. Light commands, and text that only mentions
   a build, pass.
 - **A wait is reported, never silent:** at once and then once a minute on stderr, with your place
   in line and each holder's PID, worktree and command. Run long builds in the background so a wait
-  cannot hit the tool's timeout. `scripts/build-slot --status` shows the holders and how many wait.
+  cannot hit the tool's timeout. `scripts/build-slot --status` shows the holders, and the waiters
+  grouped by worktree with each one's turn.
 - **Changing the count:** `echo 4 > ~/Library/Caches/SyncCloud-build-slots/slots` for every
   session, `BUILD_SLOTS=4` for one command. A killed or crashed holder frees its slot at once.
 - **Stopping a wrapped command ends what it started**, such as the test helper a killed

@@ -48,7 +48,7 @@ for round in 1 2; do
   rm -f "$WORK/go"
   for job in $(seq 12); do
     ( while [ ! -e "$WORK/go" ]; do sleep 0.01; done
-      exec "$SLOT" sh -c "echo + >> '$WORK/events'; sleep 0.3; echo - >> '$WORK/events'" ) &
+      BUILD_SLOT_ALLOW_DUPLICATE=1 exec "$SLOT" sh -c "echo + >> '$WORK/events'; sleep 0.3; echo - >> '$WORK/events'" ) &
   done
   ( while true; do "$SLOT" --status | head -1 >> "$WORK/samples"; done ) &
   sampler=$!
@@ -78,7 +78,7 @@ wait
 check "FIFO: 5 queued waiters ran in arrival order ($(tr '\n' ' ' < "$WORK/order"))" \
   same "$(tr '\n' ' ' < "$WORK/order")" "W1 W2 W3 W4 W5 "
 check "FIFO: the first waiter was told it was first in line, and who held the slot" \
-  grep -q 'first in line; 1 of 1 slots held — \[1\] pid [0-9]*, [^,]*, [0-9]*m[0-9]*s: sh -c' \
+  grep -q 'first in line, this worktree holding 1; 1 of 1 slots held — \[1\] pid [0-9]*, [^,]*, [0-9]*m[0-9]*s: sh -c' \
   "$WORK/fifo-err1"
 check "FIFO: the fifth waiter was told 4 were ahead" grep -q '4 ahead in line' "$WORK/fifo-err5"
 check "FIFO: each waiter reported getting its slot" \
@@ -163,6 +163,162 @@ touch "$WORK/release"
 wait "$gate" "$excl" "$normal"
 check "--exclusive on 3 slots: it ran, then the newcomer ($(tr '\n' ' ' < "$WORK/order"))" \
   same "$(tr '\n' ' ' < "$WORK/order")" "E N "
+
+# 2c. Turns are shared by worktree. Two fake worktrees, A and B: git repos, B entered from a
+#     subdirectory so the toplevel is what counts.
+git init -q "$WORK/wtA" && git init -q "$WORK/wtB" && mkdir -p "$WORK/wtB/sub" "$WORK/wtA/sub"
+in_a() { cd "$WORK/wtA" && exec "$@"; }
+in_b() { cd "$WORK/wtB/sub" && exec "$@"; }
+export BUILD_SLOTS=1
+rm -f "$WORK/release" "$WORK/order"
+( in_a "$SLOT" sh -c "while [ ! -e '$WORK/release' ]; do sleep 0.05; done" ) &
+gate=$!
+wait_for 10 held 1
+n=0
+for job in A1 A2 A3 B1 B2; do
+  if [ "${job%?}" = A ]; then dir=in_a; else dir=in_b; fi
+  ( $dir "$SLOT" sh -c "echo $job >> '$WORK/order'; sleep 0.2" 2>/dev/null ) &
+  n=$((n + 1)); wait_for 10 waiting "$n"
+done
+"$SLOT" --status > "$WORK/fair-status"
+touch "$WORK/release"
+wait
+check "1 slot, A's gate then 3 of A's and 2 of B's queued: turns alternate ($(tr '\n' ' ' < "$WORK/order"))" \
+  same "$(tr '\n' ' ' < "$WORK/order")" "B1 A1 B2 A2 A3 "
+check "--status groups the waiters by worktree, with what each holds" \
+  eval "grep -q '^  .*/wtA: holds 1, 3 waiting' '$WORK/fair-status' && grep -q '^  .*/wtB: holds 0, 2 waiting' '$WORK/fair-status'"
+check "--status gives each waiter its turn: B1 first, A3 last" \
+  eval "grep -A1 'wtB: holds' '$WORK/fair-status' | grep -q '#1 .*echo B1' && grep -q '#5 .*echo A3' '$WORK/fair-status'"
+
+# The case seen on 2026-11-03: one worktree holds every slot and has its whole gate queued; a
+# single run from another worktree gets the next free slot, not the end of the line.
+export BUILD_SLOTS=2
+rm -f "$WORK/release" "$WORK/release-a2" "$WORK/order"
+( in_a "$SLOT" sh -c "while [ ! -e '$WORK/release' ]; do sleep 0.05; done" ) &
+gate=$!
+( in_a "$SLOT" sh -c "while [ ! -e '$WORK/release-a2' ]; do sleep 0.05; done" ) &
+gate2=$!
+wait_for 10 held 2
+n=0
+for job in A1 A2 A3 A4; do
+  ( in_a "$SLOT" sh -c "echo $job >> '$WORK/order'; sleep 0.2" ) 2>/dev/null &
+  n=$((n + 1)); wait_for 10 waiting "$n"
+done
+( in_b "$SLOT" sh -c "echo B1 >> '$WORK/order'" ) 2> "$WORK/b1-err" &
+b1=$!
+wait_for 10 waiting 5
+touch "$WORK/release"
+check "2 slots both held by A, 4 more of A's queued: B's one run gets the first slot to free" \
+  wait_for 10 grep -qs B1 "$WORK/order"
+check "...before any of A's queue ($(tr '\n' ' ' < "$WORK/order"))" same "$(head -1 "$WORK/order")" B1
+wait_for 20 grep -qs A4 "$WORK/order"
+check "...and A's queue then runs in its own order, beside A's other holder ($(tr '\n' ' ' < "$WORK/order"))" \
+  eval "same \"\$(tr '\n' ' ' < '$WORK/order')\" 'B1 A1 A2 A3 A4 ' && alive $gate2"
+touch "$WORK/release-a2"
+wait
+
+# A killed holder frees its worktree's share at once: the other worktree's waiter runs.
+export BUILD_SLOTS=1
+rm -f "$WORK/order"
+( in_a "$SLOT" sleep 32.1 ) &
+holder=$!
+wait_for 10 held 1
+( in_a "$SLOT" sh -c "echo A1 >> '$WORK/order'" ) 2>/dev/null &
+a1=$!
+wait_for 10 waiting 1
+( in_b "$SLOT" sh -c "echo B1 >> '$WORK/order'" ) 2>/dev/null &
+b1=$!
+wait_for 10 waiting 2
+kill -KILL "$holder"; wait "$holder" 2>/dev/null
+pkill -f 'sleep 32.1'
+wait "$a1" "$b1"
+check "SIGKILL of A's holder: B, which A's turn just went to, runs first ($(tr '\n' ' ' < "$WORK/order"))" \
+  same "$(tr '\n' ' ' < "$WORK/order")" "B1 A1 "
+
+# --exclusive stays a wall: a waiter from a worktree holding nothing does not pass it.
+export BUILD_SLOTS=2
+rm -f "$WORK/release" "$WORK/order"
+( in_a "$SLOT" sh -c "while [ ! -e '$WORK/release' ]; do sleep 0.05; done" ) &
+gate=$!
+wait_for 10 held 1
+( in_a "$SLOT" --exclusive sh -c "echo E >> '$WORK/order'" ) 2>/dev/null &
+excl=$!
+wait_for 10 waiting 1
+( in_b "$SLOT" sh -c "echo B >> '$WORK/order'" ) 2>/dev/null &
+behind=$!
+wait_for 10 waiting 2
+sleep 2.5
+check "--exclusive: another worktree's waiter behind it, holding nothing, waits too" \
+  same "$(cat "$WORK/order" 2>/dev/null)" ""
+touch "$WORK/release"
+wait "$gate" "$excl" "$behind"
+check "--exclusive: it ran, then the other worktree's waiter ($(tr '\n' ' ' < "$WORK/order"))" \
+  same "$(tr '\n' ' ' < "$WORK/order")" "E B "
+
+# 2d. A duplicate — same directory, same arguments, queued or running — is refused at once.
+export BUILD_SLOTS=1
+rm -f "$WORK/release" "$WORK/order"
+( in_a "$SLOT" sh -c "while [ ! -e '$WORK/release' ]; do sleep 0.05; done" ) &
+gate=$!
+wait_for 10 held 1
+( in_a "$SLOT" sh -c "echo D >> '$WORK/order'" ) 2>/dev/null &
+first=$!
+wait_for 10 waiting 1
+( in_a "$SLOT" sh -c "echo D >> '$WORK/order'" ) > "$WORK/dup-out" 2> "$WORK/dup-err"
+status=$?
+check "a duplicate of a queued command exits 3 at once ($status)" same "$status" 3
+check "...naming the PID it duplicates, and saying to wait or stop it" \
+  eval "grep -q 'pid $first already has this command queued in .*wtA: sh -c' '$WORK/dup-err' && grep -q 'wait for that run to finish, or stop it first (kill $first)' '$WORK/dup-err'"
+check "...and runs nothing, and leaves nothing queued" \
+  eval "[ ! -s '$WORK/dup-out' ] && waiting 1"
+( in_a "$SLOT" sh -c "while [ ! -e '$WORK/release' ]; do sleep 0.05; done" ) 2> "$WORK/dup-run-err"
+check "a duplicate of a running command is refused too, naming the holder ($?)" \
+  eval "grep -q 'pid $gate already has this command running' '$WORK/dup-run-err'"
+( in_b "$SLOT" sh -c "echo D >> '$WORK/order'" ) 2>/dev/null &
+other=$!
+check "the same command from another worktree is no duplicate" wait_for 10 waiting 2
+( cd "$WORK/wtA/sub" && exec "$SLOT" sh -c "echo D >> '$WORK/order'" ) 2>/dev/null &
+subdir=$!
+check "...nor from another directory of the same worktree, where relative paths mean other things" \
+  wait_for 10 waiting 3
+kill -KILL "$first"; wait "$first" 2>/dev/null
+wait_for 10 waiting 2
+( in_a "$SLOT" sh -c "echo D >> '$WORK/order'" ) 2>/dev/null &
+again=$!
+check "a killed waiter is no duplicate: the same command queues again" wait_for 10 waiting 3
+( export BUILD_SLOT_ALLOW_DUPLICATE=1; in_a "$SLOT" sh -c "echo D >> '$WORK/order'" ) 2>/dev/null &
+repeat=$!
+check "BUILD_SLOT_ALLOW_DUPLICATE=1 queues a deliberate repeat" wait_for 10 waiting 4
+touch "$WORK/release"
+wait "$gate" "$other" "$subdir" "$repeat" "$again"
+check "...and every accepted one ran" same "$(grep -c D "$WORK/order")" 4
+
+# An older build-slot (another worktree's copy, from before turns were shared) waits in the same
+# queue first come, first served, with an empty entry. Mixed in, every command still runs, one at a
+# time, with no slot left idle.
+# ad79d7850 is the last build-slot before shared turns.
+if git -C "$(dirname "$SLOT")" show ad79d7850:scripts/build-slot > "$WORK/old-build-slot" 2>/dev/null; then
+chmod +x "$WORK/old-build-slot"
+rm -f "$WORK/release" "$WORK/events"
+( in_a "$SLOT" sh -c "while [ ! -e '$WORK/release' ]; do sleep 0.05; done" ) &
+gate=$!
+wait_for 10 held 1
+n=0
+for job in new-A old-B new-B old-A new-A2; do
+  case $job in old-A) run="in_a $WORK/old-build-slot" ;; old-B) run="in_b $WORK/old-build-slot" ;;
+               new-A*) run="in_a $SLOT" ;; *) run="in_b $SLOT" ;; esac
+  ( $run sh -c "echo + >> '$WORK/events'; sleep 0.3; echo - $job >> '$WORK/events'" ) 2>/dev/null &
+  n=$((n + 1)); wait_for 10 waiting "$n"
+done
+touch "$WORK/release"
+began=$SECONDS
+wait
+peak=$(awk '/\+/ { n++; if (n > max) max = n } /-/ { n-- } END { print max }' "$WORK/events")
+check "older and newer build-slots in one queue: all 5 ran, one at a time (peak $peak), in $((SECONDS - began)) s" \
+  eval "[ \"\$(grep -c -- - '$WORK/events')\" = 5 ] && [ '$peak' = 1 ] && [ $((SECONDS - began)) -le 15 ]"
+else
+  echo "skip - older and newer build-slots in one queue: ad79d7850 is not in this clone"
+fi
 
 # A changed slots file reaches the waiters already in line: they read it on every poll.
 unset BUILD_SLOTS
@@ -365,8 +521,8 @@ echo 4 > "$BUILD_SLOT_DIR/slots"
 check "the slots file sets the count" eval "'$SLOT' --status | grep -q '^0 of 4 slots'"
 check "\$BUILD_SLOTS overrides the slots file" eval "BUILD_SLOTS=5 '$SLOT' --status | grep -q '^0 of 5 slots'"
 "$SLOT" sleep 30.9 & h1=$!
-"$SLOT" sleep 30.9 & h2=$!
-"$SLOT" sleep 30.9 & h3=$!
+"$SLOT" sleep 30.91 & h2=$!
+"$SLOT" sleep 30.92 & h3=$!
 wait_for 10 held 3
 BUILD_SLOTS=2 BUILD_SLOT_TIMEOUT=2 "$SLOT" echo never 2>/dev/null
 check "lowering the count below the running builds makes newcomers wait" same $? 75

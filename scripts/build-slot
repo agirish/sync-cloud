@@ -8,17 +8,30 @@
 
 Every Claude session on this Mac (and the self-hosted CI runner beside them) shares ten cores.
 More concurrent builds than that buy no throughput and make the timing-sensitive suites flake,
-so sessions queue here instead. A command waits its turn, first come first served, then runs
-with its stdin/stdout/stderr untouched; the wrapper exits with the command's exit status, or dies
-of the same signal (a core-dumping one comes back as 128+n — see RERAISED).
+so sessions queue here instead. A command waits its turn, then runs with its stdin/stdout/stderr
+untouched; the wrapper exits with the command's exit status, or dies of the same signal (a
+core-dumping one comes back as 128+n — see RERAISED).
+
+Turns are shared by worktree (the git toplevel of the command's cwd), not by arrival: a free slot
+goes to the oldest waiter of the worktree holding the fewest slots right now; among worktrees
+holding as few, to the one served least recently, then the one whose oldest waiter is oldest.
+Within one worktree it is first come, first served. So a session that queues its whole landing
+gate holds up another session's one narrow run by at most one command, not by all of them.
+
+A command already queued or running from the same directory with the same arguments is refused at
+once, exit 3, naming the PID it duplicates: wait for that run, or stop it first.
+$BUILD_SLOT_ALLOW_DUPLICATE=1 runs a deliberate repeat.
 
 Slots are files under ~/Library/Caches/SyncCloud-build-slots/ held with flock(2). The kernel drops
 a lock the moment its holder dies — SIGKILL, a crash, a stopped session — so no slot ever has to be
 reclaimed by hand and a reused PID can never look like a live holder. Waiters queue the same way.
+When each worktree last got a slot is kept beside them in served, a JSON file; losing it only
+loses that memory.
 
---exclusive waits its turn like any other command, then takes every slot, so nothing else built
-by a session runs beside it (a CPU-stress probe's measurement is its own). Everyone queued behind
-it waits, even for a slot that is free. The slot count is read on every poll.
+--exclusive waits until nobody queued before it is still waiting and nothing is held, then takes
+every slot, so nothing else built by a session runs beside it (a CPU-stress probe's measurement is
+its own). Everyone queued behind it waits, even for a slot that is free; waiters queued before it
+share the slots by worktree as above. The slot count is read on every poll.
 
 Slot count: $BUILD_SLOTS, else the number in ~/Library/Caches/SyncCloud-build-slots/slots, else 3.
 $BUILD_SLOT_TIMEOUT: give up after this many seconds of waiting, exit 75 (default: wait forever,
@@ -35,6 +48,7 @@ a slot after a warning: a broken cache directory must not stop every build on th
 """
 
 import fcntl
+import json
 import os
 import signal
 import subprocess
@@ -50,6 +64,8 @@ HEAL_SECONDS = 2.0
 REPORT_SECONDS = 60
 MUTEX_REPORT_SECONDS = 10
 TIMEOUT_EXIT = 75  # EX_TEMPFAIL
+DUPLICATE_EXIT = 3
+SERVED_DAYS = 7  # how long a worktree's last turn is remembered
 FORWARDED = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)
 # A command killed by one of these is re-killed on the wrapper, so a calling shell sees the same
 # death. The core-dumping signals (SIGABRT, SIGSEGV, …) come back as exit 128+n instead: re-raising
@@ -157,19 +173,44 @@ def read_text(path):
         return ""
 
 
-def read_record(index):
+def parse_record(text):
     record = {}
-    for line in read_text(slot_path(index)).splitlines():
+    for line in text.splitlines():
         key, _, value = line.partition("=")
         record[key] = value
     return record
 
 
-def write_record(fd, command):
-    shown = " ".join(command).replace("\\", "\\\\").replace("\n", "\\n")
-    text = "pid=%d\nstarted=%f\ncwd=%s\ncommand=%s\n" % (
-        os.getpid(), time.time(), os.getcwd(), shown)
-    try:  # only ever read for display, so a full disk costs the record, never the slot
+def read_record(index):
+    return parse_record(read_text(slot_path(index)))
+
+
+def one_line(text):
+    return text.replace("\\", "\\\\").replace("\n", "\\n")
+
+
+def worktree_of(cwd):
+    """The git toplevel holding cwd, or cwd itself outside a repository."""
+    try:
+        top = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                             errors="surrogateescape", timeout=10).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        top = ""
+    return top or cwd
+
+
+def record_text(command, worktree):
+    """What a slot file and a queue entry hold: read for display, for sharing turns by worktree,
+    and argv (exact, as JSON) for refusing a duplicate. Entries made by an older build-slot are
+    empty, and slot records lack worktree and argv."""
+    return "pid=%d\nstarted=%f\ncwd=%s\nworktree=%s\ncommand=%s\nargv=%s\n" % (
+        os.getpid(), time.time(), one_line(os.getcwd()), one_line(worktree),
+        one_line(" ".join(command)), json.dumps(command))
+
+
+def write_record(fd, text):
+    try:  # a full disk costs the record, never the slot
         os.ftruncate(fd, 0)
         os.pwrite(fd, text.encode("utf-8", "surrogateescape"), 0)
     except OSError:
@@ -204,14 +245,19 @@ def close_all(fds):
         os.close(fd)
 
 
-def stopped(pid):
-    """True if pid is stopped (^Z, SIGSTOP), so a waiter cannot hold up the line behind it."""
+def stopped_pids(pids):
+    """The pids, of those given, that are stopped (^Z, SIGSTOP), so a waiter cannot hold up the line
+    behind it. One ps for the whole queue."""
+    if not pids:
+        return set()
     try:
-        state = subprocess.run(["ps", "-o", "state=", "-p", str(pid)], stdout=subprocess.PIPE,
-                               stderr=subprocess.DEVNULL, errors="replace").stdout
+        listing = subprocess.run(["ps", "-o", "pid=,state=", "-p", ",".join(pids)],
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                 errors="replace").stdout
     except OSError:
-        return False
-    return state.strip().startswith("T")
+        return set()
+    return {fields[0] for fields in map(str.split, listing.splitlines())
+            if len(fields) == 2 and fields[1].startswith("T")}
 
 
 EXCLUSIVE_MARK = "-x-"  # in an --exclusive waiter's queue entry: 00…0123-x-4567
@@ -221,32 +267,134 @@ def entry_name(exclusive):
     return "%020d%s%d" % (time.time_ns(), EXCLUSIVE_MARK if exclusive else "-", os.getpid())
 
 
-def live_waiters(mine=None):
-    """Under the mutex: how many live waiters queued before mine (all of them if mine is None),
-    and how many of those are --exclusive. A dead waiter's entry is unlocked, and is removed here;
-    a stopped one is passed over until it resumes, when it has its place back."""
-    ahead = exclusive_ahead = 0
+def read_queue():
+    """Under the mutex: every live waiter, oldest first, as its record plus name, pid, group (its
+    worktree), exclusive and stopped. A dead waiter's entry is unlocked, and is removed here; a
+    stopped one is passed over until it resumes, when it has its place back."""
     try:
         names = sorted(os.listdir(QUEUE_DIR))
     except FileNotFoundError:
-        return 0, 0
+        return []
+    waiters = []
     for name in names:
-        if name == mine:
-            break
         path = os.path.join(QUEUE_DIR, name)
         try:
             fd = try_lock(path, create=False)
         except FileNotFoundError:
             continue
-        if fd is None:
-            pid = name.rpartition("-")[2]
-            if not (pid.isdigit() and stopped(int(pid))):
-                ahead += 1
-                exclusive_ahead += EXCLUSIVE_MARK in name
-        else:
+        if fd is not None:
             os.unlink(path)
             os.close(fd)
-    return ahead, exclusive_ahead
+            continue
+        waiter = parse_record(read_text(path))
+        waiter.update(name=name, pid=name.rpartition("-")[2], exclusive=EXCLUSIVE_MARK in name,
+                      group=waiter.get("worktree") or "?" + name)  # an older build-slot's entry
+        waiters.append(waiter)
+    stopped = stopped_pids([waiter["pid"] for waiter in waiters if waiter["pid"].isdigit()])
+    for waiter in waiters:
+        waiter["stopped"] = waiter["pid"] in stopped
+    return waiters
+
+
+def held_group(record):
+    return record.get("worktree") or record.get("cwd", "?")
+
+
+def holdings_of(held):
+    holdings = {}
+    for _, record in held:
+        group = held_group(record)
+        holdings[group] = holdings.get(group, 0) + 1
+    return holdings
+
+
+def served_path():
+    return os.path.join(SLOT_DIR, "served")
+
+
+def read_served():
+    """{worktree: when it last got a slot}, kept so turns rotate between worktrees that hold none."""
+    try:
+        served = json.loads(read_text(served_path()))
+        return {group: float(when) for group, when in served.items()}
+    except (ValueError, TypeError, AttributeError):
+        return {}
+
+
+def note_served(served, group):
+    now = time.time()
+    served = {g: when for g, when in served.items() if now - when < SERVED_DAYS * 86400}
+    served[group] = now
+    scratch = "%s.%d" % (served_path(), os.getpid())
+    try:
+        with open(scratch, "w") as handle:
+            json.dump(served, handle)
+        os.replace(scratch, served_path())
+    except OSError:
+        pass
+
+
+def schedule(waiters, held, served, room=None):
+    """The live, unstopped waiters (oldest first) in the order free slots will go to them.
+
+    Each turn goes to the oldest waiter of the worktree holding fewest slots, counting the turns
+    already handed out ahead of it; ties go to the worktree served least recently, then to the
+    oldest waiter. An --exclusive waiter is a wall: those before it are ordered among themselves,
+    then it, then those after it, as if nothing were held.
+
+    An older build-slot's waiter takes a slot only once fewer waiters are ahead of it in arrival
+    order than slots are free; it is ordered here only then (room given), so it is never handed a
+    turn it will not take while a slot stands idle."""
+    holdings = holdings_of(held)
+    served = dict(served)
+    tick = max(served.values(), default=0.0)
+    order, segment = [], []
+
+    def drain():
+        nonlocal tick
+        queues = {}
+        for waiter in segment:
+            queues.setdefault(waiter["group"], []).append(waiter)
+        while queues:
+            group = min(queues, key=lambda g: (holdings.get(g, 0), served.get(g, 0.0),
+                                               queues[g][0]["name"]))
+            order.append(queues[group].pop(0))
+            if not queues[group]:
+                del queues[group]
+            holdings[group] = holdings.get(group, 0) + 1
+            tick += 1
+            served[group] = tick
+        segment.clear()
+
+    for position, waiter in enumerate(waiters):
+        if waiter["exclusive"]:
+            drain()
+            order.append(waiter)
+            holdings.clear()
+        elif "worktree" in waiter or room is None or position < room:
+            segment.append(waiter)
+    drain()
+    return order
+
+
+def duplicate_of(command, waiters, held):
+    """The (pid, "queued" or "running") of a live waiter or holder with this cwd and argv, if any."""
+    cwd, argv, shown = one_line(os.getcwd()), json.dumps(command), one_line(" ".join(command))
+
+    def same(record):
+        if record.get("cwd") != cwd:
+            return False
+        if "argv" in record:
+            return record["argv"] == argv
+        return record.get("command") == shown  # held under an older build-slot
+
+    for waiter in waiters:
+        if same(waiter):
+            return waiter["pid"], "queued"
+    for _, record in held:
+        if same(record):
+            return record.get("pid", "?"), "running"
+    return None
 
 
 def duration(seconds):
@@ -264,29 +412,35 @@ def place(cwd):
     return "~" + cwd[len(home):] if cwd.startswith(home) else cwd
 
 
-def describe(index, record, width=70):
-    command = record.get("command", "?")
-    if len(command) > width:
-        command = command[:width - 1] + "…"
+def shorten(command, width):
+    return command if len(command) <= width else command[:width - 1] + "…"
+
+
+def since(record):
     try:
-        held = duration(time.time() - float(record.get("started", "")))
+        return duration(time.time() - float(record.get("started", "")))
     except ValueError:
-        held = "?"
-    return "[%d] pid %s, %s, %s: %s" % (index, record.get("pid", "?"),
-                                       place(record.get("cwd", "?")), held, command)
+        return "?"
 
 
-def make_entry(entry_path):
-    """Under the mutex, so none is pruned half-made: the queue entry, created and locked."""
+def describe(index, record, width=70):
+    return "[%d] pid %s, %s, %s: %s" % (
+        index, record.get("pid", "?"), place(record.get("worktree") or record.get("cwd", "?")),
+        since(record), shorten(record.get("command", "?"), width))
+
+
+def make_entry(entry_path, text):
+    """Under the mutex, so none is pruned or read half-made: the queue entry, created and locked."""
     fd = os.open(entry_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o644)
     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    write_record(fd, text)
     return fd
 
 
-def acquire(command, exclusive):
-    """Queue, then take a slot once fewer waiters are ahead than there are free slots and no
-    --exclusive one is ahead — or, if exclusive, every slot, once nobody is ahead and nothing is
-    held. Returns ({index: fd}, the slot count it was taken under).
+def acquire(command, exclusive, worktree):
+    """Refuse a duplicate, queue, then take a slot once this waiter's turn (schedule) is among the
+    slots free and no --exclusive one is ahead — or, if exclusive, every slot, once nobody is ahead
+    and nothing is held. Returns ({index: fd}, the slot count it was taken under).
 
     Each poll reads the count afresh, so a changed slots file reaches waiters already in line, and
     remakes the directory and this waiter's entry, under its first name and so its first place, if
@@ -294,14 +448,26 @@ def acquire(command, exclusive):
     timeout = env_number("BUILD_SLOT_TIMEOUT", 0, 0)
     began = time.monotonic()
     next_report = began
+    text = record_text(command, worktree)
     entry = entry_path = entry_fd = None
     swept_at = None  # when this waiter found its entry swept away
     try:
         os.makedirs(QUEUE_DIR, exist_ok=True)
         with Mutex():
+            if not os.environ.get("BUILD_SLOT_ALLOW_DUPLICATE"):
+                held, free = survey(slot_count())
+                close_all(free)
+                twin = duplicate_of(command, read_queue(), held)
+                if twin:
+                    note("pid %s already has this command %s in %s: %s\n"
+                         "build-slot: wait for that run to finish, or stop it first (kill %s). "
+                         "BUILD_SLOT_ALLOW_DUPLICATE=1 runs a deliberate repeat." % (
+                             twin[0], twin[1], place(worktree), shorten(" ".join(command), 120),
+                             twin[0]))
+                    sys.exit(DUPLICATE_EXIT)
             entry = entry_name(exclusive)
             entry_path = os.path.join(QUEUE_DIR, entry)
-            entry_fd = make_entry(entry_path)
+            entry_fd = make_entry(entry_path, text)
     except OSError:  # a full disk: no place in line, so wait behind everyone, slots still honoured
         entry = None
     try:
@@ -312,21 +478,34 @@ def acquire(command, exclusive):
                 if entry is not None and not os.path.exists(entry_path):
                     swept_at = time.monotonic()
                     try:
-                        fd = make_entry(entry_path)
+                        fd = make_entry(entry_path, text)
                         os.close(entry_fd)
                         entry_fd = fd
                     except OSError:
                         pass
-                ahead, exclusive_ahead = live_waiters(entry)
+                live = [waiter for waiter in read_queue() if not waiter["stopped"]]
                 held, free = survey(count)
+                served = read_served()
+                room = count - len(held)
+                order = schedule(live, held, served, room)
+                ahead = next((i for i, w in enumerate(order) if w["name"] == entry), len(order))
+                turns = []  # who gets the free slots: the first room waiters short of an exclusive
+                for waiter in order[:max(room, 0)]:
+                    if waiter["exclusive"]:
+                        break
+                    turns.append(waiter["name"])
                 # After a sweep the holders' slot files are new and unlocked until each holder's
                 # next heal re-takes its own — so nothing is taken until they have had the chance.
                 if swept_at is not None and time.monotonic() - swept_at < HEAL_SECONDS + POLL_SECONDS:
                     taken = None
                     close_all(free)
-                elif exclusive and not ahead and not held and len(free) == count:
-                    taken = free
-                elif not exclusive and free and not exclusive_ahead and ahead < count - len(held):
+                elif exclusive:
+                    first = not any(w["name"] < entry for w in live) if entry else not live
+                    taken = free if first and not held and len(free) == count else None
+                    if not taken:
+                        close_all(free)
+                elif free and (entry in turns if ahead < len(order) else
+                               ahead < room and not any(w["exclusive"] for w in order)):
                     index = min(free)
                     taken = {index: free.pop(index)}
                     close_all(free)
@@ -335,7 +514,8 @@ def acquire(command, exclusive):
                     close_all(free)
                 if taken:
                     for fd in taken.values():
-                        write_record(fd, command)
+                        write_record(fd, text)
+                    note_served(served, worktree)
                     waited = time.monotonic() - began
                     if waited >= POLL_SECONDS:
                         note("got slot %s after waiting %s" % (
@@ -348,6 +528,9 @@ def acquire(command, exclusive):
                 sys.exit(TIMEOUT_EXIT)
             if now >= next_report:
                 line = "first in line" if not ahead else "%d ahead in line" % ahead
+                mine = holdings_of(held).get(worktree, 0)
+                if mine:
+                    line += ", this worktree holding %d" % mine
                 note("waiting %s%s, %s; %d of %d slots held — %s" % (
                     duration(now - began), " for every slot" if exclusive else "", line,
                     len(held), count,
@@ -368,8 +551,8 @@ class Holding:
     file of the same name and exceed the count, so every HEAL_SECONDS each is checked to still be
     the file it locked, and a lost one is replaced by a free slot."""
 
-    def __init__(self, count, command, slots):
-        self.count, self.command, self.slots = count, command, slots
+    def __init__(self, count, text, slots):
+        self.count, self.text, self.slots = count, text, slots
 
     def heal(self):
         lost = []
@@ -391,7 +574,7 @@ class Holding:
                     if free:  # else newcomers took every slot; nothing to retake
                         new = min(free)
                         self.slots[new] = free.pop(new)
-                        write_record(self.slots[new], self.command)
+                        write_record(self.slots[new], self.text)
                         note("slot directory was removed under a running build; "
                              "re-took slot %d" % new)
                 close_all(free)
@@ -545,6 +728,30 @@ def run(command, env, nice, holding=None):
     return status
 
 
+def fill_in_older(waiter):
+    """For --status only: an older build-slot's queue entry is empty, so read its worktree and
+    command off the waiting process, and its start off the entry's name."""
+    if not waiter["pid"].isdigit():
+        return
+    try:
+        cwd = subprocess.run(["lsof", "-a", "-d", "cwd", "-p", waiter["pid"], "-Fn"],
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                             errors="surrogateescape").stdout
+        line = subprocess.run(["ps", "-o", "command=", "-p", waiter["pid"]],
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                              errors="replace").stdout.strip()
+    except OSError:
+        return
+    cwd = next((l[1:] for l in cwd.splitlines() if l.startswith("n")), "")
+    if cwd:  # shown under its worktree, but its turn stays first come, first served (schedule)
+        waiter["shown_group"] = worktree_of(cwd)
+    if "build-slot " in line:
+        waiter["command"] = line.split("build-slot ", 1)[1]
+    stamp = waiter["name"].partition("-")[0]
+    if stamp.isdigit():
+        waiter["started"] = str(int(stamp) / 1e9)
+
+
 def status():
     try:
         os.makedirs(SLOT_DIR, exist_ok=True)
@@ -552,13 +759,37 @@ def status():
         with Mutex():
             held, free = survey(count)
             close_all(free)
-            waiting = live_waiters()[0]
+            waiters = read_queue()
+            served = read_served()
     except OSError as error:
         note("cannot use %s: %s" % (SLOT_DIR, error))
         return 1
-    print("%d of %d slots held, %d waiting (%s)" % (len(held), count, waiting, SLOT_DIR))
+    for waiter in waiters:
+        if "argv" not in waiter:
+            fill_in_older(waiter)
+    live = [waiter for waiter in waiters if not waiter["stopped"]]
+    print("%d of %d slots held, %d waiting (%s)" % (len(held), count, len(live), SLOT_DIR))
     for index, record in held:
         print("  " + describe(index, record, width=200))
+    if not waiters:
+        return 0
+    turn = {waiter["name"]: n for n, waiter in enumerate(schedule(live, held, served), 1)}
+    groups = {}
+    for waiter in waiters:
+        groups.setdefault(waiter.get("shown_group", waiter["group"]), []).append(waiter)
+    holdings = holdings_of(held)
+    print("waiting, by worktree; #n is the turn each would get as slots free:")
+    for group in sorted(groups, key=lambda g: min(turn.get(w["name"], len(turn) + 1)
+                                                  for w in groups[g])):
+        queued = groups[group]
+        name = "(worktree unknown)" if group.startswith("?") else place(group)
+        print("  %s: holds %d, %d waiting" % (name, holdings.get(group, 0), len(queued)))
+        for waiter in queued:
+            print("    %-8s pid %s, waited %s: %s%s%s" % (
+                "#%d" % turn[waiter["name"]] if waiter["name"] in turn else "stopped",
+                waiter["pid"], since(waiter), "--exclusive " if waiter["exclusive"] else "",
+                shorten(waiter.get("command", "?"), 200),
+                "" if "argv" in waiter else "  [older build-slot]"))
     return 0
 
 
@@ -584,11 +815,12 @@ def main(argv):
         return run(argv, os.environ, nice)
     try:
         os.makedirs(SLOT_DIR, exist_ok=True)
-        slots, count = acquire(argv, exclusive)
+        worktree = worktree_of(os.getcwd())
+        slots, count = acquire(argv, exclusive, worktree)
     except OSError as error:
         note("cannot use %s (%s); running without a slot" % (SLOT_DIR, error))
         return run(argv, os.environ, nice)
-    holding = Holding(count, argv, slots)  # its fds hold the slots until this process ends
+    holding = Holding(count, record_text(argv, worktree), slots)  # its fds hold the slots until this process ends
     held = ",".join(map(str, sorted(slots)))
     return run(argv, dict(os.environ, BUILD_SLOT_HELD=held), nice, holding)
 
