@@ -48,15 +48,15 @@ you ask.
   selecting the rows it means.
 - **Proposes, never acts**: moves, renames, new folders and moves to the Trash arrive as a card you
   apply, with one Undo.
-- **Runs the PDF tools**: save as PDF, compress, add or remove a password, take out, delete or
-  reorder pages, split or combine — on a card that says what the new file loses. The original
+- **Runs the PDF tools**: save as PDF, compress, rotate, clean metadata, add or remove a password,
+  take out, delete or reorder pages, split or combine — on a card that says what the new file loses. The original
   never changes, and a password never reaches Claude.
 - **Where should this go?** answers from your own folder layout, files a folder's loose files on
   one card, and offers a rule when you correct it.
 - **Right-click ▸ Ask Claude About This** on files, folders and Compare's rows attaches them to
   your question.
 - **Changes settings on a card** you click; it changes how the app looks itself, and can lower its
-  own spending or access but never raise it. Every change is listed in History with Revert.
+  own spending or access but never raise it. Every change is listed in History, most with Revert.
 - **Type or talk**: click the mic or press ⌥Space; speech becomes text on this Mac. Up brings back
   your last 10 questions.
 - Pick Sonnet, Opus or Haiku from the chat; every answer says what it sent and what it cost,

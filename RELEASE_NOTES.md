@@ -31,7 +31,9 @@ Requires **macOS 26**, unchanged from v6.2.
 - **It looks things up and moves your view.** It lists and finds files and folders in any source,
   goes to folders, tabs, sources and either side of Compare, and reveals, selects, opens or Quick
   Looks a file. It changes views and opens Settings, Help and Activity. It never opens an app, script
-  or installer.
+  or installer. Ask it to find a file and it reveals the best match itself, passing over copies in an
+  Archive or Backup folder unless you ask for one. Names in its answers
+  that open in Browse are underlined.
 - **The panel wears the window's accent.** It paints a pane's surface and accent wash and follows
   the Tint slider, glass at Frosted and Clear, opaque at Solid; None keeps it gray. Drag it by its
   header and drop it near a side: it docks at that side's top or bottom, whichever edge is nearer,
@@ -44,16 +46,18 @@ Requires **macOS 26**, unchanged from v6.2.
   back, and every change is in History. Moves stay on this Mac's disk, and a move to the Trash starts
   unticked. Claude hears what you did with a card, applied, undone or Not Now, with your next
   question. "Where should this go?" offers Move Here, and the loose-files card applies the same way.
-- **PDFs from the chat.** Ask Claude to save a document as a PDF, compress a PDF, put a password on
-  it or take it off, take pages out, delete or reorder them, split it or combine several, and it
+- **PDFs from the chat.** Ask Claude to save a document as a PDF, compress a PDF, turn its pages,
+  clear its metadata, put a password on it or take it off, take pages out, delete or reorder them, split it or combine several, and it
   shows a card that runs SyncCloud's own PDF tool when you click. The card says what the new file will
   lose before you click, the new file goes next to the original (or a folder you choose, when that
   one can't be written to), and the original never changes.
   A password is typed on the card and never reaches Claude. Undo on the card moves what it made to
-  the Trash. To fill in a form, Claude opens it in Edit with Fill & Sign on.
+  the Trash, until SyncCloud quits or the chat starts over. To fill in a form, Claude opens it in Edit with Fill & Sign on.
 - **What's inside a file is read on this Mac.** An on-device model reads it and Claude gets a short
   answer. A passage of the file goes to Claude only when you click Send under the answer, or every
-  time with Let Claude read files on.
+  time with Let Claude read files on. A scanned PDF is read too: pages with little or no text are
+  read by recognizing the words, in the scan's own language, up to 10 pages, and Claude is told
+  which pages those were and that a word may be misread. Stop ends the reading.
 - **Ask about Compare's differences.** "Which files are only on Dropbox?" is answered from the list
   Compare shows, with both sides' sizes and dates. A comparison over an hour old is scanned again
   first, and Claude can narrow the list and select the rows it means. The list scrolls to the first
@@ -98,12 +102,24 @@ Requires **macOS 26**, unchanged from v6.2.
   Claude read files off or lowering the monthly limit, but never raise either, and never to a limit
   at or below what this month has spent. Undo on the card, or Edit ▸ Undo with the chat in front,
   puts a setting back; an undo that would raise Claude's spending or access is on the card only.
+  Badges say what a change does beyond its value: Raises, Less safe, Tightens, Rescans or Next
+  launch.
+- **Lists, sources, people and buttons on cards too.** Ignored name patterns, Ignored items, Kept
+  names and Hidden from Claude show with a remove beside each item; only you add a folder to Hidden
+  from Claude. A source's name, path and Open at, Add Folder…, and a person's fields, Move Up, Move
+  Down and Add Person can each be a card; a folder always comes from the macOS panel, never from
+  Claude. A button that can't be undone, such as Remove, Clear All, Reset Setup or Reset All, asks
+  first inside the card, in Settings' own words.
+- **Your API key stays out of the chat.** Ask for a new key and the card holds a field for it; the
+  key goes to the Keychain. A message with your Anthropic API key in it isn't sent: its card shows it masked, with
+  Save as API Key and Edit Message, and the key is never saved with the chat.
 - **Settings changed from the chat are kept in History.** The Activity window's History tab lists
   Changed from Chat above Sync History: every setting changed from the chat and every rule saved
   from a card, for 90 days, after the chat is gone. Revert puts a value back while the setting still
   holds what was set there, and asks first when that would raise Claude's spending or access.
 - **Every answer says what it sent and what it cost.** Spending counts against a monthly limit in
-  Settings, $25 to start, with a note at 80%.
+  Settings, $25 to start, with a note at 80%. At the limit a question isn't sent: the chat shows the
+  Monthly limit as a card, and once you raise it there, Ask Again sends the question.
 - **Pick the model from the chat.** A menu under the text box picks Sonnet, Opus or Haiku, and
   Brief or Detailed answers, for the next question. The chat carries on, with a line where it
   changed, and the pick becomes your default in Settings; a change made in Settings carries on the
@@ -116,7 +132,7 @@ Requires **macOS 26**, unchanged from v6.2.
   words appear as you speak, and a second ⌥Space or click sends them, as do about two seconds of
   silence. Esc throws them away. Your voice is turned into text on this Mac, listening for the
   names on screen, and only the text is sent, as typing sends it. A spoken question shows a mic in
-  its bubble. macOS asks for the microphone the first time.
+  its bubble. The first time, macOS asks for the microphone and may download its speech model.
 
 ### One-way sync
 
@@ -295,8 +311,9 @@ Requires **macOS 26**, unchanged from v6.2.
 ### Known limitations
 
 - **Ask Claude can't copy, edit or delete for good**, or move to another disk: it proposes moves,
-  renames, new folders and moves to the Trash on this Mac's disk, and you apply them. A card's Undo
-  ends with the app; Activity's History still lists what it did.
+  renames, new folders and moves to the Trash on this Mac's disk, and new PDFs beside the original,
+  and you apply them. A card's Undo ends with the app or a new chat; Activity's History still lists
+  what it did.
 - One-way sync runs only when you click Sync Now; it doesn't yet sync on its own as files change.
 - Reverse in iCloud… doesn't offer two names swapped.
 - One-way sync works from Dropbox's files on this Mac: a file in a synced Dropbox folder that is
