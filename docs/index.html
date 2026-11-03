@@ -159,6 +159,26 @@
   .card p{margin:0;color:var(--ink-dim);font-size:14.5px}
   .card .tag{position:absolute;top:16px;right:16px;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--blue);background:rgba(76,141,255,.12);border:1px solid rgba(76,141,255,.25);padding:3px 8px;border-radius:6px}
 
+  /* ---------- New-feature link and Ask Claude chat illustration ---------- */
+  .newtag{display:flex;width:fit-content;max-width:100%;align-items:center;gap:8px;margin:0 auto 18px;padding:6px 14px;border-radius:999px;font-size:13.5px;font-weight:600;color:var(--ink);text-decoration:none;border:1px solid rgba(154,123,255,.35);background:rgba(154,123,255,.12)}
+  .newtag .k{color:#b9a6ff;font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-size:11px}
+  .newtag:hover{border-color:rgba(154,123,255,.6)}
+  .chat{width:100%;border:1px solid var(--stroke);border-radius:14px;background:var(--bg-2);box-shadow:var(--shadow);font-size:14px;overflow:hidden}
+  .chat-head{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--stroke);font-weight:650}
+  .chat-head .kb{margin-left:auto;color:var(--ink-faint);font-weight:500;font-size:12.5px}
+  .chat-body{display:grid;gap:10px;padding:14px}
+  .bub{max-width:88%;padding:9px 12px;border-radius:12px;line-height:1.45}
+  .bub.you{justify-self:end;background:rgba(76,141,255,.22);border:1px solid rgba(76,141,255,.3)}
+  .bub.claude{justify-self:start;background:var(--panel);border:1px solid var(--stroke);color:var(--ink-dim)}
+  .bub.claude b{color:var(--ink)}
+  .plan{border:1px solid var(--stroke-strong);border-radius:12px;padding:12px;background:var(--panel-2);display:grid;gap:6px}
+  .plan .t{font-weight:650}
+  .plan .row{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:var(--ink-dim)}
+  .plan .foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:4px;font-size:12.5px;color:var(--ink-faint)}
+  .plan .foot .apply{margin-left:auto;padding:5px 12px;border-radius:8px;background:var(--grad);color:#fff;font-weight:600}
+  .chat-cap{margin:10px 2px 0;font-size:12.5px;color:var(--ink-faint);text-align:center}
+  .spotlight .shot.col{flex-direction:column;justify-content:center}
+
   /* ---------- AI spotlight ---------- */
   .spotlight{
     border:1px solid var(--stroke);border-radius:var(--radius-lg);overflow:hidden;
@@ -226,6 +246,7 @@
   <div class="wrap nav-inner">
     <a class="brand" href="#top"><img src="assets/icon-256.png?v=2" alt="SyncCloud icon">SyncCloud</a>
     <nav class="nav-links">
+      <a href="#ask-claude">Ask Claude</a>
       <a href="#compare">Compare</a>
       <a href="#browsing">Browse</a>
       <a href="#organize">Organize</a>
@@ -242,6 +263,7 @@
 <a id="top"></a>
 <div class="hero wrap">
   <div class="eyebrow"><span class="dot"></span> Native macOS · iCloud · OneDrive · Dropbox · Google Drive</div>
+  <a class="newtag" href="#ask-claude"><span class="k">New in v7.0</span> Ask Claude, a chat that knows what's on screen ›</a>
   <h1>Keep your cloud folders<br><span class="g">in sync, and in order.</span></h1>
   <p class="sub">Compare two folders and see exactly what differs. Organize one: file loose documents, find duplicates, fix broken names, see where the space goes. Write Markdown, and read, fill and sign PDFs. Every change can be undone.</p>
   <div class="cta">
@@ -261,6 +283,52 @@
     <img src="assets/screenshots/hero-compare.png" alt="SyncCloud comparing two cloud folders side by side">
   </div>
 </div>
+
+<!-- ---------------- ASK CLAUDE ---------------- -->
+<section id="ask-claude">
+  <div class="wrap">
+    <div class="spotlight">
+      <div class="spotlight-inner">
+        <div class="pane">
+          <div class="kicker">New in v7.0 · in development on <code>main</code></div>
+          <h2>Ask Claude about your files</h2>
+          <p>Press <code>⌘J</code> and ask about what you're looking at. Claude answers, takes you there, or proposes the change on a card. Nothing changes until you click Apply.</p>
+          <ul class="flist">
+            <li><span class="ic">🔒</span> <span><b>Sees a description of the screen, not your files</b> — names, kinds, sizes, dates and tags, sent only when you ask. What's inside a file is read on this Mac, and anything can be hidden from Claude.</span></li>
+            <li><span class="ic">🧭</span> <span><b>Looks things up and moves your view</b> — finds files in any source, goes to folders, tabs and either side of Compare, and answers "which files are only on Dropbox?" from Compare's list.</span></li>
+            <li><span class="ic">✓</span> <span><b>Proposes; you apply</b> — moves, renames, new folders and moves to the Trash, and PDF jobs: combine, split, compress, reorder, add or remove a password.</span></li>
+            <li><span class="ic">🗂️</span> <span><b>Where should this go?</b> — answers from how you file, files a folder's loose files on one card, and offers a rule when you correct it.</span></li>
+            <li><span class="ic">🎙️</span> <span><b>Type or talk</b> — click the mic or press <code>⌥Space</code>; speech is turned into text on this Mac.</span></li>
+          </ul>
+          <div class="pill-row">
+            <span class="pill"><span class="k">Models:</span> Sonnet / Opus / Haiku 5.5</span>
+            <span class="pill"><span class="k">Key:</span> your own, in the Keychain</span>
+            <span class="pill"><span class="k">Every answer:</span> what it sent and cost</span>
+            <span class="pill"><span class="k">Limit:</span> $25 a month to start</span>
+          </div>
+        </div>
+        <div class="shot col">
+          <div class="chat" role="img" aria-label="Illustration of the Ask Claude panel: a question about Compare, an answer, and a card proposing four moves">
+            <div class="chat-head">✦ Ask Claude <span class="kb">⌘J</span></div>
+            <div class="chat-body">
+              <div class="bub you">Which files are only on Dropbox?</div>
+              <div class="bub claude"><b>Four, all in Taxes:</b> two W-2s and two receipts. I've selected them in Compare's list.</div>
+              <div class="bub you">Move them into Finance ▸ 2024.</div>
+              <div class="plan">
+                <div class="t">Move 4 files</div>
+                <div class="row">Taxes/2024 W-2.pdf → Finance/2024/</div>
+                <div class="row">Taxes/W-2 (second job).pdf → Finance/2024/</div>
+                <div class="row">+ 2 receipts</div>
+                <div class="foot"><span>Nothing changes until you click Apply.</span><span class="apply">Apply 4</span></div>
+              </div>
+            </div>
+          </div>
+          <p class="chat-cap">Illustration, not a screenshot.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
 
 <!-- ---------------- COMPARE ---------------- -->
 <section id="compare">
