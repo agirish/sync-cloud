@@ -305,10 +305,13 @@ private final class Heard {
                                                           accentFill: .blue, onAccent: .white, onAsk: { _ in }, onClose: {},
                                                           onOpenSettings: {}, container: container))
             host.frame = NSRect(origin: .zero, size: container)
+            // Weak, not unowned: a turn still listening when a case ends (a failing one, or a
+            // mutant that leaves the mic open) delivers its words after the fixture is gone, and an
+            // unowned capture there aborted the whole test host (2026-11-02, 16:07).
             host.rootView = AskClaudePanel(chat: chat, place: AskClaudePanelHandleTests.place, accent: .blue, accentFill: .blue,
-                                           onAccent: .white, onAsk: { [unowned self] in typed.append($0) },
-                                           onClose: { [unowned self] in closed += 1 }, onOpenSettings: {}, container: container,
-                                           onAskSpoken: { [unowned self] in spoken.append($0) },
+                                           onAccent: .white, onAsk: { [weak self] in self?.typed.append($0) },
+                                           onClose: { [weak self] in self?.closed += 1 }, onOpenSettings: {}, container: container,
+                                           onAskSpoken: { [weak self] in self?.spoken.append($0) },
                                            voiceHints: { ["Receipts"] }, voiceSource: { source })
             window.contentView = host
             host.layoutSubtreeIfNeeded()
