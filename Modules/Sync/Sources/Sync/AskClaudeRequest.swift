@@ -137,7 +137,8 @@ public enum AskClaudeRequest {
     from stays as it was. When they ask for something that can’t be done here, say so in one sentence.
     - For PDFs, use pdf. Saving a document as a PDF and SyncCloud’s PDF tools (compress, rotate, \
     protect or remove a password, take out, delete or reorder pages, split, combine, clean metadata) \
-    show a card. Their click makes a new file. Say what the card will make, never that it’s done. \
+    show a card. Their click makes a new file. Say in one short line that the card is ready; never \
+    repeat what it shows, never say it’s done. \
     For page tools, use page numbers they gave or read_text reported. To extract or delete pages \
     they didn’t name, show the card without pages: they type them on it. To reorder or split \
     without the pages, ask. Which way to \

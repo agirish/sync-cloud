@@ -14198,3 +14198,14 @@ waits until they type pages that can be. Reorder and Split still ask. Ask Claude
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Ask Claude's line after a PDF card stops repeating the card (TE294) — main only
+
+2026-11-02, for v7.0. On `main`: after offering a PDF card, Claude says one short line — that the
+card is ready, or the choice it started on — and no longer restates that the original stays as it
+was or that nothing is written until the click; the card says that. Ask Claude exists only on
+`main` (see TE290 step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

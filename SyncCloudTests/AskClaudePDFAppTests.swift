@@ -78,8 +78,8 @@ import Sync
         #expect(refusal(["action": .string("compress")], many).contains("at most \(AskClaudePDFCard.maxFiles)"))
     }
 
-    /// **The card it offers, and what Claude is told**: nothing has happened, never “done”; with
-    /// no strength or size, Balanced. Protect tells Claude never to touch the password.
+    /// **The card it offers, and what Claude is told**: nothing has happened, never “done”, one
+    /// short line that doesn't repeat the card; with no strength or size, Balanced. Protect tells Claude never to touch the password.
     @Test func offersACardAndSaysNothingHasHappened() throws {
         let one = try file("Scan.pdf")
         let outcome = offer(["action": .string("compress")], paths: [one])
@@ -90,6 +90,11 @@ import Sync
         #expect(card.rows.map(\.path) == [one])
         #expect(outcome.result.contains("Nothing has happened"))
         #expect(outcome.result.contains("Never say it’s done"))
+        // The card says what the click makes and that the original stays: Claude hears that it
+        // does, so its one line after the card needn't say it again.
+        #expect(outcome.result.contains("The card itself shows"))
+        #expect(outcome.result.contains("Reply in one short line"))
+        #expect(outcome.result.contains("Never repeat what the card shows"))
         let protect = offer(["action": .string("protect")], paths: [one])
         #expect(protect.result.contains("Never ask for it"))
         #expect(protect.pdf?.options.mode == .lockToOpen)

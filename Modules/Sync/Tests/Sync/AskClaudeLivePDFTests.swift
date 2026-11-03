@@ -9,8 +9,9 @@ private let askClaudeLiveKey = ProcessInfo.processInfo.environment["ASK_CLAUDE_L
 ///
 /// Every other Ask Claude test scripts the model's answer; this one sends real questions to the
 /// Messages API and checks the tool calls that come back, and the answer's words where they matter:
-/// never "done" before their click, and no "nothing" in a refusal (Haiku once said "I can only copy
-/// nothing, edit nothing"). Only the tools are stubbed — nothing on disk is read or changed.
+/// never "done" before their click, never a repeat of what the card says, and no "nothing" in a
+/// refusal (Haiku once said "I can only copy nothing, edit nothing"). Only the tools are stubbed —
+/// nothing on disk is read or changed.
 ///
 /// **Off unless asked for.** It runs only when `ASK_CLAUDE_LIVE_KEY` holds an API key — never the
 /// Keychain, which a test must never touch — and never on CI. It spends real money: each question
@@ -54,7 +55,7 @@ struct AskClaudeLivePDFTests {
             case "fill":
                 return AskClaudeToolOutcome(result: "Opened W-9 Agency.pdf in Edit with Fill & Sign on. It has 11 form fields. They type and sign there; Save Filled Copy writes a copy next to it, and you’re told when they save. Say so in a line and stop.", step: "Opened")
             default:
-                return AskClaudeToolOutcome(result: "Offered them a card. Nothing has happened: they click its button or Not Now. The card reads the files, says what the copy loses, and makes a new file next to each original; the original stays as it was.\nSay in one line what the card will make, and stop. Never say it’s done.", step: "Offered")
+                return AskClaudeToolOutcome(result: "Offered them a card. Nothing has happened: they click its button or Not Now.\nThe card itself shows what the click makes, what the copy loses, that the original stays as it was and that nothing is written until they click.\nReply in one short line, such as that the card is ready, or the choice it started on, and stop. Never repeat what the card shows. Never say it’s done.", step: "Offered")
             }
         }
 
@@ -82,8 +83,20 @@ struct AskClaudeLivePDFTests {
             if Set(handles(call)) != Set(expected) { return "handles \(handles(call)), not \(expected)" }
             if calls.contains(where: { $0.name == "propose_changes" }) { return "it proposed changes instead of a PDF card" }
             if let problem = also?(call) { return problem }
-            return saysDone(answer)
+            return saysDone(answer) ?? repeatsCard(answer)
         }
+    }
+
+    /// The card already says the original stays and nothing is written before the click; the line
+    /// after it ("A Rotate card is ready. Clicking Rotate … the original stays unchanged") mustn't.
+    static func repeatsCard(_ answer: String) -> String? {
+        let said = answer.lowercased()
+        for repeated in ["unchanged", "stays as it was", "stays the same", "original stays", "nothing is written",
+                         "nothing happens until", "nothing changes until"]
+        where said.contains(repeated) {
+            return "repeated the card (“\(repeated)”): \(answer)"
+        }
+        return nil
     }
 
     /// "I've saved it", "it's done": said before their click.
@@ -133,7 +146,7 @@ struct AskClaudeLivePDFTests {
             }
             if handles(call) != ["r4"] { return "handles \(handles(call)), not [r4]" }
             if let pages = call.string("pages"), !pages.trimmingCharacters(in: .whitespaces).isEmpty { return "made up pages: \(pages)" }
-            return saysDone(answer)
+            return saysDone(answer) ?? repeatsCard(answer)
         }),
         Prompt(question: "split the Chase statement into two files, the second starting at page 4", check: offered("split", ["r4"], also: { call in
             call.input["split_at"]?.arrayValue?.compactMap(\.intValue) == [4] ? nil : "split_at \(String(describing: call.input["split_at"]))" })),

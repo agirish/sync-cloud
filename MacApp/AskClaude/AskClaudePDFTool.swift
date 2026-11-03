@@ -180,7 +180,9 @@ extension AskClaudeBrowseTools {
 
         let card = AskClaudePDFCard(action: action, rows: rows, options: options)
         let files = rows.map { "“\(AskClaudeScreenCard.escape($0.name))”" }.joined(separator: ", ")
-        var lines = ["Offered them a card: \(card.title) — \(files). Nothing has happened: they click \(AskClaudePDFCardView.runTitle(card)) or Not Now. The card reads the files, says what the copy loses, and makes a new file next to each original; the original stays as it was."]
+        var lines = ["Offered them a card: \(card.title) — \(files). Nothing has happened: they click \(AskClaudePDFCardView.runTitle(card)) or Not Now.",
+                     // Told as what the card shows, so the reply doesn't say it again.
+                     "The card itself shows what the click makes, what the copy loses, that the original stays as it was and that nothing is written until they click."]
         // A choice they didn't name starts on the card's default; they change it there, not in the chat.
         let picked: String? = switch action {
         case .rotate where call.string("turn") == nil: "They didn’t say which way: the card starts on Right, with Left and 180° beside it."
@@ -194,7 +196,7 @@ extension AskClaudeBrowseTools {
         if action == .protect || action == .removePassword {
             lines.append("They type the password on the card. Never ask for it, suggest one or repeat one.")
         }
-        lines.append("Say in one line what the card will make, and stop. Never say it’s done.")
+        lines.append("Reply in one short line, such as that the card is ready, or the choice it started on, and stop. Never repeat what the card shows. Never say it’s done.")
         return AskClaudeToolOutcome(result: lines.joined(separator: "\n"),
                                     step: "Offered \(card.title) for \(rows.count == 1 ? rows[0].name : "\(rows.count) files")",
                                     pdf: card)
