@@ -24,6 +24,11 @@ Requires **macOS 26**, unchanged from v6.2.
   bottom of either side or floating, and resizable, that answers questions about what you're looking at and takes you
   places in SyncCloud. It uses your own Anthropic API key from Settings ▸ Intelligence, and nothing
   is sent until you ask. The chat stays for an hour, across a relaunch.
+- **Set up from the panel, then questions to start with.** With no API key saved, the empty panel
+  says what Ask Claude does and where to make a key, the Claude Console at platform.claude.com, and
+  saves the key to your Keychain from a field there. Claude Max, Ultra and Team plans include
+  monthly API credit, claimed by linking a Console organization. With a key, an empty chat offers
+  three or four questions that fit the screen, and a click sends one as if you had typed it.
 - **Claude sees a description of the screen, not your files.** The names, kinds, sizes, dates and
   tags of what is shown, with paths relative to their source. The panel's header names the folder it
   sees, and the shield beside it shows the folder in full, with Hide from Claude and this month's

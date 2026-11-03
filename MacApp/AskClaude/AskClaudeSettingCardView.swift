@@ -44,6 +44,9 @@ struct AskClaudeSettingsBridge {
     var hasCaughtKey: @MainActor (_ item: UUID) -> Bool = { _ in false }
     var saveCaughtKey: @MainActor (_ item: UUID, _ row: Int) -> Void = { _, _ in }
     var editCaught: @MainActor (_ item: UUID) -> Void = { _ in }
+    /// A key typed in the empty panel's setup (TE315), which isn't a chat item: why it wasn't
+    /// saved, or nil when it was.
+    var saveSetupKey: @MainActor (_ key: String) -> String? = { _ in nil }
     /// A list's rows (TE290 step 8): what is in it now, an item put in or taken out, Hidden from
     /// Claude's Add… (a folder chooser), and whether an item would be hidden from Claude.
     var listItems: @MainActor (_ entry: SettingEntry) -> [String]? = { _ in nil }

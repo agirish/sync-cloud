@@ -2096,7 +2096,8 @@ private final class Counter: @unchecked Sendable {
         let chat = AskClaudeChat(readKey: { nil })
         let container = CGSize(width: 1000, height: 800)
         let panel = AskClaudePanel(chat: chat, place: AskClaudePanelHandleTests.place, accent: .blue, accentFill: .blue, onAccent: .white,
-                                   onAsk: { _ in }, onClose: {}, onOpenSettings: {}, container: container)
+                                   onAsk: { _ in }, onClose: {}, onOpenSettings: {}, container: container,
+                                   settingsBridge: .keySaved)
             .frame(width: container.width, height: container.height, alignment: .topLeading)
         let host = NSHostingView(rootView: panel)
         host.frame = NSRect(origin: .zero, size: container)
@@ -2122,7 +2123,8 @@ private final class Counter: @unchecked Sendable {
         let chat = AskClaudeChat(readKey: { nil })
         let container = CGSize(width: 1000, height: 800)
         let panel = AskClaudePanel(chat: chat, place: AskClaudePanelHandleTests.place, accent: .blue, accentFill: .blue, onAccent: .white,
-                                   onAsk: { _ in }, onClose: {}, onOpenSettings: {}, container: container)
+                                   onAsk: { _ in }, onClose: {}, onOpenSettings: {}, container: container,
+                                   settingsBridge: .keySaved)
         let host = NSHostingView(rootView: panel)
         host.frame = NSRect(origin: .zero, size: container)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: true)
@@ -2195,7 +2197,7 @@ private final class Counter: @unchecked Sendable {
             chat: AskClaudeChat(readKey: { nil }), place: AskClaudePanelHandleTests.place,
             accent: hue.accentColor, accentFill: hue.accentFillColor, onAccent: hue.onAccentLabelColor,
             hue: hue, tint: tint, level: level,
-            onAsk: { _ in }, onClose: {}, onOpenSettings: {}, container: container)
+            onAsk: { _ in }, onClose: {}, onOpenSettings: {}, container: container, settingsBridge: .keySaved)
             .frame(width: container.width, height: container.height, alignment: .topLeading)
             .background(Color.black)
             .environment(\.colorScheme, .light))
@@ -2209,7 +2211,7 @@ private final class Counter: @unchecked Sendable {
         let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: rep)
         // The panel draws from its host's top-left (its window does the placing), 372 wide:
-        // in the empty thread, below the opening note and above the composer.
+        // in the empty thread, below the opening note and its starters, and above the composer.
         let scale = CGFloat(rep.pixelsWide) / container.width
         let c = try #require(rep.colorAt(x: Int(186 * scale), y: Int(300 * scale)))
         return (c.redComponent, c.greenComponent, c.blueComponent)
@@ -2255,7 +2257,7 @@ private final class Counter: @unchecked Sendable {
         controller.container = NSRect(x: -30_000, y: -30_000, width: 1000, height: 720)
         let panel = AskClaudePanel(chat: chat, place: AskClaudePanelHandleTests.place, accent: .blue, accentFill: .blue, onAccent: .white,
                                    onAsk: { _ in }, onClose: {}, onOpenSettings: {}, container: CGSize(width: 1000, height: 720),
-                                   onPlace: { controller.panelRect = $0 })
+                                   settingsBridge: .keySaved, onPlace: { controller.panelRect = $0 })
         controller.show(AnyView(panel), over: parent, activate: false)
         let child = try #require(parent.childWindows?.first)
         func fits() -> Bool {

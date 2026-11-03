@@ -178,7 +178,8 @@ import Testing
             let container = CGSize(width: 1000, height: 800)
             host = NSHostingView(rootView: AskClaudePanel(chat: chat, place: AskClaudePanelHandleTests.place, accent: .blue,
                                                           accentFill: .blue, onAccent: .white, onAsk: { _ in }, onClose: {},
-                                                          onOpenSettings: {}, container: container))
+                                                          onOpenSettings: {}, container: container,
+                                                          settingsBridge: .keySaved))
             host.frame = NSRect(origin: .zero, size: container)
             window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: true)
             window.isReleasedWhenClosed = false

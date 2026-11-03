@@ -14220,3 +14220,15 @@ lone list marker (`settled`). Ask Claude exists only on `main` (see TE290 step 0
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Ask Claude's empty panel: setup with no key, starters with one (TE315, TE299) — main only
+
+2026-11-02, for v7.0. On `main`: with no API key saved, the empty Ask Claude panel shows a setup
+block (what it does, the Claude Console's address, the plans' API credit) and the API key card,
+instead of a `.noKey` error after the first question; with a key, three or four one-click questions
+from a fixed local table keyed by workspace and screen (`AskClaudeStarters`). No change to the tool
+list or system text. Ask Claude exists only on `main` (see TE290 step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

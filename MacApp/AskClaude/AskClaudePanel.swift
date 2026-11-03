@@ -62,6 +62,9 @@ struct AskClaudePanel: View {
     @State private var spentText = ""
     @AppStorage(AskClaudePrivacy.readsFilesKey) private var readsFiles = false
     @State private var showsPlace = false
+    /// Whether an API key is saved (TE315), asked without reading it: when the panel opens and
+    /// whenever the Keychain item changes, not on every draw. Nil until asked.
+    @State private var keySaved: Bool?
     @StateObject private var voice = AskClaudeVoice()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
@@ -184,6 +187,10 @@ struct AskClaudePanel: View {
             draft = chat.draft
             composerFocused = true
             refreshSpent()
+            keySaved = settingsBridge.keyIsSaved()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AnthropicKeychain.didChange)) { _ in
+            keySaved = settingsBridge.keyIsSaved()
         }
         // Kept as it's typed: a window torn down needn't say goodbye to its views.
         .onChange(of: draft) { _, typed in chat.draft = typed }
@@ -381,11 +388,9 @@ struct AskClaudePanel: View {
                 // chat.json held every message); a chat's few hundred rows don't need laziness.
                 VStack(alignment: .leading, spacing: 10) {
                     if chat.items.isEmpty {
-                        Text("Ask about your files, or tell me what to open: a folder, a file, a tab, another cloud, or a place in SyncCloud. I can look things up, move your view, and change how SyncCloud looks when you ask, with Undo. Other changes, to files or settings, happen only when you click on their card.")
-                            .foregroundStyle(.secondary)
-                            .padding(10)
-                            .background(AskClaudeTint.bubble(hue, accent: accent, dark: colorScheme == .dark, neutral: 0.6),
-                                        in: RoundedRectangle(cornerRadius: Radius.card))
+                        AskClaudeEmptyState(keySaved: keySaved, starters: AskClaudeStarters.questions(for: place.starterScreen),
+                                            startersEnabled: !chat.isRunning && !voice.isActive, bridge: settingsBridge,
+                                            accent: accent, hue: hue, onStarter: { send($0, spoken: false) })
                     }
                     let latestReceipt = chat.items.last { if case .receipt = $0.kind { true } else { false } }?.id
                     ForEach(chat.items) { item in
@@ -607,6 +612,13 @@ struct AskClaudePanel: View {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !chat.isRunning else { return }
         draft = ""
+        send(text, spoken: spoken)
+    }
+
+    /// The box's text, or a starter's (TE299), which goes exactly as if typed and leaves the box
+    /// as it was.
+    private func send(_ text: String, spoken: Bool) {
+        guard !text.isEmpty, !chat.isRunning else { return }
         // A key never leaves the Mac in a message, nor joins the remembered questions (TE290 step 7).
         if chat.catchKey(text) { return }
         chat.rememberSent(text)

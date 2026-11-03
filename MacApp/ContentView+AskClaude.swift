@@ -891,6 +891,7 @@ extension ContentView {
                 if askClaudeSaveKey(id, row, key) { chat?.forgetCaughtKey(id) }
             },
             editCaught: { [weak chat] id in chat?.editCaught(id) },
+            saveSetupKey: { askClaudeSaveSetupKey($0) },
             listItems: { lists.items($0.id) },
             listContains: { entry, scoped in lists.contains(entry.id, scoped: scoped) },
             setListItem: { id, row, item, present in askClaudeListEdit(id, row, item, present: present) },
@@ -1163,9 +1164,8 @@ extension ContentView {
     /// - Returns: Whether it was saved.
     @discardableResult
     func askClaudeSaveKey(_ id: UUID, _ index: Int, _ key: String) -> Bool {
-        guard let entry = SettingsCatalog.entry("intelligence.apiKey") else { return false }
         let replacing = AnthropicKeychain.isConfigured
-        if let why = APIKeySaving.save(key) {
+        if let why = askClaudeStoreKey(key, replacing: replacing) {
             askClaudeChat.updateSettingCard(id) { $0.rows[index].refusal = why }
             return false
         }
@@ -1173,12 +1173,27 @@ extension ContentView {
             card.rows[index].refusal = nil
             card.rows[index].keySaved = true
         }
-        SettingsChangeLog.shared.record(SettingsChange(
-            setting: entry.id, name: entry.label, from: nil, to: nil, fromLabel: nil,
-            toLabel: replacing ? "Replaced with a new key" : "A key saved", how: .card))
         askClaudeChat.tellClaude(replacing ? "They replaced the API key." : "They saved an API key.")
         Logger.shared.info("Ask Claude: an API key was saved from a card")
         return true
+    }
+
+    /// An API key from the empty panel's setup (TE315). No chat yet, so Claude isn't told.
+    /// - Returns: Why it wasn't saved, or nil when it was.
+    func askClaudeSaveSetupKey(_ key: String) -> String? {
+        let why = askClaudeStoreKey(key, replacing: AnthropicKeychain.isConfigured)
+        if why == nil { Logger.shared.info("Ask Claude: an API key was saved from the setup") }
+        return why
+    }
+
+    /// The Keychain write both save, and its line in the record.
+    private func askClaudeStoreKey(_ key: String, replacing: Bool) -> String? {
+        guard let entry = SettingsCatalog.entry("intelligence.apiKey") else { return "This setting no longer exists." }
+        if let why = APIKeySaving.save(key) { return why }
+        SettingsChangeLog.shared.record(SettingsChange(
+            setting: entry.id, name: entry.label, from: nil, to: nil, fromLabel: nil,
+            toLabel: replacing ? "Replaced with a new key" : "A key saved", how: .card))
+        return nil
     }
 
     /// The at-limit card's Ask Again (TE290 step 6): the question the limit stopped, once, now
