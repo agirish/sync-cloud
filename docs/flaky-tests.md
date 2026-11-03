@@ -1719,6 +1719,14 @@ So the wait itself was not starved; the walk had already been let go, the scan h
 there was no running scan left to show. The 10 s went on the steps before `latch.end()`.
 Not reproduced; the base-SHA tree hash is the proof it is not the change.
 
+#### Seen: `ScanShownTests.aScanThatEndsInsideTheWaitIsNeverShown`, 2026-11-02
+
+Red once on hosted CI at `60d1d4cb4`, the TE294 review fixes, whose only `Modules/Sync` change was
+the PDF card's model and its tests. `latch.waited` failed after 2.1 s: the scan ended before the
+test's wait began, so the wait it checks for was never entered. Five local runs of the suite passed
+(3.2–5.0 s each), and so did a rerun of the failed job. The suite's second sighting in a day, both
+on hosted VMs and neither reproduced; a third is the point to look at the latch itself.
+
 ---
 
 ### 11. Five palette tests the fixture dismissed out from under itself — FIXED
