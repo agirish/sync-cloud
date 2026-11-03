@@ -49,6 +49,12 @@ struct AskClaudePanel: View {
     var pdfBridge = AskClaudePDFBridge()
     /// Where the panel wants its window, top-left within `container` (AskClaudeWindow.swift).
     var onPlace: (CGRect) -> Void = { _ in }
+    /// A spoken question's Send (TE311), so its bubble shows it was spoken; `onAsk` without it.
+    var onAskSpoken: ((String) -> Void)?
+    /// The words of the names on screen, for the transcriber to listen for (`AskClaudeVoiceHints`).
+    var voiceHints: () -> [String] = { [] }
+    /// Where a spoken question's audio comes from: the microphone, or a file in tests.
+    var voiceSource: () -> AskClaudeVoiceSource = { AskClaudeMicrophone() }
 
     @State private var draft = ""
     @FocusState private var composerFocused: Bool
@@ -56,6 +62,7 @@ struct AskClaudePanel: View {
     @State private var spentText = ""
     @AppStorage(AskClaudePrivacy.readsFilesKey) private var readsFiles = false
     @State private var showsPlace = false
+    @StateObject private var voice = AskClaudeVoice()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
 
@@ -195,12 +202,20 @@ struct AskClaudePanel: View {
         // The field gives up focus while it's disabled for a question; it takes it back after,
         // and VoiceOver hears that the answer is in.
         .onChange(of: chat.isRunning) { _, running in
+            // A card's button can start a question while one is being spoken: the box is
+            // Claude's until it answers, so listening stops and keeps nothing.
+            if running { voice.cancel() }
             guard !running else { return }
             composerFocused = true
             if case .assistant = chat.items.last(where: { if case .receipt = $0.kind { false } else { true } })?.kind {
                 AccessibilityNotification.Announcement("Claude answered").post()
             }
         }
+        // Back to the box once a spoken question is sent or thrown away.
+        .onChange(of: voice.isActive) { _, active in if !active { composerFocused = true } }
+        .onChange(of: draft) { _, typed in if !typed.isEmpty { voice.notice = nil } }
+        .background(AskClaudeTalkKeys(onKey: talkKey, onGone: { voice.cancel() }))
+        .onDisappear { voice.cancel() }
         .onExitCommand(perform: onClose)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Ask Claude")
@@ -407,34 +422,25 @@ struct AskClaudePanel: View {
     private var composer: some View {
         VStack(alignment: .leading, spacing: 6) {
             if !chat.attachments.isEmpty { attachmentChips }
+            if voice.isActive { listeningStrip }
+            if let notice = voice.notice, !voice.isActive {
+                Label(notice, systemImage: "mic.slash")
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             VStack(alignment: .leading, spacing: 4) {
-                TextField("Ask a question, or say what to open", text: $draft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...4)
-                    .focused($composerFocused)
-                    .onSubmit(send)
-                    // Up and Down walk the questions typed before, like a shell (AskClaudePromptHistory);
-                    // inside a question of several lines they move the caret until it's on the edge line.
-                    .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { press in
-                        guard press.isPlainKeystroke else { return .ignored }
-                        let up = press.key == .upArrow
-                        guard caret.isOnEdgeLine(up: up) else { return .ignored }
-                        guard let shown = up ? chat.recallOlder(than: draft) : chat.recallNewer(than: draft) else {
-                            return .ignored
-                        }
-                        if !caret.show(shown, atStart: up) { draft = shown }
-                        return .handled
-                    }
-                    .disabled(chat.isRunning)
-                    .background(AskClaudeComposerCaret.Anchor(caret: caret))
+                if !voice.isActive { textLine }
                 // The box's bottom row (TE292): which model and style the next question goes to,
-                // then Stop or Send.
+                // then the mic (TE311), then Stop or Send.
                 HStack(spacing: 6) {
                     AskClaudeModelMenu(defaults: chat.settingsDefaults, chatModel: chat.chatModel,
                                        contextTokens: chat.contextTokens, onOpenSettings: onOpenSettings)
-                        .disabled(chat.isRunning)
+                        .disabled(chat.isRunning || voice.isActive)
+                        .opacity(voice.isActive ? 0.55 : 1)
                     Spacer(minLength: 0)
-                    sendOrStop
+                    micButton
+                    if !voice.isActive { sendOrStop }
                 }
             }
             .padding(.horizontal, 10)
@@ -444,6 +450,101 @@ struct AskClaudePanel: View {
                 .strokeBorder(AskClaudeTint.hairline(hue, accent: accent, dark: colorScheme == .dark, neutral: 0.6)))
         }
         .padding(12)
+    }
+
+    /// The box's text line. While a question is spoken, the listening strip stands in for it.
+    private var textLine: some View {
+        TextField("Ask a question, or say what to open", text: $draft, axis: .vertical)
+            .textFieldStyle(.plain)
+            .lineLimit(1...4)
+            .focused($composerFocused)
+            .onSubmit(send)
+            // Up and Down walk the questions typed before, like a shell (AskClaudePromptHistory);
+            // inside a question of several lines they move the caret until it's on the edge line.
+            .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { press in
+                guard press.isPlainKeystroke else { return .ignored }
+                let up = press.key == .upArrow
+                guard caret.isOnEdgeLine(up: up) else { return .ignored }
+                guard let shown = up ? chat.recallOlder(than: draft) : chat.recallNewer(than: draft) else {
+                    return .ignored
+                }
+                if !caret.show(shown, atStart: up) { draft = shown }
+                return .handled
+            }
+            .disabled(chat.isRunning)
+            .background(AskClaudeComposerCaret.Anchor(caret: caret))
+    }
+
+    /// What is being said, while it is said (TE311): the settled words, the ones the transcriber
+    /// may still change greyed after them, a level meter, the keys, and where it is heard.
+    private var listeningStrip: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(heardSoFar)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(1...6)
+            HStack(spacing: 8) {
+                AskClaudeLevelMeter(levels: voice.levels, color: Self.voiceColor)
+                Text(voice.phase == .finishing ? "Sending…" : "Tap ⌥Space to send · Esc cancels")
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Label("On this Mac", systemImage: "lock")
+                    .labelStyle(.titleAndIcon)
+                    .lineLimit(1)
+                    .help("Your voice is turned into text on this Mac. Only the text is sent, as typed text is.")
+            }
+            .scaledFont(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Self.voiceColor.opacity(0.10), in: RoundedRectangle(cornerRadius: Radius.well))
+        .overlay(RoundedRectangle(cornerRadius: Radius.well).strokeBorder(Self.voiceColor.opacity(0.55)))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(listeningLabel)
+    }
+
+    /// The voice's own colour, apart from the accent, as the roadmap's mockups draw it.
+    static let voiceColor = Color.purple
+
+    /// What they typed before talking, then what they said, its unsettled tail greyed.
+    private var heardSoFar: AttributedString {
+        let typed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch voice.phase {
+        case .starting where typed.isEmpty: return Self.greyed("Starting…")
+        case .installing: return Self.greyed("Downloading the speech model to this Mac…")
+        default: break
+        }
+        var text = AttributedString([typed, voice.settled].filter { !$0.isEmpty }.joined(separator: " "))
+        let tail = voice.tentative.isEmpty && text.characters.isEmpty ? "Listening…" : voice.tentative
+        if !tail.isEmpty { text += Self.greyed((text.characters.isEmpty ? "" : " ") + tail) }
+        return text
+    }
+
+    private static func greyed(_ text: String) -> AttributedString {
+        var greyed = AttributedString(text)
+        greyed.foregroundColor = .secondary
+        return greyed
+    }
+
+    private var listeningLabel: String {
+        switch voice.phase {
+        case .installing: "Downloading the speech model"
+        case .finishing: "Sending what you said"
+        default: "Listening. Press Option-Space to send, Escape to cancel. " + [voice.settled, voice.tentative].joined(separator: " ")
+        }
+    }
+
+    private var micButton: some View {
+        Button(action: toggleTalk) {
+            Image(systemName: voice.isActive ? "mic.fill" : "mic")
+                .scaledFont(.body)
+                .foregroundStyle(voice.isActive ? AnyShapeStyle(Self.voiceColor) : AnyShapeStyle(.secondary))
+        }
+        .buttonStyle(.borderless)
+        .disabled(chat.isRunning || voice.phase == .finishing)
+        .help(ShortcutHint.tooltip(voice.isActive ? "Send what you said" : "Talk", "⌥Space"))
+        .accessibilityLabel(voice.isActive ? "Send what you said" : "Talk")
     }
 
     /// The divider under the header and over the composer, in the accent (TE291).
@@ -498,14 +599,46 @@ struct AskClaudePanel: View {
         .accessibilityLabel("Attached")
     }
 
-    private func send() {
+    private func send() { send(spoken: false) }
+
+    private func send(spoken: Bool) {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !chat.isRunning else { return }
         draft = ""
         // A key never leaves the Mac in a message, nor joins the remembered questions (TE290 step 7).
         if chat.catchKey(text) { return }
         chat.rememberSent(text)
-        onAsk(text)
+        if spoken, let onAskSpoken { onAskSpoken(text) } else { onAsk(text) }
+    }
+
+    /// ⌥Space or the mic: starts listening, or sends what was said (decision II, tap to toggle).
+    /// Refused while Claude answers, as the box is.
+    private func toggleTalk() {
+        if voice.isActive {
+            voice.finish()
+            return
+        }
+        guard !chat.isRunning else {
+            NSSound.beep()
+            return
+        }
+        voice.start(from: voiceSource(), hints: voiceHints()) { heard in
+            // Into the box after anything typed first, then sent as typing is.
+            draft = [draft.trimmingCharacters(in: .whitespacesAndNewlines), heard].filter { !$0.isEmpty }.joined(separator: " ")
+            send(spoken: true)
+        }
+    }
+
+    private func talkKey(_ key: AskClaudeTalkKey) -> Bool {
+        switch key {
+        case .toggle(let isRepeat):
+            if !isRepeat { toggleTalk() }
+            return true
+        case .cancel:
+            guard voice.isActive else { return false }
+            voice.cancel()
+            return true
+        }
     }
 
     private func refreshSpent() {
@@ -649,13 +782,14 @@ private struct AskClaudeThreadRow: View, Equatable {
     var body: some View {
         switch item.kind {
         case .user(let text):
-            Text(text)
+            // A spoken question carries a small mic (TE311).
+            (item.spoken == true ? Text("\(Image(systemName: "mic")) \(text)") : Text(text))
                 .textSelection(.enabled)
                 .padding(.horizontal, 11).padding(.vertical, 7)
                 .foregroundStyle(onAccent)
                 .background(accentFill, in: RoundedRectangle(cornerRadius: Radius.card))
                 .frame(maxWidth: .infinity, alignment: .trailing)
-                .accessibilityLabel("You: \(text)")
+                .accessibilityLabel(item.spoken == true ? "You said: \(text)" : "You: \(text)")
         case .assistant(let text):
             Text(linked(text))
                 .tint(accentFill)

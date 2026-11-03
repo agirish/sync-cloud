@@ -34,6 +34,9 @@ enum MachinePinnedReason: String {
     /// 2026-10-29, `VNRecognizeTextRequest` fails there with `nilError` — so the verdict says
     /// nothing about the code on a host without it.
     case textRecognition
+    /// Turns speech into text with SpeechAnalyzer, which needs its speech model (379 MB) on the
+    /// Mac. This one has it; a hosted CI VM has never been seen to, and would download it first.
+    case speechRecognition
     /// Needs a real iCloud Drive folder (`~/Library/Mobile Documents/com~apple~CloudDocs`), which
     /// exists only where an Apple Account is signed in — never on a hosted CI VM.
     case iCloudDrive

@@ -41,6 +41,11 @@ targets:
         # remember. Requires MINOR < 100 to stay monotonic.
         CFBundleVersion: "700"
         NSHumanReadableCopyright: "Copyright © 2024. All rights reserved."
+        # Ask Claude's tap to talk (TE311). Without it macOS ends the app the first time the
+        # microphone opens (the voice spike, 2026-11-02). Speech is turned into text on this Mac by
+        # SpeechAnalyzer, which asks for nothing more; the build has no hardened runtime, so no
+        # audio-input entitlement is needed either.
+        NSMicrophoneUsageDescription: "Ask Claude listens only after you tap the mic or press ⌥Space, and turns what you say into text on this Mac. No audio leaves your Mac."
         # Finder's Open With lists SyncCloud for every kind of text macOS recognises: the claim is
         # the PARENT type `public.text`, and that is what keeps an install from taking a kind of file
         # away from the app that opens it. Measured 2026-10-03 in fresh Launch Services elections

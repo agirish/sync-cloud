@@ -14159,3 +14159,15 @@ whatever their case. Ask Claude exists only on `main` (see TE290 step 0b).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Ask Claude takes a spoken question (TE311) — main only
+
+2026-11-02, for v7.0. On `main`: ⌥Space in the Ask Claude panel, or its mic button, listens; the
+words are turned into text on this Mac (`AskClaudeVoice`, SpeechAnalyzer's dictation model, given
+the words of the names on screen from `AskClaudeVoiceHints`) and sent as typed text is. The app's
+Info.plist gains `NSMicrophoneUsageDescription`, which only this feature needs. Ask Claude exists
+only on `main` (see TE290 step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

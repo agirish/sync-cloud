@@ -112,6 +112,11 @@ Requires **macOS 26**, unchanged from v6.2.
 - **Up and Down bring back what you asked.** In the text box, Up shows the questions you typed
   before, newest first, and Down comes back to what you'd typed and not sent. The last 10 are kept
   across a relaunch; New Chat clears them.
+- **Say your question.** Click the mic beside Send, or press ⌥Space in the panel, and talk: the
+  words appear as you speak, and a second ⌥Space or click sends them, as do about two seconds of
+  silence. Esc throws them away. Your voice is turned into text on this Mac, listening for the
+  names on screen, and only the text is sent, as typing sends it. A spoken question shows a mic in
+  its bubble. macOS asks for the microphone the first time.
 
 ### One-way sync
 

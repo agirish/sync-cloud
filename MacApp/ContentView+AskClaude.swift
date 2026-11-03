@@ -50,7 +50,9 @@ extension ContentView {
                            onRuleCard: { askClaudeRuleCard($0, save: $1) },
                            settingsBridge: askClaudeSettingsBridge,
                            pdfBridge: askClaudePDFBridge,
-                           onPlace: onPlace)
+                           onPlace: onPlace,
+                           onAskSpoken: { askClaudeSend($0, spoken: true) },
+                           voiceHints: { askClaudeVoiceHints() })
     }
 
     /// The panel's host, built here rather than in `body`: the window's modifier chain is at the
@@ -73,7 +75,7 @@ extension ContentView {
         AskClaudeBrowseTools(context: { askClaudeToolsContext() })
     }
 
-    func askClaudeAsk(_ question: String, shown: String? = nil, attached: [AskClaudeChat.Attachment] = []) {
+    func askClaudeAsk(_ question: String, shown: String? = nil, attached: [AskClaudeChat.Attachment] = [], spoken: Bool = false) {
         let tools = askClaudeTools()
         let attachedRows = askClaudeAttachedRows(attached)
         // TE241: a folder the pane hasn't loaded is read from disk first, so the screen is never
@@ -82,10 +84,10 @@ extension ContentView {
         guard askClaudeItems(folder) == nil else {
             var screen = askClaudeScreen()
             screen.attached = attachedRows
-            askClaudeChat.ask(question, shown: shown, screen: screen, tools: tools)
+            askClaudeChat.ask(question, shown: shown, spoken: spoken, screen: screen, tools: tools)
             return
         }
-        askClaudeChat.ask(question, shown: shown, preparing: {
+        askClaudeChat.ask(question, shown: shown, spoken: spoken, preparing: {
             let fromDisk = await AskClaudeDisk.list(folder) ?? []
             var screen = askClaudeScreen(fallbackRows: fromDisk)
             screen.attached = attachedRows
@@ -95,12 +97,20 @@ extension ContentView {
 
     /// The text box's Send: the question, about the chips above it (TE263). A chip hidden from
     /// Claude since it was attached is dropped, never sent.
-    func askClaudeSend(_ question: String) {
+    func askClaudeSend(_ question: String, spoken: Bool = false) {
         guard !askClaudeChat.isRunning else { return }
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
         let attached = askClaudeChat.takeAttachments().filter { !hidden.isHidden($0.path) }
         let shown = attached.isEmpty ? nil : question + "\nAbout " + attached.map(\.name).joined(separator: ", ")
-        askClaudeAsk(question, shown: shown, attached: attached)
+        askClaudeAsk(question, shown: shown, attached: attached, spoken: spoken)
+    }
+
+    /// The words a spoken question is listened for (TE311): from what the screen card would show
+    /// Claude, and the chips it would send, so nothing hidden from Claude is ever one.
+    func askClaudeVoiceHints() -> [String] {
+        let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
+        let attached = askClaudeChat.attachments.filter { !hidden.isHidden($0.path) }.map { ($0.name, $0.isDirectory) }
+        return AskClaudeVoiceHints.words(on: askClaudeScreen(), attached: attached)
     }
 
     /// Each attached item as the card lists it: its row, and where it lives by source and folder.

@@ -589,3 +589,25 @@ these cover what only a person at the app can see.
 - [ ] **"Fill in the W-9".** The form opens in Edit with Fill & Sign on, and saving a filled copy
   is told to Claude. With unsaved work open in Edit, Edit asks its own question first and Claude
   says the form didn't open yet; ask again once it's answered.
+
+## Ask Claude's tap to talk (TE311, 2026-11-02)
+
+Run in the installed, signed app: a microphone grant survives only a signed install. The tests feed
+`say` clips (`AskClaudeVoiceTests`); these are what only a person at the mic can check.
+
+- [ ] **First mic use.** Open Ask Claude (⌘J) and press ⌥Space. macOS asks to let SyncCloud use the
+  microphone, with the reason "Ask Claude listens only after…". Allow: the strip says Listening…,
+  and the mic light shows in the menu bar. (Don't Allow instead: the strip goes, and a line over the
+  box says where to allow it.)
+- [ ] **A name on screen.** In a folder with a name dictation gets wrong (Ally, I-797A, 1099-INT),
+  say a question naming it. The strip shows the words as you speak, the unsettled end grey, and the
+  question's bubble has the name right, with a small mic in it.
+- [ ] **Second tap.** Talk, then press ⌥Space at once: it sends every word without waiting.
+  Clicking the mic does the same.
+- [ ] **Silence.** Talk and stop: about 2 s later it sends by itself. A pause of about a second
+  mid-sentence doesn't.
+- [ ] **Esc.** Talk, then press Esc: nothing is sent, the box comes back with anything you had typed,
+  and the panel stays open. A second Esc closes it.
+- [ ] **While Claude answers.** ⌥Space beeps and the mic is greyed.
+- [ ] **⌥Space in the box** no longer types a non-breaking space.
+- [ ] **Close mid-sentence.** ⌘J while listening: the mic light goes out, and nothing is sent.

@@ -60,6 +60,29 @@ final class AskClaudePanelWindow: NSPanel {
         return true
     }
 
+    // MARK: Talk keys (TE311)
+
+    /// ⌥Space and, while a question is being spoken, Esc, answered by the panel: true when it
+    /// took the key. Caught here, ahead of the field editor, where ⌥Space types a non-breaking
+    /// space and Esc closes the panel; in this window only, so it needs no Accessibility grant.
+    var onTalkKey: ((AskClaudeTalkKey) -> Bool)?
+    /// Called as the window goes away, closed or stepping aside, so the microphone never stays
+    /// open behind a panel that isn't there.
+    var onGone: () -> Void = {}
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, let key = AskClaudeTalkKey(event),
+           (firstResponder as? NSTextView)?.hasMarkedText() != true, onTalkKey?(key) == true {
+            return
+        }
+        super.sendEvent(event)
+    }
+
+    override func orderOut(_ sender: Any?) {
+        onGone()
+        super.orderOut(sender)
+    }
+
     override func performClose(_ sender: Any?) {
         onClose()
     }
@@ -113,6 +136,24 @@ final class AskClaudePanelWindow: NSPanel {
             return undoManager?.canRedo == true
         default:
             return super.validateUserInterfaceItem(item)
+        }
+    }
+}
+
+/// The panel's own keys for talking (TE311).
+enum AskClaudeTalkKey: Equatable {
+    /// ⌥Space: start listening, or send what was said. A held key's repeats are taken and do
+    /// nothing, so holding it doesn't start and stop over and over.
+    case toggle(isRepeat: Bool)
+    /// Esc.
+    case cancel
+
+    init?(_ event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift, .function])
+        switch event.keyCode {
+        case 49 where modifiers == .option: self = .toggle(isRepeat: event.isARepeat)
+        case 53 where modifiers.isEmpty: self = .cancel
+        default: return nil
         }
     }
 }

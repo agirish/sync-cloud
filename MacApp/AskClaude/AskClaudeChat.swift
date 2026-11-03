@@ -59,6 +59,9 @@ final class AskClaudeChat: ObservableObject {
         }
         var id = UUID()
         var kind: Kind
+        /// A question that was spoken (TE311), for the mic in its bubble. Optional: a field a
+        /// saved chat lacks must not fail its decode.
+        var spoken: Bool?
     }
 
     /// Where a download card is (TE258).
@@ -760,15 +763,15 @@ final class AskClaudeChat: ObservableObject {
     var contextTokens: Int? { items.isEmpty || startsOverAtNextQuestion ? nil : engine.contextTokens }
 
     /// Starts a question about `screen`, run with `tools`.
-    func ask(_ question: String, shown: String? = nil, screen: AskClaudeScreen, tools: AskClaudeToolRunning) {
-        ask(question, shown: shown, preparing: { screen }, tools: tools)
+    func ask(_ question: String, shown: String? = nil, spoken: Bool = false, screen: AskClaudeScreen, tools: AskClaudeToolRunning) {
+        ask(question, shown: shown, spoken: spoken, preparing: { screen }, tools: tools)
     }
 
     /// Starts a question whose screen takes a moment to read (a folder the pane hasn't loaded is
     /// read from disk first). The question shows, and the chat counts as running, at once: a
     /// second Send in that moment would otherwise pass and then be dropped with its draft cleared.
-    func ask(_ question: String, shown: String? = nil, preparing screen: @escaping @MainActor () async -> AskClaudeScreen,
-             tools: AskClaudeToolRunning) {
+    func ask(_ question: String, shown: String? = nil, spoken: Bool = false,
+             preparing screen: @escaping @MainActor () async -> AskClaudeScreen, tools: AskClaudeToolRunning) {
         let question = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty, !isRunning else { return }
         if let last = lastActivity, now().timeIntervalSince(last) > Self.idleReset, !items.isEmpty {
@@ -809,7 +812,7 @@ final class AskClaudeChat: ObservableObject {
         engine.handles = minting
         let sent = Self.withSinceLastAnswer(named, question)
 
-        let questionItem = Item(kind: .user(shown ?? question))
+        let questionItem = Item(kind: .user(shown ?? question), spoken: spoken ? true : nil)
         items.append(questionItem)
         askedItem = questionItem.id
         streamingItem = nil

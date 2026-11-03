@@ -35,5 +35,7 @@
 	<string>700</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2024. All rights reserved.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Ask Claude listens only after you tap the mic or press ⌥Space, and turns what you say into text on this Mac. No audio leaves your Mac.</string>
 </dict>
 </plist>
