@@ -5,6 +5,7 @@
     scripts/build-slot swift test --package-path Modules/Sync --filter Foo
     scripts/build-slot --exclusive sh -c '<CPU-stress flake probe>'
     scripts/build-slot --status
+    scripts/build-slot --classify swift test --package-path Modules/Events   # light or heavy?
 
 Every Claude session on this Mac (and the self-hosted CI runner beside them) shares ten cores.
 More concurrent builds than that buy no throughput and make the timing-sensitive suites flake,
@@ -21,6 +22,17 @@ gate holds up another session's one narrow run by at most one command, not by al
 A command already queued or running from the same directory with the same arguments is refused at
 once, exit 3, naming the PID it duplicates: wait for that run, or stop it first.
 $BUILD_SLOT_ALLOW_DUPLICATE=1 runs a deliberate repeat.
+
+Beside the N general slots is one light lane, which only a light command may take, so a one-minute
+run need not wait out three app test runs. A light command takes the lane when it is free and its
+turn among light waiters comes up (turns shared by worktree, as above), or a general slot by its
+turn there. Light, by rule (light_by_rule): a `swift test` whose --filter names at most
+LIGHT_FILTERS suites, or of a small package (LIGHT_PACKAGES) in full; an `xcodebuild test` with
+at most LIGHT_FILTERS -only-testing and no build action or Release configuration. Never anything
+else: no build, no test-shards, no full Sync or FileExplorer run, no --exclusive. A command light
+by rule whose recent runs (the last HISTORY_RUNS, kept in history) took LIGHT_SECONDS or more at
+the median is heavy. So the machine runs at most N heavy commands and one short one. The lane is
+refused while an --exclusive command runs, and to anyone queued behind an --exclusive waiter.
 
 Slots are files under ~/Library/Caches/SyncCloud-build-slots/ held with flock(2). The kernel drops
 a lock the moment its holder dies — SIGKILL, a crash, a stopped session — so no slot ever has to be
@@ -64,6 +76,12 @@ HEAL_SECONDS = 2.0
 REPORT_SECONDS = 60
 MUTEX_REPORT_SECONDS = 10
 TIMEOUT_EXIT = 75  # EX_TEMPFAIL
+LIGHT = "light"  # the light lane's key among held slots; its file is slot-light, which an older
+# build-slot, counting only slot-<number> files, never sees as a general slot
+LIGHT_PACKAGES = {"Dashboard", "Events", "Settings", "SyncCloudCLI", "Design"}
+LIGHT_FILTERS = 4  # suites a narrowed run may name and still be light
+LIGHT_SECONDS = 120
+HISTORY_RUNS = 5
 DUPLICATE_EXIT = 3
 SERVED_DAYS = 7  # how long a worktree's last turn is remembered
 FORWARDED = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)
@@ -118,7 +136,7 @@ def slot_count():
 
 
 def slot_path(index):
-    return os.path.join(SLOT_DIR, "slot-%d" % index)
+    return os.path.join(SLOT_DIR, "slot-%s" % index)
 
 
 def try_lock(path, create=True):
@@ -200,13 +218,13 @@ def worktree_of(cwd):
     return top or cwd
 
 
-def record_text(command, worktree):
+def record_text(command, worktree, light=False):
     """What a slot file and a queue entry hold: read for display, for sharing turns by worktree,
     and argv (exact, as JSON) for refusing a duplicate. Entries made by an older build-slot are
     empty, and slot records lack worktree and argv."""
-    return "pid=%d\nstarted=%f\ncwd=%s\nworktree=%s\ncommand=%s\nargv=%s\n" % (
+    return "pid=%d\nstarted=%f\ncwd=%s\nworktree=%s\ncommand=%s\nargv=%s\nlight=%d\n" % (
         os.getpid(), time.time(), one_line(os.getcwd()), one_line(worktree),
-        one_line(" ".join(command)), json.dumps(command))
+        one_line(" ".join(command)), json.dumps(command), light)
 
 
 def write_record(fd, text):
@@ -238,6 +256,12 @@ def survey(count):
         else:
             os.close(fd)
     return held, free
+
+
+def light_survey():
+    """Under the mutex: (record, None) if the light lane is held, else (None, an fd now holding it)."""
+    fd = try_lock(slot_path(LIGHT))
+    return (read_record(LIGHT), None) if fd is None else (None, fd)
 
 
 def close_all(fds):
@@ -424,7 +448,7 @@ def since(record):
 
 
 def describe(index, record, width=70):
-    return "[%d] pid %s, %s, %s: %s" % (
+    return "[%s] pid %s, %s, %s: %s" % (
         index, record.get("pid", "?"), place(record.get("worktree") or record.get("cwd", "?")),
         since(record), shorten(record.get("command", "?"), width))
 
@@ -437,27 +461,35 @@ def make_entry(entry_path, text):
     return fd
 
 
-def acquire(command, exclusive, worktree):
+def acquire(command, exclusive, worktree, light=False):
     """Refuse a duplicate, queue, then take a slot once this waiter's turn (schedule) is among the
-    slots free and no --exclusive one is ahead — or, if exclusive, every slot, once nobody is ahead
-    and nothing is held. Returns ({index: fd}, the slot count it was taken under).
+    slots free and no --exclusive one is ahead — or, light, the light lane once it is free and this
+    is the first light waiter in turn — or, if exclusive, every slot and the lane, once nobody is
+    ahead and nothing is held. Returns ({index: fd}, the slot count it was taken under).
 
-    Each poll reads the count afresh, so a changed slots file reaches waiters already in line, and
-    remakes the directory and this waiter's entry, under its first name and so its first place, if
-    a cache sweep took them: the sweep otherwise sent every waiter on without a slot."""
+    A poll with nothing this waiter could take reads only the slot files, not the queue, so a long
+    line costs little CPU while it waits. Each poll reads the count afresh, so a changed slots file
+    reaches waiters already in line, and remakes the directory and this waiter's entry, under its
+    first name and so its first place, if a cache sweep took them: the sweep otherwise sent every
+    waiter on without a slot."""
     timeout = env_number("BUILD_SLOT_TIMEOUT", 0, 0)
     began = time.monotonic()
     next_report = began
-    text = record_text(command, worktree)
+    text = record_text(command, worktree, light)
     entry = entry_path = entry_fd = None
     swept_at = None  # when this waiter found its entry swept away
+    ahead = 0
     try:
         os.makedirs(QUEUE_DIR, exist_ok=True)
         with Mutex():
             if not os.environ.get("BUILD_SLOT_ALLOW_DUPLICATE"):
                 held, free = survey(slot_count())
                 close_all(free)
-                twin = duplicate_of(command, read_queue(), held)
+                lane, lane_fd = light_survey()
+                if lane_fd is not None:
+                    os.close(lane_fd)
+                twin = duplicate_of(command, read_queue(),
+                                    held + ([(LIGHT, lane)] if lane else []))
                 if twin:
                     note("pid %s already has this command %s in %s: %s\n"
                          "build-slot: wait for that run to finish, or stop it first (kill %s). "
@@ -483,44 +515,37 @@ def acquire(command, exclusive, worktree):
                         entry_fd = fd
                     except OSError:
                         pass
-                live = [waiter for waiter in read_queue() if not waiter["stopped"]]
                 held, free = survey(count)
-                served = read_served()
-                room = count - len(held)
-                order = schedule(live, held, served, room)
-                ahead = next((i for i, w in enumerate(order) if w["name"] == entry), len(order))
-                turns = []  # who gets the free slots: the first room waiters short of an exclusive
-                for waiter in order[:max(room, 0)]:
-                    if waiter["exclusive"]:
-                        break
-                    turns.append(waiter["name"])
-                # After a sweep the holders' slot files are new and unlocked until each holder's
-                # next heal re-takes its own — so nothing is taken until they have had the chance.
-                if swept_at is not None and time.monotonic() - swept_at < HEAL_SECONDS + POLL_SECONDS:
-                    taken = None
-                    close_all(free)
-                elif exclusive:
-                    first = not any(w["name"] < entry for w in live) if entry else not live
-                    taken = free if first and not held and len(free) == count else None
-                    if not taken:
-                        close_all(free)
-                elif free and (entry in turns if ahead < len(order) else
-                               ahead < room and not any(w["exclusive"] for w in order)):
-                    index = min(free)
-                    taken = {index: free.pop(index)}
-                    close_all(free)
+                lane, lane_fd = light_survey()
+                # An --exclusive holder from an older build-slot does not hold the lane: it shows as
+                # one pid holding every general slot, with an older record.
+                older_exclusive = (count > 1 and len(held) >= count
+                                   and len({record.get("pid") for _, record in held}) == 1
+                                   and not any("argv" in record for _, record in held))
+                lane_open = lane_fd is not None and not older_exclusive
+                if exclusive:
+                    possible = not held and lane_fd is not None
                 else:
-                    taken = None
+                    possible = free or (light and lane_open)
+                if not possible and time.monotonic() < next_report:
                     close_all(free)
+                    if lane_fd is not None:
+                        os.close(lane_fd)
+                    taken = None
+                else:
+                    taken = take(entry, exclusive, light, count, held, free, lane, lane_fd,
+                                 lane_open, swept_at)
+                    ahead = taken.pop("ahead")
                 if taken:
                     for fd in taken.values():
                         write_record(fd, text)
-                    note_served(served, worktree)
+                    note_served(read_served(), worktree)
                     waited = time.monotonic() - began
                     if waited >= POLL_SECONDS:
                         note("got slot %s after waiting %s" % (
-                            ",".join(map(str, sorted(taken))), duration(waited)))
+                            ",".join(map(str, sorted(taken, key=str))), duration(waited)))
                     return taken, count
+            everyone = held + ([(LIGHT, lane)] if lane else [])
             now = time.monotonic()
             if timeout and now - began >= timeout:
                 note("gave up after %s: %d of %d slots held, %d waiting ahead" % (
@@ -528,13 +553,14 @@ def acquire(command, exclusive, worktree):
                 sys.exit(TIMEOUT_EXIT)
             if now >= next_report:
                 line = "first in line" if not ahead else "%d ahead in line" % ahead
-                mine = holdings_of(held).get(worktree, 0)
+                mine = holdings_of(everyone).get(worktree, 0)
                 if mine:
                     line += ", this worktree holding %d" % mine
-                note("waiting %s%s, %s; %d of %d slots held — %s" % (
-                    duration(now - began), " for every slot" if exclusive else "", line,
+                note("waiting %s%s%s, %s; %d of %d slots held — %s" % (
+                    duration(now - began), " for every slot" if exclusive else "",
+                    " (light: a general slot or the light lane)" if light else "", line,
                     len(held), count,
-                    "; ".join(describe(i, record) for i, record in held) or "none"))
+                    "; ".join(describe(i, record) for i, record in everyone) or "none"))
                 next_report = now + REPORT_SECONDS
             time.sleep(POLL_SECONDS)
     finally:
@@ -544,6 +570,46 @@ def acquire(command, exclusive, worktree):
             except FileNotFoundError:
                 pass
             os.close(entry_fd)
+
+
+def take(entry, exclusive, light, count, held, free, lane, lane_fd, lane_open, swept_at):
+    """Under the mutex, one poll's decision: {index: fd} of the slots taken (the rest closed),
+    plus "ahead", this waiter's place in line."""
+    live = [waiter for waiter in read_queue() if not waiter["stopped"]]
+    everyone = held + ([(LIGHT, lane)] if lane else [])
+    served = read_served()
+    room = count - len(held)
+    order = schedule(live, everyone, served, room)
+    ahead = next((i for i, w in enumerate(order) if w["name"] == entry), len(order))
+    turns, light_turn = [], None  # who gets the free slots, and the lane: none past an exclusive
+    for waiter in order:
+        if waiter["exclusive"]:
+            break
+        if len(turns) < room:
+            turns.append(waiter["name"])
+        if light_turn is None and waiter.get("light") == "1":
+            light_turn = waiter["name"]
+    taken = {}
+    # After a sweep the holders' slot files are new and unlocked until each holder's next heal
+    # re-takes its own — so nothing is taken until they have had the chance.
+    if swept_at is not None and time.monotonic() - swept_at < HEAL_SECONDS + POLL_SECONDS:
+        pass
+    elif exclusive:
+        first = not any(w["name"] < entry for w in live) if entry else not live
+        if first and not held and len(free) == count and lane_fd is not None:
+            taken, free = dict(free, **{LIGHT: lane_fd}), {}
+            lane_fd = None
+    elif light and lane_open and light_turn == entry and entry is not None:
+        taken, lane_fd = {LIGHT: lane_fd}, None
+    elif free and (entry in turns if ahead < len(order) else
+                   ahead < room and not any(w["exclusive"] for w in order)):
+        index = min(free)
+        taken = {index: free.pop(index)}
+    close_all(free)
+    if lane_fd is not None:
+        os.close(lane_fd)
+    taken["ahead"] = ahead
+    return taken
 
 
 class Holding:
@@ -571,7 +637,14 @@ class Holding:
                 _, free = survey(self.count)
                 for index in lost:
                     os.close(self.slots.pop(index))
-                    if free:  # else newcomers took every slot; nothing to retake
+                    if index == LIGHT:
+                        _, fd = light_survey()
+                        if fd is not None:  # else a newcomer took the lane; nothing to retake
+                            self.slots[LIGHT] = fd
+                            write_record(fd, self.text)
+                            note("slot directory was removed under a running build; "
+                                 "re-took the light lane")
+                    elif free:  # else newcomers took every slot; nothing to retake
                         new = min(free)
                         self.slots[new] = free.pop(new)
                         write_record(self.slots[new], self.text)
@@ -582,13 +655,102 @@ class Holding:
             pass
 
 
-def compile_only(command):
-    """True for a build that runs no tests, so a lower priority cannot starve a timing check."""
+def without_arch(command):
     args = list(command)
     if args and os.path.basename(args[0]) == "arch":  # arch -arm64 swift …
         args = args[1:]
         while args and args[0].startswith("-"):
             args = args[1:]
+    return args
+
+
+def option_values(args, name):
+    """Every value of a `name value` or `name=value` (`name:value` for xcodebuild) option."""
+    values = []
+    for i, arg in enumerate(args):
+        if arg == name and i + 1 < len(args):
+            values.append(args[i + 1])
+        elif arg.startswith(name) and arg[len(name):len(name) + 1] in ("=", ":"):
+            values.append(arg[len(name) + 1:])
+    return values
+
+
+def light_by_rule(command):
+    """(light, why) by the command's shape alone: see the header."""
+    args = without_arch(command)
+    tool = os.path.basename(args[0]) if args else ""
+    if tool == "swift" and args[1:2] == ["test"]:
+        filters = option_values(args, "--filter")
+        if filters:
+            suites = sum(len(f.split("|")) for f in filters)
+            return suites <= LIGHT_FILTERS, "--filter names %d suite%s (light up to %d)" % (
+                suites, "" if suites == 1 else "s", LIGHT_FILTERS)
+        package = (option_values(args, "--package-path") or [os.getcwd()])[-1]
+        name = os.path.basename(os.path.normpath(package))
+        return name in LIGHT_PACKAGES, "a full run of %s (light: %s)" % (
+            name, ", ".join(sorted(LIGHT_PACKAGES)))
+    if tool == "xcodebuild":
+        if not {"test", "test-without-building"} & set(args[1:]):
+            return False, "an xcodebuild build"
+        if "build" in args[1:] or "Release" in option_values(args, "-configuration"):
+            return False, "an xcodebuild test that also builds or is Release"
+        only = option_values(args, "-only-testing")
+        if not only:
+            return False, "an xcodebuild test without -only-testing"
+        return len(only) <= LIGHT_FILTERS, "-only-testing names %d (light up to %d)" % (
+            len(only), LIGHT_FILTERS)
+    return False, "not a swift test or xcodebuild test"
+
+
+def history_path():
+    return os.path.join(SLOT_DIR, "history")
+
+
+def shape(command, worktree):
+    """A command's key in history, the same from every worktree."""
+    return "%s: %s" % (os.path.relpath(os.getcwd(), worktree), " ".join(command))
+
+
+def read_history():
+    try:
+        history = json.loads(read_text(history_path()))
+        return {key: [float(t) for t in runs] for key, runs in history.items()}
+    except (ValueError, TypeError, AttributeError):
+        return {}
+
+
+def classify(command, worktree):
+    """(light, why): light by rule, unless its recent runs took LIGHT_SECONDS at the median."""
+    light, why = light_by_rule(command)
+    runs = read_history().get(shape(command, worktree), [])
+    if light and runs:
+        median = sorted(runs)[len(runs) // 2]
+        if median >= LIGHT_SECONDS:
+            return False, "%s, but its last %d runs took %s at the median" % (
+                why, len(runs), duration(median))
+        why += "; its last %d runs took %s at the median" % (len(runs), duration(median))
+    return light, why
+
+
+def note_run(command, worktree, seconds):
+    """Under the mutex: add a light-by-rule command's run time to history."""
+    key = shape(command, worktree)
+    history = read_history()
+    history[key] = (history.get(key, []) + [round(seconds, 1)])[-HISTORY_RUNS:]
+    if len(history) > 500:  # the oldest shapes first: dicts keep insertion order
+        history = dict(list(history.items())[-500:])
+    scratch = "%s.%d" % (history_path(), os.getpid())
+    try:
+        with open(scratch, "w") as handle:
+            json.dump(history, handle)
+        os.replace(scratch, history_path())
+    except OSError:
+        pass
+
+
+def compile_only(command):
+    """True for a build that runs no tests, so a lower priority cannot starve a timing check."""
+    args = without_arch(command)
     if not args:
         return False
     tool = os.path.basename(args[0])
@@ -759,6 +921,9 @@ def status():
         with Mutex():
             held, free = survey(count)
             close_all(free)
+            lane, lane_fd = light_survey()
+            if lane_fd is not None:
+                os.close(lane_fd)
             waiters = read_queue()
             served = read_served()
     except OSError as error:
@@ -768,9 +933,13 @@ def status():
         if "argv" not in waiter:
             fill_in_older(waiter)
     live = [waiter for waiter in waiters if not waiter["stopped"]]
-    print("%d of %d slots held, %d waiting (%s)" % (len(held), count, len(live), SLOT_DIR))
+    print("%d of %d slots held, %d waiting, light lane %s (%s)" % (
+        len(held), count, len(live), "held" if lane else "free", SLOT_DIR))
     for index, record in held:
         print("  " + describe(index, record, width=200))
+    if lane:
+        print("  " + describe(LIGHT, lane, width=200))
+        held = held + [(LIGHT, lane)]
     if not waiters:
         return 0
     turn = {waiter["name"]: n for n, waiter in enumerate(schedule(live, held, served), 1)}
@@ -787,7 +956,8 @@ def status():
         for waiter in queued:
             print("    %-8s pid %s, waited %s: %s%s%s" % (
                 "#%d" % turn[waiter["name"]] if waiter["name"] in turn else "stopped",
-                waiter["pid"], since(waiter), "--exclusive " if waiter["exclusive"] else "",
+                waiter["pid"], since(waiter), "--exclusive " if waiter["exclusive"] else
+                "(light) " if waiter.get("light") == "1" else "",
                 shorten(waiter.get("command", "?"), 200),
                 "" if "argv" in waiter else "  [older build-slot]"))
     return 0
@@ -802,6 +972,10 @@ def main(argv):
     if argv[0] == "--status":
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # quiet under `--status | head -1`
         return status()
+    if argv[0] == "--classify":
+        light, why = classify(argv[1:], worktree_of(os.getcwd()))
+        print("%s: %s" % ("light" if light else "heavy", why))
+        return 0
     exclusive = argv[0] == "--exclusive"
     if exclusive:
         argv = argv[1:]
@@ -816,13 +990,24 @@ def main(argv):
     try:
         os.makedirs(SLOT_DIR, exist_ok=True)
         worktree = worktree_of(os.getcwd())
-        slots, count = acquire(argv, exclusive, worktree)
+        by_rule = not exclusive and light_by_rule(argv)[0]
+        light = by_rule and classify(argv, worktree)[0]
+        slots, count = acquire(argv, exclusive, worktree, light)
     except OSError as error:
         note("cannot use %s (%s); running without a slot" % (SLOT_DIR, error))
         return run(argv, os.environ, nice)
-    holding = Holding(count, record_text(argv, worktree), slots)  # its fds hold the slots until this process ends
-    held = ",".join(map(str, sorted(slots)))
-    return run(argv, dict(os.environ, BUILD_SLOT_HELD=held), nice, holding)
+    # its fds hold the slots until this process ends
+    holding = Holding(count, record_text(argv, worktree, light), slots)
+    held = ",".join(map(str, sorted(slots, key=str)))
+    began = time.monotonic()
+    code = run(argv, dict(os.environ, BUILD_SLOT_HELD=held), nice, holding)
+    if by_rule and code < 128:  # a run cut short by a signal says nothing of its length
+        try:
+            with Mutex():
+                note_run(argv, worktree, time.monotonic() - began)
+        except OSError:
+            pass
+    return code
 
 
 if __name__ == "__main__":

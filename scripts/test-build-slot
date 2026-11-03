@@ -293,6 +293,106 @@ touch "$WORK/release"
 wait "$gate" "$other" "$subdir" "$repeat" "$again"
 check "...and every accepted one ran" same "$(grep -c D "$WORK/order")" 4
 
+# 2e. The light lane: one more slot, for short test runs only. A fake swift logs its name and
+#     waits for $FAKE_WAIT, if set.
+mkdir -p "$WORK/lightbin"
+printf '#!/bin/sh\necho "$FAKE_NAME" >> "$FAKE_LOG"\nwhile [ -n "$FAKE_WAIT" ] && [ ! -e "$FAKE_WAIT" ]; do sleep 0.05; done\n' \
+  > "$WORK/lightbin/swift"
+chmod +x "$WORK/lightbin/swift"
+fake() {  # fake <name> <wait-file or ""> <build-slot args…>: run in wtA with the fake swift
+  local name=$1 wait=$2; shift 2
+  ( cd "$WORK/wtA" && PATH="$WORK/lightbin:$PATH" FAKE_NAME=$name FAKE_WAIT=$wait \
+      FAKE_LOG="$WORK/order" exec "$SLOT" "$@" )
+}
+classify() { ( cd "$WORK/wtA" && "$SLOT" --classify "$@" ); }
+check "--classify: a --filter of up to 4 suites is light" \
+  eval "classify swift test --package-path Modules/Sync --filter 'A|B|C|D' | grep -q '^light'"
+check "--classify: a --filter of 5 suites is heavy" \
+  eval "classify swift test --package-path Modules/Sync --filter 'A|B|C|D|E' | grep -q '^heavy'"
+check "--classify: a full run of a small package is light, of Sync heavy" \
+  eval "classify swift test --package-path Modules/Events | grep -q '^light' && classify swift test --package-path Modules/Sync | grep -q '^heavy'"
+check "--classify: xcodebuild test with -only-testing is light; without it, or a build, heavy" \
+  eval "classify xcodebuild test -only-testing:T/S | grep -q '^light' && classify xcodebuild test | grep -q '^heavy' && classify xcodebuild -configuration Release build | grep -q '^heavy'"
+check "--classify: test-shards is heavy" eval "classify scripts/test-shards Modules/FileExplorer | grep -q '^heavy'"
+
+export BUILD_SLOTS=1
+rm -f "$WORK/release" "$WORK/release-l" "$WORK/order"
+( in_a "$SLOT" sh -c "while [ ! -e '$WORK/release' ]; do sleep 0.05; done" ) &
+gate=$!
+wait_for 10 held 1
+fake L1 "$WORK/release-l" swift test --filter One 2>/dev/null &
+light1=$!
+check "the general slot held: a light run takes the light lane at once" wait_for 10 grep -qs L1 "$WORK/order"
+check "--status shows the lane held, by that run" \
+  eval "'$SLOT' --status | grep -q 'waiting, light lane held' && '$SLOT' --status | grep -q '^  \[light\] pid [0-9]*, .*swift test --filter One'"
+( in_b "$SLOT" sh -c "echo H >> '$WORK/order'" ) 2>/dev/null &
+heavy=$!
+wait_for 10 waiting 1
+fake L2 "" swift test --filter Two 2>/dev/null &
+light2=$!
+wait_for 10 waiting 2
+touch "$WORK/release-l"
+wait "$light1"
+sleep 2.5
+check "a heavy waiter never takes the free lane; the next light one does ($(tr '\n' ' ' < "$WORK/order"))" \
+  same "$(tr '\n' ' ' < "$WORK/order")" "L1 L2 "
+touch "$WORK/release"
+wait "$gate" "$heavy" "$light2"
+check "...and the heavy one runs in the general slot when it frees" grep -q H "$WORK/order"
+
+rm -f "$WORK/release-l" "$WORK/order"
+fake L3 "$WORK/release-l" swift test --filter Three 2>/dev/null &
+light3=$!
+fake L4 "$WORK/release-l" swift test --filter Four 2>/dev/null &
+light4=$!
+lane_held() { "$SLOT" --status | grep -q 'light lane held'; }
+both_logged() { [ "$(wc -l < "$WORK/order" 2>/dev/null)" -eq 2 ]; }
+check "nothing held: two light runs go at once, one in the lane and one in the general slot" \
+  eval "wait_for 10 both_logged && held 1 && lane_held"
+touch "$WORK/release-l"
+wait "$light3" "$light4"
+check "a light run records its run time in history" /usr/bin/python3 -c "
+import json, sys
+runs = json.load(open('$BUILD_SLOT_DIR/history')).get('.: swift test --filter Three')
+sys.exit(not (isinstance(runs, list) and len(runs) == 1 and runs[0] < 10))"
+
+export BUILD_SLOTS=2
+rm -f "$WORK/release" "$WORK/order"
+( in_a "$SLOT" --exclusive sh -c "while [ ! -e '$WORK/release' ]; do sleep 0.05; done" ) &
+excl=$!
+wait_for 10 held 2
+check "an --exclusive holder holds the lane too" eval "'$SLOT' --status | grep -q '^  \[light\] pid $excl,'"
+BUILD_SLOT_TIMEOUT=2 fake L5 "" swift test --filter Five 2>/dev/null
+check "...so a light run waits while it runs ($?)" same "$?:$(cat "$WORK/order" 2>/dev/null)" "75:"
+touch "$WORK/release"; wait "$excl"
+
+rm -f "$WORK/release" "$WORK/order"
+( in_a "$SLOT" sh -c "while [ ! -e '$WORK/release' ]; do sleep 0.05; done" ) &
+gate=$!
+( in_a "$SLOT" sh -c "while [ ! -e '$WORK/release' ]; do sleep 0.05; done; :" ) &
+gate2=$!
+wait_for 10 held 2
+( in_b "$SLOT" --exclusive sh -c "echo E >> '$WORK/order'" ) 2>/dev/null &
+excl=$!
+wait_for 10 waiting 1
+BUILD_SLOT_TIMEOUT=2 fake L6 "" swift test --filter Six 2>/dev/null
+check "a light run queued behind an --exclusive waiter does not take the free lane ($?)" \
+  same "$?:$(cat "$WORK/order" 2>/dev/null)" "75:"
+touch "$WORK/release"; wait "$gate" "$gate2" "$excl"
+
+export BUILD_SLOTS=1
+rm -f "$WORK/release" "$WORK/order"
+/usr/bin/python3 -c "import json; json.dump({'.: swift test --filter Slow': [300, 290, 310]}, open('$BUILD_SLOT_DIR/history', 'w'))"
+check "--classify: light by rule, but slow lately, is heavy" \
+  eval "classify swift test --filter Slow | grep -q '^heavy: .*took 5m00s at the median'"
+( in_a "$SLOT" sh -c "while [ ! -e '$WORK/release' ]; do sleep 0.05; done" ) &
+gate=$!
+wait_for 10 held 1
+BUILD_SLOT_TIMEOUT=2 fake S "" swift test --filter Slow 2>/dev/null
+check "...and waits for a general slot, the lane free ($?)" same "$?:$(cat "$WORK/order" 2>/dev/null)" "75:"
+touch "$WORK/release"; wait "$gate"
+rm -f "$BUILD_SLOT_DIR/history"
+
 # An older build-slot (another worktree's copy, from before turns were shared) waits in the same
 # queue first come, first served, with an empty entry. Mixed in, every command still runs, one at a
 # time, with no slot left idle.
