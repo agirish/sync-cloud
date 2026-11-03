@@ -201,3 +201,26 @@ public enum PDFCardPages {
 public struct PDFCardPagesProblem: Error, Equatable, Sendable {
     public let sentence: String
 }
+
+/// **The name a card's new file starts as** (TE294) — the menus' own naming, before the write. The
+/// keep-both rule may still add a number when a file of that name is there by then, so a card says
+/// it as the plan and the report says what was written.
+public enum PDFPlannedName {
+    /// A tool's copy: "Scan (compressed).pdf", "Statement (pages 3–5).pdf".
+    public static func copy(of original: String, tool: EditorPDFTool) -> String {
+        (EditorPDFCopyName.firstChoice(for: original, suffix: tool.suffix) as NSString).lastPathComponent
+    }
+
+    /// Save as PDF's: the original's name with ".pdf".
+    public static func saveAsPDF(_ original: String) -> String {
+        (SaveAsPDFName.firstChoice(for: original) as NSString).lastPathComponent
+    }
+
+    /// Split's parts, starting at the one-based pages given: "Statement (page 1).pdf", …
+    @MainActor
+    public static func splitParts(of original: String, at starts: [Int], pageCount: Int) -> [String] {
+        guard case .success(let parts) = EditorPDFCombineSplit.parts(starts.map(String.init).joined(separator: ","),
+                                                                    pageCount: pageCount) else { return [] }
+        return parts.map { copy(of: original, tool: .extract($0)) }
+    }
+}

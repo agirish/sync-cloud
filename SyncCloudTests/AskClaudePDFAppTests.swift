@@ -266,6 +266,50 @@ import Sync
         #expect(blank.options.pages == nil, "blank pages turned only “\(blank.options.pages ?? "")”")
     }
 
+    // MARK: The extras
+
+    /// **Each row says the file it will make** — in the folder chosen, when there is one; Split names
+    /// its first part and how many more; Combine's name is its own field.
+    @Test func eachRowSaysTheFileItWillMake() {
+        func card(_ action: AskClaudePDFCard.Action, _ options: AskClaudePDFCard.Options = .init(), folder: String? = nil)
+        -> AskClaudePDFCard {
+            AskClaudePDFCard(action: action, rows: [.init(path: "/d/Statement.pdf", name: "Statement.pdf", folderLabel: "d",
+                                                          pageCount: 8)],
+                             options: options, state: .offered, folder: folder)
+        }
+        func planned(_ c: AskClaudePDFCard) -> String? { AskClaudePDFCardView.planned(c, c.rows[0]) }
+        #expect(planned(card(.compress)) == "Statement (compressed).pdf")
+        #expect(planned(card(.extract, .init(pages: "3-5"))) == "Statement (pages 3–5).pdf")
+        #expect(planned(card(.extract, .init(pages: "99"))) == nil, "pages it can't read plan nothing")
+        #expect(planned(card(.split, .init(splitAt: [4]))) == "Statement (pages 1–3).pdf and 1 more")
+        #expect(planned(card(.rotate, folder: "/Users/me/Out")) == "Statement (rotated).pdf in “Out”")
+        #expect(planned(card(.combine)) == nil)
+        var word = card(.saveAsPDF)
+        word.rows[0].path = "/d/Lease.docx"
+        #expect(planned(word) == "Lease.pdf")
+    }
+
+    /// **A run still going tells Claude how far it has got**, and says only that it runs when the
+    /// window can't say.
+    @Test func aRunStillGoingSaysHowFar() {
+        #expect(AskClaudeChat.stillRunning("Compress · 20 files", progress: "File 7 of 20 · Mar.pdf")
+                == "Your card “Compress · 20 files” is still running (File 7 of 20 · Mar.pdf); what it makes is reported when it ends.")
+        #expect(AskClaudeChat.stillRunning("Split", progress: nil)
+                == "Your card “Split” is still running; what it makes is reported when it ends.")
+    }
+
+    /// **With no Undo, the card says why and what to do** — gone after a quit or a new chat, or
+    /// left alone because the file changed.
+    @Test func withNoUndoTheCardSaysWhatToDo() {
+        var card = AskClaudePDFCard(action: .compress, rows: [.init(path: "/d/A.pdf", name: "A.pdf", folderLabel: "d")], state: .done)
+        card.written = [.init(path: "/d/A (compressed).pdf", stamp: AskClaudeFileStamp(modifiedAt: nil, size: 1, fileID: 1), bytes: 1)]
+        #expect(AskClaudePDFCardView.noUndoNote(card, held: false)
+                == "Undo isn’t kept once SyncCloud quits or the chat starts over. Move the new file to the Trash yourself if you don’t want it.")
+        #expect(AskClaudePDFCardView.noUndoNote(card, held: true) == "Undo leaves the new file alone: it has changed since.")
+        card.written.append(card.written[0])
+        #expect(AskClaudePDFCardView.noUndoNote(card, held: false).hasSuffix("Move the new files to the Trash yourself if you don’t want them."))
+    }
+
     // MARK: The card fits
 
     /// **Every action's card, offered and done, asks for no more than 240 pt** — the narrowest the

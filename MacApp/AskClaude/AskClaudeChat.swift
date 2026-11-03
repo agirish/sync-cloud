@@ -144,6 +144,9 @@ final class AskClaudeChat: ObservableObject {
     /// undo manager that holds it. Kept alive here — an undo manager doesn't retain its targets —
     /// for as long as the chat; a relaunch or New Chat drops them, and the card's Undo with them.
     var pdfUndoSteps: [UUID: (target: AnyObject, manager: UndoManager)] = [:]
+    /// How far a PDF card's run has got — "File 7 of 20 · Mar.pdf" — read from the window's own
+    /// run when a question is sent while it goes (TE294).
+    var pdfProgress: ((UUID) -> String?)?
     /// The form `pdf` with fill opened, while this chat lasts: only its filled copies are told to
     /// Claude (TE294).
     var fillOpened: String?
@@ -329,6 +332,12 @@ final class AskClaudeChat: ObservableObject {
             line += "."
         }
         return line
+    }
+
+    /// A PDF card's run still going, as Claude hears it with each question until it ends.
+    static func stillRunning(_ title: String, progress: String?) -> String {
+        "Your card “\(title)” is still running" + (progress.map { " (\($0))" } ?? "")
+            + "; what it makes is reported when it ends."
     }
 
     /// **A file a line for Claude names, marked to get its handle when the line is sent** (TE294):
@@ -794,7 +803,7 @@ final class AskClaudeChat: ObservableObject {
         // A card's run still going is said every time, so Claude never answers as if it had ended.
         let running = items.compactMap { item -> String? in
             guard case .pdf(let card) = item.kind, card.state == .running else { return nil }
-            return "Your card “\(card.title)” is still running; what it makes is reported when it ends."
+            return Self.stillRunning(card.title, progress: pdfProgress?(item.id))
         }
         let named = Self.minted(pending, handles: &minting, isHidden: hidden.isHidden) + running
         engine.handles = minting

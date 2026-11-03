@@ -29,6 +29,7 @@ extension ContentView {
         // Once: the panel builds this bridge on every draw, and installing the hook re-reads every
         // card still checking — which redraws the panel.
         if askClaudeChat.pdfCardOffered == nil { askClaudeChat.pdfCardOffered = { id in askClaudePDFRead(id) } }
+        if askClaudeChat.pdfProgress == nil { askClaudeChat.pdfProgress = { id in askClaudePDFProgress(id) } }
         return AskClaudePDFBridge(
             setOptions: { id, options in
                 let pagesChanged = askClaudeChat.pdfCard(id).map { $0.options.pages != options.pages
@@ -53,6 +54,7 @@ extension ContentView {
             },
             undo: { askClaudePDFUndo($0, fromMenu: false) },
             offersUndo: { askClaudePDFOffersUndo($0) },
+            hasUndoStep: { askClaudeChat.pdfUndoSteps[$0] != nil },
             download: { id, path in askClaudePDFDownload(id, path) },
             chooseFolder: { askClaudePDFChooseFolder($0) },
             open: { path in _ = handOffToEditor(path) },

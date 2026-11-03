@@ -14,6 +14,8 @@ struct AskClaudePDFBridge {
     var notNow: @MainActor (_ item: UUID) -> Void = { _ in }
     var undo: @MainActor (_ item: UUID) -> Void = { _ in }
     var offersUndo: @MainActor (_ item: UUID) -> Bool = { _ in false }
+    /// Whether the card's Undo is still held this session — gone after a relaunch or a new chat.
+    var hasUndoStep: @MainActor (_ item: UUID) -> Bool = { _ in false }
     var download: @MainActor (_ item: UUID, _ path: String) -> Void = { _, _ in }
     var chooseFolder: @MainActor (_ item: UUID) -> Void = { _ in }
     var open: @MainActor (_ path: String) -> Void = { _ in }
@@ -94,6 +96,10 @@ struct AskClaudePDFCardView: View {
                                 .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.error))
                                 .fixedSize(horizontal: false, vertical: true)
                         }
+                        if card.isOpen, let planned = Self.planned(card, row) {
+                            Text("→ " + planned).scaledFont(.caption).foregroundStyle(.secondary)
+                                .lineLimit(2).truncationMode(.middle)
+                        }
                         if row.cloudOnly, card.isOpen {
                             Button("Download") { bridge.download(itemID, row.path) }
                                 .controlSize(.small)
@@ -115,6 +121,38 @@ struct AskClaudePDFCardView: View {
                 .buttonStyle(.borderless)
             }
         }
+    }
+
+    /// **The new file a row will make, as it is named before the write** — next to the original, or
+    /// in the folder chosen. Nil where the card says it elsewhere (Combine's name field) or can't
+    /// say yet (pages not readable).
+    static func planned(_ card: AskClaudePDFCard, _ row: AskClaudePDFCard.Row) -> String? {
+        let place = card.folder.map { " in “\(($0 as NSString).lastPathComponent)”" } ?? ""
+        func pages(extract: Bool) -> [Int]? {
+            guard let count = row.pageCount, case .success(let pages) = PDFCardPages.parse(card.options.pages ?? "",
+                                                                                         extract: extract, pageCount: count)
+            else { return nil }
+            return pages
+        }
+        let tool: EditorPDFTool?
+        switch card.action {
+        case .saveAsPDF: return PDFPlannedName.saveAsPDF(row.path) + place
+        case .combine: return nil
+        case .split:
+            guard let count = row.pageCount, let starts = card.options.splitAt else { return nil }
+            let parts = PDFPlannedName.splitParts(of: row.path, at: starts, pageCount: count)
+            guard let first = parts.first else { return nil }
+            return (parts.count > 1 ? "\(first) and \(parts.count - 1) more" : first) + place
+        case .compress: tool = .compress(.quality(0.6))
+        case .rotate: tool = .rotate(pages: [0], quarterTurns: 1)
+        case .cleanMetadata: tool = .cleanMetadataCleared
+        case .protect: tool = .protect(restrictEditing: false, password: EditorPDFSecret(""))
+        case .removePassword: tool = .removePassword(EditorPDFSecret(""))
+        case .reorder: tool = .reorder([])
+        case .extract: tool = pages(extract: true).map { .extract($0) }
+        case .deletePages: tool = pages(extract: false).map { .deletePages($0) }
+        }
+        return tool.map { PDFPlannedName.copy(of: row.path, tool: $0) + place }
     }
 
     /// "4 pages · 212 KB".
@@ -332,6 +370,17 @@ struct AskClaudePDFCardView: View {
         }
     }
 
+    /// **Why there is no Undo, and what to do instead** — Undo lasts only as long as SyncCloud and
+    /// this chat do, and it never moves a file changed since.
+    static func noUndoNote(_ card: AskClaudePDFCard, held: Bool) -> String {
+        let one = card.written.count == 1
+        if held {
+            return one ? "Undo leaves the new file alone: it has changed since." : "Undo leaves the new files alone: they have changed since."
+        }
+        return "Undo isn’t kept once SyncCloud quits or the chat starts over. Move the new "
+            + (one ? "file" : "files") + " to the Trash yourself if you don’t want " + (one ? "it." : "them.")
+    }
+
     /// A refusal the card answers with Choose Folder….
     static let unwritableFolder = "Its folder can’t be written to."
 
@@ -363,22 +412,27 @@ struct AskClaudePDFCardView: View {
         TimelineView(.periodic(from: .now, by: 1)) { _ in doneButtonsNow }
     }
 
-    @ViewBuilder
     private var doneButtonsNow: some View {
-        HStack(spacing: 8) {
-            if card.written.count == 1, let only = card.written.first {
-                Button("Open in Edit") { bridge.open(only.path) }
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                if card.written.count == 1, let only = card.written.first {
+                    Button("Open in Edit") { bridge.open(only.path) }
+                }
+                if !card.written.isEmpty {
+                    Button("Reveal") { bridge.reveal(card.written.map(\.path)) }
+                }
+                if bridge.offersUndo(itemID) {
+                    Button("Undo") { bridge.undo(itemID) }
+                        .help(card.written.count == 1 ? "Moves the new file to the Trash. Also in Edit ▸ Undo while it’s the latest step."
+                              : "Moves the new files to the Trash. Also in Edit ▸ Undo while it’s the latest step.")
+                }
             }
-            if !card.written.isEmpty {
-                Button("Reveal") { bridge.reveal(card.written.map(\.path)) }
-            }
-            if bridge.offersUndo(itemID) {
-                Button("Undo") { bridge.undo(itemID) }
-                    .help(card.written.count == 1 ? "Moves the new file to the Trash. Also in Edit ▸ Undo while it’s the latest step."
-                          : "Moves the new files to the Trash. Also in Edit ▸ Undo while it’s the latest step.")
+            .controlSize(.small)
+            if !bridge.offersUndo(itemID), !card.written.isEmpty {
+                Text(Self.noUndoNote(card, held: bridge.hasUndoStep(itemID))).scaledFont(.footnote).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .controlSize(.small)
     }
 
     private func note(_ text: String) -> some View {

@@ -168,6 +168,20 @@ import Sync
         #expect(await PDFCardThumbnails.render(file, pages: [0], height: 40, isCloudOnly: { _ in true }) == nil)
     }
 
+    // MARK: Planned names
+
+    /// **The name a card shows is the name the menus give** — before the keep-both rule's number.
+    @Test func plansTheMenusNames() {
+        #expect(PDFPlannedName.copy(of: "/d/Scan.pdf", tool: .compress(.quality(0.6))) == "Scan (compressed).pdf")
+        #expect(PDFPlannedName.copy(of: "/d/Statement.pdf", tool: .extract([2, 3, 4])) == "Statement (pages 3–5).pdf")
+        #expect(PDFPlannedName.copy(of: "/d/Statement.pdf", tool: .deletePages([0])) == "Statement (page removed).pdf")
+        #expect(PDFPlannedName.copy(of: "/d/Lease (signed).pdf", tool: .compress(.quality(0.6))) == "Lease (signed) (compressed).pdf")
+        #expect(PDFPlannedName.saveAsPDF("/d/Lease 2026.docx") == "Lease 2026.pdf")
+        #expect(PDFPlannedName.splitParts(of: "/d/S.pdf", at: [2, 4], pageCount: 5)
+                == ["S (page 1).pdf", "S (pages 2–3).pdf", "S (pages 4–5).pdf"])
+        #expect(PDFPlannedName.splitParts(of: "/d/S.pdf", at: [9], pageCount: 5).isEmpty, "a start past the end plans nothing")
+    }
+
     // MARK: Pages typed
 
     /// **Pages typed on a card read as Edit's sheet reads them** — an en dash, the order kept for
