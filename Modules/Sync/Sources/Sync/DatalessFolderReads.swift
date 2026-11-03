@@ -168,6 +168,25 @@ extension FileSyncManager {
             return reads.filter { $0.value.state == .expired }.map(\.key).sorted()
         }
 
+        /// Forgets the unanswered folders at or under `roots`, so walks read them again and they
+        /// stop saying "not responding". For the app that syncs them having just launched: a read
+        /// asked of the process that quit may never answer, and the new one is not asked until a
+        /// read is. The stuck read is left to finish; its answer is then nobody's. Returns how many.
+        @discardableResult
+        public func forgetUnanswered(under roots: [String]) -> Int {
+            let keys = roots.map(Self.key)
+            lock.lock()
+            let gone = reads.filter { path, read in
+                read.state == .expired && keys.contains { path == $0 || path.hasPrefix($0 + "/") }
+            }.map(\.key)
+            for path in gone { reads[path] = nil }
+            lock.unlock()
+            guard !gone.isEmpty else { return 0 }
+            Logger.shared.info("Scan: \(gone.count) unanswered folder(s) will be read again — the app that syncs them launched")
+            announceUnansweredChange()
+            return gone.count
+        }
+
         /// Posted, on no particular thread, when a folder joins or leaves `unansweredPaths()`.
         public static let unansweredDidChange = Notification.Name("DatalessFolderReads.unansweredDidChange")
 

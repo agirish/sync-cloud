@@ -331,6 +331,32 @@ import Testing
         try #require(!gate.releasedByTimeout, "the gate timed out: the folder was never held unanswered")
     }
 
+    /// When the app that syncs a folder launches, its unanswered folders are forgotten — the read
+    /// asked of the process that quit may never return — and the next walk reads them again.
+    /// Another app's unanswered folder stays.
+    @Test(.parksThreads(2)) func aLaunchedAppsUnansweredFoldersAreReadAgain() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "dataless-forget")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let oneDrive = root.appendingPathComponent("OneDrive")
+        let stuck = oneDrive.appendingPathComponent("Projects"), other = root.appendingPathComponent("Dropbox/Stuck")
+        for folder in [stuck, other] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+
+        let gate = ParkGate()
+        let reads = FileSyncManager.DatalessFolderReads(deadline: .milliseconds(100))
+        #expect(await reads.read(stuck.path) { gate.park(timeout: 30); return 1 } == nil)
+        #expect(await reads.read(other.path) { gate.park(timeout: 30); return 2 } == nil)
+        #expect(reads.unansweredPaths().count == 2)
+
+        #expect(reads.forgetUnanswered(under: [oneDrive.path]) == 1)
+        // The registry keeps a folder by its resolved spelling (`/var/…` for `/private/var/…`).
+        #expect(reads.unansweredPaths() == [other.resolvingSymlinksInPath().path])
+        #expect(await reads.read(stuck.path) { 3 } == 3, "a forgotten folder was not read again")
+
+        gate.release.signal()
+        gate.release.signal()
+        await waitForRelease(of: reads, path: other.path)
+    }
+
     /// Off the main actor, for the tests here that are not on it.
     private func waitForRelease(of reads: FileSyncManager.DatalessFolderReads, path: String) async {
         let deadline = ContinuousClock.now.advanced(by: .seconds(10))

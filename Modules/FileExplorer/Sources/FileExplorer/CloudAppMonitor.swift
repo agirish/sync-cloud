@@ -27,6 +27,10 @@ public final class CloudAppMonitor: ObservableObject {
         /// When the app's running process started, or nil when unknown: the Dropbox gate's five
         /// minutes count from it, not from when SyncCloud first saw it (RD67).
         public var startedAt: @Sendable (CloudApp) -> Date?
+        /// Forgets the unanswered folders under these source roots — asked when their app launches.
+        public var forgetUnanswered: @Sendable ([String]) -> Void
+        /// The files inside a folder SyncCloud put in place, at most the count. Blocks.
+        public var filesInside: @Sendable (String, Int) -> [String]
 
         public init(isRunning: @escaping @Sendable (CloudApp) -> Bool,
                     iCloudAvailable: @escaping @Sendable () -> Bool,
@@ -35,7 +39,9 @@ public final class CloudAppMonitor: ObservableObject {
                     unanswered: @escaping @Sendable () -> [String],
                     changes: @escaping @Sendable () -> [(path: String, at: Date)],
                     appURL: @escaping @Sendable (CloudApp) -> URL? = { _ in nil },
-                    startedAt: @escaping @Sendable (CloudApp) -> Date? = { _ in nil }) {
+                    startedAt: @escaping @Sendable (CloudApp) -> Date? = { _ in nil },
+                    forgetUnanswered: @escaping @Sendable ([String]) -> Void = { _ in },
+                    filesInside: @escaping @Sendable (String, Int) -> [String] = { CloudAppStatusModel.filesInside($0, limit: $1) }) {
             self.isRunning = isRunning
             self.iCloudAvailable = iCloudAvailable
             self.isLiveAccount = isLiveAccount
@@ -44,6 +50,8 @@ public final class CloudAppMonitor: ObservableObject {
             self.changes = changes
             self.appURL = appURL
             self.startedAt = startedAt
+            self.forgetUnanswered = forgetUnanswered
+            self.filesInside = filesInside
         }
 
         public static let live = System(
@@ -56,7 +64,8 @@ public final class CloudAppMonitor: ObservableObject {
             appURL: { app in
                 app.bundleIdentifiers.lazy.compactMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }.first
             },
-            startedAt: { RunningBundles.shared.earliestStart(of: $0.bundleIdentifiers) })
+            startedAt: { RunningBundles.shared.earliestStart(of: $0.bundleIdentifiers) },
+            forgetUnanswered: { FileSyncManager.DatalessFolderReads.shared.forgetUnanswered(under: $0) })
     }
 
     @Published public private(set) var problems: [String: CloudAppProblem] = [:]
@@ -93,6 +102,10 @@ public final class CloudAppMonitor: ObservableObject {
     private var refreshing: Task<Void, Never>?
     private var refreshAgain = false
     private var slowHalf: Task<Void, Never>?
+    private var slowHalfAgain = false
+    /// Changes a slow run drained and found outside every source, kept when the sources changed
+    /// while it ran: the ledger is drained once, so the next run weighs them against the new ones.
+    private var unplacedChanges: [(path: String, at: Date)] = []
 
     /// How often the status is re-read while nothing announces a change: the grace and the upload
     /// deadline pass on their own.
@@ -163,6 +176,7 @@ public final class CloudAppMonitor: ObservableObject {
         let system = self.system
         let running = await Self.offPool(qos: .userInitiated) { Set(apps.filter(system.isRunning)) }
         let now = clock()
+        forgetUnanswered(of: apps.filter { running.contains($0) && model.missingSince[$0] != nil })
         for app in apps.sorted() {
             let isRunning = running.contains(app)
             if !isRunning, !model.askedWhileMissing.contains(app) {
@@ -205,13 +219,24 @@ public final class CloudAppMonitor: ObservableObject {
         await refreshUploadsAndAccounts()
     }
 
+    /// Coalescing like `requestRefresh`: one asked for while one runs runs once more after it, so
+    /// a change of sources during a slow run is not left to the next tick.
     private func startSlowHalf() {
-        guard slowHalf == nil else { return }
+        guard slowHalf == nil else { slowHalfAgain = true; return }
         slowHalf = Task { [weak self] in
             await self?.refreshUploadsAndAccounts()
-            self?.slowHalf = nil
+            guard let self else { return }
+            self.slowHalf = nil
+            if self.slowHalfAgain {
+                self.slowHalfAgain = false
+                self.startSlowHalf()
+            }
         }
     }
+
+    /// Whether the slow half is out, and whether a refresh's fast half is — what a test waits on.
+    var isRefreshingUploads: Bool { slowHalf != nil }
+    var isRefreshingRunning: Bool { refreshing != nil }
 
     /// Who runs, the iCloud account, the unanswered folders.
     private func refreshRunning() async {
@@ -225,7 +250,12 @@ public final class CloudAppMonitor: ObservableObject {
             for app in running { starts[app] = system.startedAt(app) }
             return (running, system.iCloudAvailable(), starts)
         }
+        // Apps that were missing and run now: a folder that went unanswered while one was gone (or
+        // was asked of the process that quit) is read again, rather than "not responding" for the
+        // rest of the session because a stuck read never returns.
+        let launched = CloudApp.allCases.filter { running.contains($0) && model.missingSince[$0] != nil }
         for app in CloudApp.allCases { model.app(app, isRunning: running.contains(app), at: now, startedAt: starts[app]) }
+        forgetUnanswered(of: launched)
         if let lastRunning, lastRunning != running {
             for app in running.subtracting(lastRunning).sorted() { Logger.shared.info("Cloud app status: \(app.name) is running") }
             for app in lastRunning.subtracting(running).sorted() {
@@ -238,26 +268,46 @@ public final class CloudAppMonitor: ObservableObject {
         publish()
     }
 
+    /// Forgets the unanswered folders of `launched`'s sources, before the list is read again.
+    private func forgetUnanswered<Apps: Collection<CloudApp>>(of launched: Apps) {
+        guard !launched.isEmpty else { return }
+        let roots = providers.filter { provider in CloudApp(provider.type).map { launched.contains($0) } == true }.map(\.rootPath)
+        if !roots.isEmpty { system.forgetUnanswered(roots) }
+    }
+
     /// What SyncCloud changed and whether it uploaded, which accounts File Provider still knows,
     /// and where each app is installed.
     private func refreshUploadsAndAccounts() async {
         let system = self.system
         let sources = providers.filter { !$0.isLocalFolder && !disabled.contains($0.id) }
         let coverage = FileLocation.coverage(of: sources, disabledProviderIds: [])
-        let changes = system.changes()
+        let askedFor = (providers, disabled)
+        let changes = unplacedChanges + system.changes()
+        unplacedChanges = []
         let watched = model.watchedPaths
         let accounts = sources.compactMap { source in Self.accountFolder(of: source).map { (source.id, $0) } }
         let known = liveAccounts
-        let (kept, readings, asked, urls) = await Self.offPool {
+        let (kept, unplaced, readings, asked, urls) = await Self.offPool {
             // A change made through a link into an account — `~/Dropbox/…`, `~/OneDrive/…` — is
             // spelled through the link; coverage knows the account by its real folder.
             // The folder is resolved, not the file: a path whose last part is gone resolves nothing.
-            let kept: [(String, Date)] = changes.compactMap { change in
-                if FileLocation.covering(path: change.path, in: coverage) != nil { return (change.path, change.at) }
+            var kept: [(String, Date)] = []
+            var unplaced: [(path: String, at: Date)] = []
+            for change in changes {
+                if FileLocation.covering(path: change.path, in: coverage) != nil { kept.append((change.path, change.at)); continue }
                 let url = URL(fileURLWithPath: change.path)
                 let real = url.deletingLastPathComponent().resolvingSymlinksInPath()
                     .appendingPathComponent(url.lastPathComponent).path
-                return FileLocation.covering(path: real, in: coverage) != nil ? (real, change.at) : nil
+                if FileLocation.covering(path: real, in: coverage) != nil { kept.append((real, change.at)) } else { unplaced.append(change) }
+            }
+            // A folder copied or moved into a source is its files to upload: the ledger notes the
+            // folder, whose own state says nothing about them. Only inside a source, so a rename in a
+            // local folder lists nothing, and a watch list's worth at most per pass.
+            var room = CloudAppStatusModel.watchLimit
+            for (path, at) in kept where room > 0 {
+                let inside = system.filesInside(path, room)
+                room -= inside.count
+                kept += inside.map { ($0, at) }
             }
             // Read the new ones in this same pass, not the next.
             let readings = Set(watched + kept.map(\.0)).map { ($0, system.reading($0)) }
@@ -266,7 +316,12 @@ public final class CloudAppMonitor: ObservableObject {
             var asked: [String: Bool] = [:]
             for (_, folder) in accounts where known[folder] != true { asked[folder] = system.isLiveAccount(folder) }
             let urls = Dictionary(uniqueKeysWithValues: CloudApp.allCases.compactMap { app in system.appURL(app).map { (app, $0) } })
-            return (kept, readings, asked, urls)
+            return (kept, unplaced, readings, asked, urls)
+        }
+        // The sources changed while this ran: what it found outside the old ones may be inside the
+        // new, and the run that follows (`startSlowHalf`) weighs them again.
+        if askedFor != (providers, disabled) {
+            unplacedChanges = Array((unplaced + unplacedChanges).suffix(CloudAppStatusModel.watchLimit))
         }
         let now = clock()
         for (path, at) in kept { model.noteChanged(path, at: at) }

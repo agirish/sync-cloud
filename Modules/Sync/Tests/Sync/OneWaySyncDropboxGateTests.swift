@@ -67,6 +67,18 @@ import Testing
         #expect(status.runningSince[.dropbox] == Self.t0.addingTimeInterval(590))
     }
 
+    /// The first look was a user's question, which reads no process start, so it dated Dropbox from
+    /// then. The next refresh reads the start an hour back, and that is when it began running: the
+    /// gate does not wait five more minutes for an app running an hour.
+    @Test func anEarlierProcessStartCorrectsAFirstLookThatHadNone() {
+        var status = CloudAppStatusModel()
+        status.asked(.dropbox, isRunning: true, at: Self.t0)
+        #expect(status.runningSince[.dropbox] == Self.t0)
+        status.app(.dropbox, isRunning: true, at: Self.t0.addingTimeInterval(30), startedAt: Self.t0.addingTimeInterval(-3600))
+        #expect(status.runningSince[.dropbox] == Self.t0.addingTimeInterval(-3600))
+        #expect(check(status, at: 1) == .caughtUp(holdingBack: []))
+    }
+
     /// A process start dated after now (the clock set back since it started) can't be placed: it
     /// is left out, so the wait doesn't start again at every look.
     @Test func aStartDatedAfterNowIsLeftOut() {

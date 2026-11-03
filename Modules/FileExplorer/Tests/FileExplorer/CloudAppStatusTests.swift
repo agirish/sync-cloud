@@ -20,8 +20,13 @@ import Sync
         private var _readings: [String: CloudAppStatusModel.UploadReading] = [:]
         private var _unanswered: [String] = []
         private var _changes: [(path: String, at: Date)] = []
+        private var _inside: [String: [String]] = [:]
+        func set(inside files: [String], of folder: String) { lock.lock(); _inside[folder] = files; lock.unlock() }
         /// When set, every upload read waits on it — a provider that has stopped answering.
         var gate: DispatchSemaphore?
+        private var _heldReads = 0
+        /// How many upload reads have waited on `gate`.
+        var heldReads: Int { lock.lock(); defer { lock.unlock() }; return _heldReads }
         var now = Date(timeIntervalSinceReferenceDate: 800_000_000)
 
         func set(running app: CloudApp, _ running: Bool) {
@@ -44,7 +49,10 @@ import Sync
                 iCloudAvailable: { self.lock.lock(); defer { self.lock.unlock() }; return self._iCloud },
                 isLiveAccount: { folder in !self.isDead(folder) },
                 reading: { path in
-                    self.gate?.wait()
+                    if let gate = self.gate {
+                        self.lock.lock(); self._heldReads += 1; self.lock.unlock()
+                        gate.wait()
+                    }
                     self.lock.lock(); defer { self.lock.unlock() }
                     return self._readings[path] ?? .pending
                 },
@@ -54,6 +62,14 @@ import Sync
                     let drained = self._changes
                     self._changes = []
                     return drained
+                },
+                forgetUnanswered: { roots in
+                    self.lock.lock(); defer { self.lock.unlock() }
+                    self._unanswered.removeAll { path in roots.contains { path.hasPrefix($0 + "/") } }
+                },
+                filesInside: { folder, limit in
+                    self.lock.lock(); defer { self.lock.unlock() }
+                    return Array((self._inside[folder] ?? []).prefix(limit))
                 })
         }
     }
@@ -189,6 +205,88 @@ import Sync
         fake.set(unanswered: [])
         await monitor.refresh()
         #expect(monitor.problems.isEmpty)
+    }
+
+    /// A folder asked of OneDrive while it was gone stays unanswered — its read may never return —
+    /// so when OneDrive launches its folders are read again, not "not responding" for the session.
+    /// Another app's unanswered folder is not its to clear.
+    @Test func aLaunchForgetsItsSourcesUnansweredFolders() async {
+        let fake = Fake()
+        fake.set(running: .oneDrive, false)
+        fake.set(unanswered: ["\(Self.storage)/OneDrive-Work/Projects", "\(Self.storage)/Dropbox/Stuck"])
+        let monitor = monitor(fake)
+        await monitor.refresh()
+        #expect(monitor.problems[Self.dropbox.id] == .notResponding)
+
+        fake.set(running: .oneDrive, true)
+        await monitor.refresh()
+        #expect(monitor.problems == [Self.dropbox.id: .notResponding], "OneDrive's stuck folder outlived its launch")
+    }
+
+    /// A folder copied into Dropbox is noted as the folder; its files are what upload, so they are
+    /// watched and a stuck one says "not uploading".
+    @Test func aFolderPutInPlaceWatchesItsFiles() async {
+        let fake = Fake()
+        let trip = "\(Self.storage)/Dropbox/Trip"
+        fake.set(inside: [trip + "/a.pdf", trip + "/b.pdf"], of: trip)
+        fake.set(reading: .uploaded, for: trip)
+        fake.set(reading: .uploaded, for: trip + "/b.pdf")
+        fake.change(trip)
+        let monitor = monitor(fake)
+        await monitor.refresh()
+        #expect(monitor.statusModel.watchedPaths == [trip + "/a.pdf"])
+        fake.now += CloudAppStatusModel.uploadDeadline
+        await monitor.refresh()
+        #expect(monitor.problems == [Self.dropbox.id: .notUploading(paths: [trip + "/a.pdf"],
+                                                                     since: fake.now - CloudAppStatusModel.uploadDeadline)])
+    }
+
+    /// The real listing: files only, hidden ones and package insides left out, and no more than
+    /// asked for.
+    @Test func filesInsideAFolderAreItsVisibleFilesUpToTheLimit() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("files-inside-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        for path in ["a.pdf", "Sub/b.pdf", ".hidden", "Doc.rtfd/TXT.rtf"] {
+            let url = root.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: url)
+        }
+        let all = CloudAppStatusModel.filesInside(root.path, limit: 10).map { ($0 as NSString).lastPathComponent }
+        #expect(Set(all) == ["a.pdf", "b.pdf", "Doc.rtfd"])
+        #expect(CloudAppStatusModel.filesInside(root.path, limit: 1).count == 1)
+        #expect(CloudAppStatusModel.filesInside(root.appendingPathComponent("a.pdf").path, limit: 10).isEmpty)
+    }
+
+    /// A source added while the slow half reads uploads: the change it drained under the old
+    /// sources is weighed again against the new ones, and is watched.
+    @Test func aSourceAddedDuringASlowReadStillWatchesItsChange() async throws {
+        let fake = Fake()
+        let monitor = monitor(fake, providers: [Self.personal, Self.iCloud])
+        fake.change("\(Self.storage)/OneDrive-Personal/a.pdf")
+        await monitor.refresh()
+        let gate = DispatchSemaphore(value: 0)
+        fake.gate = gate
+        defer { for _ in 0..<8 { gate.signal() } }
+        let added = "\(Self.storage)/Dropbox/b.pdf"
+        fake.change(added)
+        monitor.requestRefresh()            // the slow half drains b.pdf, then hangs reading a.pdf
+        // Held for real — the run has drained the ledger and is waiting on a read — before the
+        // sources change: a sleep would race the hop on a loaded Mac.
+        let started = ContinuousClock.now + .seconds(60)
+        while fake.heldReads == 0, ContinuousClock.now < started { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(fake.heldReads > 0 && monitor.isRefreshingUploads, "premise: the slow half is held")
+        monitor.setProviders([Self.personal, Self.iCloud, Self.dropbox], disabled: [])
+        // The refresh that asks for it has asked, while the slow half is still held.
+        let asked = ContinuousClock.now + .seconds(60)
+        while monitor.isRefreshingRunning, ContinuousClock.now < asked { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(monitor.isRefreshingUploads, "premise: the slow half is still held")
+        fake.gate = nil
+        for _ in 0..<8 { gate.signal() }
+        let deadline = ContinuousClock.now + .seconds(60)
+        while !monitor.statusModel.watchedPaths.contains(added), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(monitor.statusModel.watchedPaths.contains(added), "the change drained under the old sources was lost")
     }
 
     /// **A folder the provider never syncs says nothing about the app.** Each OneDrive account's

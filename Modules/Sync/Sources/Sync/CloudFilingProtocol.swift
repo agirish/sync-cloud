@@ -258,9 +258,11 @@ public enum CloudFilingProtocol {
     /// Anthropic Console is the source of truth. nil for a model we don't have a rate for.
     ///
     /// Sonnet's rate changed with its generation, so it is priced by generation: Sonnet 5 (what
-    /// Settings offers) is $2/$10, while an older Sonnet such as `claude-sonnet-4-6` stays $3/$15.
-    /// These rates feed the spend caps as well as the log, so a family-wide rate overcharged every
-    /// Sonnet 5 scan against the caps by half.
+    /// Settings offers) is $2/$10, and an older Sonnet id is $3/$15. The app never asks with an
+    /// older one — ``currentModel(for:)`` moves a stored `claude-sonnet-4-6` to Sonnet 5 before any
+    /// call — so that rate is only what this answers for such an id passed in directly. These rates
+    /// feed the spend caps as well as the log, so a family-wide rate overcharged every Sonnet 5
+    /// scan against the caps by half.
     public static func pricing(for model: String) -> (input: Double, output: Double)? {
         if model.hasPrefix("claude-opus") { return (5, 25) }
         if model.hasPrefix("claude-fable") || model.hasPrefix("claude-mythos") { return (10, 50) }

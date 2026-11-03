@@ -158,12 +158,14 @@ public struct CloudAppStatusModel: Sendable {
         if isRunning {
             missingSince[app] = nil
             askedWhileMissing.remove(app)
-            // Kept across refreshes. A later process start (a restart between two looks) or a
-            // stored time ahead of now (a clock set back) starts it again. A start dated after
-            // now (the clock set back since it) can't be placed and is left out, or every look
-            // would start the wait again.
+            // Kept across refreshes. A known process start replaces it whenever it differs: a
+            // later one is a restart between two looks, an earlier one corrects a first look that
+            // could not read the start (asked about, `asked`) and dated the app from then. A stored
+            // time ahead of now (a clock set back) starts it again. A start dated after now (the
+            // clock set back since it) can't be placed and is left out, or every look would start
+            // the wait again.
             let started = startedAt.flatMap { $0 <= now ? $0 : nil }
-            let stale = runningSince[app].map { $0 > now || (started ?? $0) > $0 } ?? true
+            let stale = runningSince[app].map { stored in stored > now || (started.map { $0 != stored } ?? false) } ?? true
             if stale { runningSince[app] = started ?? now }
         } else {
             runningSince[app] = nil
@@ -200,6 +202,33 @@ public struct CloudAppStatusModel: Sendable {
     public static func isNeverUploaded(name: String) -> Bool {
         name.hasPrefix(".") || name.hasPrefix("~$") || name == "Icon\r"
             || ["desktop.ini", "thumbs.db"].contains(name.lowercased())
+    }
+
+    /// The files inside the folder at `path`, at most `limit`; empty for a file, or a folder whose
+    /// contents are not on this Mac (dataless, never descended — listing one is what hangs on its
+    /// provider). A folder SyncCloud copied or moved in is its files to upload, and the folder's own
+    /// upload state says nothing about them. Hidden files and package insides are left out, as the
+    /// provider leaves them; a package is one document. Blocks: asked off the main thread.
+    public static func filesInside(_ path: String, limit: Int) -> [String] {
+        var isFolder: ObjCBool = false
+        guard limit > 0, FileManager.default.fileExists(atPath: path, isDirectory: &isFolder), isFolder.boolValue,
+              (try? URL(fileURLWithPath: path).resourceValues(forKeys: [.isPackageKey]).isPackage) != true,
+              MaterializationStatus.isCloudOnlyIfKnown(atPath: path) == false,
+              let walker = FileManager.default.enumerator(at: URL(fileURLWithPath: path),
+                                                          includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey],
+                                                          options: [.skipsHiddenFiles, .skipsPackageDescendants])
+        else { return [] }
+        var files: [String] = []
+        for case let item as URL in walker {
+            guard files.count < limit else { break }
+            let values = try? item.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+            if values?.isDirectory == true, values?.isPackage != true {
+                if MaterializationStatus.isCloudOnlyIfKnown(atPath: item.path) != false { walker.skipDescendants() }
+                continue
+            }
+            files.append(item.path)
+        }
+        return files
     }
 
     /// Paths whose upload is still worth reading.
