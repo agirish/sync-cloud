@@ -263,19 +263,99 @@ struct AskClaudePDFCardView: View {
         (card.options.pages ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// One place in a card's row of pages: a page, struck through when Delete takes it out, or a
+    /// run of pages left out of the row.
+    enum PageCell: Equatable {
+        case page(Int, struck: Bool)
+        case gap
+    }
+
+    /// Reorder draws this many pages of the new order, and a gap after them when there are more.
+    static let reorderShown = 6
+
+    /// **The row of pages a card draws, in the order the new file has them** — Delete's pages
+    /// struck through among their neighbours, Reorder's first pages in their new order, the others'
+    /// pages each with one either side. Empty while the pages typed can't be read. The window draws
+    /// exactly the pages this names.
+    static func pageStrip(_ card: AskClaudePDFCard) -> [PageCell] {
+        guard card.action.choosesPages || card.options.pages != nil, let row = card.rows.first,
+              let count = row.pageCount, row.refusal == nil, card.pagesProblem == nil else { return [] }
+        func around(_ pages: [Int], struck: Set<Int> = []) -> [PageCell] {
+            PDFCardThumbnails.shown(pages, pageCount: count).map { $0.map { .page($0, struck: struck.contains($0)) } ?? .gap }
+        }
+        let cells: [PageCell]
+        switch card.action {
+        case .split: cells = around((card.options.splitAt ?? []).map { $0 - 1 })
+        default:
+            guard case .success(let pages) = PDFCardPages.parse(card.options.pages ?? "", extract: card.action != .deletePages,
+                                                               pageCount: count) else { return [] }
+            switch card.action {
+            case .reorder:
+                cells = pages.prefix(reorderShown).map { .page($0, struck: false) } + (pages.count > reorderShown ? [.gap] : [])
+            case .deletePages: cells = around(pages, struck: Set(pages))
+            default: cells = around(pages)
+            }
+        }
+        // A page is about 26 pt wide at 34 pt tall: seven places fill the 240 pt card.
+        return Array(cells.prefix(stripPlaces))
+    }
+
+    static let stripPlaces = 7
+
+    /// The pages `pageStrip` names, to draw.
+    static func stripPages(_ strip: [PageCell]) -> [Int] {
+        strip.compactMap { if case .page(let page, _) = $0 { page } else { nil } }
+    }
+
+    /// What VoiceOver says for a page in the row: "Page 3, taken out"; in a new order, where it goes.
+    static func pageLabel(_ page: Int, struck: Bool, position: Int?) -> String {
+        if struck { return "Page \(page + 1), taken out" }
+        if let position { return "Page \(page + 1), placed \(position)" }
+        return "Page \(page + 1)"
+    }
+
     @ViewBuilder
     private var thumbnailRow: some View {
         if !thumbnails.isEmpty {
-            HStack(spacing: 4) {
-                ForEach(thumbnails.keys.sorted(), id: \.self) { page in
-                    if let image = thumbnails[page] {
-                        Image(decorative: image, scale: 2)
-                            .resizable().aspectRatio(contentMode: .fit)
+            let strip = Self.pageStrip(card)
+            let reorder = card.action == .reorder
+            HStack(alignment: .top, spacing: 4) {
+                ForEach(Array(strip.enumerated()), id: \.offset) { index, cell in
+                    switch cell {
+                    case .gap:
+                        Text("…").scaledFont(.caption).foregroundStyle(.secondary)
                             .frame(height: 34)
-                            .accessibilityLabel("Page \(page + 1)")
+                            .accessibilityHidden(true)
+                    case .page(let page, let struck):
+                        if let image = thumbnails[page] {
+                            VStack(spacing: 1) {
+                                Image(decorative: image, scale: 2)
+                                    .resizable().aspectRatio(contentMode: .fit)
+                                    .frame(height: 34)
+                                    .opacity(struck ? 0.4 : 1)
+                                    .overlay { if struck { strike } }
+                                // A new order reads by the pages' own numbers.
+                                if reorder {
+                                    Text("\(page + 1)").scaledFont(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                                }
+                            }
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel(Self.pageLabel(page, struck: struck, position: reorder ? index + 1 : nil))
+                        }
                     }
                 }
             }
+        }
+    }
+
+    /// A line corner to corner across a page Delete takes out.
+    private var strike: some View {
+        GeometryReader { box in
+            Path { line in
+                line.move(to: CGPoint(x: box.size.width, y: 0))
+                line.addLine(to: CGPoint(x: 0, y: box.size.height))
+            }
+            .stroke(ChromeInk.bodyText(colorScheme, SemanticColor.error), lineWidth: 1.5)
         }
     }
 

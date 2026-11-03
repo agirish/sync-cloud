@@ -451,25 +451,13 @@ struct AskClaudePDFCards {
     /// The pages a page tool acts on, drawn small for its card.
     func askClaudePDFDrawPages(_ id: UUID) async {
         // Whatever was drawn for pages typed before is gone the moment they can't be drawn now.
-        guard let card = askClaudeChat.pdfCard(id), card.action.choosesPages || card.options.pages != nil,
-              let row = card.rows.first, let count = row.pageCount, row.refusal == nil, card.pagesProblem == nil
-        else {
+        // Exactly the pages the card's row draws — Delete's struck through, Reorder's in order.
+        guard let card = askClaudeChat.pdfCard(id), let row = card.rows.first else {
             askClaudeChat.pdfThumbnails[id] = nil
             return
         }
-        let acted: [Int]
-        switch card.action {
-        case .split: acted = (card.options.splitAt ?? []).map { $0 - 1 }
-        default:
-            guard case .success(let pages) = PDFCardPages.parse(card.options.pages ?? "", extract: card.action != .deletePages,
-                                                               pageCount: count) else {
-                askClaudeChat.pdfThumbnails[id] = nil
-                return
-            }
-            acted = card.action == .reorder ? Array(pages.prefix(3)) : pages
-        }
-        let shown = PDFCardThumbnails.shown(acted, pageCount: count).compactMap { $0 }
-        let images = shown.isEmpty ? nil : await PDFCardThumbnails.render(row.path, pages: Array(shown.prefix(12)), height: 34)
+        let shown = AskClaudePDFCardView.stripPages(AskClaudePDFCardView.pageStrip(card))
+        let images = shown.isEmpty ? nil : await PDFCardThumbnails.render(row.path, pages: shown, height: 34)
         askClaudeChat.pdfThumbnails[id] = images
     }
 

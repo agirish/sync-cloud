@@ -327,6 +327,38 @@ import Sync
         #expect(planned(word) == "Lease.pdf")
     }
 
+    /// **The row of pages each card draws** — Delete's taken-out pages struck through among their
+    /// neighbours, Reorder's first pages in the new order (not page order, as it once was), the
+    /// rest unmarked; seven places at most, so the row fits the card; nothing while the pages typed
+    /// can't be read.
+    @Test func eachCardDrawsItsPagesAsTheNewFileHasThem() {
+        func strip(_ action: AskClaudePDFCard.Action, _ options: AskClaudePDFCard.Options, pages: Int = 12,
+                   problem: String? = nil) -> [AskClaudePDFCardView.PageCell] {
+            var card = AskClaudePDFCard(action: action, rows: [.init(path: "/d/S.pdf", name: "S.pdf", folderLabel: "d", pageCount: pages)],
+                                        options: options, state: .offered)
+            card.pagesProblem = problem
+            return AskClaudePDFCardView.pageStrip(card)
+        }
+        typealias C = AskClaudePDFCardView.PageCell
+        #expect(strip(.deletePages, .init(pages: "1")) == [C.page(0, struck: true), .page(1, struck: false)])
+        #expect(strip(.deletePages, .init(pages: "5, 9")) == [C.page(3, struck: false), .page(4, struck: true), .page(5, struck: false), .gap,
+                                                             .page(7, struck: false), .page(8, struck: true), .page(9, struck: false)])
+        #expect(strip(.reorder, .init(pages: "3, 1, 2"), pages: 3) == [C.page(2, struck: false), .page(0, struck: false), .page(1, struck: false)])
+        #expect(strip(.reorder, .init(pages: "8, 1, 2, 3, 4, 5, 6, 7"), pages: 8)
+                == [C.page(7, struck: false), .page(0, struck: false), .page(1, struck: false), .page(2, struck: false),
+                    .page(3, struck: false), .page(4, struck: false), .gap])
+        #expect(strip(.extract, .init(pages: "3-5")) == [C.page(1, struck: false), .page(2, struck: false), .page(3, struck: false),
+                                                        .page(4, struck: false), .page(5, struck: false)])
+        #expect(strip(.extract, .init(pages: "1-12")).count == AskClaudePDFCardView.stripPlaces)
+        #expect(strip(.split, .init(splitAt: [4]), pages: 8) == [C.page(2, struck: false), .page(3, struck: false), .page(4, struck: false)])
+        #expect(strip(.deletePages, .init(pages: "99")) == [], "pages it can't read draw nothing")
+        #expect(strip(.deletePages, .init(pages: "1"), problem: "No.") == [])
+        #expect(strip(.rotate, .init()) == [], "Rotate on every page draws no row")
+        #expect(AskClaudePDFCardView.stripPages([.gap, .page(4, struck: true), .page(0, struck: false)]) == [4, 0])
+        #expect(AskClaudePDFCardView.pageLabel(4, struck: true, position: nil) == "Page 5, taken out")
+        #expect(AskClaudePDFCardView.pageLabel(7, struck: false, position: 1) == "Page 8, placed 1")
+    }
+
     /// **A run still going tells Claude how far it has got**, and says only that it runs when the
     /// window can't say.
     @Test func aRunStillGoingSaysHowFar() {

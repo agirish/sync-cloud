@@ -14255,3 +14255,15 @@ sections, rows on the window. Looks only; no change to what Now lists or does.
 |---|---|---|
 | `v6.x` | The cards (`ActivityNowView.window`, two `glassSurface(level` calls) | RECORDED — not owed |
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No `ActivityNowView` | CLOSED — doesn't apply |
+
+## Ask Claude's Delete Pages and Reorder cards draw their pages as the new file has them (TE294) — main only
+
+2026-11-03, for v7.0. On `main`: a Delete Pages card strikes through the pages it takes out, among
+their neighbours; a Reorder card draws its first six pages in the new order, each with its own
+number; every card's row of pages fits the card (seven places at most). Ask Claude exists only on
+`main` (see TE290 step 0b). The move of the cards' run out of `ContentView` and its end-to-end test
+are `main`-only too and need no row.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
