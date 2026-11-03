@@ -611,3 +611,20 @@ Run in the installed, signed app: a microphone grant survives only a signed inst
 - [ ] **While Claude answers.** ⌥Space beeps and the mic is greyed.
 - [ ] **⌥Space in the box** no longer types a non-breaking space.
 - [ ] **Close mid-sentence.** ⌘J while listening: the mic light goes out, and nothing is sent.
+
+## Ask Claude's rich answers (TE298, 2026-11-02)
+
+Pick Detailed in the menu under the box, so answers carry lists and tables.
+
+- [ ] **A list.** Ask "list the PDFs here, biggest first". Bullets or numbers, not "- " lines;
+  a file name in an item is underlined and reveals the file.
+- [ ] **A table.** Ask "show the files here as a table of name, kind and size". A card with a grey
+  header and sizes on the right; a name in a cell reveals its file. Watch it arrive: no row of
+  pipes flashes before the table, and nothing jumps as rows come in.
+- [ ] **Code.** Ask "give me the shell command to list this folder". A grey box; its corner button
+  copies the command (paste it in TextEdit) and shows a tick for a moment.
+- [ ] **Selection.** Drag across a paragraph and ⌘C: the text copies. (A drag can't cross from one
+  block into the next.)
+- [ ] **VoiceOver** (⌘F5) in the thread: the answer reads in order, the bullet or number before each
+  item, and a table as "Table, 3 columns, … rows" then its cells.
+- [ ] **Dark mode and None accent**: the table card and code box stay readable on the bubble.

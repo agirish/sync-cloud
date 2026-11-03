@@ -14209,3 +14209,14 @@ was or that nothing is written until the click; the card says that. Ask Claude e
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Ask Claude's answers render full markdown (TE298) — main only
+
+2026-11-02, for v7.0. On `main`: an answer is drawn as blocks (`AskClaudeMarkdown`, from
+Foundation's full markdown parse) — lists, tables, code blocks with Copy, headings as bold lines —
+where it drew inline markdown only, and a growing answer holds back a half-written table or a
+lone list marker (`settled`). Ask Claude exists only on `main` (see TE290 step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

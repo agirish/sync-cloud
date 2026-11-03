@@ -396,7 +396,8 @@ struct AskClaudePanel: View {
                                            onPlanCard: onPlanCard, onChoice: onChoice, onRuleCard: onRuleCard,
                                            settingsBridge: settingsBridge, pdfBridge: pdfBridge,
                                            pdfThumbnails: chat.pdfThumbnails[item.id] ?? [:],
-                                           isLatestReceipt: item.id == latestReceipt, isRunning: chat.isRunning)
+                                           isLatestReceipt: item.id == latestReceipt, isRunning: chat.isRunning,
+                                           isGrowing: chat.isRunning && item.id == chat.items.last?.id)
                             // Rows that didn't change aren't redrawn as each word streams in.
                             .equatable()
                     }
@@ -755,6 +756,8 @@ private struct AskClaudeThreadRow: View, Equatable {
     var isLatestReceipt = false
     /// While a question runs, an offer's Send waits: the send would be refused.
     var isRunning = false
+    /// The answer still arriving: the newest item while a question runs.
+    var isGrowing = false
     @State private var showsSent = false
     /// The card row whose details are open; one at a time.
     @State private var openRow: Int?
@@ -763,7 +766,7 @@ private struct AskClaudeThreadRow: View, Equatable {
     /// What the row draws from; the closures never change what it shows.
     static func == (a: Self, b: Self) -> Bool {
         a.item == b.item && a.linkTargets == b.linkTargets && a.isLatestReceipt == b.isLatestReceipt
-            && a.isRunning == b.isRunning && a.accent == b.accent && a.accentFill == b.accentFill && a.onAccent == b.onAccent
+            && a.isRunning == b.isRunning && a.isGrowing == b.isGrowing && a.accent == b.accent && a.accentFill == b.accentFill && a.onAccent == b.onAccent
             && a.hue == b.hue && a.pdfThumbnails == b.pdfThumbnails
     }
 
@@ -776,8 +779,12 @@ private struct AskClaudeThreadRow: View, Equatable {
     ///   be clicked.
     /// - **Longest names first, whole words only, no overlaps**, so "2024 Tax.pdf" isn't cut into
     ///   by "Tax.pdf", and "notes" doesn't link inside "footnotes".
-    private func linked(_ text: String) -> AttributedString {
-        AskClaudeLinks.linked(Self.markdown(text), targets: linkTargets, scheme: Self.revealScheme, underline: accentFill)
+    ///
+    /// Drawn as its blocks (TE298): lists, tables and code as well as inline markdown. While it is
+    /// still arriving, only what has `settled` is drawn.
+    private func answer(_ text: String) -> [AskClaudeMarkdown.Block] {
+        AskClaudeMarkdown.linked(AskClaudeMarkdown.blocks(isGrowing ? AskClaudeMarkdown.settled(text) : text),
+                                 targets: linkTargets, scheme: Self.revealScheme, underline: accentFill)
     }
 
     var body: some View {
@@ -792,7 +799,7 @@ private struct AskClaudeThreadRow: View, Equatable {
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .accessibilityLabel(item.spoken == true ? "You said: \(text)" : "You: \(text)")
         case .assistant(let text):
-            Text(linked(text))
+            AskClaudeAnswerView(blocks: answer(text))
                 .tint(accentFill)
                 .environment(\.openURL, OpenURLAction { url in
                     // Only this chat's own reveal links, to paths it has seen; nothing else opens.
@@ -803,12 +810,10 @@ private struct AskClaudeThreadRow: View, Equatable {
                     onReveal(path)
                     return .handled
                 })
-                .textSelection(.enabled)
                 .padding(.horizontal, 11).padding(.vertical, 7)
                 .background(AskClaudeTint.bubble(hue, accent: accent, dark: colorScheme == .dark, neutral: 0.7),
                             in: RoundedRectangle(cornerRadius: Radius.card))
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityLabel("Claude: \(text)")
         case .step(let label, let isError):
             Label(label, systemImage: isError ? "exclamationmark.circle" : "checkmark")
                 .scaledFont(.callout)
@@ -1341,11 +1346,6 @@ private struct AskClaudeThreadRow: View, Equatable {
         }
     }
 
-
-    static func markdown(_ text: String) -> AttributedString {
-        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(text)
-    }
 }
 
 /// One of the header's icon buttons: a fixed hit area, a hover wash, and its own tooltip.

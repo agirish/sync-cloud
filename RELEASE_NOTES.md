@@ -133,6 +133,10 @@ Requires **macOS 26**, unchanged from v6.2.
   silence. Esc throws them away. Your voice is turned into text on this Mac, listening for the
   names on screen, and only the text is sent, as typing sends it. A spoken question shows a mic in
   its bubble. The first time, macOS asks for the microphone and may download its speech model.
+- **Answers show lists, tables and code.** Claude's answers draw bulleted and numbered lists,
+  tables and code blocks, each code block with a Copy button, and headings as bold lines. File
+  names stay links that reveal the file, in a list or a table too. While an answer arrives, a table
+  appears once its header is in, never as a row of pipes.
 
 ### One-way sync
 
