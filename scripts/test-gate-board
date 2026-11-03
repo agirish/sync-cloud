@@ -14,12 +14,13 @@ cp "${GATE_BOARD:-$HERE/gate-board}" "$WORK/bin/gate-board"  # override to test 
 cat > "$WORK/bin/build-slot" <<'EOF'
 #!/bin/bash
 cat <<'STATUS'
-3 of 3 slots held, 2 waiting (/somewhere)
+3 of 3 slots held, 2 waiting, light lane held (/somewhere)
   [1] pid 11, a, 1m02s: swift test --package-path Modules/Design
   [2] pid 12, ~/elsewhere, 1h05m: xcodebuild build
   [3] pid 13, a, 0m01s: swift test --package-path Modules/Settings
+  [light] pid 15, a, 0m09s: swift test --package-path Modules/Events --filter Foo
 waiting, by worktree; #n is the turn each would get as slots free:
-  b: holds 0, 2 waiting
+  b: holds 2, 2 waiting
     #1       pid 14, waited 3m00s: swift test --package-path Modules/Dashboard
 STATUS
 EOF
@@ -93,8 +94,8 @@ run "$B" "$BOARD" announce --pid "$PB" --session local_b --packages Settings --p
 run "$A" "$BOARD" list
 check "list shows both entries" has "2 gates announced"
 check "list shows the session address" has "session local_b"
-check "list shows slots from build-slot --status" has "slots: 2 held, 0 waiting"
-check "  …held and waiting alike" has "slots: 0 held, 2 waiting"
+check "list counts held slots from build-slot --status, the light lane too" has "slots held: 3"
+check "  …and never reads the waiting block" has "slots held: 0"
 check "list shows what already passed" has "already passed: Settings"
 check "a's gate covers b's" has "sharing with you: maybe: your gate covers its"
 run "$B" "$BOARD" list

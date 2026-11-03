@@ -25,7 +25,7 @@ Announcing again keeps the first announcement's time, and keeps --passed, --join
 before unless given again, as long as HEAD has not moved.
 
 list prints every live entry, oldest first, with the session's address for SendMessage, how many
-build slots its worktree holds and waits for (from `build-slot --status`), and, run from a
+build slots its worktree holds (from `build-slot --status`'s holder lines), and, run from a
 worktree, a verdict on sharing with each one: whether either gate covers the other, whether they
 touch common files, whether both are on today's origin/main and unchanged since announcing. An
 entry is dropped as stale when its session's process is gone (the PID and its start time both
@@ -328,7 +328,8 @@ def verdict(mine, other, origin):
 
 
 def slot_usage():
-    """{place: (held, waiting)} from build-slot --status; empty if it cannot be read."""
+    """{place: slots held} from build-slot --status's holder lines, light lane included; empty
+    if it cannot be read. Its waiting block is for people, not parsers, so it is not read."""
     here = os.path.dirname(os.path.realpath(__file__))
     script = os.path.join(here, "build-slot")
     if not os.path.isfile(script):  # a maintenance line's checkout: use the primary's copy
@@ -341,14 +342,9 @@ def slot_usage():
         return {}
     usage = {}
     for line in text.splitlines():
-        held = re.match(r"^  \[\d+\] pid \d+, (.+?), \d+[mh]\d+[sm]: ", line)
+        held = re.match(r"^  \[(?:\d+|light)\] pid \d+, (.+?), \d+[mh]\d+[sm]: ", line)
         if held:
-            count, waiting = usage.get(held.group(1), (0, 0))
-            usage[held.group(1)] = (count + 1, waiting)
-            continue
-        group = re.match(r"^  (\S.*): holds (\d+), (\d+) waiting$", line)
-        if group:
-            usage[group.group(1)] = (int(group.group(2)), int(group.group(3)))
+            usage[held.group(1)] = usage.get(held.group(1), 0) + 1
     return usage
 
 
@@ -384,13 +380,13 @@ def list_entries(args):
                                              BOARD_DIR))
     usage = slot_usage()
     for entry in entries:
-        held, waiting = usage.get(place(entry["worktree"]), (0, 0))
+        held = usage.get(place(entry["worktree"]), 0)
         print("  %s  %s at %s, %s %s" % (
             place(entry["worktree"]), entry.get("branch") or "(detached)", entry["head"][:9],
             entry["state"], ago(entry["announced"])))
-        print("    session %s; gate: %s; %d file%s; slots: %d held, %d waiting" % (
+        print("    session %s; gate: %s; %d file%s; slots held: %d" % (
             entry.get("session") or "(unknown)", gate_text(entry), len(entry["files"]),
-            "" if len(entry["files"]) == 1 else "s", held, waiting))
+            "" if len(entry["files"]) == 1 else "s", held))
         if entry.get("passed"):
             print("    already passed: %s" % " ".join(entry["passed"]))
         for join in entry.get("joins", []):
