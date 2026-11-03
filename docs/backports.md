@@ -14127,3 +14127,13 @@ Claude exists only on `main` (see step 0b).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Underlined file links in Ask Claude's answers (TE245) — main only
+
+2026-11-02, for v7.0. On `main`: a file or folder name in Claude's answer that reveals it in Browse
+carries a thin underline in the link colour at half strength, so it reads as clickable without
+relying on colour. Ask Claude exists only on `main` (see TE290 step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

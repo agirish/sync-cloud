@@ -643,21 +643,7 @@ private struct AskClaudeThreadRow: View, Equatable {
     /// - **Longest names first, whole words only, no overlaps**, so "2024 Tax.pdf" isn't cut into
     ///   by "Tax.pdf", and "notes" doesn't link inside "footnotes".
     private func linked(_ text: String) -> AttributedString {
-        var attributed = Self.markdown(text)
-        for run in attributed.runs where run.link != nil { attributed[run.range].link = nil }
-        let plain = String(attributed.characters)
-        for (found, path) in AskClaudeLinks.matches(of: linkTargets, in: plain) {
-            let start = plain.distance(from: plain.startIndex, to: found.lowerBound)
-            let length = plain.distance(from: found.lowerBound, to: found.upperBound)
-            let lower = attributed.characters.index(attributed.startIndex, offsetBy: start)
-            let upper = attributed.characters.index(lower, offsetBy: length)
-            var components = URLComponents()
-            components.scheme = Self.revealScheme
-            components.host = "reveal"
-            components.queryItems = [URLQueryItem(name: "path", value: path)]
-            if let url = components.url { attributed[lower..<upper].link = url }
-        }
-        return attributed
+        AskClaudeLinks.linked(Self.markdown(text), targets: linkTargets, scheme: Self.revealScheme, underline: accentFill)
     }
 
     var body: some View {
@@ -1272,6 +1258,29 @@ enum AskClaudeLinks {
             }
         }
         return found
+    }
+
+    /// `attributed` with its own links dropped and each of `targets` linked under `scheme`. A link
+    /// carries a thin underline in its own colour at half strength: colour alone didn't read as
+    /// clickable in a bubble that is itself tinted.
+    static func linked(_ attributed: AttributedString, targets: [String: String], scheme: String, underline: Color) -> AttributedString {
+        var attributed = attributed
+        for run in attributed.runs where run.link != nil { attributed[run.range].link = nil }
+        let plain = String(attributed.characters)
+        for (found, path) in matches(of: targets, in: plain) {
+            let start = plain.distance(from: plain.startIndex, to: found.lowerBound)
+            let length = plain.distance(from: found.lowerBound, to: found.upperBound)
+            let lower = attributed.characters.index(attributed.startIndex, offsetBy: start)
+            let upper = attributed.characters.index(lower, offsetBy: length)
+            var components = URLComponents()
+            components.scheme = scheme
+            components.host = "reveal"
+            components.queryItems = [URLQueryItem(name: "path", value: path)]
+            guard let url = components.url else { continue }
+            attributed[lower..<upper].link = url
+            attributed[lower..<upper].underlineStyle = Text.LineStyle(pattern: .solid, color: underline.opacity(0.5))
+        }
+        return attributed
     }
 
     /// Whether `range` starts and ends at a word's edge.

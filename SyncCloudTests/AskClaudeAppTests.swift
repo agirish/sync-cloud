@@ -856,6 +856,14 @@ import FileExplorer
         #expect(found.map(\.path) == ["/a/2024 Tax.pdf", "/a/Tax.pdf", "/a/notes"])
     }
 
+    @Test func onlyLinksCarryTheUnderline() {
+        let linked = AskClaudeLinks.linked(try! AttributedString(markdown: "Open Tax.pdf, not [this](https://example.com)."),
+                                           targets: ["Tax.pdf": "/a/Tax.pdf"], scheme: "synccloud-askclaude", underline: .purple)
+        let runs = linked.runs.map { (text: String(linked[$0.range].characters), link: $0.link, underline: $0.underlineStyle) }
+        #expect(runs.filter { $0.link != nil }.map(\.text) == ["Tax.pdf"])
+        #expect(runs.allSatisfy { ($0.link != nil) == ($0.underline != nil) })
+    }
+
     @Test func aLongTextWithoutPagesIsSearchedInParts() {
         let text = String(repeating: "Lease boilerplate. ", count: 400) + "Parking: space B12. " + String(repeating: "More terms. ", count: 400)
         let parts = AskClaudeReading.chunks(of: text)
