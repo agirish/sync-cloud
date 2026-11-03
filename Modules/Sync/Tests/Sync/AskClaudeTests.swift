@@ -893,3 +893,75 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
         #expect(turn.last?["text"]?.stringValue == "again")
     }
 }
+
+// MARK: - Rewind (TE296)
+
+/// Edit and Retry take the transcript back to where a question began: what stays is what was
+/// sent before, byte for byte, so no thinking block is cut from the middle.
+@MainActor
+@Suite struct AskClaudeRewindTests {
+
+    @Test func aRewindKeepsTheEarlierTurnsExactlyAndResendsTheScreen() async throws {
+        let transport = ScriptedTransport([
+            .init(status: 200, lines: toolResponse(id: "toolu_1", name: "list_folder", inputJSON: #"{"folder":"Taxes"}"#)),
+            .init(status: 200, lines: textResponse("Two files.")),
+            .init(status: 200, lines: textResponse("The lease.")),
+            .init(status: 200, lines: textResponse("The W-2.")),
+        ])
+        let engine = AskClaudeEngine(transport: transport, defaults: freshDefaults(), now: { day })
+        await engine.ask("one", card: "<screen>same</screen>", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) { _ in }
+        let afterOne = engine.transcript
+        let contextAfterOne = engine.contextTokens
+        await engine.ask("two", card: "<screen>same</screen>", key: "k", model: AskClaudeModels.opus, tools: StubTools()) { _ in }
+        #expect(engine.turns.map(\.start) == [0, 4])
+        #expect(engine.rewind(toTurn: 1))
+        #expect(engine.transcript == afterOne)
+        #expect(engine.turns.count == 1)
+        #expect(engine.lastKept == AskClaudeKeptSetting(model: AskClaudeModels.sonnet.id, detail: "brief"))
+        #expect(engine.contextTokens == contextAfterOne)
+        await engine.ask("two again", card: "<screen>same</screen>", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) { _ in }
+        let messages = try #require(try transport.body(3)["messages"]?.arrayValue)
+        // The first question's four messages, thinking signature and all, then the new question.
+        #expect(Array(messages.prefix(4)) == afterOne)
+        #expect(messages.count == 5)
+        let last = messages.last?["content"]?.arrayValue?.compactMap { $0["text"]?.stringValue }
+        #expect(last?.dropFirst().first == "<screen>same</screen>", "the screen Claude last saw went with the turn")
+        #expect(last?.last == "two again")
+    }
+
+    @Test func resultsTheQuestionCarriedForTheTurnBeforeItAreOwedAgain() async throws {
+        let transport = ScriptedTransport([.init(status: 200, lines: twoToolResponse()), .init(status: 200, lines: textResponse("ok")),
+                                           .init(status: 200, lines: textResponse("ok again"))])
+        let engine = AskClaudeEngine(transport: transport, defaults: freshDefaults(), now: { day })
+        let stopped = Task { @MainActor in
+            await engine.ask("x", card: "c", key: "k", model: AskClaudeModels.sonnet, tools: StoppingTools()) { _ in }
+        }
+        await stopped.value
+        await engine.ask("y", card: "c", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) { _ in }
+        #expect(engine.rewind(toTurn: 1))
+        await engine.ask("z", card: "c", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) { _ in }
+        let turn = try #require(try transport.body(2)["messages"]?.arrayValue?.last?["content"]?.arrayValue)
+        #expect(turn.prefix(2).compactMap { $0["tool_use_id"]?.stringValue } == ["toolu_a", "toolu_b"])
+        #expect(turn.last?["text"]?.stringValue == "z")
+    }
+
+    @Test func toTheFirstQuestionIsANewChatAndNoSuchTurnChangesNothing() async throws {
+        let transport = ScriptedTransport([.init(status: 200, lines: textResponse("a"))])
+        let engine = AskClaudeEngine(transport: transport, defaults: freshDefaults(), now: { day })
+        await engine.ask("x", card: "c", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) { _ in }
+        let before = engine.snapshot
+        #expect(!engine.rewind(toTurn: 1))
+        #expect(engine.snapshot == before)
+        #expect(engine.rewind(toTurn: 0))
+        #expect(engine.transcript.isEmpty && engine.turns.isEmpty && engine.lastKept == nil && engine.contextTokens == nil)
+        // The marks are saved with the chat; one saved before them restores with none.
+        let restored = AskClaudeEngine(transport: transport, defaults: freshDefaults(), now: { day })
+        restored.restore(before)
+        #expect(restored.turns.count == 1)
+        var old = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(before)) as? [String: Any])
+        #expect(old.removeValue(forKey: "turns") != nil)
+        let decoded = try JSONDecoder().decode(AskClaudeEngine.Snapshot.self, from: JSONSerialization.data(withJSONObject: old))
+        restored.restore(decoded)
+        #expect(restored.turns.isEmpty && !restored.rewind(toTurn: 0))
+    }
+}

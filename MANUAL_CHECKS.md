@@ -662,3 +662,25 @@ might they be big?" with Detailed answers.
 - [ ] **Up.** After queueing, Up in the empty box brings the queued question back.
 - [ ] **Key.** While it answers, paste an API key and press Return: the held-back card shows, and
   nothing is queued.
+
+## Ask Claude: Copy, Edit and Retry (TE296, 2026-11-03)
+
+Pick Detailed in the menu under the box, so answers carry lists and tables.
+
+- [ ] **The bar.** Point at an answer: Copy and Retry show beside its receipt line; point away and
+  they fade. Point at your question: Copy and Edit hang just under its bubble, and you can reach
+  them with the mouse.
+- [ ] **Copy a table.** Ask "show the files here as a table of name, kind and size", Copy its
+  answer, paste into Numbers: one cell per name, kind and size. Paste into TextEdit too: a table.
+- [ ] **Copy a question.** Copy on a question with a file attached copies only your words.
+- [ ] **Retry.** On the last answer, Retry: the answer goes and a new one comes in its place.
+  Older answers offer Copy only.
+- [ ] **Edit.** Edit an earlier question: it comes back into the box with "Editing your question"
+  over it, and its file chips. Change it and press Return: it and everything after it go, and the
+  new answer follows the turn before it. Cancel instead puts the box back as it was.
+- [ ] **A card stays.** Ask Claude to rename a file, Apply the card, then Edit that question and
+  send it: the applied card stays in the chat with its Undo, and Claude's answer knows the file was
+  renamed.
+- [ ] **Right-click and VoiceOver.** Right-click an answer bubble: Copy Answer and Retry. With
+  VoiceOver (⌘F5), the Actions rotor on a question offers Copy Question and Edit Question.
+

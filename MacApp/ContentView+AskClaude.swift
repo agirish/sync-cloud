@@ -26,6 +26,18 @@ extension ContentView {
         if askClaudeChat.sendQueued == nil {
             askClaudeChat.sendQueued = { waiting in askClaudeSend(waiting.text, attached: waiting.attachments, spoken: waiting.spoken) }
         }
+        // Retry (TE296): a question from the box goes as the box sends; any other as it went, with
+        // a chip hidden since dropped.
+        if askClaudeChat.askAgain == nil {
+            askClaudeChat.askAgain = { asked, shown, spoken in
+                if asked.editable {
+                    askClaudeSend(asked.question, attached: asked.attachments, spoken: spoken)
+                } else {
+                    let attached = asked.attachments.filter { !askClaudeIsHidden($0.path) }
+                    askClaudeAsk(asked.question, shown: shown, attached: attached, spoken: spoken)
+                }
+            }
+        }
         return AskClaudePanel(chat: askClaudeChat,
                               place: askClaudePlace,
                               accent: glassHue.accentColor,
@@ -80,7 +92,8 @@ extension ContentView {
         AskClaudeBrowseTools(context: { askClaudeToolsContext() })
     }
 
-    func askClaudeAsk(_ question: String, shown: String? = nil, attached: [AskClaudeChat.Attachment] = [], spoken: Bool = false) {
+    func askClaudeAsk(_ question: String, shown: String? = nil, attached: [AskClaudeChat.Attachment] = [], spoken: Bool = false,
+                      editable: Bool = false) {
         // Kept for the at-limit card's Ask Again, which asks this same question again.
         askClaudeChat.lastAsked = (shown, attached)
         let tools = askClaudeTools()
@@ -91,10 +104,10 @@ extension ContentView {
         guard askClaudeItems(folder) == nil else {
             var screen = askClaudeScreen()
             screen.attached = attachedRows
-            askClaudeChat.ask(question, shown: shown, spoken: spoken, screen: screen, tools: tools)
+            askClaudeChat.ask(question, shown: shown, spoken: spoken, attached: attached, editable: editable, screen: screen, tools: tools)
             return
         }
-        askClaudeChat.ask(question, shown: shown, spoken: spoken, preparing: {
+        askClaudeChat.ask(question, shown: shown, spoken: spoken, attached: attached, editable: editable, preparing: {
             let fromDisk = await AskClaudeDisk.list(folder) ?? []
             var screen = askClaudeScreen(fallbackRows: fromDisk)
             screen.attached = attachedRows
@@ -115,7 +128,7 @@ extension ContentView {
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
         let attached = chips.filter { !hidden.isHidden($0.path) }
         let shown = attached.isEmpty ? nil : question + "\nAbout " + attached.map(\.name).joined(separator: ", ")
-        askClaudeAsk(question, shown: shown, attached: attached, spoken: spoken)
+        askClaudeAsk(question, shown: shown, attached: attached, spoken: spoken, editable: true)
     }
 
     /// The words a spoken question is listened for (TE311): from what the screen card would show

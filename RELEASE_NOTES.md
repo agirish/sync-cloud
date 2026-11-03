@@ -143,6 +143,11 @@ Requires **macOS 26**, unchanged from v6.2.
   names stay links that reveal the file, in a list or a table too. When Claude lists files, it
   answers with a table. While an answer arrives, a table appears once its header is in, never as a
   row of pipes.
+- **Copy, Edit and Retry.** Point at a question or an answer for its bar, or right-click it.
+  Copy copies an answer with its lists and tables, so a table pastes into Numbers as cells. Edit
+  puts a question back in the box, and sending it takes back that question and what followed;
+  Retry asks the last question again. Cards you applied from what was taken back stay, with their
+  Undo, and Claude is told what they did.
 - **Type while Claude answers.** The text box stays open while Claude answers, and grows to eight
   lines. Return holds the question as Next, over the box, and asks it when the answer ends; Edit
   puts it back and Cancel drops it. After Stop it waits for you to click Send. A question said

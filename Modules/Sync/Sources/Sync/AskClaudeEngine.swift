@@ -222,6 +222,8 @@ public enum AskClaudeEvent: Equatable, Sendable {
 /// **The transcript is append-only.** Earlier turns are never edited: editing one would break the
 /// cache and invalidate the thinking blocks the model signed. A user turn joins the transcript only
 /// once the request carrying it succeeds, so a failed request leaves nothing half-sent behind.
+/// Edit and Retry (TE296) only ever cut it back to where a question began (`rewind`): what stays
+/// is byte for byte what was sent before, thinking blocks and all, as the API allows.
 @MainActor
 public final class AskClaudeEngine {
 
@@ -259,6 +261,19 @@ public final class AskClaudeEngine {
     /// estimated from it (TE292). Nil until a round joins.
     public private(set) var contextTokens: Int?
 
+    /// Where a question that joined the transcript begins (TE296), with what the chat was just
+    /// before it, so `rewind` can take the chat back there.
+    public struct Turn: Codable, Equatable, Sendable {
+        /// Its user message's index in the transcript.
+        public let start: Int
+        public let lastKept: AskClaudeKeptSetting?
+        public let contextTokens: Int?
+    }
+
+    /// One per question that joined, in order. Empty in a chat saved before TE296, which can't
+    /// be rewound past.
+    public private(set) var turns: [Turn] = []
+
     private let transport: AskClaudeTransport
     private let defaults: UserDefaults
     private let now: () -> Date
@@ -273,11 +288,12 @@ public final class AskClaudeEngine {
         /// Optional, so a chat saved before they existed still decodes.
         public var lastKept: AskClaudeKeptSetting?
         public var contextTokens: Int?
+        public var turns: [Turn]?
     }
 
     public var snapshot: Snapshot {
         Snapshot(transcript: transcript, handles: handles, lastCard: lastCard, owedResults: owedResults, setting: setting,
-                 lastKept: lastKept, contextTokens: contextTokens)
+                 lastKept: lastKept, contextTokens: contextTokens, turns: turns.isEmpty ? nil : turns)
     }
 
     public func restore(_ snapshot: Snapshot) {
@@ -288,6 +304,28 @@ public final class AskClaudeEngine {
         setting = snapshot.setting
         lastKept = snapshot.lastKept
         contextTokens = snapshot.contextTokens
+        turns = snapshot.turns ?? []
+    }
+
+    /// **Takes the chat back to just before question `turn`** (TE296): Edit on a question, or
+    /// Retry on the last answer. The transcript keeps exactly what came before it, so every
+    /// thinking block left is where the API signed it; what goes is a run at the end, never one
+    /// from the middle. Tool results that question carried for the turn before it are owed again,
+    /// and the next question sends the whole screen, since the last one Claude saw may be gone.
+    /// The handles stay: one minted in what went still means the same file.
+    /// - Returns: false, changing nothing, when there's no such question.
+    @discardableResult
+    public func rewind(toTurn turn: Int) -> Bool {
+        guard turns.indices.contains(turn), transcript.indices.contains(turns[turn].start) else { return false }
+        let mark = turns[turn]
+        let content = transcript[mark.start]["content"]?.arrayValue ?? []
+        owedResults = Array(content.prefix { $0["type"]?.stringValue == "tool_result" })
+        transcript.removeSubrange(mark.start...)
+        turns.removeSubrange(turn...)
+        lastKept = mark.lastKept
+        contextTokens = mark.contextTokens
+        lastCard = nil
+        return true
     }
 
     public init(transport: AskClaudeTransport = AskClaudeURLSessionTransport(),
@@ -442,6 +480,7 @@ public final class AskClaudeEngine {
             if round == 1 {
                 lastCard = card
                 owedResults = []
+                turns.append(Turn(start: transcript.count, lastKept: lastKept, contextTokens: contextTokens))
             }
             transcript.append(pending)
             joined = true

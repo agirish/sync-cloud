@@ -66,6 +66,12 @@ struct AskClaudePanel: View {
     /// whenever the Keychain item changes, not on every draw. Nil until asked.
     @State private var keySaved: Bool?
     @StateObject private var voice = AskClaudeVoice()
+    /// The turn whose bar shows (TE296), and the wait before a bar the mouse left goes: the bar
+    /// hangs a little past its row, and the mouse crosses the gap to reach it.
+    @State private var hovered: AskClaudeHoverKey?
+    @State private var hoverEnd: Task<Void, Never>?
+    /// What the box held when Edit put a question in it, for Cancel to put back.
+    @State private var draftBeforeEdit = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
 
@@ -391,7 +397,11 @@ struct AskClaudePanel: View {
                                             accent: accent, hue: hue, onStarter: { send($0, spoken: false) })
                     }
                     let latestReceipt = chat.items.last { if case .receipt = $0.kind { true } else { false } }?.id
+                    let turns = AskClaudeTurns(chat.items)
+                    // Retry is for the last answer only, and only once nothing runs (TE296).
+                    let retries = chat.lastQuestion.map { chat.canRewind(from: $0) } ?? false
                     ForEach(chat.items) { item in
+                        let key = turns.hoverKey(of: item)
                         AskClaudeThreadRow(item: item, accent: accent, accentFill: accentFill, onAccent: onAccent, hue: hue, onOpenSettings: onOpenSettings,
                                            linkTargets: chat.linkTargets, onReveal: onReveal, onSendOffer: onSendOffer,
                                            onDownloadCard: onDownloadCard,
@@ -400,9 +410,15 @@ struct AskClaudePanel: View {
                                            settingsBridge: settingsBridge, pdfBridge: pdfBridge,
                                            pdfThumbnails: chat.pdfThumbnails[item.id] ?? [:],
                                            isLatestReceipt: item.id == latestReceipt, isRunning: chat.isRunning,
-                                           isGrowing: chat.isRunning && item.id == chat.items.last?.id)
+                                           isGrowing: chat.isRunning && item.id == chat.items.last?.id,
+                                           turnActions: turnActions(for: item, turns: turns, retries: retries),
+                                           showsBar: key != nil && hovered == key,
+                                           onTurnAction: { turnAction($0, on: item.id) },
+                                           onHover: { inside in if let key { hover(key, inside) } })
                             // Rows that didn't change aren't redrawn as each word streams in.
                             .equatable()
+                            // A question's bar hangs over the row below it.
+                            .zIndex(key != nil && hovered == key ? 1 : 0)
                     }
                     if chat.isRunning && chat.isThinking {
                         HStack(spacing: 6) {
@@ -426,6 +442,7 @@ struct AskClaudePanel: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if chat.editing != nil { editingLine }
             if let waiting = chat.queued { queuedLine(waiting) }
             if !chat.attachments.isEmpty { attachmentChips }
             if voice.isActive { listeningStrip }
@@ -577,6 +594,78 @@ struct AskClaudePanel: View {
         }
     }
 
+    /// While an edited question is in the box (TE296): sending it takes back the one it edits.
+    private var editingLine: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "pencil").foregroundStyle(.secondary)
+            Text("Editing your question. Sending it takes back what came after.")
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Cancel") {
+                chat.cancelEdit()
+                draft = draftBeforeEdit
+                composerFocused = true
+            }
+            .help("Puts the box back as it was, and the chat stays as it is")
+        }
+        .buttonStyle(.link)
+        .scaledFont(.caption)
+        .padding(.horizontal, 8).padding(.vertical, 4)
+        .background(accent.opacity(0.14), in: Capsule())
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Editing your question")
+    }
+
+    /// What a row offers (TE296): Copy and Edit on a question, Copy and Retry on an answer's rows
+    /// and its receipt. Edit only for a question from the box, Retry only on the last answer.
+    private func turnActions(for item: AskClaudeChat.Item, turns: AskClaudeTurns, retries: Bool) -> [AskClaudeTurnAction] {
+        switch item.kind {
+        case .user:
+            return [.copy] + (chat.canEdit(item.id) ? [.edit] : [])
+        case .assistant, .receipt:
+            guard let question = turns.question(of: item) else { return [] }
+            return (turns.answered.contains(question) ? [.copy] : []) + (retries && question == chat.lastQuestion ? [.retry] : [])
+        default:
+            return []
+        }
+    }
+
+    private func turnAction(_ action: AskClaudeTurnAction, on id: UUID) {
+        switch action {
+        case .copy:
+            if let question = chat.question(id) {
+                AskClaudeAnswerCopy.write(question: question)
+            } else if let answer = chat.answer(inTurnOf: id) {
+                AskClaudeAnswerCopy.write(answer)
+            }
+        case .edit:
+            let before = draft
+            guard let text = chat.beginEdit(id) else { return }
+            draftBeforeEdit = before
+            // The question replaces what was being typed; Cancel brings that back.
+            draft = text
+            composerFocused = true
+        case .retry:
+            chat.retryLast()
+        }
+    }
+
+    /// The mouse over a turn, or leaving it: a bar goes a moment after, so it can be reached.
+    private func hover(_ key: AskClaudeHoverKey, _ inside: Bool) {
+        hoverEnd?.cancel()
+        if inside {
+            hovered = key
+            return
+        }
+        guard hovered == key else { return }
+        hoverEnd = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            hovered = nil
+        }
+    }
+
     /// The question waiting for the answer to end (TE297): "Next: … · Edit · Cancel", with Send
     /// once nothing runs (after a Stop or a problem, it waits for them to say).
     private func queuedLine(_ waiting: AskClaudeChat.Queued) -> some View {
@@ -646,7 +735,14 @@ struct AskClaudePanel: View {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         draft = ""
-        if chat.isRunning { queue(text, spoken: spoken) } else { send(text, spoken: spoken) }
+        if chat.isRunning {
+            queue(text, spoken: spoken)
+        } else {
+            // An edited question takes back the one it edits, and all after it (TE296) — not
+            // when it is held back for a key: then nothing is sent to take its place.
+            if AskClaudeKeyCatch.key(in: text) == nil { chat.finishEdit() }
+            send(text, spoken: spoken)
+        }
     }
 
     /// A question that waits for the answer: held back, like one sent, when it holds a key.
@@ -807,6 +903,13 @@ private struct AskClaudeThreadRow: View, Equatable {
     var isRunning = false
     /// The answer still arriving: the newest item while a question runs.
     var isGrowing = false
+    /// Copy, Edit and Retry, as this row offers them (TE296): on the bar a question or receipt
+    /// shows while hovered, and on the right-click menu and VoiceOver's actions.
+    var turnActions: [AskClaudeTurnAction] = []
+    var showsBar = false
+    var onTurnAction: (AskClaudeTurnAction) -> Void = { _ in }
+    /// The mouse entering or leaving the row, for which turn's bar shows.
+    var onHover: (Bool) -> Void = { _ in }
     @State private var showsSent = false
     /// The card row whose details are open; one at a time.
     @State private var openRow: Int?
@@ -816,7 +919,7 @@ private struct AskClaudeThreadRow: View, Equatable {
     static func == (a: Self, b: Self) -> Bool {
         a.item == b.item && a.linkTargets == b.linkTargets && a.isLatestReceipt == b.isLatestReceipt
             && a.isRunning == b.isRunning && a.isGrowing == b.isGrowing && a.accent == b.accent && a.accentFill == b.accentFill && a.onAccent == b.onAccent
-            && a.hue == b.hue && a.pdfThumbnails == b.pdfThumbnails
+            && a.hue == b.hue && a.pdfThumbnails == b.pdfThumbnails && a.turnActions == b.turnActions && a.showsBar == b.showsBar
     }
 
     static let revealScheme = "synccloud-askclaude"
@@ -838,6 +941,39 @@ private struct AskClaudeThreadRow: View, Equatable {
 
     var body: some View {
         switch item.kind {
+        // The bar's actions, for whoever doesn't hover, on the right-click menu (TE296). Only on a
+        // question, an answer and its receipt: a card keeps its own clicks. VoiceOver finds them
+        // as actions on the question's bubble and on the answer's receipt.
+        case .user, .assistant, .receipt:
+            content
+                .onHover(perform: onHover)
+                .contextMenu {
+                    ForEach(turnActions) { action in
+                        Button(menuTitle(action), systemImage: action.symbol) { onTurnAction(action) }
+                    }
+                }
+        default:
+            content.onHover(perform: onHover)
+        }
+    }
+
+    /// The row's actions for VoiceOver, on the one element that stands for the turn.
+    private var turnActionsForVoiceOver: some View {
+        ForEach(turnActions) { action in
+            Button(menuTitle(action)) { onTurnAction(action) }
+        }
+    }
+
+    private func menuTitle(_ action: AskClaudeTurnAction) -> String {
+        switch action {
+        case .copy: if case .user = item.kind { "Copy Question" } else { "Copy Answer" }
+        case .edit: "Edit Question"
+        case .retry: "Retry"
+        }
+    }
+
+    @ViewBuilder private var content: some View {
+        switch item.kind {
         case .user(let text):
             // A spoken question carries a small mic (TE311).
             (item.spoken == true ? Text("\(Image(systemName: "mic")) \(text)") : Text(text))
@@ -845,8 +981,18 @@ private struct AskClaudeThreadRow: View, Equatable {
                 .padding(.horizontal, 11).padding(.vertical, 7)
                 .foregroundStyle(onAccent)
                 .background(accentFill, in: RoundedRectangle(cornerRadius: Radius.card))
-                .frame(maxWidth: .infinity, alignment: .trailing)
                 .accessibilityLabel(item.spoken == true ? "You said: \(text)" : "You: \(text)")
+                .accessibilityActions { turnActionsForVoiceOver }
+                // Its bar hangs just under the bubble, over the row below, while hovered (TE296).
+                .overlay(alignment: .bottomTrailing) {
+                    if showsBar && !turnActions.isEmpty {
+                        AskClaudeTurnBar(actions: turnActions, perform: onTurnAction)
+                            .alignmentGuide(.bottom) { $0[.top] - 3 }
+                            .onHover(perform: onHover)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
         case .assistant(let text):
             AskClaudeAnswerView(blocks: answer(text))
                 .tint(accentFill)
@@ -925,37 +1071,52 @@ private struct AskClaudeThreadRow: View, Equatable {
             .padding(10)
             .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.well))
         case .receipt(let receipt):
-            Button { showsSent.toggle() } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "info.circle")
-                    if isLatestReceipt { Text(receipt.summary) }
+            // The receipt and the answer's bar share a line (TE296). The bar is always laid out,
+            // seen only while the answer is hovered, so nothing moves when it shows.
+            HStack(spacing: 6) {
+                receiptButton(receipt)
+                if !turnActions.isEmpty {
+                    AskClaudeTurnBar(actions: turnActions, perform: onTurnAction)
+                        .opacity(showsBar ? 1 : 0)
+                        .allowsHitTesting(showsBar)
+                        .accessibilityHidden(true)
                 }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .scaledFont(.callout)
-            .foregroundStyle(.secondary)
-            .help(isLatestReceipt ? "What this question sent" : receipt.summary)
-            .accessibilityLabel(receipt.summary)
-            .popover(isPresented: $showsSent, arrowEdge: .bottom) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(receipt.summary).scaledFont(.callout)
-                    Text("\(receipt.modelName.map { $0 + " · " } ?? "")\(receipt.rounds) round\(receipt.rounds == 1 ? "" : "s")")
-                        .scaledFont(.callout)
-                        .foregroundStyle(.secondary)
-                    ScrollView([.horizontal, .vertical]) {
-                        Text(receipt.screenText)
-                            .scaledFont(ScaledFont.system(.caption2, design: .monospaced))
-                            .textSelection(.enabled)
-                            .padding(8)
-                    }
-                    .frame(maxHeight: 260)
-                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.control))
+        }
+    }
+
+    private func receiptButton(_ receipt: AskClaudeChat.Receipt) -> some View {
+        Button { showsSent.toggle() } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "info.circle")
+                if isLatestReceipt { Text(receipt.summary) }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .scaledFont(.callout)
+        .foregroundStyle(.secondary)
+        .help(isLatestReceipt ? "What this question sent" : receipt.summary)
+        .accessibilityLabel(receipt.summary)
+        .accessibilityActions { turnActionsForVoiceOver }
+        .popover(isPresented: $showsSent, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(receipt.summary).scaledFont(.callout)
+                Text("\(receipt.modelName.map { $0 + " · " } ?? "")\(receipt.rounds) round\(receipt.rounds == 1 ? "" : "s")")
+                    .scaledFont(.callout)
+                    .foregroundStyle(.secondary)
+                ScrollView([.horizontal, .vertical]) {
+                    Text(receipt.screenText)
+                        .scaledFont(ScaledFont.system(.caption2, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding(8)
                 }
-                .padding(12)
-                .frame(width: 360)
-                .presentedNativeControlAccent()
+                .frame(maxHeight: 260)
+                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.control))
             }
+            .padding(12)
+            .frame(width: 360)
+            .presentedNativeControlAccent()
         }
     }
 

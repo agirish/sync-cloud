@@ -62,6 +62,23 @@ final class AskClaudeChat: ObservableObject {
         /// A question that was spoken (TE311), for the mic in its bubble. Optional: a field a
         /// saved chat lacks must not fail its decode.
         var spoken: Bool?
+        /// A question as it was asked, for Copy, Edit and Retry (TE296). Nil in a chat saved
+        /// before them, whose questions offer none of the three.
+        var asked: Asked?
+        /// The question's place in Claude's transcript (`AskClaudeEngine.turns`), once it joined.
+        var turn: Int?
+        /// What it told Claude about the cards (`since_last_answer`), unminted, once it joined:
+        /// Edit and Retry tell it again when this question goes.
+        var told: [String]?
+    }
+
+    /// A question as asked (TE296): its own words, what it was about, and whether it came from
+    /// the box, so Edit can put it back there. A passage sent or a question asked again after a
+    /// download didn't, and only Retry re-asks those.
+    struct Asked: Equatable, Codable {
+        var question: String
+        var attachments: [Attachment]
+        var editable: Bool
     }
 
     /// Where a download card is (TE258).
@@ -124,13 +141,15 @@ final class AskClaudeChat: ObservableObject {
     private var streamingItem: UUID?
     /// The question running, as the thread shows it: where a switch's note goes (TE292).
     private var askedItem: UUID?
+    /// What the question running tells Claude about the cards, for its item once it joins.
+    private var askedTold: [String] = []
     private var receipt: Receipt?
     private var warnedNearLimit = false
     /// What was typed and not sent when the panel closed; Esc or ✕ doesn't throw it away.
     var draft = ""
 
     /// A row attached from its menu (TE263), shown as a chip above the text box until sent.
-    struct Attachment: Equatable, Identifiable {
+    struct Attachment: Equatable, Identifiable, Codable {
         let path: String
         let name: String
         let isDirectory: Bool
@@ -844,14 +863,15 @@ final class AskClaudeChat: ObservableObject {
     var contextTokens: Int? { items.isEmpty || startsOverAtNextQuestion ? nil : engine.contextTokens }
 
     /// Starts a question about `screen`, run with `tools`.
-    func ask(_ question: String, shown: String? = nil, spoken: Bool = false, screen: AskClaudeScreen, tools: AskClaudeToolRunning) {
-        ask(question, shown: shown, spoken: spoken, preparing: { screen }, tools: tools)
+    func ask(_ question: String, shown: String? = nil, spoken: Bool = false, attached: [Attachment] = [], editable: Bool = false,
+             screen: AskClaudeScreen, tools: AskClaudeToolRunning) {
+        ask(question, shown: shown, spoken: spoken, attached: attached, editable: editable, preparing: { screen }, tools: tools)
     }
 
     /// Starts a question whose screen takes a moment to read (a folder the pane hasn't loaded is
     /// read from disk first). The question shows, and the chat counts as running, at once: a
     /// second Send in that moment would otherwise pass and then be dropped with its draft cleared.
-    func ask(_ question: String, shown: String? = nil, spoken: Bool = false,
+    func ask(_ question: String, shown: String? = nil, spoken: Bool = false, attached: [Attachment] = [], editable: Bool = false,
              preparing screen: @escaping @MainActor () async -> AskClaudeScreen, tools: AskClaudeToolRunning) {
         let question = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty, !isRunning else { return }
@@ -893,9 +913,12 @@ final class AskClaudeChat: ObservableObject {
         engine.handles = minting
         let sent = Self.withSinceLastAnswer(named, question)
 
-        let questionItem = Item(kind: .user(shown ?? question), spoken: spoken ? true : nil)
+        let questionItem = Item(kind: .user(shown ?? question), spoken: spoken ? true : nil,
+                                asked: Asked(question: question, attachments: attached, editable: editable))
         items.append(questionItem)
         askedItem = questionItem.id
+        askedTold = pending
+        editing = nil
         streamingItem = nil
         stoppedThisRun = false
         problemThisRun = false
@@ -949,6 +972,148 @@ final class AskClaudeChat: ObservableObject {
         task?.cancel()
     }
 
+    // MARK: Edit and Retry (TE296)
+
+    /// The question Edit put back in the box: the box's next send takes the chat back to just
+    /// before it. Cleared by Cancel, and by any question starting.
+    @Published private(set) var editing: UUID?
+    /// Asks a question again as it was asked, for Retry; the window installs it. `shown` is what
+    /// its bubble said, for a question that didn't come from the box.
+    var askAgain: ((_ asked: Asked, _ shown: String, _ spoken: Bool) -> Void)?
+
+    /// Whether the chat can be taken back to just before the question `id`: none runs, and every
+    /// question from it on says whether it joined Claude's transcript. One saved before TE296
+    /// can't say, and a rewind that guessed would cut the transcript in the wrong place.
+    func canRewind(from id: UUID) -> Bool {
+        guard !isRunning, let index = items.firstIndex(where: { $0.id == id }), case .user = items[index].kind else { return false }
+        return items[index...].allSatisfy { item in
+            if case .user = item.kind { item.asked != nil } else { true }
+        }
+    }
+
+    /// Edit is for a question typed or said in the box (or a starter or a choice's words).
+    func canEdit(_ id: UUID) -> Bool {
+        canRewind(from: id) && items.first { $0.id == id }?.asked?.editable == true
+    }
+
+    /// The answer the turn holding `id` gave, as Claude wrote it: its text from every round,
+    /// between the question before `id` and the next one. Nil when it gave no text.
+    func answer(inTurnOf id: UUID) -> String? {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return nil }
+        let isQuestion: (Item) -> Bool = { if case .user = $0.kind { true } else { false } }
+        let start = items[...index].lastIndex(where: isQuestion).map { $0 + 1 } ?? 0
+        let end = items[(index + 1)...].firstIndex(where: isQuestion) ?? items.endIndex
+        let texts = items[start..<end].compactMap { item -> String? in
+            if case .assistant(let text) = item.kind, !text.isEmpty { text } else { nil }
+        }
+        return texts.isEmpty ? nil : texts.joined(separator: "\n\n")
+    }
+
+    /// A question's words as asked, for Copy: without the "About …" line a chip adds to its bubble.
+    func question(_ id: UUID) -> String? {
+        guard let item = items.first(where: { $0.id == id }), case .user(let shown) = item.kind else { return nil }
+        if let asked = item.asked, asked.editable { return asked.question }
+        return shown
+    }
+
+    /// The newest question, the one Retry asks again.
+    var lastQuestion: UUID? {
+        items.last { if case .user = $0.kind { true } else { false } }?.id
+    }
+
+    /// Edit: the question's words for the box, and what it was about back above it.
+    func beginEdit(_ id: UUID) -> String? {
+        guard canEdit(id), let asked = items.first(where: { $0.id == id })?.asked else { return nil }
+        editing = id
+        attach(asked.attachments)
+        return asked.question
+    }
+
+    func cancelEdit() { editing = nil }
+
+    /// The box's send while editing: the edited question and what followed go first.
+    func finishEdit() {
+        guard let id = editing else { return }
+        editing = nil
+        rewind(from: id)
+    }
+
+    /// Retry on the last answer: the question goes again as it was asked, in its place.
+    func retryLast() {
+        guard let id = lastQuestion, let item = items.first(where: { $0.id == id }), let asked = item.asked,
+              case .user(let shown) = item.kind, let askAgain, rewind(from: id) else { return }
+        askAgain(asked, shown, item.spoken == true)
+    }
+
+    /// **The question `id` and everything after it leave the chat** (Edit's send, Retry), and
+    /// Claude's transcript goes back to just before the first of them that reached it.
+    ///
+    /// Cards from that part they applied, or that are still running, stay in the thread where
+    /// they were, with their Undo (decision IT, 2026-11-03); everything else goes. Claude no longer
+    /// sees those cards, so it is told again what was done on them — the lines the questions that
+    /// went carried, and the changes it made itself there — ahead of anything still to tell.
+    @discardableResult
+    func rewind(from id: UUID) -> Bool {
+        guard canRewind(from: id), let index = items.firstIndex(where: { $0.id == id }) else { return false }
+        let gone = Array(items[index...])
+        let firstTurn = gone.lazy.compactMap(\.turn).first
+        if let firstTurn, !engine.rewind(toTurn: firstTurn) { return false }
+        let kept = gone.filter { Self.lasts($0.kind) }
+        if firstTurn != nil {
+            var lines: [String] = []
+            for line in gone.flatMap({ $0.told ?? [] }) + kept.flatMap({ Self.claudesOwnChanges($0.kind) })
+            where !lines.contains(line) && !sinceLastAnswer.contains(line) {
+                lines.append(line)
+            }
+            if !lines.isEmpty, case .user(let shown) = items[index].kind {
+                lines.insert(Self.tookBack(shown), at: 0)
+            }
+            sinceLastAnswer = lines + sinceLastAnswer
+        }
+        let keptIDs = Set(kept.map(\.id))
+        for item in gone where !keptIDs.contains(item.id) {
+            pdfThumbnails[item.id] = nil
+            askAgainContexts[item.id] = nil
+            caughtMessages[item.id] = nil
+        }
+        items = Array(items[..<index]) + kept
+        if let editing, !items.contains(where: { $0.id == editing }) { self.editing = nil }
+        lastActivity = now()
+        refreshLinkTargets()
+        save()
+        Logger.shared.info("Ask Claude took back \(gone.count) item\(gone.count == 1 ? "" : "s"), kept \(kept.count) card\(kept.count == 1 ? "" : "s")"
+            + (firstTurn.map { ", transcript back to question \($0 + 1)" } ?? ""))
+        return true
+    }
+
+    /// Cards whose work outlives the turns they came in: applied, being applied, running, or a
+    /// setting changed (decision IT). An offer nobody took goes with its turn.
+    static func lasts(_ kind: Item.Kind) -> Bool {
+        switch kind {
+        case .plan(let plan): return [.applying, .applied, .partlyApplied].contains(plan.state)
+        case .pdf(let card): return [.running, .done, .partlyDone, .quitWhileRunning].contains(card.state)
+        case .rule(let card): return card.state == .saved
+        case .settings(let card):
+            return card.rows.contains { $0.changedFrom != nil || $0.keySaved == true || !($0.listEdits ?? []).isEmpty || $0.outcome != nil }
+        default: return false
+        }
+    }
+
+    /// What Claude changed itself on a card it no longer sees (`set`, TE290 step 4c): what they did
+    /// on cards it was told with their next question, but this was only in its own tool result.
+    static func claudesOwnChanges(_ kind: Item.Kind) -> [String] {
+        guard case .settings(let card) = kind else { return [] }
+        return card.rows.filter { $0.byClaude == true && $0.changedFrom != nil }.map { row in
+            "You changed \(SettingsCatalog.entry(row.id)?.label ?? row.id) yourself in that part, and it stays changed."
+        }
+    }
+
+    /// The line ahead of what Claude is told again after a rewind.
+    static func tookBack(_ question: String) -> String {
+        let short = question.count > 80 ? String(question.prefix(79)) + "…" : question
+        return "They took back their question “\(short.replacingOccurrences(of: "\n", with: " "))” and what followed, so you no longer see that part of the chat. What was done on its cards still stands:"
+    }
+
     /// Report lines with every one that names a newly hidden item left out, and one line saying so:
     /// a restart for privacy must not carry the name into the new chat.
     static func withoutHidden(_ lines: [String], _ hidden: Set<String>) -> [String] {
@@ -987,6 +1152,7 @@ final class AskClaudeChat: ObservableObject {
         settingsUndo.clear()
         caughtMessages = [:]
         askAgainContexts = [:]
+        editing = nil
         save()
     }
 
@@ -1051,7 +1217,11 @@ final class AskClaudeChat: ObservableObject {
             // A switch is noted once it reached Claude, at the question that made it (TE292). A
             // question that failed, was declined or stopped before joining the chat notes nothing,
             // and the next one that joins makes the note instead.
-            guard let previous, let at = askedItem.flatMap({ id in items.firstIndex { $0.id == id } }) else { break }
+            guard let at = askedItem.flatMap({ id in items.firstIndex { $0.id == id } }) else { break }
+            // Where it joined, for Edit and Retry (TE296).
+            items[at].turn = engine.turns.count - 1
+            items[at].told = askedTold.isEmpty ? nil : askedTold
+            guard let previous else { break }
             var notes: [String] = []
             if previous.model != now.model {
                 notes.append("Now on \(AskClaudeModels.option(for: now.model).displayName).")

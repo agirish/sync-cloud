@@ -14278,3 +14278,17 @@ exists only on `main` (see TE290 step 0b).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Ask Claude's Copy, Edit and Retry on a turn (TE296) — main only
+
+2026-11-03, for v7.0. On `main`: a question or answer offers Copy (an answer as plain text, HTML
+and RTF from TE298's blocks, so tables paste as tables), Edit on a question and Retry on the last
+answer, on a hover bar, the right-click menu and VoiceOver's actions. Taking turns back cuts
+Claude's transcript to where a question began (`AskClaudeEngine.rewind`), owing again the tool
+results it carried; applied cards stay (decision IT) and Claude is told again what was done on
+them. No change to the tool list or system text. Ask Claude exists only on `main` (see TE290
+step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
