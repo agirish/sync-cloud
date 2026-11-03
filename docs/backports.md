@@ -14187,3 +14187,14 @@ Ask Claude exists only on `main` (see TE290 step 0b).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Ask Claude shows Extract or Delete Pages without asking which pages (TE294) — main only
+
+2026-11-02, for v7.0. On `main`: when someone asks to take out or delete pages of a PDF without
+naming them, Claude shows the card with its Pages field empty instead of asking which; the button
+waits until they type pages that can be. Reorder and Split still ask. Ask Claude exists only on
+`main` (see TE290 step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

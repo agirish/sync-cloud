@@ -15,7 +15,7 @@ private let askClaudeLiveKey = ProcessInfo.processInfo.environment["ASK_CLAUDE_L
 /// **Off unless asked for.** It runs only when `ASK_CLAUDE_LIVE_KEY` holds an API key — never the
 /// Keychain, which a test must never touch — and never on CI. It spends real money: each question
 /// is short and most of each request is cached, and the run prints what it cost. A skipped run is
-/// a vacuous green: the gate quotes the count line, 18 prompts × 2 models × 3 runs.
+/// a vacuous green: the gate quotes the count line, 19 prompts × 2 models × 3 runs.
 @Suite(.serialized, .enabled(if: askClaudeLiveKey != nil, "no ASK_CLAUDE_LIVE_KEY — the live check is skipped"))
 struct AskClaudeLivePDFTests {
     static let key = askClaudeLiveKey
@@ -126,6 +126,15 @@ struct AskClaudeLivePDFTests {
             return pages == "3-5" ? nil : "pages \(pages)" })),
         Prompt(question: "delete the first page of the Chase statement", check: offered("delete_pages", ["r4"], also: { call in
             call.string("pages")?.trimmingCharacters(in: .whitespaces) == "1" ? nil : "pages \(String(describing: call.string("pages")))" })),
+        // No pages named: the card has a Pages field, so it's offered empty rather than asked about.
+        Prompt(question: "take some pages out of the Chase statement", check: { calls, answer in
+            guard let call = calls.last(where: { $0.name == "pdf" && ["extract", "delete_pages"].contains($0.string("action") ?? "") }) else {
+                return "no extract or delete_pages card: \(calls.map { "\($0.name) \($0.input)" })"
+            }
+            if handles(call) != ["r4"] { return "handles \(handles(call)), not [r4]" }
+            if let pages = call.string("pages"), !pages.trimmingCharacters(in: .whitespaces).isEmpty { return "made up pages: \(pages)" }
+            return saysDone(answer)
+        }),
         Prompt(question: "split the Chase statement into two files, the second starting at page 4", check: offered("split", ["r4"], also: { call in
             call.input["split_at"]?.arrayValue?.compactMap(\.intValue) == [4] ? nil : "split_at \(String(describing: call.input["split_at"]))" })),
         Prompt(question: "combine the three hotel receipts into one PDF, in date order", check: offered("combine", ["r5", "r6", "r7"], also: { call in

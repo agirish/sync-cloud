@@ -66,7 +66,7 @@ import Sync
         #expect(refusal(["action": .string("compress"), "handles": .array([.string("r99")])], []).contains("r99 isn’t a handle"))
         #expect(refusal(["action": .string("combine")], [one]).contains("two or more"))
         #expect(refusal(["action": .string("extract"), "pages": .string("1")], [one, two]).contains("takes one handle"))
-        #expect(refusal(["action": .string("extract")], [one]).contains("pages needs"))
+        #expect(refusal(["action": .string("reorder")], [one]).contains("pages needs"))
         #expect(refusal(["action": .string("compress"), "strength": .string("tiny")], [one]).contains("strength must be"))
         #expect(refusal(["action": .string("rotate"), "pages": .string("1")], [one, two]).contains("rotates one file’s pages"))
         #expect(refusal(["action": .string("split"), "split_at": .array([.integer(9), .integer(4)])], [one]).contains("must go up"))
@@ -264,6 +264,39 @@ import Sync
         #expect(both.isError && both.result.contains("not both"), "\(both.result)")
         let blank = try #require(offer(["action": .string("rotate"), "pages": .string("  ")], paths: [one]).pdf)
         #expect(blank.options.pages == nil, "blank pages turned only “\(blank.options.pages ?? "")”")
+    }
+
+    /// **Extract and Delete with no pages named show the card, not a question**: its Pages field
+    /// opens empty, Claude is told so, and the button waits until the field holds pages that can
+    /// be. Reorder still asks: it needs every page, in order.
+    @Test func extractOrDeleteWithoutPagesOffersAnEmptyField() throws {
+        let one = try file("Statement.pdf")
+        for action in ["extract", "delete_pages"] {
+            for given: [String: JSONFragment] in [[:], ["pages": .string("  ")]] {
+                let outcome = offer(given.merging(["action": .string(action)]) { _, new in new }, paths: [one])
+                let card = try #require(outcome.pdf, "\(action) \(given): \(outcome.result)")
+                #expect(!outcome.isError)
+                #expect(card.options.pages == nil)
+                #expect(outcome.result.contains("the card opens with its Pages field empty"), "\(outcome.result)")
+                #expect(AskClaudePDFCardView.pagesBlank(card))
+            }
+        }
+        let named = offer(["action": .string("extract"), "pages": .string("3-5")], paths: [one])
+        #expect(!named.result.contains("Pages field empty"), "pages named, yet Claude heard none were")
+
+        func waiting(_ action: AskClaudePDFCard.Action, _ pages: String?) -> String? {
+            let card = AskClaudePDFCard(action: action, rows: [.init(path: one, name: "Statement.pdf", folderLabel: "d", pageCount: 8)],
+                                        options: .init(pages: pages), state: .offered)
+            return ContentView.askClaudePDFPagesProblem(card, pageCount: 8)
+        }
+        #expect(waiting(.extract, nil) == "Type the pages to keep, in the order you want them — e.g. 3-5, 1.")
+        #expect(waiting(.deletePages, nil) == "Type the pages to leave out — e.g. 1, 4-6.")
+        #expect(waiting(.extract, "3-5") == nil)
+        #expect(waiting(.deletePages, "1") == nil)
+        let empty = AskClaudePDFCard(action: .extract, rows: [.init(path: one, name: "Statement.pdf", folderLabel: "d", pageCount: 8)],
+                                     state: .offered)
+        #expect(ContentView.askClaudePDFTool(empty, password: nil) == nil, "an empty field made a tool to run")
+        #expect(AskClaudePDFCardView.planned(empty, empty.rows[0]) == nil)
     }
 
     // MARK: The extras

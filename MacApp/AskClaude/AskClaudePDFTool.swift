@@ -148,9 +148,12 @@ extension AskClaudeBrowseTools {
                 guard rows.count == 1 else { return refuse("pages rotates one file’s pages; give one handle, or no pages to turn every page.") }
                 options.pages = pages
             }
-        case .extract, .deletePages, .reorder:
+        case .extract, .deletePages:
+            // No pages named: the card opens with its Pages field empty, and they type them there.
+            if let pages = call.string("pages")?.trimmingCharacters(in: .whitespaces), !pages.isEmpty { options.pages = pages }
+        case .reorder:
             guard let pages = call.string("pages")?.trimmingCharacters(in: .whitespaces), !pages.isEmpty else {
-                return refuse("pages needs the pages \(action == .reorder ? "in their new order, every page once" : "they named"), like 3-5, 1. If they didn’t name pages, ask which.")
+                return refuse("pages needs the pages in their new order, every page once, like 3-5, 1. If they didn’t say the order, ask.")
             }
             options.pages = pages
         case .split:
@@ -183,6 +186,8 @@ extension AskClaudeBrowseTools {
         case .rotate where call.string("turn") == nil: "They didn’t say which way: the card starts on Right, with Left and 180° beside it."
         case .compress where call.string("strength") == nil && options.underMB == nil: "They didn’t say how hard: the card starts on Balanced, with Best and Smallest beside it."
         case .protect where call.string("mode") == nil: "They didn’t say which protection: the card starts on Lock to open, with Restrict editing beside it."
+        case .extract where options.pages == nil, .deletePages where options.pages == nil:
+            "They didn’t name pages: the card opens with its Pages field empty, and they type them there."
         default: nil
         }
         if let picked { lines.append(picked) }

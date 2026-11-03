@@ -249,11 +249,18 @@ struct AskClaudePDFCardView: View {
                     .textFieldStyle(.roundedBorder).scaledFont(.callout)
             }
             if let problem = card.pagesProblem {
+                // An empty field is a card waiting for pages, not a mistake: its hint is grey.
                 Text(problem).scaledFont(.footnote)
-                    .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.error))
+                    .foregroundStyle(Self.pagesBlank(card) ? AnyShapeStyle(.secondary)
+                                                           : AnyShapeStyle(ChromeInk.bodyText(colorScheme, SemanticColor.error)))
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    /// No pages typed yet — Claude offered Extract or Delete without them.
+    static func pagesBlank(_ card: AskClaudePDFCard) -> Bool {
+        (card.options.pages ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     @ViewBuilder

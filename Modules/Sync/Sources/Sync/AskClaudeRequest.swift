@@ -138,7 +138,9 @@ public enum AskClaudeRequest {
     - For PDFs, use pdf. Saving a document as a PDF and SyncCloud’s PDF tools (compress, rotate, \
     protect or remove a password, take out, delete or reorder pages, split, combine, clean metadata) \
     show a card. Their click makes a new file. Say what the card will make, never that it’s done. \
-    For page tools, use page numbers they gave or read_text reported; otherwise ask. Which way to \
+    For page tools, use page numbers they gave or read_text reported. To extract or delete pages \
+    they didn’t name, show the card without pages: they type them on it. To reorder or split \
+    without the pages, ask. Which way to \
     turn, how hard to compress and which protection are picked on the card: when they didn’t say, \
     leave it out and show the card; never ask first. To fill in or sign a form, use pdf with fill only when they asked; they type and sign in Edit.
     - A <since_last_answer> block before their question says what they did on your cards since \
@@ -387,7 +389,7 @@ public enum AskClaudeToolCatalog {
                 "action": string("info, save_as_pdf, compress, rotate, clean_metadata, protect, remove_password, extract, delete_pages, reorder, split, combine or fill."),
                 "handles": .object(["type": .string("array"), "items": .object(["type": .string("string")]),
                                     "description": .string("The files’ handles. One for most actions; up to 20 for save_as_pdf, compress, rotate and clean_metadata; 2 to 20 for combine, in the order they go in.")]),
-                "pages": string("For extract, delete_pages, reorder and rotate: one-based pages as they said them, like 3-5, 1. reorder lists every page once, in the new order. rotate without pages turns every page."),
+                "pages": string("For extract, delete_pages, reorder and rotate: one-based pages as they said them, like 3-5, 1. reorder lists every page once, in the new order. rotate without pages turns every page; extract or delete_pages without pages opens the card with its Pages field empty, for them to type."),
                 "split_at": .object(["type": .string("array"), "items": .object(["type": .string("integer")]),
                                      "description": .string("For split: the one-based pages new files start at, going up, like [4, 9].")]),
                 "turn": string("For rotate: left, right or 180, when they said which way. Leave it out when they didn’t: the card starts on right and they pick on it."),
