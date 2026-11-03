@@ -14267,3 +14267,14 @@ are `main`-only too and need no row.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Ask Claude lists files as a table (decision IQ) — main only
+
+2026-11-03, for v7.0. On `main`: the system text asks Claude to list files or folders with a fact
+or more each as a markdown table, a column per fact, keeping numbered lists for steps; Brief's line
+allows a table too. The change moves `fixedDigest`, so saved chats start over once. Ask Claude
+exists only on `main` (see TE290 step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

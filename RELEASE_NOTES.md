@@ -140,8 +140,9 @@ Requires **macOS 26**, unchanged from v6.2.
   its bubble. The first time, macOS asks for the microphone and may download its speech model.
 - **Answers show lists, tables and code.** Claude's answers draw bulleted and numbered lists,
   tables and code blocks, each code block with a Copy button, and headings as bold lines. File
-  names stay links that reveal the file, in a list or a table too. While an answer arrives, a table
-  appears once its header is in, never as a row of pipes.
+  names stay links that reveal the file, in a list or a table too. When Claude lists files, it
+  answers with a table. While an answer arrives, a table appears once its header is in, never as a
+  row of pipes.
 - **Type while Claude answers.** The text box stays open while Claude answers, and grows to eight
   lines. Return holds the question as Next, over the box, and asks it when the answer ends; Edit
   puts it back and Cancel drops it. After Stop it waits for you to click Send. A question said

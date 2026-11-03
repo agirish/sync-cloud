@@ -621,18 +621,25 @@ quiet rather than when the transcriber settles words.
 
 Pick Detailed in the menu under the box, so answers carry lists and tables.
 
-- [ ] **A list.** Ask "list the PDFs here, biggest first". Bullets or numbers, not "- " lines;
+Five checked by him on 2026-11-03, on the installed signed build of `32cae53ae`; VoiceOver skipped
+for now. After the table check he asked for tables by default when Claude lists files (decision
+IQ, built after these checks), so a file list now comes back as a table; he checked that too.
+
+- [x] **A list.** Ask "list the PDFs here, biggest first". Bullets or numbers, not "- " lines;
   a file name in an item is underlined and reveals the file.
-- [ ] **A table.** Ask "show the files here as a table of name, kind and size". A card with a grey
+- [x] **A table.** Ask "show the files here as a table of name, kind and size". A card with a grey
   header and sizes on the right; a name in a cell reveals its file. Watch it arrive: no row of
   pipes flashes before the table, and nothing jumps as rows come in.
-- [ ] **Code.** Ask "give me the shell command to list this folder". A grey box; its corner button
+- [x] **Code.** Ask "give me the shell command to list this folder". A grey box; its corner button
   copies the command (paste it in TextEdit) and shows a tick for a moment.
-- [ ] **Selection.** Drag across a paragraph and ⌘C: the text copies. (A drag can't cross from one
+- [x] **Selection.** Drag across a paragraph and ⌘C: the text copies. (A drag can't cross from one
   block into the next.)
 - [ ] **VoiceOver** (⌘F5) in the thread: the answer reads in order, the bullet or number before each
   item, and a table as "Table, 3 columns, … rows" then its cells.
-- [ ] **Dark mode and None accent**: the table card and code box stay readable on the bubble.
+- [x] **Dark mode and None accent**: the table card and code box stay readable on the bubble.
+- [x] **Files come back as a table (IQ).** Start a New Chat, keep Brief, and ask "list the PDFs
+  here, biggest first". The answer is a table, a column per fact (name, size…), not a bulleted
+  list. Then ask "how do I file these by year?": the steps stay a numbered list.
 
 ## Ask Claude: type while Claude answers (TE297, 2026-11-03)
 

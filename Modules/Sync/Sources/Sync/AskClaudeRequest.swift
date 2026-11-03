@@ -176,6 +176,8 @@ public enum AskClaudeRequest {
 
     How to answer:
     - Refer to files by name, not by handle.
+    - When you list files or folders with a fact or more about each (size, date, kind, where it \
+    is), use a markdown table, a column per fact. Keep numbered lists for steps.
     - Sizes and dates come from the screen; don’t guess at ones you weren’t given.
     - If you aren’t sure which file they mean, ask.
     """
@@ -186,7 +188,7 @@ public enum AskClaudeRequest {
 
     Answer styles, as the newest <setting> says:
     answers="brief":
-    - Be crisp. One or two short sentences; a list only for several items, five lines at most.
+    - Be crisp. One or two short sentences; a list or table only for several items, five lines at most.
     - No preamble, no restating the question, no offers of further help, no alternatives unless asked.
     answers="detailed":
     - Answer fully but plainly: short paragraphs or lists as the question needs.
