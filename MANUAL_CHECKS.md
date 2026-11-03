@@ -595,22 +595,26 @@ these cover what only a person at the app can see.
 Run in the installed, signed app: a microphone grant survives only a signed install. The tests feed
 `say` clips (`AskClaudeVoiceTests`); these are what only a person at the mic can check.
 
-- [ ] **First mic use.** Open Ask Claude (⌘J) and press ⌥Space. macOS asks to let SyncCloud use the
+All eight checked by him on 2026-11-02, on the installed signed build. Silence failed first (a
+one-second pause sent half a question) and passed on `c2feadce4`, which ends a turn on 1.8 s of
+quiet rather than when the transcriber settles words.
+
+- [x] **First mic use.** Open Ask Claude (⌘J) and press ⌥Space. macOS asks to let SyncCloud use the
   microphone, with the reason "Ask Claude listens only after…". Allow: the strip says Listening…,
   and the mic light shows in the menu bar. (Don't Allow instead: the strip goes, and a line over the
   box says where to allow it.)
-- [ ] **A name on screen.** In a folder with a name dictation gets wrong (Ally, I-797A, 1099-INT),
+- [x] **A name on screen.** In a folder with a name dictation gets wrong (Ally, I-797A, 1099-INT),
   say a question naming it. The strip shows the words as you speak, the unsettled end grey, and the
   question's bubble has the name right, with a small mic in it.
-- [ ] **Second tap.** Talk, then press ⌥Space at once: it sends every word without waiting.
+- [x] **Second tap.** Talk, then press ⌥Space at once: it sends every word without waiting.
   Clicking the mic does the same.
-- [ ] **Silence.** Talk and stop: about 2 s later it sends by itself. A pause of about a second
+- [x] **Silence.** Talk and stop: about 2 s later it sends by itself. A pause of about a second
   mid-sentence doesn't.
-- [ ] **Esc.** Talk, then press Esc: nothing is sent, the box comes back with anything you had typed,
+- [x] **Esc.** Talk, then press Esc: nothing is sent, the box comes back with anything you had typed,
   and the panel stays open. A second Esc closes it.
-- [ ] **While Claude answers.** ⌥Space beeps and the mic is greyed.
-- [ ] **⌥Space in the box** no longer types a non-breaking space.
-- [ ] **Close mid-sentence.** ⌘J while listening: the mic light goes out, and nothing is sent.
+- [x] **While Claude answers.** ⌥Space beeps and the mic is greyed.
+- [x] **⌥Space in the box** no longer types a non-breaking space.
+- [x] **Close mid-sentence.** ⌘J while listening: the mic light goes out, and nothing is sent.
 
 ## Ask Claude's rich answers (TE298, 2026-11-02)
 
