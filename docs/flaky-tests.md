@@ -1633,6 +1633,10 @@ test failed after **10.495 s** with `FirstAttributesGate.releasedByTimeout → t
 was reached, not approached, which is this mechanism's shape. A failed-jobs re-run of the same
 commit passed clean the same day.
 
+Seen again on hosted CI 2026-11-02 at `2164a762d` (run 41568108472), whose only change was an
+app-target test file the Sync job never builds: failed after 10.996 s with `!fm.releasedByTimeout`,
+and the failed-job re-run passed.
+
 `FirstAttributesGate` is a new gate to this list but the same contract, and it says so in its own
 doc comment: the mirror of `FirstStatGate`, gating the registration walk's first
 `attributesOfItem` over the mock disk instead of `fileExists` over the real one. Its
