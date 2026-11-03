@@ -180,6 +180,57 @@ final class AskClaudeChat: ObservableObject {
         defer { attachments = [] }
         return attachments
     }
+
+    /// A question typed while Claude answers (TE297), sent when the answer ends. It holds its own
+    /// text and chips: the chat may start over before it runs (an hour away, a folder hidden, an
+    /// update), and a new chat has neither.
+    struct Queued: Equatable {
+        var text: String
+        var attachments: [Attachment]
+        var spoken: Bool
+    }
+
+    /// The one question waiting for the answer to end. Kept through Stop and New Chat, unsent: what
+    /// happens to it then is theirs to say.
+    @Published private(set) var queued: Queued?
+    /// Sends a queued question as the box's Send would, with its own chips; the window installs it.
+    var sendQueued: ((Queued) -> Void)?
+    /// How the question running ended, for whether the queued one follows it: not after a Stop or
+    /// a problem.
+    private var stoppedThisRun = false
+    private var problemThisRun = false
+
+    /// Return while Claude answers: the question waits, with the chips. A second one joins the
+    /// first, on its own line: only one question waits.
+    func queue(_ text: String, spoken: Bool) {
+        let taken = takeAttachments()
+        guard var waiting = queued else {
+            queued = Queued(text: text, attachments: taken, spoken: spoken)
+            return
+        }
+        waiting.text += "\n" + text
+        waiting.attachments += taken.filter { new in !waiting.attachments.contains { $0.path == new.path } }
+        waiting.spoken = waiting.spoken && spoken
+        queued = waiting
+    }
+
+    /// Edit on the waiting question: its text, for the box, and its chips back above it.
+    func editQueued() -> String? {
+        guard let waiting = queued else { return nil }
+        queued = nil
+        attach(waiting.attachments)
+        return waiting.text
+    }
+
+    /// Cancel on the waiting question: it and its chips go.
+    func cancelQueued() { queued = nil }
+
+    /// Sends the waiting question, unless a question is running: then it waits for that one.
+    func sendQueuedNow() {
+        guard let waiting = queued, !isRunning, let sendQueued else { return }
+        queued = nil
+        sendQueued(waiting)
+    }
     /// Counts key changes, so a read that overlapped one isn't cached.
     private var keyChanges = 0
     /// A folder was hidden since this chat began. What Claude already saw of it is in the chat it
@@ -846,6 +897,8 @@ final class AskClaudeChat: ObservableObject {
         items.append(questionItem)
         askedItem = questionItem.id
         streamingItem = nil
+        stoppedThisRun = false
+        problemThisRun = false
         isRunning = true
         isThinking = true
         run += 1
@@ -892,6 +945,7 @@ final class AskClaudeChat: ObservableObject {
 
     /// Stops the question running. What already ran stays done.
     func stop() {
+        if isRunning { stoppedThisRun = true }
         task?.cancel()
     }
 
@@ -1027,6 +1081,7 @@ final class AskClaudeChat: ObservableObject {
                 items.append(Item(kind: .note("Stopped.")))
             }
         case .problem(let problem):
+            problemThisRun = true
             // A key that failed is read again next time: it may have just been fixed in Settings.
             if problem.kind == .keyRejected || problem.kind == .noKey { cachedKey = nil }
             // At the limit, the panel shows the limit itself (TE290 step 6): raising it there
@@ -1067,5 +1122,10 @@ final class AskClaudeChat: ObservableObject {
         task = nil
         refreshLinkTargets()
         save()
+        // The waiting question goes next, a turn later, so the panel sees this answer end first.
+        // After a Stop or a problem it waits for them: the same problem would likely meet it.
+        if queued != nil, !stoppedThisRun, !problemThisRun {
+            Task { @MainActor [weak self] in self?.sendQueuedNow() }
+        }
     }
 }

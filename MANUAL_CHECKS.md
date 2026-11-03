@@ -613,6 +613,7 @@ quiet rather than when the transcriber settles words.
 - [x] **Esc.** Talk, then press Esc: nothing is sent, the box comes back with anything you had typed,
   and the panel stays open. A second Esc closes it.
 - [x] **While Claude answers.** ⌥Space beeps and the mic is greyed.
+  (Since TE297, 2026-11-03, it listens instead, and what you say waits as Next: see below.)
 - [x] **⌥Space in the box** no longer types a non-breaking space.
 - [x] **Close mid-sentence.** ⌘J while listening: the mic light goes out, and nothing is sent.
 
@@ -632,3 +633,25 @@ Pick Detailed in the menu under the box, so answers carry lists and tables.
 - [ ] **VoiceOver** (⌘F5) in the thread: the answer reads in order, the bullet or number before each
   item, and a table as "Table, 3 columns, … rows" then its cells.
 - [ ] **Dark mode and None accent**: the table card and code box stay readable on the bubble.
+
+## Ask Claude: type while Claude answers (TE297, 2026-11-03)
+
+Ask something that takes Claude a few seconds, such as "which PDFs here are over 1 MB, and why
+might they be big?" with Detailed answers.
+
+- [ ] **Queue.** While it answers, type "then open the biggest" and press Return. The box empties
+  and a line over it reads "Next: then open the biggest · Edit · Cancel". When the answer ends,
+  it goes as the next question by itself.
+- [ ] **One waits.** While it answers, queue one question, then type a second and press Return:
+  Next shows both, joined; they go as one question.
+- [ ] **Edit and Cancel.** Queue one, click Edit: the text comes back into the box, ahead of
+  anything typed. Queue again, click Cancel: it's gone.
+- [ ] **Stop.** Queue one, then Stop: the answer ends and Next stays, now with Send. Send asks it.
+- [ ] **Chips.** Right-click a file ▸ Ask Claude About This while Claude answers, type a question,
+  Return: Next says "about" the file, the chip leaves the box, and the question goes with it.
+- [ ] **Talk over an answer.** While it answers, press ⌥Space and say a question: it waits as Next,
+  and goes with a mic in its bubble. Stop stays beside the mic while you talk.
+- [ ] **Eight lines.** Paste a long paragraph: the box grows to eight lines before it scrolls.
+- [ ] **Up.** After queueing, Up in the empty box brings the queued question back.
+- [ ] **Key.** While it answers, paste an API key and press Return: the held-back card shows, and
+  nothing is queued.

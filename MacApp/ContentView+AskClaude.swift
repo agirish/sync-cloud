@@ -21,38 +21,43 @@ extension ContentView {
 
     /// The panel, hanging from the toolbar over the content’s right edge.
     func askClaudeOverlay(in container: CGSize, onPlace: @escaping (CGRect) -> Void) -> some View {
-            AskClaudePanel(chat: askClaudeChat,
-                           place: askClaudePlace,
-                           accent: glassHue.accentColor,
-                           accentFill: glassHue.accentFillColor,
-                           onAccent: glassHue.onAccentLabelColor,
-                           hue: glassHue,
-                           tint: surfaceTint,
-                           level: glassLevel,
-                           onAsk: { askClaudeSend($0) },
-                           onClose: { toggleAskClaude() },
-                           onOpenSettings: { openSettings(on: .intelligence) },
-                           container: container,
-                           onSetHidden: { askClaudeSetCurrentFolderHidden($0) },
-                           onGoToFolder: { askClaudeShowFolderPane() },
-                           onReveal: { path in Task { await askClaudeTools().reveal(path: path) } },
-                           onSendOffer: { id in
-                               guard let offer = askClaudeChat.takeOffer(id) else { return }
-                               askClaudeAsk(offer.question, shown: offer.shown)
-                           },
-                           onDownloadCard: { askClaudeDownloadCard($0, $1) },
-                           onFilingCard: { askClaudeFilingCard($0) },
-                           onPlanCard: { askClaudePlanCard($0, $1) },
-                           onChoice: { id, index in
-                               guard let choice = askClaudeChat.takeChoice(id, at: index) else { return }
-                               if let sends = choice.sends { askClaudeSend(sends) } else { askClaudeHolder.visibility.focusRequests += 1 }
-                           },
-                           onRuleCard: { askClaudeRuleCard($0, save: $1) },
-                           settingsBridge: askClaudeSettingsBridge,
-                           pdfBridge: askClaudePDFBridge,
-                           onPlace: onPlace,
-                           onAskSpoken: { askClaudeSend($0, spoken: true) },
-                           voiceHints: { askClaudeVoiceHints() })
+        // Once: a question typed while Claude answers is sent from here when the answer ends
+        // (TE297), with the panel open or not.
+        if askClaudeChat.sendQueued == nil {
+            askClaudeChat.sendQueued = { waiting in askClaudeSend(waiting.text, attached: waiting.attachments, spoken: waiting.spoken) }
+        }
+        return AskClaudePanel(chat: askClaudeChat,
+                              place: askClaudePlace,
+                              accent: glassHue.accentColor,
+                              accentFill: glassHue.accentFillColor,
+                              onAccent: glassHue.onAccentLabelColor,
+                              hue: glassHue,
+                              tint: surfaceTint,
+                              level: glassLevel,
+                              onAsk: { askClaudeSend($0) },
+                              onClose: { toggleAskClaude() },
+                              onOpenSettings: { openSettings(on: .intelligence) },
+                              container: container,
+                              onSetHidden: { askClaudeSetCurrentFolderHidden($0) },
+                              onGoToFolder: { askClaudeShowFolderPane() },
+                              onReveal: { path in Task { await askClaudeTools().reveal(path: path) } },
+                              onSendOffer: { id in
+                                  guard let offer = askClaudeChat.takeOffer(id) else { return }
+                                  askClaudeAsk(offer.question, shown: offer.shown)
+                              },
+                              onDownloadCard: { askClaudeDownloadCard($0, $1) },
+                              onFilingCard: { askClaudeFilingCard($0) },
+                              onPlanCard: { askClaudePlanCard($0, $1) },
+                              onChoice: { id, index in
+                                  guard let choice = askClaudeChat.takeChoice(id, at: index) else { return }
+                                  if let sends = choice.sends { askClaudeSend(sends) } else { askClaudeHolder.visibility.focusRequests += 1 }
+                              },
+                              onRuleCard: { askClaudeRuleCard($0, save: $1) },
+                              settingsBridge: askClaudeSettingsBridge,
+                              pdfBridge: askClaudePDFBridge,
+                              onPlace: onPlace,
+                              onAskSpoken: { askClaudeSend($0, spoken: true) },
+                              voiceHints: { askClaudeVoiceHints() })
     }
 
     /// The panel's host, built here rather than in `body`: the window's modifier chain is at the
@@ -101,8 +106,14 @@ extension ContentView {
     /// Claude since it was attached is dropped, never sent.
     func askClaudeSend(_ question: String, spoken: Bool = false) {
         guard !askClaudeChat.isRunning else { return }
+        askClaudeSend(question, attached: askClaudeChat.takeAttachments(), spoken: spoken)
+    }
+
+    /// A question with the chips it was asked about: the box's, or a queued question's own (TE297).
+    func askClaudeSend(_ question: String, attached chips: [AskClaudeChat.Attachment], spoken: Bool) {
+        guard !askClaudeChat.isRunning else { return }
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
-        let attached = askClaudeChat.takeAttachments().filter { !hidden.isHidden($0.path) }
+        let attached = chips.filter { !hidden.isHidden($0.path) }
         let shown = attached.isEmpty ? nil : question + "\nAbout " + attached.map(\.name).joined(separator: ", ")
         askClaudeAsk(question, shown: shown, attached: attached, spoken: spoken)
     }

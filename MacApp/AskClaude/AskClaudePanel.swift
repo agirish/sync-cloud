@@ -207,12 +207,10 @@ struct AskClaudePanel: View {
         .onReceive(NotificationCenter.default.publisher(for: AskClaudeSpend.didChange)) { _ in refreshSpent() }
         // The limit is set in Settings, which writes it straight to the defaults.
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification).receive(on: RunLoop.main)) { _ in refreshSpent() }
-        // The field gives up focus while it's disabled for a question; it takes it back after,
-        // and VoiceOver hears that the answer is in.
+        // The box takes the keyboard back once the answer is in, and VoiceOver hears that it is.
+        // It stays open while Claude answers (TE297), and so does listening: what is said or
+        // typed meanwhile waits for the answer to end.
         .onChange(of: chat.isRunning) { _, running in
-            // A card's button can start a question while one is being spoken: the box is
-            // Claude's until it answers, so listening stops and keeps nothing.
-            if running { voice.cancel() }
             guard !running else { return }
             composerFocused = true
             if case .assistant = chat.items.last(where: { if case .receipt = $0.kind { false } else { true } })?.kind {
@@ -428,6 +426,7 @@ struct AskClaudePanel: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if let waiting = chat.queued { queuedLine(waiting) }
             if !chat.attachments.isEmpty { attachmentChips }
             if voice.isActive { listeningStrip }
             if let notice = voice.notice, !voice.isActive {
@@ -447,7 +446,8 @@ struct AskClaudePanel: View {
                         .opacity(voice.isActive ? 0.55 : 1)
                     Spacer(minLength: 0)
                     micButton
-                    if !voice.isActive { sendOrStop }
+                    // Stop stays while a question is said over an answer.
+                    if !voice.isActive || chat.isRunning { sendOrStop }
                 }
             }
             .padding(.horizontal, 10)
@@ -463,7 +463,7 @@ struct AskClaudePanel: View {
     private var textLine: some View {
         TextField("Ask a question, or say what to open", text: $draft, axis: .vertical)
             .textFieldStyle(.plain)
-            .lineLimit(1...4)
+            .lineLimit(1...8)
             .focused($composerFocused)
             .onSubmit(send)
             // Up and Down walk the questions typed before, like a shell (AskClaudePromptHistory);
@@ -478,7 +478,6 @@ struct AskClaudePanel: View {
                 if !caret.show(shown, atStart: up) { draft = shown }
                 return .handled
             }
-            .disabled(chat.isRunning)
             .background(AskClaudeComposerCaret.Anchor(caret: caret))
     }
 
@@ -549,7 +548,7 @@ struct AskClaudePanel: View {
                 .foregroundStyle(voice.isActive ? AnyShapeStyle(Self.voiceColor) : AnyShapeStyle(.secondary))
         }
         .buttonStyle(.borderless)
-        .disabled(chat.isRunning || voice.phase == .finishing)
+        .disabled(voice.phase == .finishing)
         .help(ShortcutHint.tooltip(voice.isActive ? "Send what you said" : "Talk", "⌥Space"))
         .accessibilityLabel(voice.isActive ? "Send what you said" : "Talk")
     }
@@ -576,6 +575,40 @@ struct AskClaudePanel: View {
             .help("Send")
             .accessibilityLabel("Send")
         }
+    }
+
+    /// The question waiting for the answer to end (TE297): "Next: … · Edit · Cancel", with Send
+    /// once nothing runs (after a Stop or a problem, it waits for them to say).
+    private func queuedLine(_ waiting: AskClaudeChat.Queued) -> some View {
+        let about = waiting.attachments.isEmpty ? "" : " · about " + waiting.attachments.map(\.name).joined(separator: ", ")
+        return HStack(spacing: 6) {
+            Image(systemName: "clock").foregroundStyle(.secondary)
+            Text("Next: \(waiting.text.replacingOccurrences(of: "\n", with: " "))\(about)")
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .help(waiting.text)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if !chat.isRunning {
+                Button("Send") { chat.sendQueuedNow() }
+                    .help("Sends it now")
+            }
+            Button("Edit") {
+                guard let text = chat.editQueued() else { return }
+                // In front of what is being typed, never in its place.
+                let typed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                draft = typed.isEmpty ? text : text + "\n" + typed
+                composerFocused = true
+            }
+            .help("Puts it back in the text box")
+            Button("Cancel") { chat.cancelQueued() }
+                .help("Throws it away")
+        }
+        .buttonStyle(.link)
+        .scaledFont(.caption)
+        .padding(.horizontal, 8).padding(.vertical, 4)
+        .background(accent.opacity(0.14), in: Capsule())
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Next question: \(waiting.text)")
     }
 
     /// What the next question is about (TE263): a chip per row attached from its menu, each with ✕.
@@ -608,11 +641,19 @@ struct AskClaudePanel: View {
 
     private func send() { send(spoken: false) }
 
+    /// Return or Send. While Claude answers, the question waits for the answer to end (TE297).
     private func send(spoken: Bool) {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !chat.isRunning else { return }
+        guard !text.isEmpty else { return }
         draft = ""
-        send(text, spoken: spoken)
+        if chat.isRunning { queue(text, spoken: spoken) } else { send(text, spoken: spoken) }
+    }
+
+    /// A question that waits for the answer: held back, like one sent, when it holds a key.
+    private func queue(_ text: String, spoken: Bool) {
+        if chat.catchKey(text) { return }
+        chat.rememberSent(text)
+        chat.queue(text, spoken: spoken)
     }
 
     /// The box's text, or a starter's (TE299), which goes exactly as if typed and leaves the box
@@ -626,14 +667,10 @@ struct AskClaudePanel: View {
     }
 
     /// ⌥Space or the mic: starts listening, or sends what was said (decision II, tap to toggle).
-    /// Refused while Claude answers, as the box is.
+    /// While Claude answers, what was said waits for the answer, as typing does (TE297).
     private func toggleTalk() {
         if voice.isActive {
             voice.finish()
-            return
-        }
-        guard !chat.isRunning else {
-            NSSound.beep()
             return
         }
         voice.start(from: voiceSource(), hints: voiceHints()) { heard in

@@ -413,7 +413,9 @@ private final class Heard {
         withExtendedLifetime(panel) {}
     }
 
-    @Test func itWontListenWhileClaudeAnswers() async throws {
+    /// Said while Claude answers (TE297): it listens, and what was said waits for the answer to
+    /// end, as a typed question does, marked spoken.
+    @Test func whatIsSaidWhileClaudeAnswersWaitsForTheAnswer() async throws {
         let d = ScratchDefaults("AskClaudePanelVoiceTests")
         let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: NeverAnswers(), defaults: d) },
                                  readKey: { "k" }, keyChanges: NotificationCenter())
@@ -423,8 +425,12 @@ private final class Heard {
         let source = AskClaudeClipSource(try AskClaudeVoiceClips.receipts)
         let panel = Panel(chat: chat, source: source)
         panel.press(49, .option)
-        for _ in 0..<20 { await Task.yield() }
-        #expect(source.authorizations == 0 && source.starts == 0)
+        await waitUntil("the clip plays into it", timeout: 60) { source.isStreaming }
+        await waitUntil("the turn ends and waits", timeout: 60) { chat.queued != nil }
+        #expect(chat.queued?.spoken == true)
+        #expect(chat.queued?.text.lowercased().contains("receipts") == true, "queued \(chat.queued?.text ?? "nothing")")
+        #expect(panel.spoken.isEmpty && panel.typed.isEmpty)
+        #expect(chat.isRunning)
         chat.stop()
         await waitUntil("the question stops", timeout: 60) { !chat.isRunning }
         withExtendedLifetime(panel) {}

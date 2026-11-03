@@ -14232,3 +14232,14 @@ list or system text. Ask Claude exists only on `main` (see TE290 step 0b).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Ask Claude's text box stays open while Claude answers (TE297) — main only
+
+2026-11-03, for v7.0. On `main`: Return while Claude answers holds one question (`AskClaudeChat.Queued`,
+with its own chips) and asks it when the answer ends — not after a Stop or a problem, where it waits
+for Send. Speaking over an answer queues the same way; the box grows to eight lines. No change to
+the tool list or system text. Ask Claude exists only on `main` (see TE290 step 0b).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
