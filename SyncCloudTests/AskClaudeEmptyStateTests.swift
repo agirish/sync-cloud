@@ -20,10 +20,12 @@ import Testing
                                               isOnScreen: true, workspace: "Browse", openFile: nil)
 
     private func host(_ key: KeyState, chat: AskClaudeChat? = nil,
-                      onAsk: @escaping (String) -> Void = { _ in }) -> (NSWindow, NSHostingView<some View>) {
+                      onAsk: @escaping (String) -> Void = { _ in },
+                      saveSetupKey: @escaping (String) -> String? = { _ in nil }) -> (NSWindow, NSHostingView<some View>) {
         let chat = chat ?? AskClaudeChat(readKey: { nil })
         var bridge = AskClaudeSettingsBridge()
         bridge.keyIsSaved = { key.saved }
+        bridge.saveSetupKey = saveSetupKey
         let container = CGSize(width: 1000, height: 800)
         let panel = AskClaudePanel(chat: chat, place: Self.place, accent: .blue, accentFill: .blue, onAccent: .white,
                                    onAsk: onAsk, onClose: {}, onOpenSettings: {}, container: container, settingsBridge: bridge)
@@ -51,8 +53,9 @@ import Testing
     /// so a click is the only way to find one. Stops above the composer, whose Send would send
     /// the draft. Never run over the setup, whose Console link would open the browser.
     private func clickFirstStarter(_ window: NSWindow, _ host: NSView, sent: () -> Bool) async -> Bool {
+        // Ordered in, never made key: a key window here takes key from other suites' panels,
+        // and ⌘K's palette closes when it loses key (`CommandPalettePanelTests`).
         window.orderFrontRegardless()
-        window.makeKey()
         defer { window.orderOut(nil) }
         for y in stride(from: 60.0, through: 320.0, by: 4) {
             let point = NSPoint(x: 60, y: host.bounds.height - y)
@@ -84,6 +87,53 @@ import Testing
         // The box stays usable: its own field is still there beside the key's.
         #expect(views(NSTextField.self, in: host).contains { !($0 is NSSecureTextField) && $0.isEditable })
         _ = window
+    }
+
+    /// The panel drawn, to compare before and after.
+    private func snapshot(_ host: NSView) throws -> NSBitmapImageRep {
+        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        return rep
+    }
+
+    private func differing(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
+        guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return .max }
+        var count = 0
+        for y in 0..<a.pixelsHigh {
+            for x in 0..<a.pixelsWide where a.colorAt(x: x, y: y) != b.colorAt(x: x, y: y) { count += 1 }
+        }
+        return count
+    }
+
+    /// A save macOS refuses keeps the setup up and says why on its card. The key typed goes to
+    /// the save and nowhere else. The panel's height is the test host's saved one, so the reason
+    /// is found by drawing: before typing and after the save, with the caret in the field both
+    /// times, only the reason's line differs (and at most a caret blink).
+    @Test func aRefusedSaveKeepsTheSetupAndSaysWhy() async throws {
+        var saved: [String] = []
+        let (window, host) = host(KeyState(false),
+                                  saveSetupKey: { saved.append($0); return "Couldn’t save the key: macOS refused it (status -25308). The old key stays." })
+        // Never ordered in or made key: typing and Return reach a field in a window that isn't.
+        await settle(host)
+        let field = try #require(keyFields(in: host).first)
+        var editor: NSTextView?
+        for _ in 0..<20 where editor == nil {
+            _ = window.makeFirstResponder(field)
+            await settle(host)
+            editor = window.firstResponder as? NSTextView
+        }
+        let typing = try #require(editor, "the key field never took the caret")
+        let before = try snapshot(host)
+        typing.insertText("sk-ant-api03-refused", replacementRange: typing.selectedRange())
+        await settle(host)
+        window.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                       windowNumber: window.windowNumber, context: nil, characters: "\r",
+                                                       charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)))
+        await settle(host)
+        #expect(saved == ["sk-ant-api03-refused"])
+        #expect(keyFields(in: host).count == 1, "the setup gave way after a refused save")
+        let changed = differing(before, try snapshot(host))
+        #expect(changed > 300, "no reason appeared on the card: \(changed) pixels changed")
     }
 
     /// Saved anywhere (the setup's card, Settings), the Keychain announces it and the setup gives

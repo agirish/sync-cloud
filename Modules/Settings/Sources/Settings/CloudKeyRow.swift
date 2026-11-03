@@ -105,7 +105,7 @@ struct CloudKeyRow: View {
     static let removePrompt = (
         messageText: "Remove the API key?",
         informativeText: "This deletes your Anthropic API key from the Keychain. Refine can’t use "
-            + "Claude until you add a key again, and this can’t be undone. The Anthropic Console "
+            + "Claude until you add a key again, and this can’t be undone. The Claude Console "
             + "can issue a new key.",
         confirmTitle: "Remove Key")
 
@@ -127,8 +127,8 @@ struct CloudKeyRow: View {
             keyStatusLine
 
             if state.isEntry {
-                Link(destination: URL(string: "https://console.anthropic.com/settings/keys")!) {
-                    Text("Get a key from the Anthropic Console ↗").scaledFont(.subheadline)
+                Link(destination: URL(string: "https://platform.claude.com/settings/keys")!) {
+                    Text("Get a key from the Claude Console ↗").scaledFont(.subheadline)
                 }
             }
         }

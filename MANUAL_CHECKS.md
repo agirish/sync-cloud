@@ -684,3 +684,19 @@ Pick Detailed in the menu under the box, so answers carry lists and tables.
 - [ ] **Right-click and VoiceOver.** Right-click an answer bubble: Copy Answer and Retry. With
   VoiceOver (⌘F5), the Actions rotor on a question offers Copy Question and Edit Question.
 
+## Ask Claude's first run: setup, then starters (TE315, TE299, 2026-11-02)
+
+The tests and renders show both states; these need the real Keychain and the real screen. Your key
+is removed and put back here, so have it to hand (or copy it from the Claude Console first).
+
+- [ ] **No key.** In Settings ▸ Intelligence, remove the API key. Open Ask Claude (⌘J) with an empty
+  chat (New Chat if needed): "Set Up Ask Claude" shows what it does, platform.claude.com with
+  "Open the Console ↗", the Max/Ultra/Team credit line, and the API key card. No question needed.
+- [ ] **The link.** "Open the Console ↗" opens the Console's API keys page in your browser.
+- [ ] **Save from the panel.** Paste the key into the card and press Save: the setup gives way at
+  once to the opening note and three or four questions. The key never appears in the chat.
+- [ ] **Settings sees it.** Settings ▸ Intelligence shows the key as saved.
+- [ ] **Starters fit the screen.** In Downloads, then a folder with files, then Compare, then a PDF
+  open in Edit: the questions change to match. A folder hidden from Claude gets general ones.
+- [ ] **A click asks.** Click a starter: it's sent as if typed, the starters go, and ↑ in the box
+  brings it back.

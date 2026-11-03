@@ -211,7 +211,7 @@ Key flags: `--direction auto|to-right|to-left`, `--strategy replace|skip|keep-bo
 
 ## Setting up Claude (optional)
 
-1. Get an API key from the [Anthropic Console](https://console.anthropic.com/).
+1. Get an API key from the [Claude Console](https://platform.claude.com/settings/keys).
 2. In **Settings ▸ Intelligence**, paste it under **Claude API key** and press **Test**. The key is
    kept in the Keychain and used by both features below.
 3. **Organize's Refine:** turn on *Use Claude (cloud) to refine suggestions*, pick a model (Haiku
