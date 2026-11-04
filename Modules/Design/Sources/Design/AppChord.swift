@@ -222,7 +222,7 @@ public extension AppChord {
     /// difference between them, it is deliberate, and it is why both exist — Finder draws the same
     /// distinction between Back and Enclosing Folder. Do not "simplify" this into `paneBack`.
     static let enclosingFolder = AppChord(.upArrow, .command)
-    /// Moves the pane-scoped chords (⌘F, ⌘[, ⌘], ⇧⌘N, ⇧⌘P) to the other comparison pane.
+    /// Moves the pane-scoped chords (⌘F, ⌘[, ⌘], ⇧⌘N) to the other comparison pane.
     ///
     /// ⌃⇥ and deliberately **not** a bare ⇥, which is the two-pane convention this borrows from.
     /// A menu key equivalent outranks the field editor — the hazard `DeleteSelectionCommand`
@@ -292,15 +292,17 @@ public extension AppChord {
 
     /// File ▸ Print… — the open document, rendered, on paper (roadmap RD9).
     ///
-    /// **⌘P was free, and that is not the same as unused.** ⇧⌘P is View ▸ Preview and has
-    /// been since v3; the bare ⌘P has never been registered by anything here, and it is the one
+    /// **⌘P was free, and that is not the same as unused.** ⇧⌘P was View ▸ File Preview from v3
+    /// until the preview moved into the Info inspector (TE318), and is unbound now; the bare ⌘P had
+    /// never been registered by anything here, and it is the one
     /// chord on the platform a reader will try without looking. `TextEditingChord` does not claim
     /// it either — printing is not one of `NSTextView`'s own key bindings — so a menu equivalent
     /// takes it outright and the field editor never sees it.
     ///
     /// **File ▸ Export as PDF… deliberately has none.** It is the same render to a different
     /// destination, and the destination is the *dialog*, so a key equivalent would buy nothing that
-    /// ⌘P and the panel's own PDF button do not already offer. ⇧⌘P is taken, ⌥ chords are barred
+    /// ⌘P and the panel's own PDF button do not already offer. ⇧⌘P was taken when this was decided
+    /// and would read as a second Print anyway, ⌥ chords are barred
     /// app-wide (see ``foldAllDifferences``), and ⌘E is Use Selection for Find.
     static let printDocument = AppChord("p", .command)
 

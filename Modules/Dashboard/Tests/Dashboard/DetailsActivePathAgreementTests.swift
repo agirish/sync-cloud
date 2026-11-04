@@ -66,8 +66,6 @@ import Sync
         #expect(sidebar(manager, singleSource: true).activePath == "/left/root")
     }
 
-    /// "Get Info" on a Differences row still overrides everything: that row has no pane selection
-    /// of its own, so the override is the only way the inspector can point at it.
     /// Following the right pane (TE317·5): with both panes holding something, the right pane's
     /// item and the right pane's summary — the left-first rule described the left pane right after a
     /// click on the right. An empty right pane still falls through to the left.
@@ -96,6 +94,8 @@ import Sync
             .selectionSummary != nil, "the left pane's three were not summarized — the case above is vacuous")
     }
 
+    /// "Get Info" on a Differences row still overrides everything: that row has no pane selection
+    /// of its own, so the override is the only way the inspector can point at it.
     @Test func getInfoOverrideStillBeatsThePaneSelection() {
         let manager = FileSyncManager()
         manager.selectedLeftPaths = ["/left/alpha.txt"]
@@ -148,5 +148,31 @@ import Sync
                 }
             }
         }
+    }
+
+    /// A Get Info target wins over a pane's multi-selection too: the summary used to, so Get Info on
+    /// a differences row with three files selected in a pane showed "3 items" and seemed to do
+    /// nothing.
+    @Test func getInfoBeatsAMultiSelectionSummary() {
+        let manager = FileSyncManager()
+        manager.selectedLeftPaths = ["/left/a.txt", "/left/b.txt", "/left/c.txt"]
+        let plain = DetailsSidebar(syncManager: manager, leftPath: "/left/root", rightPath: "/right/root")
+        #expect(plain.selectionSummary != nil, "three items were not summarized — the case below is vacuous")
+        let info = DetailsSidebar(syncManager: manager, leftPath: "/left/root", rightPath: "/right/root",
+                                  overridePath: "/diff/target.txt")
+        #expect(info.selectionSummary == nil)
+        #expect(info.activePath == "/diff/target.txt")
+    }
+
+    /// Following the right pane with nothing selected anywhere: the right pane's folder, which is the
+    /// pane the caption names.
+    @Test func followingTheRightPaneWithNothingSelectedShowsItsFolder() {
+        let manager = FileSyncManager()
+        let following = DetailsSidebar(syncManager: manager, leftPath: "/left/root", rightPath: "/right/root",
+                                       followsRight: true)
+        #expect(following.activePath == "/right/root")
+        #expect(following.isShowingFocusedFolderFallback)
+        #expect(DetailsSidebar(syncManager: manager, leftPath: "/left/root", rightPath: "/right/root")
+            .activePath == "/left/root")
     }
 }

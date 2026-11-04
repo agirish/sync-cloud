@@ -14,10 +14,10 @@ struct InspectorSplit<Upper: View, Lower: View>: View {
     @ViewBuilder let upper: Upper
     @ViewBuilder let lower: Lower
 
-    /// The live share while a drag is in flight; nil at rest.
-    @State private var dragFraction: Double?
-    /// The share the drag started from, held so the translation is always measured from one place.
-    @State private var dragAnchor: Double?
+    /// The live share while a drag is in flight; nil at rest. Gesture state, so a drag the system
+    /// cancels — with no `onEnded` — puts it back by itself rather than leaving the split stuck at the
+    /// drag's share. The drag is measured from the stored share, which does not move until it ends.
+    @GestureState private var dragFraction: Double?
 
     static var handleHeight: CGFloat { 9 }
     static var foldMargin: Double { 0.12 }
@@ -34,6 +34,23 @@ struct InspectorSplit<Upper: View, Lower: View>: View {
     static func dragged(anchor: Double, translation: CGFloat, room: CGFloat) -> Double {
         guard room > 0 else { return anchor }
         return settled(anchor + Double(translation / room))
+    }
+
+    /// One VoiceOver step from `share`, up (`grows`) or down. A step out of a folded end lands on the
+    /// first share that stays open, and a step toward an end stops at the edge of its fold — the
+    /// next step is the one that folds. A plain 5% step would snap straight back shut out of a fold,
+    /// and fold a half away entirely from anywhere within 5% of its margin.
+    static func stepped(_ share: Double, grows: Bool) -> Double {
+        let current = settled(share)
+        let low = foldMargin, high = 1 - foldMargin
+        if grows {
+            if current < low { return low }
+            if current >= high { return 1 }
+            return min(current + 0.05, high)
+        }
+        if current > high { return high }
+        if current <= low { return 0 }
+        return max(current - 0.05, low)
     }
 
     var body: some View {
@@ -74,16 +91,13 @@ struct InspectorSplit<Upper: View, Lower: View>: View {
         // grows, so in its own frame the translation would feed back on itself.
         .gesture(
             DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                .onChanged { value in
-                    let anchor = dragAnchor ?? Self.settled(fraction)
-                    if dragAnchor == nil { dragAnchor = anchor }
-                    dragFraction = Self.dragged(anchor: anchor, translation: value.translation.height,
-                                                room: room)
+                .updating($dragFraction) { value, state, _ in
+                    state = Self.dragged(anchor: Self.settled(fraction), translation: value.translation.height,
+                                         room: room)
                 }
-                .onEnded { _ in
-                    if let dragFraction { fraction = dragFraction }
-                    dragFraction = nil
-                    dragAnchor = nil
+                .onEnded { value in
+                    fraction = Self.dragged(anchor: Self.settled(fraction), translation: value.translation.height,
+                                            room: room)
                 }
         )
         .onTapGesture(count: 2) { fraction = defaultFraction }
@@ -93,12 +107,8 @@ struct InspectorSplit<Upper: View, Lower: View>: View {
         .accessibilityValue("\(Int((Self.settled(fraction) * 100).rounded())) percent")
         .accessibilityAdjustableAction { direction in
             switch direction {
-            // A step out of a folded end lands on the first share that stays open; a plain 5%
-            // step from 0 would snap straight back shut.
-            case .increment:
-                fraction = fraction < Self.foldMargin ? Self.foldMargin : Self.settled(fraction + 0.05)
-            case .decrement:
-                fraction = fraction > 1 - Self.foldMargin ? 1 - Self.foldMargin : Self.settled(fraction - 0.05)
+            case .increment: fraction = Self.stepped(fraction, grows: true)
+            case .decrement: fraction = Self.stepped(fraction, grows: false)
             @unknown default: break
             }
         }

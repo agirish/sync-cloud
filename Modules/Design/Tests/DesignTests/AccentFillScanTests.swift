@@ -587,7 +587,7 @@ import Testing
     /// hangs off and the start of its arguments; each must match exactly one site.
     static let rawTintExemptions: [(file: String, site: String, why: String)] = [
         ("FileTreeView.swift", "List(selection: $selection)",
-         "Tree's disclosure chevrons — its rows hold a spinner, and its Show Preview switch is a menu item"),
+         "Tree's disclosure chevrons — its rows hold a spinner, and its empty-area menu's toggles are menu items"),
         ("PaneColumnsView.swift", "List(selection: columnSelection(",
          "Columns' chevrons — the same rows, spinner and menu item as Tree"),
         ("DifferencesView.swift", "Table(session.queue",

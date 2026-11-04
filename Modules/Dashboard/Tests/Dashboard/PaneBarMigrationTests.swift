@@ -212,6 +212,37 @@ import EventsTestSupport
         #expect(arrangement.encoded == stored)
     }
 
+    /// **A bar as builds before TE318 wrote it**, with the retired `preview` in the middle. It draws
+    /// without it, keeps it on write-back — at the end, where carried tokens go — and loses nothing
+    /// else. The literal above lost its `preview` when the item was retired, which is how the move to
+    /// the end went unseen.
+    @Test func aBarStoredWithTheRetiredPreviewKeepsItAtTheEnd() {
+        let stored = "flexibleSpace,viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,preview,search"
+        let arrangement = PaneBarArrangement(encoded: stored)
+        #expect(arrangement.items.map(\.rawValue) == ["flexibleSpace", "viewMode", "collapse", "backForward",
+                                                      "scan", "newFolder", "sort", "hiddenFiles", "search"])
+        #expect(arrangement.encoded == stored.replacingOccurrences(of: "preview,", with: "") + ",preview")
+    }
+
+    /// **Restore against a bar that only carries a token is not offered**, and Restore keeps the
+    /// token. The bar draws exactly as shipped, so a live Restore changed nothing on screen, logged
+    /// "reordered the pane bar … (the default arrangement)", and dropped `preview` for good.
+    @Test func aDefaultBarCarryingARetiredTokenIsTheDefault() throws {
+        let carried = PaneBarArrangement(encoded: PaneBarArrangement.default.encoded + ",preview")
+        #expect(carried != .default, "the token is not carried — nothing below measures anything")
+        #expect(carried.drawsTheDefault)
+        #expect(carried.restoredToDefault.encoded == carried.encoded)
+        #expect(PaneBarEditLog.message(from: carried, to: carried.restoredToDefault) == nil)
+
+        var moved = carried
+        let first = moved.items.firstIndex { $0.isRemovable }
+        let removable = try #require(first)
+        moved.remove(at: removable)
+        #expect(!moved.drawsTheDefault)
+        #expect(moved.restoredToDefault.encoded == carried.encoded,
+                "Restore dropped the carried token")
+    }
+
     /// **Changing the shipped default does not rewrite a bar someone is already using.**
     ///
     /// Retiring the provider capsule took the leading `flexibleSpace` off `PaneBarArrangement.default`

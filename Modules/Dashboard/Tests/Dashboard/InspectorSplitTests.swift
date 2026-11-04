@@ -36,4 +36,18 @@ import Design
         #expect(Split.dragged(anchor: 0.7, translation: 0, room: 0) == 0.7,
                 "a split with no room moved — it has nothing to measure a drag against")
     }
+
+    /// A VoiceOver step walks the open range, stops at the edge of each fold, and folds only on the
+    /// step after that — never from anywhere within 5% of a margin in one go, and never straight
+    /// back shut out of a fold.
+    @Test func aVoiceOverStepStopsAtTheEdgeOfAFold() {
+        let low = Split.foldMargin, high = 1 - Split.foldMargin
+        #expect(abs(Split.stepped(0.86, grows: true) - high) < 1e-9, "a step from 0.86 folded the details away")
+        #expect(Split.stepped(high, grows: true) == 1)
+        #expect(abs(Split.stepped(0.14, grows: false) - low) < 1e-9, "a step from 0.14 folded the picture away")
+        #expect(Split.stepped(low, grows: false) == 0)
+        #expect(Split.stepped(0, grows: true) == low, "a step out of the fold snapped back shut")
+        #expect(Split.stepped(1, grows: false) == high)
+        #expect(abs(Split.stepped(0.5, grows: true) - 0.55) < 1e-9)
+    }
 }

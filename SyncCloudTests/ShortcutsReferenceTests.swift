@@ -76,6 +76,30 @@ import Design
         }
     }
 
+    /// **The other direction: every ⌘ chord a row names is one the app registers.** The check above
+    /// cannot see a row left behind when its command goes — ⇧⌘P stayed listed as "Show or hide the
+    /// file preview" after View ▸ File Preview was retired, a key that now does nothing. Rows for
+    /// keys that are not menu commands (clicks, a family, the editor's own text bindings) are named
+    /// here, so a new one is a decision rather than a pass.
+    @Test func testEveryListedCommandChordIsRegistered() {
+        let registered = Set(AppChord.registry.map { Self.normalized($0.display) })
+        let notCommands: Set<String> = Self.listedKeysThatAreNotRegisteredCommands
+        let unregistered = Self.listedChordKeys()
+            .filter { $0.contains("⌘") && !registered.contains($0) && !notCommands.contains($0) }
+        #expect(unregistered.isEmpty,
+                "the reference lists \(unregistered.sorted()) — no command registers it")
+        #expect(!Self.listedChordKeys().contains("⇧⌘P"), "⇧⌘P is listed again, with nothing bound to it")
+    }
+
+    /// Listed ⌘ keys the app does not register through `AppChord`, each for a reason the row states:
+    /// mouse gestures, the ⌘1 – ⌘N family, and text-system bindings the editor handles itself.
+    static let listedKeysThatAreNotRegisteredCommands: Set<String> = [
+        "⌘-click",   // a mouse gesture, not a key
+        "⌘1–⌘4",     // the workspace family, registered as `AppChord.workspace(_:)`, one per tab
+        "⌘Z", "⇧⌘Z", // Undo and Redo, the system Edit menu's own items
+        "⌘?",        // Help, the system Help menu's own item
+    ]
+
     /// Every chord a reference row names, one per element: keys split on the pair **separator**
     /// and whitespace removed, so they compare against `AppChord.display` as equals.
     ///

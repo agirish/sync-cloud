@@ -179,8 +179,8 @@ struct PDFPageView: NSViewRepresentable {
     /// Told how each open concluded, on the main actor, once the view holds the result. Never told
     /// about an open that was superseded or outlived its view.
     ///
-    /// No default, for the reason `ColumnPreviewColumn.onOpenInEditor` has none: a defaulted no-op
-    /// is a deleted argument that compiles, and a placeholder that then never leaves.
+    /// No default: a defaulted no-op is a deleted argument that compiles, and a placeholder that then
+    /// never leaves.
     let onOutcome: (URL, PDFOpenOutcome) -> Void
 
     /// What the view has asked the lane for, so a load that comes back can be checked against it.

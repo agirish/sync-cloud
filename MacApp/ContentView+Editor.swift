@@ -274,7 +274,7 @@ extension ContentView {
     /// Edit. Arrow keys move the selection exactly as clicks do, so they open files too.
     ///
     /// `openInEditor` never writes the pane's selection, so this cannot fire itself. The row menu's
-    /// hand-off and the preview column's Edit button end in a selection that already names the
+    /// hand-off and the Info inspector's Open in Edit end in a selection that already names the
     /// open document, and `openInEditor`'s first guard returns early for it.
     func openSelectedPaneFileInEditor(_ paths: Set<String>) {
         // One-shot: the app's own write is the next selection change and nothing after it.

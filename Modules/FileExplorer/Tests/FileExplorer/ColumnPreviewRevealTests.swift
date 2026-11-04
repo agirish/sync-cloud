@@ -1285,6 +1285,10 @@ import Sync
     /// TE317 C: the preview is drawn in the window's Info inspector, so selecting a file changes
     /// neither the stack's viewport nor where it is scrolled. The stack's width is the whole of what
     /// used to move the column under the pointer.
+    ///
+    /// Scrolled back to x 0 first: the mount has already brought the deepest column in, so a reveal
+    /// fired by the selection would move a stack resting there by nothing, and the drift below could
+    /// not fail.
     @Test func testSelectingAFileHoldsTheStackStill() async throws {
         let mounted = try await mount(paneWidth: 690, depth: 3)
         defer { _ = mounted.window }
@@ -1292,12 +1296,42 @@ import Sync
         let width = clip.bounds.width
         let content = mounted.stack.documentView?.frame.width ?? 0
         try #require(content > width, "the stack fits its viewport — a movement would be invisible")
-        let origin = clip.bounds.origin.x
+        await scrollBack(mounted, toX: 0)
+        try #require(clip.bounds.origin.x == 0, "fixture failed to scroll the stack back")
 
         mounted.box.selection = [Self.deepestFile(depth: mounted.depth)]
-        #expect(await maxOriginDrift(mounted, from: origin) == 0,
+        #expect(await maxOriginDrift(mounted, from: 0) == 0,
                 "selecting a file moved the stack")
         #expect(clip.bounds.width == width,
                 "selecting a file resized the stack (\(width) → \(clip.bounds.width)pt)")
+    }
+
+    /// Widening OUT of push mode is the one widening that hides the column you were in: below
+    /// `pushNavigationBelowWidth` the pane shows one column, and back above it the content grows to
+    /// the whole stack at an origin of 0, the deepest column last and past the trailing edge.
+    /// Closing the Info inspector over a Compare pane it had pushed down to one column did exactly
+    /// this, and nothing scrolled.
+    @Test func testWideningOutOfPushModeRevealsTheDeepestColumn() async throws {
+        let mounted = try await mount(paneWidth: 690, depth: 3)
+        defer { _ = mounted.window }
+        let clip = mounted.stack.contentView
+
+        let narrow = PaneViewMode.pushNavigationBelowWidth - 30
+        mounted.window.setContentSize(NSSize(width: narrow, height: 520))
+        await wait(mounted.window, upTo: 25) { self.columnFrames(mounted).count == 1 }
+        try #require(columnFrames(mounted).count == 1, "the pane never went to one column — not push mode")
+        await settle(mounted)
+
+        mounted.window.setContentSize(NSSize(width: 690, height: 520))
+        await wait(mounted.window, upTo: 25) { self.columnFrames(mounted).count == mounted.depth + 1 }
+        try #require(columnFrames(mounted).count == mounted.depth + 1, "the stack never came back")
+        let content = mounted.stack.documentView?.frame.width ?? 0
+        try #require(content > clip.bounds.width,
+                     "the stack fits its viewport (content \(content)pt in \(clip.bounds.width)pt) — vacuous")
+        await wait(mounted.window, upTo: 25) { clip.bounds.origin.x > 0 }
+        await settle(mounted)
+
+        let (visible, report) = try deepestColumnIsVisible(mounted)
+        #expect(visible, "widening out of push mode left the deepest column hidden: \(report)")
     }
 }

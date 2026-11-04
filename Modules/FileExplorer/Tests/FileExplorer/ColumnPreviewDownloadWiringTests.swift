@@ -121,6 +121,10 @@ import UniformTypeIdentifiers
         let defaults: UserDefaults
         let probe: ProbeSwitch
         let channel: NotificationCenter
+        /// The inspector's downloads, made once per mount: a body that made them would make a new
+        /// set on every render. Their deadline is out of reach, so the only thing that can end the
+        /// inspector's "Downloading…" inside this suite's waits is the pane's `.cloudDownloadWatchEnded`.
+        let downloads: InspectorDownloads
 
         var body: some View {
             let probe = self.probe
@@ -138,15 +142,12 @@ import UniformTypeIdentifiers
                 )
                 .frame(width: 500)
                 if let node = tree.nodes.first {
-                    InspectorFilePreview(node: node, paneToken: .singleSource,
-                                         downloadChannel: channel)
+                    InspectorFilePreview(node: node, paneToken: .singleSource, paneWatches: true,
+                                         downloads: downloads, downloadChannel: channel)
                         .frame(width: 400)
                 }
             }
             .defaultAppStorage(defaults)
-            // Out of reach, so the only thing that can end the inspector's "Downloading…" inside
-            // this suite's waits is the pane's `.cloudDownloadWatchEnded`.
-            .environment(\.inspectorDownloadDeadline, .seconds(3600))
             .environment(\.columnPreviewProbe, ColumnPreviewProbeReader { path in
                 await MainActor.run {
                     probe.answered.append(path)
@@ -180,7 +181,8 @@ import UniformTypeIdentifiers
         let channel = NotificationCenter()
         let host = NSHostingView(rootView: Harness(
             box: box, tree: tree, index: PaneChildrenIndex(tree: tree, treeRoot: root),
-            root: root, defaults: defaults, probe: probe, channel: channel))
+            root: root, defaults: defaults, probe: probe, channel: channel,
+            downloads: InspectorDownloads(channel: channel, deadline: .seconds(3600))))
         host.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -274,7 +276,7 @@ import UniformTypeIdentifiers
     /// re-runs on `probeGeneration`, and nothing else bumps that. So the Quick Look mount at the end
     /// is the whole chain reporting in — `CloudDownloadRequest.post` → the pane's scoped
     /// `.onReceive` → `PaneDownloadWatch.begin` → the watch concluding →
-    /// `.cloudDownloadWatchEnded` → `InspectorFilePreview.awaiting` →
+    /// `.cloudDownloadWatchEnded` → `InspectorDownloads` →
     /// `ColumnPreviewColumn(isAwaitingDownload:)` → the falling edge → the re-probe.
     ///
     /// Delete the post in `PaneDownloadWatch.begin` and the column waits out its deadline instead,
@@ -444,31 +446,60 @@ import UniformTypeIdentifiers
 
     // MARK: - One watch
 
-    /// What the inspector shows as downloading, after each notice. Its own request starts it; the
-    /// end of exactly that request's watch clears it; another pane's request, another file's, and
-    /// the end of a SUPERSEDED request — a repeat Download of the same file — leave it alone.
-    @Test func theInspectorFollowsThePanesWatchByRequest() {
+    /// What the inspector shows as downloading, after each notice — kept by `InspectorDownloads`,
+    /// which outlives the preview. A request starts it; the end of exactly that request's watch
+    /// clears it; another file's request leaves it alone, and so does the end of a SUPERSEDED
+    /// request — a repeat Download of the same file. Every end counts against its file, which is
+    /// what makes the preview look again.
+    @Test func theInspectorFollowsEachWatchByRequest() {
+        let channel = NotificationCenter()
+        let downloads = InspectorDownloads(channel: channel, deadline: .seconds(3600))
         let path = "\(Self.root)/movie.mov"
-        func note(_ name: Notification.Name, _ request: CloudDownloadRequest) -> Notification {
-            Notification(name: name, object: request)
-        }
-        func after(_ n: Notification, _ current: CloudDownloadRequest?) -> CloudDownloadRequest? {
-            InspectorFilePreview.awaiting(after: n, current: current, path: path, paneToken: .left)
-        }
         let first = CloudDownloadRequest(path: path, paneToken: .left)
         let again = CloudDownloadRequest(path: path, paneToken: .left)
 
-        #expect(after(note(.cloudDownloadRequested, first), nil) == first)
-        #expect(after(note(.cloudDownloadRequested, CloudDownloadRequest(path: path, paneToken: .right)), nil) == nil,
-                "the other pane's request for the same path was followed")
-        #expect(after(note(.cloudDownloadRequested, CloudDownloadRequest(path: "\(Self.root)/other.mov",
-                                                                         paneToken: .left)), nil) == nil,
-                "a request for another file was followed")
-        // A repeat supersedes; the old watch's end must not clear the new one.
-        #expect(after(note(.cloudDownloadRequested, again), first) == again)
-        #expect(after(note(.cloudDownloadWatchEnded, first), again) == again,
-                "a superseded watch's end cleared the newer request")
-        #expect(after(note(.cloudDownloadWatchEnded, again), again) == nil)
+        channel.post(name: .cloudDownloadRequested, object: first)
+        #expect(downloads.isAwaiting(path))
+        channel.post(name: .cloudDownloadRequested,
+                     object: CloudDownloadRequest(path: "\(Self.root)/other.mov", paneToken: .left))
+        #expect(!downloads.isAwaiting("\(Self.root)/movie2.mov"))
+        channel.post(name: .cloudDownloadRequested, object: again)
+        channel.post(name: .cloudDownloadWatchEnded, object: first)
+        #expect(downloads.isAwaiting(path), "a superseded watch's end cleared the newer request")
+        channel.post(name: .cloudDownloadWatchEnded, object: again)
+        #expect(!downloads.isAwaiting(path))
+        #expect(downloads.watchesEnded(path) == 2)
+    }
+
+    /// **The "Downloading…" outlives the preview.** It used to be the preview's own `@State`, so a
+    /// click on a folder and back — which takes the preview down and builds a new one — forgot a
+    /// download the pane was still watching, and offered Download again. The state is the host's
+    /// now; a preview made after the request still sees it.
+    @Test func aDownloadOutlivesThePreviewThatStartedIt() {
+        let channel = NotificationCenter()
+        let downloads = InspectorDownloads(channel: channel, deadline: .seconds(3600))
+        let path = "\(Self.root)/movie.mov"
+        channel.post(name: .cloudDownloadRequested, object: CloudDownloadRequest(path: path, paneToken: .left))
+        // No preview is mounted at all here: what it would read is the host's record.
+        #expect(downloads.isAwaiting(path))
+    }
+
+    /// A watch that ends AFTER the inspector gave up on it still makes the preview look again. The
+    /// deadline used to clear the request, and the late end then matched nothing — the file was on
+    /// disk and the preview kept offering Download until it was reselected.
+    @Test func aWatchEndingAfterTheDeadlineStillCounts() async {
+        let channel = NotificationCenter()
+        let downloads = InspectorDownloads(channel: channel, deadline: .milliseconds(1))
+        let path = "\(Self.root)/movie.mov"
+        let request = CloudDownloadRequest(path: path, paneToken: .left)
+        channel.post(name: .cloudDownloadRequested, object: request)
+        for _ in 0..<500 where downloads.isAwaiting(path) {
+            try? await Task.sleep(for: .milliseconds(2))
+        }
+        #expect(!downloads.isAwaiting(path), "the deadline never gave up on an unanswered request")
+        #expect(downloads.watchesEnded(path) == 1, "giving up did not count as an ending")
+        channel.post(name: .cloudDownloadWatchEnded, object: request)
+        #expect(downloads.watchesEnded(path) == 2, "a late end was dropped")
     }
 
     /// The pane says when its watch ends, on the channel it heard the request on — and only for
@@ -489,15 +520,31 @@ import UniformTypeIdentifiers
         #expect(watch.requests.isEmpty)
     }
 
-    /// The inspector runs no watch of its own. A second `PaneDownloadWatch` here is the doubled
-    /// poll and `forget` this view exists without.
-    @Test func theInspectorOwnsNoWatch() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/InspectorFilePreview.swift")
-        let source = try String(contentsOf: url, encoding: .utf8)
-        #expect(!source.contains("PaneDownloadWatch("))
-        #expect(!source.contains("CloudDownloadPoll.watch"))
+    /// **One watch per download.** A request a pane will watch is only followed here — a second
+    /// `PaneDownloadWatch` beside the pane's doubled the poll and the memo `forget`. Only a request
+    /// with no pane on screen to hear it (Edit with its file pane folded, say) is watched here, once
+    /// however often it is asked.
+    @Test func theInspectorWatchesOnlyWhatNoPaneWill() async {
+        final class Began: @unchecked Sendable { var paths: [String] = [] }
+        let began = Began()
+        let channel = NotificationCenter()
+        let watch = PaneDownloadWatch(watch: { request, _ in
+            began.paths.append(request.path)
+            return false
+        })
+        let downloads = InspectorDownloads(channel: channel, deadline: .seconds(3600), watch: watch)
+        let watched = CloudDownloadRequest(path: "\(Self.root)/a.mov", paneToken: .left)
+        channel.post(name: .cloudDownloadRequested, object: watched)
+        for _ in 0..<20 { await Task.yield() }
+        #expect(began.paths.isEmpty, "the inspector watched a download a pane is watching")
+
+        let unheard = CloudDownloadRequest(path: "\(Self.root)/b.mov", paneToken: .left)
+        channel.post(name: .cloudDownloadRequested, object: unheard)
+        downloads.watchUnheard(unheard)
+        downloads.watchUnheard(unheard)
+        for _ in 0..<50 where began.paths.isEmpty { await Task.yield() }
+        #expect(began.paths == [unheard.path], "the unheard download was watched \(began.paths.count) times")
+        #expect(downloads.isAwaiting(unheard.path))
     }
 
     /// **The column's Download is the row menu's verb, sent from its pane on its pane's channel.**

@@ -287,7 +287,7 @@ import Testing
             "right-click a text file and choose Open in Edit",     // a file pane's row menu
             // The preview's own Edit button went with the in-pane preview (TE318): the Info
             // inspector's Open in Edit, the next door, is where that click is now.
-            "Info inspector",                                       // ⌘I
+            "the first of the Info inspector’s buttons under the file’s name",   // ⌘I
             "File ▸ Open in Edit — ⌘O",                             // the menu and its chord
             "Compare’s list of differences offers Open in Edit",   // TE31, per side
             "a copy in Organize’s duplicates offers it first",     // TE32

@@ -748,11 +748,18 @@ struct ContentView: View {
     /// Persisted so it stays open/closed across launches. Internal, not private: its toggle sits in
     /// the window toolbar now (ContentView+Toolbar.swift).
     @AppStorage("showCompareInspector") var showInspector: Bool = false
-    /// No preview preference is read here any more (TE317 C, TE318): the preview is part of the Info
-    /// inspector, which `showInspector` opens, and no pane draws one of its own.
-    /// The Info inspector's persisted width, resizable by dragging its leading edge. Defaults to the
-    /// former fixed 270pt. Clamped to `PaneLogic.inspector{Min,Max}Width` whenever it's written.
+    /// The Info inspector's persisted width, resizable by dragging its leading edge. 360pt until it
+    /// is dragged — 270 before it carried the preview (TE317·4), which a page does not read at.
+    /// Clamped to `PaneLogic.inspector{Min,Max}Width` whenever it's written.
     @AppStorage("compareInspectorWidth") private var inspectorWidth: Double = 360
+    /// The inspector preview's downloads, owned here so a "Downloading…" outlives the preview, which
+    /// is taken down whenever the inspector shows a folder or folds the picture away. `@State` on
+    /// a class, for `lensSession`'s reason: owned, not observed — the preview observes it.
+    @State private var inspectorDownloads = InspectorDownloads()
+    /// The Get Info target as a node of its own, for one no pane's tree holds — a differences row
+    /// outside the folder the pane is in, a file the pane's filter hides. Made when Get Info is
+    /// chosen, never in `body`, and read only while its path is still the target.
+    @State private var infoNode: FileNode?
     /// The live width during a resize drag; `nil` when idle. Mirrors the pane splits' pattern —
     /// the layout reads `inspectorDragWidth ?? inspectorWidth`, and the drag commits to
     /// `inspectorWidth` only on release, so `inspectorWidth` stays the stable drag-start base.
@@ -2151,10 +2158,10 @@ struct ContentView: View {
         /// Whether this arrangement draws a `FileTreeView` at all — which is the question every
         /// pane-scoped chord is really asking before it offers itself.
         ///
-        /// The Editor is the first workspace to answer **no**. ⇧⌘N and ⇧⌘P were both gated on
-        /// `layoutMode`, which cannot tell a workspace with a rail from one with neither, so both
-        /// stayed live in a workspace with no pane to act on: ⇧⌘N put an invisible pane into a
-        /// naming state, and ⇧⌘P toggled the shared preview key with nothing to show it in.
+        /// The Editor is the first workspace to answer **no**. ⇧⌘N was gated on `layoutMode`, which
+        /// cannot tell a workspace with a rail from one with neither, so it stayed live in a
+        /// workspace with no pane to act on and put an invisible pane into a naming state. (⇧⌘P,
+        /// the in-pane preview's chord until TE318, had the same defect.)
         var drawsAPaneList: Bool {
             switch self {
             case .compareSplit, .singleExpanded, .browseFull: return true
@@ -2166,7 +2173,8 @@ struct ContentView: View {
             // The lens arm answered `true` when this member was introduced, and that was a
             // half-fix: it was written for the editor, and the collapsed-lens case is the same
             // defect in a workspace that shipped long before it. ⇧⌘N put a naming row into a pane
-            // nobody can see, and ⇧⌘P toggled a preview column for a stack that was not on screen.
+            // nobody can see (and ⇧⌘P, before TE318 retired it, toggled a preview for a stack that
+            // was not on screen).
             // Now that Storage is a lens on Organize's rail, that rail is collapsed more often, not
             // less.
             case .editorExpanded: return true
@@ -2682,6 +2690,10 @@ struct ContentView: View {
     /// is available on both Compare and Organize, so this no longer yanks the single-source rail over to Compare.
     func showInfo(for path: String) {
         infoPath = path
+        var isDirectory: ObjCBool = false
+        infoNode = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+            ? FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: isDirectory.boolValue)
+            : nil
         withAnimation(.easeInOut(duration: 0.15)) { showInspector = true }
     }
 
@@ -4539,7 +4551,8 @@ struct ContentView: View {
                     .padding(.horizontal, 16).padding(.vertical, 6)
                 Divider()
             }
-            DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath, compact: true, overridePath: infoPath, singleSource: layoutMode == .singleSource, cloudCoverage: settings.cloudCoverage,
+            let previewTarget = inspectorPreviewTarget
+            DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath, overridePath: infoPath, singleSource: layoutMode == .singleSource, cloudCoverage: settings.cloudCoverage,
                            // The app answers what the editor opens, because the app is where every
                            // other door asks it: `EditableText.opensInEdit` is the row menu's own
                            // gate, so the inspector cannot come to disagree with the menu about a file.
@@ -4547,12 +4560,15 @@ struct ContentView: View {
                                                        open: { handOffToEditor($0) }),
                            // The picture over the details, at the height last dragged to (TE318 B).
                            previewFraction: $inspectorPreviewFraction,
-                           preview: inspectorPreviewTarget.map { target in
+                           preview: previewTarget.map { target in
                                AnyView(InspectorFilePreview(
                                    node: target.node,
                                    paneToken: PaneToken(isLeft: target.isLeft,
-                                                        isSingleSource: layoutMode == .singleSource)))
+                                                        isSingleSource: layoutMode == .singleSource),
+                                   paneWatches: paneIsWatching(isLeft: target.isLeft),
+                                   downloads: inspectorDownloads))
                            },
+                           previewPath: previewTarget?.node.id,
                            // The pane you are working in, the same answer the preview reads.
                            followsRight: !inspectorFollowsLeft)
         }
@@ -4575,20 +4591,59 @@ struct ContentView: View {
     }
 
     /// The one file the inspector previews, and which pane's tree it was found in — nil for a
-    /// folder, several items, or nothing selected.
+    /// folder, several items, nothing selected, or the document Edit has open beside it.
     private var inspectorPreviewTarget: (node: FileNode, isLeft: Bool)? {
+        guard let target = Self.inspectorPreview(
+            infoPath: infoPath, infoNode: infoNode, followsLeft: inspectorFollowsLeft,
+            selectedLeft: syncManager.selectedLeftPaths, selectedRight: syncManager.selectedRightPaths,
+            leftNodes: { syncManager.leftNodes(for: $0) }, rightNodes: { syncManager.rightNodes(for: $0) },
+            rightRoot: currentRightPath)
+        else { return nil }
+        // **Not the document Edit has open.** Opening a file selects it in the pane, so the
+        // inspector beside the editor previewed the very file being edited — as it was when Quick
+        // Look first read it, not as the editor has it — and parsed a PDF a second time in the
+        // shared lane. Its icon stands in.
+        if selectedWorkspace == .editor, target.node.id == editorOpenPath { return nil }
+        return target
+    }
+
+    /// `inspectorPreviewTarget`'s rule, pure: a Get Info target first, in whichever tree holds it —
+    /// or as its own node (`infoNode`) when neither does, filed with the right pane only under the
+    /// right pane's root; otherwise the one item selected in the pane the inspector follows. Files
+    /// only: a folder has no preview.
+    static func inspectorPreview(infoPath: String?, infoNode: FileNode?, followsLeft: Bool,
+                                 selectedLeft: Set<String>, selectedRight: Set<String>,
+                                 leftNodes: (Set<String>) -> [FileNode],
+                                 rightNodes: (Set<String>) -> [FileNode],
+                                 rightRoot: String) -> (node: FileNode, isLeft: Bool)? {
         if let infoPath {
-            // A Get Info target names no pane; it is in whichever tree holds it.
-            if let node = syncManager.leftNodes(for: [infoPath]).first { return node.isDirectory ? nil : (node, true) }
-            if let node = syncManager.rightNodes(for: [infoPath]).first { return node.isDirectory ? nil : (node, false) }
-            return nil
+            let found: (node: FileNode, isLeft: Bool)?
+            if let node = leftNodes([infoPath]).first {
+                found = (node, true)
+            } else if let node = rightNodes([infoPath]).first {
+                found = (node, false)
+            } else if let infoNode, infoNode.id == infoPath {
+                let underRight = !rightRoot.isEmpty
+                    && (infoPath == rightRoot || infoPath.hasPrefix(rightRoot.hasSuffix("/") ? rightRoot : rightRoot + "/"))
+                found = (infoNode, !underRight)
+            } else {
+                found = nil
+            }
+            guard let found, !found.node.isDirectory else { return nil }
+            return found
         }
-        let isLeft = inspectorFollowsLeft
-        let paths = isLeft ? syncManager.selectedLeftPaths : syncManager.selectedRightPaths
+        let paths = followsLeft ? selectedLeft : selectedRight
         guard paths.count == 1 else { return nil }
-        let node = (isLeft ? syncManager.leftNodes(for: paths) : syncManager.rightNodes(for: paths)).first
+        let node = (followsLeft ? leftNodes(paths) : rightNodes(paths)).first
         guard let node, !node.isDirectory else { return nil }
-        return (node, isLeft)
+        return (node, followsLeft)
+    }
+
+    /// Whether the pane on that side is on screen to watch a download its token posts. Not when the
+    /// workspace's panes are folded away (Edit starts so), nor the right pane outside Compare.
+    private func paneIsWatching(isLeft: Bool) -> Bool {
+        guard contentLayout.drawsAPaneList, !panesHiddenForCurrentTab else { return false }
+        return isLeft || layoutMode == .compare
     }
 
     /// The draggable seam between the panes and the Info inspector: a 1pt strip in the HStack flow

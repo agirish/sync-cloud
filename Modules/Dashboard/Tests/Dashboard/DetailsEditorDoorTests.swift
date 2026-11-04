@@ -16,9 +16,10 @@ import FileExplorerTestSupport
 @MainActor
 @Suite struct DetailsEditorDoorTests {
 
-    /// The inspector's own default width — `compareInspectorWidth`, 270. Every measurement here is
-    /// taken at the width people actually have, because that is where this row went wrong.
-    static let inspectorWidth: CGFloat = 270
+    /// The inspector's own default width — `compareInspectorWidth`, 360 since it carries the preview
+    /// (270 before). Every measurement here is taken at the width people actually have, because
+    /// that is where the row once went wrong.
+    static let inspectorWidth: CGFloat = 360
 
     private static func metadata(path: String, isDirectory: Bool = false) -> DetailsSidebar.FileMetadata {
         DetailsSidebar.FileMetadata(
@@ -78,7 +79,7 @@ import FileExplorerTestSupport
     // MARK: - The button
 
     /// Every focus-ring view — one per drawn `Button` — in the root's coordinate space, in READING
-    /// order. Sorted by line first: the row wraps, so x alone scrambles the order it is read in.
+    /// order: by line, then by x.
     private static func focusRings(_ root: NSView) -> [CGRect] {
         FocusRings.frames(in: root).sorted { ($0.minY, $0.minX) < ($1.minY, $1.minX) }
     }
@@ -91,7 +92,7 @@ import FileExplorerTestSupport
     private func rings(over path: String, handOff: EditorHandOff?,
                        width: CGFloat = Self.inspectorWidth) async -> [CGRect] {
         let view = DetailsSidebar(syncManager: FileSyncManager(), leftPath: "", rightPath: "",
-                                  compact: true, overridePath: path, singleSource: false,
+                                  overridePath: path, singleSource: false,
                                   cloudCoverage: nil, editorHandOff: handOff)
             .frame(width: width, height: 900)
         let host = NSHostingView(rootView: AnyView(view))
@@ -108,12 +109,21 @@ import FileExplorerTestSupport
         return found
     }
 
-    /// **The button is drawn, first in the row, and only with a hand-off.**
-    ///
-    /// Counted against the very same mount without one, so the claim is about this button rather
-    /// than about how many controls the card happens to carry. First by x, because the order is
-    /// the point: the row leads with the editor exactly as the row context menu now does.
-    @Test func aTextFileGainsOneButtonAtTheHeadOfTheRow() async throws {
+    /// **The button leads the row** — the order as a value, since the buttons are icons of one
+    /// width and a rendered row cannot tell them apart: Open in Edit first where it is offered, as
+    /// the row menu leads with it, and otherwise the same three in the same order.
+    @Test func openInEditLeadsTheRow() {
+        typealias Action = DetailsSidebar.InspectorAction
+        #expect(DetailsSidebar.inspectorActionRow(offersEditor: true)
+                == [.openInEdit, .quickLook, .revealInFinder, .copyPath])
+        #expect(DetailsSidebar.inspectorActionRow(offersEditor: false)
+                == [.quickLook, .revealInFinder, .copyPath])
+    }
+
+    /// **The button is drawn, and only with a hand-off** — counted against the very same mount
+    /// without one, so the claim is about this button rather than about how many controls the
+    /// panel happens to carry. The order above is a value; this is that the view consults it.
+    @Test func aTextFileGainsOneButtonInTheRow() async throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("details-editor-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -127,37 +137,13 @@ import FileExplorerTestSupport
 
         #expect(with.count == without.count + 1,
                 "the row drew \(with.count) buttons with a hand-off and \(without.count) without")
-
-        // **The extra button is at the HEAD, and this is the assertion that says so.**
-        //
-        // The first version of this check compared leading x-positions and "the second button is
-        // right of the first" — both of which are ALSO true when the button is appended to the end
-        // of the row. Measured: moving it after Quick Look left all six tests green, which is the
-        // finding that produced this one. What distinguishes the two is the row AFTER the first
-        // button: lead with the editor and the remainder is the original row, in order, width for
-        // width; append it and the tail is a different set of widths entirely.
-        let tail = Array(with.dropFirst())
-        #expect(tail.count == without.count)
-        #expect(zip(tail, without).allSatisfy { abs($0.width - $1.width) <= 1 },
-                "after the first button this is not the row it was: \(tail.map(\.width)) vs \(without.map(\.width))")
-        #expect(abs((with.first?.width ?? 0) - (without.first?.width ?? 0)) > 1,
-                "the first button is the same control it was — the editor did not take the head")
         #expect(asked.offered.contains(file.path), "the row never asked the host about this file")
     }
 
-    /// **The row WRAPS rather than squeezing, at the width people actually have.**
-    ///
-    /// This is the finding that changed the shape of this change. The inspector is 270pt by
-    /// default, and the action row was an `HStack`: rendered there with its three shipped buttons
-    /// it already read "Reve… / Cop… / Quic…", and a fourth took two of them to an icon and a bare
-    /// ellipsis — a control with no letters in it at all. `FlowLayout` exists for exactly this
-    /// ("an `HStack` that squeezed rather than wrapped" is the defect its own doc names), so the
-    /// row uses it and every title survives at every width.
-    ///
-    /// Asserted as "the same buttons measure the same at 270 as at 700": a squeezing row's widths
-    /// collapse as the container narrows, a wrapping row's do not. And it really does wrap at 270 —
-    /// otherwise this would hold for a row that simply fitted.
-    @Test func theRowWrapsRatherThanSqueezingAtTheInspectorsWidth() async throws {
+    /// **The row fits on one line at the width people have, without squeezing.** The card's row of
+    /// titled buttons squeezed to "Reve… / Cop… / Quic…" at 270pt and had to wrap; the inspector's
+    /// is icons, and at its 360pt default every button keeps the width it has at 700.
+    @Test func theRowFitsOnOneLineAtTheInspectorsWidth() async throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("details-editor-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -170,12 +156,13 @@ import FileExplorerTestSupport
                                  width: Self.inspectorWidth)
         let wide = await rings(over: file.path, handOff: asked.handOff(), width: 700)
 
-        #expect(narrow.count == wide.count, "the narrow row dropped a button")
+        #expect(narrow.count == 4 && wide.count == 4, "the row drew \(narrow.count) and \(wide.count) buttons, not 4")
         #expect(zip(narrow, wide).allSatisfy { abs($0.width - $1.width) <= 1 },
                 "the buttons squeezed at \(Self.inspectorWidth)pt: \(narrow.map(\.width)) vs \(wide.map(\.width))")
-        #expect(Set(narrow.map(\.minY)).count > 1,
-                "the row did not wrap at \(Self.inspectorWidth)pt, so this proves nothing about squeezing")
-        #expect(Set(wide.map(\.minY)).count == 1, "the wide row wrapped, where everything fits on one line")
+        // By centre, not top: the icons differ in height, so their rings' tops do too on one line.
+        let centres = narrow.map(\.midY)
+        #expect((centres.max() ?? 0) - (centres.min() ?? 0) <= 2,
+                "the row wrapped at \(Self.inspectorWidth)pt: centres \(centres)")
     }
 
     /// **A folder draws the row it always drew.** The negative half of the count above, mounted

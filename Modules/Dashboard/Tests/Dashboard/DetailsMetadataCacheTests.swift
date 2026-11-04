@@ -467,7 +467,7 @@ import Sync
         defer { try? FileManager.default.removeItem(at: folder) }
 
         let sidebar = DetailsSidebar(
-            syncManager: manager, leftPath: folder.path, rightPath: "", compact: false,
+            syncManager: manager, leftPath: folder.path, rightPath: "",
             overridePath: nil, singleSource: false,
             cache: DetailsMetadataCache(loadMetadata: loader.load, loadIcon: { _ in NSImage() }))
 

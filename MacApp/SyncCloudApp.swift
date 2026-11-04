@@ -291,6 +291,17 @@ struct SyncCloudApp: App {
             if let moved = LiquidGlass.migrateRetiredHue() {
                 Logger.shared.info("Accent migrated: \"\(moved.from)\" is no longer offered → \(moved.to.displayName)")
             }
+            // The preview moved into the Info inspector (TE318): Info opens once for anyone who had the
+            // in-pane preview on, and folds the preview away for anyone who had it off. Before any
+            // @AppStorage reads either key. Logged when it runs.
+            switch InfoPreviewMigration.run(in: .standard) {
+            case .openedInfo?:
+                Logger.shared.info("[info] The preview is in the Info inspector now — opened Info, as the preview was on")
+            case .foldedPreview?:
+                Logger.shared.info("[info] The preview is in the Info inspector now — folded it away there, as the preview was off")
+            case nil:
+                break
+            }
 
             // Put a newly shipped pane-bar control onto a bar someone arranged on an earlier
             // build, before any @AppStorage property wrapper reads the arrangement. Without it a
@@ -864,6 +875,8 @@ struct SyncCloudApp: App {
             // View ▸ the workspaces (one ⌘-digit each, checkmarked) and the show/hide switches. The
             // workspace items sit in the View menu because that is what they change — which
             // surface the window shows — not what the app does to any file.
+            // Nine children since View ▸ File Preview went (TE318). The ten-child limit is why three
+            // of them are pairs.
             CommandGroup(after: .sidebar) {
                 WorkspaceCommands()
                 Divider()
@@ -872,17 +885,17 @@ struct SyncCloudApp: App {
                 // while the column was held; back with it, and disabled rather than deleted while
                 // the panes are collapsed — the same rule as the toolbar button, so the two halves
                 // of one control cannot disagree.
-                // With Edit's Text Files after it, as one child — this builder is at its ten.
+                // With Edit's Text Files after it, as one child — this builder was at its ten.
                 ColumnCommands()                // ⌃⌘S, and ⌃⌘T in Edit
-                // Tab Bar and Status Bar, as one child — this builder is at its ten. See the type.
+                // Tab Bar and Status Bar, as one child — this builder was at its ten. See the type.
                 PaneChromeCommands()            // ⇧⌘T, and Status Bar with no chord
                 ToggleHiddenFilesCommand()      // ⇧⌘.
-                // With Ask Claude after it, as one child — this builder is at its ten. See the type.
+                // With Ask Claude after it, as one child — this builder was at its ten. See the type.
                 InspectorAndAskClaudeCommands() // ⌘I (and Italic in Edit's document), ⌘J
                 ToggleDifferencesListCommand()  // ⌘D
                 FoldAllDifferencesCommand()     // ⇧⌘F
                 // The whole app's type, on the slider's own stops (roadmap RD2): a divider and a
-                // Text Size submenu, as one view because this builder was at its ten children.
+                // Text Size submenu, as one view because this builder was at its ten children then.
                 TextSizeMenuCommand()           // ⌘+ ⌘− ⌘0
             }
             // Go ▸ per-pane history, Finder's own menu for Finder's own chords — plus the chord

@@ -367,18 +367,27 @@ struct PaneColumnsView: View {
             //   ever un-hide content, so there is nothing for a reveal to correct there, and
             //   firing anyway force-scrolls a stack the user may have deliberately scrolled back.
             //
-            // A live window resize does fire this on every frame. That is the one per-frame caller,
-            // and it is safe: no wheel gesture is in flight to hold the stack, so each frame's first
-            // attempt simply keeps the column against the shrinking edge, and each reveal supersedes
-            // the last one's retry (`PaneColumnHoldGate.beginReveal`) — only the final width's retry
-            // is left to run. Widening is the other edge and only un-hides, so it is left alone; and
-            // a pane going to nothing has no column to show.
+            // Every frame of a live narrowing fires this: a window resize, the comparison split or
+            // the Info inspector's edge dragged. It is safe in each — no wheel gesture is in flight to
+            // hold the stack, so each frame's first attempt simply keeps the column against the
+            // shrinking edge, and each reveal supersedes the last one's retry
+            // (`PaneColumnHoldGate.beginReveal`), leaving only the final width's retry to run.
+            // Widening only un-hides, so it is left alone — except across the push threshold, the
+            // driver below; and a pane going to nothing has no column to show.
             //
             // (Until TE317 C the pane's own preview drove three more: its arrival, its moving to
             // another file, and its divider settling wider. The preview is the Info inspector's now
             // and takes nothing from the pane, so none of the three has an edge left to watch.)
             .onChange(of: paneWidth) { previous, current in
                 guard current < previous, current > 0 else { return }
+                revealDeepestColumn(proxy)
+            }
+            // And when a pane WIDENS out of push mode, the one widening that is an occluding edge:
+            // the content grows from the one column push mode shows to the whole stack, at an origin
+            // of 0, so the column the user was in is the last of several and off the trailing edge.
+            // Closing the Info inspector over a Compare pane pushed down to one column did it.
+            .onChange(of: usesPush) { wasPushing, isPushing in
+                guard wasPushing, !isPushing else { return }
                 revealDeepestColumn(proxy)
             }
             // And once the COLUMN divider settles: widening the columns grows every column in the

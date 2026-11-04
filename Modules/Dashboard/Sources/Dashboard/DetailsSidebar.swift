@@ -7,8 +7,8 @@ import AppKit
 import Design
 import FileExplorer
 
-/// Sidebar that shows file/folder metadata (size, dates, permissions) for the current selection or focused folder.
-/// Shown in the bottom tabbed area of the main view when the “Details” tab is selected.
+/// The Info inspector's contents (TE318 B): a picture of the selected item over its name, its
+/// actions and its details, for the current selection or, with nothing selected, the focused folder.
 public struct DetailsSidebar: View {
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
     /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
@@ -19,9 +19,6 @@ public struct DetailsSidebar: View {
     public let leftPath: String
     /// Current root path for the right pane (used when no item is selected).
     public let rightPath: String
-    /// Lays the icon above the metadata (vertical) instead of beside it (horizontal), for the narrow
-    /// Compare Info inspector where a side-by-side icon column would starve the values of width.
-    public let compact: Bool
     /// An explicit path to inspect, overriding the pane selection — set by "Get Info" on a
     /// differences-table row, whose file has no pane selection to derive from. nil = follow selection.
     public let overridePath: String?
@@ -43,17 +40,23 @@ public struct DetailsSidebar: View {
     /// and keeps asking the question it was written to ask. The default is a correct answer rather
     /// than a silently broken one: the inspector then draws exactly the row it always drew.
     public let editorHandOff: EditorHandOff?
-    /// The Info inspector's layout (TE318 B) when non-nil: a picture on top, the bar that resizes
-    /// it, then the name, the actions and the details in groups. The binding is the picture's share
-    /// of the height, which the host persists. nil keeps the card layout.
-    public let previewFraction: Binding<Double>?
-    /// The host's preview of the selected file, drawn as the picture. nil for anything the host does
-    /// not preview — a folder, several items — which then shows its icon in the same frame.
+    /// The picture's share of the height, which the host persists and the bar under the picture
+    /// sets. The card layout it once sat beside is gone: the inspector is the only host.
+    public let previewFraction: Binding<Double>
+    /// The host's preview of `previewPath`, drawn as the picture. nil for anything the host does not
+    /// preview — a folder, several items — which then shows its icon in the same frame.
     public let preview: AnyView?
+    /// The file `preview` shows. The picture is drawn only while the details below describe that
+    /// same file: the preview is built from the selection as it is now and the details from the
+    /// last stat, which lags it — briefly after every click, for seconds on a slow provider — and
+    /// the new file's picture over the previous file's name was the one inconsistency the card
+    /// never had. Until the stat catches up, the picture is the described item's icon.
+    public let previewPath: String?
     /// Whether the right pane's selection comes first. The host's answer to "which pane is the user
     /// working in" (TE317·5): left-first alone described the left pane right after a click in the
     /// right one whenever the left pane still held a selection. A right pane with nothing selected
-    /// falls through to the left, as before.
+    /// falls through to the left; with nothing selected anywhere, the focused folder is the right
+    /// pane's.
     public let followsRight: Bool
 
     /// The picture's share of the inspector's height until the user drags it: most of it, since the
@@ -94,32 +97,33 @@ public struct DetailsSidebar: View {
     nonisolated private static let dateFormatter = ZoneRefreshedFormatter.localized(date: .medium,
                                                                                     time: .medium)
     
-    public init(syncManager: FileSyncManager, leftPath: String, rightPath: String, compact: Bool = false, overridePath: String? = nil, singleSource: Bool = false, cloudCoverage: FileLocation.Coverage? = nil, editorHandOff: EditorHandOff? = nil, previewFraction: Binding<Double>? = nil, preview: AnyView? = nil, followsRight: Bool = false) {
+    public init(syncManager: FileSyncManager, leftPath: String, rightPath: String, overridePath: String? = nil, singleSource: Bool = false, cloudCoverage: FileLocation.Coverage? = nil, editorHandOff: EditorHandOff? = nil, previewFraction: Binding<Double> = .constant(DetailsSidebar.defaultPreviewFraction), preview: AnyView? = nil, previewPath: String? = nil, followsRight: Bool = false) {
         self.init(syncManager: syncManager, leftPath: leftPath, rightPath: rightPath,
-                  compact: compact, overridePath: overridePath, singleSource: singleSource,
+                  overridePath: overridePath, singleSource: singleSource,
                   cloudCoverage: cloudCoverage, editorHandOff: editorHandOff,
                   cache: DetailsMetadataCache(), previewFraction: previewFraction, preview: preview,
-                  followsRight: followsRight)
+                  previewPath: previewPath, followsRight: followsRight)
     }
 
     /// Test seam: hands in the metadata cache instead of letting `@State` mint one, so a test can
     /// control the loader behind it — specifically, hold it hostage and prove the first frame still
     /// paints. `DetailsMetadataCache` is internal, which is why this initializer cannot be the
     /// public one.
-    init(syncManager: FileSyncManager, leftPath: String, rightPath: String, compact: Bool,
+    init(syncManager: FileSyncManager, leftPath: String, rightPath: String,
          overridePath: String?, singleSource: Bool, cloudCoverage: FileLocation.Coverage? = nil,
          editorHandOff: EditorHandOff? = nil, cache: DetailsMetadataCache,
-         previewFraction: Binding<Double>? = nil, preview: AnyView? = nil, followsRight: Bool = false) {
+         previewFraction: Binding<Double> = .constant(DetailsSidebar.defaultPreviewFraction),
+         preview: AnyView? = nil, previewPath: String? = nil, followsRight: Bool = false) {
         self.syncManager = syncManager
         self.leftPath = leftPath
         self.rightPath = rightPath
-        self.compact = compact
         self.overridePath = overridePath
         self.singleSource = singleSource
         self.cloudCoverage = cloudCoverage
         self.editorHandOff = editorHandOff
         self.previewFraction = previewFraction
         self.preview = preview
+        self.previewPath = previewPath
         self.followsRight = followsRight
         _cache = State(initialValue: cache)
     }
@@ -176,7 +180,8 @@ public struct DetailsSidebar: View {
             return selected
         }
 
-        // Fallback to navigated folders
+        // Fallback to navigated folders: the pane the user is in, as everything above follows it.
+        if followsRight, !rightPath.isEmpty { return rightPath }
         return leftPath.isEmpty ? rightPath : leftPath
     }
 
@@ -202,12 +207,16 @@ public struct DetailsSidebar: View {
 
     /// Non-nil when 2+ items are selected: the sidebar shows the Finder-style summary instead
     /// of single-item metadata (which would silently describe only the alphabetically-first
-    /// path). Left pane wins when both have selections — the same rule as `activePath`.
+    /// path). Answers for the pane `activePath` reads — the right one when `followsRight` and it
+    /// holds something, the left one otherwise — and never over a Get Info target, which
+    /// `activePath` puts first: with several items selected in a pane, Get Info on a differences
+    /// row showed "3 items" and seemed to do nothing.
     ///
     /// Resolved through the manager's cached path→node index, NOT `leftTree.findNodes` — this is
     /// read from `body`, and the walk costs 8–11ms per render whenever the selection sits deep in
     /// the tree or holds a path a rescan has removed. See `DetailsSelectionSummary.make(selectedPaths:resolving:)`.
     internal var selectionSummary: DetailsSelectionSummary? {
+        if let overridePath, !overridePath.isEmpty { return nil }
         if followsRight, !rightSelectionPaths.isEmpty {
             return DetailsSelectionSummary.make(selectedPaths: rightSelectionPaths) {
                 syncManager.rightNodes(for: $0)
@@ -451,139 +460,13 @@ public struct DetailsSidebar: View {
         // for the turn in between — a flash saying the opposite of what the user just did. The
         // pair is held together in one value, so a stale card is internally consistent (this
         // file's icon, this file's name); it is only a beat behind. What it must NOT do is offer
-        // to act, which is why `metadataActions` is withheld while stale — Reveal and Quick Look
+        // to act, which is why the action row is withheld while stale — Reveal and Quick Look
         // would otherwise target the previous file.
         let shown = loaded
         let isStale = shown?.key != sizeKey
         let (data, icon): (FileMetadata?, NSImage?) = (shown?.metadata, shown?.icon)
-        // Compact (narrow inspector): stack the icon above the metadata so values get the full width.
-        // Wide (bottom pane): the icon sits in a column beside the metadata.
-        let layout = compact
-            ? AnyLayout(VStackLayout(alignment: .center, spacing: 12))
-            : AnyLayout(HStackLayout(alignment: .top))
-        return Group {
-        if let previewFraction {
-            inspectorLayout(summary: summary, data: data, icon: icon, isStale: isStale,
-                            key: shown?.key ?? sizeKey, fraction: previewFraction)
-        } else {
-        ScrollView(.vertical, showsIndicators: true) {
-            VStack(spacing: 0) {
-                layout {
-                    if let summary {
-                        // Stack-of-documents header mirroring the single-item icon column.
-                        VStack {
-                            Image(systemName: "square.fill.on.square.fill")
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 56, height: 56)
-                                .foregroundStyle(.secondary)
-                                .padding(.top, 28)
-                            Spacer(minLength: 0)
-                        }
-                        .frame(width: 120)
-
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text(summary.title)
-                                .scaledFont(.title2)
-                                .fontWeight(.semibold)
-                                .padding(.top, 10)
-
-                            Divider()
-
-                            DetailsMetadataGrid(lines: [.fact("Items:", summary.kindDescription),
-                                                        .fact("Size:", summary.sizeDescription)])
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.trailing, 20)
-
-                        Spacer(minLength: 0)
-                    // The cache loads the icon whenever the metadata stat succeeds, so `icon`
-                    // is non-nil exactly when `data` is — one binding, no fallback icon path.
-                    } else if let data, let icon {
-                        // Icon Header
-                        VStack {
-                            Image(nsImage: icon)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 80, height: 80)
-                                .padding(.top, 16)
-                            Spacer(minLength: 0)
-                        }
-                        .frame(width: 120)
-                        
-                        // Metadata Table
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                Text(data.name)
-                                    .scaledFont(.title2)
-                                    .fontWeight(.semibold)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                // Nothing is selected — clarify this is the focused folder,
-                                // not an item the user chose.
-                                if isShowingFocusedFolderFallback {
-                                    Text("— focused folder")
-                                        .scaledFont(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .fixedSize()
-                                }
-                            }
-                            .padding(.top, 10)
-
-                            Divider()
-
-                            // Keyed on the stat this card came from, not on the live key: a folder
-                            // total belongs to the item it was walked for, so a stale card reads
-                            // "Calculating…" rather than crediting the previous folder's size to
-                            // the one now selected.
-                            //
-                            // The supporting facts, then the verdict — in that order, and directly
-                            // under the path they are drawn from. "Where it lives" names a
-                            // provider because the path above is inside that provider's folder,
-                            // and says the content is here because the row above says so. Put the
-                            // verdict first and it reads as an oracle; put the facts first and the
-                            // row explains itself.
-                            DetailsMetadataGrid(lines: [
-                                .fact("Kind:", data.kind),
-                                .fact("Size:", displaySize(for: data, key: shown?.key ?? sizeKey)),
-                                .fact("Where:", data.path),
-                            ] + whereItLivesLines(for: data, key: shown?.key ?? sizeKey) + [
-                                .divider,
-                                .fact("Created:", data.creationDate),
-                                .fact("Modified:", data.modificationDate),
-                                .divider,
-                                .fact("Permissions:", data.permissions),
-                            ])
-
-                            // Withheld while the card is a beat behind the selection — see the
-                            // stale-while-revalidate note in `body`. Reveal / Copy Path / Quick
-                            // Look all name `data.path`, and for the turn between the click and
-                            // the stat landing that is still the PREVIOUS file.
-                            if !isStale {
-                                Divider()
-
-                                metadataActions(for: data)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.trailing, 20)
-                        
-                        Spacer(minLength: 0)
-                    } else {
-                        EmptyStateView(
-                            icon: "info.circle",
-                            title: "No item selected",
-                            message: "Select a file or folder to see its details here.",
-                            layout: .compact
-                        )
-                        .frame(minHeight: 120)
-                    }
-                }
-            }
-            .padding(20)
-        }
-        }
-        }
+        return inspectorLayout(summary: summary, data: data, icon: icon, isStale: isStale,
+                               key: shown?.key ?? sizeKey)
         .frame(minHeight: 0)
         // Allow the sidebar to shrink slightly but wrap text elements to avoid clipping
         .frame(minWidth: 200, maxWidth: .infinity, alignment: .leading)
@@ -820,15 +703,6 @@ public struct DetailsSidebar: View {
         }
     }
     
-    /// Whether this card offers to open its file in Edit.
-    ///
-    /// **Pure, and static, so the rule can be called rather than mounted** — the same reason every
-    /// other decision in this file is a value. Three terms, and each has already been the wrong
-    /// answer somewhere: no hand-off means the host has no editor at all (the Dashboard package
-    /// knows nothing about one); a DIRECTORY never offers it, because this card renders for
-    /// focused-folder selections too and `kind` is a localized UTI description that cannot be
-    /// asked; and the host answers PER PATH rather than once, because the closure is fixed when
-    /// this view is built and the selection is not.
     // MARK: The Info inspector's layout (TE318 B)
 
     /// Picture, bar, then name, actions and grouped details. The file is named once, under its
@@ -836,19 +710,35 @@ public struct DetailsSidebar: View {
     /// move up into the line under the name, where Finder's preview pane keeps them.
     @ViewBuilder
     private func inspectorLayout(summary: DetailsSelectionSummary?, data: FileMetadata?, icon: NSImage?,
-                                 isStale: Bool, key: DirectorySizeTaskID,
-                                 fraction: Binding<Double>) -> some View {
+                                 isStale: Bool, key: DirectorySizeTaskID) -> some View {
         if summary == nil, data == nil {
-            EmptyStateView(
-                icon: "info.circle",
-                title: "No item selected",
-                message: "Select a file or folder to see its details here.",
-                layout: .compact
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Nothing to draw yet is not "nothing selected": while the first stat is out, the panel
+            // stays blank rather than say the opposite of the click that brought it here.
+            if isStale {
+                Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if isShowingFocusedFolderFallback {
+                EmptyStateView(
+                    icon: "info.circle",
+                    title: "No item selected",
+                    message: "Select a file or folder to see its details here.",
+                    layout: .compact
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                // A selected item the stat found nothing for: deleted since the last scan, moved, or
+                // unreadable. The in-pane preview said "This file is no longer here"; saying "No item
+                // selected" over a selection is wrong.
+                EmptyStateView(
+                    icon: "questionmark.folder",
+                    title: "Can’t show this item",
+                    message: "It is no longer here, or SyncCloud can’t read it.",
+                    layout: .compact
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         } else {
-            InspectorSplit(fraction: fraction, defaultFraction: Self.defaultPreviewFraction) {
-                inspectorPicture(summary: summary, icon: icon)
+            InspectorSplit(fraction: previewFraction, defaultFraction: Self.defaultPreviewFraction) {
+                inspectorPicture(summary: summary, data: data, icon: icon, isStale: isStale)
             } lower: {
                 ScrollView(.vertical, showsIndicators: true) {
                     VStack(spacing: 14) {
@@ -870,11 +760,13 @@ public struct DetailsSidebar: View {
     }
 
     /// The host's preview for one file; otherwise the item's icon, in the same frame, so going from a
-    /// file to a folder moves nothing below it (TE318·m6).
+    /// file to a folder moves nothing below it (TE318·m6). The preview only while the details describe
+    /// the file it shows — see `previewPath`.
     @ViewBuilder
-    private func inspectorPicture(summary: DetailsSelectionSummary?, icon: NSImage?) -> some View {
+    private func inspectorPicture(summary: DetailsSelectionSummary?, data: FileMetadata?, icon: NSImage?,
+                                  isStale: Bool) -> some View {
         Group {
-            if summary == nil, let preview {
+            if summary == nil, !isStale, let preview, let data, data.path == previewPath {
                 preview
             } else if summary != nil {
                 Image(systemName: "square.fill.on.square.fill")
@@ -917,25 +809,53 @@ public struct DetailsSidebar: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// The card's four verbs as one row of icons, always directly under the name (TE318·m3) — in the
-    /// card they sat at the foot of the facts and moved with however many there were.
+    /// One of the verbs in the row under the name.
+    enum InspectorAction: CaseIterable, Hashable {
+        case openInEdit, quickLook, revealInFinder, copyPath
+
+        var title: String {
+            switch self {
+            case .openInEdit: return "Open in Edit"
+            case .quickLook: return "Quick Look"
+            case .revealInFinder: return "Reveal in Finder"
+            case .copyPath: return "Copy Path"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .openInEdit: return "square.and.pencil"
+            case .quickLook: return "doc.viewfinder"
+            case .revealInFinder: return RevealGlyph.inFinder
+            case .copyPath: return "doc.on.clipboard"
+            }
+        }
+
+        var help: String {
+            self == .openInEdit ? "Open this file in Edit, SyncCloud’s own editor" : title
+        }
+    }
+
+    /// The row, in order: Open in Edit first where the file opens there (`offersEditor`), as the
+    /// row menu leads with it, then the three every item gets. Pure, so the order can be asked for —
+    /// the buttons are icons of one width, and a rendered row cannot tell them apart.
+    static func inspectorActionRow(offersEditor: Bool) -> [InspectorAction] {
+        InspectorAction.allCases.filter { $0 != .openInEdit || offersEditor }
+    }
+
+    /// The verbs as one row of icons, always directly under the name (TE318·m3) — in the card they
+    /// sat at the foot of the facts and moved with however many there were.
     private func inspectorActions(for data: FileMetadata) -> some View {
-        HStack(spacing: 8) {
-            if let handOff = editorHandOff, Self.offersEditor(handOff: handOff, data: data) {
-                inspectorAction("Open in Edit", symbol: "square.and.pencil",
-                                help: "Open this file in Edit, SyncCloud’s own editor") {
-                    handOff.open(data.path)
+        let offers = Self.offersEditor(handOff: editorHandOff, data: data)
+        return HStack(spacing: 8) {
+            ForEach(Self.inspectorActionRow(offersEditor: offers), id: \.self) { action in
+                Button { perform(action, on: data) } label: {
+                    Label(action.title, systemImage: action.symbol)
+                        .labelStyle(.iconOnly)
                 }
-            }
-            inspectorAction("Quick Look", symbol: "doc.viewfinder", help: "Quick Look") {
-                quickLookItem = URL(fileURLWithPath: data.path)
-            }
-            inspectorAction("Reveal in Finder", symbol: RevealGlyph.inFinder, help: "Reveal in Finder") {
-                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: data.path)])
-            }
-            inspectorAction("Copy Path", symbol: "doc.on.clipboard", help: "Copy Path") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(data.path, forType: .string)
+                .chromeHover()
+                .help(action.help)
+                .accessibilityLabel(action.title)
             }
         }
         .chromeButtonStyle(glassLevel)
@@ -943,15 +863,18 @@ public struct DetailsSidebar: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func inspectorAction(_ title: String, symbol: String, help: String,
-                                 action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: symbol)
-                .labelStyle(.iconOnly)
+    private func perform(_ action: InspectorAction, on data: FileMetadata) {
+        switch action {
+        case .openInEdit:
+            editorHandOff?.open(data.path)
+        case .quickLook:
+            quickLookItem = URL(fileURLWithPath: data.path)
+        case .revealInFinder:
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: data.path)])
+        case .copyPath:
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(data.path, forType: .string)
         }
-        .chromeHover()
-        .help(help)
-        .accessibilityLabel(title)
     }
 
     /// The remaining facts in three short groups instead of one long list (TE318·m5).
@@ -980,57 +903,18 @@ public struct DetailsSidebar: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// Whether the inspector offers to open its file in Edit.
+    ///
+    /// **Pure, and static, so the rule can be called rather than mounted** — the same reason every
+    /// other decision in this file is a value. Three terms, and each has already been the wrong
+    /// answer somewhere: no hand-off means the host has no editor at all (the Dashboard package
+    /// knows nothing about one); a DIRECTORY never offers it, because this card renders for
+    /// focused-folder selections too and `kind` is a localized UTI description that cannot be
+    /// asked; and the host answers PER PATH rather than once, because the closure is fixed when
+    /// this view is built and the selection is not.
     static func offersEditor(handOff: EditorHandOff?, data: FileMetadata) -> Bool {
         guard let handOff, !data.isDirectory else { return false }
         return handOff.isOffered(data.path)
-    }
-
-    /// Inline actions for the metadata card so the Details tab isn't a read-only dead end.
-    /// Open in Edit / Reveal / Copy Path / Quick Look — verbs the file-row context menu also
-    /// carries, in this card's own order. Bordered + small to match the app's other inline
-    /// action rows. Shown for both single-item and focused-folder renders — wherever `data` is
-    /// non-nil — and the editor verb additionally only for a text file the host can open.
-    private func metadataActions(for data: FileMetadata) -> some View {
-        // **Wrapping, not squeezing** — `FlowLayout`, which exists for exactly this defect and says
-        // so. The inspector is 270pt by default and this row was ALREADY losing its labels there:
-        // rendered, the three buttons read "Reve… / Cop… / Quic…". A fourth took two of them to an
-        // icon and a bare ellipsis with no letters at all, which is a control nobody can identify.
-        // Wrapped, every button keeps its whole title at every inspector width, and the row grows
-        // downward in a card that already scrolls.
-        FlowLayout(spacing: 8, lineSpacing: 8) {
-            if let handOff = editorHandOff, Self.offersEditor(handOff: handOff, data: data) {
-                Button {
-                    handOff.open(data.path)
-                } label: {
-                    Label("Open in Edit", systemImage: "square.and.pencil")
-                }
-                .chromeHover()
-                .help("Open this file in Edit, SyncCloud’s own editor")
-            }
-            Button {
-                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: data.path)])
-            } label: {
-                Label("Reveal in Finder", systemImage: RevealGlyph.inFinder)
-            }
-            .chromeHover()
-            Button {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(data.path, forType: .string)
-            } label: {
-                Label("Copy Path", systemImage: "doc.on.clipboard")
-            }
-            .chromeHover()
-            Button {
-                quickLookItem = URL(fileURLWithPath: data.path)
-            } label: {
-                Label("Quick Look", systemImage: "doc.viewfinder")
-            }
-            .chromeHover()
-        }
-        // The inspector card takes the glass level verbatim, so at Clear these buttons frost
-        // individually — a plain bordered fill has nothing to read against on see-through glass.
-        .chromeButtonStyle(glassLevel)
-        .controlSize(.small)
     }
 
     // MARK: Where it lives

@@ -280,10 +280,13 @@ import FileExplorer
                 "the inspector no longer draws the preview")
         #expect(content.contains("previewFraction: $inspectorPreviewFraction"),
                 "the inspector no longer draws the preview at the remembered height")
-        #expect(!macApp.contains("TogglePreviewColumnCommand"), "View ▸ File Preview is back")
-        // No preference for an in-pane preview is read anywhere in the app any more.
-        #expect(!macApp.contains("@AppStorage(PaneViewMode.previewColumnKey"))
-        #expect(!macApp.contains("@AppStorage(PaneViewMode.previewColumnDefaultsKey)"))
+        // The retired menu item by its title, the only spelling that can come back: the type and
+        // the keys it read are gone from the modules, so a check on their names could never fail.
+        #expect(!macApp.contains("\"File Preview\""), "View ▸ File Preview is back")
+        #expect(content.contains("paneWatches: paneIsWatching(isLeft: target.isLeft)"),
+                "the inspector's preview no longer says whether a pane is on screen to watch a download")
+        #expect(content.contains("downloads: inspectorDownloads"),
+                "the inspector's downloads are not the window's, so they die with the preview")
     }
 
     // MARK: Sort By ticks the panes' order

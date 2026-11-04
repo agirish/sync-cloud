@@ -666,12 +666,12 @@ struct PaneBarCustomizeSheet: View {
                     .padding(.trailing, 5)
             }
             Spacer(minLength: 12)
-            Button("Restore") { commit(.default) }
+            Button("Restore") { commit(arrangement.restoredToDefault) }
                 // Same lesson as the provider ghost: the thing that must never be squeezed says so
                 // itself rather than trusting the row to have room.
                 .fixedSize()
-                .disabled(arrangement == .default)
-                .help(arrangement == .default
+                .disabled(arrangement.drawsTheDefault)
+                .help(arrangement.drawsTheDefault
                       ? "The bar is already the default arrangement"
                       : "Put the bar back the way it shipped")
         }

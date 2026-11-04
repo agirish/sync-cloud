@@ -573,19 +573,22 @@ enum PaneLogic {
         return path == browsePath ? nil : path
     }
 
+    /// Which pane the Info inspector describes (TE317·5): the pane the user is working in, or the
+    /// other one when only that one holds a selection. With nothing selected anywhere, still the
+    /// pane the user is in — its folder is what the inspector then shows, and its caption says
+    /// "Right pane" or "Left pane" accordingly. Outside Compare there is only the left pane.
+    static func inspectorFollowsLeft(isCompare: Bool, focusedIsLeft: Bool,
+                                     leftHasSelection: Bool, rightHasSelection: Bool) -> Bool {
+        guard isCompare else { return true }
+        if focusedIsLeft { return leftHasSelection || !rightHasSelection }
+        return !rightHasSelection && leftHasSelection
+    }
+
     /// The left pane wins when both panes have selections (it is checked first, matching
     /// the historical behavior of the details/actions targeting). The selection bindings
     /// enforce exclusivity via `reconciledSelections`, clearing the other pane one runloop
     /// tick after a pick lands, so a both-non-empty state can exist for at most a single
     /// frame — this left-wins tiebreak keeps that frame pointing at a real pane.
-    /// Which pane's selection the Info inspector describes (TE317·5): the pane the user is working
-    /// in, or the other one when that holds nothing. Outside Compare there is only the left pane.
-    static func inspectorFollowsLeft(isCompare: Bool, focusedIsLeft: Bool,
-                                     leftHasSelection: Bool, rightHasSelection: Bool) -> Bool {
-        guard isCompare else { return true }
-        return focusedIsLeft ? (leftHasSelection || !rightHasSelection) : !rightHasSelection
-    }
-
     static func activePane(leftSelection: Set<String>, rightSelection: Set<String>) -> ActivePane? {
         if !leftSelection.isEmpty { return .left }
         if !rightSelection.isEmpty { return .right }

@@ -4,89 +4,153 @@ import Sync
 /// The file preview as the window's Info inspector draws it (TE317 C): the picture alone, over the
 /// inspector's own details, which list the name, kind and dates.
 ///
-/// **It watches no download of its own.** The pane the file was selected in does: a Download here
-/// posts through that pane's token, the pane runs the one watch (one poll, one memo `forget`) and
-/// clears the row's badge as it always did, and this view only follows it — "Downloading…" from the
-/// request it hears to the `.cloudDownloadWatchEnded` the pane posts, then a re-probe. It used to
-/// run a second watch beside the pane's, which doubled both.
+/// **Its downloads are the host's `InspectorDownloads`, not its own state.** The preview is taken
+/// down whenever the inspector shows something else — a folder, several items, the picture folded
+/// away — and a "Downloading…" kept in `@State` died with it: back on the file, the inspector
+/// offered Download again while the pane was still fetching it. See `InspectorDownloads`.
+///
+/// Rebuilt — a fresh probe, a fresh renderer — when the file changes on disk (its modification
+/// date moves with the next tree publish) and when a watch of it ends, so a saved or signed file and
+/// a download that landed both show what is on disk now. Quick Look and PDFKit keep what they first
+/// read for a URL they already have.
 public struct InspectorFilePreview: View {
     let item: ColumnPreviewItem
+    let modified: Date?
     let paneToken: PaneToken
+    let paneWatches: Bool
     let downloadChannel: NotificationCenter
+    @ObservedObject var downloads: InspectorDownloads
 
-    /// The pane's download of the file on screen, from its request until the pane says its watch
-    /// ended — or until `unheardDeadline`, for a request no pane picked up.
-    @State private var awaiting: CloudDownloadRequest?
-    /// `unheardDeadline` in the app — see `inspectorDownloadDeadline`.
-    @Environment(\.inspectorDownloadDeadline) private var deadline
-
-    /// How long "Downloading…" waits for a pane that never says it is done: a whole watch and one
-    /// interval more. Only reached when no mounted pane carries `paneToken` — a Get Info target found
-    /// in a tree whose pane is not on screen — since a pane that heard the request always ends its
-    /// watch within `attempts × interval`. A deadline, not a watch: it polls nothing.
-    nonisolated static let unheardDeadline = CloudDownloadPoll.interval * (CloudDownloadPoll.attempts + 1)
-
-    /// - Parameter paneToken: the pane the file was selected in, which watches a Download started
-    ///   here.
-    public init(node: FileNode, paneToken: PaneToken, downloadChannel: NotificationCenter = .default) {
+    /// - Parameters:
+    ///   - paneToken: the pane the file was selected in, which a Download started here is posted from.
+    ///   - paneWatches: whether that pane is on screen to watch the download. When it is not — Edit
+    ///     with its file pane folded, a Get Info target from a pane that is hidden — `downloads` runs
+    ///     the watch itself, so the file still arrives and the badge still clears.
+    public init(node: FileNode, paneToken: PaneToken, paneWatches: Bool, downloads: InspectorDownloads,
+                downloadChannel: NotificationCenter = .default) {
         self.item = ColumnPreviewItem(node: node)
+        self.modified = node.modificationDate
         self.paneToken = paneToken
+        self.paneWatches = paneWatches
+        self.downloads = downloads
         self.downloadChannel = downloadChannel
+    }
+
+    /// What a fresh column is keyed on: the file, its content's date, and how many watches of it
+    /// have ended.
+    struct Identity: Hashable {
+        let path: String
+        let modified: Date?
+        let watchesEnded: Int
     }
 
     public var body: some View {
         ColumnPreviewColumn(item: item, paneToken: paneToken,
-                            isAwaitingDownload: awaiting?.path == item.path,
+                            isAwaitingDownload: downloads.isAwaiting(item.path),
                             downloadChannel: downloadChannel)
-            // A fresh column per file, so a probe or a settle delay never carries over.
-            .id(item.path)
+            .id(Identity(path: item.path, modified: modified, watchesEnded: downloads.watchesEnded(item.path)))
             .onReceive(downloadChannel.publisher(for: .cloudDownloadRequested)) { note in
-                awaiting = Self.awaiting(after: note, current: awaiting, path: item.path, paneToken: paneToken)
-            }
-            .onReceive(downloadChannel.publisher(for: .cloudDownloadWatchEnded)) { note in
-                awaiting = Self.awaiting(after: note, current: awaiting, path: item.path, paneToken: paneToken)
-            }
-            .task(id: awaiting?.requestID) {
-                guard let waiting = awaiting,
-                      (try? await Task.sleep(for: deadline)) != nil,
-                      awaiting?.requestID == waiting.requestID else { return }
-                awaiting = nil
+                guard !paneWatches,
+                      let request = CloudDownloadRequest.accepted(from: note, paneToken: paneToken),
+                      request.path == item.path else { return }
+                downloads.watchUnheard(request)
             }
     }
+}
 
-    /// What `awaiting` becomes after `note`: a request from this view's pane for the file on screen
-    /// starts it, the end of the watch for exactly that request clears it, and anything else leaves
-    /// it as it was. By `requestID`, never path — the rule `CloudDownloadRequest.concludes` states:
-    /// a repeat Download of the same file supersedes the old request, and the old watch's end must
-    /// not clear the new one.
-    static func awaiting(after note: Notification, current: CloudDownloadRequest?, path: String,
-                         paneToken: PaneToken) -> CloudDownloadRequest? {
-        switch note.name {
-        case .cloudDownloadRequested:
-            guard let request = CloudDownloadRequest.accepted(from: note, paneToken: paneToken),
-                  request.path == path else { return current }
-            return request
-        case .cloudDownloadWatchEnded:
-            guard let ended = note.object as? CloudDownloadRequest,
-                  ended.requestID == current?.requestID else { return current }
-            return nil
-        default:
-            return current
+/// The Info inspector's downloads (TE318 review), kept by the host so they outlive the preview.
+///
+/// It follows every download request on its channel to the end of its watch: "Downloading…" from
+/// the request, cleared by the `.cloudDownloadWatchEnded` the watching pane posts — by `requestID`,
+/// never path, so a repeat Download's old watch does not clear the new one. Each ended watch counts
+/// against its file, and the preview rebuilds on the count: a file that landed after the inspector
+/// had already given up on it (`unheardDeadline`) is still looked at again.
+///
+/// **One watch per download.** The pane that posted the request runs it, as for its own rows. Only a
+/// request whose pane is not on screen to hear it is watched here (`watchUnheard`), with the same
+/// watch, which says when it ends on the same channel.
+@MainActor
+public final class InspectorDownloads: ObservableObject {
+    @Published private var awaiting: [String: CloudDownloadRequest] = [:]
+    @Published private var ended: [String: Int] = [:]
+    private let channel: NotificationCenter
+    private let deadline: Duration
+    private let watch: PaneDownloadWatch
+    private var deadlines: [String: Task<Void, Never>] = [:]
+    nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
+
+    /// How long "Downloading…" waits for a watch that never says it ended — a whole watch and one
+    /// interval more. Reached only when the watching pane is taken down mid-watch, since a request
+    /// with no pane to hear it is watched here. A backstop, not a watch: it polls nothing, and it
+    /// counts as an ending, so the file is looked at again.
+    nonisolated public static let unheardDeadline = CloudDownloadPoll.interval * (CloudDownloadPoll.attempts + 1)
+
+    /// - Parameters:
+    ///   - channel: where requests and the ends of watches are posted — `.default` in the app.
+    ///   - deadline: `unheardDeadline` in the app; a test puts it out of reach.
+    public convenience init(channel: NotificationCenter = .default,
+                            deadline: Duration = InspectorDownloads.unheardDeadline) {
+        self.init(channel: channel, deadline: deadline, watch: PaneDownloadWatch())
+    }
+
+    init(channel: NotificationCenter, deadline: Duration, watch: PaneDownloadWatch) {
+        self.channel = channel
+        self.deadline = deadline
+        self.watch = watch
+        // `queue: nil`: delivered on the posting thread, which is the main actor for every poster —
+        // the verb and the watch are both `@MainActor`.
+        observers.append(channel.addObserver(forName: .cloudDownloadRequested, object: nil, queue: nil) {
+            [weak self] note in
+            guard let request = note.object as? CloudDownloadRequest else { return }
+            MainActor.assumeIsolated { self?.requested(request) }
+        })
+        observers.append(channel.addObserver(forName: .cloudDownloadWatchEnded, object: nil, queue: nil) {
+            [weak self] note in
+            guard let request = note.object as? CloudDownloadRequest else { return }
+            MainActor.assumeIsolated { self?.watchEnded(request) }
+        })
+    }
+
+    deinit {
+        for observer in observers { channel.removeObserver(observer) }
+    }
+
+    /// Whether a download of `path` is being waited on.
+    public func isAwaiting(_ path: String) -> Bool { awaiting[path] != nil }
+
+    /// How many watches of `path` have ended, or been given up on.
+    public func watchesEnded(_ path: String) -> Int { ended[path] ?? 0 }
+
+    func requested(_ request: CloudDownloadRequest) {
+        awaiting[request.path] = request
+        deadlines[request.path]?.cancel()
+        let deadline = self.deadline
+        deadlines[request.path] = Task { [weak self] in
+            guard (try? await Task.sleep(for: deadline)) != nil else { return }
+            self?.gaveUp(on: request)
         }
     }
-}
 
-private struct InspectorDownloadDeadlineKey: EnvironmentKey {
-    static let defaultValue = InspectorFilePreview.unheardDeadline
-}
+    /// Watches `request` here, because no pane on screen will. Idempotent per request.
+    func watchUnheard(_ request: CloudDownloadRequest) {
+        if awaiting[request.path]?.requestID != request.requestID { requested(request) }
+        guard watch.request(forPath: request.path)?.requestID != request.requestID else { return }
+        watch.begin(request, announcingOn: channel)
+    }
 
-extension EnvironmentValues {
-    /// How long the inspector's "Downloading…" waits for a pane that never says its watch ended.
-    /// `InspectorFilePreview.unheardDeadline` everywhere but the one test that has to tell the
-    /// pane's word from the deadline: it puts the deadline out of reach, so a re-probe can only be
-    /// the pane's. A wall-clock bound cannot tell them apart on a loaded machine.
-    var inspectorDownloadDeadline: Duration {
-        get { self[InspectorDownloadDeadlineKey.self] }
-        set { self[InspectorDownloadDeadlineKey.self] = newValue }
+    func watchEnded(_ request: CloudDownloadRequest) {
+        if awaiting[request.path]?.requestID == request.requestID {
+            awaiting[request.path] = nil
+            deadlines[request.path]?.cancel()
+            deadlines[request.path] = nil
+        }
+        ended[request.path, default: 0] += 1
+    }
+
+    private func gaveUp(on request: CloudDownloadRequest) {
+        guard awaiting[request.path]?.requestID == request.requestID else { return }
+        awaiting[request.path] = nil
+        deadlines[request.path] = nil
+        ended[request.path, default: 0] += 1
     }
 }

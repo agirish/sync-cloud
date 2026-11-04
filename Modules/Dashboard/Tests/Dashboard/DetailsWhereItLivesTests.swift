@@ -107,7 +107,7 @@ import Sync
 
     private func body(path: String, coverage: FileLocation.Coverage?) -> AnyView {
         AnyView(DetailsSidebar(syncManager: FileSyncManager(), leftPath: "", rightPath: "",
-                               compact: true, overridePath: path, singleSource: false,
+                               overridePath: path, singleSource: false,
                                cloudCoverage: coverage)
             .frame(width: Self.canvas.width, height: Self.canvas.height)
             .background(Color(nsColor: .windowBackgroundColor))

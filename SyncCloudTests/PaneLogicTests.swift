@@ -435,13 +435,17 @@ import Sync
     }
 
     /// A focused pane with nothing selected hands over to the other pane's selection rather than
-    /// describing nothing; with nothing selected anywhere, the left pane, as before.
+    /// describing nothing; with nothing selected anywhere, the pane the user is in — Help and the
+    /// caption both say the inspector describes it.
     @Test func testAnEmptyFocusedPaneFallsThroughToTheOther() {
         #expect(PaneLogic.inspectorFollowsLeft(isCompare: true, focusedIsLeft: false,
                                                leftHasSelection: true, rightHasSelection: false))
         #expect(!PaneLogic.inspectorFollowsLeft(isCompare: true, focusedIsLeft: true,
                                                 leftHasSelection: false, rightHasSelection: true))
-        #expect(PaneLogic.inspectorFollowsLeft(isCompare: true, focusedIsLeft: false,
+        #expect(!PaneLogic.inspectorFollowsLeft(isCompare: true, focusedIsLeft: false,
+                                                leftHasSelection: false, rightHasSelection: false),
+                "with nothing selected, the right pane focused, the inspector described the left")
+        #expect(PaneLogic.inspectorFollowsLeft(isCompare: true, focusedIsLeft: true,
                                                leftHasSelection: false, rightHasSelection: false))
     }
 

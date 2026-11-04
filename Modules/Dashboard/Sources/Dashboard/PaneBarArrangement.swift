@@ -175,14 +175,23 @@ public struct PaneBarArrangement: Equatable, Sendable {
     public private(set) var items: [PaneBarItem]
 
     /// Tokens in the stored string that no case of THIS build's `PaneBarItem` names — a newer
-    /// build's controls, seen after a downgrade, or a retired one (`preview`) an older build wrote. Never drawn, never offered, never counted against
+    /// build's controls, seen after a downgrade, or a retired one (`preview`) an older build wrote.
+    /// Never drawn, never offered, never counted against
     /// `maxItems`; their whole job is to ride through `encoded` so that the customize sheet's
     /// write-back does not destroy them. Without this, `init(encoded:)`'s downgrade-survival
     /// promise held only until the first edit: `PaneBarCustomizeSheet.commit` writes the re-encoded
     /// arrangement over the stored one, so downgrade → edit → re-upgrade silently lost whatever the
     /// older build could not name. Carried at the tail rather than in place — the known items get
     /// inserted, removed and reordered, so original positions stop meaning anything the moment the
-    /// sheet is used, and the newer build's own normalizer re-places them on the next read.
+    /// sheet is used. A NEWER build's control is re-placed by that build's own normalizer on its
+    /// next read. A RETIRED one is not: the older build that still has it draws it where it now
+    /// sits, at the end of its bar — and a bar first written by this build (one never customized
+    /// before) carries no `preview` at all, so an older build sharing these defaults shows its
+    /// Preview button only if its own migration puts it back. Neither is a loss this build can see.
+    ///
+    /// Not part of what the bar IS for this build: `==` still compares them (two stored strings
+    /// that differ are different values), but "is this the shipped bar" is `drawsTheDefault`, which
+    /// reads the items alone — see `restoredToDefault`.
     ///
     /// Bounded like `items`: a corrupt or hand-edited value does not get to smuggle an unbounded
     /// payload that every later write faithfully re-persists.
@@ -273,6 +282,19 @@ public struct PaneBarArrangement: Equatable, Sendable {
         let tokens = encoded.split(separator: ",").map(String.init)
         self.init(tokens.compactMap { PaneBarItem(rawValue: $0) })
         unknownTokens = Array(tokens.filter { PaneBarItem(rawValue: $0) == nil }.prefix(Self.maxItems))
+    }
+
+    /// Whether this draws the shipped bar. The items alone: a bar carrying a token for another
+    /// build looks exactly like the default here, and Restore offered against it changed nothing on
+    /// screen and logged "reordered" while it silently dropped the token.
+    public var drawsTheDefault: Bool { items == Self.default.items }
+
+    /// The shipped bar, still carrying this one's tokens for other builds. Restore resets what this
+    /// build draws, not what another build will read.
+    public var restoredToDefault: PaneBarArrangement {
+        var restored = Self.default
+        restored.unknownTokens = unknownTokens
+        return restored
     }
 
     // MARK: Editing
@@ -1256,7 +1278,9 @@ public enum PaneBarEditLog {
     /// Pure, so the wording is testable without a hosted sheet: the sheet's own gestures need a
     /// real event loop, so a message built inside a `Button` action would be unverifiable.
     public static func message(from before: PaneBarArrangement, to after: PaneBarArrangement) -> String? {
-        guard before != after else { return nil }
+        // The items, not the stored strings: a change only in tokens another build carries is not
+        // an edit anyone made here.
+        guard before.items != after.items else { return nil }
         // Multiset differences, not set ones: spacers repeat, so "the bar gained a Space" is a
         // question about counts. A pure reorder leaves both empty, which is what names it.
         let added = surplus(of: after.items, over: before.items)
@@ -1271,7 +1295,7 @@ public enum PaneBarEditLog {
         // Restore is not given a verb of its own: it is described by what it did, plus the one fact
         // that distinguishes it from an edit that happens to land on the same list. A gesture-named
         // line would have to be trusted; this one is read off the result.
-        let tail = after == PaneBarArrangement.default ? " (the default arrangement)" : ""
+        let tail = after.drawsTheDefault ? " (the default arrangement)" : ""
         return "[panebar] User \(what) — it is now \(after.encoded)\(tail)"
     }
 

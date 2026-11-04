@@ -14330,9 +14330,13 @@ line has the preview's rising-edge driver and neither of these, checked by grepp
 `onChange(of: paneWidth)` on each line: a scrolled-back stack stays scrolled back when the preview
 moves to another file, and a narrower window hides the deepest column behind the preview.
 
+**Amended after `11ba1e3de`:** `main` no longer has an in-pane preview, so `previewPath` went with
+it and its gap has no counterpart on `main`. What `main` carries is the narrowing driver, and since
+the TE318 review a third: widening out of push mode (`onChange(of: usesPush)`). The lines lack both.
+
 | Line | Carries | Status |
 |---|---|---|
-| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Both gaps | RECORDED — not owed |
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No narrowing or push-mode reveal | RECORDED — not owed |
 
 ## Clear's floating panels match in Light and Dark (TE316) — main only
 
