@@ -14428,3 +14428,14 @@ exists only on `main`.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Ask Claude's search card lets the person pick what goes (TE320, his calls) — main only
+
+2026-11-03, for v7.0. On `main`: the card holding a content search's matches lists every file with
+a tick, its folder and its date. Share N Names with File Details sends the ticked files' rows; Share N
+Names Only sends their names alone; neither sends a file left unticked. Ask Claude exists only on
+`main`.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

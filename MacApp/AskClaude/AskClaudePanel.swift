@@ -33,6 +33,8 @@ struct AskClaudePanel: View {
     var onReveal: (String) -> Void = { _ in }
     /// Sends an offered passage (decision DS).
     var onSendOffer: (UUID, AskClaudeChat.OfferPart) -> Void = { _, _ in }
+    /// A tick on a found-names card (his call on TE320): the card, and the file by path.
+    var onFoundTick: (UUID, String) -> Void = { _, _ in }
     /// A download card's buttons (TE258).
     var onDownloadCard: (UUID, AskClaudeDownloadAction) -> Void = { _, _ in }
     /// Filing help's card buttons (TE255).
@@ -408,7 +410,7 @@ struct AskClaudePanel: View {
                     ForEach(chat.items) { item in
                         let key = turns.hoverKey(of: item)
                         AskClaudeThreadRow(item: item, accent: accent, accentFill: accentFill, onAccent: onAccent, hue: hue, onOpenSettings: onOpenSettings,
-                                           linkTargets: chat.linkTargets, onReveal: onReveal, onSendOffer: onSendOffer,
+                                           linkTargets: chat.linkTargets, onReveal: onReveal, onSendOffer: onSendOffer, onFoundTick: onFoundTick,
                                            onDownloadCard: onDownloadCard,
                                            onFilingCard: onFilingCard,
                                            onPlanCard: onPlanCard, onChoice: onChoice, onRuleCard: onRuleCard,
@@ -888,6 +890,7 @@ private struct AskClaudeThreadRow: View, Equatable {
     let linkTargets: [String: String]
     let onReveal: (String) -> Void
     let onSendOffer: (UUID, AskClaudeChat.OfferPart) -> Void
+    let onFoundTick: (UUID, String) -> Void
     let onDownloadCard: (UUID, AskClaudeDownloadAction) -> Void
     let onFilingCard: (AskClaudeFilingAction) -> Void
     let onPlanCard: (UUID, AskClaudePlanAction) -> Void
@@ -1220,21 +1223,33 @@ private struct AskClaudeThreadRow: View, Equatable {
         .accessibilityElement(children: .contain)
     }
 
-    /// **Names a content search found, held for their click** (decision IV, TE320): which files
-    /// mention the word, as the card's list, then Share These Names. Nothing leaves until a click.
+    /// **Names a content search found, held for their click** (decision IV, TE320): every file,
+    /// each with a tick and its folder and date (his call: show what goes, and let them pick),
+    /// then Share N Files and Share Names Only. Nothing leaves until a click.
     private func foundCard(_ id: UUID, _ found: AskClaudeFoundNames) -> some View {
         let sent = found.sent == true
+        let ticked = found.files == nil ? found.count : found.ticked.count
         return VStack(alignment: .leading, spacing: 6) {
             Label(AskClaudeHeldAnswer.foundTitle(found), systemImage: "doc.text.magnifyingglass")
                 .scaledFont(.footnote)
                 .foregroundStyle(.secondary)
                 .lineLimit(3)
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(Array(found.names.prefix(AskClaudeHeldAnswer.foundShown).enumerated()), id: \.offset) { _, name in
-                    Text(name).scaledFont(.callout).lineLimit(1).truncationMode(.middle)
-                }
-                if let more = AskClaudeHeldAnswer.foundMore(found) {
-                    Text(more).scaledFont(.footnote).foregroundStyle(.secondary)
+            Group {
+                if let files = found.files {
+                    // Past a dozen the list scrolls in the card rather than pushing the chat down.
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(files, id: \.path) { file in foundRow(id, found, file, sent: sent) }
+                        }
+                    }
+                    .frame(maxHeight: files.count > AskClaudeHeldAnswer.foundShown ? 260 : nil)
+                } else {
+                    // A card saved before ticks: its names, as it showed them.
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(Array(found.names.prefix(6).enumerated()), id: \.offset) { _, name in
+                            Text(name).scaledFont(.callout).lineLimit(1).truncationMode(.middle)
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 8)
@@ -1244,17 +1259,38 @@ private struct AskClaudeThreadRow: View, Equatable {
             if !sent {
                 Text(AskClaudeHeldAnswer.lead).scaledFont(.callout.weight(.medium))
             }
-            Button(sent ? "Names Shared" : "Share These Names") { onSendOffer(id, .names) }
-                .controlSize(.small)
-                .disabled(sent || isRunning)
-                .help("Lets Claude see these files’ names, folders, sizes and dates, once. Nothing from inside them goes.")
-            Text(sent ? "Claude has the names you shared." : "Nothing about these files has gone to Claude.")
+            HStack(spacing: 8) {
+                Button(AskClaudeHeldAnswer.foundShareButton(ticked: ticked, namesOnly: false, sent: sent && found.namesOnly != true)) { onSendOffer(id, .names) }
+                    .controlSize(.small)
+                    .disabled(sent || isRunning || ticked == 0)
+                Button(AskClaudeHeldAnswer.foundShareButton(ticked: ticked, namesOnly: true, sent: sent && found.namesOnly == true)) { onSendOffer(id, .namesOnly) }
+                    .controlSize(.small)
+                    .disabled(sent || isRunning || ticked == 0)
+            }
+            Text(AskClaudeHeldAnswer.foundFoot(found, ticked: ticked))
                 .scaledFont(.footnote)
                 .foregroundStyle(.secondary)
         }
         .padding(10)
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.well))
         .accessibilityElement(children: .contain)
+    }
+
+    /// One found file: its tick, name, and the folder and date that go with it.
+    private func foundRow(_ id: UUID, _ found: AskClaudeFoundNames, _ file: AskClaudeFoundNames.File, sent: Bool) -> some View {
+        let isOn = !(found.unticked ?? []).contains(file.path)
+        return Toggle(isOn: Binding(get: { isOn }, set: { _ in onFoundTick(id, file.path) })) {
+            HStack(spacing: 6) {
+                Text(file.name).scaledFont(.callout).lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 4)
+                Text(AskClaudeHeldAnswer.foundDetail(file))
+                    .scaledFont(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .toggleStyle(.checkbox)
+        .disabled(sent)
     }
 
     @ViewBuilder
@@ -2018,13 +2054,29 @@ enum AskClaudeHeldAnswer {
         return "Spotlight found \(files) mentioning “\(found.words)” in \(found.folderLabel), on this Mac:"
     }
 
-    /// How many names a found-names card lists before "and N more".
-    static let foundShown = 6
+    /// Past this many files the card's list scrolls.
+    static let foundShown = 12
 
-    /// "And 3 more" under the list, or nil when every match is listed.
-    static func foundMore(_ found: AskClaudeFoundNames) -> String? {
-        let rest = found.count - min(found.names.count, foundShown)
-        return rest > 0 ? "and \(rest) more" : nil
+    /// A share's button, naming what goes and for how many (his call on TE320: "Share 7 Files"
+    /// read as sending the files): "Share 7 Names with File Details", "Share 7 Names Only".
+    static func foundShareButton(ticked: Int, namesOnly: Bool, sent: Bool) -> String {
+        if sent { return namesOnly ? "Names Shared" : "Names with File Details Shared" }
+        let names = ticked == 1 ? "1 Name" : ticked == 0 ? "Names" : "\(ticked) Names"
+        return namesOnly ? "Share \(names) Only" : "Share \(names) with File Details"
+    }
+
+    /// A found file's folder and date, as the card shows them beside its name.
+    static func foundDetail(_ file: AskClaudeFoundNames.File) -> String {
+        [file.folder, file.modified.map { $0.formatted(date: .abbreviated, time: .omitted) }]
+            .compactMap { $0 }.joined(separator: " · ")
+    }
+
+    /// What the shares send, before the click; who has what, after.
+    static func foundFoot(_ found: AskClaudeFoundNames, ticked: Int) -> String {
+        if found.sent == true {
+            return found.namesOnly == true ? "Claude has the names you shared." : "Claude has the list you shared."
+        }
+        return "Not shared yet. File details are each file’s folder, kind, size, date and tags. No file content."
     }
 
     /// Words to two significant figures past 1,000: a size, not a count.

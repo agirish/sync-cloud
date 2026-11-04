@@ -54,9 +54,15 @@ extension ContentView {
                               onGoToFolder: { askClaudeShowFolderPane() },
                               onReveal: { path in Task { await askClaudeTools().reveal(path: path) } },
                               onSendOffer: { id, part in
-                                  guard let offer = part == .names ? askClaudeChat.takeFound(id) : askClaudeChat.takeOffer(id, part) else { return }
+                                  let offer = switch part {
+                                  case .names: askClaudeChat.takeFound(id)
+                                  case .namesOnly: askClaudeChat.takeFound(id, namesOnly: true)
+                                  default: askClaudeChat.takeOffer(id, part)
+                                  }
+                                  guard let offer else { return }
                                   askClaudeAsk(offer.question, shown: offer.shown)
                               },
+                              onFoundTick: { askClaudeChat.tickFound($0, $1) },
                               onDownloadCard: { askClaudeDownloadCard($0, $1) },
                               onFilingCard: { askClaudeFilingCard($0) },
                               onPlanCard: { askClaudePlanCard($0, $1) },

@@ -105,14 +105,50 @@ public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
     public let paths: [String]
     /// Whether they shared them; nil until they do.
     public var sent: Bool?
+    /// **Each file, to tick and to show what goes** (his call on TE320): its folder and date on
+    /// the card, and its row for Share N Files. Nil on a card saved before ticks.
+    public let files: [File]?
+    /// The lines above the rows: how many matched, and the rows' columns.
+    public let header: String?
+    /// The files they unticked, by path: neither share sends them.
+    public var unticked: [String]?
+    /// Whether what went was the names alone (Share Names Only).
+    public var namesOnly: Bool?
 
-    public init(words: String, folderLabel: String, names: [String], count: Int, rows: String, paths: [String]) {
+    public struct File: Codable, Equatable, Sendable {
+        public let name: String
+        /// Relative to the source: “Medical/2026”, or “(top level)”.
+        public let folder: String
+        public let modified: Date?
+        /// The row Share N Files sends: handle, name, kind, size, date, tags, folder.
+        public let row: String
+        public let path: String
+
+        public init(name: String, folder: String, modified: Date?, row: String, path: String) {
+            self.name = name
+            self.folder = folder
+            self.modified = modified
+            self.row = row
+            self.path = path
+        }
+    }
+
+    public init(words: String, folderLabel: String, names: [String], count: Int, rows: String, paths: [String],
+                files: [File]? = nil, header: String? = nil) {
         self.words = words
         self.folderLabel = folderLabel
         self.names = names
         self.count = count
         self.rows = rows
         self.paths = paths
+        self.files = files
+        self.header = header
+    }
+
+    /// The files still ticked: every one listed, less those unticked.
+    public var ticked: [File] {
+        let out = Set(unticked ?? [])
+        return (files ?? []).filter { !out.contains($0.path) }
     }
 }
 

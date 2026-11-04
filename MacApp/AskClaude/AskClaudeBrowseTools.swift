@@ -1407,11 +1407,15 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
         var lines = ["\(nodes.count) file\(nodes.count == 1 ? "" : "s") under \(AskClaudeScreenCard.escape(folder.label)) contain “\(label)”, newest period first:",
                      "rows: handle|name|kind|size|modified|tags|folder" + (ctx.readsFiles ? "|line" : "")]
+        let header = lines.joined(separator: "\n")
+        var files: [AskClaudeFoundNames.File] = []
         // One deadline for all the matching lines: ten slow reads in a row must not hold the answer.
         let readUntil = Date().addingTimeInterval(30)
         for (index, node) in nodes.prefix(Self.maxFound).enumerated() {
             let where_ = Self.relative((node.id as NSString).deletingLastPathComponent, root: ctx.root)
             var line = AskClaudeScreenCard.row(for: Self.row(node), handles: &handles) + "|" + AskClaudeScreenCard.escape(where_.isEmpty ? "(top level)" : where_)
+            files.append(.init(name: node.name, folder: where_.isEmpty ? "(top level)" : where_, modified: node.modificationDate,
+                               row: line, path: node.id))
             // The matching line goes out only with the switch on (his TE239 call), for the first ten.
             // Never a cloud-only file over the download limit: reading it would fetch it.
             let fetches = largeCloudOnly(node, node.id) != nil
@@ -1428,7 +1432,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             // the names wait on a card for their click, as a file's answer does (decision IU).
             let listed = nodes.prefix(Self.maxFound)
             let found = AskClaudeFoundNames(words: label, folderLabel: folder.label, names: listed.map(\.name),
-                                            count: nodes.count, rows: lines.joined(separator: "\n"), paths: listed.map(\.id))
+                                            count: nodes.count, rows: lines.joined(separator: "\n"), paths: listed.map(\.id),
+                                            files: files, header: header)
             let files = nodes.count == 1 ? "1 file" : "\(nodes.count) files"
             return AskClaudeToolOutcome(result: "Spotlight found \(files) under \(AskClaudeScreenCard.escape(folder.label)) whose text contains “\(label)”, on their Mac. Their names weren’t sent to you: they’re shown the list and can share it. In one short sentence, say what you would do with them if they share it, and stop. If they share it, it arrives as their next message.",
                                         step: step, found: found)

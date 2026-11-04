@@ -69,8 +69,9 @@ Requires **macOS 26**, unchanged from v6.2.
   up to 10 pages, and Claude is told which pages those were and that a word may be misread. Stop
   ends the reading.
 - **Which files mention a word waits too.** Asked to search inside files, Claude gets none of the
-  names Spotlight finds: a card lists them, and Share These Names sends them. With Let Claude read
-  files on, they go without asking, with the line that matched.
+  names Spotlight finds: a card lists them with their folders and dates, you tick the ones to share,
+  and Share Names with File Details or Share Names Only sends them. With Let Claude read files on,
+  they go without asking, with the line that matched.
 - **Ask about Compare's differences.** "Which files are only on Dropbox?" is answered from the list
   Compare shows, with both sides' sizes and dates. A comparison over an hour old is scanned again
   first, and Claude can narrow the list and select the rows it means. The list scrolls to the first

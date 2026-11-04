@@ -687,8 +687,10 @@ final class AskClaudeChat: ObservableObject {
     /// passage (DS), or all the text read (Share All Content, his call on TE319).
     enum OfferPart {
         case answer, passage, whole
-        /// A found-names card's Share These Names (decision IV): `takeFound`, not `takeOffer`.
+        /// A found-names card's Share N Files (decision IV): `takeFound`, not `takeOffer`.
         case names
+        /// A found-names card's Share Names Only (his call on TE320).
+        case namesOnly
     }
 
     /// The question that sends part of an offered card, and what the thread shows for it; marks
@@ -699,7 +701,7 @@ final class AskClaudeChat: ObservableObject {
         guard !isRunning, let index = items.firstIndex(where: { $0.id == id }),
               case .offer(var passage, let sent) = items[index].kind else { return nil }
         // Each part goes once; sending one leaves the others to send.
-        if part == .names { return nil }
+        if part == .names || part == .namesOnly { return nil }
         if part == .passage, sent { return nil }
         if part == .answer, passage.answer == nil || passage.answerSent == true { return nil }
         if part == .whole, passage.whole == nil || passage.wholeSent == true { return nil }
@@ -717,7 +719,7 @@ final class AskClaudeChat: ObservableObject {
         case .passage:
             items[index].kind = .offer(passage, sent: true)
             return (Self.offerQuestion(passage), "Sent \(passage.whereInFile) of \(passage.fileName)")
-        case .names:
+        case .names, .namesOnly:
             return nil
         case .whole:
             passage.wholeSent = true
@@ -730,24 +732,57 @@ final class AskClaudeChat: ObservableObject {
     /// have had them, and what the thread shows; marks the card shared. Nil when it's gone or
     /// already shared, or one of its files is hidden from Claude now: then the card goes, with its
     /// names, and a note says why.
-    func takeFound(_ id: UUID) -> (question: String, shown: String)? {
+    func takeFound(_ id: UUID, namesOnly: Bool = false) -> (question: String, shown: String)? {
         guard !isRunning, let index = items.firstIndex(where: { $0.id == id }),
               case .found(var found) = items[index].kind, found.sent != true else { return nil }
+        // Only what's ticked goes (his call on TE320); a card saved before ticks sends all it held.
+        let going = found.files == nil ? found.paths : found.ticked.map(\.path)
+        guard !going.isEmpty else { return nil }
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: defaults))
-        if found.paths.contains(where: hidden.isHidden) {
+        if going.contains(where: hidden.isHidden) {
             Logger.shared.info("Ask Claude didn’t share search results: a file in them is hidden from Claude now")
             replace(id, with: .note("Didn’t share the files mentioning “\(found.words)”: one is in a folder hidden from Claude now."))
             return nil
         }
         found.sent = true
+        found.namesOnly = namesOnly
         items[index].kind = .found(found)
-        let shown = "Shared the \(found.count == 1 ? "file" : "\(found.count) files") mentioning “\(found.words)”"
-        return (Self.foundQuestion(found), shown)
+        let files = going.count == 1 ? "1 file" : "\(going.count) files"
+        let shown = namesOnly ? "Shared the names of \(files) mentioning “\(found.words)”"
+            : "Shared \(files) mentioning “\(found.words)”"
+        return (namesOnly ? Self.foundNamesQuestion(found) : Self.foundQuestion(found), shown)
     }
 
-    /// What Share These Names sends: the search's rows, as data.
+    /// A tick on a found-names card (his call on TE320): in or out of what its shares send.
+    func tickFound(_ id: UUID, _ path: String) {
+        guard let index = items.firstIndex(where: { $0.id == id }), case .found(var found) = items[index].kind,
+              found.sent != true else { return }
+        var out = Set(found.unticked ?? [])
+        if out.contains(path) { out.remove(path) } else { out.insert(path) }
+        found.unticked = out.isEmpty ? nil : Array(out).sorted()
+        items[index].kind = .found(found)
+        if !isRunning { save() }
+    }
+
+    /// What Share N Files sends: the ticked files' rows, as data, said as the part of the matches
+    /// they are when some were unticked.
     static func foundQuestion(_ found: AskClaudeFoundNames) -> String {
-        "Here are the files whose text mentions “\(found.words)”, as data. Answer my last question from them.\n" + found.rows
+        guard let files = found.files, let header = found.header else {
+            return "Here are the files whose text mentions “\(found.words)”, as data. Answer my last question from them.\n" + found.rows
+        }
+        let ticked = found.ticked
+        let all = ticked.count == files.count
+        let of = all ? "the \(ticked.count == 1 ? "file" : "\(ticked.count) files")" : "\(ticked.count) of the \(found.count) files"
+        let columns = header.split(separator: "\n").dropFirst().joined(separator: "\n")
+        return "Here are \(of) whose text mentions “\(found.words)”\(all ? "" : " (I left the others out)"), as data. Answer my last question from them.\n"
+            + columns + "\n" + ticked.map(\.row).joined(separator: "\n")
+    }
+
+    /// What Share Names Only sends: the ticked files' names, and nothing else about them.
+    static func foundNamesQuestion(_ found: AskClaudeFoundNames) -> String {
+        let names = (found.files == nil ? found.names : found.ticked.map(\.name)).map { "- " + AskClaudeScreenCard.escape($0) }
+        return "Here are the names of files whose text mentions “\(found.words)”, as data, without their folders, sizes or dates. Answer my last question from them.\n"
+            + names.joined(separator: "\n")
     }
 
     /// What Share All Content sends: the text read, as data. Masked again, as the passage is.
