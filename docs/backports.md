@@ -14321,3 +14321,15 @@ code that exists only on `main`. Two checked by hand:
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | None of the reviewed features; one unguarded digits-font call | RECORDED — not owed |
+
+## Columns keep the previewed file's column on screen — main only
+
+Two new reveal drivers in `PaneColumnsView.scrollingColumns`: an open preview moving to another
+file (`previewPath`), and the pane narrowing (`paneWidth`, falling edge only). Every maintenance
+line has the preview's rising-edge driver and neither of these, checked by grepping that file for
+`onChange(of: paneWidth)` on each line: a scrolled-back stack stays scrolled back when the preview
+moves to another file, and a narrower window hides the deepest column behind the preview.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Both gaps | RECORDED — not owed |

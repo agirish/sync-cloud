@@ -1546,4 +1546,91 @@ import Sync
         #expect(landed,
                 "an origin the grown viewport made illegal was left stranded at \(clip.bounds.origin.x), legal max \(legalMax)")
     }
+
+    /// The file the preview opened on, and a sibling of it in the same deepest column.
+    private static func siblingTarget(depth: Int) -> String {
+        previewTarget(depth: depth).replacingOccurrences(of: "/f1.pdf", with: "/f2.pdf")
+    }
+
+    /// Whether the deepest column lies wholly inside the clip, with the measurement for a message.
+    private func deepestColumnIsVisible(_ mounted: Mounted) throws -> (Bool, String) {
+        let deepest = try #require(columnFrames(mounted).last, "no deepest column")
+        let visible = visibleSpan(mounted)
+        let report = "column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)"
+        return (deepest.maxX <= visible.upperBound + 1 && deepest.minX >= visible.lowerBound - 1, report)
+    }
+
+    /// An open preview moving to ANOTHER file brings that file's column back, even in a stack the
+    /// user scrolled back. Neither the preview's rising edge nor `browsePath` moves — the preview was
+    /// already open, and the second file is in the same column — so before the `previewPath` driver
+    /// the stack stayed at x 0, the column at 630…840 behind a 258pt viewport.
+    @Test func testShowingAnotherFileRevealsItsColumnInAScrolledBackStack() async throws {
+        let mounted = try await mount(paneWidth: 690, depth: 3)
+        defer { _ = mounted.window }
+        let clip = mounted.stack.contentView
+        #expect(await openPreview(mounted, viewportWas: clip.bounds.width), "no preview appeared")
+
+        await scrollBack(mounted, toX: 0)
+        try #require(clip.bounds.origin.x == 0, "fixture failed to scroll the stack back")
+        let (hidden, _) = try deepestColumnIsVisible(mounted)
+        try #require(!hidden, "the deepest column is on screen at x 0 — nothing below can tell a reveal happened")
+
+        mounted.box.selection = [Self.siblingTarget(depth: mounted.depth)]
+        await wait(mounted.window, upTo: 25) { clip.bounds.origin.x > 0 }
+        await settle(mounted)
+
+        let (visible, report) = try deepestColumnIsVisible(mounted)
+        #expect(visible, "the preview moved to another file and left its column hidden: \(report)")
+    }
+
+    /// The pane narrowing with a preview open — a smaller window, a panel opening beside it — shrinks
+    /// the stack's viewport while the clip keeps its origin, sliding the deepest column off the
+    /// trailing edge. Measured before the `paneWidth` driver: 1100 → 760pt left the column at 630…840
+    /// with 172…500 on screen.
+    @Test func testNarrowingThePaneKeepsTheDeepestColumnOnScreen() async throws {
+        let mounted = try await mount(paneWidth: 1100, depth: 3)
+        defer { _ = mounted.window }
+        let clip = mounted.stack.contentView
+        #expect(await openPreview(mounted, viewportWas: clip.bounds.width), "no preview appeared")
+        let wide = clip.bounds.width
+
+        let originBefore = clip.bounds.origin.x
+        mounted.window.setContentSize(NSSize(width: 760, height: 520))
+        await wait(mounted.window, upTo: 25) { clip.bounds.width < wide }
+        try #require(clip.bounds.width < wide, "the pane never narrowed")
+        let content = mounted.stack.documentView?.frame.width ?? 0
+        try #require(content > clip.bounds.width,
+                     "the stack fits its narrowed viewport (content \(content)pt in \(clip.bounds.width)pt) — vacuous")
+        await wait(mounted.window, upTo: 25) { clip.bounds.origin.x != originBefore }
+        await settle(mounted)
+
+        let (visible, report) = try deepestColumnIsVisible(mounted)
+        #expect(visible, "narrowing the pane hid the deepest column: \(report), viewport \(wide) → \(clip.bounds.width)pt")
+    }
+
+    /// The other edge: WIDENING the pane only hands the viewport points, so a stack the user scrolled
+    /// back stays where they put it. With a positive control, since the same handler drives both.
+    @Test func testWideningThePaneLeavesAScrolledBackStackWhereItWas() async throws {
+        let mounted = try await mount(paneWidth: 760, depth: 4)
+        defer { _ = mounted.window }
+        let clip = mounted.stack.contentView
+        #expect(await openPreview(mounted, viewportWas: clip.bounds.width), "no preview appeared")
+
+        await scrollBack(mounted, toX: 0)
+        try #require(clip.bounds.origin.x == 0, "fixture failed to scroll the stack back")
+        let narrow = clip.bounds.width
+        mounted.window.setContentSize(NSSize(width: 1100, height: 520))
+        await wait(mounted.window, upTo: 25) { clip.bounds.width > narrow }
+        try #require(clip.bounds.width > narrow, "the pane never widened")
+        let content = mounted.stack.documentView?.frame.width ?? 0
+        try #require(content > clip.bounds.width,
+                     "the stack fits its widened viewport (content \(content)pt in \(clip.bounds.width)pt) — a wrong reveal would be invisible")
+        #expect(await maxOriginDrift(mounted, from: 0) == 0,
+                "widening the pane yanked a scrolled-back stack away from x 0")
+
+        // Positive control: narrowing back must still reveal.
+        mounted.window.setContentSize(NSSize(width: 760, height: 520))
+        await wait(mounted.window, upTo: 25) { clip.bounds.origin.x > 0 }
+        #expect(clip.bounds.origin.x > 0, "narrowing stopped revealing — the absence above is vacuous")
+    }
 }

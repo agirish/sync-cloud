@@ -369,7 +369,7 @@ struct PaneColumnsView: View {
 
         HStack(spacing: 0) {
             scrollingColumns(stackWidth: stackWidth, paneWidth: paneWidth,
-                             showsPreview: showsPreview)
+                             showsPreview: showsPreview, previewPath: previewTarget?.path)
                 .frame(width: stackWidth)
             if showsPreview, let previewTarget {
                 // The pane's action bar is an overlay across the WHOLE pane, so on a comparison pane
@@ -417,9 +417,11 @@ struct PaneColumnsView: View {
     /// - Parameter showsPreview: whether the preview is taking room from this stack right now. Not
     ///   used for layout — `stackWidth` already carries that — but as a scroll trigger (its rising
     ///   edge) and as the gate on the preview-width driver; see the drivers below.
+    /// - Parameter previewPath: the file the preview would show, whether or not it has room to —
+    ///   a scroll trigger only, for a preview that moves to another file while it stays open.
     @ViewBuilder
     private func scrollingColumns(stackWidth: CGFloat, paneWidth: CGFloat,
-                                  showsPreview: Bool) -> some View {
+                                  showsPreview: Bool, previewPath: String?) -> some View {
         // Below two minimum columns there is no room for a second one, so the pane shows a single
         // column that replaces its contents as you drill and `‹` walks back out.
         //
@@ -554,6 +556,34 @@ struct PaneColumnsView: View {
             // `ColumnPreviewRevealTests` so the rail cannot regress the day someone drills deeper.
             .onChange(of: showsPreview) { _, isShowing in
                 guard isShowing else { return }
+                revealDeepestColumn(proxy)
+            }
+            // And when an open preview moves to ANOTHER file: a click on a second file, a rename
+            // that carries the selection to the new name, a reveal of a sibling. `showsPreview`
+            // stays true and `browsePath` is unchanged, so neither driver above fires — and a stack
+            // the user had scrolled back stayed scrolled back, the file the preview now describes
+            // hidden in the column behind it. A file arriving in the preview is the moment its
+            // column should be on screen, scrolled-back or not; that is the trade asked for.
+            .onChange(of: previewPath) { _, path in
+                guard showsPreview, path != nil else { return }
+                revealDeepestColumn(proxy)
+            }
+            // And when the PANE narrows — the window resized smaller, a panel opening beside it, the
+            // comparison split dragged — under THE RULE: a shrinking viewport is an occluding edge,
+            // and the clip keeps its origin as it shrinks, so the deepest column slides off the
+            // trailing edge with nothing to bring it back. Keyed on the pane, not on `stackWidth`,
+            // which the preview's own divider also moves on every frame of a live drag — inside the
+            // wheel and drag handling the preview-width driver below keeps its scroll out of.
+            //
+            // A live window resize does fire this on every frame. That is the one per-frame caller,
+            // and it is safe where the divider was not: no wheel gesture is in flight to hold the
+            // stack, so each frame's first attempt simply keeps the column against the shrinking
+            // edge, and each reveal supersedes the last one's retry (`PaneColumnHoldGate.beginReveal`)
+            // — only the final width's retry is left to run.
+            // Widening is the other edge and only un-hides, so it is left alone; and a pane going to
+            // nothing has no column to show.
+            .onChange(of: paneWidth) { previous, current in
+                guard current < previous, current > 0 else { return }
                 revealDeepestColumn(proxy)
             }
             // And once the preview's own divider settles. Growing the preview walks the seam left
