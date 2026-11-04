@@ -652,13 +652,16 @@ IQ, built after these checks), so a file list now comes back as a table; he chec
 
 ## Ask Claude: type while Claude answers (TE297, 2026-11-03)
 
+Queue and One waits checked by him on 2026-11-03, on the installed signed build; he asked that
+the rest be checked by the session where it can be.
+
 Ask something that takes Claude a few seconds, such as "which PDFs here are over 1 MB, and why
 might they be big?" with Detailed answers.
 
-- [ ] **Queue.** While it answers, type "then open the biggest" and press Return. The box empties
+- [x] **Queue.** While it answers, type "then open the biggest" and press Return. The box empties
   and a line over it reads "Next: then open the biggest · Edit · Cancel". When the answer ends,
   it goes as the next question by itself.
-- [ ] **One waits.** While it answers, queue one question, then type a second and press Return:
+- [x] **One waits.** While it answers, queue one question, then type a second and press Return:
   Next shows both, joined; they go as one question.
 - [ ] **Edit and Cancel.** Queue one, click Edit: the text comes back into the box, ahead of
   anything typed. Queue again, click Cancel: it's gone.
@@ -690,6 +693,8 @@ Pick Detailed in the menu under the box, so answers carry lists and tables.
 - [ ] **A card stays.** Ask Claude to rename a file, Apply the card, then Edit that question and
   send it: the applied card stays in the chat with its Undo, and Claude's answer knows the file was
   renamed.
+- [ ] **Read while queued.** With VoiceOver on (⌘F5), queue a question while Claude answers and move
+  through the panel: the app stays up (it crashed here on 2026-11-03 at 18:05, before the fix).
 - [ ] **Right-click and VoiceOver.** Right-click an answer bubble: Copy Answer and Retry. With
   VoiceOver (⌘F5), the Actions rotor on a question offers Copy Question and Edit Question.
 

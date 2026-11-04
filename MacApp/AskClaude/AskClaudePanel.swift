@@ -618,8 +618,6 @@ struct AskClaudePanel: View {
         .scaledFont(.caption)
         .padding(.horizontal, 8).padding(.vertical, 4)
         .background(accent.opacity(0.14), in: Capsule())
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Editing your question")
     }
 
     /// What a row offers (TE296): Copy and Edit on a question, Copy and Retry on an answer's rows
@@ -701,8 +699,6 @@ struct AskClaudePanel: View {
         .scaledFont(.caption)
         .padding(.horizontal, 8).padding(.vertical, 4)
         .background(accent.opacity(0.14), in: Capsule())
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Next question: \(waiting.text)")
     }
 
     /// What the next question is about (TE263): a chip per row attached from its menu, each with ✕.
@@ -962,12 +958,6 @@ private struct AskClaudeThreadRow: View, Equatable {
         }
     }
 
-    /// The row's actions for VoiceOver, on the one element that stands for the turn.
-    private var turnActionsForVoiceOver: some View {
-        ForEach(turnActions) { action in
-            Button(menuTitle(action)) { onTurnAction(action) }
-        }
-    }
 
     private func menuTitle(_ action: AskClaudeTurnAction) -> String {
         switch action {
@@ -987,7 +977,7 @@ private struct AskClaudeThreadRow: View, Equatable {
                 .foregroundStyle(onAccent)
                 .background(accentFill, in: RoundedRectangle(cornerRadius: Radius.card))
                 .accessibilityLabel(item.spoken == true ? "You said: \(text)" : "You: \(text)")
-                .accessibilityActions { turnActionsForVoiceOver }
+                .modifier(AskClaudeTurnVoiceOverActions(actions: turnActions, title: menuTitle, perform: onTurnAction))
                 // Its bar hangs just under the bubble, over the row below, while hovered (TE296).
                 .overlay(alignment: .bottomTrailing) {
                     if showsBar && !turnActions.isEmpty {
@@ -1076,17 +1066,19 @@ private struct AskClaudeThreadRow: View, Equatable {
             .padding(10)
             .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.well))
         case .receipt(let receipt):
-            // The receipt and the answer's bar share a line (TE296). The bar is always laid out,
-            // seen only while the answer is hovered, so nothing moves when it shows.
-            HStack(spacing: 6) {
-                receiptButton(receipt)
-                if !turnActions.isEmpty {
-                    AskClaudeTurnBar(actions: turnActions, perform: onTurnAction)
-                        .opacity(showsBar ? 1 : 0)
-                        .allowsHitTesting(showsBar)
-                        .accessibilityHidden(true)
+            // The answer's bar hangs under its receipt while the answer is hovered (TE296), over
+            // the row below as a question's does: laid out beside it, even unseen, it took the
+            // receipt's width and wrapped it onto two lines.
+            receiptButton(receipt)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay(alignment: .bottomTrailing) {
+                    if showsBar && !turnActions.isEmpty {
+                        AskClaudeTurnBar(actions: turnActions, perform: onTurnAction)
+                            .alignmentGuide(.bottom) { $0[.top] - 3 }
+                            .onHover(perform: onHover)
+                            .accessibilityHidden(true)
+                    }
                 }
-            }
         }
     }
 
@@ -1103,7 +1095,7 @@ private struct AskClaudeThreadRow: View, Equatable {
         .foregroundStyle(.secondary)
         .help(isLatestReceipt ? "What this question sent" : receipt.summary)
         .accessibilityLabel(receipt.summary)
-        .accessibilityActions { turnActionsForVoiceOver }
+        .modifier(AskClaudeTurnVoiceOverActions(actions: turnActions, title: menuTitle, perform: onTurnAction))
         .popover(isPresented: $showsSent, arrowEdge: .bottom) {
             VStack(alignment: .leading, spacing: 8) {
                 Text(receipt.summary).scaledFont(.callout)
@@ -1563,6 +1555,36 @@ private struct AskClaudeThreadRow: View, Equatable {
         }
     }
 
+}
+
+/// A turn's actions for VoiceOver (TE296), one named action each. On 2026-11-03 at 18:05 the app
+/// crashed as an assistive app read the panel's labels with a question queued: SwiftUI's label
+/// lookup went round in a loop until the stack ran out. The two pieces new that day were
+/// `accessibilityActions { … }` holding buttons and a label on the Next line's container, so both
+/// are gone; which one it was isn't known.
+private struct AskClaudeTurnVoiceOverActions: ViewModifier {
+    let actions: [AskClaudeTurnAction]
+    let title: (AskClaudeTurnAction) -> String
+    let perform: (AskClaudeTurnAction) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .action(.copy, in: actions, title: title, perform: perform)
+            .action(.edit, in: actions, title: title, perform: perform)
+            .action(.retry, in: actions, title: title, perform: perform)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func action(_ action: AskClaudeTurnAction, in actions: [AskClaudeTurnAction], title: (AskClaudeTurnAction) -> String,
+                perform: @escaping (AskClaudeTurnAction) -> Void) -> some View {
+        if actions.contains(action) {
+            accessibilityAction(named: Text(title(action))) { perform(action) }
+        } else {
+            self
+        }
+    }
 }
 
 /// One of the header's icon buttons: a fixed hit area, a hover wash, and its own tooltip.
