@@ -14416,3 +14416,15 @@ file. read_text's description changed, so saved chats start over once. Ask Claud
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Ask Claude holds the names a search inside files finds (TE320) — main only
+
+2026-11-03, for v7.0. On `main`: with Let Claude read files off, find_in_contents no longer sends
+Claude the files Spotlight matched — which files mention a word says what is in them. A card lists
+them, and Share These Names sends the rows Claude used to get, once, refusing a file hidden from
+Claude since. find_in_contents' description changed, so saved chats start over once. Ask Claude
+exists only on `main`.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

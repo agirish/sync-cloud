@@ -70,11 +70,14 @@ public struct AskClaudeToolOutcome: Equatable, Sendable {
     public let settings: AskClaudeSettingCard?
     /// A card that runs one of the PDF tools on their click (TE294).
     public let pdf: AskClaudePDFCard?
+    /// Names a content search found, held for their click (decision IV, TE320).
+    public let found: AskClaudeFoundNames?
 
     public init(result: String, isError: Bool = false, step: String, movedView: String? = nil,
                 passage: AskClaudePassage? = nil, download: AskClaudeDownload? = nil,
                 filing: AskClaudeFilingCard? = nil, plan: AskClaudePlan? = nil, choices: [AskClaudeChoice]? = nil,
-                rule: AskClaudeRuleCard? = nil, settings: AskClaudeSettingCard? = nil, pdf: AskClaudePDFCard? = nil) {
+                rule: AskClaudeRuleCard? = nil, settings: AskClaudeSettingCard? = nil, pdf: AskClaudePDFCard? = nil,
+                found: AskClaudeFoundNames? = nil) {
         self.result = result
         self.isError = isError
         self.step = step
@@ -87,6 +90,7 @@ public struct AskClaudeToolOutcome: Equatable, Sendable {
         self.rule = rule
         self.settings = settings
         self.pdf = pdf
+        self.found = found
     }
 }
 
@@ -192,6 +196,8 @@ public enum AskClaudeEvent: Equatable, Sendable {
     case step(String, isError: Bool)
     case movedView(String)
     case offer(AskClaudePassage)
+    /// Names a content search found, held for their click (decision IV, TE320).
+    case found(AskClaudeFoundNames)
     /// A cloud-only file offered for download (TE258).
     case offerDownload(AskClaudeDownload)
     /// Filing help's card (TE255).
@@ -540,6 +546,7 @@ public final class AskClaudeEngine {
                 emit(.step(outcome.step, isError: outcome.isError))
                 if let moved = outcome.movedView { emit(.movedView(moved)) }
                 if let passage = outcome.passage { emit(.offer(passage)) }
+                if let found = outcome.found { emit(.found(found)) }
                 if let download = outcome.download { emit(.offerDownload(download)) }
                 if let filing = outcome.filing { emit(.filing(filing)) }
                 if let plan = outcome.plan { emit(.plan(plan)) }

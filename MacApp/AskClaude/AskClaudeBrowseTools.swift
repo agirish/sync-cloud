@@ -1422,7 +1422,18 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             lines.append(line)
         }
         if nodes.count > Self.maxFound { lines.append("\(nodes.count - Self.maxFound) more not listed.") }
-        return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: "Found \(nodes.count) with “\(label)” inside")
+        let step = "Found \(nodes.count) with “\(label)” inside"
+        guard ctx.readsFiles else {
+            // Decision IV: which files mention a word says what is in them, so with the switch off
+            // the names wait on a card for their click, as a file's answer does (decision IU).
+            let listed = nodes.prefix(Self.maxFound)
+            let found = AskClaudeFoundNames(words: label, folderLabel: folder.label, names: listed.map(\.name),
+                                            count: nodes.count, rows: lines.joined(separator: "\n"), paths: listed.map(\.id))
+            let files = nodes.count == 1 ? "1 file" : "\(nodes.count) files"
+            return AskClaudeToolOutcome(result: "Spotlight found \(files) under \(AskClaudeScreenCard.escape(folder.label)) whose text contains “\(label)”, on their Mac. Their names weren’t sent to you: they’re shown the list and can share it. In one short sentence, say what you would do with them if they share it, and stop. If they share it, it arrives as their next message.",
+                                        step: step, found: found)
+        }
+        return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: step)
     }
 
     // MARK: Filing help (TE255)

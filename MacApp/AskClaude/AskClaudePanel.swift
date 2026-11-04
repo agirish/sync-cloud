@@ -1015,6 +1015,8 @@ private struct AskClaudeThreadRow: View, Equatable {
                 .accessibilityHint("Use Back to return")
         case .note(let text):
             Text(text).scaledFont(.callout).foregroundStyle(.secondary)
+        case .found(let found):
+            foundCard(item.id, found)
         case .offer(let passage, let sent):
             if passage.answer != nil || passage.whole != nil {
                 heldAnswerCard(item.id, passage, passageSent: sent)
@@ -1210,6 +1212,43 @@ private struct AskClaudeThreadRow: View, Equatable {
                     .foregroundStyle(.secondary)
             }
             Text(anySent ? "Claude has what you shared." : "Nothing from the file has gone to Claude.")
+                .scaledFont(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .padding(10)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.well))
+        .accessibilityElement(children: .contain)
+    }
+
+    /// **Names a content search found, held for their click** (decision IV, TE320): which files
+    /// mention the word, as the card's list, then Share These Names. Nothing leaves until a click.
+    private func foundCard(_ id: UUID, _ found: AskClaudeFoundNames) -> some View {
+        let sent = found.sent == true
+        return VStack(alignment: .leading, spacing: 6) {
+            Label(AskClaudeHeldAnswer.foundTitle(found), systemImage: "doc.text.magnifyingglass")
+                .scaledFont(.footnote)
+                .foregroundStyle(.secondary)
+                .lineLimit(3)
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Array(found.names.prefix(AskClaudeHeldAnswer.foundShown).enumerated()), id: \.offset) { _, name in
+                    Text(name).scaledFont(.callout).lineLimit(1).truncationMode(.middle)
+                }
+                if let more = AskClaudeHeldAnswer.foundMore(found) {
+                    Text(more).scaledFont(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.background.opacity(0.6), in: RoundedRectangle(cornerRadius: Radius.well))
+            if !sent {
+                Text(AskClaudeHeldAnswer.lead).scaledFont(.callout.weight(.medium))
+            }
+            Button(sent ? "Names Shared" : "Share These Names") { onSendOffer(id, .names) }
+                .controlSize(.small)
+                .disabled(sent || isRunning)
+                .help("Lets Claude see these files’ names, folders, sizes and dates, once. Nothing from inside them goes.")
+            Text(sent ? "Claude has the names you shared." : "Nothing about these files has gone to Claude.")
                 .scaledFont(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -1972,6 +2011,21 @@ enum AskClaudeHeldAnswer {
     }
 
     static func words(in text: String) -> Int { text.split(whereSeparator: \.isWhitespace).count }
+
+    /// A found-names card's title: who searched, for what, where.
+    static func foundTitle(_ found: AskClaudeFoundNames) -> String {
+        let files = found.count == 1 ? "1 file" : "\(found.count) files"
+        return "Spotlight found \(files) mentioning “\(found.words)” in \(found.folderLabel), on this Mac:"
+    }
+
+    /// How many names a found-names card lists before "and N more".
+    static let foundShown = 6
+
+    /// "And 3 more" under the list, or nil when every match is listed.
+    static func foundMore(_ found: AskClaudeFoundNames) -> String? {
+        let rest = found.count - min(found.names.count, foundShown)
+        return rest > 0 ? "and \(rest) more" : nil
+    }
 
     /// Words to two significant figures past 1,000: a size, not a count.
     static func roundedWords(_ words: Int) -> Int {

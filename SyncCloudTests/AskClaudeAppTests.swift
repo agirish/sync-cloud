@@ -902,6 +902,38 @@ import FileExplorer
         }
     }
 
+    /// **Which files mention a word is held on a card while the switch is off** (decision IV,
+    /// TE320): the names say what is in the files, so Claude gets none of them, nor how they
+    /// matched; the card holds the rows Share These Names sends. With the switch on, the rows and
+    /// the matching line go as before.
+    @Test func aSearchInsideFilesHoldsItsNamesUntilShared() async throws {
+        let receipt = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
+        let biopsy = Self.root + "/Documents/Taxes/Biopsy results.txt"
+        var map: [String: FileNode] = [:]
+        Self.index(Self.tree + [Self.file("Documents/Taxes/Biopsy results.txt", kind: "Plain Text")], into: &map)
+        func runner(readsFiles: Bool) -> AskClaudeBrowseTools {
+            AskClaudeBrowseTools(context: {
+                var ctx = AskClaudeBrowseTools.Context(
+                    inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Documents/Taxes", sort: .name,
+                    items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+                ctx.readsFiles = readsFiles
+                return ctx
+            }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
+               extract: { _ in ["The diagnosis is benign."] }, searchContents: { _, _ in [receipt, biopsy] })
+        }
+        var handles = AskClaudeHandles()
+        let search = call("find_in_contents", ["words": .string("diagnosis")])
+        let off = await runner(readsFiles: false).run(search, handles: &handles)
+        #expect(off.result.hasPrefix("Spotlight found 2 files under") && off.result.contains("Their names weren’t sent to you"))
+        #expect(!off.result.contains("Biopsy") && !off.result.contains("REI"))
+        let found = try #require(off.found)
+        #expect(Set(found.names) == ["Receipt REI 2025.pdf", "Biopsy results.txt"] && found.count == 2 && found.words == "diagnosis")
+        #expect(found.rows.contains("Biopsy results.txt") && !found.rows.contains("benign"))
+        #expect(Set(found.paths) == [receipt, biopsy])
+        let on = await runner(readsFiles: true).run(search, handles: &handles)
+        #expect(on.found == nil && on.result.contains("Biopsy results.txt") && on.result.contains("benign"))
+    }
+
     @Test func movesWaitForTheWindowAndSidesAreCompares() async {
         var switched: [UUID] = []
         let tab = UUID()
@@ -2075,6 +2107,32 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(later.items.contains { $0.kind == .note("Didn’t send what Lab Results.pdf says: it’s in a folder hidden from Claude now.") })
     }
 
+    /// **Search results go only by Share These Names, once, and never a file hidden since**
+    /// (decision IV, TE320); the card says who found them, for what and where.
+    @Test func foundNamesGoOnlyByTheirOwnShare() async throws {
+        let d = defaults()
+        let center = NotificationCenter()
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
+                                 readKey: { "k" }, keyChanges: center)
+        chat.ask("which files mention my diagnosis?", screen: screen, tools: FindsNames()); await waitUntilIdle(chat)
+        let card = try #require(chat.items.first { if case .found = $0.kind { true } else { false } })
+        guard case .found(let found) = card.kind else { return }
+        #expect(AskClaudeHeldAnswer.foundTitle(found) == "Spotlight found 8 files mentioning “diagnosis” in iCloud › Medical, on this Mac:")
+        #expect(AskClaudeHeldAnswer.foundMore(found) == "and 2 more")
+        let shared = try #require(chat.takeFound(card.id))
+        #expect(shared.question.contains("r1|Biopsy results.pdf") && shared.shown == "Shared the 8 files mentioning “diagnosis”")
+        #expect(chat.takeFound(card.id)?.question == nil)
+        let later = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
+                                  readKey: { "k" }, keyChanges: center)
+        later.ask("which files mention my diagnosis?", screen: screen, tools: FindsNames()); await waitUntilIdle(later)
+        let second = try #require(later.items.first { if case .found = $0.kind { true } else { false } }?.id)
+        AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
+        center.post(name: AskClaudePrivacy.didChange, object: nil)
+        #expect(later.takeFound(second)?.question == nil)
+        #expect(later.items.contains { $0.kind == .note("Didn’t share the files mentioning “diagnosis”: one is in a folder hidden from Claude now.") })
+        #expect(!later.items.contains { if case .found = $0.kind { true } else { false } })
+    }
+
     /// **Each button on the held-answer card says what it shares** (his calls on TE319), under a
     /// line saying what sharing is for: the answer above, or content from the page by name, never "the file",
     /// and "also" once the answer has gone.
@@ -2705,6 +2763,17 @@ private final class HoldsAnAnswer: AskClaudeToolRunning {
                                                        answer: "Cholesterol is 182.", asked: "What was the cholesterol?",
                                                        whole: "Cholesterol 182, LDL 120\n\nGlucose 95\n\nIron 90",
                                                        wholeWhere: "all 3 pages", wholeIsAll: true))
+    }
+}
+
+@MainActor
+private final class FindsNames: AskClaudeToolRunning {
+    func run(_ call: AskClaudeToolCall, handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
+        let names = ["Biopsy results.pdf", "Referral.pdf", "Pathology.pdf", "Notes.txt", "Scan.pdf", "Letter.pdf", "Bill.pdf", "Plan.pdf"]
+        return AskClaudeToolOutcome(result: "held", step: "Found 8 with “diagnosis” inside",
+                             found: AskClaudeFoundNames(words: "diagnosis", folderLabel: "iCloud › Medical", names: names, count: 8,
+                                                        rows: "rows: handle|name\nr1|Biopsy results.pdf",
+                                                        paths: names.map { "/Users/me/Medical/" + $0 }))
     }
 }
 

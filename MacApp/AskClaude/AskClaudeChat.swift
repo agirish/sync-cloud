@@ -56,6 +56,8 @@ final class AskClaudeChat: ObservableObject {
             case settings(AskClaudeSettingCard)
             /// One of the PDF tools, run on their click (TE294).
             case pdf(AskClaudePDFCard)
+            /// Names a content search found, held for their click (decision IV, TE320).
+            case found(AskClaudeFoundNames)
         }
         var id = UUID()
         var kind: Kind
@@ -683,7 +685,11 @@ final class AskClaudeChat: ObservableObject {
 
     /// What a click on an offer card sends: the on-device answer it holds (decision IU), the
     /// passage (DS), or all the text read (Share All Content, his call on TE319).
-    enum OfferPart { case answer, passage, whole }
+    enum OfferPart {
+        case answer, passage, whole
+        /// A found-names card's Share These Names (decision IV): `takeFound`, not `takeOffer`.
+        case names
+    }
 
     /// The question that sends part of an offered card, and what the thread shows for it; marks
     /// that part sent. Nil when that offer is gone or that part already sent, or its file is hidden
@@ -693,6 +699,7 @@ final class AskClaudeChat: ObservableObject {
         guard !isRunning, let index = items.firstIndex(where: { $0.id == id }),
               case .offer(var passage, let sent) = items[index].kind else { return nil }
         // Each part goes once; sending one leaves the others to send.
+        if part == .names { return nil }
         if part == .passage, sent { return nil }
         if part == .answer, passage.answer == nil || passage.answerSent == true { return nil }
         if part == .whole, passage.whole == nil || passage.wholeSent == true { return nil }
@@ -710,11 +717,37 @@ final class AskClaudeChat: ObservableObject {
         case .passage:
             items[index].kind = .offer(passage, sent: true)
             return (Self.offerQuestion(passage), "Sent \(passage.whereInFile) of \(passage.fileName)")
+        case .names:
+            return nil
         case .whole:
             passage.wholeSent = true
             items[index].kind = .offer(passage, sent: sent)
             return (Self.wholeQuestion(passage), "Sent \(passage.wholeWhere ?? "all") of \(passage.fileName)")
         }
+    }
+
+    /// Share These Names (decision IV, TE320): the rows a content search found, as Claude would
+    /// have had them, and what the thread shows; marks the card shared. Nil when it's gone or
+    /// already shared, or one of its files is hidden from Claude now: then the card goes, with its
+    /// names, and a note says why.
+    func takeFound(_ id: UUID) -> (question: String, shown: String)? {
+        guard !isRunning, let index = items.firstIndex(where: { $0.id == id }),
+              case .found(var found) = items[index].kind, found.sent != true else { return nil }
+        let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: defaults))
+        if found.paths.contains(where: hidden.isHidden) {
+            Logger.shared.info("Ask Claude didn’t share search results: a file in them is hidden from Claude now")
+            replace(id, with: .note("Didn’t share the files mentioning “\(found.words)”: one is in a folder hidden from Claude now."))
+            return nil
+        }
+        found.sent = true
+        items[index].kind = .found(found)
+        let shown = "Shared the \(found.count == 1 ? "file" : "\(found.count) files") mentioning “\(found.words)”"
+        return (Self.foundQuestion(found), shown)
+    }
+
+    /// What Share These Names sends: the search's rows, as data.
+    static func foundQuestion(_ found: AskClaudeFoundNames) -> String {
+        "Here are the files whose text mentions “\(found.words)”, as data. Answer my last question from them.\n" + found.rows
     }
 
     /// What Share All Content sends: the text read, as data. Masked again, as the passage is.
@@ -1250,6 +1283,9 @@ final class AskClaudeChat: ObservableObject {
         case .offer(let passage):
             streamingItem = nil
             items.append(Item(kind: .offer(passage, sent: false)))
+        case .found(let found):
+            streamingItem = nil
+            items.append(Item(kind: .found(found)))
         case .offerDownload(var download):
             streamingItem = nil
             download.question = askedQuestion

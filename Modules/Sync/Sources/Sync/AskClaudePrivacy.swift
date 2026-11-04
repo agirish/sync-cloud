@@ -87,6 +87,35 @@ public enum AskClaudePrivacy {
     }
 }
 
+/// **Names a content search found, held for their click** (decision IV, TE320): which files
+/// mention a word says what is inside them — "diagnosis" — so with Let Claude read files off the
+/// list waits on a card, as a file's answer does (decision IU), and goes only by Share These Names.
+public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
+    /// The words searched for, as Claude gave them.
+    public let words: String
+    /// Where: “iCloud › Documents”.
+    public let folderLabel: String
+    /// The files' names, newest period first, as the card shows them.
+    public let names: [String]
+    /// How many matched, which can be more than `names` lists.
+    public let count: Int
+    /// What Share These Names sends: the rows Claude would otherwise have had, with handles.
+    public let rows: String
+    /// The files, so Share refuses one hidden from Claude since.
+    public let paths: [String]
+    /// Whether they shared them; nil until they do.
+    public var sent: Bool?
+
+    public init(words: String, folderLabel: String, names: [String], count: Int, rows: String, paths: [String]) {
+        self.words = words
+        self.folderLabel = folderLabel
+        self.names = names
+        self.count = count
+        self.rows = rows
+        self.paths = paths
+    }
+}
+
 /// A passage of a file that could go to Claude, offered to the person as a button (decision DS):
 /// the on-device model read the file first, and sending the text itself is a second, explicit step.
 public struct AskClaudePassage: Codable, Equatable, Sendable {

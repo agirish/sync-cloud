@@ -293,7 +293,7 @@ public enum AskClaudeToolCatalog {
                           "question": string("What to find out from the file, in a sentence.")],
              required: ["handle", "question"]),
         tool(.findInContents,
-             "Find files whose text contains all the given words (PDF, Word, PowerPoint, text), from Spotlight’s index on their Mac. Returns up to 50 rows; with their permission, also the line that matched.",
+             "Find files whose text contains all the given words (PDF, Word, PowerPoint, text), from Spotlight’s index on their Mac. Unless they let you read files, the names don’t reach you here: they’re shown the list and choose whether to share it, and it arrives as their next message. With their permission, you get up to 50 rows and the line that matched. Search inside files only when names won’t do.",
              properties: ["words": string("Words to look for in the text. Whole words and word starts."),
                           "folder": string("Folder to search under, relative to the source. Default: the folder on screen.")],
              required: ["words"]),
