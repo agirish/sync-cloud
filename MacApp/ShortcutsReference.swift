@@ -159,7 +159,6 @@ enum ShortcutsReference {
             // own does not fit this window. The two are the window's two side columns' switches.
             Item(keys: "⌃⌘ S / ⌃⌘ T", action: "Show or hide sidebar / file list"),
             Item(keys: "⇧⌘ .", action: "Show or hide hidden files"),
-            Item(keys: "⇧⌘ P", action: "Show or hide the file preview"),
             Item(keys: "⌘ ⌫", action: "Move the selected items to the Trash"),
             Item(keys: "Space", action: "Quick Look the selected item"),
             Item(keys: "⌘-click / ⇧-click", action: "Select multiple items"),
@@ -394,7 +393,7 @@ struct ShortcutsReferenceView: View {
     /// scrolled, and the longest key strings wrapped in a keys column that stayed 165pt while its
     /// type grew. `theReferenceFitsItsWindowAtEveryTextSize` holds every selectable stop to the
     /// same fit and the same 60pt ceiling on empty space this number was held to.
-    static let windowSize = CGSize(width: 1240, height: 760)
+    static let windowSize = CGSize(width: 1240, height: 736)
 
     /// The keys column at the default text size.
     static let keysColumnWidth: CGFloat = 165
@@ -430,7 +429,11 @@ struct ShortcutsReferenceView: View {
     /// **258, with the default window 760**, on 2026-11-03: the ⌃⇥ row lost ⇧⌘P with View ▸ File
     /// Preview and stopped wrapping at 90%, which left 90% 62pt under its last row. The base came
     /// down 2pt for 90% and the growth went up to give the large stops those points back.
-    static let heightPerGrowth: CGFloat = 258
+    ///
+    /// **260, with the default window 736**, on 2026-11-04: General lost its ⇧⌘P row, which no
+    /// chord answered once View ▸ File Preview had gone. Rows measured 656pt at 90% to 794pt at
+    /// 135%; this leaves 15–57pt under the last row at every stop, Largest the tightest.
+    static let heightPerGrowth: CGFloat = 260
 
     static func keysColumnWidth(scale: CGFloat) -> CGFloat {
         (keysColumnWidth * growth(scale: scale)).rounded()
