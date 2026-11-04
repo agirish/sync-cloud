@@ -80,7 +80,7 @@ you ask.
 ### 🔍 Compare
 - **Any two providers or folders**, with breadcrumbs, back/forward and one-click ⇄ swap.
 - **Diffs by presence, date and size**, with a date tolerance that absorbs cloud timestamp rounding.
-- **Coded by colour and shape**: missing → / ←, changed ↻, and **name conflicts** ⚠ — names that
+- **Coded by color and shape**: missing → / ←, changed ↻, and **name conflicts** ⚠ — names that
   differ only by a trailing space or period, a zero-width character, or Unicode form.
 - **Filter and search** (`kind:pdf`, `>10mb`, `only:left`), with live counts.
 - **Guided Review** steps through each difference — Copy, Move or Skip.
@@ -136,7 +136,7 @@ budget caps ($5 lifetime by default).
   password. Also on any PDF's right-click menu, for several at once.
 - **Fill & Sign**: text, dates, check marks, and a drawn or typed signature kept on this Mac. Real
   form fields fill in their own Tab order and stay fillable. **Replace** retypes a few words in
-  their own size, colour and font; the old words stay underneath unless you make that page a
+  their own size, color and font; the old words stay underneath unless you make that page a
   picture.
 - **Save as PDF** turns Word, Excel, PowerPoint, RTF, Markdown and plain-text files into PDFs.
 - **The original is never modified** — every change writes a new file beside it, such as
@@ -157,7 +157,7 @@ From/To confirmations; collision choices (replace, keep both, skip, or merge fol
 that refuses an ambiguous path rather than guessing.
 
 ### 🎨 Native macOS
-**Liquid Glass** (Clear, Frosted or Solid), light and dark themes, 11 accent hues, and
+**Liquid Glass** (Clear, Frosted or Solid), light and dark themes, 10 accent hues, and
 **Settings ▸ Readability** for text size (90–135%) and row spacing.
 
 ---
