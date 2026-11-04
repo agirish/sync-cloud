@@ -217,10 +217,12 @@ import Testing
                         reason: "Fits how this folder is used", fromFile: false)],
         staleDays: 30, canRefine: true)
 
+    /// The word, and the folder it picked: "Taxes › 2025" for a scan named scan.pdf says it is a
+    /// tax document (review of TE319–TE323).
     @Test func theWordReadFromTheFileGoesOnlyWithReadFilesOn() {
         let off = AskClaudeFiling.result(card, readsFiles: false)
-        #expect(!off.contains("W-2"))
-        #expect(off.contains("best: iCloud › Documents › Taxes › 2025 · Medium · Matched a word read from the file"))
+        #expect(!off.contains("W-2") && !off.contains("Taxes"))
+        #expect(off.contains("best: a folder picked by a word read from the file · Medium · on their card, not sent to you"))
         #expect(off.contains("runner-up: iCloud › Documents › Work · Medium · Fits how this folder is used"))
         #expect(AskClaudeFiling.result(card, readsFiles: true).contains("Matched “W-2”"))
         // Never a path.

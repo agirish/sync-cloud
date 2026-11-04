@@ -14472,9 +14472,24 @@ text", so its button says All Content. Ask Claude exists only on `main`.
 
 2026-11-04, for v7.0. On `main`: `find_by_name` and `list_folder` outside the folder on screen and
 its subfolders send Claude only the count, and the names wait on the found-names card, unless the
-folder is shared without asking or the chat's new "Share names without asking" tick is on. Every
+folder is shared without asking, Let Claude read files is on, or the chat's new "Share lookups
+without asking" tick is on. Every
 found card is now a table with Share Details and Customize… (file and detail ticks). Ask Claude
 exists only on `main`.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Ask Claude privacy review fixes (TE319–TE323) — main only
+
+2026-11-04, for v7.0. On `main`: a held read no longer names the page its question's words were
+found on; a held search inside files sends Claude no count, not even "none"; offer_rule, where_to_file
+and file_loose_files no longer tell Claude what a file's first page holds unless it shares freely;
+propose_changes refuses places in hidden folders before checking disk; a folder shared without asking
+counts only what really lives in it, not a link's target; Retry and Ask Again of a share refuse once
+its files are hidden; a card can't be shared once the next question starts a new chat; two reads of
+one file merge on the group card. Ask Claude exists only on `main`.
 
 | Line | Carries | Status |
 |---|---|---|

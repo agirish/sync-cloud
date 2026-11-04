@@ -930,7 +930,9 @@ import FileExplorer
         var handles = AskClaudeHandles()
         let search = call("find_in_contents", ["words": .string("diagnosis")])
         let off = await runner(readsFiles: false).run(search, handles: &handles)
-        #expect(off.result.hasPrefix("Spotlight found 2 files under") && off.result.contains("Their names weren’t sent to you"))
+        // Not even how many (review of TE319–TE323): a count says whether a file mentions a word.
+        #expect(off.result.hasPrefix("Spotlight searched inside the files under") && off.result.contains("not even how many"))
+        #expect(!off.result.contains("2 files"))
         #expect(!off.result.contains("Biopsy") && !off.result.contains("REI"))
         let found = try #require(off.found)
         #expect(Set(found.names) == ["Receipt REI 2025.pdf", "Biopsy results.txt"] && found.count == 2 && found.words == "diagnosis")
@@ -1031,6 +1033,38 @@ import FileExplorer
         let indexed = await tools(spotlight: [hit], lookupsGo: false).run(search, handles: &handles)
         #expect(indexed.result.hasPrefix("Spotlight found 1 match for “receipt 2025” under Documents, on their Mac."))
         #expect(indexed.found.map(AskClaudeHeldAnswer.foundTitle) == "Spotlight found 1 file named “receipt 2025” in Documents, on this Mac:")
+    }
+
+    /// **A held read never names the page, and a held search never says how many** (review of
+    /// TE319–TE323): the page is where the question's words were found, and a count of 0 or 1 says
+    /// whether a file mentions a word. The card still names the page; "none" waits on a card too.
+    @Test func heldReadsAndSearchesSayNothingOfWhatMatched() async throws {
+        let receipt = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
+        var map: [String: FileNode] = [:]
+        Self.index(Self.tree, into: &map)
+        func runner(hits: [String]) -> AskClaudeBrowseTools {
+            AskClaudeBrowseTools(context: {
+                AskClaudeBrowseTools.Context(
+                    inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Documents/Taxes", sort: .name,
+                    items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+            }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
+               read: { _ in AskClaudeReading.Read(pages: ["Store copy", "Total due: $84.10 for the tent"], pageCount: 2) },
+               answerOnDevice: { _, _, _ in .answer("The total is $84.10.") },
+               searchContents: { _, _ in hits })
+        }
+        var handles = AskClaudeHandles()
+        let read = call("read_text", ["handle": .string(handles.handle(for: receipt)), "question": .string("tent total")])
+        let held = await runner(hits: []).run(read, handles: &handles)
+        #expect(held.passage?.whereInFile == "page 2" && held.passage?.answer != nil)
+        #expect(!held.result.contains("page 2") && !held.result.contains("84.10") && held.result.contains("the part it came from"))
+        let search = call("find_in_contents", ["words": .string("biopsy")])
+        let none = await runner(hits: []).run(search, handles: &handles)
+        #expect(none.result.contains("not even how many") && !none.result.contains("No file"))
+        let card = try #require(none.found)
+        #expect(card.count == 0 && card.files?.isEmpty == true)
+        #expect(AskClaudeHeldAnswer.foundTitle(card) == "Spotlight found no files mentioning “biopsy” in Documents/Taxes, on this Mac.")
+        let one = await runner(hits: [receipt]).run(search, handles: &handles)
+        #expect(one.result == none.result)
     }
 
     @Test func movesWaitForTheWindowAndSidesAreCompares() async {
@@ -2217,7 +2251,7 @@ private final class NoTools: AskClaudeToolRunning {
                                  readKey: { "k" }, keyChanges: center)
         chat.ask("which files mention my diagnosis?", screen: screen, tools: FindsNames()); await waitUntilIdle(chat)
         let card = try #require(chat.items.first { if case .found = $0.kind { true } else { false } })
-        guard case .found(let found) = card.kind else { return }
+        guard case .found(let found) = card.kind else { Issue.record("not a found card"); return }
         #expect(AskClaudeHeldAnswer.foundTitle(found) == "Spotlight found 8 files mentioning “diagnosis” in iCloud › Medical, on this Mac:")
         #expect(AskClaudeHeldAnswer.foundFoot(found, ticked: 8)
                 == "Not shared yet. Share Details sends each file’s name, folder, kind, size, date and tags. No file content.")
@@ -2226,7 +2260,7 @@ private final class NoTools: AskClaudeToolRunning {
         let biopsy = "/Users/me/Medical/Biopsy results.pdf"
         chat.editFound(card.id, .customize(true))
         chat.tickFound(card.id, biopsy)
-        guard case .found(let picked)? = chat.items.first(where: { $0.id == card.id })?.kind else { return }
+        guard case .found(let picked)? = chat.items.first(where: { $0.id == card.id })?.kind else { Issue.record("card gone"); return }
         #expect(picked.ticked.count == 7)
         #expect(AskClaudeHeldAnswer.customShareButton(ticked: 7, details: picked.chosenDetails, noun: picked.noun) == "Share 7 Files with All Details")
         let shared = try #require(chat.takeFound(card.id))
@@ -2236,10 +2270,10 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(shared.shown == "Shared 7 files mentioning “diagnosis”")
         #expect(chat.takeFound(card.id)?.question == nil)
         chat.tickFound(card.id, biopsy)
-        guard case .found(let after)? = chat.items.first(where: { $0.id == card.id })?.kind else { return }
+        guard case .found(let after)? = chat.items.first(where: { $0.id == card.id })?.kind else { Issue.record("card gone"); return }
         #expect(after.ticked.count == 7 && AskClaudeHeldAnswer.foundFoot(after, ticked: 7) == "Claude has the list you shared.")
         chat.editFound(card.id, .customize(false))
-        guard case .found(let still)? = chat.items.first(where: { $0.id == card.id })?.kind else { return }
+        guard case .found(let still)? = chat.items.first(where: { $0.id == card.id })?.kind else { Issue.record("card gone"); return }
         #expect(still.customizing == true)
         let later = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
                                   readKey: { "k" }, keyChanges: center)
@@ -2262,8 +2296,8 @@ private final class NoTools: AskClaudeToolRunning {
                                      readKey: { "k" }, keyChanges: NotificationCenter())
             chat.ask("which files mention my diagnosis?", screen: screen, tools: FindsNames()); await waitUntilIdle(chat)
             let card = try #require(chat.items.first { if case .found = $0.kind { true } else { false } })
-            guard case .found(let found) = card.kind, let files = found.files else { throw CancellationError() }
-            return (chat, card.id, files)
+            guard case .found(let found) = card.kind else { Issue.record("not a found card"); throw CancellationError() }
+            return (chat, card.id, try #require(found.files))
         }
         func state(_ chat: AskClaudeChat, _ id: UUID) -> AskClaudeFoundNames? {
             if case .found(let found)? = chat.items.first(where: { $0.id == id })?.kind { return found }
@@ -2296,7 +2330,7 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(names.question.contains("- Referral.pdf") && !names.question.contains("Medical/2026") && !names.question.contains("|"))
         #expect(names.shown == "Shared the names of 8 files mentioning “diagnosis”")
         let sent = try #require(state(bare, bareID))
-        #expect(sent.namesOnly == true && AskClaudeHeldAnswer.foundFoot(sent, ticked: 8) == "Claude has the names you shared.")
+        #expect(sent.namesOnly == true && AskClaudeHeldAnswer.foundFoot(sent, ticked: 8) == "Claude has the 8 names you shared, and nothing else.")
         // None: nothing to send; Select All brings them back.
         let (empty, emptyID, _) = try await card()
         empty.editFound(emptyID, .customize(true))
@@ -2336,7 +2370,7 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(third.sharesNames)
         again.newChat()
         #expect(!again.sharesAnswers && !again.sharesNames)
-        #expect(AskClaudeHeldAnswer.namesTick == "Share names without asking for the rest of this chat")
+        #expect(AskClaudeHeldAnswer.namesTick == "Share lookups without asking for the rest of this chat")
         #expect(AskClaudeHeldAnswer.answersTick == "Share answers without asking for the rest of this chat")
         #expect(AskClaudeFolderAccess.allCases.map(\.title) == ["Ask Each Time", "Share Without Asking", "Hide from Claude"])
         #expect(AskClaudeFolderAccess.share.caption.hasSuffix("Whole documents still ask"))
@@ -2371,6 +2405,82 @@ private final class NoTools: AskClaudeToolRunning {
         // A new question gathers on a new card.
         chat.ask("and again?", screen: screen, tools: HoldsTwoAnswers()); await waitUntilIdle(chat)
         #expect(chat.items.filter { if case .reads = $0.kind { true } else { false } }.count == 2)
+    }
+
+    /// **One file read twice in a question is one row** (review of TE319–TE323): both answers,
+    /// one tick, its text once.
+    @Test func aFileReadTwiceIsOneRow() async throws {
+        let d = defaults()
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: TwoReadsTransport(), defaults: d) },
+                                 readKey: { "k" }, keyChanges: NotificationCenter())
+        chat.ask("what flight and seat?", screen: screen, tools: ReadsOneFileTwice()); await waitUntilIdle(chat)
+        let cards = chat.items.filter { if case .reads = $0.kind { true } else if case .offer = $0.kind { true } else { false } }
+        #expect(cards.count == 1)
+        guard case .offer(let passage, _)? = cards.first?.kind else { Issue.record("not one offer: \(cards)"); return }
+        #expect(passage.answer == "Flight JL 754.\n\nSeat 14A." && passage.asked == "What flight? / What seat?")
+        #expect(passage.whole == "All of the pass")
+    }
+
+    /// **A share goes only into its own chat, and never again once hidden** (review of
+    /// TE319–TE323): with a folder hidden since the chat began the next question starts over, so a
+    /// card refuses with a note; and a share's question asked again (Retry, Ask Again) refuses
+    /// once one of its files is hidden.
+    @Test func aShareNeverOutlivesItsChatOrItsFolder() async throws {
+        let d = defaults()
+        let center = NotificationCenter()
+        func chat() async throws -> (AskClaudeChat, UUID) {
+            let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
+                                     readKey: { "k" }, keyChanges: center)
+            chat.ask("which files mention my diagnosis?", screen: screen, tools: FindsNames()); await waitUntilIdle(chat)
+            return (chat, try #require(chat.items.first { if case .found = $0.kind { true } else { false } }?.id))
+        }
+        let (stale, card) = try await chat()
+        AskClaudePrivacy.setHiddenFolders(["/Users/me/Work"], in: d)
+        center.post(name: AskClaudePrivacy.didChange, object: nil)
+        #expect(stale.takeFound(card) == nil)
+        #expect(stale.items.last?.kind == .note("Didn’t share: a folder was hidden from Claude since this chat began, so the next question starts a new chat, without this card. Ask again to read it afresh."))
+        AskClaudePrivacy.setHiddenFolders([], in: d)
+        let (shared, id) = try await chat()
+        let share = try #require(shared.takeFound(id))
+        shared.ask(share.question, shown: share.shown, screen: screen, tools: NoTools()); await waitUntilIdle(shared)
+        AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
+        center.post(name: AskClaudePrivacy.didChange, object: nil)
+        let before = shared.items.count
+        shared.ask(share.question, shown: share.shown, screen: screen, tools: NoTools()); await waitUntilIdle(shared)
+        #expect(shared.items.count == before + 1)
+        #expect(shared.items.last?.kind == .note("Didn’t ask again: it shares what was found in Biopsy results.pdf, which is in a folder hidden from Claude now."))
+    }
+
+    /// **A share of the first page of a long list says so, and how to see the rest** (review of
+    /// TE319–TE323); a card saved with the old on-card ticks keeps them.
+    @Test func aPartOfALongListIsSharedAsAPart() async throws {
+        let names = (1...8).map { "Pass \($0).pdf" }
+        let files = names.map { AskClaudeFoundNames.File(name: $0, folder: "Travel", modified: nil, row: "|\($0)|PDF|1 KB|2026-03-01||Travel", path: "/t/" + $0) }
+        var found = AskClaudeFoundNames(words: "pass", folderLabel: "Travel", names: names, count: 20,
+                                        rows: (["20 matches under Travel, newest period first:", "rows: handle|name|kind|size|modified|tags|folder"]
+                                               + files.map(\.row) + ["12 more not listed; narrow the words or the folder."]).joined(separator: "\n"),
+                                        paths: files.map(\.path), files: files,
+                                        header: "20 matches under Travel, newest period first:\nrows: handle|name|kind|size|modified|tags|folder",
+                                        source: .names, fromIndex: true, allFiles: true)
+        let question = AskClaudeChat.foundQuestion(found)
+        #expect(question.hasPrefix("Here are the first 8 of the 20 files matching “pass” under Travel, as data."))
+        #expect(question.hasSuffix("\n12 more not listed; narrow the words or the folder."))
+        #expect(AskClaudeHeldAnswer.foundMore(12, noun: "file") == "and 12 more files, not listed; Claude is told how to see them if you share.")
+        // Ticked on a card saved before Customize: it is in Customize, and keeps them.
+        found.unticked = ["/t/Pass 1.pdf"]
+        #expect(found.customized && found.ticked.count == 7)
+        #expect(AskClaudeChat.foundQuestion(found).hasPrefix("Here are 7 of the 20 files"))
+    }
+
+    /// **Never "all" of what wasn't all read** (review of TE319–TE323), on the group card too.
+    @Test func theGroupSaysAllOnlyOfWhatIsAll() {
+        let all = AskClaudePassage(fileName: "a.pdf", whereInFile: "page 1", text: "a", path: "/a", whole: "aa", wholeWhere: "all 2 pages", wholeIsAll: true)
+        let part = AskClaudePassage(fileName: "b.pdf", whereInFile: "page 1", text: "b", path: "/b", whole: "bb", wholeWhere: "pages 1–40", wholeIsAll: false)
+        #expect(AskClaudeReadGroup(files: [all, all]).allIsAll)
+        #expect(!AskClaudeReadGroup(files: [all, part]).allIsAll)
+        #expect(AskClaudeHeldAnswer.readsAllButton(2, sent: false, isAll: false) == "Share What Was Read from 2 Files")
+        #expect(AskClaudeHeldAnswer.readsAllButton(2, sent: false, isAll: true) == "Share All Content from 2 Files")
+        #expect(AskClaudeHeldAnswer.readsSize(AskClaudeReadGroup(files: [all, part])).hasPrefix("What was read, not all of every file:"))
     }
 
     /// **Each button on the held-answer card says what it shares** (his calls on TE319), under a
@@ -3015,6 +3125,21 @@ private final class HoldsTwoAnswers: AskClaudeToolRunning {
 }
 
 @MainActor
+private final class ReadsOneFileTwice: AskClaudeToolRunning {
+    private var reads = 0
+    func run(_ call: AskClaudeToolCall, handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
+        reads += 1
+        let first = reads == 1
+        return AskClaudeToolOutcome(result: "held", step: "Read Boarding Pass.pdf on this Mac",
+                                    passage: AskClaudePassage(fileName: "Boarding Pass.pdf", whereInFile: "page 1", text: "Text of the pass",
+                                                              path: "/Users/me/Travel/Boarding Pass.pdf",
+                                                              answer: first ? "Flight JL 754." : "Seat 14A.",
+                                                              asked: first ? "What flight?" : "What seat?",
+                                                              whole: "All of the pass", wholeWhere: "all 2 pages", wholeIsAll: true))
+    }
+}
+
+@MainActor
 private final class ShowsASettingCard: AskClaudeToolRunning {
     let card: AskClaudeSettingCard
     init(_ card: AskClaudeSettingCard) { self.card = card }
@@ -3379,6 +3504,17 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(out.result.contains("1 apps or installers stay"))
     }
 
+    /// **Claude gets the counts, not the names and homes** (review of TE319–TE323): a home can be
+    /// picked from a file's first page. A folder that shares freely sends the rows, as before.
+    @Test func theCardsNamesAndHomesStayOnTheCard() async throws {
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let held = await call(["into": .string("Documents")], runner())
+        #expect(held.plan != nil && held.result.contains("with a home") && held.result.contains("needing their pick"))
+        #expect(!held.result.contains("JAL Ticket.pdf") && !held.result.contains("Taxes"))
+        let free = await call(["into": .string("Documents")], runner(configure: { $0.readsFiles = true }))
+        #expect(free.result.contains("JAL Ticket.pdf"))
+    }
+
     @Test func aPlaceOutsideTheSurveyOffersTheSurvey() async throws {
         defer { try? FileManager.default.removeItem(atPath: dir) }
         let out = await call(["into": .string("Dropbox")], runner())
@@ -3581,6 +3717,20 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(!FileManager.default.fileExists(atPath: dir + "/Documents/Travel/Trips/Japan 2026"))
     }
 
+    /// **A name in a hidden folder is refused as hidden, never as taken** (review of TE319–TE323):
+    /// "Private is already there" would say what the hidden folder's parent holds, and a name made
+    /// inside a hidden folder would say what it holds.
+    @Test func aPlaceInAHiddenFolderIsRefusedBeforeTheDiskIsAsked() async throws {
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let (out, _) = await propose([
+            ["action": "new_folder", "folder": "Documents", "name": "Private"],
+            ["action": "new_folder", "folder": "Documents/Private", "name": "Scans"],
+        ])
+        let plan = try #require(out.plan)
+        #expect(plan.rows.map(\.refusal) == ["Private is hidden from Claude", "Private is hidden from Claude"])
+        #expect(!out.result.contains("already there") && !out.result.contains("taken"))
+    }
+
     /// Checked when proposed: a row that can't run says why and has no tick, and Claude is told.
     @Test func aRowThatCantRunSaysWhyWhenProposed() async throws {
         defer { try? FileManager.default.removeItem(atPath: dir) }
@@ -3769,7 +3919,7 @@ private final class OffersADownload: AskClaudeToolRunning {
 
     final class Asked: @unchecked Sendable { var calls: [(folder: String, words: [String], page: String?)] = [] }
 
-    private func runner(_ asked: Asked, rules: [AutomationRule] = []) -> AskClaudeBrowseTools {
+    private func runner(_ asked: Asked, rules: [AutomationRule] = [], readsFiles: Bool = false) -> AskClaudeBrowseTools {
         let file = self.file
         return AskClaudeBrowseTools(context: {
             var ctx = AskClaudeBrowseTools.Context(
@@ -3780,6 +3930,7 @@ private final class OffersADownload: AskClaudeToolRunning {
             let documents = Self.root + "/Documents"
             ctx.surveyFolder = { name in name.hasPrefix("Travel") ? documents + "/" + name : nil }
             ctx.hidden = [documents + "/Private"]
+            ctx.readsFiles = readsFiles
             ctx.ruleFromCorrection = { path, folder, name, words, also, page in
                 asked.calls.append((folder, words, page))
                 guard folder.hasPrefix(documents + "/") else { return nil }
@@ -3813,15 +3964,28 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(card.words == ["jal", "japan airlines", "air india"])
         #expect(card.destination == "Travel › Trips › IN-US › year of travel › month of travel")
         #expect(card.checkedDate)
-        #expect(out.result.contains("Nothing is saved until they click"))
-        // Claude gets the words and folders, never text from the file.
-        #expect(!out.result.contains("15JUL") && !out.result.lowercased().contains("nrt"))
+        // Page 1 decided it (Japan Airlines and the date are on it), so Claude learns only that
+        // they see the result: one call per word would tell it what the page holds (review of
+        // TE319–TE323). They see why in the step line.
+        #expect(out.result.contains("they see the result and you don’t") && !out.result.contains("Airline Tickets"))
+        #expect(out.step == "Offered a rule: Airline Tickets")
+        // Shared freely, Claude gets the words and folders, never text from the file.
+        let freely = await offer(runner(Asked(), readsFiles: true))
+        #expect(freely.rule != nil && freely.result.contains("Nothing is saved until they click"))
+        #expect(!freely.result.contains("15JUL") && !freely.result.lowercased().contains("nrt"))
+        // A probe for a word only the page could hold is answered the same way, fit or not.
+        let probe = await offer(runner(Asked()), words: ["Japan Airlines"])
+        #expect(probe.result.contains("they see the result and you don’t"))
     }
 
     @Test func aRefusedOfferTellsClaudeWhy() async throws {
-        let none = await offer(runner(Asked()), words: ["Lufthansa"])
+        // Shared freely, Claude is told why; otherwise the same line as a fit, and they see why.
+        let none = await offer(runner(Asked(), readsFiles: true), words: ["Lufthansa"])
         #expect(none.isError && none.rule == nil)
         #expect(none.result.contains("None of those words is in the file"))
+        let held = await offer(runner(Asked()), words: ["Lufthansa"])
+        #expect(held.rule == nil && held.result.contains("they see the result and you don’t"))
+        #expect(held.step == "No rule offered: none of those words is in the file’s name or on its first page")
         let saved = try AutomationRuleProposer.correction(
             fileName: "JAL eTicket.pdf", destinationRelativePath: "Travel/Trips/IN-US/2026/Sep", name: "Airline Tickets",
             phrases: ["JAL"], pageSample: Self.page, modificationDate: nil, existingRules: []).get().rule

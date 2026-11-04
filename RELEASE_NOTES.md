@@ -36,8 +36,8 @@ Requires **macOS 26**, unchanged from v6.2.
 - **It looks things up and moves your view.** It lists and finds files and folders in any source,
   goes to folders, tabs, sources and either side of Compare, and reveals, selects, opens or Quick
   Looks a file. It changes views and opens Settings, Help and Activity. It never opens an app, script
-  or installer. Ask it to find a file and it reveals the best match itself, passing over copies in an
-  Archive or Backup folder unless you ask for one. Names in its answers
+  or installer. Ask it to find a file and, once it has the names, it reveals the best match itself,
+  passing over copies in an Archive or Backup folder unless you ask for one. Names in its answers
   that open in Browse are underlined.
 - **The panel wears the window's accent.** It paints a pane's surface and accent wash and follows
   the Tint slider, glass at Frosted and Clear, opaque at Solid; None keeps it gray. Drag it by its
@@ -64,15 +64,17 @@ Requires **macOS 26**, unchanged from v6.2.
   file goes until you click Share This Answer, or Share Content from Page 2 (the card names the
   page) for the text it came from, or Share All Content from the Document, which says how much that
   is first and names the pages when it can't be all; only text goes, never the file itself, and only
-  when Claude should use it. With Let Claude read files on, both go without asking. A scanned PDF is
-  read too: pages with little or no text are read by recognizing the words, in most major languages,
+  when Claude should use it. Claude isn't told which page, since the page is where its question's
+  words were found. With Let Claude read files on, the answer and its page go without asking; all
+  of a document still waits for your click. A scanned PDF is read too: pages with little or no text are read by recognizing the words, in most major languages,
   up to 10 pages, and Claude is told which pages those were and that a word may be misread. Stop
   ends the reading.
 - **One card for every file a question reads.** Each file shows its answer with a tick; Share
   Answers, Share Content and Share All Content send the ticked files', and the all-content share
   says first how much that is.
 - **Which files mention a word waits too.** Asked to search inside files, Claude gets none of the
-  names Spotlight finds: a card lists them as a table, Name, Folder and Date. Share Details sends
+  names Spotlight finds, nor how many, nor that none matched: a card lists them as a table, Name,
+  Folder and Date, or says none did, with Share This Result. Share Details sends
   each file's name, folder, kind, size, date and tags; Customize… picks the files and the details,
   and its button says what goes, "Share 18 Files with Folder and Date", or "Share 18 Names Only"
   with every detail off. With Let Claude read files on, they go without asking, with the line that
@@ -80,13 +82,20 @@ Requires **macOS 26**, unchanged from v6.2.
 - **So do names from folders you aren't looking at.** A name search or a folder's listing beyond the
   folder on screen and those inside it gives Claude only how many it found; the same card holds
   the list, crediting Spotlight, or SyncCloud when only the folders it has opened were searched.
-  Share names without asking for the rest of this chat lets later lookups go, until New Chat, as do
-  folders set to Share Without Asking.
+  Share lookups without asking for the rest of this chat lets later lookups go, with each file's
+  details, until the chat starts over, as do folders set to Share Without Asking and Let Claude read
+  files. A list longer than the card holds says how many more, and so does the share.
+- **Nothing else from a file reaches Claude unasked.** Filing the loose files of a folder tells
+  Claude only how many have a home and how many need your pick; a home picked from a file's
+  first page isn't named to Claude by "where should this go?"; and a rule Claude offers is checked
+  against the file's first page without Claude learning what the check found. A share of something
+  from a folder hidden since is refused, Retry included, and a card can't be shared once the
+  next question would start a new chat.
 - **Choose what Claude gets, folder by folder.** The shield beside the panel's title sets the folder
   it sees to Ask Each Time, Share Without Asking (answers, page text, search names and lookups go
   without a card; whole documents still ask) or Hide from Claude. On a card, Share answers without
-  asking for the rest of this chat stops the cards for answers until New Chat, and Ask Again turns
-  it back on.
+  asking for the rest of this chat sends later answers without waiting for a click, until the chat
+  starts over; their cards still offer the page and all content, and Ask Again turns it off.
 - **Ask about Compare's differences.** "Which files are only on Dropbox?" is answered from the list
   Compare shows, with both sides' sizes and dates. A comparison over an hour old is scanned again
   first, and Claude can narrow the list and select the rows it means. The list scrolls to the first

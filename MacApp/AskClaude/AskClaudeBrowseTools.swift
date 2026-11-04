@@ -59,7 +59,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         /// Whether what's in `path` goes without a card: Let Claude read files, or a folder shared
         /// without asking that holds it — never a hidden one.
         func sharesFreely(_ path: String) -> Bool {
-            !isHidden(path) && (readsFiles || sharedMatcher.matcher(for: shared).isHidden(path))
+            !isHidden(path) && (readsFiles || sharedMatcher.matcher(for: shared).holds(path))
         }
         /// Apple Intelligence's answers go without a card for the rest of this chat (his call on
         /// TE321, the card's tick); page text and whole documents still ask.
@@ -683,6 +683,12 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     /// What Claude is told of names held on a card: how many, and what to do until they share.
     static func heldNames(_ found: String) -> String {
         found + " Their names weren’t sent to you: they’re shown the list and can share it. In one short sentence, say what you would do with them if they share it, and stop. If they share it, it arrives as their next message."
+    }
+
+    /// What Claude is told of a search inside files held on a card: not even how many, since
+    /// whether any file mentions a word says what the files hold.
+    static func heldSearch(_ words: String, _ folder: String) -> String {
+        "Spotlight searched inside the files under \(AskClaudeScreenCard.escape(folder)) for “\(words)”, on their Mac. What it found wasn’t sent to you, not even how many: whether a file mentions a word says what it holds. They’re shown the result and can share it. In one short sentence, say what you would do with it if they share it, and stop. If they share it, it arrives as their next message."
     }
 
     static func count(_ n: Int, _ noun: String) -> String { n == 1 ? "1 \(noun)" : "\(n) \(noun)s" }
@@ -1436,21 +1442,28 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
         if let heard, now.sharesAnswers {
             // The card's tick (TE321): answers go for the rest of this chat; the text still waits.
-            lines.append("Its text was not sent to you. If the answer isn’t enough, tell them they can share \(forClaude.whereInFile)\(whole.map { " or \($0.whereInFile)" } ?? "") with the buttons under your reply.")
+            lines.append("Its text was not sent to you. If the answer isn’t enough, tell them they can share \(Self.heldParts(whole != nil)) with the buttons under your reply.")
             return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: "\(readHere) · shared its answer",
                                         passage: offered(answer: AskClaudeKeyCatch.masked(heard, joiningLines: false), asked: question,
                                                          autoShared: .answerForThisChat))
         }
         guard let heard else {
-            lines.append("Its text was not sent to you. If the answer isn’t enough, tell them they can send \(forClaude.whereInFile)\(whole.map { " or \($0.whereInFile)" } ?? "") with the buttons under your reply.")
+            lines.append("Its text was not sent to you. They can share \(Self.heldParts(whole != nil)) with the buttons under your reply.")
             return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: readHere, passage: offered())
         }
         // Decision IU: the answer can be the very fact the file holds, so it waits on the card for
         // their click, as the passage does. Claude learns only that the file was read.
-        lines = ["Read \(node.name) on their Mac. Nothing from it was sent to you: they’re shown what it says, and can send that, \(forClaude.whereInFile)\(whole.map { ", or \($0.whereInFile)" } ?? ""). They may need nothing more: the answer is on their screen. In one short sentence, say what you would do with it if they share it, such as compare it or act on it, and stop. If they share it, it arrives as their next message."]
+        lines = ["Read \(node.name) on their Mac. Nothing from it was sent to you: they’re shown what it says, and can send that, \(Self.heldParts(whole != nil)). They may need nothing more: the answer is on their screen. In one short sentence, say what you would do with it if they share it, such as compare it or act on it, and stop. If they share it, it arrives as their next message."]
         if let note = reading.ocrNote { lines.append(note) }
         return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: readHere,
                                     passage: offered(answer: AskClaudeKeyCatch.masked(heard, joiningLines: false), asked: question))
+    }
+
+    /// What a held read's card offers, said without naming the page: the page is the one the
+    /// question's words were found on, so naming it would say the words are in the file (review of
+    /// TE319–TE323).
+    static func heldParts(_ more: Bool) -> String {
+        more ? "the part it came from or more of it" : "the part it came from"
     }
 
     /// A read the person stopped: nothing about the file, and no passage to send.
@@ -1480,9 +1493,16 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var nodes = kept.prefix(AskClaudeDisk.maxExamined).compactMap { ctx.node($0) ?? statDisk($0) }
         let years = Dictionary(nodes.map { ($0.id, Self.latestYear(in: Self.relative($0.id, root: ctx.root)) ?? 0) }, uniquingKeysWith: { a, _ in a })
         nodes.sort { (years[$0.id] ?? 0, $0.modificationDate ?? .distantPast) > (years[$1.id] ?? 0, $1.modificationDate ?? .distantPast) }
+        let noMatch = "No file under \(folder.label) has text matching “\(label)”. Scans without a text layer and files only in the cloud may not be searchable."
         guard !nodes.isEmpty else {
-            return AskClaudeToolOutcome(result: "No file under \(folder.label) has text matching “\(label)”. Scans without a text layer and files only in the cloud may not be searchable.",
-                                        step: "Found no text matching “\(label)”")
+            guard free else {
+                // Whether any file mentions a word says what the files hold, so even "none" waits
+                // (review of TE319–TE323): a count of 0 or 1 in a folder of one file is the answer.
+                let found = AskClaudeFoundNames(words: label, folderLabel: folder.label, names: [], count: 0, rows: noMatch,
+                                                paths: [], files: [], header: noMatch)
+                return AskClaudeToolOutcome(result: Self.heldSearch(label, folder.label), step: "Found no text matching “\(label)”", found: found)
+            }
+            return AskClaudeToolOutcome(result: noMatch, step: "Found no text matching “\(label)”")
         }
         var lines = ["\(nodes.count) file\(nodes.count == 1 ? "" : "s") under \(AskClaudeScreenCard.escape(folder.label)) contain “\(label)”, newest period first:",
                      "rows: handle|name|kind|size|modified|tags|folder" + (free ? "|line" : "")]
@@ -1516,9 +1536,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             let found = AskClaudeFoundNames(words: label, folderLabel: folder.label, names: listed.map(\.name),
                                             count: nodes.count, rows: lines.joined(separator: "\n"), paths: listed.map(\.id),
                                             files: files, header: header)
-            let files = nodes.count == 1 ? "1 file" : "\(nodes.count) files"
-            return AskClaudeToolOutcome(result: "Spotlight found \(files) under \(AskClaudeScreenCard.escape(folder.label)) whose text contains “\(label)”, on their Mac. Their names weren’t sent to you: they’re shown the list and can share it. In one short sentence, say what you would do with them if they share it, and stop. If they share it, it arrives as their next message.",
-                                        step: step, found: found)
+            return AskClaudeToolOutcome(result: Self.heldSearch(label, folder.label), step: step, found: found)
         }
         return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: step)
     }
@@ -1553,7 +1571,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         case .outside: step = "\(card.place ?? "That place") is outside the folder survey"
         case .noMatch: step = "No folder fits \(node.name)"
         }
-        return AskClaudeToolOutcome(result: AskClaudeFiling.result(card, readsFiles: ctx.readsFiles), step: step, filing: card)
+        return AskClaudeToolOutcome(result: AskClaudeFiling.result(card, readsFiles: ctx.sharesFreely(path)), step: step, filing: card)
     }
 
     /// The card for an answer: each folder by source and path, as To File shows it.
@@ -1606,6 +1624,22 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             return AskClaudeToolOutcome(result: "Rules file into their folder survey, and \(into) isn’t in it. Offer no rule.",
                                         isError: true, step: "\(into) is outside the folder survey")
         }
+        // A rule is checked against the file's first page: its words, its date. Unless the file
+        // shares freely, Claude mustn't learn what that check found (review of TE319–TE323): one
+        // call per word would tell it which words the page holds. So Claude is told only that they
+        // see the outcome — whatever it is, or the telling itself would answer — except for what
+        // depends on Claude's own words and folder alone. The step line tells them why.
+        if page != nil, !ctx.sharesFreely(path), !Self.dependsOnInputAlone(answer) {
+            let neutral = "Whether a rule fits depends on the file’s first page, which isn’t sent to you, so they see the result and you don’t. Say in a line that they can see whether a rule was offered, and stop. Don’t offer it again."
+            switch answer {
+            case .failure(let refusal):
+                if case .covered = refusal { return AskClaudeToolOutcome(result: neutral, step: "A saved rule already files \(node.name) there") }
+                return AskClaudeToolOutcome(result: neutral, step: "No rule offered: " + Self.refusalForThem(refusal))
+            case .success(let correction):
+                let card = AskClaudeRuleCard(fileName: node.name, correction: correction)
+                return AskClaudeToolOutcome(result: neutral, step: "Offered a rule: \(card.rule.name)", rule: card)
+            }
+        }
         switch answer {
         case .failure(let refusal):
             let covered: Bool
@@ -1615,6 +1649,25 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         case .success(let correction):
             let card = AskClaudeRuleCard(fileName: node.name, correction: correction)
             return AskClaudeToolOutcome(result: AskClaudeRuleCard.result(card), step: "Offered a rule: \(card.rule.name)", rule: card)
+        }
+    }
+
+    /// Whether a rule's outcome comes from Claude's words and folder alone, not the file.
+    static func dependsOnInputAlone(_ answer: Result<AutomationRuleProposer.Correction, AutomationRuleProposer.CorrectionRefusal>) -> Bool {
+        switch answer {
+        case .failure(.noWords), .failure(.unusableFolder): true
+        default: false
+        }
+    }
+
+    /// A rule refusal, said to them in the step line when Claude isn't told it.
+    static func refusalForThem(_ refusal: AutomationRuleProposer.CorrectionRefusal) -> String {
+        switch refusal {
+        case .notInFile: "none of those words is in the file’s name or on its first page"
+        case .covered: "a saved rule already files it there"
+        case .needsAlso: "a rule like it already files those words elsewhere"
+        case .noWords: "none of those words can be matched on"
+        case .unusableFolder: "that folder can’t be a rule’s destination"
         }
     }
 
@@ -1704,8 +1757,16 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             return AskClaudeToolOutcome(result: "Nothing was offered: " + problems.joined(separator: "; ") + ".", isError: true,
                                         step: "Couldn’t propose those changes")
         }
+
         // Checked now, with the folders this card makes counted as there.
         for index in rows.indices {
+            // A place in a hidden folder is refused before anything is checked on disk, so "already
+            // there" can't say what a hidden folder holds (review of TE319–TE323).
+            if let hidden = Self.places(rows[index].change).first(where: ctx.isHidden) {
+                rows[index].refusal = "\((Self.hiddenEntry(hidden, ctx.hidden) as NSString).lastPathComponent) is hidden from Claude"
+                rows[index].ticked = false
+                continue
+            }
             if let why = ctx.planRefusal(rows[index].change, creating) {
                 rows[index].refusal = why
                 rows[index].ticked = false
@@ -1722,6 +1783,25 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         lines.append("Say in one line what you proposed, and stop. Never say it’s done.")
         return AskClaudeToolOutcome(result: lines.joined(separator: "\n"),
                                     step: "Proposed \(rows.count) change\(rows.count == 1 ? "" : "s")", plan: plan)
+    }
+
+    /// The entry on the hidden list that covers `path`, so a refusal names only what they hid.
+    static func hiddenEntry(_ path: String, _ hidden: [String]) -> String {
+        hidden.first { AskClaudePrivacy.isHidden(path, by: [$0]) } ?? path
+    }
+
+    /// Every path a change would make or fill: a move's new path and folder, a rename's new name.
+    static func places(_ change: AskClaudePlan.Change) -> [String] {
+        switch change {
+        case .move(let from, let folder):
+            return [folder, (folder as NSString).appendingPathComponent((from as NSString).lastPathComponent)]
+        case .rename(let path, let name):
+            return [((path as NSString).deletingLastPathComponent as NSString).appendingPathComponent(name)]
+        case .newFolder(let folder, let name):
+            return [folder, (folder as NSString).appendingPathComponent(name)]
+        default:
+            return []
+        }
     }
 
     static func isTrash(_ change: AskClaudePlan.Change) -> Bool {
@@ -1895,6 +1975,13 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         // as there: one that can't run says why and has no tick, rather than failing at Apply.
         let creating = Set(making)
         for index in rows.indices {
+            // A place in a hidden folder is refused before anything is checked on disk, so "already
+            // there" can't say what a hidden folder holds (review of TE319–TE323).
+            if let hidden = Self.places(rows[index].change).first(where: ctx.isHidden) {
+                rows[index].refusal = "\((Self.hiddenEntry(hidden, ctx.hidden) as NSString).lastPathComponent) is hidden from Claude"
+                rows[index].ticked = false
+                continue
+            }
             if let why = ctx.planRefusal(rows[index].change, creating) {
                 rows[index].refusal = why
                 rows[index].ticked = false
@@ -1928,7 +2015,12 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             if case .newFolder = row.change { return false }
             return row.ticked
         }.count
-        return AskClaudeToolOutcome(result: AskClaudeLooseFiles.result(plan, leftHereCount: left.count, nextFrom: more == nil ? nil : end),
+        // Names and homes go only from a folder that shares freely (review of TE319–TE323): a home
+        // can be picked from a file's first page, and the names of a folder off screen are held
+        // like a lookup's. The card shows them all; Claude gets the counts.
+        let sendsRows = ctx.sharesFreely(folder.absolute)
+        return AskClaudeToolOutcome(result: AskClaudeLooseFiles.result(plan, leftHereCount: left.count, nextFrom: more == nil ? nil : end,
+                                                                       rows: sendsRows),
                                     step: "Found homes for \(files - rows.filter(\.alreadyFiled).count) of \(page.count) files · \(sure) sure", plan: plan)
     }
 

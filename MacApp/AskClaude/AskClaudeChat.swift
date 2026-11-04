@@ -319,9 +319,12 @@ final class AskClaudeChat: ObservableObject {
         var sharesAnswers: Bool?
         /// The lookup card's tick for the rest of the chat (TE323); absent in older chats.
         var sharesNames: Bool?
+        /// Each share's question and the files it carries, so Retry after a relaunch still
+        /// refuses one hidden since; absent in older chats.
+        var carried: [String: [String]]?
 
         init(items: [Item], lastActivity: Date, engine: AskClaudeEngine.Snapshot, sinceLastAnswer: [String]?,
-             hiddenAtStart: [String]?, sharesAnswers: Bool?, sharesNames: Bool? = nil) {
+             hiddenAtStart: [String]?, sharesAnswers: Bool?, sharesNames: Bool? = nil, carried: [String: [String]]? = nil) {
             self.items = items
             self.lastActivity = lastActivity
             self.engine = engine
@@ -329,6 +332,7 @@ final class AskClaudeChat: ObservableObject {
             self.hiddenAtStart = hiddenAtStart
             self.sharesAnswers = sharesAnswers
             self.sharesNames = sharesNames
+            self.carried = carried
         }
 
         /// Items one at a time, so one that won't decode costs a note rather than the whole chat
@@ -343,6 +347,7 @@ final class AskClaudeChat: ObservableObject {
             hiddenAtStart = try container.decodeIfPresent([String].self, forKey: .hiddenAtStart)
             sharesAnswers = try container.decodeIfPresent(Bool.self, forKey: .sharesAnswers)
             sharesNames = try container.decodeIfPresent(Bool.self, forKey: .sharesNames)
+            carried = try container.decodeIfPresent([String: [String]].self, forKey: .carried)
         }
     }
 
@@ -578,6 +583,7 @@ final class AskClaudeChat: ObservableObject {
         sinceLastAnswer = stored.sinceLastAnswer ?? []
         sharesAnswers = stored.sharesAnswers ?? false
         sharesNames = stored.sharesNames ?? false
+        carried = stored.carried ?? [:]
         items = Self.withoutRepeatedSteps(stored.items).map(Self.notWaiting)
         lastActivity = stored.lastActivity
         // Judged against what was hidden when the chat began, not at this launch: a folder hidden
@@ -646,7 +652,7 @@ final class AskClaudeChat: ObservableObject {
         let stored = Stored(items: items, lastActivity: lastActivity, engine: engine.snapshot,
                             sinceLastAnswer: sinceLastAnswer.isEmpty ? nil : sinceLastAnswer,
                             hiddenAtStart: hiddenAtStart.sorted(), sharesAnswers: sharesAnswers ? true : nil,
-                            sharesNames: sharesNames ? true : nil)
+                            sharesNames: sharesNames ? true : nil, carried: carried.isEmpty ? nil : carried)
         do {
             let data = try JSONEncoder().encode(stored)
             try FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -761,7 +767,51 @@ final class AskClaudeChat: ObservableObject {
     /// The question that sends part of an offered card, and what the thread shows for it; marks
     /// that part sent. Nil when that offer is gone or that part already sent, or its file is hidden
     /// from Claude now: then the card goes, with its text, and a note says why (v7.0 review).
+    /// **A share goes only into the chat it was offered in, and is remembered by the files it
+    /// carries** (review of TE319–TE323): a share the next question would carry into a new chat
+    /// (an hour away, or a folder hidden since) is refused with a note, and Retry or Ask Again of
+    /// a share refuses once one of its files is hidden.
     func takeOffer(_ id: UUID, _ part: OfferPart = .passage) -> (question: String, shown: String)? {
+        carry(id) { takeOfferPart(id, part) }
+    }
+
+    func takeFound(_ id: UUID) -> (question: String, shown: String)? {
+        carry(id) { takeFoundPart(id) }
+    }
+
+    /// The files each share's question carries, by its text, for `ask` to check again.
+    private var carried: [String: [String]] = [:]
+
+    private func carry(_ id: UUID, _ take: () -> (question: String, shown: String)?) -> (question: String, shown: String)? {
+        guard !isRunning, let item = items.first(where: { $0.id == id }) else { return nil }
+        let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: defaults))
+        // A card whose own file is hidden since says so itself, in the share's own note.
+        if let why = startsOverNext, !Self.carriedPaths(item.kind).contains(where: hidden.isHidden) {
+            addNote("Didn’t share: \(why), so the next question starts a new chat, without this card. Ask again to read it afresh.")
+            return nil
+        }
+        guard let out = take() else { return nil }
+        carried[out.question] = Self.carriedPaths(item.kind)
+        return out
+    }
+
+    private static func carriedPaths(_ kind: Item.Kind) -> [String] {
+        switch kind {
+        case .offer(let passage, _): passage.path.map { [$0] } ?? []
+        case .reads(let group): group.files.compactMap(\.path)
+        case .found(let found): found.paths
+        default: []
+        }
+    }
+
+    /// Why the next question will start a new chat, or nil when it carries on in this one.
+    private var startsOverNext: String? {
+        if let last = lastActivity, now().timeIntervalSince(last) > Self.idleReset, !items.isEmpty { return "this chat is over an hour old" }
+        if hiddenSinceStart, !items.isEmpty { return "a folder was hidden from Claude since this chat began" }
+        return nil
+    }
+
+    private func takeOfferPart(_ id: UUID, _ part: OfferPart) -> (question: String, shown: String)? {
         // Not while a question runs: the send would be refused, and the offer marked sent anyway.
         guard !isRunning, let index = items.firstIndex(where: { $0.id == id }) else { return nil }
         if case .reads = items[index].kind { return takeReads(id, index, part) }
@@ -798,18 +848,21 @@ final class AskClaudeChat: ObservableObject {
     /// found, as Claude would have had them, and what the thread shows; marks the card shared. Nil when it's gone or
     /// already shared, or one of its files is hidden from Claude now: then the card goes, with its
     /// names, and a note says why.
-    func takeFound(_ id: UUID) -> (question: String, shown: String)? {
+    private func takeFoundPart(_ id: UUID) -> (question: String, shown: String)? {
         guard !isRunning, let index = items.firstIndex(where: { $0.id == id }),
               case .found(var found) = items[index].kind, found.sent != true else { return nil }
-        // Customize with every detail unticked sends the names alone (TE323); Share Details sends
-        // every file with every detail, whatever Customize was left holding.
-        let namesOnly = found.customizing == true && found.chosenDetails.isEmpty
-        if found.customizing != true {
-            found.unticked = nil
-            found.omitted = nil
-        }
+        // Customize with every detail unticked sends the names alone (TE323). Ticks are set only
+        // under Customize, so Share Details sends every file; a card saved with the old on-card
+        // ticks opens in Customize and keeps them (review of TE319–TE323).
+        let namesOnly = found.customized && found.chosenDetails.isEmpty
         // Only what's ticked goes (his call on TE320); a card saved before ticks sends all it held.
         let going = found.files == nil ? found.paths : found.ticked.map(\.path)
+        // A search that found nothing still waits for its share: "none" says what the files hold.
+        if found.count == 0, found.files?.isEmpty == true {
+            found.sent = true
+            items[index].kind = .found(found)
+            return (Self.foundQuestion(found), "Shared that no file mentions “\(found.words)”")
+        }
         guard !going.isEmpty else { return nil }
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: defaults))
         if going.contains(where: hidden.isHidden) {
@@ -823,7 +876,7 @@ final class AskClaudeChat: ObservableObject {
         // Handles only now, and only with every detail (TE323): with one, Claude can read any
         // detail of the file through file_details, so a share that leaves details out has none.
         var handles: [String: String] = [:]
-        if !namesOnly, found.customizing != true || found.chosenDetails.count == AskClaudeFoundNames.detailKeys.count {
+        if !namesOnly, !found.customized || found.chosenDetails.count == AskClaudeFoundNames.detailKeys.count {
             var minting = engine.handles
             for path in going { handles[path] = minting.handle(for: path) }
             engine.handles = minting
@@ -843,11 +896,22 @@ final class AskClaudeChat: ObservableObject {
             switch items[index].kind {
             case .offer(let first, let sent) where !sent && first.answerSent == (first.autoShared != nil ? true : nil)
                 && first.wholeSent == nil && first.autoShared == passage.autoShared:
+                // The same file read again (another question of it) stays one row: its tick, and
+                // its text once in Share All Content (review of TE319–TE323).
+                if first.path != nil, first.path == passage.path {
+                    let item = items.remove(at: index)
+                    items.append(Item(id: item.id, kind: .offer(Self.merged(first, passage), sent: false)))
+                    return
+                }
                 group = AskClaudeReadGroup(files: [first, passage])
             case .reads(var existing) where existing.textSent == (existing.autoShared == .answerAndText ? true : nil)
                 && existing.wholeSent == nil && (existing.answersSent == nil || existing.autoShared != nil)
                 && existing.autoShared == passage.autoShared:
-                existing.files.append(passage)
+                if passage.path != nil, let same = existing.files.firstIndex(where: { $0.path == passage.path }) {
+                    existing.files[same] = Self.merged(existing.files[same], passage)
+                } else {
+                    existing.files.append(passage)
+                }
                 group = existing
             default:
                 break
@@ -861,6 +925,26 @@ final class AskClaudeChat: ObservableObject {
         let item = Item(kind: .offer(passage, sent: false))
         items.append(item)
         turnReads = item.id
+    }
+
+    /// Two reads of one file as one: both answers, each under its question, and the later read's
+    /// passage and whole text when they differ (the whole text is the same file's).
+    static func merged(_ first: AskClaudePassage, _ again: AskClaudePassage) -> AskClaudePassage {
+        let answer: String? = switch (first.answer, again.answer) {
+        case (let a?, let b?) where a != b: "\(a)\n\n\(b)"
+        case (let a?, _): a
+        case (nil, let b): b
+        }
+        let asked: String? = switch (first.asked, again.asked) {
+        case (let a?, let b?) where a != b: "\(a) / \(b)"
+        case (let a?, _): a
+        case (nil, let b): b
+        }
+        let text = first.text == again.text ? first.text : first.text + "\n\n" + again.text
+        let place = first.whereInFile == again.whereInFile ? first.whereInFile : "\(first.whereInFile) and \(again.whereInFile)"
+        let whole = (first.whole?.count ?? 0) >= (again.whole?.count ?? 0) ? first : again
+        return AskClaudePassage(fileName: first.fileName, whereInFile: place, text: text, path: first.path, answer: answer, asked: asked,
+                                whole: whole.whole, wholeWhere: whole.wholeWhere, wholeIsAll: whole.wholeIsAll, autoShared: first.autoShared)
     }
 
     /// The shares of a group card (TE322): the ticked files' answers, the passages they came from,
@@ -894,7 +978,8 @@ final class AskClaudeChat: ObservableObject {
             guard group.wholeSent != true, group.wholeFits(under: AskClaudeReading.wholeTokens) else { return nil }
             group.wholeSent = true
             items[index].kind = .reads(group)
-            return (Self.groupQuestion("all the text read from \(count)", files.map(Self.wholeBlock)), "Shared all content from \(count)")
+            return (Self.groupQuestion("all the text read from \(count)", files.map(Self.wholeBlock)),
+                    group.allIsAll ? "Shared all content from \(count)" : "Shared what was read from \(count)")
         case .names:
             return nil
         }
@@ -952,21 +1037,35 @@ final class AskClaudeChat: ObservableObject {
         guard let files = found.files, let header = found.header else {
             return "Here are the \(noun)s \(found.subject), as data. Answer my last question from them.\n" + found.rows
         }
+        if found.count == 0 {
+            return "Spotlight found no \(noun)s \(found.subject) under \(found.folderLabel). Answer my last question from that.\n" + found.rows
+        }
         let ticked = found.ticked
         let all = ticked.count == files.count
-        let of = all ? "the \(ticked.count == 1 ? noun : "\(ticked.count) \(noun)s")" : "\(ticked.count) of the \(found.count) \(noun)s"
-        let details = found.customizing == true ? found.chosenDetails : AskClaudeFoundNames.detailKeys
+        // The card holds at most a page of them (review of TE319–TE323): say so, or the share
+        // reads as the whole set.
+        let partial = found.count > files.count
+        let of: String
+        if all, partial { of = "the first \(ticked.count) of the \(found.count) \(noun)s" }
+        else if all { of = "the \(ticked.count == 1 ? noun : "\(ticked.count) \(noun)s")" }
+        else { of = "\(ticked.count) of the \(found.count) \(noun)s" }
+        let details = found.customized ? found.chosenDetails : AskClaudeFoundNames.detailKeys
         let some = details.count < AskClaudeFoundNames.detailKeys.count
         let columns = some ? (["rows: name"] + details.map { $0 == "date" ? "modified" : $0 }).joined(separator: "|")
             : header.split(separator: "\n").dropFirst().joined(separator: "\n")
-        let only = some ? ", with only their \(Self.listed(details)), and no handles, so you can’t show or open them: Share Details on the card does that" : ""
+        let only = some ? ", with only their \(Self.listed(details)), and no handles, so you can’t show or open them; if they want that, they can ask again and use Share Details" : ""
         // A row held since TE323 starts at its name's pipe; one saved before has its handle.
         let rows = ticked.map { file in some ? file.row(with: details) : file.row.hasPrefix("|") ? (handles[file.path] ?? "") + file.row : file.row }
+        // The tool's own lines after its rows: how many more, and how to see them; and, with
+        // handles, that the best row can be revealed. No line of them holds a pipe; every row does.
+        let headerLines = header.split(separator: "\n").count
+        let more = found.rows.split(separator: "\n").dropFirst(headerLines).map(String.init)
+            .filter { !$0.contains("|") && (!some || !$0.hasPrefix("If they asked to find")) }
         return "Here are \(of) \(found.subject)\(all ? "" : " (I left the others out)")\(only), as data. Answer my last question from them.\n"
-            + columns + "\n" + rows.joined(separator: "\n")
+            + ([columns] + rows + more).joined(separator: "\n")
     }
 
-    /// What Share Names Only sends: the ticked files' names, and nothing else about them.
+    /// What Customize sends with every detail unticked: the ticked names, and nothing else.
     static func foundNamesQuestion(_ found: AskClaudeFoundNames) -> String {
         let names = (found.files == nil ? found.names : found.ticked.map(\.name)).map { "- " + AskClaudeScreenCard.escape($0) }
         return "Here are the names of the \(found.noun)s \(found.subject), as data, without their folders, sizes or dates. Answer my last question from them.\n"
@@ -1202,6 +1301,12 @@ final class AskClaudeChat: ObservableObject {
         if let passage = hiddenPassage(in: question, AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: defaults))) {
             Logger.shared.info("Ask Claude didn’t ask again: the question holds a passage of a file hidden from Claude now")
             addNote("Didn’t ask again: the question holds \(passage.whereInFile) of \(passage.fileName), which is in a folder hidden from Claude now.")
+            return
+        }
+        let hiddenNow = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: defaults))
+        if let paths = carried[question], let path = paths.first(where: hiddenNow.isHidden) {
+            Logger.shared.info("Ask Claude didn’t ask again: the question carries a share from a folder hidden from Claude now")
+            addNote("Didn’t ask again: it shares what was found in \((path as NSString).lastPathComponent), which is in a folder hidden from Claude now.")
             return
         }
         if let last = lastActivity, now().timeIntervalSince(last) > Self.idleReset, !items.isEmpty {
@@ -1459,6 +1564,7 @@ final class AskClaudeChat: ObservableObject {
     /// Clears the thread and the transcript. The handle table goes with it. `lines` are report
     /// lines the new chat sends (a restart for privacy keeps them); every other start drops them.
     func startOver(carrying lines: [String] = []) {
+        carried = [:]
         task?.cancel()
         task = nil
         run += 1

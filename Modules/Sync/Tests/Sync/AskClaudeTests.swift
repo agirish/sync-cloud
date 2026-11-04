@@ -969,6 +969,25 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
 /// **Folders shared without asking, beside the hidden list** (his call on TE321): one folder is
 /// asked about, shared or hidden, never two at once, and a reset clears the shares.
 @Suite struct AskClaudeSharedFoldersTests {
+    /// **A shared folder holds only what really lives in it** (review of TE319–TE323): a link
+    /// inside it to a folder elsewhere shares nothing of that folder, though the hidden list counts
+    /// a link by either spelling.
+    @Test func aLinkInsideASharedFolderSharesNothingOfItsTarget() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("shared-\(UUID().uuidString)").path
+        defer { try? FileManager.default.removeItem(atPath: base) }
+        let shared = base + "/Receipts", medical = base + "/Medical"
+        try FileManager.default.createDirectory(atPath: shared, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: medical, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: medical + "/scan.pdf", contents: Data())
+        FileManager.default.createFile(atPath: shared + "/tent.pdf", contents: Data())
+        try FileManager.default.createSymbolicLink(atPath: shared + "/Health", withDestinationPath: medical)
+        let matcher = AskClaudePrivacy.Matcher([shared])
+        #expect(matcher.holds(shared + "/tent.pdf") && matcher.holds(shared))
+        #expect(!matcher.holds(shared + "/Health/scan.pdf") && !matcher.holds(shared + "/Health"))
+        // Keeping back counts the link's spelling too.
+        #expect(matcher.isHidden(shared + "/Health/scan.pdf"))
+    }
+
     @Test func sharingAndHidingAFolderAreExclusive() {
         let defaults = freshDefaults()
         AskClaudePrivacy.hide("/Users/me/Receipts", in: defaults)

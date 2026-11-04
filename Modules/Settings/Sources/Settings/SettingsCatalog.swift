@@ -461,7 +461,7 @@ public enum SettingsCatalog {
         e("intelligence.readsFiles", .intelligence, "Let Claude read files", indexed: true,
           storage: app(AskClaudePrivacy.readsFilesKey, "AskClaudePrivacy.readsFilesKey", "false"),
           control: .toggle, default: .bool(false), tier: .directWhenTightening, raises: .turningOn,
-          help: "Off: a file’s text is read on this Mac by the on-device model, and a passage goes to Claude only when you press Send. On: the passage that answers goes without asking, never a whole file."),
+          help: "Off: Apple Intelligence reads a file on this Mac, and its answer and text go to Claude only when you share them on the card. On: the answer and the passage it came from go without asking, and so do lookups; all of a document still waits for your click."),
         e("intelligence.hidden", .intelligence, "Hidden from Claude", indexed: true, others: ["Add…"],
           storage: .owner("AskClaudePrivacy"), control: .list, tier: .suggested, privacy: .countOnly, effects: .newChat),
         // Never in chat (TE321): a folder shared without asking loosens what reaches Claude, so

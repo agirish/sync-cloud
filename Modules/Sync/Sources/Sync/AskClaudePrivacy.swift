@@ -80,9 +80,13 @@ public enum AskClaudePrivacy {
         private let prefixes: [String]
         private var realParents: [String: String] = [:]
 
+        /// The folders where they really are, for `holds`.
+        private let realPrefixes: [String]
+
         public init(_ folders: [String]) {
             let spellings = folders.flatMap { [($0 as NSString).standardizingPath, ($0 as NSString).resolvingSymlinksInPath] }
             prefixes = Array(Set(spellings.map { $0.lowercased() }))
+            realPrefixes = Array(Set(folders.map { ($0 as NSString).resolvingSymlinksInPath.lowercased() }))
         }
 
         public var isEmpty: Bool { prefixes.isEmpty }
@@ -91,6 +95,20 @@ public enum AskClaudePrivacy {
             guard !prefixes.isEmpty else { return false }
             let standard = (path as NSString).standardizingPath
             if matches(standard) { return true }
+            return matches(real(standard))
+        }
+
+        /// **Whether `path` really is in one of the folders**, by where it is on disk alone — for a
+        /// list that loosens what Claude gets, such as the folders shared without asking (review
+        /// of TE319–TE323). `isHidden` counts a path by its spelling too, which is right for a
+        /// list that keeps things back: a link inside a shared folder would share its target.
+        public func holds(_ path: String) -> Bool {
+            guard !prefixes.isEmpty else { return false }
+            let target = real((path as NSString).standardizingPath)
+            return realPrefixes.contains { target.lowercased() == $0 || target.lowercased().hasPrefix($0 + "/") }
+        }
+
+        private func real(_ standard: String) -> String {
             let parent = (standard as NSString).deletingLastPathComponent
             let realParent: String
             if let known = realParents[parent] {
@@ -101,9 +119,8 @@ public enum AskClaudePrivacy {
             }
             var info = stat()
             let isLink = lstat(standard, &info) == 0 && (info.st_mode & S_IFMT) == S_IFLNK
-            let real = isLink ? (standard as NSString).resolvingSymlinksInPath
+            return isLink ? (standard as NSString).resolvingSymlinksInPath
                 : (realParent as NSString).appendingPathComponent((standard as NSString).lastPathComponent)
-            return matches(real)
         }
 
         private func matches(_ path: String) -> Bool {
@@ -120,7 +137,8 @@ public enum AskClaudePrivacy {
 
 /// **Names a content search found, held for their click** (decision IV, TE320): which files
 /// mention a word says what is inside them — "diagnosis" — so with Let Claude read files off the
-/// list waits on a card, as a file's answer does (decision IU), and goes only by Share These Names.
+/// list waits on a card, as a file's answer does (decision IU), and goes only by its share (Share
+/// Details or Customize's, TE323).
 public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
     /// The words searched for, as Claude gave them.
     public let words: String
@@ -130,7 +148,7 @@ public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
     public let names: [String]
     /// How many matched, which can be more than `names` lists.
     public let count: Int
-    /// What Share These Names sends: the rows Claude would otherwise have had, with handles.
+    /// What Share Details sends: the rows Claude would otherwise have had (handles minted at the share).
     public let rows: String
     /// The files, so Share refuses one hidden from Claude since.
     public let paths: [String]
@@ -143,7 +161,7 @@ public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
     public let header: String?
     /// The files they unticked, by path: neither share sends them.
     public var unticked: [String]?
-    /// Whether what went was the names alone (Share Names Only).
+    /// Whether what went was the names alone (Customize with every detail unticked).
     public var namesOnly: Bool?
     /// **What found them** (TE323): a search inside files (nil, as every card before), or a
     /// lookup beyond the folder on screen — a name search or a folder's listing.
@@ -159,6 +177,10 @@ public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
 
     /// The details a file can go with, in the order the card shows and the rows send them.
     public static let detailKeys = ["folder", "kind", "size", "date", "tags"]
+
+    /// Whether the card is in Customize: opened, or saved with the on-card ticks of a build before
+    /// it, which Customize shows and keeps.
+    public var customized: Bool { customizing == true || unticked != nil }
 
     /// The details Customize sends: every one but those left out.
     public var chosenDetails: [String] { Self.detailKeys.filter { !(omitted ?? []).contains($0) } }
@@ -268,6 +290,12 @@ public struct AskClaudeReadGroup: Codable, Equatable, Sendable {
         return files.indices.filter { !out.contains($0) }.map { files[$0] }
     }
 
+    /// Whether every ticked file's text for Share All Content is all of it: its whole text read
+    /// to the end, or a passage that is the whole text.
+    public var allIsAll: Bool {
+        ticked.allSatisfy { $0.wholeIsAll == true || ($0.whole == nil && $0.whereInFile == "the text") }
+    }
+
     /// A file's text for Share All Content: its whole text, or its passage when that is all of it.
     public static func allText(_ file: AskClaudePassage) -> String { file.whole ?? file.text }
 
@@ -285,7 +313,7 @@ public struct AskClaudePassage: Codable, Equatable, Sendable {
     /// “page 3”, “pages 2–4”, or “the start”.
     public let whereInFile: String
     public let text: String
-    /// The file, so Send to Claude can refuse it once its folder is hidden; nil in a passage
+    /// The file, so a share can refuse it once its folder is hidden; nil in a passage
     /// saved before it was kept.
     public let path: String?
     /// **What the on-device model answered from the file, held for their click** (decision IU,

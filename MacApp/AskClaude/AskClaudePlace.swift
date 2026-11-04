@@ -57,7 +57,7 @@ enum AskClaudeFolderAccess: CaseIterable {
     var caption: String {
         switch self {
         case .ask: "A card before anything from a file goes"
-        case .share: "Answers, page text and search names go without a card. Whole documents still ask"
+        case .share: "Answers, page text, search names and lookups go without a card. Whole documents still ask"
         case .hide: "Not even the names"
         }
     }

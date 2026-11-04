@@ -114,7 +114,8 @@ public enum AskClaudeRequest {
     - Move their view: go_to a folder, another source (Dropbox, OneDrive…) or another workspace; select \
     files; reveal a file (show, find, where is); open a file in its app or in Edit (only when they \
     say open; it reveals the file first); close tabs. Say what you did. When they ask to find or \
-    show a file, reveal the best match yourself, without asking, then name any other copies in a line.
+    show a file, reveal the best match yourself, without asking, once you have its row, then name \
+    any other copies in a line.
     - To compare two folders, set each side of Compare: go_to with pane left, then pane right, each \
     with its source and folder (Compare Documents across iCloud and Dropbox: left iCloud Documents, \
     right Dropbox Documents). In Compare the screen’s panes line says what each side shows.
@@ -241,13 +242,13 @@ public enum AskClaudeToolCatalog {
 
     public static let definitions: [JSONFragment] = [
         tool(.listFolder,
-             "List the items in a folder of the current source. Returns up to 60 rows in the screen’s row format, starting at `from`, plus how many more there are. Use it for folders other than the one on screen, or to see rows the screen left out.",
+             "List the items in a folder of the current source. Returns up to 60 rows in the screen’s row format, starting at `from`, plus how many more there are. Use it for folders other than the one on screen, or to see rows the screen left out. Outside the folder on screen and the folders inside it, unless they share that folder, you get only how many: they’re shown the list and choose whether to share it, and it arrives as their next message.",
              properties: [
                 "folder": string("Folder path relative to the source, e.g. Documents/Taxes. Empty string for the source’s top level."),
                 "from": integer("Zero-based row to start at, for folders with more than 60 items. Default 0."),
              ], required: ["folder"]),
         tool(.findByName,
-             "Find files and folders whose names contain all the given words, under a folder of the current source. Searches what SyncCloud has loaded, on this Mac. Returns up to 50 matches as rows with handles, and how many more there are.",
+             "Find files and folders whose names contain all the given words, under a folder of the current source. Searches Spotlight’s index on this Mac, or the folders SyncCloud has opened when Spotlight can’t answer. Returns up to 50 matches as rows with handles, and how many more there are. Outside the folder on screen and the folders inside it, unless they share that folder, you get only how many: they’re shown the list and choose whether to share it, and it arrives as their next message.",
              properties: [
                 "words": string("Words to look for in names, separated by spaces. Matching ignores case and accents."),
                 "folder": string("Folder to search under, relative to the source. Empty string for the whole source. Default: the folder on screen."),
@@ -293,7 +294,7 @@ public enum AskClaudeToolCatalog {
                           "question": string("What to find out from the file, in a sentence.")],
              required: ["handle", "question"]),
         tool(.findInContents,
-             "Find files whose text contains all the given words (PDF, Word, PowerPoint, text), from Spotlight’s index on their Mac. Unless they let you read files, the names don’t reach you here: they’re shown the list and choose whether to share it, and it arrives as their next message. With their permission, you get up to 50 rows and the line that matched. Search inside files only when names won’t do.",
+             "Find files whose text contains all the given words (PDF, Word, PowerPoint, text), from Spotlight’s index on their Mac. Unless they let you read files, neither the names nor how many reach you here: they’re shown the result and choose whether to share it, and it arrives as their next message. With their permission, you get up to 50 rows and the line that matched. Search inside files only when names won’t do.",
              properties: ["words": string("Words to look for in the text. Whole words and word starts."),
                           "folder": string("Folder to search under, relative to the source. Default: the folder on screen.")],
              required: ["words"]),

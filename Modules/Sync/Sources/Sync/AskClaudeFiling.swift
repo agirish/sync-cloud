@@ -75,6 +75,8 @@ public enum AskClaudeFiling {
     }
 
     /// The tool's answer to Claude.
+    /// - `readsFiles`: whether the file shares freely (Let Claude read files, or a folder shared
+    ///   without asking): only then is a folder picked from its text named to Claude.
     public static func result(_ card: AskClaudeFilingCard, readsFiles: Bool) -> String {
         let name = AskClaudeScreenCard.escape(card.fileName)
         switch card.kind {
@@ -90,10 +92,15 @@ public enum AskClaudeFiling {
         case .suggestions:
             var lines = ["Where \(name) fits, by how they file (their folder survey, read on their Mac, free):"]
             for (i, folder) in card.folders.enumerated() {
-                let reason = folder.fromFile && !readsFiles
-                    ? "Matched a word read from the file that this folder’s documents use" : folder.reason
+                let rank = i == 0 ? "best" : "runner-up"
+                // A folder picked by a word read from the file says what the file holds, so unless
+                // the file shares freely it stays on their card (review of TE319–TE323).
+                if folder.fromFile && !readsFiles {
+                    lines.append("\(rank): a folder picked by a word read from the file · \(folder.confidence) · on their card, not sent to you")
+                    continue
+                }
                 let note = folder.note.map { " · \(AskClaudeScreenCard.escape($0)), where it plainly belongs" } ?? ""
-                lines.append("\(i == 0 ? "best" : "runner-up"): \(AskClaudeScreenCard.escape(folder.label)) · \(folder.confidence) · \(AskClaudeScreenCard.escape(reason))\(note)")
+                lines.append("\(rank): \(AskClaudeScreenCard.escape(folder.label)) · \(folder.confidence) · \(AskClaudeScreenCard.escape(folder.reason))\(note)")
             }
             if let days = card.staleDays {
                 lines.append("Their survey is \(days) days old, so folders made since aren’t known; Update the Survey is in Organize ▸ Restructure.")

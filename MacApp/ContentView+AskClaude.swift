@@ -419,7 +419,7 @@ extension ContentView {
         case .share:
             if wasHidden { askClaudeSetHidden(folder, name: name, false) }
             AskClaudePrivacy.shareWithoutAsking(folder, in: .standard)
-            askClaudeChat.addNote("Claude gets answers, page text and search names from \(name) without asking now. Whole documents still ask.")
+            askClaudeChat.addNote("Claude gets answers, page text, search names and lookups from \(name) without asking now. Whole documents still ask.")
         case .ask:
             if wasHidden {
                 askClaudeSetHidden(folder, name: name, false)
@@ -427,7 +427,11 @@ extension ContentView {
                 // Whichever entry covers it: itself, or a folder above it.
                 let shared = AskClaudePrivacy.sharedFolders(in: .standard).filter { AskClaudePrivacy.isHidden(folder, by: [$0]) }
                 shared.forEach { AskClaudePrivacy.stopSharing($0, in: .standard) }
-                askClaudeChat.addNote("Claude asks before anything from \(name) goes again.")
+                // A folder above it shared is taken off whole, so say which (review of TE319–TE323).
+                let above = shared.filter { ($0 as NSString).standardizingPath != (folder as NSString).standardizingPath }
+                    .map { ($0 as NSString).lastPathComponent }
+                askClaudeChat.addNote(above.isEmpty ? "Claude asks before anything from \(name) goes again."
+                    : "Stopped sharing \(above.joined(separator: ", ")) without asking, which holds \(name): Claude asks before anything from it goes again.")
             }
         }
     }

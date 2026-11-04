@@ -2658,7 +2658,7 @@ struct IntelligenceSettingsTab: View {
 
             SettingsSection(
                 "Ask Claude",
-                caption: "The chat button in the toolbar, ⌘J. Claude sees a description of the screen you’re on — the names, kinds, sizes, dates and tags of what’s shown — and can look things up, move your view and open your places. When it needs what’s inside a file, this Mac reads the file and sends Claude a short answer, not the file; a passage goes only if you send it, or always with Let Claude read files on. When you ask, it changes how SyncCloud looks, or lowers its own spending or access, with Undo on its card; any other change, files included, waits for your click on a card. Every answer says what it sent and what it cost."
+                caption: "The chat button in the toolbar, ⌘J. Claude sees a description of the screen you’re on — the names, kinds, sizes, dates and tags of what’s shown — and can look things up, move your view and open your places. When it needs what’s inside a file, this Mac reads it, and a card shows Apple Intelligence’s answer; nothing from the file goes to Claude until you share it there, unless Let Claude read files is on. When you ask, it changes how SyncCloud looks, or lowers its own spending or access, with Undo on its card; any other change, files included, waits for your click on a card. Every answer says what it sent and what it cost."
             ) {
                 SettingsRow("Model") {
                     Picker("Model", selection: Binding(
@@ -2700,7 +2700,7 @@ struct IntelligenceSettingsTab: View {
                         .monospacedDigit()
                 }
                 Toggle("Let Claude read files", isOn: $askClaudeReadsFiles)
-                    .help("Off: a file’s text is read on this Mac by the on-device model, and a passage goes to Claude only when you press Send. On: the passage that answers goes without asking, never a whole file.")
+                    .help("Off: Apple Intelligence reads a file on this Mac, and its answer and text go to Claude only when you share them on the card. On: the answer and the passage it came from go without asking, and so do lookups; all of a document still waits for your click.")
                 SettingsRow("Hidden from Claude") {
                     VStack(alignment: .leading, spacing: 4) {
                         if askClaudeHidden.isEmpty {
@@ -2766,7 +2766,7 @@ struct IntelligenceSettingsTab: View {
                             }
                         }
                     }
-                    .help("From these folders, Apple Intelligence’s answers, page text and search names go to Claude without a card. Whole documents still ask. Set one from the shield in Ask Claude.")
+                    .help("From these folders, Apple Intelligence’s answers, page text, search names and lookups go to Claude without a card. Whole documents still ask. Set one from the shield in Ask Claude.")
                 }
             }
             .onAppear {
