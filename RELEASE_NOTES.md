@@ -72,6 +72,11 @@ Requires **macOS 26**, unchanged from v6.2.
   names Spotlight finds: a card lists them with their folders and dates, you tick the ones to share,
   and Share Names with File Details or Share Names Only sends them. With Let Claude read files on,
   they go without asking, with the line that matched.
+- **Choose what Claude gets, folder by folder.** The shield beside the panel's title sets the folder
+  it sees to Ask Each Time, Share Without Asking (answers, page text and search names go without a
+  card; whole documents still ask) or Hide from Claude. On a card, Share answers without asking for
+  the rest of this chat stops the cards for answers until New Chat, and Ask Again turns it back
+  on.
 - **Ask about Compare's differences.** "Which files are only on Dropbox?" is answered from the list
   Compare shows, with both sides' sizes and dates. A comparison over an hour old is scanned again
   first, and Claude can narrow the list and select the rows it means. The list scrolls to the first

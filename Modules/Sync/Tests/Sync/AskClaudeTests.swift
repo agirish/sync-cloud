@@ -965,3 +965,23 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
         #expect(restored.turns.isEmpty && !restored.rewind(toTurn: 0))
     }
 }
+
+/// **Folders shared without asking, beside the hidden list** (his call on TE321): one folder is
+/// asked about, shared or hidden, never two at once, and a reset clears the shares.
+@Suite struct AskClaudeSharedFoldersTests {
+    @Test func sharingAndHidingAFolderAreExclusive() {
+        let defaults = freshDefaults()
+        AskClaudePrivacy.hide("/Users/me/Receipts", in: defaults)
+        AskClaudePrivacy.shareWithoutAsking("/Users/me/Receipts", in: defaults)
+        #expect(AskClaudePrivacy.sharedFolders(in: defaults) == ["/Users/me/Receipts"])
+        #expect(AskClaudePrivacy.hiddenFolders(in: defaults).isEmpty)
+        AskClaudePrivacy.hide("/Users/me/Receipts/", in: defaults)
+        #expect(AskClaudePrivacy.sharedFolders(in: defaults).isEmpty && AskClaudePrivacy.hiddenFolders(in: defaults) == ["/Users/me/Receipts"])
+        AskClaudePrivacy.shareWithoutAsking("/Users/me/Recipes", in: defaults)
+        AskClaudePrivacy.stopSharing("/Users/me/Recipes", in: defaults)
+        #expect(AskClaudePrivacy.sharedFolders(in: defaults).isEmpty)
+        // Reset All keeps what hides, not what shares: none is the stricter default.
+        #expect(SettingsResetKeeps.keys.contains(AskClaudePrivacy.hiddenFoldersKey))
+        #expect(!SettingsResetKeeps.keys.contains(AskClaudePrivacy.sharedFoldersKey))
+    }
+}

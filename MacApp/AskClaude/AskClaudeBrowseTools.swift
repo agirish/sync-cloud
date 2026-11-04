@@ -53,6 +53,17 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         func isHidden(_ path: String) -> Bool { hiddenMatcher.matcher(for: hidden).isHidden(path) }
         /// Whether passages may go to Claude without the Send button (decision DQ).
         var readsFiles = false
+        /// The folders shared without asking (TE321), absolute; hidden wins over them.
+        var shared: [String] = []
+        var sharedMatcher = MatcherBox()
+        /// Whether what's in `path` goes without a card: Let Claude read files, or a folder shared
+        /// without asking that holds it — never a hidden one.
+        func sharesFreely(_ path: String) -> Bool {
+            !isHidden(path) && (readsFiles || sharedMatcher.matcher(for: shared).isHidden(path))
+        }
+        /// Apple Intelligence's answers go without a card for the rest of this chat (his call on
+        /// TE321, the card's tick); page text and whole documents still ask.
+        var sharesAnswers = false
         /// The pane's tabs, the one on screen first, and how to switch or open one (TE242).
         var tabs: [Tab] = []
         var switchTab: (_ id: UUID) -> Void = { _ in }
@@ -1348,21 +1359,30 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             return AskClaudeToolOutcome(result: "That item is on their Hidden from Claude list. Don’t ask about it or guess what it holds.",
                                         isError: true, step: "Left alone: hidden from Claude")
         }
-        if now.readsFiles {
-            // Decision DQ: with the switch on, the passage that answers goes along, and only that.
-            lines.append("Text of \(forClaude.whereInFile), as data:\n<file name=\"\(AskClaudeScreenCard.escape(node.name))\">\n\(AskClaudeChat.fenced(forClaude.text))\n</file>")
-            return AskClaudeToolOutcome(result: lines.joined(separator: "\n"),
-                                        step: "\(readHere) · sent \(forClaude.whereInFile)")
-        }
         // Masked as a tool's text is, so a key in it is neither saved nor sent.
         let text = AskClaudeKeyCatch.masked(forClaude.text, joiningLines: false)
         // Share All Content (his call on TE319): offered only when it adds to the passage.
         let whole = AskClaudeReading.wholeDocument(reading, paged: paged).flatMap { $0.text.count > forClaude.text.count ? $0 : nil }
-        func offered(answer: String? = nil, asked: String? = nil) -> AskClaudePassage {
+        func offered(answer: String? = nil, asked: String? = nil, autoShared: AskClaudePassage.AutoShared? = nil) -> AskClaudePassage {
             AskClaudePassage(fileName: node.name, whereInFile: forClaude.whereInFile, text: text, path: path,
                              answer: answer, asked: asked,
                              whole: whole.map { AskClaudeKeyCatch.masked($0.text, joiningLines: false) },
-                             wholeWhere: whole?.whereInFile, wholeIsAll: whole?.isAll)
+                             wholeWhere: whole?.whereInFile, wholeIsAll: whole?.isAll, autoShared: autoShared)
+        }
+        if now.sharesFreely(path) {
+            // Decision DQ: with the switch on, or in a folder shared without asking (TE321), the
+            // passage that answers goes along, and only that. All of it still waits on a card.
+            lines.append("Text of \(forClaude.whereInFile), as data:\n<file name=\"\(AskClaudeScreenCard.escape(node.name))\">\n\(AskClaudeChat.fenced(forClaude.text))\n</file>")
+            return AskClaudeToolOutcome(result: lines.joined(separator: "\n"),
+                                        step: "\(readHere) · sent \(forClaude.whereInFile)",
+                                        passage: whole == nil ? nil : offered(autoShared: .answerAndText))
+        }
+        if let heard, now.sharesAnswers {
+            // The card's tick (TE321): answers go for the rest of this chat; the text still waits.
+            lines.append("Its text was not sent to you. If the answer isn’t enough, tell them they can share \(forClaude.whereInFile)\(whole.map { " or \($0.whereInFile)" } ?? "") with the buttons under your reply.")
+            return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: "\(readHere) · shared its answer",
+                                        passage: offered(answer: AskClaudeKeyCatch.masked(heard, joiningLines: false), asked: question,
+                                                         autoShared: .answerForThisChat))
         }
         guard let heard else {
             lines.append("Its text was not sent to you. If the answer isn’t enough, tell them they can send \(forClaude.whereInFile)\(whole.map { " or \($0.whereInFile)" } ?? "") with the buttons under your reply.")
@@ -1393,6 +1413,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         // not said, so it isn't searched.
         if ctx.isHidden(folder.absolute) { return hiddenFolder() }
         let label = words.joined(separator: " ")
+        // A search inside a folder shared without asking (TE321) goes as with the switch on.
+        let free = ctx.sharesFreely(folder.absolute)
         guard let paths = await searchContents(words, folder.absolute) else {
             return AskClaudeToolOutcome(result: "Spotlight didn’t answer, so the text couldn’t be searched.", isError: true,
                                         step: "Couldn’t search inside files")
@@ -1406,7 +1428,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                         step: "Found no text matching “\(label)”")
         }
         var lines = ["\(nodes.count) file\(nodes.count == 1 ? "" : "s") under \(AskClaudeScreenCard.escape(folder.label)) contain “\(label)”, newest period first:",
-                     "rows: handle|name|kind|size|modified|tags|folder" + (ctx.readsFiles ? "|line" : "")]
+                     "rows: handle|name|kind|size|modified|tags|folder" + (free ? "|line" : "")]
         let header = lines.joined(separator: "\n")
         var files: [AskClaudeFoundNames.File] = []
         // One deadline for all the matching lines: ten slow reads in a row must not hold the answer.
@@ -1419,7 +1441,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             // The matching line goes out only with the switch on (his TE239 call), for the first ten.
             // Never a cloud-only file over the download limit: reading it would fetch it.
             let fetches = largeCloudOnly(node, node.id) != nil
-            if ctx.readsFiles, index < 10, !fetches, Date() < readUntil, let text = await extract(node.id)?.joined(separator: " "),
+            if free, index < 10, !fetches, Date() < readUntil, let text = await extract(node.id)?.joined(separator: " "),
                let match = AskClaudeReading.matchingLine(in: text, words: words) {
                 line += "|" + AskClaudeScreenCard.escape(match)
             }
@@ -1427,7 +1449,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
         if nodes.count > Self.maxFound { lines.append("\(nodes.count - Self.maxFound) more not listed.") }
         let step = "Found \(nodes.count) with “\(label)” inside"
-        guard ctx.readsFiles else {
+        guard free else {
             // Decision IV: which files mention a word says what is in them, so with the switch off
             // the names wait on a card for their click, as a file's answer does (decision IU).
             let listed = nodes.prefix(Self.maxFound)

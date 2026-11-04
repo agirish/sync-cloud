@@ -938,6 +938,48 @@ import FileExplorer
         #expect(on.found == nil && on.result.contains("Biopsy results.txt") && on.result.contains("benign"))
     }
 
+    /// **A folder shared without asking reads and searches as with the switch on; hidden wins**
+    /// (his call on TE321): the answer and page go, the whole document still waits, a search's
+    /// names and lines go. A folder hidden as well is hidden.
+    @Test func aFolderSharedWithoutAskingSkipsTheCards() async throws {
+        let receipt = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
+        var map: [String: FileNode] = [:]
+        Self.index(Self.tree, into: &map)
+        func runner(shared: [String], hidden: [String] = [], sharesAnswers: Bool = false) -> AskClaudeBrowseTools {
+            AskClaudeBrowseTools(context: {
+                var ctx = AskClaudeBrowseTools.Context(
+                    inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Documents/Taxes", sort: .name,
+                    items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+                ctx.shared = shared
+                ctx.hidden = hidden
+                ctx.sharesAnswers = sharesAnswers
+                return ctx
+            }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
+               extract: { _ in ["Total due: $84.10 for the tent"] },
+               read: { _ in AskClaudeReading.Read(pages: ["Store copy", "Total due: $84.10 for the tent"], pageCount: 2) },
+               answerOnDevice: { _, _, _ in .answer("The total is $84.10.") },
+               searchContents: { _, _ in [receipt] })
+        }
+        var handles = AskClaudeHandles()
+        let read = call("read_text", ["handle": .string(handles.handle(for: receipt)), "question": .string("What was the total due?")])
+        let taxes = Self.root + "/Documents/Taxes"
+        let shared = await runner(shared: [taxes]).run(read, handles: &handles)
+        #expect(shared.result.contains("The total is $84.10.") && shared.result.contains("for the tent"))
+        #expect(shared.passage?.autoShared == .answerAndText && shared.passage?.answer == nil && shared.passage?.whole != nil)
+        let search = await runner(shared: [Self.root + "/Documents"]).run(call("find_in_contents", ["words": .string("tent")]), handles: &handles)
+        #expect(search.found == nil && search.result.contains("Receipt REI 2025.pdf") && search.result.contains("for the tent"))
+        // Hidden wins over shared.
+        let both = await runner(shared: [taxes], hidden: [taxes]).run(read, handles: &handles)
+        #expect(both.isError && both.step == "Left alone: hidden from Claude")
+        // Elsewhere, cards as before; with the chat's tick, the answer goes and the text waits.
+        let elsewhere = await runner(shared: [Self.root + "/Documents/Work"]).run(read, handles: &handles)
+        #expect(!elsewhere.result.contains("84.10") && elsewhere.passage?.autoShared == nil)
+        let ticked = await runner(shared: [], sharesAnswers: true).run(read, handles: &handles)
+        #expect(ticked.result.contains("The total is $84.10.") && !ticked.result.contains("for the tent"))
+        #expect(ticked.passage?.autoShared == .answerForThisChat && ticked.passage?.answerSent == true)
+        #expect(ticked.step == "Read Receipt REI 2025.pdf on this Mac · shared its answer")
+    }
+
     @Test func movesWaitForTheWindowAndSidesAreCompares() async {
         var switched: [UUID] = []
         let tab = UUID()
@@ -1080,7 +1122,8 @@ import FileExplorer
         #expect(off.passage?.whereInFile == "page 2")        // the page that answers, offered as a button
         let on = await runner(readsFiles: true).run(call("read_text", ["handle": .string(handle), "question": .string("What was the total due?")]), handles: &handles)
         #expect(on.result.contains("Total due: $84.10 for the tent") && on.result.contains("The total is $84.10."))
-        #expect(on.passage == nil)
+        // The page went; all of it still waits on a card (TE321: whole documents always ask).
+        #expect(on.passage?.autoShared == .answerAndText && on.passage?.wholeWhere == "all 2 pages")
     }
 
     /// **A scan's text is read as a text layer's is, and Claude is told it came from OCR** (TE264):
@@ -2171,6 +2214,26 @@ private final class NoTools: AskClaudeToolRunning {
         let none = try #require(empty.items.first { if case .found = $0.kind { true } else { false } }?.id)
         for file in files { empty.tickFound(none, file.path) }
         #expect(empty.takeFound(none)?.question == nil && empty.takeFound(none, namesOnly: true)?.question == nil)
+    }
+
+    /// **The chat's tick lasts the chat and no longer** (his call on TE321): kept with a saved
+    /// chat, gone with New Chat; the folder choice's words are what the shield shows.
+    @Test func theAnswersTickLastsTheChat() async throws {
+        let d = defaults()
+        let store = FileManager.default.temporaryDirectory.appendingPathComponent("tick-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: store) }
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
+                                 readKey: { "k" }, storeURL: store, keyChanges: NotificationCenter())
+        chat.ask("a chat to keep", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        chat.setSharesAnswers(true)
+        let again = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
+                                  readKey: { "k" }, storeURL: store, keyChanges: NotificationCenter())
+        #expect(again.sharesAnswers)
+        again.newChat()
+        #expect(!again.sharesAnswers)
+        #expect(AskClaudeHeldAnswer.answersTick == "Share answers without asking for the rest of this chat")
+        #expect(AskClaudeFolderAccess.allCases.map(\.title) == ["Ask Each Time", "Share Without Asking", "Hide from Claude"])
+        #expect(AskClaudeFolderAccess.share.caption.hasSuffix("Whole documents still ask"))
     }
 
     /// **Each button on the held-answer card says what it shares** (his calls on TE319), under a

@@ -21,8 +21,8 @@ import Foundation
 ///   roots moves are not idempotent: `RootsMigration.stampKey`'s note says a second pass prepends
 ///   again, `Documents/Documents/…`.
 ///
-/// Everything else in the domain is reset, `askClaudeReadsFiles` included: its default, off, is the
-/// stricter one.
+/// Everything else in the domain is reset, `askClaudeReadsFiles` and `askClaudeSharedFolders`
+/// included: their defaults, off and none, are the stricter ones.
 public enum SettingsResetKeeps {
 
     public static let keys: Set<String> = [

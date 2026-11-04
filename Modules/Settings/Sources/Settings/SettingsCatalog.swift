@@ -464,6 +464,10 @@ public enum SettingsCatalog {
           help: "Off: a file’s text is read on this Mac by the on-device model, and a passage goes to Claude only when you press Send. On: the passage that answers goes without asking, never a whole file."),
         e("intelligence.hidden", .intelligence, "Hidden from Claude", indexed: true, others: ["Add…"],
           storage: .owner("AskClaudePrivacy"), control: .list, tier: .suggested, privacy: .countOnly, effects: .newChat),
+        // Never in chat (TE321): a folder shared without asking loosens what reaches Claude, so
+        // only the person sets it, from the shield menu, and only they take one off.
+        e("intelligence.shared", .intelligence, "Shared without asking", indexed: true,
+          storage: .owner("AskClaudePrivacy"), control: .list, tier: .notInChat, privacy: .countOnly),
         e("intelligence.monthlyLimit", .intelligence, "Monthly limit", indexed: true,
           storage: app(AskClaudeSpend.limitDefaultsKey, "AskClaudeSpend.limitDefaultsKey", "AskClaudeSpend.defaultLimitUSD"),
           control: .menu(AskClaudeSpend.limitChoices.map { SettingChoice(.double($0), $0 == 0 ? "No limit" : AskClaudeSpend.format($0)) }),

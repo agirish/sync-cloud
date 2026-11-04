@@ -26,7 +26,8 @@ struct AskClaudePanel: View {
     /// The area the panel lives in, for keeping a moved panel inside the window (TE248).
     var container: CGSize = .zero
     /// Puts the folder on screen on the Never show Claude list (true) or takes it off (TE246).
-    var onSetHidden: (Bool) -> Void = { _ in }
+    /// The shield's choice of what Claude gets from the folder (TE321).
+    var onSetAccess: (AskClaudeFolderAccess) -> Void = { _ in }
     /// Shows the folder's pane where the workspace has folded it away (TE260).
     var onGoToFolder: () -> Void = {}
     /// Reveals a file named in an answer (TE245).
@@ -373,7 +374,7 @@ struct AskClaudePanel: View {
                 .popover(isPresented: $showsPlace, arrowEdge: .bottom) {
                     AskClaudePlaceMenu(place: place, readsFiles: $readsFiles, spent: spentText, accentFill: accentFill, onAccent: onAccent,
                                        onGoTo: { showsPlace = false; onGoToFolder() },
-                                       onSetHidden: { hidden in showsPlace = false; onSetHidden(hidden) },
+                                       onSetAccess: { access in showsPlace = false; onSetAccess(access) },
                                        onEditHiddenList: { showsPlace = false; onOpenSettings() })
                         .presentedNativeControlAccent()
                 }
@@ -411,6 +412,7 @@ struct AskClaudePanel: View {
                         let key = turns.hoverKey(of: item)
                         AskClaudeThreadRow(item: item, accent: accent, accentFill: accentFill, onAccent: onAccent, hue: hue, onOpenSettings: onOpenSettings,
                                            linkTargets: chat.linkTargets, onReveal: onReveal, onSendOffer: onSendOffer, onFoundTick: onFoundTick,
+                                           sharesAnswers: chat.sharesAnswers, onSharesAnswers: { chat.setSharesAnswers($0) },
                                            onDownloadCard: onDownloadCard,
                                            onFilingCard: onFilingCard,
                                            onPlanCard: onPlanCard, onChoice: onChoice, onRuleCard: onRuleCard,
@@ -891,6 +893,9 @@ private struct AskClaudeThreadRow: View, Equatable {
     let onReveal: (String) -> Void
     let onSendOffer: (UUID, AskClaudeChat.OfferPart) -> Void
     let onFoundTick: (UUID, String) -> Void
+    /// The chat's "Share answers without asking" tick (TE321), and how a card sets it.
+    let sharesAnswers: Bool
+    let onSharesAnswers: (Bool) -> Void
     let onDownloadCard: (UUID, AskClaudeDownloadAction) -> Void
     let onFilingCard: (AskClaudeFilingAction) -> Void
     let onPlanCard: (UUID, AskClaudePlanAction) -> Void
@@ -921,7 +926,7 @@ private struct AskClaudeThreadRow: View, Equatable {
 
     /// What the row draws from; the closures never change what it shows.
     static func == (a: Self, b: Self) -> Bool {
-        a.item == b.item && a.linkTargets == b.linkTargets && a.isLatestReceipt == b.isLatestReceipt
+        a.item == b.item && a.linkTargets == b.linkTargets && a.isLatestReceipt == b.isLatestReceipt && a.sharesAnswers == b.sharesAnswers
             && a.isRunning == b.isRunning && a.isGrowing == b.isGrowing && a.accent == b.accent && a.accentFill == b.accentFill && a.onAccent == b.onAccent
             && a.hue == b.hue && a.pdfThumbnails == b.pdfThumbnails && a.turnActions == b.turnActions && a.showsBar == b.showsBar
     }
@@ -1185,7 +1190,14 @@ private struct AskClaudeThreadRow: View, Equatable {
             // Whose words these are and which file (his calls on TE319): Apple's on-device model's,
             // not Claude's and not a search — `AskClaudeReading.answerOnDevice`. Claude's own
             // question isn't shown: it goes with the answer when shared.
-            if let answer = passage.answer {
+            if passage.autoShared == .answerAndText {
+                // Let Claude read files, or a folder shared without asking (TE321): the answer and
+                // the page went; all of the document still waits here.
+                Label("Read \(passage.fileName) on this Mac. Claude has \(passage.whereInFile).", systemImage: "doc.text.magnifyingglass")
+                    .scaledFont(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            } else if let answer = passage.answer {
                 Label("Apple Intelligence read \(passage.fileName) on this Mac:", systemImage: "apple.intelligence")
                     .scaledFont(.footnote)
                     .foregroundStyle(.secondary)
@@ -1209,15 +1221,35 @@ private struct AskClaudeThreadRow: View, Equatable {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
-            // What sharing is for, before the buttons (his call on TE319): more from Claude.
-            if !anySent {
+            // What sharing is for, before the buttons (his call on TE319): more from Claude. A card
+            // whose answer went without asking (TE321) still offers what's left.
+            if !anySent || (passage.autoShared != nil && !(passageSent || wholeSent)) {
                 Text(AskClaudeHeldAnswer.lead)
                     .scaledFont(.callout.weight(.medium))
+            }
+            if passage.autoShared == .answerForThisChat {
+                HStack(spacing: 6) {
+                    Text("Shared with Claude, as you chose for this chat.")
+                        .scaledFont(.footnote)
+                        .foregroundStyle(.secondary)
+                    if sharesAnswers {
+                        Button("Ask Again") { onSharesAnswers(false) }
+                            .buttonStyle(.link)
+                            .scaledFont(.footnote)
+                            .help("Asks before sharing an answer again, from the next one on.")
+                    }
+                }
             }
             // Three shares don't fit the panel's width side by side; they stack when they don't.
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 8) { heldAnswerButtons(id, passage, passageSent: passageSent) }
                 VStack(alignment: .leading, spacing: 6) { heldAnswerButtons(id, passage, passageSent: passageSent) }
+            }
+            if passage.answer != nil, passage.autoShared == nil, !answerSent {
+                Toggle(AskClaudeHeldAnswer.answersTick, isOn: Binding(get: { sharesAnswers }, set: { onSharesAnswers($0) }))
+                    .toggleStyle(.checkbox)
+                    .scaledFont(.footnote)
+                    .help("From the next file on, Apple Intelligence’s answer goes to Claude without this card. Page text and whole documents still ask. A new chat asks again.")
             }
             if let whole = passage.whole, let wholeWhere = passage.wholeWhere, !wholeSent {
                 Text(AskClaudeHeldAnswer.wholeSize(wholeWhere, isAll: passage.wholeIsAll == true, words: AskClaudeHeldAnswer.words(in: whole)))
@@ -1313,10 +1345,12 @@ private struct AskClaudeThreadRow: View, Equatable {
                 .disabled(answerSent || isRunning)
                 .help("Lets Claude see only the answer above, once.")
         }
-        Button(AskClaudeHeldAnswer.passageButton(passage.whereInFile, sent: passageSent, answerSent: answerSent)) { onSendOffer(id, .passage) }
-            .controlSize(.small)
-            .disabled(passageSent || isRunning)
-            .help("Lets Claude see the text of \(passage.whereInFile) of \(passage.fileName) itself, about \(passage.tokens.formatted()) tokens, once.")
+        if passage.autoShared != .answerAndText {
+            Button(AskClaudeHeldAnswer.passageButton(passage.whereInFile, sent: passageSent, answerSent: answerSent)) { onSendOffer(id, .passage) }
+                .controlSize(.small)
+                .disabled(passageSent || isRunning)
+                .help("Lets Claude see the text of \(passage.whereInFile) of \(passage.fileName) itself, about \(passage.tokens.formatted()) tokens, once.")
+        }
         if let wholeWhere = passage.wholeWhere, let whole = passage.whole {
             Button(AskClaudeHeldAnswer.wholeButton(wholeWhere, isAll: passage.wholeIsAll == true, sent: wholeSent)) { onSendOffer(id, .whole) }
                 .controlSize(.small)
@@ -2014,6 +2048,9 @@ enum AskClaudeHeldAnswer {
     /// "Send the Text", then "Share This with Claude": the answer is already on their screen, so
     /// the card says what sharing gets them).
     static let lead = "Get more insights from Claude:"
+
+    /// The held-answer card's tick (his call on TE321): answers only, never page text.
+    static let answersTick = "Share answers without asking for the rest of this chat"
 
     /// The held answer's button: the box above it.
     static func answerButton(sent: Bool) -> String { sent ? "Answer Shared" : "Share This Answer" }

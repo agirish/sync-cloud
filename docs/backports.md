@@ -14439,3 +14439,16 @@ Names Only sends their names alone; neither sends a file left unticked. Ask Clau
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Ask Claude asks, shares without asking, or hides, folder by folder (TE321) — main only
+
+2026-11-03, for v7.0. On `main`: the shield menu's Hide row is a choice — Ask Each Time, Share
+Without Asking (`askClaudeSharedFolders`: answers, page text and search names go without a card;
+whole documents still ask; hidden wins; Reset All clears it; never in chat) or Hide from Claude —
+listed in Settings ▸ Intelligence. A held-answer card's tick shares answers for the rest of the
+chat. With Let Claude read files on, a read now also offers all of the document on a card. Ask
+Claude exists only on `main`.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

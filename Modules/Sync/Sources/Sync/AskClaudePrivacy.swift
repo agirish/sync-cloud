@@ -6,6 +6,9 @@ public enum AskClaudePrivacy {
 
     public static let hiddenFoldersKey = "askClaudeHiddenFolders"
     public static let readsFilesKey = "askClaudeReadsFiles"
+    /// The folders Claude gets answers, passages and search names from without a card (his call
+    /// on TE321, "Share Without Asking"). Hidden wins over it; whole documents always ask.
+    public static let sharedFoldersKey = "askClaudeSharedFolders"
     public static let didChange = Notification.Name("AskClaudePrivacyDidChange")
 
     /// Absolute paths of the folders Claude must never be shown, in the order they were added.
@@ -20,10 +23,38 @@ public enum AskClaudePrivacy {
 
     public static func hide(_ folder: String, in defaults: UserDefaults) {
         let path = (folder as NSString).standardizingPath
+        // One folder is asked about, shared without asking or hidden, never two at once.
+        stopSharing(path, in: defaults)
         var folders = hiddenFolders(in: defaults)
         guard !folders.contains(path) else { return }
         folders.append(path)
         setHiddenFolders(folders, in: defaults)
+    }
+
+    /// Absolute paths of the folders shared without asking, in the order they were added.
+    public static func sharedFolders(in defaults: UserDefaults) -> [String] {
+        defaults.stringArray(forKey: sharedFoldersKey) ?? []
+    }
+
+    public static func setSharedFolders(_ folders: [String], in defaults: UserDefaults) {
+        defaults.set(folders, forKey: sharedFoldersKey)
+        NotificationCenter.default.post(name: didChange, object: nil)
+    }
+
+    /// Share Without Asking for `folder` and everything in it; it comes off the hidden list.
+    public static func shareWithoutAsking(_ folder: String, in defaults: UserDefaults) {
+        let path = (folder as NSString).standardizingPath
+        if hiddenFolders(in: defaults).contains(path) { unhide(path, in: defaults) }
+        var folders = sharedFolders(in: defaults)
+        guard !folders.contains(path) else { return }
+        folders.append(path)
+        setSharedFolders(folders, in: defaults)
+    }
+
+    public static func stopSharing(_ folder: String, in defaults: UserDefaults) {
+        let folders = sharedFolders(in: defaults)
+        guard folders.contains(folder) else { return }
+        setSharedFolders(folders.filter { $0 != folder }, in: defaults)
     }
 
     public static func unhide(_ folder: String, in defaults: UserDefaults) {
@@ -180,10 +211,19 @@ public struct AskClaudePassage: Codable, Equatable, Sendable {
     public let wholeIsAll: Bool?
     /// Whether they sent `whole`; nil until they do.
     public var wholeSent: Bool?
+    /// What went without a card, and why (TE321): nil when everything waited for a click.
+    public let autoShared: AutoShared?
+
+    public enum AutoShared: String, Codable, Sendable {
+        /// The answer and the passage went: Let Claude read files, or a folder shared without asking.
+        case answerAndText
+        /// The answer went, as they chose for the rest of this chat; the text still waits.
+        case answerForThisChat
+    }
 
     public init(fileName: String, whereInFile: String, text: String, path: String? = nil,
                 answer: String? = nil, asked: String? = nil,
-                whole: String? = nil, wholeWhere: String? = nil, wholeIsAll: Bool? = nil) {
+                whole: String? = nil, wholeWhere: String? = nil, wholeIsAll: Bool? = nil, autoShared: AutoShared? = nil) {
         self.fileName = fileName
         self.whereInFile = whereInFile
         self.text = text
@@ -193,6 +233,8 @@ public struct AskClaudePassage: Codable, Equatable, Sendable {
         self.whole = whole
         self.wholeWhere = wholeWhere
         self.wholeIsAll = wholeIsAll
+        self.autoShared = autoShared
+        if autoShared != nil { answerSent = true }
     }
 
     /// About how many tokens the passage is: ``estimatedTokens(_:)``.

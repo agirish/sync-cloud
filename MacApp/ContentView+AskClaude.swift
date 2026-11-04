@@ -50,7 +50,7 @@ extension ContentView {
                               onClose: { toggleAskClaude() },
                               onOpenSettings: { openSettings(on: .intelligence) },
                               container: container,
-                              onSetHidden: { askClaudeSetCurrentFolderHidden($0) },
+                              onSetAccess: { askClaudeSetCurrentFolderAccess($0) },
                               onGoToFolder: { askClaudeShowFolderPane() },
                               onReveal: { path in Task { await askClaudeTools().reveal(path: path) } },
                               onSendOffer: { id, part in
@@ -408,10 +408,29 @@ extension ContentView {
 
     /// TE246: puts the folder on screen on the Never show Claude list, or takes it off, and says so
     /// in the thread. Taken off by whichever entry covers it: the folder itself, or one above it.
-    func askClaudeSetCurrentFolderHidden(_ hidden: Bool) {
+    /// The shield's choice for the folder Claude sees (TE321): ask each time, share without asking,
+    /// or hide. Said in the thread, as hiding is.
+    func askClaudeSetCurrentFolderAccess(_ access: AskClaudeFolderAccess) {
         let folder = AskClaudeBrowseTools.absolute(askClaudeFolder, root: askClaudeRoot)
         let name = askClaudeFolder.isEmpty ? askClaudeSourceName : (askClaudeFolder as NSString).lastPathComponent
-        askClaudeSetHidden(folder, name: name, hidden)
+        let wasHidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard)).isHidden(folder)
+        switch access {
+        case .hide:
+            askClaudeSetHidden(folder, name: name, true)
+        case .share:
+            if wasHidden { askClaudeSetHidden(folder, name: name, false) }
+            AskClaudePrivacy.shareWithoutAsking(folder, in: .standard)
+            askClaudeChat.addNote("Claude gets answers, page text and search names from \(name) without asking now. Whole documents still ask.")
+        case .ask:
+            if wasHidden {
+                askClaudeSetHidden(folder, name: name, false)
+            } else {
+                // Whichever entry covers it: itself, or a folder above it.
+                let shared = AskClaudePrivacy.sharedFolders(in: .standard).filter { AskClaudePrivacy.isHidden(folder, by: [$0]) }
+                shared.forEach { AskClaudePrivacy.stopSharing($0, in: .standard) }
+                askClaudeChat.addNote("Claude asks before anything from \(name) goes again.")
+            }
+        }
     }
 
     /// Puts a folder or file on the Never show Claude list, or takes it off, and says so in the
@@ -493,9 +512,11 @@ extension ContentView {
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
         // The file open in Edit only when Claude is told about it: one in a hidden folder isn't.
         let open = selectedWorkspace == .editor ? editorOpenPath.flatMap { hidden.isHidden($0) ? nil : ($0 as NSString).lastPathComponent } : nil
+        let isHidden = hidden.isHidden(absolute)
         return AskClaudePlace(source: askClaudeSourceName, folder: askClaudeFolder,
                               itemCount: askClaudeItems(absolute)?.count,
-                              isHidden: hidden.isHidden(absolute),
+                              isHidden: isHidden,
+                              isShared: !isHidden && AskClaudePrivacy.Matcher(AskClaudePrivacy.sharedFolders(in: .standard)).isHidden(absolute),
                               isOnScreen: !panesHiddenForCurrentTab || selectedWorkspace == .browse || selectedWorkspace == .compare,
                               workspace: selectedWorkspace.title, openFile: open)
     }
@@ -706,6 +727,8 @@ extension ContentView {
             openForFill: { await askClaudeOpenForFill($0) },
             hidden: AskClaudePrivacy.hiddenFolders(in: .standard),
             readsFiles: AskClaudePrivacy.readsFiles(in: .standard),
+            shared: AskClaudePrivacy.sharedFolders(in: .standard),
+            sharesAnswers: askClaudeChat.sharesAnswers,
             tabs: askClaudeTabs,
             switchTab: { selectTab(id: $0, isLeft: true) },
             addTab: { openInNewTab(absolutePath: $0, isLeft: true) },

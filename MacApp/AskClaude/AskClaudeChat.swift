@@ -149,6 +149,14 @@ final class AskClaudeChat: ObservableObject {
     private var warnedNearLimit = false
     /// What was typed and not sent when the panel closed; Esc or ✕ doesn't throw it away.
     var draft = ""
+    /// Apple Intelligence's answers go without a card for the rest of this chat (his call on
+    /// TE321, the held-answer card's tick). A new chat starts asking again.
+    @Published private(set) var sharesAnswers = false
+
+    func setSharesAnswers(_ on: Bool) {
+        sharesAnswers = on
+        if !isRunning { save() }
+    }
 
     /// A row attached from its menu (TE263), shown as a chip above the text box until sent.
     struct Attachment: Equatable, Identifiable, Codable {
@@ -294,14 +302,17 @@ final class AskClaudeChat: ObservableObject {
         /// What was hidden from Claude when the chat began, so a folder hidden just before a quit
         /// still starts a new chat after the relaunch (TE290 review); absent in older chats.
         var hiddenAtStart: [String]?
+        /// The card's tick for the rest of the chat (TE321); absent in older chats.
+        var sharesAnswers: Bool?
 
         init(items: [Item], lastActivity: Date, engine: AskClaudeEngine.Snapshot, sinceLastAnswer: [String]?,
-             hiddenAtStart: [String]?) {
+             hiddenAtStart: [String]?, sharesAnswers: Bool?) {
             self.items = items
             self.lastActivity = lastActivity
             self.engine = engine
             self.sinceLastAnswer = sinceLastAnswer
             self.hiddenAtStart = hiddenAtStart
+            self.sharesAnswers = sharesAnswers
         }
 
         /// Items one at a time, so one that won't decode costs a note rather than the whole chat
@@ -314,6 +325,7 @@ final class AskClaudeChat: ObservableObject {
             engine = try container.decode(AskClaudeEngine.Snapshot.self, forKey: .engine)
             sinceLastAnswer = try container.decodeIfPresent([String].self, forKey: .sinceLastAnswer)
             hiddenAtStart = try container.decodeIfPresent([String].self, forKey: .hiddenAtStart)
+            sharesAnswers = try container.decodeIfPresent(Bool.self, forKey: .sharesAnswers)
         }
     }
 
@@ -547,6 +559,7 @@ final class AskClaudeChat: ObservableObject {
         }
         engine.restore(stored.engine)
         sinceLastAnswer = stored.sinceLastAnswer ?? []
+        sharesAnswers = stored.sharesAnswers ?? false
         items = Self.withoutRepeatedSteps(stored.items).map(Self.notWaiting)
         lastActivity = stored.lastActivity
         // Judged against what was hidden when the chat began, not at this launch: a folder hidden
@@ -614,7 +627,7 @@ final class AskClaudeChat: ObservableObject {
         }
         let stored = Stored(items: items, lastActivity: lastActivity, engine: engine.snapshot,
                             sinceLastAnswer: sinceLastAnswer.isEmpty ? nil : sinceLastAnswer,
-                            hiddenAtStart: hiddenAtStart.sorted())
+                            hiddenAtStart: hiddenAtStart.sorted(), sharesAnswers: sharesAnswers ? true : nil)
         do {
             let data = try JSONEncoder().encode(stored)
             try FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -1286,6 +1299,7 @@ final class AskClaudeChat: ObservableObject {
         linkTargets = [:]
         hiddenSinceStart = false
         hiddenAtStart = Set(AskClaudePrivacy.hiddenFolders(in: defaults))
+        sharesAnswers = false
         // The cards are gone; so are their undo steps. Their changes stay.
         settingsUndo.clear()
         caughtMessages = [:]

@@ -698,6 +698,8 @@ enum SettingsSearchIndex {
               keywords: ["read files", "file contents", "passage", "privacy", "send text", "ask claude reading"]),
         .init(tab: .intelligence, title: "Hidden from Claude",
               keywords: ["never show claude", "hide folder", "privacy", "exclude", "private folders"]),
+        .init(tab: .intelligence, title: "Shared without asking",
+              keywords: ["share without asking", "trusted folders", "don’t ask", "privacy", "ask each time"]),
         .init(tab: .intelligence, title: "Monthly limit",
               keywords: ["ask claude limit", "chat limit", "spend limit", "budget", "cap", "money"]),
         .init(tab: .intelligence, title: "This month",
@@ -2570,6 +2572,7 @@ struct IntelligenceSettingsTab: View {
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(AskClaudePrivacy.readsFilesKey) private var askClaudeReadsFiles = false
     @State private var askClaudeHidden: [String] = []
+    @State private var askClaudeShared: [String] = []
     @State private var askClaudeSpentUSD = 0.0
 
     /// How many saved suggestions there are. Read on appear and after a clear rather than computed
@@ -2742,10 +2745,39 @@ struct IntelligenceSettingsTab: View {
                     }
                     .help("Claude is never shown these folders and files, or what’s in them: not their names, not their contents. They appear to it only as a count. Right-click a row ▸ Hide from Claude adds one too.")
                 }
+                // TE321: set from the shield menu in Ask Claude; taken off here, with no question —
+                // taking one off is the stricter way.
+                SettingsRow("Shared without asking") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if askClaudeShared.isEmpty {
+                            Text("None").foregroundStyle(.secondary)
+                        }
+                        ForEach(askClaudeShared, id: \.self) { folder in
+                            HStack(spacing: 6) {
+                                Text((folder as NSString).abbreviatingWithTildeInPath)
+                                    .lineLimit(1).truncationMode(.middle)
+                                Button("Remove") {
+                                    AskClaudePrivacy.stopSharing(folder, in: .standard)
+                                    askClaudeShared = AskClaudePrivacy.sharedFolders(in: .standard)
+                                }
+                                .controlSize(.small)
+                                .accessibilityLabel("Stop sharing \((folder as NSString).lastPathComponent) without asking")
+                                .help("Claude asks before anything from it goes again.")
+                            }
+                        }
+                    }
+                    .help("From these folders, Apple Intelligence’s answers, page text and search names go to Claude without a card. Whole documents still ask. Set one from the shield in Ask Claude.")
+                }
             }
-            .onAppear { askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard) }
+            .onAppear {
+                askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard)
+                askClaudeShared = AskClaudePrivacy.sharedFolders(in: .standard)
+            }
             .onReceive(NotificationCenter.default.publisher(for: AskClaudePrivacy.didChange)
-                .receive(on: DispatchQueue.main)) { _ in askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard) }
+                .receive(on: DispatchQueue.main)) { _ in
+                askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard)
+                askClaudeShared = AskClaudePrivacy.sharedFolders(in: .standard)
+            }
             .onAppear { askClaudeSpentUSD = AskClaudeSpend.spent(in: .standard) }
             .onReceive(NotificationCenter.default.publisher(for: AskClaudeSpend.didChange)
                 .receive(on: DispatchQueue.main)) { _ in askClaudeSpentUSD = AskClaudeSpend.spent(in: .standard) }
