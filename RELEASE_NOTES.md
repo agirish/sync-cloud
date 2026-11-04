@@ -302,9 +302,12 @@ Requires **macOS 26**, unchanged from v6.2.
   Favorites, pins and your choices while organizing along with the settings. It now keeps them, and
   keeps the folders hidden from Claude and Claude's spending limits and record. Your files aren't
   affected.
-- **Overlays at Clear look clear.** The window behind Settings, Help, Setup and Compare's overlays
-  dims less at Clear, and their cards let more show through. In Dark Mode at Frosted and Clear,
-  floating panels sit on the window's own tinted ground rather than a neutral gray.
+- **Overlays at Clear look clear, and alike in Light and Dark.** Settings, Help, Setup, Compare's
+  overlays and Ask Claude float on clear glass at Clear in both appearances, and the Activity
+  window matches them. The window behind them dims less in Dark Mode and not at all in Light. In
+  Dark Mode at Frosted and Clear, floating panels sit on the window's own tinted ground rather than
+  a neutral gray. With the None accent in Light at Clear, the window reads white rather than gray,
+  and the floating panels share its glass.
 - **A row's right-click menu keeps Cut, Copy, the transfers and Paste Here together**, in one
   section.
 - **SyncCloud no longer quits at launch** when macOS fails to hand it the monospaced font the

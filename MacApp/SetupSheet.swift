@@ -281,8 +281,7 @@ struct SetupSheet: View {
 
     var body: some View {
         ZStack {
-            Rectangle()
-                .fill(Color.black.opacity(glassLevel.overlayScrimOpacity))
+            OverlayScrim(level: glassLevel)
                 .ignoresSafeArea()
                 .onTapGesture { close() }
 

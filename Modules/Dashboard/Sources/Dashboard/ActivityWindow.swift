@@ -71,6 +71,9 @@ public struct ActivityWindow<History: View>: View {
         // From the top: Now is only as tall as its rows, and a window taller than them centred the
         // whole stack — tabs included — in it (seen on screen 2026-10-27).
         .frame(minWidth: 420, maxWidth: .infinity, minHeight: 360, maxHeight: .infinity, alignment: .top)
+        // At Clear, the ground Settings' card gives its text, between the content and the glass
+        // below, so the two read alike (TE316).
+        .clearWindowGround(level: GlassLevel(rawValue: glassLevelRaw) ?? .frosted)
         // One ground for all three tabs — the main window's glass, at its level and hue. Only the
         // Log tab carried one when it was its own window, so at Clear the tabs and Now showed the
         // window behind straight through (seen on screen 2026-10-27).

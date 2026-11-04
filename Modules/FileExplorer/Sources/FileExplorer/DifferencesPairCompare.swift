@@ -186,8 +186,7 @@ public struct DifferencesPairCompareOverlay: View {
     public var body: some View {
         GeometryReader { proxy in
             ZStack {
-                Rectangle()
-                    .fill(Color.black.opacity(glassLevel.overlayScrimOpacity))
+                OverlayScrim(level: glassLevel)
                     .ignoresSafeArea()
                     .onTapGesture(perform: onClose)
                 card(available: proxy.size)

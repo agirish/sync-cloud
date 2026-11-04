@@ -45,21 +45,42 @@ struct GlassLevelTests {
         }
     }
 
-    @Test func clearLightensTheOverlayScrim() {
+    @Test(arguments: [false, true])
+    func clearLightensTheOverlayScrim(dark: Bool) {
         // The cards above the scrim take Clear at face value now, so a deeper scrim at Clear
-        // greyed the window and hid the setting (TE293). Lighter, but never off: it still focuses
-        // the card.
-        #expect(GlassLevel.clear.overlayScrimOpacity < GlassLevel.frosted.overlayScrimOpacity)
-        #expect(GlassLevel.clear.overlayScrimOpacity > 0)
-        #expect(GlassLevel.frosted.overlayScrimOpacity == GlassLevel.solid.overlayScrimOpacity)
+        // greyed the window and hid the setting (TE293).
+        #expect(GlassLevel.clear.overlayScrimOpacity(dark: dark) < GlassLevel.frosted.overlayScrimOpacity(dark: dark))
+        #expect(GlassLevel.frosted.overlayScrimOpacity(dark: dark) == GlassLevel.solid.overlayScrimOpacity(dark: dark))
     }
 
-    @Test func clearThinsTheGroundedCardBacking() {
-        // At Clear the card has to read as clear, or the setting looks broken (TE293). Thinner,
-        // but never gone: the ground is what keeps the card's text off the window behind it.
-        #expect(GlassLevel.clear.groundedBackingOpacity < GlassLevel.frosted.groundedBackingOpacity)
-        #expect(GlassLevel.clear.groundedBackingOpacity > 0)
+    @Test func lightClearDimsNothingAndDarkClearStillDims() {
+        // Any black over Light's near-white window read as grey, down to 0.05 (TE316); over
+        // Dark's deep base it reads as depth, and still focuses the card. Only Clear splits.
+        #expect(GlassLevel.clear.overlayScrimOpacity(dark: false) == 0)
+        #expect(GlassLevel.clear.overlayScrimOpacity(dark: true) > 0)
+        #expect(GlassLevel.frosted.overlayScrimOpacity(dark: false) == GlassLevel.frosted.overlayScrimOpacity(dark: true))
+    }
+
+    @Test func clearGroundsTheCardAtLeastAsThickAsFrosted() {
+        // At Clear the card is clear glass in both schemes, so its ground is all that keeps the
+        // window behind from reading through the card's text. TE293 thinned it to 0.45 while
+        // Light's card still sat on a blur; on clear glass that left Dark's rows readable through
+        // Settings (TE316). Frosted and Solid share theirs.
+        #expect(GlassLevel.clear.groundedBackingOpacity >= GlassLevel.frosted.groundedBackingOpacity)
+        #expect(GlassLevel.clear.groundedBackingOpacity < 1)
         #expect(GlassLevel.frosted.groundedBackingOpacity == GlassLevel.solid.groundedBackingOpacity)
+    }
+
+    @Test func onlyNoneInLightAtClearTakesTheWindowsGlass() {
+        // Every accent keeps the panels' ground: its hue is what the window shows, and the ground
+        // is neutral. None in light at Clear has no hue, so its panels take the window's own white
+        // glass instead (TE316). Dark keeps its tinted ground at every accent.
+        #expect(LiquidGlass.panelTakesWindowGlass(level: .clear, hue: .none, dark: false))
+        #expect(!LiquidGlass.panelTakesWindowGlass(level: .clear, hue: .none, dark: true))
+        #expect(!LiquidGlass.panelTakesWindowGlass(level: .frosted, hue: .none, dark: false))
+        for hue in LiquidGlassHue.allCases where hue != .none {
+            #expect(!LiquidGlass.panelTakesWindowGlass(level: .clear, hue: hue, dark: false), "\(hue)")
+        }
     }
 
     // MARK: - Background intensity

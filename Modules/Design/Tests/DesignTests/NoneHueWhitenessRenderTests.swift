@@ -93,16 +93,27 @@ final class NoneHueWhitenessRenderTests: XCTestCase {
     }
 
     /// Clear is NOT exempt — the exemption was the first cut's mistake, found on a real
-    /// Clear/None/light install that stayed exactly as gray as before the veil existed. At Clear
-    /// the veil sits over the vibrancy + `clearLightVeil` instead of over the material; the fact
-    /// that must survive is the same one as at Frosted: None separates from Graphite.
+    /// Clear/None/light install that stayed exactly as gray as before the veil existed.
+    ///
+    /// None-against-Graphite can't be measured at Clear offscreen: the two sit on different
+    /// behind-window materials (None on `clearNoneLightMaterial`, TE316), and with no desktop behind
+    /// an offscreen window each renders a fallback that inverts what the screen shows — the popover
+    /// material, near-white on screen, came out darker than Graphite's gray one. So this pins the
+    /// part that renders faithfully: over None's own backdrop and Clear's veil, the white film is
+    /// drawn, and lifts the window clearly toward white.
     @MainActor
-    func testClearNoneIsWhiterThanClearGraphiteInLight() throws {
+    func testClearNoneDrawsItsWhiteFilmInLight() throws {
         let none = try brightness(render(hue: .none, tint: 0, dark: false, level: .clear))
-        let graphite = try brightness(render(hue: .graphite, tint: 0, dark: false, level: .clear))
-        print("[none-whiteness] clear light tint0 — none \(none), graphite \(graphite)")
-        XCTAssertGreaterThan(none, graphite + 0.02,
-                             "Clear None does not separate from Clear Graphite — none \(none), graphite \(graphite)")
+        let backdrop = try brightness(renderView(AnyView(Color.clear.background {
+            ZStack {
+                BehindWindowGlass(isEnabled: true, vibrancyAlpha: LiquidGlass.clearVibrancyAlpha,
+                                  material: LiquidGlass.clearNoneLightMaterial)
+                Color.white.opacity(LiquidGlass.clearLightVeil)
+            }
+        }), dark: false))
+        print("[none-whiteness] clear light tint0 — none \(none), its backdrop alone \(backdrop)")
+        XCTAssertGreaterThan(none, backdrop + 0.02,
+                             "Clear None's white film isn't drawn — none \(none), backdrop \(backdrop)")
     }
 
     /// The veil is light-only by design: white over dark's deep near-black base would gray it.

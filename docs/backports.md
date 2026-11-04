@@ -14333,3 +14333,31 @@ moves to another file, and a narrower window hides the deepest column behind the
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Both gaps | RECORDED — not owed |
+
+## Clear's floating panels match in Light and Dark (TE316) — main only
+
+2026-11-03, for v7.0. On `main`, at the Clear glass level only: the overlay cards (Settings, Help,
+Setup, Go To results, Compare's overlays, Ask Claude) are clear glass in Light as in Dark, where
+Light used `.ultraThinMaterial`, and their ground is 0.90 (`GlassLevel.groundedBackingOpacity`),
+where TE293 C made it 0.45. The Activity window takes the same ground (`clearWindowGround`). The
+dimming behind the cards is 0 in Light and 0.20 in Dark (`overlayScrimOpacity(dark:)`, drawn by
+`OverlayScrim`), where both were 0.20; the destination picker, which uses Clear's value at every
+level, is 0 in Light too. With the None accent in Light, the window's backdrop is `.popover`
+(`LiquidGlass.clearNoneLightMaterial`) under a 0.4 white film (`clearNoneLightVeil`), where it was
+`.underWindowBackground` under `noneLightVeil`'s 0.7; there the floating panels and the Activity
+window take that same glass instead of the ground (`LiquidGlass.panelTakesWindowGlass`, with a
+within-window blur for the in-window cards). Frosted and Solid are unchanged. No
+maintenance line has any of it; v6.x, v5.x and v4.x have the 0.7 film at every level, and v3.x and
+v2.x have no film:
+
+```sh
+for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
+  "$(git show origin/$l:Modules/Design/Sources/Design/LiquidGlassStyle.swift 2>/dev/null | grep -c 'noneLightVeil: Double = 0.7')"; done
+# measured 2026-11-03, against origin, before this landed: main/v6.x/v5.x/v4.x 1, v3.x/v2.x 0
+```
+
+A re-tune of what every Clear install looks like, so main-only on the Tint-slider precedent.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Light's blurred card, 0.85 ground at Clear, the gray None backdrop | RECORDED — not owed |

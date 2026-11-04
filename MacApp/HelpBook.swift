@@ -1181,8 +1181,7 @@ struct HelpOverlay: View {
         // would be reading the answer out of the question.
         GeometryReader { proxy in
             ZStack {
-                Rectangle()
-                    .fill(Color.black.opacity(glassLevel.overlayScrimOpacity))
+                OverlayScrim(level: glassLevel)
                     .ignoresSafeArea()
                     .onTapGesture(perform: onClose)
 

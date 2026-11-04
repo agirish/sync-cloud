@@ -241,16 +241,29 @@ public enum GlassLevel: String, CaseIterable, Identifiable, Sendable {
     /// scrimmed card is now a `groundedGlassCard` at the level's face value, and a heavy scrim
     /// greyed the whole window, so picking Clear in Settings looked like it did nothing (TE293).
     /// The card's own ground keeps its text legible, so the scrim only has to focus it.
-    public var overlayScrimOpacity: Double {
-        self == .clear ? 0.20 : 0.35
+    ///
+    /// Light at Clear takes none. Black over a near-white window reads as grey rather than as
+    /// depth: with the None accent, 0.20 turned the whole window grey the moment Settings opened,
+    /// and 0.10 and 0.05 still did, judged on his machine (TE316). The card's shadow and edge set
+    /// it off instead. Dark keeps 0.20, which reads as depth over the deep base. `OverlayScrim`
+    /// draws it, reading the scheme itself.
+    public func overlayScrimOpacity(dark: Bool) -> Double {
+        guard self == .clear else { return 0.35 }
+        return dark ? 0.20 : 0
     }
 
     /// How opaque `groundedGlassCard`'s ground is under the card's content. 0.85 was walked up
     /// from 0 against a real window: below ~0.6 the content behind stayed legible *through* the
-    /// card. Clear takes 0.45 anyway, so the card reads as clear like the Activity window rather
-    /// than as Frosted — judged on his machine over a full column view and kept (TE293, variant C).
+    /// card. That is Frosted's and Solid's.
+    ///
+    /// Clear takes 0.90, a shade more, because nothing else under the card blurs: the card is
+    /// clear glass in both schemes (`floatingPanelGlass`), so the ground alone decides how much of
+    /// the window reads through. TE293 thinned it to 0.45 while Light's card still sat on a blur
+    /// material, which hid the window whatever the ground — so Light read as solid and Dark, on
+    /// clear glass, read the column rows behind it outright. With the same glass in both, 0.90
+    /// leaves the rows a faint trace in each; tuned live on his machine (TE316).
     public var groundedBackingOpacity: Double {
-        self == .clear ? 0.45 : 0.85
+        self == .clear ? 0.90 : 0.85
     }
 
     /// Strength of the app background gradient, 0...1. `.frosted` keeps 0.65 — the old intensity
@@ -377,7 +390,33 @@ public extension LiquidGlass {
     /// modifier and asserts the separation from Graphite survives. 0.7 closes about three
     /// quarters of the gap between the bare material and pure white while the material still
     /// supplies texture; 0.5 rendered half-way — a lighter gray, not white.
+    ///
+    /// Clear takes less (`clearNoneLightVeil`).
     static let noneLightVeil: Double = 0.7
+
+    /// `noneLightVeil` at Clear, where None's backdrop is the near-white popover material rather
+    /// than the gray `.underWindowBackground` (`clearNoneLightMaterial`). Over the gray one, 0.7
+    /// buried the desktop and still read gray; over the white one, 0.4 reads white while the
+    /// desktop shows through like every other accent's, judged on his machine (TE316). None keeps
+    /// its separation from Graphite (`NoneHueWhitenessRenderTests`).
+    static let clearNoneLightVeil: Double = 0.4
+
+    /// The behind-window material None takes at Clear in light. `.underWindowBackground` is a
+    /// neutral gray there, which every accent tints into its own colour, and which None, having
+    /// no colour, could only whiten by covering it. `.popover` is the near-white material macOS
+    /// uses for popovers: still blurred, still see-through (TE316).
+    static let clearNoneLightMaterial: NSVisualEffectView.Material = .popover
+
+    /// Whether a floating panel — Settings and the other `groundedGlassCard`s, Ask Claude, the
+    /// Activity window — takes the window's own glass instead of its 0.90 ground: None, in light,
+    /// at Clear. There the window is a near-white blur under a white film, and a near-solid white
+    /// panel on it read as a sheet laid over the glass rather than part of it. So the panel blurs
+    /// what is behind it in `clearNoneLightMaterial` under `clearNoneLightVeil`, the window's own
+    /// recipe, and the desktop's colour reads through it as it does through the window (TE316).
+    /// Every accent keeps the ground: its hue is what the window shows, and the ground is neutral.
+    static func panelTakesWindowGlass(level: GlassLevel, hue: LiquidGlassHue, dark: Bool) -> Bool {
+        level == .clear && !dark && hue == .none
+    }
 }
 
 // MARK: - The Tint slider's curve
@@ -640,6 +679,15 @@ public extension View {
     /// on the appearance — see `GlassSurface`.
     func glassSurface(_ level: GlassLevel, cornerRadius: CGFloat) -> some View {
         modifier(GlassSurface(level: level, cornerRadius: cornerRadius))
+    }
+
+    /// `glassSurface` for a floating panel — Settings and the other `groundedGlassCard`s, and Ask
+    /// Claude — with one difference: Clear in light is clear glass, as it is in dark, rather than
+    /// `glassSurface`'s `.ultraThinMaterial`. That blur hid the window behind a panel whatever its
+    /// ground, so Light's panels read as solid while Dark's read as glass (TE316). Panes and bars
+    /// keep `glassSurface`'s material.
+    func floatingPanelGlass(_ level: GlassLevel, cornerRadius: CGFloat) -> some View {
+        modifier(FloatingPanelGlass(level: level, cornerRadius: cornerRadius))
     }
 
     /// Frosted glass card style for floating overlay chrome (Settings, Help, the first-run card,
@@ -1036,6 +1084,22 @@ private struct GlassSurface: ViewModifier {
     }
 }
 
+/// Backs `floatingPanelGlass`.
+private struct FloatingPanelGlass: ViewModifier {
+    let level: GlassLevel
+    let cornerRadius: CGFloat
+    @Environment(\.colorScheme) private var scheme
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *), level == .clear, scheme != .dark {
+            content.glassEffect(.clear, in: .rect(cornerRadius: cornerRadius))
+        } else {
+            content.glassSurface(level, cornerRadius: cornerRadius)
+        }
+    }
+}
+
 // MARK: - Appearance-aware chrome (the dark-mode "bold" re-tune)
 //
 // The Liquid Glass surfaces above were tuned once, for light: a single set of constants that reads
@@ -1098,7 +1162,8 @@ private struct LiquidGlassBackground: ViewModifier {
                 if !panelGround {
                     BehindWindowGlass(
                         isEnabled: seeThrough,
-                        vibrancyAlpha: seeThrough ? LiquidGlass.clearVibrancyAlpha : 1.0)
+                        vibrancyAlpha: seeThrough ? LiquidGlass.clearVibrancyAlpha : 1.0,
+                        material: !dark && hue == .none ? LiquidGlass.clearNoneLightMaterial : .underWindowBackground)
                         .ignoresSafeArea()
                 }
 
@@ -1185,7 +1250,7 @@ private struct LiquidGlassBackground: ViewModifier {
                 // titlebar band passes roughly three quarters of what is beneath it (see
                 // `clearTitlebarBoost`), so it whitens with the rest of the window.
                 if !dark && hue == .none {
-                    Color.white.opacity(LiquidGlass.noneLightVeil)
+                    Color.white.opacity(seeThrough ? LiquidGlass.clearNoneLightVeil : LiquidGlass.noneLightVeil)
                         .ignoresSafeArea()
                 }
 
@@ -1345,6 +1410,7 @@ private struct DarkBoldCardChrome: ViewModifier {
 private struct GroundedGlassCard: ViewModifier {
     let level: GlassLevel
     let backingOpacity: Double
+    @Environment(\.colorScheme) private var scheme
     // The ground's accent and Tint, read here rather than passed: the callers hold only the level,
     // and these are the same keys and defaults every other reader uses.
     @AppStorage(LiquidGlass.hueKey) private var hueRaw: String = SelectionLensAppearance.defaultHue.rawValue
@@ -1365,11 +1431,69 @@ private struct GroundedGlassCard: ViewModifier {
                               tint: tint, opacity: backingOpacity, cornerRadius: radius)
         // Same branch order as `glassCardStyle`, and kept as two `@ViewBuilder` arms rather than an
         // erased view for the same reason: an erased card re-renders whole on every parent update.
-        if level.needsExplicitChrome {
-            grounded.glassSurface(level, cornerRadius: radius).clipShape(shape).modifier(chrome)
+        if LiquidGlass.panelTakesWindowGlass(level: level, hue: LiquidGlassHue(rawValue: hueRaw) ?? SelectionLensAppearance.defaultHue,
+                                             dark: scheme == .dark) {
+            content
+                .background(Color.white.opacity(LiquidGlass.clearNoneLightVeil))
+                .background(WithinWindowGlass(material: LiquidGlass.clearNoneLightMaterial))
+                .clipShape(shape).modifier(chrome)
+        } else if level.needsExplicitChrome {
+            grounded.floatingPanelGlass(level, cornerRadius: radius).clipShape(shape).modifier(chrome)
         } else {
-            grounded.clipShape(shape).glassSurface(level, cornerRadius: radius).modifier(chrome)
+            grounded.clipShape(shape).floatingPanelGlass(level, cornerRadius: radius).modifier(chrome)
         }
+    }
+}
+
+public extension View {
+    /// At Clear, the same ground a floating panel's text sits on (`groundedGlassCard`), laid under a
+    /// whole window's content — the Activity window, which is its own window over the desktop rather
+    /// than a card over this one, and so would otherwise show the desktop straight through while
+    /// Settings beside it reads as a panel (TE316). Every other level passes through untouched, and
+    /// so does None in light, where the panels take the window's glass instead
+    /// (`LiquidGlass.panelTakesWindowGlass`) and this window already is that glass.
+    func clearWindowGround(level: GlassLevel) -> some View {
+        modifier(ClearWindowGround(level: level))
+    }
+}
+
+private struct ClearWindowGround: ViewModifier {
+    let level: GlassLevel
+    @Environment(\.colorScheme) private var scheme
+    @AppStorage(LiquidGlass.hueKey) private var hueRaw: String = SelectionLensAppearance.defaultHue.rawValue
+    @AppStorage(LiquidGlass.tintKey) private var tint: Double = SelectionLensAppearance.defaultTint
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        let hue = LiquidGlassHue(rawValue: hueRaw) ?? SelectionLensAppearance.defaultHue
+        // Not where the window's glass stands in for the ground: this window IS that glass.
+        if level == .clear, !LiquidGlass.panelTakesWindowGlass(level: level, hue: hue, dark: scheme == .dark) {
+            content.glassPanelGround(level: level, hue: hue, tint: tint, opacity: level.groundedBackingOpacity,
+                                     cornerRadius: 0)
+        } else {
+            content
+        }
+    }
+}
+
+/// The dimming behind a floating panel — Settings, Help, Setup, Compare's overlays — at the level's
+/// `overlayScrimOpacity` in the current color scheme. A view rather than a colour because the
+/// opacity depends on the scheme, which only the environment knows; every scrim drawing through
+/// this one keeps them from drifting apart. Callers add their own `ignoresSafeArea` and tap.
+public struct OverlayScrim: View {
+    let level: GlassLevel
+    @Environment(\.colorScheme) private var scheme
+
+    public init(level: GlassLevel) {
+        self.level = level
+    }
+
+    public var body: some View {
+        Rectangle()
+            .fill(Color.black.opacity(level.overlayScrimOpacity(dark: scheme == .dark)))
+            // Light's Clear scrim is fully transparent, and a clear fill takes no clicks — so the
+            // shape is the hit area, or clicking away from the card would stop closing it.
+            .contentShape(Rectangle())
     }
 }
 

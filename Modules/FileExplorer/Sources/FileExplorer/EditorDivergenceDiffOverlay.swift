@@ -123,8 +123,7 @@ public struct EditorDivergenceDiffOverlay: View {
     public var body: some View {
         GeometryReader { proxy in
             ZStack {
-                Rectangle()
-                    .fill(Color.black.opacity(glassLevel.overlayScrimOpacity))
+                OverlayScrim(level: glassLevel)
                     .ignoresSafeArea()
                     // Clicking away is Cancel, like every other overlay — and here that is not
                     // merely a dismissal but a real answer, the safe one.

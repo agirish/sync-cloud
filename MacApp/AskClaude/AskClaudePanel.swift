@@ -182,9 +182,14 @@ struct AskClaudePanel: View {
         // showing blurred through the backdrop (AskClaudeWindow.swift), which also owns the
         // rounding and the shadow — so the ground is square, as it always was.
         .contentSurface(hue: hue, tint: tint)
-        .glassPanelGround(level: level, hue: hue, tint: tint, opacity: level.groundedBackingOpacity,
+        // With None in light at Clear, the window's own white film instead: this window's backdrop
+        // is already the window's material, so the film is all that makes it the window's glass.
+        .glassPanelGround(level: level, hue: hue, tint: tint,
+                          opacity: LiquidGlass.panelTakesWindowGlass(level: level, hue: hue, dark: colorScheme == .dark)
+                              ? LiquidGlass.clearNoneLightVeil : level.groundedBackingOpacity,
                           cornerRadius: 0)
-        .glassSurface(level, cornerRadius: Radius.card)
+        // The floating panels' glass, so at Clear in light it is clear glass as Settings' is (TE316).
+        .floatingPanelGlass(level, cornerRadius: Radius.card)
         .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).strokeBorder(.separator.opacity(0.6)))
         .overlay { resizeHandles }
         .onChange(of: CGRect(origin: origin, size: size), initial: true) { _, frame in onPlace(frame) }

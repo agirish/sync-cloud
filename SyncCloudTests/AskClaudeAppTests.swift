@@ -2454,14 +2454,28 @@ private final class Counter: @unchecked Sendable {
         #expect(abs(none.r - none.b) < 0.03, "None at full Tint painted \(none)")
     }
 
-    @Test func clearHasTheThinnerGround() throws {
-        // Decision IA: the text's ground is the house one, `groundedBackingOpacity` — 0.45 at
-        // Clear, 0.85 at Frosted — so at Clear the panel shows more of what is behind it, as much
-        // as the other floating panels do. Over black, the thinner white ground reads darker:
-        // measured 0.64 at Clear and 0.92 at Frosted, where the old 0.6 (HY) made Clear 0.74.
-        let clear = try threadColor(hue: .none, tint: 0, level: .clear)
-        let frosted = try threadColor(hue: .none, tint: 0, level: .frosted)
-        #expect(frosted.g - clear.g > 0.23, "Clear's thread is \(clear), Frosted's \(frosted)")
+    @Test func clearHasTheHouseGroundOnClearGlass() throws {
+        // Decision IA: the text's ground is the house one, `groundedBackingOpacity`, as thick as
+        // the other floating panels' at every level. TE316 made Clear's 0.90 and its light glass
+        // clear rather than blurred (`floatingPanelGlass`), so Clear's thread now reads as near
+        // white over black as Frosted's 0.85 on its blur, where TE293's 0.45 left it 0.64. Blue,
+        // because None at Clear takes the window's glass instead (the next test).
+        let clear = try threadColor(hue: .blue, tint: 0, level: .clear)
+        let frosted = try threadColor(hue: .blue, tint: 0, level: .frosted)
+        print("[ask-claude-ground] blue clear \(clear), frosted \(frosted)")
+        #expect(clear.g > 0.85, "Clear's thread is \(clear)")
+        #expect(abs(clear.g - frosted.g) < 0.06, "Clear's thread is \(clear), Frosted's \(frosted)")
+    }
+
+    @Test func noneAtClearTakesTheWindowsFilm() throws {
+        // With None in light at Clear the panel is the window's glass: its backdrop's blur under
+        // the window's white film (`LiquidGlass.panelTakesWindowGlass`), not the 0.90 ground. Over
+        // black, which the backdrop's blur can't draw offscreen, that film reads well short of the
+        // ground every accent keeps (TE316).
+        let none = try threadColor(hue: .none, tint: 0, level: .clear)
+        let blue = try threadColor(hue: .blue, tint: 0, level: .clear)
+        print("[ask-claude-ground] clear none \(none), blue \(blue)")
+        #expect(blue.g - none.g > 0.3, "None's thread is \(none), Blue's \(blue)")
     }
 }
 

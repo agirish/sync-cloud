@@ -24,6 +24,10 @@ struct BehindWindowGlass: NSViewRepresentable {
     /// `LiquidGlass.clearVibrancyAlpha` for why Clear settles just under 1.
     var vibrancyAlpha: Double = 1.0
 
+    /// The behind-window material. `.underWindowBackground` everywhere but None in light, which
+    /// takes `LiquidGlass.clearNoneLightMaterial` (see it, and `makeNSView` for why this one).
+    var material: NSVisualEffectView.Material = .underWindowBackground
+
     /// Carries the desired window transparency across the gap where `view.window` is still nil.
     /// A plain `updateNSView` that defers a tick and bails on a nil window drops the launch-time
     /// application entirely when the deferred block outruns window attachment — with `.clear`
@@ -66,9 +70,29 @@ struct BehindWindowGlass: NSViewRepresentable {
     }
 
     func updateNSView(_ view: Backing, context: Context) {
+        if view.material != material { view.material = material }
         // Alpha 0 hides the layer entirely but keeps the window transparent.
         view.isHidden = !isEnabled || vibrancyAlpha <= 0
         view.alphaValue = vibrancyAlpha
         view.wantsTransparentWindow = isEnabled
+    }
+}
+
+/// A within-window blur: it blurs what the window draws behind it, as `BehindWindowGlass` blurs the
+/// desktop. A floating panel over the window uses it to take the window's own glass — see
+/// `LiquidGlass.panelTakesWindowGlass`.
+struct WithinWindowGlass: NSViewRepresentable {
+    var material: NSVisualEffectView.Material
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.blendingMode = .withinWindow
+        view.state = .active
+        view.material = material
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        if view.material != material { view.material = material }
     }
 }
