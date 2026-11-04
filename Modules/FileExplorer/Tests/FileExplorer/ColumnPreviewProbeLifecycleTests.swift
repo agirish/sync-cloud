@@ -72,15 +72,13 @@ import UniformTypeIdentifiers
             let cloudOnlyPath = self.cloudOnlyPath
             let heldFor = self.heldFor
             let log = self.log
-            return ColumnPreviewColumn(item: box.item, paneToken: .left, isAwaitingDownload: false,
-                                       onOpenInEditor: { _ in })
+            return ColumnPreviewColumn(item: box.item, paneToken: .left, isAwaitingDownload: false)
                 .frame(width: 420, height: 520)
                 .environment(\.columnPreviewProbe, ColumnPreviewProbeReader { path in
                     let isCloudOnly = path == cloudOnlyPath
                     if isCloudOnly { try? await Task.sleep(for: heldFor) }
                     await MainActor.run { _ = log.completed.insert(path) }
-                    return ColumnPreviewProbe(source: isCloudOnly ? .cloudOnly : .quickLook,
-                                              created: nil)
+                    return ColumnPreviewProbe(source: isCloudOnly ? .cloudOnly : .quickLook)
                 })
         }
     }

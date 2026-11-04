@@ -4551,8 +4551,7 @@ struct ContentView: View {
                                AnyView(InspectorFilePreview(
                                    node: target.node,
                                    paneToken: PaneToken(isLeft: target.isLeft,
-                                                        isSingleSource: layoutMode == .singleSource),
-                                   onOpenInEditor: { handOffToEditor($0) }))
+                                                        isSingleSource: layoutMode == .singleSource)))
                            },
                            // The pane you are working in, the same answer the preview reads.
                            followsRight: !inspectorFollowsLeft)

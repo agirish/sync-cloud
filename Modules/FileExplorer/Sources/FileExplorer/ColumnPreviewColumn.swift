@@ -10,17 +10,11 @@ import UniformTypeIdentifiers
 ///
 /// Deliberately not a `PaneRow`/`FileNode`: a view that stores a node keeps that node's subtree
 /// reachable from the view graph (the reason `FileRowInfo` exists at all), and a preview needs none
-/// of it. `kind` comes from the node because `FileRowInfo` does not carry it.
+/// of it.
 struct ColumnPreviewItem: Equatable {
     let path: String
     let name: String
-    /// The file's type, ready to read: "PDF document", not `com.adobe.pdf`.
-    let kind: String?
-    let fileSize: Int?
-    let modified: Date?
-    /// The type itself, kept beside its localized `kind` because the two answer different questions:
-    /// `kind` is what a person reads under the icon, this is what decides which renderer draws the
-    /// file — see `PreviewRenderer`.
+    /// The file's type, which decides which renderer draws it — see `PreviewRenderer`.
     ///
     /// Resolved from the walk's UTI when it has one and from the path's extension when it does not.
     /// The fallback is not decoration: `FileNode.kind` comes from a resource-value read that a
@@ -33,9 +27,6 @@ struct ColumnPreviewItem: Equatable {
     init(node: FileNode) {
         self.path = node.id
         self.name = node.name
-        self.kind = Self.describe(uti: node.kind)
-        self.fileSize = node.fileSize
-        self.modified = node.modificationDate
         self.contentType = Self.type(uti: node.kind, path: node.id)
     }
 
@@ -49,21 +40,6 @@ struct ColumnPreviewItem: Equatable {
         if let uti, let type = UTType(uti), !type.isDynamic { return type }
         let ext = (path as NSString).pathExtension
         return ext.isEmpty ? nil : UTType(filenameExtension: ext)
-    }
-
-    /// Turns the walk's raw type identifier into the description Finder shows.
-    ///
-    /// `FileNode.kind` holds `URLResourceValues.typeIdentifier` — a UTI — because that is what the
-    /// Kind *sort* compares and what `kind:` search filters match; localizing it at the source would
-    /// change both, and reorder every pane. So the translation happens here, at the one place a human
-    /// reads it.
-    ///
-    /// An unrecognised type yields nothing rather than the raw identifier: `com.adobe.pdf` in a
-    /// caption is worse than no caption, and a `dyn.…` placeholder says nothing at all.
-    static func describe(uti: String?) -> String? {
-        guard let uti, let type = UTType(uti), let description = type.localizedDescription
-        else { return nil }
-        return description
     }
 }
 
@@ -119,28 +95,23 @@ enum PreviewAccessory: Equatable, Sendable {
     }
 }
 
-/// One probe of a file: whether it can be previewed, plus the creation date, which `FileNode` does
-/// not carry. Gathered together so the column pays one hop off the main actor, not two.
+/// One probe of a file: whether it can be previewed.
 struct ColumnPreviewProbe: Equatable, Sendable {
     let source: ColumnPreviewSource
-    let created: Date?
 
-    /// Reads both facts. `nonisolated async`, so it runs on the cooperative pool rather than the
-    /// caller's actor (SE-0338) — `lstat` and a resource-value read are cheap but they are still I/O,
-    /// and this runs on every file click.
+    /// Reads it. `nonisolated async`, so it runs on the cooperative pool rather than the caller's
+    /// actor (SE-0338) — an existence check and an `lstat` are cheap but they are still I/O, and
+    /// this runs on every file click.
     ///
     /// `MaterializationStatus.isCloudOnly` is an `lstat`, which is metadata-only: it does not fetch
     /// the file. Nothing here opens the path. It is asked of the file a link points to (TE206): the
     /// link itself is always local, and Quick Look on it fetched the file behind it.
     nonisolated static func read(path: String) async -> ColumnPreviewProbe {
-        let url = URL(fileURLWithPath: path)
         let exists = FileManager.default.fileExists(atPath: path)
-        let created = try? url.resourceValues(forKeys: [.creationDateKey]).creationDate
         return ColumnPreviewProbe(
             source: .classify(exists: exists,
                               isCloudOnly: MaterializationStatus.isCloudOnly(
-                                atPath: MaterializationStatus.linkTarget(of: path))),
-            created: created)
+                                atPath: MaterializationStatus.linkTarget(of: path))))
     }
 }
 
@@ -175,20 +146,17 @@ extension EnvironmentValues {
     }
 }
 
-/// Finder's column-view preview, as this pane's rightmost column: the selected file rendered by
-/// Quick Look, over the identity lines that say what it is.
+/// The selected file rendered by Quick Look or PDFKit, as the Info inspector draws it
+/// (`InspectorFilePreview`). The name, kind and dates are the inspector's own details, not this
+/// view's.
 ///
 /// Two things it deliberately does not do. It never previews a cloud-only placeholder (see
 /// `ColumnPreviewSource.cloudOnly`), and it does not mount Quick Look the instant the selection
 /// changes — `previewSettleDelay` passes first, so holding ↓ through a column of files walks the
-/// selection without spawning a preview extension per row. The icon and the identity lines appear
-/// immediately either way, so the column is never blank while it waits.
+/// selection without spawning a preview extension per row. The file's icon appears immediately
+/// either way, so the preview is never blank while it waits.
 struct ColumnPreviewColumn: View {
     let item: ColumnPreviewItem
-    /// Room held clear at the bottom for the pane's action bar, which overlays this column on a
-    /// comparison pane. `0` where there is no bar — the single-source rail. See the call site in
-    /// `PaneColumnsView` for the measurement.
-    var actionBarClearance: CGFloat = 0
     /// The pane this preview belongs to, so a download started HERE is watched by that pane — the
     /// same handshake a row-menu download uses (the notification is pane-scoped: see
     /// `CloudDownloadRequest`).
@@ -223,49 +191,6 @@ struct ColumnPreviewColumn: View {
     /// than a silently broken one: it is the channel the app runs on, and the only callers that
     /// pass anything else are tests isolating themselves from each other.
     var downloadChannel: NotificationCenter = .default
-
-    /// Hands this column's file to the Edit workspace — the same act the row menu's Open in Edit
-    /// performs, reached through the pane's `FileActionDelegate.handleOpenInEditor`.
-    ///
-    /// **A closure rather than the delegate**, so the column stays free of the existential this
-    /// file's opening note keeps out of it: the preview needs one verb, not the thirty a
-    /// `FileActionDelegate` carries, and taking the protocol here would put a pane's whole action
-    /// surface inside a view that renders a file's identity. The column sits below `FileTreeView`'s
-    /// `Equatable` boundary, so a freshly built closure per render costs nothing.
-    ///
-    /// **No default, for the reason `paneToken` and `isAwaitingDownload` have none** — the rule
-    /// `ColumnPreviewDownloadWiringTests` was written to record. A defaulted `{ _ in }` is an
-    /// argument whose deletion at a call site compiles, leaves every suite green, and leaves a
-    /// button on screen that does nothing when clicked.
-    let onOpenInEditor: (String) -> Void
-
-    /// Whether the name, kind, dates and Edit button sit under the preview. Off in the Info
-    /// inspector, whose own details already list them (`InspectorFilePreview`).
-    var showsIdentity = true
-
-    /// The height the bar's band actually needs: its own height plus the padding the overlay adds
-    /// around it. Only the BOTTOM edge is reserved. The bar flips to the top when the selected row is
-    /// near its column's bottom, and there it covers the Quick Look area instead — an image that
-    /// scales into whatever it is given, so it degrades where the identity rows could not. Reserving
-    /// both edges would cost this column ~144pt to protect the half that tolerates the loss.
-    ///
-    /// This lands the identity block 16pt higher than it strictly needs to be, since the column's own
-    /// `.padding(16)` already sits below it and the bar's *visible* top edge is 54pt up. The slack is
-    /// deliberate: it keeps this number meaning exactly "the band the bar occupies", which is the
-    /// thing `ColumnPreviewClearanceTests` can measure. Netting the padding off would couple the
-    /// constant to a layout value in another expression for 16pt.
-    ///
-    /// A constant rather than a live read of `PaneBarPlacement.coverage`: writes to that class
-    /// deliberately do not invalidate any view, so a body that read it would render from whatever the
-    /// last layout pass happened to leave there. `ColumnPreviewClearanceTests` renders the real
-    /// `PaneActionBar` and fails if it ever grows past this, which is what keeps the number honest.
-    ///
-    /// 72 rather than the 64 that bar measures here, and the 8pt is not padding-by-feel: the check is
-    /// a `<=` against a height rendered on whatever machine runs it, and CI is x86-under-Rosetta while
-    /// this was measured on arm64. At exactly 64 any cross-machine font-metric difference turns a
-    /// green suite red for a reason that has nothing to do with the code under test. The headroom
-    /// costs this column 8pt and buys the assertion room to be about the bar rather than the host.
-    static let actionBarClearance: CGFloat = 72
 
     /// How long a file must stay selected before Quick Look is mounted for it.
     static let previewSettleDelay = Duration.milliseconds(180)
@@ -313,10 +238,6 @@ struct ColumnPreviewColumn: View {
     /// Whether `previewSettleDelay` has passed for the file on screen right now.
     private var hasSettled: Bool { probed?.path == item.path && probed?.hasSettled == true }
 
-    /// Shared by the two date rows; `DateFormatter` is expensive to construct and `body` is not the
-    /// place to do it (the same reason `DetailsSidebar` keeps one).
-    private static let dateFormatter = ZoneRefreshedFormatter.localized(date: .medium, time: .short)
-
     /// `.task(id:)` key: the path, plus the generation so a download request can re-run the probe
     /// for the very same file.
     private struct ProbeID: Equatable {
@@ -325,21 +246,12 @@ struct ColumnPreviewColumn: View {
     }
 
     var body: some View {
-        VStack(spacing: 14) {
-            preview
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if showsIdentity {
-                identity
-                    .padding(.bottom, actionBarClearance)
-            }
-        }
-        .padding(16)
-        // The content fills the column rather than capping at a "readable" width. The column's width
-        // is now a deliberate choice — dragged from its divider and remembered — so capping the
-        // content would mean widening the preview did nothing but add margins, which is precisely
-        // what someone dragging it wider is asking not to happen. The metadata rows below spread
-        // label-left / value-right, as Finder's do at any width.
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        preview
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(16)
+            // The content fills the inspector rather than capping at a "readable" width: widening
+            // the inspector should widen the picture, not add margins.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         // No click catcher of its own, deliberately. The pane's deselect recognizers hang off each
         // column's own table view, so a click here cannot reach one — and a SwiftUI tap gesture
         // wrapped around a hosted `QLPreviewView` would compete with the preview's OWN controls
@@ -417,31 +329,6 @@ struct ColumnPreviewColumn: View {
         PreviewAccessory.decide(source: probe?.source, isAwaitingDownload: isAwaitingDownload)
     }
 
-    /// Whether this column offers to open its file in Edit.
-    ///
-    /// **Pure, and decided here rather than inside `identity`**, for the reason `PreviewAccessory`
-    /// gives at length: a control that only exists inside a `body` has no channel a test can read
-    /// it through — SwiftUI builds no accessibility tree without an assistive client attached, so
-    /// a hosted assertion about it passes vacuously.
-    ///
-    /// **Both halves are load-bearing.** `.quickLook` is the classification's word for "the bytes
-    /// are on this disk": a cloud-only placeholder must not be handed to the editor (that is the
-    /// provider download this column exists to avoid starting) and a vanished file has nothing to
-    /// open. The kind test is the row menu's own gate, asked through the one public spelling of it,
-    /// so this button and that menu item cannot come to disagree about what Edit opens — text, or a
-    /// PDF read-only.
-    static func offersEditor(source: ColumnPreviewSource?, path: String) -> Bool {
-        source == .quickLook && EditableText.opensInEdit(path: path)
-    }
-
-    /// ``offersEditor(source:path:)`` for the file on screen right now.
-    ///
-    /// **Read off the PROBE, not off `hasSettled`.** The button belongs to the file's identity —
-    /// the name, the kind, the dates — all of which are on screen the moment the column appears;
-    /// `hasSettled` gates the expensive Quick Look mount 180 ms later, and nothing about "this is a
-    /// text file that is on disk" needs that wait. The 180 ms lead is deliberate, not an oversight.
-    var offersEditor: Bool { Self.offersEditor(source: probe?.source, path: item.path) }
-
     // MARK: - Preview area
 
     /// Which renderer draws this file once it has settled — see `PreviewRenderer`.
@@ -510,102 +397,6 @@ struct ColumnPreviewColumn: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Identity
-
-    @ViewBuilder
-    private var identity: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // The verb sits on the name line, INSIDE the identity block and so below the preview
-            // area — never over it. A hosted `QLPreviewView` brings its own controls and this file
-            // deliberately puts nothing clickable on top of them (see the note on the preview's
-            // missing click catcher); the identity rows are the column's own surface.
-            //
-            // **Beside the name only when the name fits beside it; otherwise under it.** Measured
-            // at the preview's 220pt floor, a side-by-side button took the name's line from
-            // "Quarterly planning notes / for the hous…ew 2026.md" down to "Quarterly /
-            // planni…26.md" — the file's identity paying for a control about the file. The name is
-            // what this block is for, so `ViewThatFits` keeps it whole: the one-line layout is used
-            // when the name fits on one line next to the button, and the stacked one otherwise.
-            if offersEditor {
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        nameText
-                        Spacer(minLength: 8)
-                        editButton
-                    }
-                    VStack(alignment: .leading, spacing: 6) {
-                        nameText
-                        editButton
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                nameText
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            if let subtitle {
-                Text(subtitle)
-                    .scaledFont(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            Divider().padding(.vertical, 2)
-            if let created = probe?.created {
-                metadataRow("Created", Self.dateFormatter.string(from: created))
-            }
-            if let modified = item.modified {
-                metadataRow("Modified", Self.dateFormatter.string(from: modified))
-            }
-        }
-    }
-
-    /// The file's name, as the identity block's first line draws it.
-    private var nameText: some View {
-        Text(item.name)
-            .scaledFont(.headline)
-            .lineLimit(2)
-            .truncationMode(.middle)
-            .textSelection(.enabled)
-    }
-
-    /// The hand-off to Edit, for a text file on this disk — see ``offersEditor``.
-    private var editButton: some View {
-        Button { onOpenInEditor(item.path) } label: {
-            // "Edit", not "Open in Edit": the button is beside the file it names, where the menus
-            // that carry the longer title are not. Labelled rather than a bare glyph, which is also
-            // what keeps it out of `UnnamedControlScanTests`.
-            Label("Edit", systemImage: "square.and.pencil")
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .chromeHover()
-        .help("Open this file in Edit")
-        // The visible word is short because the file it acts on is right beside it. A screen
-        // reader reaches the button on its own, where "Edit" names no object, so it hears the
-        // verb every other door uses.
-        .accessibilityLabel("Open in Edit")
-    }
-
-    /// "PDF document — 37 KB", with either half omitted when the walk didn't resolve it.
-    private var subtitle: String? {
-        let size = item.fileSize.map { FileSizeFormat.byteCount.string(fromByteCount: Int64($0)) }
-        return [item.kind, size].compactMap { $0 }.joined(separator: " — ").nilIfEmpty
-    }
-
-    @ViewBuilder
-    private func metadataRow(_ label: String, _ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(label)
-                .scaledFont(.caption)
-                .foregroundStyle(.tertiary)
-            Spacer(minLength: 4)
-            Text(value)
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
-    }
-
     // MARK: - Download
 
     /// Asks the provider for the file's content, then watches for it to arrive.
@@ -658,8 +449,4 @@ struct QuickLookPreview: NSViewRepresentable {
     static func dismantleNSView(_ view: QLPreviewView, coordinator: ()) {
         view.close()
     }
-}
-
-private extension String {
-    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

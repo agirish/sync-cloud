@@ -139,7 +139,7 @@ import UniformTypeIdentifiers
                 .frame(width: 500)
                 if let node = tree.nodes.first {
                     InspectorFilePreview(node: node, paneToken: .singleSource,
-                                         downloadChannel: channel, onOpenInEditor: { _ in })
+                                         downloadChannel: channel)
                         .frame(width: 400)
                 }
             }
@@ -150,7 +150,7 @@ import UniformTypeIdentifiers
             .environment(\.columnPreviewProbe, ColumnPreviewProbeReader { path in
                 await MainActor.run {
                     probe.answered.append(path)
-                    return ColumnPreviewProbe(source: probe.source, created: nil)
+                    return ColumnPreviewProbe(source: probe.source)
                 }
             })
         }
@@ -432,12 +432,11 @@ import UniformTypeIdentifiers
         var body: some View {
             let probe = self.probe
             return ColumnPreviewColumn(item: item, paneToken: .singleSource,
-                                       isAwaitingDownload: watching.isAwaiting,
-                                       onOpenInEditor: { _ in })
+                                       isAwaitingDownload: watching.isAwaiting)
                 .environment(\.columnPreviewProbe, ColumnPreviewProbeReader { path in
                     await MainActor.run {
                         probe.answered.append(path)
-                        return ColumnPreviewProbe(source: probe.source, created: nil)
+                        return ColumnPreviewProbe(source: probe.source)
                     }
                 })
         }

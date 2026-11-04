@@ -1,9 +1,8 @@
 import SwiftUI
 import Sync
 
-/// The file preview as the window's Info inspector draws it (TE317 C): the same renderer as the
-/// pane's preview column once was, without the name and dates the inspector's own details already
-/// list.
+/// The file preview as the window's Info inspector draws it (TE317 C): the picture alone, over the
+/// inspector's own details, which list the name, kind and dates.
 ///
 /// **It watches no download of its own.** The pane the file was selected in does: a Download here
 /// posts through that pane's token, the pane runs the one watch (one poll, one memo `forget`) and
@@ -14,7 +13,6 @@ public struct InspectorFilePreview: View {
     let item: ColumnPreviewItem
     let paneToken: PaneToken
     let downloadChannel: NotificationCenter
-    let onOpenInEditor: (String) -> Void
 
     /// The pane's download of the file on screen, from its request until the pane says its watch
     /// ended — or until `unheardDeadline`, for a request no pane picked up.
@@ -30,19 +28,16 @@ public struct InspectorFilePreview: View {
 
     /// - Parameter paneToken: the pane the file was selected in, which watches a Download started
     ///   here.
-    public init(node: FileNode, paneToken: PaneToken, downloadChannel: NotificationCenter = .default,
-                onOpenInEditor: @escaping (String) -> Void) {
+    public init(node: FileNode, paneToken: PaneToken, downloadChannel: NotificationCenter = .default) {
         self.item = ColumnPreviewItem(node: node)
         self.paneToken = paneToken
         self.downloadChannel = downloadChannel
-        self.onOpenInEditor = onOpenInEditor
     }
 
     public var body: some View {
         ColumnPreviewColumn(item: item, paneToken: paneToken,
                             isAwaitingDownload: awaiting?.path == item.path,
-                            downloadChannel: downloadChannel, onOpenInEditor: onOpenInEditor,
-                            showsIdentity: false)
+                            downloadChannel: downloadChannel)
             // A fresh column per file, so a probe or a settle delay never carries over.
             .id(item.path)
             .onReceive(downloadChannel.publisher(for: .cloudDownloadRequested)) { note in

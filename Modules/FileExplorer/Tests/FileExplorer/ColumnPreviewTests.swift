@@ -4,8 +4,8 @@ import Sync
 import UniformTypeIdentifiers
 @testable import FileExplorer
 
-/// The rules behind the file preview (the Info inspector's, since TE317 C): what it says about a
-/// file, and *whether* that file may be handed to Quick Look at all.
+/// The rules behind the file preview (the Info inspector's, since TE317 C): *whether* a file may be
+/// handed to Quick Look at all, and what the preview area says when it is not.
 ///
 /// Pure on purpose. The rendering is a `QLPreviewView` and can only be judged by eye, but the
 /// policy — never a cloud-only placeholder — is exactly the part that would fail silently:
@@ -29,37 +29,6 @@ import UniformTypeIdentifiers
     /// The item for one of `rows()`'s files.
     private static func item(_ name: String) throws -> ColumnPreviewItem {
         ColumnPreviewItem(node: try #require(rows().first { $0.id == "\(dir)/\(name)" }?.node))
-    }
-
-    // MARK: - What it says
-
-    /// The node's scalars come across intact — a preview whose caption says nothing is most of the
-    /// feature missing.
-    @Test func testAnItemCarriesTheFilesScalars() throws {
-        let node = try #require(Self.rows().first { $0.id == "\(Self.dir)/scan.pdf" }?.node)
-        let item = ColumnPreviewItem(node: node)
-        #expect(item.path == "\(Self.dir)/scan.pdf")
-        #expect(item.name == "scan.pdf")
-        #expect(item.kind == UTType.pdf.localizedDescription)
-        #expect(item.fileSize == 37_000)
-        #expect(item.modified == Date(timeIntervalSince1970: 1_700_000_000))
-    }
-
-    /// `FileNode.kind` holds a raw UTI, because that is what the Kind sort and the `kind:` search
-    /// filter compare. A caption saying `com.adobe.pdf` — which is what shipped — is the identifier
-    /// leaking through to a human.
-    @Test func testTheKindReadsAsATypeRatherThanAnIdentifier() throws {
-        let described = try #require(ColumnPreviewItem.describe(uti: "com.adobe.pdf"))
-        #expect(described == UTType.pdf.localizedDescription)
-        #expect(described.contains("com.adobe") == false)
-    }
-
-    /// An unrecognised or dynamic type yields nothing at all. Falling back to the raw identifier
-    /// would put `dyn.ah62d4rv4ge8086p` under the preview, which says less than an empty line.
-    @Test func testAnUnknownTypeIsOmittedRatherThanShownRaw() {
-        #expect(ColumnPreviewItem.describe(uti: nil) == nil)
-        #expect(ColumnPreviewItem.describe(uti: "") == nil)
-        #expect(ColumnPreviewItem.describe(uti: "not a uti at all") == nil)
     }
 
     // MARK: - Whether Quick Look may see it
@@ -142,61 +111,13 @@ import UniformTypeIdentifiers
         }
     }
 
-    // MARK: - The editor button
-
-    /// **Only a file whose bytes are on this disk, and only a text one.**
-    ///
-    /// Written as a loop over every source rather than three separate cases, so a rule that stopped
-    /// reading `source` at all cannot pass: `.cloudOnly` is the one that matters — handing a
-    /// dataless placeholder to the editor asks the provider for the whole file, which is the
-    /// download this column's classification exists to refuse — and `.missing` and `nil` are the
-    /// states where there is nothing, or nothing known, to open.
-    @Test func onlyAMaterializedFileEditOpensOffersTheEditor() {
-        #expect(ColumnPreviewColumn.offersEditor(source: .quickLook, path: "\(Self.dir)/notes.txt"))
-        #expect(ColumnPreviewColumn.offersEditor(source: .quickLook, path: "\(Self.dir)/notes.md"))
-        // A PDF opens in Edit read-only (Phase 1a) — on this disk only, like text.
-        #expect(ColumnPreviewColumn.offersEditor(source: .quickLook, path: "\(Self.dir)/scan.pdf"))
-        #expect(!ColumnPreviewColumn.offersEditor(source: .cloudOnly, path: "\(Self.dir)/scan.pdf"))
-        for source: ColumnPreviewSource? in [.cloudOnly, .missing, nil] {
-            #expect(!ColumnPreviewColumn.offersEditor(source: source, path: "\(Self.dir)/notes.txt"),
-                    "\(String(describing: source)) offered the editor — the bytes are not on this disk")
-        }
-        for name in ["photo.jpg", "clip.mov", "archive.zip"] {
-            #expect(!ColumnPreviewColumn.offersEditor(source: .quickLook, path: "\(Self.dir)/\(name)"),
-                    "\(name) offered the editor, which would then refuse it")
-        }
-    }
-
-    /// The button asks the same question the row menu's item does, through the one public spelling
-    /// of it. Asserted as agreement rather than against a second hand-written list: two lists are
-    /// two things to keep in step, and this whole predicate exists so there is only one.
-    @Test func theButtonAndTheRowMenuAgreeAboutWhatEditOpens() {
-        for name in ["notes.txt", "notes.md", "scan.pdf", "photo.jpg", "Package.swift", "noext"] {
-            #expect(ColumnPreviewColumn.offersEditor(source: .quickLook, path: "\(Self.dir)/\(name)")
-                    == EditableText.opensInEdit(path: name),
-                    "the preview column and the row menu disagree about \(name)")
-        }
-    }
-
-    /// The instance property reads THIS column's probe, pinning it onto the static above — the same
-    /// shape `anUnprobedColumnOffersNothing` pins `accessory` and `previewCaption` with. An unprobed
-    /// column knows nothing about the file's bytes yet, so it offers nothing, text name or not.
-    @MainActor
-    @Test func anUnprobedColumnOffersNoEditorEither() throws {
-        let item = try Self.item("notes.txt")
-        let column = ColumnPreviewColumn(item: item, paneToken: .left, isAwaitingDownload: false,
-                                         onOpenInEditor: { _ in })
-        #expect(!column.offersEditor)
-    }
-
     /// The column reads its own probe: before one completes there is nothing to offer, whatever the
     /// pane's latch says. Pins the two instance properties onto the statics above — mutate either
     /// forward to a constant and this fails.
     @MainActor
     @Test func anUnprobedColumnOffersNothing() throws {
         let item = try Self.item("scan.pdf")
-        let column = ColumnPreviewColumn(item: item, paneToken: .left, isAwaitingDownload: true,
-                                         onOpenInEditor: { _ in })
+        let column = ColumnPreviewColumn(item: item, paneToken: .left, isAwaitingDownload: true)
 
         #expect(column.accessory == .none)
         #expect(column.previewCaption == nil)
@@ -214,12 +135,8 @@ import UniformTypeIdentifiers
 
         let present = await ColumnPreviewProbe.read(path: file.path)
         #expect(present.source == .quickLook)
-        // Creation date is why the probe exists at all beyond the flag: `FileNode` doesn't carry it,
-        // so the identity block's "Created" row has no other source.
-        #expect(present.created != nil)
 
         let absent = await ColumnPreviewProbe.read(path: dir.appendingPathComponent("gone.txt").path)
         #expect(absent.source == .missing)
-        #expect(absent.created == nil)
     }
 }

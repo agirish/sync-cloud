@@ -135,38 +135,13 @@ import FileExplorer
                 "the delegate did not forward the paths it was handed")
     }
 
-    /// **The preview column's Edit button reaches the same act, from the one surface that mounts it.**
-    ///
-    /// The button's own click is not drivable from a session — `ColumnPreviewEditorButtonTests`
-    /// proves it is DRAWN and `ColumnPreviewTests` proves WHEN, but what it calls when clicked is
-    /// two expressions in two files that nothing executes in a test. Both are scanned here, in the
-    /// suite that already exists for exactly this class of gap: a one-line forward that gets
-    /// reviewed by eye and never run.
-    ///
-    /// The path matters as much as the delegate. `onOpenInEditor(item.name)` would compile, draw
-    /// identically, and open the wrong thing — or nothing.
-    @Test func thePreviewMountWiresTheEditButtonToTheHandOff() throws {
-        // The one mount, the Info inspector's (TE317 C), forwards rather than deciding: a second
-        // decision about what is editable is the drift the one public predicate exists to prevent.
-        let inspector = try Self.source("InspectorFilePreview.swift")
-        #expect(inspector.contains("onOpenInEditor: onOpenInEditor"),
-                "InspectorFilePreview stopped forwarding the hand-off")
-        #expect(!inspector.contains("EditableText") && !inspector.contains("PairContentKind"),
-                "the inspector's preview has started deciding for itself what the editor opens")
-        // …and the button hands over the file's PATH, not its name or its kind.
-        let column = try Self.source("ColumnPreviewColumn.swift")
-        #expect(column.contains("Button { onOpenInEditor(item.path) }"),
-                "the Edit button no longer hands the editor this column's path")
-    }
-
     /// **The two doors the app wires itself: the Info inspector and File ▸ Open in Edit.**
     ///
     /// Both were added with pure rules and mounted tests that inject their own closures — so the
     /// one expression in each that connects the door to the real hand-off was never executed by
     /// any test. Found on review: `open: { _ in }` at the inspector's construction site, or a
     /// menu closure that did nothing, left every suite green while the button or ⌘O did nothing.
-    /// The same class of gap `thePreviewMountWiresTheEditButtonToTheHandOff` closes for the
-    /// preview, closed the same way.
+    /// Closed by scanning the two construction sites.
     ///
     /// The predicate half matters as much as the action half: `opensInEdit: true` in the menu, or
     /// `isOffered: { _ in true }` in the inspector, would offer a PDF to a text editor, and the

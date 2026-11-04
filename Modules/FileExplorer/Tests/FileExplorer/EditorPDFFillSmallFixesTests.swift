@@ -227,8 +227,7 @@ import Sync
 
     /// **⌘Z takes back the last stroke on Draw** — one at a time, and nothing once none is left.
     /// The button's own state is read from the source: SwiftUI builds no accessibility tree for a
-    /// hosted view under `swift test` (`ColumnPreviewEditorButtonTests`), so its buttons can't be
-    /// found or pressed here.
+    /// hosted view under `swift test`, so its buttons can't be found or pressed here.
     @Test func undoStrokeTakesBackTheLastStroke() async throws {
         let fill = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
         let host = NSHostingView(rootView: EditorPDFAddSignatureSheet(fill: fill, kind: .signature, drawing: true))
