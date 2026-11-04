@@ -694,8 +694,9 @@ Pick Detailed in the menu under the box, so answers carry lists and tables.
   send it: the applied card stays in the chat with its Undo, and Claude's answer knows the file was
   renamed.
 - [ ] **Read while it answers.** With VoiceOver on (⌘F5), ask a question and move through the panel
-  while Claude answers: the app stays up. NOT FIXED as of 2026-11-03: reading the panel mid-answer
-  crashes SyncCloud, in builds from before TE297 too; check this once the crash is fixed.
+  while Claude answers: the app stays up, and the question reads as "You: …". Fixed 2026-11-03 and
+  checked with an agent's accessibility reads (three questions, each read while Claude thought);
+  VoiceOver itself not yet.
 - [ ] **Right-click and VoiceOver.** Right-click an answer bubble: Copy Answer and Retry. With
   VoiceOver (⌘F5), the Actions rotor on a question offers Copy Question and Edit Question.
 

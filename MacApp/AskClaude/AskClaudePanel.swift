@@ -979,6 +979,12 @@ private struct AskClaudeThreadRow: View, Equatable {
                 .padding(.horizontal, 11).padding(.vertical, 7)
                 .foregroundStyle(onAccent)
                 .background(accentFill, in: RoundedRectangle(cornerRadius: Radius.card))
+                // One element of its own over the selectable text, not the text's: while a question
+                // runs, SwiftUI's label for a node backed by the selectable text's AppKit view asks
+                // that view, whose label asks the node, until the stack runs out (an assistive app
+                // reading the panel, found under lldb).
+                .accessibilityElement(children: .ignore)
+                .accessibilityAddTraits(.isStaticText)
                 .accessibilityLabel(item.spoken == true ? "You said: \(text)" : "You: \(text)")
                 .modifier(AskClaudeTurnVoiceOverActions(actions: turnActions, title: menuTitle, perform: onTurnAction))
                 // Its bar hangs just under the bubble, over the row below, while hovered (TE296).
@@ -1192,6 +1198,10 @@ private struct AskClaudeThreadRow: View, Equatable {
                     .padding(.vertical, 6)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(.background.opacity(0.6), in: RoundedRectangle(cornerRadius: Radius.well))
+                    // Its own element, as the question's bubble is: a label on the selectable
+                    // text's node loops while a question runs.
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityAddTraits(.isStaticText)
                     .accessibilityLabel("Apple Intelligence read \(passage.fileName) on this Mac: \(answer)")
             } else {
                 Label("Read \(passage.fileName) on this Mac.", systemImage: "doc.text.magnifyingglass")
@@ -1717,8 +1727,7 @@ private struct AskClaudeThreadRow: View, Equatable {
 /// A turn's actions for VoiceOver (TE296), one named action each, in place of
 /// `accessibilityActions { … }` holding buttons. That swap was made against a crash (an assistive
 /// app reading the panel while a question runs sends SwiftUI's label lookup round in a loop until the
-/// stack runs out), but it isn't the cause: the crash comes in builds from before TE296 as well, and
-/// is still open.
+/// stack runs out), but it wasn't the cause: the label on the question's selectable text was.
 private struct AskClaudeTurnVoiceOverActions: ViewModifier {
     let actions: [AskClaudeTurnAction]
     let title: (AskClaudeTurnAction) -> String
