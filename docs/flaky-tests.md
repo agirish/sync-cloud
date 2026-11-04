@@ -1045,6 +1045,28 @@ then symbolicates, and the watch stops it after `sampleSeconds + sampleGrace` (2
 process, so no test-side wait can close it. If it repeats, the assertion should accept a stopped
 `sample` (the watch's own documented outcome) rather than the grace being raised.
 
+#### Seen: `MainThreadStallWatchTests` "A stall after a hold is dated by its own stacks", 2026-11-04 — FIXED
+
+Red once on hosted CI at `70b3d8f42` (run 41854572530, attempt 2), a commit that touched only the
+preview column, on `seconds > 0.5 && seconds <= 3.2`: the line said "it lasted 3.41 s" for a
+`Thread.sleep(3)`. The bound sat 0.2 s above the sleep, so it pinned the VM's lag in sleeping and
+in seeing the idle stack after it, not the claim. The claim is that the stall is dated from its
+busy look, not from the 2.5 s hold before it, which would add the hold to the line.
+
+Fixed the same day by mechanism 6's structural route: the sleep stamps its own start and end on
+the watch's clock (uptime), and the bound is `slept + hold / 2`, where `slept` is the sleep as it
+ran and `hold` is from arming to the sleep, less the first beat. The right answer is `slept` plus a
+look's lag; the hold-dated one is `slept + hold`; the bound splits them, and load that stretches
+the sleep stretches the bound with it. Mutated to date the stall from the hold (`check()`'s first
+busy look keeps the held heartbeat's time), it fails locally: 5.30 s against a 4.19 s bound,
+slept 3.00 s after a 2.38 s hold. A stall dated from the last idle look, up to
+`stallAfter + beat` before the sleep, is not told apart; the old bound caught that only when the
+look fell late.
+
+"A heartbeat held past a stall's end does not stretch it" carries the same `<= 3.2` bound and has
+not gone red. Its wrong answer is only 2 s longer, and the busy look's place in the sleep is not
+measured from outside, so the same split does not carry over as is.
+
 #### Seen: `ObservedCopyTests.bulkSyncCancelledInsideAnItemReportsNoFailureAndKeepsTheRow`, 2026-11-02 — FIXED
 
 Red once on hosted CI at `d73036172`, a comments-only commit. `Modules/Sync` was the same tree hash

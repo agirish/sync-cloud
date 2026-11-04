@@ -80,6 +80,15 @@ import Testing
         #expect(watch.samplesTaken == 1)
     }
 
+    /// Instants on the watch's own clock, uptime, stamped from another thread.
+    private final class Instants: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stamps: [String: TimeInterval] = [:]
+        static func now() -> TimeInterval { TimeInterval(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1_000_000_000 }
+        func stamp(_ name: String) { let at = Self.now(); lock.withLock { stamps[name] = at } }
+        subscript(_ name: String) -> TimeInterval? { lock.withLock { stamps[name] } }
+    }
+
     /// A semaphore wait outside the async context (unavailable there), bounded.
     private static func waitBriefly(_ semaphore: DispatchSemaphore) { _ = semaphore.wait(timeout: .now() + 5) }
 
@@ -298,19 +307,28 @@ import Testing
         defer { held.resume() }
         let watch = MainThreadStallWatch(configuration: configuration, queue: held,
                                          thread: { port }, report: { lines.append($0) })
+        let instants = Instants()
+        instants.stamp("armed")
         watch.start()
         defer { watch.stop() }
         try await Task.sleep(for: .seconds(2.5))          // held over an idle loop
         #expect(watch.heldWhileIdle == 1 && watch.samplesTaken == 0)
-        thread.perform { Thread.sleep(forTimeInterval: 3) }
+        thread.perform { instants.stamp("began"); Thread.sleep(forTimeInterval: 3); instants.stamp("ended") }
         let deadline = Date().addingTimeInterval(45)
         while lines.stalls.isEmpty, Date() < deadline { try await Task.sleep(for: .milliseconds(100)) }
         let line = try #require(lines.stalls.first, "the stall after the hold was never reported")
         let lasted = try #require(line.range(of: "it lasted ").map { line[$0.upperBound...].prefix { "0123456789.".contains($0) } })
         let seconds = try #require(Double(lasted), "\(line)")
-        // Dated from the busy look (up to `stallAfter` into the 3 s sleep), ended at the idle
-        // stack after it: at most 3 s. Dated from the hold it would be 5 s or more.
-        #expect(seconds > 0.5 && seconds <= 3.2, "\(line)")
+        let armed = try #require(instants["armed"]), began = try #require(instants["began"])
+        let ended = try #require(instants["ended"])
+        // Dated from the busy look (up to `stallAfter` into the sleep) and ended at the idle
+        // stack after it, the line spans at most the sleep as it ran, plus the lag of that look.
+        // Dated from the hold, it would add the hold: the first heartbeat, a beat after arming, to
+        // the sleep. Bounded halfway between, both measured here, not against a wall-clock 3.2 s:
+        // a 3 s sleep was logged as 3.41 s on the 3-vCPU hosted VM.
+        let slept = ended - began, hold = began - armed - configuration.beat
+        #expect(seconds > 0.5 && seconds < slept + hold / 2,
+                "\(line) — slept \(String(format: "%.2f", slept)) s after a \(String(format: "%.2f", hold)) s hold")
         // One line for the heartbeat: the stall's, not a "waited … held by the system" beside it.
         #expect(!lines.all.contains { $0.contains("a heartbeat waited") }, "\(lines.all)")
         #expect(line.contains("1 earlier heartbeat(s) this launch were held by the system"), "\(line)")
