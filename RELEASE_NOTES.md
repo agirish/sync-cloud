@@ -68,6 +68,9 @@ Requires **macOS 26**, unchanged from v6.2.
   read too: pages with little or no text are read by recognizing the words, in most major languages,
   up to 10 pages, and Claude is told which pages those were and that a word may be misread. Stop
   ends the reading.
+- **One card for every file a question reads.** Each file shows its answer with a tick; Share
+  Answers, Share Content and Share All Content send the ticked files', and the all-content share
+  says first how much that is.
 - **Which files mention a word waits too.** Asked to search inside files, Claude gets none of the
   names Spotlight finds: a card lists them with their folders and dates, you tick the ones to share,
   and Share Names with File Details or Share Names Only sends them. With Let Claude read files on,

@@ -183,6 +183,43 @@ public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
     }
 }
 
+/// **Every file one question read, on one card** (his call on TE322): three cards for one
+/// question repeated the tick and the footnote three times. Each file keeps its answer, passage and
+/// whole text; a tick per file, as the search card has, says which go.
+public struct AskClaudeReadGroup: Codable, Equatable, Sendable {
+    public var files: [AskClaudePassage]
+    /// The files they unticked, by index in `files`: no share sends them.
+    public var unticked: [Int]?
+    public var answersSent: Bool?
+    public var textSent: Bool?
+    public var wholeSent: Bool?
+
+    public init(files: [AskClaudePassage]) {
+        self.files = files
+        // Answers that went as they chose for the chat went for every file.
+        if files.first?.autoShared != nil { answersSent = true }
+        if files.first?.autoShared == .answerAndText { textSent = true }
+    }
+
+    /// What went without a card, the same for every file in the group.
+    public var autoShared: AskClaudePassage.AutoShared? { files.first?.autoShared }
+
+    /// The files still ticked.
+    public var ticked: [AskClaudePassage] {
+        let out = Set(unticked ?? [])
+        return files.indices.filter { !out.contains($0) }.map { files[$0] }
+    }
+
+    /// A file's text for Share All Content: its whole text, or its passage when that is all of it.
+    public static func allText(_ file: AskClaudePassage) -> String { file.whole ?? file.text }
+
+    /// Whether all of the ticked files' text fits one share (`AskClaudeReading.wholeTokens`'s cap,
+    /// passed in: Sync doesn't own it).
+    public func wholeFits(under tokens: Int) -> Bool {
+        ticked.reduce(0) { $0 + AskClaudePassage.estimatedTokens(Self.allText($1)) } <= tokens
+    }
+}
+
 /// A passage of a file that could go to Claude, offered to the person as a button (decision DS):
 /// the on-device model read the file first, and sending the text itself is a second, explicit step.
 public struct AskClaudePassage: Codable, Equatable, Sendable {

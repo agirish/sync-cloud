@@ -58,6 +58,8 @@ final class AskClaudeChat: ObservableObject {
             case pdf(AskClaudePDFCard)
             /// Names a content search found, held for their click (decision IV, TE320).
             case found(AskClaudeFoundNames)
+            /// Every file one question read, on one card (his call on TE322).
+            case reads(AskClaudeReadGroup)
         }
         var id = UUID()
         var kind: Kind
@@ -143,6 +145,8 @@ final class AskClaudeChat: ObservableObject {
     private var streamingItem: UUID?
     /// The question running, as the thread shows it: where a switch's note goes (TE292).
     private var askedItem: UUID?
+    /// The card this question's file reads gather on (TE322): the first read's, until it is sent.
+    private var turnReads: UUID?
     /// What the question running tells Claude about the cards, for its item once it joins.
     private var askedTold: [String] = []
     private var receipt: Receipt?
@@ -711,8 +715,9 @@ final class AskClaudeChat: ObservableObject {
     /// from Claude now: then the card goes, with its text, and a note says why (v7.0 review).
     func takeOffer(_ id: UUID, _ part: OfferPart = .passage) -> (question: String, shown: String)? {
         // Not while a question runs: the send would be refused, and the offer marked sent anyway.
-        guard !isRunning, let index = items.firstIndex(where: { $0.id == id }),
-              case .offer(var passage, let sent) = items[index].kind else { return nil }
+        guard !isRunning, let index = items.firstIndex(where: { $0.id == id }) else { return nil }
+        if case .reads = items[index].kind { return takeReads(id, index, part) }
+        guard case .offer(var passage, let sent) = items[index].kind else { return nil }
         // Each part goes once; sending one leaves the others to send.
         if part == .names || part == .namesOnly { return nil }
         if part == .passage, sent { return nil }
@@ -766,8 +771,108 @@ final class AskClaudeChat: ObservableObject {
         return (namesOnly ? Self.foundNamesQuestion(found) : Self.foundQuestion(found), shown)
     }
 
-    /// A tick on a found-names card (his call on TE320): in or out of what its shares send.
+    /// **A read joins this question's card** (his call on TE322): the first makes an offer card,
+    /// the next turns it into a group, later ones join it, and the card moves to the foot of the
+    /// thread as it grows, under the latest step. Once anything on it is sent, or a read goes
+    /// differently (shared without asking, say), a new card starts.
+    private func gather(_ passage: AskClaudePassage) {
+        if let id = turnReads, let index = items.firstIndex(where: { $0.id == id }) {
+            var group: AskClaudeReadGroup?
+            switch items[index].kind {
+            case .offer(let first, let sent) where !sent && first.answerSent == (first.autoShared != nil ? true : nil)
+                && first.wholeSent == nil && first.autoShared == passage.autoShared:
+                group = AskClaudeReadGroup(files: [first, passage])
+            case .reads(var existing) where existing.textSent == (existing.autoShared == .answerAndText ? true : nil)
+                && existing.wholeSent == nil && (existing.answersSent == nil || existing.autoShared != nil)
+                && existing.autoShared == passage.autoShared:
+                existing.files.append(passage)
+                group = existing
+            default:
+                break
+            }
+            if let group {
+                let item = items.remove(at: index)
+                items.append(Item(id: item.id, kind: .reads(group)))
+                return
+            }
+        }
+        let item = Item(kind: .offer(passage, sent: false))
+        items.append(item)
+        turnReads = item.id
+    }
+
+    /// The shares of a group card (TE322): the ticked files' answers, the passages they came from,
+    /// or all their text; each once, refused when a ticked file is hidden from Claude now.
+    private func takeReads(_ id: UUID, _ index: Int, _ part: OfferPart) -> (question: String, shown: String)? {
+        guard case .reads(var group) = items[index].kind else { return nil }
+        let files = group.ticked
+        guard !files.isEmpty else { return nil }
+        let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: defaults))
+        if files.contains(where: { $0.path.map(hidden.isHidden) == true }) {
+            Logger.shared.info("Ask Claude didn’t share what it read: a file is hidden from Claude now")
+            replace(id, with: .note("Didn’t share what Claude read: one of the files is in a folder hidden from Claude now."))
+            return nil
+        }
+        let count = files.count == 1 ? "1 file" : "\(files.count) files"
+        switch part {
+        case .answer:
+            let answered = files.filter { $0.answer != nil }
+            guard group.answersSent != true, !answered.isEmpty else { return nil }
+            group.answersSent = true
+            items[index].kind = .reads(group)
+            return (Self.groupQuestion("what the on-device model read in \(answered.count == 1 ? "1 file" : "\(answered.count) files")",
+                                       answered.map(Self.answerBlock)),
+                    "Shared what \(answered.count == 1 ? answered[0].fileName : "\(answered.count) files") \(answered.count == 1 ? "says" : "say")")
+        case .passage:
+            guard group.textSent != true else { return nil }
+            group.textSent = true
+            items[index].kind = .reads(group)
+            return (Self.groupQuestion("the passages of \(count) that answer", files.map(Self.passageBlock)), "Shared content from \(count)")
+        case .whole:
+            guard group.wholeSent != true, group.wholeFits(under: AskClaudeReading.wholeTokens) else { return nil }
+            group.wholeSent = true
+            items[index].kind = .reads(group)
+            return (Self.groupQuestion("all the text read from \(count)", files.map(Self.wholeBlock)), "Shared all content from \(count)")
+        case .names, .namesOnly:
+            return nil
+        }
+    }
+
+    private static func groupQuestion(_ what: String, _ blocks: [String]) -> String {
+        "Here is \(what), as data. Answer my last question from it.\n" + blocks.joined(separator: "\n")
+    }
+
+    private static func fileTag(_ passage: AskClaudePassage, _ part: String) -> String {
+        "<file name=\"\(AskClaudeScreenCard.escape(passage.fileName))\" part=\"\(AskClaudeScreenCard.escape(part))\">"
+    }
+
+    static func answerBlock(_ passage: AskClaudePassage) -> String {
+        fileTag(passage, "on-device answer to “\(passage.asked ?? "What does it say?")”") + "\n"
+            + AskClaudeChat.fenced(AskClaudeKeyCatch.masked(passage.answer ?? "", joiningLines: false)) + "\n</file>"
+    }
+
+    static func passageBlock(_ passage: AskClaudePassage) -> String {
+        fileTag(passage, passage.whereInFile) + "\n" + AskClaudeChat.fenced(AskClaudeKeyCatch.masked(passage.text, joiningLines: false)) + "\n</file>"
+    }
+
+    static func wholeBlock(_ passage: AskClaudePassage) -> String {
+        fileTag(passage, passage.wholeWhere ?? passage.whereInFile) + "\n"
+            + AskClaudeChat.fenced(AskClaudeKeyCatch.masked(AskClaudeReadGroup.allText(passage), joiningLines: false)) + "\n</file>"
+    }
+
+    /// A tick on a found-names card (his call on TE320), or on a group of reads (TE322, by the
+    /// file's path): in or out of what its shares send.
     func tickFound(_ id: UUID, _ path: String) {
+        if let index = items.firstIndex(where: { $0.id == id }), case .reads(var group) = items[index].kind {
+            guard group.answersSent == nil || group.autoShared != nil, group.textSent == nil || group.autoShared == .answerAndText,
+                  group.wholeSent == nil, let file = group.files.firstIndex(where: { $0.path == path }) else { return }
+            var out = Set(group.unticked ?? [])
+            if out.contains(file) { out.remove(file) } else { out.insert(file) }
+            group.unticked = out.isEmpty ? nil : out.sorted()
+            items[index].kind = .reads(group)
+            if !isRunning { save() }
+            return
+        }
         guard let index = items.firstIndex(where: { $0.id == id }), case .found(var found) = items[index].kind,
               found.sent != true else { return }
         var out = Set(found.unticked ?? [])
@@ -1068,6 +1173,7 @@ final class AskClaudeChat: ObservableObject {
                                 asked: Asked(question: question, attachments: attached, editable: editable))
         items.append(questionItem)
         askedItem = questionItem.id
+        turnReads = nil
         askedTold = pending
         editing = nil
         streamingItem = nil
@@ -1331,7 +1437,11 @@ final class AskClaudeChat: ObservableObject {
             items.append(Item(kind: .step(label, isError: isError)))
         case .offer(let passage):
             streamingItem = nil
-            items.append(Item(kind: .offer(passage, sent: false)))
+            // The card names the file it read (his call on TE322), so the read's step line goes.
+            if case .step(let label, isError: false)? = items.last?.kind, label.hasPrefix("Read \(passage.fileName) on this Mac") {
+                items.removeLast()
+            }
+            gather(passage)
         case .found(let found):
             streamingItem = nil
             items.append(Item(kind: .found(found)))

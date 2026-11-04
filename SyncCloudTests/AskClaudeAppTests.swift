@@ -1329,7 +1329,8 @@ import FileExplorer
         let found = AskClaudeReading.passage(from: pages, question: "Which parking space is mine?", limit: 35)
         #expect(found.whereInFile == "page 3")
         #expect(found.text.hasPrefix("Parking"))
-        #expect(AskClaudeReading.passage(from: ["just one text"], question: "zzz", limit: 100).whereInFile == "the start")
+        #expect(AskClaudeReading.passage(from: ["just one text"], question: "zzz", limit: 100).whereInFile == "the text")
+        #expect(AskClaudeReading.passage(from: [String(repeating: "word ", count: 40)], question: "zzz", limit: 100).whereInFile == "the start of the text")
     }
 
     /// **What Claude may get is about 1,500 tokens in any script**, and Send says so: 6,000
@@ -2236,6 +2237,37 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(AskClaudeFolderAccess.share.caption.hasSuffix("Whole documents still ask"))
     }
 
+    /// **Every file one question reads joins one card** (his call on TE322): two reads in a turn are
+    /// one group at the foot of the thread; a tick leaves a file out of every share; each share goes
+    /// once; a new question starts a new card.
+    @Test func aQuestionsReadsGatherOnOneCard() async throws {
+        let d = defaults()
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: TwoReadsTransport(), defaults: d) },
+                                 readKey: { "k" }, keyChanges: NotificationCenter())
+        chat.ask("what are my flights?", screen: screen, tools: HoldsTwoAnswers()); await waitUntilIdle(chat)
+        let cards = chat.items.filter { if case .reads = $0.kind { true } else if case .offer = $0.kind { true } else { false } }
+        #expect(cards.count == 1)
+        let card = try #require(cards.first)
+        guard case .reads(let group) = card.kind else { Issue.record("not a group: \(card.kind)"); return }
+        #expect(group.files.map(\.fileName) == ["Boarding Pass.pdf", "eTicket.pdf"])
+        // The card names each file it read, so the reads' step lines are gone.
+        #expect(!chat.items.contains { if case .step(let label, _) = $0.kind { label.hasPrefix("Read ") } else { false } })
+        #expect(AskClaudeHeldAnswer.readsTitle(group) == "Apple Intelligence read 2 files on this Mac:")
+        #expect(AskClaudeHeldAnswer.readsAnswersButton(2, sent: false) == "Share 2 Answers")
+        // Leave the eTicket out: no share sends it.
+        chat.tickFound(card.id, "/Users/me/Travel/eTicket.pdf")
+        let answers = try #require(chat.takeOffer(card.id, .answer))
+        #expect(answers.question.contains("Answer from Boarding Pass.pdf") && !answers.question.contains("eTicket"))
+        #expect(answers.shown == "Shared what Boarding Pass.pdf says")
+        #expect(chat.takeOffer(card.id, .answer)?.question == nil)
+        let all = try #require(chat.takeOffer(card.id, .whole))
+        #expect(all.question.contains("All of Boarding Pass.pdf") && !all.question.contains("eTicket"))
+        #expect(AskClaudeHeldAnswer.readsAllButton(1, sent: true) == "All Content Shared")
+        // A new question gathers on a new card.
+        chat.ask("and again?", screen: screen, tools: HoldsTwoAnswers()); await waitUntilIdle(chat)
+        #expect(chat.items.filter { if case .reads = $0.kind { true } else { false } }.count == 2)
+    }
+
     /// **Each button on the held-answer card says what it shares** (his calls on TE319), under a
     /// line saying what sharing is for: the answer above, or content from the page by name, never "the file",
     /// and "also" once the answer has gone.
@@ -2836,6 +2868,44 @@ private final class ToolThenTextTransport: AskClaudeTransport, @unchecked Sendab
             lines.forEach { c.yield($0) }
             c.finish()
         })
+    }
+}
+
+/// Claude reads two files in one turn, then answers (TE322).
+private final class TwoReadsTransport: AskClaudeTransport, @unchecked Sendable {
+    private var sent = 0
+    func send(_ request: URLRequest) async throws -> AskClaudeTransportResponse {
+        sent += 1
+        // Reads on each question's first request, answers on its second.
+        guard sent % 2 == 1 else { return try await OneLineTransport(text: "They’re on the card.").send(request) }
+        let lines = [
+            #"data: {"type":"message_start","message":{"model":"claude-sonnet-5-5","usage":{"input_tokens":300}}}"#,
+            #"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"read_text","input":{}}}"#,
+            #"data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"handle\":\"f1\"}"}}"#,
+            #"data: {"type":"content_block_stop","index":0}"#,
+            #"data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_2","name":"read_text","input":{}}}"#,
+            #"data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"handle\":\"f2\"}"}}"#,
+            #"data: {"type":"content_block_stop","index":1}"#,
+            #"data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":20}}"#,
+            #"data: {"type":"message_stop"}"#,
+        ]
+        return AskClaudeTransportResponse(status: 200, retryAfter: nil, lines: AsyncThrowingStream { c in
+            lines.forEach { c.yield($0) }
+            c.finish()
+        })
+    }
+}
+
+/// Each read holds an answer from its own file.
+@MainActor
+private final class HoldsTwoAnswers: AskClaudeToolRunning {
+    func run(_ call: AskClaudeToolCall, handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
+        let name = call.string("handle") == "f1" ? "Boarding Pass.pdf" : "eTicket.pdf"
+        return AskClaudeToolOutcome(result: "held", step: "Read \(name) on this Mac",
+                                    passage: AskClaudePassage(fileName: name, whereInFile: "page 1", text: "Text of \(name)",
+                                                              path: "/Users/me/Travel/" + name, answer: "Answer from \(name)",
+                                                              asked: "What flight?", whole: "All of \(name)", wholeWhere: "all 2 pages",
+                                                              wholeIsAll: true))
     }
 }
 

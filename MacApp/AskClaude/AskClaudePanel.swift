@@ -1031,6 +1031,8 @@ private struct AskClaudeThreadRow: View, Equatable {
             Text(text).scaledFont(.callout).foregroundStyle(.secondary)
         case .found(let found):
             foundCard(item.id, found)
+        case .reads(let group):
+            readsCard(item.id, group)
         case .offer(let passage, let sent):
             if passage.answer != nil || passage.whole != nil {
                 heldAnswerCard(item.id, passage, passageSent: sent)
@@ -1310,6 +1312,83 @@ private struct AskClaudeThreadRow: View, Equatable {
                     .disabled(sent || isRunning || ticked == 0)
             }
             Text(AskClaudeHeldAnswer.foundFoot(found, ticked: ticked))
+                .scaledFont(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .padding(10)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.well))
+        .accessibilityElement(children: .contain)
+    }
+
+    /// **Every file one question read, on one card** (his call on TE322): each file's tick, name
+    /// and answer, then one set of shares, one tick for the rest of the chat, one footnote.
+    private func readsCard(_ id: UUID, _ group: AskClaudeReadGroup) -> some View {
+        let ticked = group.ticked
+        let answered = ticked.filter { $0.answer != nil }.count
+        let anySent = group.answersSent == true || group.textSent == true || group.wholeSent == true
+        let locked = group.wholeSent == true || (group.textSent == true && group.autoShared != .answerAndText)
+            || (group.answersSent == true && group.autoShared == nil)
+        return VStack(alignment: .leading, spacing: 6) {
+            Label(AskClaudeHeldAnswer.readsTitle(group), systemImage: group.files.contains { $0.answer != nil } ? "apple.intelligence" : "doc.text.magnifyingglass")
+                .scaledFont(.footnote)
+                .foregroundStyle(.secondary)
+            ForEach(Array(group.files.enumerated()), id: \.offset) { index, file in
+                let isOn = !(group.unticked ?? []).contains(index)
+                Toggle(isOn: Binding(get: { isOn }, set: { _ in if let path = file.path { onFoundTick(id, path) } })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(file.fileName).scaledFont(.footnote).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                        if let answer = file.answer {
+                            Text(answer)
+                                .scaledFont(.callout)
+                                .textSelection(.enabled)
+                                .lineLimit(6)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(.background.opacity(0.6), in: RoundedRectangle(cornerRadius: Radius.well))
+                        }
+                    }
+                }
+                .toggleStyle(.checkbox)
+                .disabled(locked)
+            }
+            if group.autoShared == .answerForThisChat {
+                HStack(spacing: 6) {
+                    Text("Shared with Claude, as you chose for this chat.").scaledFont(.footnote).foregroundStyle(.secondary)
+                    if sharesAnswers {
+                        Button("Ask Again") { onSharesAnswers(false) }.buttonStyle(.link).scaledFont(.footnote)
+                    }
+                }
+            }
+            if !(group.wholeSent == true || (group.textSent == true && group.autoShared != .answerAndText)) {
+                Text(AskClaudeHeldAnswer.lead).scaledFont(.callout.weight(.medium))
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                if group.files.contains(where: { $0.answer != nil }) {
+                    Button(AskClaudeHeldAnswer.readsAnswersButton(answered, sent: group.answersSent == true)) { onSendOffer(id, .answer) }
+                        .controlSize(.small)
+                        .disabled(group.answersSent == true || isRunning || answered == 0)
+                }
+                if group.autoShared != .answerAndText {
+                    Button(AskClaudeHeldAnswer.readsContentButton(ticked.count, sent: group.textSent == true)) { onSendOffer(id, .passage) }
+                        .controlSize(.small)
+                        .disabled(group.textSent == true || isRunning || ticked.isEmpty)
+                }
+                Button(AskClaudeHeldAnswer.readsAllButton(ticked.count, sent: group.wholeSent == true)) { onSendOffer(id, .whole) }
+                    .controlSize(.small)
+                    .disabled(group.wholeSent == true || isRunning || ticked.isEmpty || !group.wholeFits(under: AskClaudeReading.wholeTokens))
+            }
+            if group.wholeSent != true, !ticked.isEmpty {
+                Text(AskClaudeHeldAnswer.readsSize(group))
+                    .scaledFont(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            if group.autoShared == nil, group.answersSent != true, group.files.contains(where: { $0.answer != nil }) {
+                Toggle(AskClaudeHeldAnswer.answersTick, isOn: Binding(get: { sharesAnswers }, set: { onSharesAnswers($0) }))
+                    .toggleStyle(.checkbox)
+                    .scaledFont(.footnote)
+            }
+            Text(anySent ? "Claude has what you shared." : "Nothing from these files has gone to Claude.")
                 .scaledFont(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -2093,6 +2172,34 @@ enum AskClaudeHeldAnswer {
     }
 
     static func words(in text: String) -> Int { text.split(whereSeparator: \.isWhitespace).count }
+
+    /// A group card's title (TE322): who read how many files.
+    static func readsTitle(_ group: AskClaudeReadGroup) -> String {
+        let files = "\(group.files.count) files"
+        if group.autoShared == .answerAndText { return "Read \(files) on this Mac. Claude has the passages that answer." }
+        return group.files.contains { $0.answer != nil } ? "Apple Intelligence read \(files) on this Mac:" : "Read \(files) on this Mac:"
+    }
+
+    /// The group's shares, counting the ticked files (his call on TE322).
+    static func readsAnswersButton(_ ticked: Int, sent: Bool) -> String {
+        sent ? "Answers Shared" : ticked == 1 ? "Share This Answer" : ticked == 0 ? "Share Answers" : "Share \(ticked) Answers"
+    }
+
+    static func readsContentButton(_ ticked: Int, sent: Bool) -> String {
+        sent ? "Content Shared" : ticked == 1 ? "Share Content from 1 File" : ticked == 0 ? "Share Content" : "Share Content from \(ticked) Files"
+    }
+
+    static func readsAllButton(_ ticked: Int, sent: Bool) -> String {
+        sent ? "All Content Shared" : ticked == 1 ? "Share All Content from 1 File" : ticked == 0 ? "Share All Content" : "Share All Content from \(ticked) Files"
+    }
+
+    /// How much all the ticked files' text is, and whether it fits one share.
+    static func readsSize(_ group: AskClaudeReadGroup) -> String {
+        let words = group.ticked.reduce(0) { $0 + Self.words(in: AskClaudeReadGroup.allText($1)) }
+        let about = "about \(roundedWords(words).formatted()) word\(words == 1 ? "" : "s")"
+        return group.wholeFits(under: AskClaudeReading.wholeTokens)
+            ? "All content: \(about)." : "All content: \(about), too long to share at once. Untick some files."
+    }
 
     /// A found-names card's title: who searched, for what, where.
     static func foundTitle(_ found: AskClaudeFoundNames) -> String {

@@ -338,7 +338,9 @@ enum AskClaudeReading {
         let cut = text.count > limit
         if cut { text = String(text.prefix(limit)) }
         let place: String
-        if pages.count == 1 { place = cut ? "the start of the text" : start == 0 && scores.first == 0 ? "the start" : "the text" }
+        // One page uncut is all of it, whether or not the question's words are on it: "the start"
+        // named it as part, and its button read Share Content where it is All Content.
+        if pages.count == 1 { place = cut ? "the start of the text" : "the text" }
         else if !paged { place = first == 0 && last == pages.count - 1 && !cut ? "the text" : "part of the text" }
         else { place = first == last ? "page \(first + 1)" : "pages \(first + 1)–\(last + 1)" }
         return (text, place)

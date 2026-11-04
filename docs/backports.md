@@ -14456,3 +14456,14 @@ Claude exists only on `main`.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Ask Claude gathers one question's file reads on one card (TE322) — main only
+
+2026-11-04, for v7.0. On `main`: every file a question reads joins one card, each with its answer
+and a tick; Share N Answers, Share Content from N Files and Share All Content from N Files send the
+ticked files' (all content refused past the 40,000-token cap). A one-page file read whole is "the
+text", so its button says All Content. Ask Claude exists only on `main`.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
