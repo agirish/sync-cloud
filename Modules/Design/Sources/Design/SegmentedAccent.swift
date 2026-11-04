@@ -61,7 +61,7 @@ public enum SegmentedAccent {
     /// white label AppKit imposes sits at whatever contrast Apple ships, measured at **4.02:1** on
     /// the default blue — under the 4.5:1 floor every other filled surface in this app meets. That
     /// is Apple's ratio on Apple's control, and matching the system exactly is the point of the
-    /// setting; `theTintCarriesTheWhiteLabelAppKitImposes` therefore holds the eleven named hues to
+    /// setting; `theTintCarriesTheWhiteLabelAppKitImposes` therefore holds the ten named hues to
     /// the floor and excludes this one on purpose rather than by oversight.
     ///
     /// The second cost is on screen at `.none`, and it is the one most likely to be mistaken for a

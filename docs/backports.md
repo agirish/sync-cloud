@@ -14361,3 +14361,15 @@ A re-tune of what every Clear install looks like, so main-only on the Tint-slide
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Light's blurred card, 0.85 ground at Clear, the gray None backdrop | RECORDED — not owed |
+
+## Slate removed from the accent colors — main only
+
+2026-11-03, for v7.0. On `main`: `LiquidGlassHue.slate` is gone, and a stored `"slate"` moves to
+Graphite at launch (`LiquidGlass.migrateRetiredHue`, logged when it rewrites). Every maintenance
+line still offers Slate (`git show origin/<line>:Modules/Design/Sources/Design/LiquidGlassStyle.swift
+| grep -c 'case slate'` is 1 on each, measured 2026-11-03). A product choice, not a defect, so
+nothing is owed; a downgrade from v7.0 to a line keeps Graphite, which every line has.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Slate offered | CLOSED — doesn't apply |

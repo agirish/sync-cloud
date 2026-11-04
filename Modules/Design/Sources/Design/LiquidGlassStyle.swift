@@ -21,10 +21,8 @@ public enum LiquidGlassHue: String, CaseIterable, Identifiable, Sendable {
     case rose
     case purple
     case indigo
-    case slate
     /// A true neutral gray — the monochrome accent. Unlike `.none` (white ground in light, controls
-    /// follow the system accent) and `.slate` (a cool blue-gray), Graphite washes the surfaces in a
-    /// colorless gray, for a fully monochrome-but-still-tinted look using the same machinery as
+    /// follow the system accent), Graphite washes the surfaces in a colorless gray, for a fully monochrome-but-still-tinted look using the same machinery as
     /// every hue.
     case graphite
 
@@ -42,7 +40,6 @@ public enum LiquidGlassHue: String, CaseIterable, Identifiable, Sendable {
         case .rose: return "Rose"
         case .purple: return "Purple"
         case .indigo: return "Indigo"
-        case .slate: return "Slate"
         case .graphite: return "Graphite"
         }
     }
@@ -64,7 +61,6 @@ public enum LiquidGlassHue: String, CaseIterable, Identifiable, Sendable {
         case .rose: return Color(red: 0.95, green: 0.4, blue: 0.55)
         case .purple: return Color(red: 0.55, green: 0.35, blue: 0.95)
         case .indigo: return Color(red: 0.4, green: 0.35, blue: 0.9)
-        case .slate: return Color(red: 0.4, green: 0.45, blue: 0.55)
         case .graphite: return Color(red: 0.53, green: 0.54, blue: 0.56)
         }
     }
@@ -129,12 +125,6 @@ public enum LiquidGlassHue: String, CaseIterable, Identifiable, Sendable {
                 Color(red: 0.35, green: 0.3, blue: 0.85),
                 Color(red: 0.2, green: 0.2, blue: 0.7)
             ]
-        case .slate:
-            return [
-                Color(red: 0.5, green: 0.55, blue: 0.65),
-                Color(red: 0.4, green: 0.45, blue: 0.55),
-                Color(red: 0.25, green: 0.3, blue: 0.4)
-            ]
         case .graphite:
             // A neutral gray triad — no hue, so the wash reads as a true colorless monochrome.
             return [
@@ -163,7 +153,7 @@ public enum LiquidGlassHue: String, CaseIterable, Identifiable, Sendable {
     /// near-black there — correct per-hue, but it made the filled controls read as two button
     /// families, white-on-Blue beside black-on-Green. Fixing the label at white and deepening the
     /// FILL instead (`accentFillColor`) buys one consistent treatment, at ≥4.5:1 on every hue by
-    /// construction. `AccentFillTests` measures that over all twelve rather than trusting this
+    /// construction. `AccentFillTests` measures that over every hue rather than trusting this
     /// comment, so the guarantee cannot rot when a hue is added.
     ///
     /// Correspondingly this no longer needs to be `@MainActor` — it no longer resolves the system
@@ -604,6 +594,21 @@ public enum LiquidGlass {
 
     /// UserDefaults key for the selected liquid glass hue (raw value of `LiquidGlassHue`).
     public static let hueKey = "liquidGlassHue"
+
+    /// Accents that were offered once and are not now, each with the one that replaces it. Slate,
+    /// a cool blue-gray, sat between Indigo and Graphite and read as neither; it was removed on
+    /// 2026-11-03, and Graphite is the nearest that remains.
+    static let retiredHues: [String: LiquidGlassHue] = ["slate": .graphite]
+
+    /// Moves a stored accent that is no longer offered onto its replacement, so an install that
+    /// chose it keeps a close colour rather than falling back to Blue. Returns the retired raw value
+    /// and its replacement when it rewrote one, nil otherwise; a no-op on every launch after.
+    @discardableResult
+    public static func migrateRetiredHue(_ defaults: UserDefaults = .standard) -> (from: String, to: LiquidGlassHue)? {
+        guard let raw = defaults.string(forKey: hueKey), let replacement = retiredHues[raw] else { return nil }
+        defaults.set(replacement.rawValue, forKey: hueKey)
+        return (raw, replacement)
+    }
 
     /// UserDefaults key for the content surface style (raw value of `SurfaceStyle`).
     public static let surfaceStyleKey = "contentSurfaceStyle"

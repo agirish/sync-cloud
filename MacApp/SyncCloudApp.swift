@@ -286,6 +286,11 @@ struct SyncCloudApp: App {
             // @AppStorage property wrapper reads the keys. Idempotent, so the repeat App.init
             // calls noted above are harmless.
             LiquidGlass.migrateLegacyAppearance()
+            // An accent no longer offered (Slate) moves to the one that replaced it, before any
+            // @AppStorage reads it; read raw, it would fall back to Blue. Logged only when it does.
+            if let moved = LiquidGlass.migrateRetiredHue() {
+                Logger.shared.info("Accent migrated: \"\(moved.from)\" is no longer offered → \(moved.to.displayName)")
+            }
 
             // Put a newly shipped pane-bar control onto a bar someone arranged on an earlier
             // build, before any @AppStorage property wrapper reads the arrangement. Without it a

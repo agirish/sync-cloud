@@ -17,7 +17,7 @@ import Testing
 @MainActor
 @Suite(.serialized, .machinePinned(.referenceImages)) struct SettingsSnapshotTests {
 
-    /// The section as it ships: twelve swatches, the preview strip, and the caption — at the real
+    /// The section as it ships: eleven swatches, the preview strip, and the caption — at the real
     /// content width, in both appearances.
     ///
     /// Four hues, chosen so the reference shows the on-accent pairing across the deepening range:

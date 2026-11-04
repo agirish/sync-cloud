@@ -40,8 +40,8 @@ import Testing
     /// has to earn it, which is exactly what `accentFillColor` guarantees.
     ///
     /// This is the assertion that fails if someone "simplifies" `SegmentedAccent.tint(for:)` to
-    /// `hue.accentColor` — measured, that drops NINE of the eleven named hues below 4.5:1 (only
-    /// Indigo and Slate are dark enough raw), the worst being Cyan at 2.07:1.
+    /// `hue.accentColor` — measured, that drops NINE of the ten named hues below 4.5:1 (only
+    /// Indigo is dark enough raw), the worst being Cyan at 2.07:1.
     ///
     /// **`.none` is excluded on purpose, and the exclusion is load-bearing rather than tidy-up.**
     /// It takes the system accent untouched so that it draws exactly what macOS draws, which means

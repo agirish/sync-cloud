@@ -129,9 +129,25 @@ struct GlassLevelTests {
     @Test func liquidGlassHueRawValuesAreStable() {
         #expect(LiquidGlassHue.allCases.map(\.rawValue) ==
                 ["none", "blue", "cyan", "teal", "green", "amber", "coral",
-                 "rose", "purple", "indigo", "slate", "graphite"])
+                 "rose", "purple", "indigo", "graphite"])
         #expect(LiquidGlassHue(rawValue: "Graphite") == nil)
         #expect(LiquidGlassHue(rawValue: "grey") == nil)
+    }
+
+    @Test func aStoredSlateMovesToGraphite() {
+        // Slate was removed (2026-11-03). An install that chose it keeps the nearest neutral
+        // rather than reading an unknown raw value as the Blue default, and the move happens once.
+        let defaults = ScratchDefaults("GlassLevelTests.slate")
+        defaults.set("slate", forKey: LiquidGlass.hueKey)
+        let moved = LiquidGlass.migrateRetiredHue(defaults)
+        #expect(moved?.from == "slate" && moved?.to == .graphite)
+        #expect(defaults.string(forKey: LiquidGlass.hueKey) == LiquidGlassHue.graphite.rawValue)
+        #expect(LiquidGlass.migrateRetiredHue(defaults) == nil, "a second launch rewrites nothing")
+
+        defaults.set(LiquidGlassHue.teal.rawValue, forKey: LiquidGlass.hueKey)
+        #expect(LiquidGlass.migrateRetiredHue(defaults) == nil)
+        #expect(defaults.string(forKey: LiquidGlass.hueKey) == LiquidGlassHue.teal.rawValue)
+        #expect(LiquidGlassHue(rawValue: "slate") == nil)
     }
 
     // MARK: - Shape is shape

@@ -123,7 +123,7 @@ enum AskClaudeSettingBadge: String, CaseIterable {
 /// A card of settings (TE290 step 4a): each row is the setting's real control at its live value,
 /// and a click changes the setting. Designed for 240 pt: a switch or a stepper sits beside the
 /// name, anything wider goes below it, and every line wraps. Accent color's swatches are
-/// Settings' own discs in two rows of six (`AccentSwatchGrid`).
+/// Settings' own discs in rows of six (`AccentSwatchGrid`).
 struct AskClaudeSettingCardView: View {
     let itemID: UUID
     let card: AskClaudeSettingCard

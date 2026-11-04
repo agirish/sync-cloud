@@ -1,8 +1,8 @@
 import Design
 import SwiftUI
 
-/// The accent swatches for an Ask Claude settings card: Settings' own discs, two rows of six at
-/// 24 pt in 32 pt slots — 212 pt wide, so the twelve fit a 240 pt card. Settings' row of 32 pt
+/// The accent swatches for an Ask Claude settings card: Settings' own discs, in rows of six at
+/// 24 pt in 32 pt slots — 212 pt wide, so the eleven fit a 240 pt card in two rows. Settings' row of 32 pt
 /// swatches with names under them is about 440 pt wide.
 ///
 /// No names under the discs — there's no room for "Graphite" in a 32 pt slot — so each disc names

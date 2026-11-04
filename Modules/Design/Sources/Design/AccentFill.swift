@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Deepening a colour until a white label on it clears WCAG AA.
 ///
-/// This exists because of the bind the app was in: half the twelve hues are light enough that white
+/// This exists because of the bind the app was in: half the hues are light enough that white
 /// text on the RAW accent is illegible — 2.68:1 on Green, 2.20:1 on Amber, against a 4.5:1 floor for
 /// body text — so `LiquidGlassHue.onAccentLabelColor` used to answer by flipping the *label* to
 /// near-black on those hues. That kept every pairing legible but made the filled controls read as

@@ -308,6 +308,8 @@ Requires **macOS 26**, unchanged from v6.2.
   Dark Mode at Frosted and Clear, floating panels sit on the window's own tinted ground rather than
   a neutral gray. With the None accent in Light at Clear, the window reads white rather than gray,
   and the floating panels share its glass.
+- **Slate is no longer an accent color.** It sat between Indigo and Graphite and read as neither.
+  If you chose it, SyncCloud switches you to Graphite.
 - **A row's right-click menu keeps Cut, Copy, the transfers and Paste Here together**, in one
   section.
 - **SyncCloud no longer quits at launch** when macOS fails to hand it the monospaced font the
