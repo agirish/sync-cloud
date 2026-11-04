@@ -566,25 +566,34 @@ says (`read -s "ASK_CLAUDE_LIVE_KEY?Key: " && export ASK_CLAUDE_LIVE_KEY`, then
 `scripts/build-slot swift test --package-path Modules/Sync --filter AskClaudeLivePDFTests`);
 these cover what only a person at the app can see.
 
+On 2026-11-03 he skipped the hand run. The items ticked below are covered by tests in
+`AskClaudePDFCardRunTests`, which drive a scripted Claude call through to a real PDF, not by hand.
+The rest are still open.
+
 - [ ] **Save as PDF, four files, Stop between files.** The card shows progress and Stop; the files
   written stay. A deck whose slides are pictures carries the banner's second sentence on the card.
-- [ ] **Compress while a duplicate scan holds the PDF reader.** The card says "Checking the file…",
-  fills in late, and its button stays off until it has.
-- [ ] **Edit the file between the offer and the click.** The card reads it again and asks for a
-  second click.
-- [ ] **Click while Claude is answering.** The button is greyed: "Waits for Claude to finish."
+- [x] **Compress while a duplicate scan holds the PDF reader.** The card says "Checking the file…",
+  fills in late, and its button stays off until it has. *By test, not by hand:*
+  `AskClaudePDFCardRunTests.aCardWaitsOutAHeldPDFReaderThenFillsIn`.
+- [x] **Edit the file between the offer and the click.** The card reads it again and asks for a
+  second click. *By test, not by hand:* `AskClaudePDFCardRunTests.aFileChangedSinceTheCardReadItIsNotRun`.
+- [x] **Click while Claude is answering.** The button is greyed: "Waits for Claude to finish."
+  *By test, not by hand:* `AskClaudePDFCardRunTests.aClickWhileClaudeAnswersWaits`.
 - [ ] **Close the panel mid-run and reopen it.** The result is on the card. ⌘Q during a Compress
   card's run asks first (a Save as PDF card's doesn't, as from the menu); after relaunch the card
   says SyncCloud quit while it ran.
-- [ ] **Undo, on two cards.** One card's own Undo; then, after a second card runs, Edit ▸ Undo with
+- [x] **Undo, on two cards.** One card's own Undo; then, after a second card runs, Edit ▸ Undo with
   the main window in front. Each new file goes to the Trash. (Whether Finder's Put Back returns it
-  is not promised: the app moves it with FileManager.)
+  is not promised: the app moves it with FileManager.) *By test, not by hand:*
+  `AskClaudePDFCardRunTests.twoCardsEachUndoTheirOwn`, with a stand-in Trash.
 - [ ] **Undo after iCloud or Dropbox has uploaded the copy.** The card still offers Undo.
 - [ ] **A file only in the cloud.** The card's Download row, then its run button.
 - [ ] **Choose Folder… for a read-only folder, and for a folder hidden from Claude.** Claude is
   told only that the file is in a hidden folder.
 - [ ] **Protect.** Return in a password field doesn't send a question; closing the panel clears the
-  fields; the password is in neither `chat.json`, `prompts.json` nor `~/sync-cloud.log`.
+  fields; the password is in neither `chat.json`, `prompts.json` nor `~/sync-cloud.log`. The last
+  part is checked by `AskClaudePDFCardRunTests.aPasswordLocksTheCopyAndGoesNowhereElse` (the chat
+  file, what Claude hears, the log); the fields still need a hand.
 - [ ] **Combine with ↑ and ↓**, and two files of one name in different folders show their folders.
 - [ ] **"Fill in the W-9".** The form opens in Edit with Fill & Sign on, and saving a filled copy
   is told to Claude. With unsaved work open in Edit, Edit asks its own question first and Claude

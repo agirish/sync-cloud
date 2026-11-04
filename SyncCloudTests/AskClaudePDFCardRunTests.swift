@@ -1,7 +1,9 @@
 import AppKit
 import Foundation
+import os
 import PDFKit
 import Testing
+import Events
 import FileExplorer
 import Sync
 @testable import SyncCloud
@@ -38,9 +40,13 @@ import Sync
 
     /// A chat whose model calls `pdf` with `input` for the screen's one file, then says a line.
     private func chat(_ name: String, calling input: String) -> AskClaudeChat {
+        chat(name, transport: PDFCallTransport(inputs: [input]))
+    }
+
+    private func chat(_ name: String, transport: PDFCallTransport, store: URL? = nil) -> AskClaudeChat {
         let d = ScratchDefaults("AskClaudePDFCardRunTests.\(name)")
-        return AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: PDFCallTransport(input: input), defaults: d) },
-                             readKey: { "k" })
+        return AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: transport, defaults: d) },
+                             readKey: { "k" }, storeURL: store)
     }
 
     private func cards(_ chat: AskClaudeChat, _ sync: FileSyncManager, _ window: Window) -> AskClaudePDFCards {
@@ -55,7 +61,7 @@ import Sync
         return cards
     }
 
-    private func ask(_ chat: AskClaudeChat, _ question: String, about path: String) async {
+    private func ask(_ chat: AskClaudeChat, _ question: String, about path: String, waiting: Bool = true) async {
         let row = AskClaudeScreen.Row(path: path, name: (path as NSString).lastPathComponent, isDirectory: false,
                                       kind: "PDF document", size: nil, modified: nil, tags: [])
         let screen = AskClaudeScreen(workspace: "Browse", source: "Tests", folder: "", sort: "Name", rows: [row],
@@ -66,16 +72,24 @@ import Sync
             items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: nil,
             goTo: { _ in }, select: { _ in })
         chat.ask(question, screen: screen, tools: AskClaudeBrowseTools(context: { ctx }, statDisk: { _ in nil }))
-        await waitUntil("the chat finishes its question", timeout: 30) { !chat.isRunning }
+        if waiting { await waitUntil("the chat finishes its question", timeout: 30) { !chat.isRunning } }
     }
 
     private func onlyCard(_ chat: AskClaudeChat) throws -> (id: UUID, card: AskClaudePDFCard) {
-        let found = chat.items.compactMap { item -> (UUID, AskClaudePDFCard)? in
+        let found = allCards(chat)
+        #expect(found.count == 1, "cards: \(found.map(\.1.title))")
+        return try #require(found.first)
+    }
+
+    private func allCards(_ chat: AskClaudeChat) -> [(UUID, AskClaudePDFCard)] {
+        chat.items.compactMap { item -> (UUID, AskClaudePDFCard)? in
             if case .pdf(let card) = item.kind { return (item.id, card) }
             return nil
         }
-        #expect(found.count == 1, "cards: \(found.map(\.1.title))")
-        return try #require(found.first)
+    }
+
+    private func finished(_ chat: AskClaudeChat, _ id: UUID) -> Bool {
+        chat.pdfCard(id).map { !$0.isOpen && $0.state != .running } ?? false
     }
 
     private func pageCount(_ path: String) -> Int? { PDFDocument(url: URL(fileURLWithPath: path))?.pageCount }
@@ -189,27 +203,188 @@ import Sync
         await waitUntil("the card reads the file again", timeout: 30) { chat.pdfCard(id)?.rows.first?.pageCount == 4 }
         #expect(try FileManager.default.contentsOfDirectory(atPath: folder).sorted() == ["Statement.pdf", "Trash"])
     }
+
+    // MARK: Hand checks a test can make (MANUAL_CHECKS "Ask Claude's PDF cards")
+
+    /// **"Compress while a duplicate scan holds the PDF reader"**: while another job holds the PDF
+    /// lane, the card says it is checking and its click runs nothing; let go, it fills in.
+    @Test func aCardWaitsOutAHeldPDFReaderThenFillsIn() async throws {
+        let scan = realPDF("Scan.pdf", pages: 2)
+        let chat = chat("held", calling: #"{\"action\":\"compress\",\"handles\":[\"r1\"]}"#)
+        let cards = cards(chat, FileSyncManager(), Window())
+        chat.pdfCardOffered = { cards.askClaudePDFRead($0) }
+
+        // The holder's turn first, as a long scan's would be.
+        let release = DispatchSemaphore(value: 0)
+        let held = OSAllocatedUnfairLock(initialState: false)
+        let holder = Task.detached {
+            await PDFKitSerialAccess.perform {
+                held.withLock { $0 = true }
+                _ = release.wait(timeout: .now() + 120)
+            }
+        }
+        defer { release.signal() }
+        await waitUntil("the holder gets the PDF lane", timeout: 60) { held.withLock { $0 } }
+
+        await ask(chat, "make the scan smaller", about: scan)
+        let (id, _) = try onlyCard(chat)
+        // Held past the card's own 5 s wait for the lane: a duration held, not a pump.
+        try await Task.sleep(for: .seconds(6))
+        #expect(chat.pdfCard(id)?.state == .checking, "\(String(describing: chat.pdfCard(id)?.state))")
+        #expect(chat.pdfCard(id)?.rows.first?.stamp == nil, "the card read the file through a held lane")
+        cards.askClaudePDFRun(id, password: nil)
+        #expect(chat.pdfCard(id)?.state == .checking, "a click ran a card that hadn't read its file")
+
+        release.signal()
+        await holder.value
+        await waitUntil("the card fills in once the lane is free", timeout: 60) { chat.pdfCard(id)?.state == .offered }
+        #expect(chat.pdfCard(id)?.rows.first?.pageCount == 2)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder).sorted() == ["Scan.pdf", "Trash"])
+    }
+
+    /// **"Click while Claude is answering"**: the card waits, saying so, and runs nothing; once the
+    /// answer is in, the same click runs it.
+    @Test func aClickWhileClaudeAnswersWaits() async throws {
+        let statement = realPDF("Statement.pdf", pages: 3)
+        let transport = PDFCallTransport(inputs: [#"{\"action\":\"delete_pages\",\"handles\":[\"r1\"],\"pages\":\"1\"}"#], holding: 3)
+        let chat = chat("answering", transport: transport)
+        let cards = cards(chat, FileSyncManager(), Window())
+        chat.pdfCardOffered = { cards.askClaudePDFRead($0) }
+
+        await ask(chat, "delete the first page", about: statement)
+        let (id, _) = try onlyCard(chat)
+        await waitUntil("the card reads its file", timeout: 30) { chat.pdfCard(id)?.state == .offered }
+
+        await ask(chat, "and how big is it?", about: statement, waiting: false)
+        await waitUntil("Claude is answering") { chat.isRunning }
+        #expect(AskClaudePDFCardView.waitReason(isRunning: chat.isRunning, bridge: cards.askClaudePDFWaitReason(id))
+                == "Waits for Claude to finish.")
+        cards.askClaudePDFRun(id, password: nil)
+        #expect(chat.pdfCard(id)?.state == .offered, "it ran while Claude was answering")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder).sorted() == ["Statement.pdf", "Trash"])
+
+        transport.release()
+        await waitUntil("the answer lands", timeout: 30) { !chat.isRunning }
+        #expect(AskClaudePDFCardView.waitReason(isRunning: chat.isRunning, bridge: cards.askClaudePDFWaitReason(id)) == nil)
+        cards.askClaudePDFRun(id, password: nil)
+        await waitUntil("the run ends", timeout: 60) { finished(chat, id) }
+        #expect(chat.pdfCard(id)?.state == .done)
+    }
+
+    /// **"Undo, on two cards"**: Edit ▸ Undo takes back the latest card and leaves the first; the
+    /// first card's own Undo then takes back its own.
+    @Test func twoCardsEachUndoTheirOwn() async throws {
+        let a = realPDF("A.pdf", pages: 3), b = realPDF("B.pdf", pages: 4)
+        // r2 is the first card's new file: its report line is minted a handle as the second
+        // question is sent, before the screen's B.pdf, which is r3.
+        let transport = PDFCallTransport(inputs: [#"{\"action\":\"delete_pages\",\"handles\":[\"r1\"],\"pages\":\"1\"}"#,
+                                                  #"{\"action\":\"extract\",\"handles\":[\"r3\"],\"pages\":\"2-3\"}"#])
+        let chat = chat("two", transport: transport)
+        let sync = FileSyncManager()
+        let undo = undoStack()
+        sync.undoManager = undo
+        let cards = cards(chat, sync, Window())
+        chat.pdfCardOffered = { cards.askClaudePDFRead($0) }
+
+        var made: [String] = []
+        for (path, question) in [(a, "delete the first page of A"), (b, "take pages 2 and 3 out of B")] {
+            await ask(chat, question, about: path)
+            let id = try #require(allCards(chat).last?.0)
+            #expect(chat.pdfCard(id)?.rows.first?.path == path)
+            await waitUntil("the card reads its file", timeout: 30) { chat.pdfCard(id)?.state == .offered }
+            undo.beginUndoGrouping()
+            cards.askClaudePDFRun(id, password: nil)
+            await waitUntil("the run ends", timeout: 60) { finished(chat, id) }
+            undo.endUndoGrouping()
+            made.append(try #require(chat.pdfCard(id)?.written.first?.path, "\(String(describing: chat.pdfCard(id)))"))
+        }
+        let ids = allCards(chat).map(\.0)
+        try #require(ids.count == 2)
+        #expect(undo.undoActionName == "Extract Pages")
+
+        undo.undo()
+        #expect(chat.pdfCard(ids[1])?.state == .undone)
+        #expect(!FileManager.default.fileExists(atPath: made[1]))
+        #expect(chat.pdfCard(ids[0])?.state == .done, "Edit ▸ Undo reached past the latest card")
+        #expect(FileManager.default.fileExists(atPath: made[0]))
+        #expect(undo.undoActionName == "Delete Pages")
+
+        cards.askClaudePDFUndo(ids[0], fromMenu: false)
+        #expect(chat.pdfCard(ids[0])?.state == .undone)
+        #expect(!FileManager.default.fileExists(atPath: made[0]))
+        #expect(!undo.canUndo)
+        #expect(FileManager.default.fileExists(atPath: a) && FileManager.default.fileExists(atPath: b), "Undo took an original")
+    }
+
+    /// **"Protect"**: the password typed on the card locks the new file and goes nowhere else —
+    /// not the saved chat, not what Claude is told, not the log.
+    @Test func aPasswordLocksTheCopyAndGoesNowhereElse() async throws {
+        let notice = realPDF("Notice.pdf", pages: 1)
+        let store = URL(fileURLWithPath: (folder as NSString).appendingPathComponent("chat.json"))
+        let chat = chat("protect", transport: PDFCallTransport(inputs: [#"{\"action\":\"protect\",\"handles\":[\"r1\"]}"#]),
+                        store: store)
+        let cards = cards(chat, FileSyncManager(), Window())
+        chat.pdfCardOffered = { cards.askClaudePDFRead($0) }
+        let log = LogCapture()
+        let secret = "card-secret-\(UUID().uuidString)"
+
+        await ask(chat, "put a password on the notice", about: notice)
+        let (id, _) = try onlyCard(chat)
+        await waitUntil("the card reads its file", timeout: 30) { chat.pdfCard(id)?.state == .offered }
+        cards.askClaudePDFRun(id, password: EditorPDFSecret(secret))
+        await waitUntil("the run ends", timeout: 60) { finished(chat, id) }
+        let written = try #require(chat.pdfCard(id)?.written.first?.path, "\(String(describing: chat.pdfCard(id)))")
+
+        let copy = try #require(PDFDocument(url: URL(fileURLWithPath: written)))
+        #expect(copy.isLocked, "the copy isn't locked")
+        #expect(copy.unlock(withPassword: secret), "the copy doesn't open with the password typed")
+
+        let marker = "protect window close \(UUID().uuidString)"
+        Events.Logger.shared.debug(marker)
+        let entries = await log.entries
+        let heard = entries.contains { $0.message == marker }
+        try #require(heard, "the capture never saw this test's own line, so the absence below would have examined nothing")
+        #expect(!entries.contains { $0.message.contains(secret) }, "the password is in the log")
+        #expect(!chat.sinceLastAnswer.joined().contains(secret), "Claude would be told the password")
+        let saved = try String(contentsOf: store, encoding: .utf8)
+        #expect(saved.contains("Protect"), "the chat wasn't saved, so its absence proves nothing")
+        #expect(!saved.contains(secret), "the password is in chat.json")
+    }
 }
 
-/// A model that calls `pdf` once with `input`, then answers in a line.
+/// A model that answers each question it is asked: the first ones by calling `pdf` with the next
+/// of `inputs` and then saying a line, any after that with the line alone. Request `holding`
+/// (counted from 1) waits until `release()`, so a test can click while Claude is answering.
 private final class PDFCallTransport: AskClaudeTransport, @unchecked Sendable {
     private let lock = NSLock()
-    private var calls = 0
-    let input: String
+    private var requests = 0
+    private var released = false
+    let inputs: [String]
+    let holding: Int?
 
-    init(input: String) { self.input = input }
+    init(inputs: [String], holding: Int? = nil) {
+        self.inputs = inputs
+        self.holding = holding
+    }
+
+    func release() { lock.withLock { released = true } }
 
     func send(_ request: URLRequest) async throws -> AskClaudeTransportResponse {
-        let first = lock.withLock { calls += 1; return calls == 1 }
+        let n = lock.withLock { requests += 1; return requests }
+        if n == holding {
+            while !lock.withLock({ released }) { try await Task.sleep(for: .milliseconds(10)) }
+        }
+        // Questions alternate a call and its line, as long as there are calls to make.
+        let call = n % 2 == 1 ? inputs.dropFirst((n - 1) / 2).first : nil
         let start = #"data: {"type":"message_start","message":{"model":"claude-haiku-5-5","usage":{"input_tokens":300}}}"#
-        let lines = first ? [
+        let lines = call.map { input in [
             start,
-            #"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_pdf","name":"pdf","input":{}}}"#,
+            #"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_pdf\#(n)","name":"pdf","input":{}}}"#,
             #"data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\#(input)"}}"#,
             #"data: {"type":"content_block_stop","index":0}"#,
             #"data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":20}}"#,
             #"data: {"type":"message_stop"}"#,
-        ] : [
+        ] } ?? [
             start,
             #"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
             #"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"The card is ready."}}"#,

@@ -430,7 +430,7 @@ struct AskClaudePDFCardView: View {
     }
 
     private var offeredFooterNow: some View {
-        let wait = isRunning ? "Waits for Claude to finish." : bridge.waitReason(itemID)
+        let wait = Self.waitReason(isRunning: isRunning, bridge: bridge.waitReason(itemID))
         let blocked = card.rows.contains { $0.refusal != nil || $0.cloudOnly } || !passwordReady || card.pagesProblem != nil
         return VStack(alignment: .leading, spacing: 6) {
             lastClick
@@ -454,6 +454,11 @@ struct AskClaudePDFCardView: View {
             }
             .controlSize(.small)
         }
+    }
+
+    /// What the run button waits on: Claude answering first, then what the window says.
+    static func waitReason(isRunning: Bool, bridge: @autoclosure () -> String?) -> String? {
+        isRunning ? "Waits for Claude to finish." : bridge()
     }
 
     /// **Why there is no Undo, and what to do instead** — Undo lasts only as long as SyncCloud and
