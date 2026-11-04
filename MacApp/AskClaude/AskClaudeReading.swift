@@ -36,6 +36,9 @@ enum AskClaudeReading {
     static let extractTimeout: Duration = .seconds(30)
     /// The longest on-device answer passed on: an answer, not the document.
     static let maxAnswerChars = 400
+    /// The most of a document Share All Content sends: about 40,000 tokens, a long report and not a
+    /// book (his call on TE319, decision IU). Past it, the first pages that fit go, named as such.
+    static let wholeTokens = 40_000
 
     /// Pages read by OCR from one PDF. A scanned page holds about 2,000–3,000 characters, so ten
     /// more than fill `onDeviceChars`, and the passage that answers is chosen from them.
@@ -354,6 +357,31 @@ enum AskClaudeReading {
             found = passage(from: pages, question: question, limit: limit, paged: paged)
         }
         return found
+    }
+
+    /// **All the text read, for Share All Content**, held to `wholeTokens`: every page with text,
+    /// in order, until the next would pass the cap. `isAll` only when that is every page of the
+    /// file and nothing was left unread (past `maxPages`, OCR's limit or its time), so the button
+    /// never says "all" of a document it didn't read. Nil when there's no text.
+    nonisolated static func wholeDocument(_ reading: Read, paged: Bool) -> (text: String, whereInFile: String, isAll: Bool)? {
+        var kept: [Int] = []
+        var tokens = 0
+        var clipped = false
+        for (index, page) in reading.pages.enumerated() where !page.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let cost = AskClaudePassage.estimatedTokens(page)
+            if tokens + cost > wholeTokens { clipped = true; break }
+            kept.append(index)
+            tokens += cost
+        }
+        guard !kept.isEmpty else { return nil }
+        let text = kept.map { reading.pages[$0] }.joined(separator: "\n\n")
+        let unread = reading.pageCount > reading.pages.count || !reading.pastLimit.isEmpty
+            || !reading.timedOut.isEmpty || !reading.failed.isEmpty
+        let isAll = !clipped && !unread
+        if paged {
+            return (text, isAll ? "all \(reading.pageCount) page\(reading.pageCount == 1 ? "" : "s")" : pages(kept), isAll)
+        }
+        return (text, isAll ? "all of it" : "the first part", isAll)
     }
 
     /// Whether a file's text comes in real pages (a PDF) rather than parts cut here.

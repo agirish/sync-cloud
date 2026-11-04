@@ -14402,3 +14402,17 @@ pane there. A redesign, not a fix.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The in-pane preview | RECORDED — not owed |
+
+## Ask Claude holds what a file says for the person's click (TE319) — main only
+
+2026-11-03, for v7.0. On `main`: with Let Claude read files off, Apple Intelligence's answer from a
+file no longer goes to Claude by itself. A card shows it word for word, under "Get more insights
+from Claude:", with Share This Answer, Share Content from Page 2 (the passage it came from) and
+Share All Content from the Document (all the text read, held to about 40,000 tokens, its size said
+first, and named by its pages when it can't be all). Each goes once; only text goes, never the
+file. read_text's description changed, so saved chats start over once. Ask Claude exists only on
+`main`.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

@@ -40,9 +40,10 @@ Deletes go to the Trash, overwrites are staged and swapped in atomically, and ea
 A chat panel over the window (⌘J, or the toolbar button) that answers questions about what you're
 looking at and moves you around the app, using your own Anthropic API key. Nothing is sent until
 you ask.
-- **Sees a description of the screen, not your files** — names, kinds, sizes, dates and tags. File
-  contents are read on this Mac by an on-device model and only a short answer is sent, unless you
-  send a passage. **Hide from Claude** on any file or folder keeps it out.
+- **Sees a description of the screen, not your files** — names, kinds, sizes, dates and tags. When
+  a question needs what's inside a file, it's read on this Mac and a card shows exactly what would
+  go; nothing from the file is sent until you click Share. **Hide from Claude** on any file or folder
+  keeps it out.
 - **Looks things up and moves your view** — finds files in any source, goes to folders, tabs and
   either side of Compare, and answers *"which files are only on Dropbox?"* from Compare's list,
   selecting the rows it means.

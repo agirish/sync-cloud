@@ -97,12 +97,37 @@ public struct AskClaudePassage: Codable, Equatable, Sendable {
     /// The file, so Send to Claude can refuse it once its folder is hidden; nil in a passage
     /// saved before it was kept.
     public let path: String?
+    /// **What the on-device model answered from the file, held for their click** (decision IU,
+    /// TE319): with Let Claude read files off, an answer can carry the very fact a file holds — an
+    /// account number, a diagnosis — so it waits on the card like the passage. Nil on a card that
+    /// offers the passage alone, or one saved before answers were held.
+    public let answer: String?
+    /// What Claude asked of the file, said on the card above the answer.
+    public let asked: String?
+    /// Whether they sent the answer; nil until they do.
+    public var answerSent: Bool?
+    /// **All the text read from the file, for Share All Content** (his call on TE319), held to
+    /// `AskClaudeReading.wholeTokens`; nil when it adds nothing to `text`.
+    public let whole: String?
+    /// What `whole` covers: “all 12 pages”, “pages 1–40”, “all of it”, “the first part”.
+    public let wholeWhere: String?
+    /// Whether `whole` is the whole document's text, not only its first pages.
+    public let wholeIsAll: Bool?
+    /// Whether they sent `whole`; nil until they do.
+    public var wholeSent: Bool?
 
-    public init(fileName: String, whereInFile: String, text: String, path: String? = nil) {
+    public init(fileName: String, whereInFile: String, text: String, path: String? = nil,
+                answer: String? = nil, asked: String? = nil,
+                whole: String? = nil, wholeWhere: String? = nil, wholeIsAll: Bool? = nil) {
         self.fileName = fileName
         self.whereInFile = whereInFile
         self.text = text
         self.path = path
+        self.answer = answer
+        self.asked = asked
+        self.whole = whole
+        self.wholeWhere = wholeWhere
+        self.wholeIsAll = wholeIsAll
     }
 
     /// About how many tokens the passage is: ``estimatedTokens(_:)``.

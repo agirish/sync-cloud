@@ -69,7 +69,7 @@ struct AskClaudePlaceMenu: View {
             .padding(.vertical, 2)
             Text(readsFiles
                  ? "On: when it needs what’s inside a file, Claude gets the passage that answers, never the whole file."
-                 : "Off: Claude sees names, sizes and dates. This Mac reads a file and sends Claude a short answer.")
+                 : "Off: Claude sees names, sizes and dates. What a file says waits until you share it.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

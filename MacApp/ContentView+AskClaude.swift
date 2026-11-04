@@ -53,8 +53,8 @@ extension ContentView {
                               onSetHidden: { askClaudeSetCurrentFolderHidden($0) },
                               onGoToFolder: { askClaudeShowFolderPane() },
                               onReveal: { path in Task { await askClaudeTools().reveal(path: path) } },
-                              onSendOffer: { id in
-                                  guard let offer = askClaudeChat.takeOffer(id) else { return }
+                              onSendOffer: { id, part in
+                                  guard let offer = askClaudeChat.takeOffer(id, part) else { return }
                                   askClaudeAsk(offer.question, shown: offer.shown)
                               },
                               onDownloadCard: { askClaudeDownloadCard($0, $1) },

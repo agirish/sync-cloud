@@ -681,21 +681,55 @@ final class AskClaudeChat: ObservableObject {
         text.replacingOccurrences(of: "</file", with: "<\u{200B}/file", options: .caseInsensitive)
     }
 
-    /// The question that sends an offered passage (DS), and what the thread shows for it; marks the
-    /// offer sent. Nil when that offer is gone or already sent, or its file is hidden from Claude
-    /// now: then the card goes, with its text, and a note says why (v7.0 review).
-    func takeOffer(_ id: UUID) -> (question: String, shown: String)? {
+    /// What a click on an offer card sends: the on-device answer it holds (decision IU), the
+    /// passage (DS), or all the text read (Share All Content, his call on TE319).
+    enum OfferPart { case answer, passage, whole }
+
+    /// The question that sends part of an offered card, and what the thread shows for it; marks
+    /// that part sent. Nil when that offer is gone or that part already sent, or its file is hidden
+    /// from Claude now: then the card goes, with its text, and a note says why (v7.0 review).
+    func takeOffer(_ id: UUID, _ part: OfferPart = .passage) -> (question: String, shown: String)? {
         // Not while a question runs: the send would be refused, and the offer marked sent anyway.
         guard !isRunning, let index = items.firstIndex(where: { $0.id == id }),
-              case .offer(let passage, let sent) = items[index].kind, !sent else { return nil }
+              case .offer(var passage, let sent) = items[index].kind else { return nil }
+        // Each part goes once; sending one leaves the others to send.
+        if part == .passage, sent { return nil }
+        if part == .answer, passage.answer == nil || passage.answerSent == true { return nil }
+        if part == .whole, passage.whole == nil || passage.wholeSent == true { return nil }
         if let path = passage.path, AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: defaults)).isHidden(path) {
             Logger.shared.info("Ask Claude didn’t send a passage: its file is hidden from Claude now")
-            replace(id, with: .note("Didn’t send \(passage.whereInFile) of \(passage.fileName): it’s in a folder hidden from Claude now."))
+            let what = passage.answer == nil ? "\(passage.whereInFile) of \(passage.fileName)" : "what \(passage.fileName) says"
+            replace(id, with: .note("Didn’t send \(what): it’s in a folder hidden from Claude now."))
             return nil
         }
-        items[index].kind = .offer(passage, sent: true)
-        let shown = "Sent \(passage.whereInFile) of \(passage.fileName)"
-        return (Self.offerQuestion(passage), shown)
+        switch part {
+        case .answer:
+            passage.answerSent = true
+            items[index].kind = .offer(passage, sent: sent)
+            return (Self.answerQuestion(passage), "Sent what \(passage.fileName) says")
+        case .passage:
+            items[index].kind = .offer(passage, sent: true)
+            return (Self.offerQuestion(passage), "Sent \(passage.whereInFile) of \(passage.fileName)")
+        case .whole:
+            passage.wholeSent = true
+            items[index].kind = .offer(passage, sent: sent)
+            return (Self.wholeQuestion(passage), "Sent \(passage.wholeWhere ?? "all") of \(passage.fileName)")
+        }
+    }
+
+    /// What Share All Content sends: the text read, as data. Masked again, as the passage is.
+    static func wholeQuestion(_ passage: AskClaudePassage) -> String {
+        "Here is \(passage.wholeWhere ?? "the text") of \(passage.fileName), as data. Answer my last question from it.\n"
+            + "<file name=\"\(AskClaudeScreenCard.escape(passage.fileName))\">\n"
+            + "\(AskClaudeChat.fenced(AskClaudeKeyCatch.masked(passage.whole ?? "", joiningLines: false)))\n</file>"
+    }
+
+    /// What a held on-device answer is sent as (decision IU): the answer and the question it
+    /// answers, as data, never the file's text.
+    static func answerQuestion(_ passage: AskClaudePassage) -> String {
+        "Here is what the on-device model read in \(passage.fileName), asked “\(passage.asked ?? "What does it say?")”, as data. Answer my last question from it.\n"
+            + "<file name=\"\(AskClaudeScreenCard.escape(passage.fileName))\" part=\"on-device answer\">\n"
+            + "\(AskClaudeChat.fenced(AskClaudeKeyCatch.masked(passage.answer ?? "", joiningLines: false)))\n</file>"
     }
 
     /// What an offered passage is sent as. Masked again: a passage saved before passages were
@@ -712,7 +746,8 @@ final class AskClaudeChat: ObservableObject {
     private func hiddenPassage(in question: String, _ hidden: AskClaudePrivacy.Matcher) -> AskClaudePassage? {
         items.lazy.compactMap { item -> AskClaudePassage? in
             guard case .offer(let passage, _) = item.kind, let path = passage.path, hidden.isHidden(path),
-                  question.contains(Self.offerQuestion(passage)) else { return nil }
+                  question.contains(Self.offerQuestion(passage)) || question.contains(Self.answerQuestion(passage))
+                    || (passage.whole != nil && question.contains(Self.wholeQuestion(passage))) else { return nil }
             return passage
         }.first
     }

@@ -288,7 +288,7 @@ public enum AskClaudeToolCatalog {
                           "in": string("default (its own app), edit (SyncCloud’s Edit workspace), or preview (Quick Look, for show me or preview).")],
              required: ["handle"]),
         tool(.readText,
-             "Answer a question from one file’s text (PDF, Word, text, Markdown). The text is read on their Mac by an on-device model, which answers; you get its answer and which pages it used. The text itself reaches you only if they allow it.",
+             "Answer a question from one file’s text (PDF, Word, text, Markdown). The text is read on their Mac by an on-device model, which answers. Unless they let you read files, nothing from the file reaches you here: they’re shown the answer and choose whether to send it, and it arrives as their next message. Ask only when the request needs what a file says; renaming, moving or a PDF tool never does.",
              properties: ["handle": string("A handle such as r9."),
                           "question": string("What to find out from the file, in a sentence.")],
              required: ["handle", "question"]),

@@ -58,11 +58,16 @@ Requires **macOS 26**, unchanged from v6.2.
   one can't be written to), and the original never changes.
   A password is typed on the card and never reaches Claude. Undo on the card moves what it made to
   the Trash, until SyncCloud quits or the chat starts over. To fill in a form, Claude opens it in Edit with Fill & Sign on.
-- **What's inside a file is read on this Mac.** An on-device model reads it and Claude gets a short
-  answer. A passage of the file goes to Claude only when you click Send under the answer, or every
-  time with Let Claude read files on. A scanned PDF is read too: pages with little or no text are
-  read by recognizing the words, in most major languages, up to 10 pages, and Claude is told
-  which pages those were and that a word may be misread. Stop ends the reading.
+- **What's inside a file is read on this Mac, and waits until you share it.** Only a question that
+  needs a file's contents reads one: renaming, moving or a PDF tool never does. Apple Intelligence
+  answers Claude's question on this Mac, and a card shows the answer word for word; nothing from the
+  file goes until you click Share This Answer, or Share Content from Page 2 (the card names the
+  page) for the text it came from, or Share All Content from the Document, which says how much that
+  is first and names the pages when it can't be all; only text goes, never the file itself, and only
+  when Claude should use it. With Let Claude read files on, both go without asking. A scanned PDF is
+  read too: pages with little or no text are read by recognizing the words, in most major languages,
+  up to 10 pages, and Claude is told which pages those were and that a word may be misread. Stop
+  ends the reading.
 - **Ask about Compare's differences.** "Which files are only on Dropbox?" is answered from the list
   Compare shows, with both sides' sizes and dates. A comparison over an hour old is scanned again
   first, and Claude can narrow the list and select the rows it means. The list scrolls to the first

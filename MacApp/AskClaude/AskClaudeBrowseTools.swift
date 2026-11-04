@@ -1326,8 +1326,10 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
         if Task.isCancelled { return Self.stoppedReading(node.name) }
         var lines: [String]
+        var heard: String?
         switch answer {
         case .answer(let answer):
+            heard = answer
             lines = ["On-device answer, from \(local.whereInFile) of \(node.name): \(answer)"]
         case .unavailable:
             lines = ["This Mac has no on-device model to answer with."]
@@ -1352,11 +1354,26 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             return AskClaudeToolOutcome(result: lines.joined(separator: "\n"),
                                         step: "\(readHere) · sent \(forClaude.whereInFile)")
         }
-        lines.append("Its text was not sent to you. If the answer isn’t enough, tell them they can send \(forClaude.whereInFile) with the button under your reply.")
+        // Masked as a tool's text is, so a key in it is neither saved nor sent.
+        let text = AskClaudeKeyCatch.masked(forClaude.text, joiningLines: false)
+        // Share All Content (his call on TE319): offered only when it adds to the passage.
+        let whole = AskClaudeReading.wholeDocument(reading, paged: paged).flatMap { $0.text.count > forClaude.text.count ? $0 : nil }
+        func offered(answer: String? = nil, asked: String? = nil) -> AskClaudePassage {
+            AskClaudePassage(fileName: node.name, whereInFile: forClaude.whereInFile, text: text, path: path,
+                             answer: answer, asked: asked,
+                             whole: whole.map { AskClaudeKeyCatch.masked($0.text, joiningLines: false) },
+                             wholeWhere: whole?.whereInFile, wholeIsAll: whole?.isAll)
+        }
+        guard let heard else {
+            lines.append("Its text was not sent to you. If the answer isn’t enough, tell them they can send \(forClaude.whereInFile)\(whole.map { " or \($0.whereInFile)" } ?? "") with the buttons under your reply.")
+            return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: readHere, passage: offered())
+        }
+        // Decision IU: the answer can be the very fact the file holds, so it waits on the card for
+        // their click, as the passage does. Claude learns only that the file was read.
+        lines = ["Read \(node.name) on their Mac. Nothing from it was sent to you: they’re shown what it says, and can send that, \(forClaude.whereInFile)\(whole.map { ", or \($0.whereInFile)" } ?? ""). They may need nothing more: the answer is on their screen. In one short sentence, say what you would do with it if they share it, such as compare it or act on it, and stop. If they share it, it arrives as their next message."]
+        if let note = reading.ocrNote { lines.append(note) }
         return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: readHere,
-                                    // Masked as a tool's text is, so a key in it is neither saved nor sent.
-                                    passage: AskClaudePassage(fileName: node.name, whereInFile: forClaude.whereInFile,
-                                                              text: AskClaudeKeyCatch.masked(forClaude.text, joiningLines: false), path: path))
+                                    passage: offered(answer: AskClaudeKeyCatch.masked(heard, joiningLines: false), asked: question))
     }
 
     /// A read the person stopped: nothing about the file, and no passage to send.

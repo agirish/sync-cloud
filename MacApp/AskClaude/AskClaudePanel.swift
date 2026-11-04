@@ -32,7 +32,7 @@ struct AskClaudePanel: View {
     /// Reveals a file named in an answer (TE245).
     var onReveal: (String) -> Void = { _ in }
     /// Sends an offered passage (decision DS).
-    var onSendOffer: (UUID) -> Void = { _ in }
+    var onSendOffer: (UUID, AskClaudeChat.OfferPart) -> Void = { _, _ in }
     /// A download card's buttons (TE258).
     var onDownloadCard: (UUID, AskClaudeDownloadAction) -> Void = { _, _ in }
     /// Filing help's card buttons (TE255).
@@ -887,7 +887,7 @@ private struct AskClaudeThreadRow: View, Equatable {
     let onOpenSettings: () -> Void
     let linkTargets: [String: String]
     let onReveal: (String) -> Void
-    let onSendOffer: (UUID) -> Void
+    let onSendOffer: (UUID, AskClaudeChat.OfferPart) -> Void
     let onDownloadCard: (UUID, AskClaudeDownloadAction) -> Void
     let onFilingCard: (AskClaudeFilingAction) -> Void
     let onPlanCard: (UUID, AskClaudePlanAction) -> Void
@@ -1016,21 +1016,25 @@ private struct AskClaudeThreadRow: View, Equatable {
         case .note(let text):
             Text(text).scaledFont(.callout).foregroundStyle(.secondary)
         case .offer(let passage, let sent):
-            VStack(alignment: .leading, spacing: 6) {
-                Text("The on-device model read \(passage.fileName) here. Claude can read \(passage.whereInFile) itself for a fuller answer.")
-                    .scaledFont(.callout)
-                HStack(spacing: 8) {
-                    Button(sent ? "Sent" : "Send to Claude") { onSendOffer(item.id) }
-                        .controlSize(.small)
-                        .disabled(sent || isRunning)
-                        .help("Sends only this passage of the file to Claude, once.")
-                    Text("\(passage.whereInFile) · about \(passage.tokens.formatted()) tokens")
-                        .scaledFont(.footnote)
-                        .foregroundStyle(.secondary)
+            if passage.answer != nil || passage.whole != nil {
+                heldAnswerCard(item.id, passage, passageSent: sent)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("The on-device model read \(passage.fileName) here. Claude can read \(passage.whereInFile) itself for a fuller answer.")
+                        .scaledFont(.callout)
+                    HStack(spacing: 8) {
+                        Button(sent ? "Sent" : "Send to Claude") { onSendOffer(item.id, .passage) }
+                            .controlSize(.small)
+                            .disabled(sent || isRunning)
+                            .help("Sends only this passage of the file to Claude, once.")
+                        Text("\(passage.whereInFile) · about \(passage.tokens.formatted()) tokens")
+                            .scaledFont(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .padding(10)
+                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.well))
             }
-            .padding(10)
-            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.well))
         case .download(let download, let state):
             downloadCard(download, state)
         case .filing(let card):
@@ -1156,6 +1160,84 @@ private struct AskClaudeThreadRow: View, Equatable {
         .padding(10)
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.well))
         .accessibilityElement(children: .contain)
+    }
+
+    /// **What a file says, held for their click** (decision IU, TE319): Apple Intelligence's
+    /// answer exactly as it would go, when there is one, then what sharing gets them and the
+    /// shares: the answer, the passage it came from, and all the text read. Nothing leaves until
+    /// a click.
+    private func heldAnswerCard(_ id: UUID, _ passage: AskClaudePassage, passageSent: Bool) -> some View {
+        let answerSent = passage.answerSent == true
+        let wholeSent = passage.wholeSent == true
+        let anySent = answerSent || passageSent || wholeSent
+        return VStack(alignment: .leading, spacing: 6) {
+            // Whose words these are and which file (his calls on TE319): Apple's on-device model's,
+            // not Claude's and not a search — `AskClaudeReading.answerOnDevice`. Claude's own
+            // question isn't shown: it goes with the answer when shared.
+            if let answer = passage.answer {
+                Label("Apple Intelligence read \(passage.fileName) on this Mac:", systemImage: "apple.intelligence")
+                    .scaledFont(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                Text(answer)
+                    .scaledFont(.callout)
+                    .textSelection(.enabled)
+                    .lineLimit(8)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.background.opacity(0.6), in: RoundedRectangle(cornerRadius: Radius.well))
+                    .accessibilityLabel("Apple Intelligence read \(passage.fileName) on this Mac: \(answer)")
+            } else {
+                Label("Read \(passage.fileName) on this Mac.", systemImage: "doc.text.magnifyingglass")
+                    .scaledFont(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            // What sharing is for, before the buttons (his call on TE319): more from Claude.
+            if !anySent {
+                Text(AskClaudeHeldAnswer.lead)
+                    .scaledFont(.callout.weight(.medium))
+            }
+            // Three shares don't fit the panel's width side by side; they stack when they don't.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { heldAnswerButtons(id, passage, passageSent: passageSent) }
+                VStack(alignment: .leading, spacing: 6) { heldAnswerButtons(id, passage, passageSent: passageSent) }
+            }
+            if let whole = passage.whole, let wholeWhere = passage.wholeWhere, !wholeSent {
+                Text(AskClaudeHeldAnswer.wholeSize(wholeWhere, isAll: passage.wholeIsAll == true, words: AskClaudeHeldAnswer.words(in: whole)))
+                    .scaledFont(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            Text(anySent ? "Claude has what you shared." : "Nothing from the file has gone to Claude.")
+                .scaledFont(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .padding(10)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.well))
+        .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder
+    private func heldAnswerButtons(_ id: UUID, _ passage: AskClaudePassage, passageSent: Bool) -> some View {
+        let answerSent = passage.answerSent == true
+        let wholeSent = passage.wholeSent == true
+        if passage.answer != nil {
+            Button(AskClaudeHeldAnswer.answerButton(sent: answerSent)) { onSendOffer(id, .answer) }
+                .controlSize(.small)
+                .disabled(answerSent || isRunning)
+                .help("Lets Claude see only the answer above, once.")
+        }
+        Button(AskClaudeHeldAnswer.passageButton(passage.whereInFile, sent: passageSent, answerSent: answerSent)) { onSendOffer(id, .passage) }
+            .controlSize(.small)
+            .disabled(passageSent || isRunning)
+            .help("Lets Claude see the text of \(passage.whereInFile) of \(passage.fileName) itself, about \(passage.tokens.formatted()) tokens, once.")
+        if let wholeWhere = passage.wholeWhere, let whole = passage.whole {
+            Button(AskClaudeHeldAnswer.wholeButton(wholeWhere, isAll: passage.wholeIsAll == true, sent: wholeSent)) { onSendOffer(id, .whole) }
+                .controlSize(.small)
+                .disabled(wholeSent || isRunning)
+                .help("Lets Claude see the text of \(wholeWhere) of \(passage.fileName), about \(AskClaudePassage.estimatedTokens(whole).formatted()) tokens, once.")
+        }
     }
 
     /// TE255: where the file fits by their own conventions, each folder with Go to Folder; Refine
@@ -1839,5 +1921,62 @@ extension AskClaudeChat.Receipt {
         guard !model.isEmpty else { return nil }
         if let requested, requested != model { return AskClaudeModels.name(ofServed: model) + ", fallback" }
         return AskClaudeModels.name(ofServed: model)
+    }
+}
+
+/// The held-answer card's words (decision IU, TE319), apart from the view so a test reads them.
+enum AskClaudeHeldAnswer {
+    /// What sharing is for, above the buttons (his calls on TE319, after "Send to Claude" beside
+    /// "Send the Text", then "Share This with Claude": the answer is already on their screen, so
+    /// the card says what sharing gets them).
+    static let lead = "Get more insights from Claude:"
+
+    /// The held answer's button: the box above it.
+    static func answerButton(sent: Bool) -> String { sent ? "Answer Shared" : "Share This Answer" }
+
+    /// The passage's button, naming where its content is from — "Share Content from Page 2",
+    /// "Also Share Content from Pages 1–2" once the answer has gone. "Content", not the page or
+    /// the file (his call on TE319): only text goes, never the document, and only the passage the
+    /// answer came from. A file without pages says "the Document", or "All Content from the
+    /// Document" when the passage is the whole of its text (`AskClaudeReading.claudePassage`).
+    static func passageButton(_ whereInFile: String, sent: Bool, answerSent: Bool) -> String {
+        let content: String
+        if whereInFile.hasPrefix("page") {
+            content = "Content from " + whereInFile.prefix(1).uppercased() + whereInFile.dropFirst()
+        } else {
+            content = whereInFile == "the text" ? "All Content from the Document" : "Content from the Document"
+        }
+        if sent { return "Content Shared" }
+        return answerSent ? "Also Share \(content)" : "Share \(content)"
+    }
+
+    /// Share All Content's button: "Share All Content from the Document" only when it is all of
+    /// it; otherwise the pages it is, "Share Content from Pages 1–40", or the first part of a file
+    /// without pages. Never "all" of what wasn't read (`AskClaudeReading.wholeDocument`).
+    static func wholeButton(_ wholeWhere: String, isAll: Bool, sent: Bool) -> String {
+        if sent { return isAll ? "All Content Shared" : "Content Shared" }
+        if isAll { return "Share All Content from the Document" }
+        if wholeWhere.hasPrefix("page") { return "Share Content from " + wholeWhere.prefix(1).uppercased() + wholeWhere.dropFirst() }
+        return "Share the First Part of the Document"
+    }
+
+    /// How much Share All Content sends, before the click: pages when there are any, and words.
+    static func wholeSize(_ wholeWhere: String, isAll: Bool, words: Int) -> String {
+        let about = "about \(roundedWords(words).formatted()) word\(words == 1 ? "" : "s")"
+        if isAll {
+            let pages = wholeWhere.hasPrefix("all ") && wholeWhere != "all of it" ? String(wholeWhere.dropFirst(4)) + ", " : ""
+            return "All content: \(pages)\(about)."
+        }
+        let part = wholeWhere.prefix(1).uppercased() + wholeWhere.dropFirst()
+        return "\(part): \(about), not the whole document."
+    }
+
+    static func words(in text: String) -> Int { text.split(whereSeparator: \.isWhitespace).count }
+
+    /// Words to two significant figures past 1,000: a size, not a count.
+    static func roundedWords(_ words: Int) -> Int {
+        guard words >= 1_000 else { return words }
+        let step = words >= 10_000 ? 1_000 : 100
+        return (words + step / 2) / step * step
     }
 }

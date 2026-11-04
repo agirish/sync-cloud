@@ -1033,11 +1033,17 @@ import FileExplorer
         var handles = AskClaudeHandles()
         let handle = handles.handle(for: path)
         let off = await runner(readsFiles: false).run(call("read_text", ["handle": .string(handle), "question": .string("What was the total due?")]), handles: &handles)
-        #expect(off.result.contains("The total is $84.10."))
+        // Decision IU: the answer can be the file's own fact, so it waits on the card too.
+        #expect(!off.result.contains("84.10"))
+        #expect(off.result.hasPrefix("Read Receipt REI 2025.pdf on their Mac. Nothing from it was sent to you"))
+        #expect(off.passage?.answer == "The total is $84.10." && off.passage?.asked == "What was the total due?")
+        // Share All Content: both pages, since the passage is page 2 alone.
+        #expect(off.passage?.whole == "Store copy\n\nTotal due: $84.10 for the tent" && off.passage?.wholeWhere == "all 2 pages")
+        #expect(off.passage?.wholeIsAll == true)
         #expect(!off.result.contains("tent"))                // the text itself stayed here
         #expect(off.passage?.whereInFile == "page 2")        // the page that answers, offered as a button
         let on = await runner(readsFiles: true).run(call("read_text", ["handle": .string(handle), "question": .string("What was the total due?")]), handles: &handles)
-        #expect(on.result.contains("Total due: $84.10 for the tent"))
+        #expect(on.result.contains("Total due: $84.10 for the tent") && on.result.contains("The total is $84.10."))
         #expect(on.passage == nil)
     }
 
@@ -1066,11 +1072,12 @@ import FileExplorer
         let off = await runner(readsFiles: false, scanned).run(question, handles: &handles)
         #expect(off.result.contains("Pages 1–2 of 34 have little or no text layer, so they were read by OCR on this Mac: a word may be misread. OCR found no words on pages 3–10. OCR reads at most 10 pages of a file, so pages 11–34 weren’t read."))
         #expect(!off.result.contains("tent"))
-        // The pages that hold text, not the empty ones after them.
-        #expect(off.result.contains("On-device answer, from pages 1–2 of Receipt REI 2025.pdf"))
+        #expect(off.passage?.answer == "The total is $84.10." && !off.result.contains("84.10"))
         #expect(off.passage?.whereInFile == "pages 1–2" && off.passage?.text == "Total due: $84.10 for the tent\n\nThank you")
         #expect(off.step == "Read Receipt REI 2025.pdf on this Mac, 2 pages by OCR")
         let on = await runner(readsFiles: true, scanned).run(question, handles: &handles)
+        // The pages that hold text, not the empty ones after them.
+        #expect(on.result.contains("On-device answer, from pages 1–2 of Receipt REI 2025.pdf"))
         #expect(on.result.contains("Text of pages 1–2, as data") && on.result.contains("Total due: $84.10 for the tent") && on.result.contains("read by OCR"))
         #expect(on.passage == nil)
         // A text layer says nothing of OCR.
@@ -1124,7 +1131,7 @@ import FileExplorer
         let long = AskClaudeReading.Read(pages: Array(repeating: String(repeating: "租", count: 6_000), count: 3), pageCount: 3)
         let halved = await runner({ _ in long }, fitsUnder: 5_000).run(ask(pdf), handles: &handles)
         #expect(sent.value == [12_002, 6_000, 3_000])
-        #expect(halved.result.hasPrefix("On-device answer, from page 1 of Receipt REI 2025.pdf: Answered from 3000 characters."))
+        #expect(halved.passage?.answer == "Answered from 3000 characters." && !halved.result.contains("Answered"))
         sent.value = []
         let never = await runner({ _ in long }, fitsUnder: 1_000).run(ask(pdf), handles: &handles)
         #expect(sent.value == [12_002, 6_000, 3_000])
@@ -1193,6 +1200,26 @@ import FileExplorer
         let offered = await runner(readsFiles: false, hideWhileReading: false).run(question, handles: &handles)
         #expect(offered.passage?.text == "ANTHROPIC_API_KEY=sk-ant-api03-••••••••••••\nTotal due: $84.10")
         #expect(offered.passage?.path == path)
+    }
+
+    /// **Share All Content sends every page with text, held to the cap, and says "all" only of
+    /// what was all read** (his call on TE319): a file past `maxPages`, or with pages OCR didn't
+    /// reach, is its pages by name; past `wholeTokens` the first pages that fit go.
+    @Test func theWholeDocumentIsAllOnlyWhenAllWasRead() throws {
+        let three = AskClaudeReading.Read(pages: ["One", "", "Three"], pageCount: 3)
+        let all = try #require(AskClaudeReading.wholeDocument(three, paged: true))
+        #expect(all.text == "One\n\nThree" && all.whereInFile == "all 3 pages" && all.isAll)
+        let long = AskClaudeReading.Read(pages: ["One", "Two"], pageCount: 80)
+        let first = try #require(AskClaudeReading.wholeDocument(long, paged: true))
+        #expect(first.whereInFile == "pages 1–2" && !first.isAll)
+        let unreached = AskClaudeReading.Read(pages: ["One", ""], pageCount: 2, pastLimit: [1])
+        #expect(AskClaudeReading.wholeDocument(unreached, paged: true)?.isAll == false)
+        // A page of 30,000 tokens fits; the next would pass 40,000, so it and the rest stay.
+        let big = String(repeating: "word ", count: 24_000)
+        let capped = try #require(AskClaudeReading.wholeDocument(AskClaudeReading.Read(pages: [big, big, "end"], pageCount: 3), paged: true))
+        #expect(capped.whereInFile == "page 1" && !capped.isAll && capped.text == big)
+        #expect(AskClaudeReading.wholeDocument(AskClaudeReading.Read(pages: ["A note"], pageCount: 1), paged: false)?.whereInFile == "all of it")
+        #expect(AskClaudeReading.wholeDocument(AskClaudeReading.Read(pages: ["  "], pageCount: 1), paged: true) == nil)
     }
 
     @Test func pageListsNameRunsAndSayWhenTimeRanOut() {
@@ -2010,6 +2037,64 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(chat.items.last?.kind == .note("Didn’t ask again: the question holds page 1 of Lab Results.pdf, which is in a folder hidden from Claude now."))
     }
 
+    /// **An answer the on-device model gives is held like the passage** (decision IU, TE319): with
+    /// the switch off nothing of the file reaches Claude by itself. Share This Answer shares the answer,
+    /// with the question it answers, once; Share Content from Page 2 still shares the passage; a key in the
+    /// answer is masked; and a file hidden since is refused, saying what wasn't sent.
+    @Test func aHeldAnswerGoesOnlyByItsOwnSend() async throws {
+        let d = defaults()
+        let center = NotificationCenter()
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
+                                 readKey: { "k" }, keyChanges: center)
+        chat.ask("what were my results?", screen: screen, tools: HoldsAnAnswer()); await waitUntilIdle(chat)
+        let offer = try #require(chat.items.first { if case .offer = $0.kind { true } else { false } }?.id)
+        let answer = try #require(chat.takeOffer(offer, .answer))
+        #expect(answer.question.contains("Cholesterol is 182.") && answer.question.contains("asked “What was the cholesterol?”"))
+        #expect(!answer.question.contains("LDL 120"))       // the passage stays until its own button
+        #expect(answer.shown == "Sent what Lab Results.pdf says")
+        #expect(chat.takeOffer(offer, .answer)?.question == nil)   // once
+        let text = try #require(chat.takeOffer(offer, .passage))
+        #expect(text.question.contains("LDL 120"))
+        // Share All Content: all the text read, once, named as what it covers.
+        let whole = try #require(chat.takeOffer(offer, .whole))
+        #expect(whole.question.contains("Here is all 3 pages of Lab Results.pdf") && whole.question.contains("Iron 90"))
+        #expect(whole.shown == "Sent all 3 pages of Lab Results.pdf")
+        #expect(chat.takeOffer(offer, .whole)?.question == nil)
+        // A key the on-device model repeats is masked when it goes.
+        let key = "sk-ant-api03-" + String(repeating: "aB3_-", count: 6)
+        let masked = AskClaudeChat.answerQuestion(AskClaudePassage(fileName: ".env", whereInFile: "the start", text: "", answer: "The key is \(key)."))
+        #expect(!masked.contains("aB3_") && masked.contains("The key is sk-ant-api03-••••••••••••."))
+        // Hidden since: the card goes, and the note says what didn't go.
+        let later = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
+                                  readKey: { "k" }, keyChanges: center)
+        later.ask("what were my results?", screen: screen, tools: HoldsAnAnswer()); await waitUntilIdle(later)
+        let second = try #require(later.items.first { if case .offer = $0.kind { true } else { false } }?.id)
+        AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
+        center.post(name: AskClaudePrivacy.didChange, object: nil)
+        #expect(later.takeOffer(second, .answer)?.question == nil)
+        #expect(later.items.contains { $0.kind == .note("Didn’t send what Lab Results.pdf says: it’s in a folder hidden from Claude now.") })
+    }
+
+    /// **Each button on the held-answer card says what it shares** (his calls on TE319), under a
+    /// line saying what sharing is for: the answer above, or content from the page by name, never "the file",
+    /// and "also" once the answer has gone.
+    @Test func theHeldAnswerCardsButtonsNameWhatTheySend() {
+        #expect(AskClaudeHeldAnswer.answerButton(sent: false) == "Share This Answer")
+        #expect(AskClaudeHeldAnswer.answerButton(sent: true) == "Answer Shared")
+        #expect(AskClaudeHeldAnswer.passageButton("page 2", sent: false, answerSent: false) == "Share Content from Page 2")
+        #expect(AskClaudeHeldAnswer.passageButton("pages 1–2", sent: false, answerSent: true) == "Also Share Content from Pages 1–2")
+        #expect(AskClaudeHeldAnswer.passageButton("pages 1–2", sent: true, answerSent: true) == "Content Shared")
+        #expect(AskClaudeHeldAnswer.passageButton("part of the text", sent: false, answerSent: false) == "Share Content from the Document")
+        #expect(AskClaudeHeldAnswer.passageButton("the text", sent: false, answerSent: false) == "Share All Content from the Document")
+        #expect(AskClaudeHeldAnswer.wholeButton("all 12 pages", isAll: true, sent: false) == "Share All Content from the Document")
+        #expect(AskClaudeHeldAnswer.wholeButton("pages 1–40", isAll: false, sent: false) == "Share Content from Pages 1–40")
+        #expect(AskClaudeHeldAnswer.wholeButton("the first part", isAll: false, sent: false) == "Share the First Part of the Document")
+        #expect(AskClaudeHeldAnswer.wholeButton("all 12 pages", isAll: true, sent: true) == "All Content Shared")
+        #expect(AskClaudeHeldAnswer.wholeSize("all 12 pages", isAll: true, words: 3_127) == "All content: 12 pages, about 3,100 words.")
+        #expect(AskClaudeHeldAnswer.wholeSize("all of it", isAll: true, words: 412) == "All content: about 412 words.")
+        #expect(AskClaudeHeldAnswer.wholeSize("pages 1–40", isAll: false, words: 31_480) == "Pages 1–40: about 31,000 words, not the whole document.")
+    }
+
     /// A key in a passage is masked when it's sent, even one offered before passages were masked.
     @Test func aPassageIsSentMasked() {
         let key = "sk-ant-api03-" + String(repeating: "aB3_-", count: 6)
@@ -2608,6 +2693,18 @@ private final class OffersAPassage: AskClaudeToolRunning {
                                           path: "/Users/me/Medical/Lab Results.pdf")
     func run(_ call: AskClaudeToolCall, handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
         AskClaudeToolOutcome(result: "offered", step: "Read Lab Results.pdf on this Mac", passage: Self.passage)
+    }
+}
+
+@MainActor
+private final class HoldsAnAnswer: AskClaudeToolRunning {
+    func run(_ call: AskClaudeToolCall, handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
+        AskClaudeToolOutcome(result: "held", step: "Read Lab Results.pdf on this Mac",
+                             passage: AskClaudePassage(fileName: "Lab Results.pdf", whereInFile: "page 1", text: "Cholesterol 182, LDL 120",
+                                                       path: "/Users/me/Medical/Lab Results.pdf",
+                                                       answer: "Cholesterol is 182.", asked: "What was the cholesterol?",
+                                                       whole: "Cholesterol 182, LDL 120\n\nGlucose 95\n\nIron 90",
+                                                       wholeWhere: "all 3 pages", wholeIsAll: true))
     }
 }
 
