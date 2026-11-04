@@ -139,7 +139,7 @@ import Events
     /// on GitHub's 3-vCPU VMs the rendezvous could never form and the barrier timed out every run.
     @MainActor
     @Test(.parksThreads(4),
-          .enabled(if: ProcessInfo.processInfo.activeProcessorCount > 4,
+          .enabled(if: cooperativePoolWidth > 4,
                    "four workers blocked at once plus the release need more than four cores"))
     func syncAllCancelledMidRunFinishesInFlightItemsAndTakesNoMore() async throws {
         let disk = MockFileManager()

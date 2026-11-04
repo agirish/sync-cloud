@@ -125,7 +125,13 @@ import CryptoKit
     /// The first side that cannot be hashed stops the other: the answer is nil either way. The
     /// left is missing and fails at once; the right's first check waits — bounded — to be
     /// cancelled. Without the stop it waits out its bound and the file is read whole and cached.
-    @Test func aPairWithAnUnhashableSideStopsReadingTheOther() async throws {
+    ///
+    /// **In practice it always waits out the 10 s.** The check runs on the hash lane's detached
+    /// task, whose `Task.isCancelled` stays false: the stop reaches the read as `callerCancelled`,
+    /// which this closure cannot see. So the wait holds a pool thread for its whole bound, and it is
+    /// a park. Undeclared, it and two other parks held all three of a hosted runner's pool threads,
+    /// and the other two waited out their bounds too (2026-11-03).
+    @Test(.parksAThread) func aPairWithAnUnhashableSideStopsReadingTheOther() async throws {
         let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
         let right = dir.appendingPathComponent("long.bin")

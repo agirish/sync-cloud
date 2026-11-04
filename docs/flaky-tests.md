@@ -1505,9 +1505,9 @@ genuine gate regression: something stopped signalling `release`.
 
 **Fix.** Applied 2026-08-26: a **park-thread budget** in
 `Modules/Sync/Tests/Sync/TestSupport.swift`, and a `.parksAThread` / `.parksThreads(n)` trait that
-every gated test declares. At most `activeProcessorCount / 4` threads' worth of parks are admitted
-at once — 2 on this ten-core Mac — so the other eight pool threads are always there to carry the
-releases. A reservation wider than the whole budget is admitted alone rather than deadlocking (the
+every gated test declares. At most a quarter of the pool's threads' worth of parks are admitted
+at once — 2 on this ten-core Mac, 1 on a 3-vCPU runner (since 2026-11-03, below) — so the other
+eight pool threads are always there to carry the releases. A reservation wider than the whole budget is admitted alone rather than deadlocking (the
 six-wide hash window in `FileSyncManagerDuplicatesTests`, the four-worker rendezvous in
 `BulkSyncCancellationAndReservationTests`), and the queue is FIFO so the widest reservation — the
 one holding the most pool threads — cannot be overtaken by a stream of narrow ones and left to
@@ -1731,7 +1731,7 @@ test's wait began, so the wait it checks for was never entered. Five local runs 
 (3.2–5.0 s each), and so did a rerun of the failed job. The suite's second sighting in a day, both
 on hosted VMs and neither reproduced; a third is the point to look at the latch itself.
 
-#### Seen: `DifferenceResolutionTests` and `OneWaySyncDropboxGateTests`, 2026-11-03 — a new chunk layout
+#### Seen: `DifferenceResolutionTests` and `OneWaySyncDropboxGateTests`, 2026-11-03 — a new chunk layout — FIXED
 
 Red on all three hosted runs after the v7.0 review's fixes landed (`21768afdc`, `9096b548a` twice),
 green on the two before. Each run lost a different set:
@@ -1746,8 +1746,60 @@ whose six-wide reservation is admitted alone, and `OneWaySyncDropboxGateTests` s
 `FileSyncManagerTests` and `CancellationTests`. Each red chunk's suites all ended within 0.2 s of
 the gates' bound, so the whole chunk stalled. The layout is the same on this Mac, where both
 chunks pass, twice (`test-shards --jobs 2 Modules/Sync`, 4,639 tests): ten pool threads absorb
-what CI's three cannot. Not fixed. `parkThreadBudget` is `max(2, cores / 4)`, so on a 3-vCPU
-runner the parks may hold two of the pool's three threads, and a wider reservation more.
+what CI's three cannot.
+
+**Mechanism.** The budget's floor of 2. `parkThreadBudget` was `max(2, cores / 4)`, so on a runner's
+3-wide pool two parks could hold two threads at once, and the release of either needed the third.
+Any other test holding that thread wedged the whole process. Sampled at the stall, on this Mac with
+the pool narrowed to three (below):
+
+- **Chunk 4:** two `DifferenceResolutionTests` parks plus
+  `FileContentVerifierTests.aPairWithAnUnhashableSideStopsReadingTheOther`, whose cancel check
+  blocks its pool thread in a `usleep` loop for its whole 10 s bound. That loop watches
+  `Task.isCancelled` on the hash lane's detached task, which is never cancelled, so it always runs
+  the full 10 s, here too (12.4 s on the ten-core pool). It declared no reservation, and the
+  registry scan did not know `usleep`. The two parks' turn clocks stopped with the pool, so the
+  usleep's wall-clock bound ended the wedge, and the parks gave up just after it.
+- **Chunk 3:** two parks plus `FilingSpendStoreTests.lifetimeTotalsSurviveHistoryCap`, one
+  synchronous loop that holds a pool thread for 35–90 s (2,020 records, each re-encoding the whole
+  history). The test body that cancels the hung read could not get a thread, and the read's own 30 s
+  bound answered first.
+
+`FileSyncManagerDuplicatesTests`' six-wide reservation was not involved; it queued behind the parks.
+
+**Reproducing it here.** `SYNC_TESTS_POOL_WIDTH=3` holds every pool thread above three for the run
+(`cooperativePoolWidth` in `TestSupport.swift`), and the budget and the core-count gates of
+`ProgressiveLoadTests` and `BulkSyncCancellationAndReservationTests` read the narrowed width. Run a
+chunk with CI's environment:
+
+```bash
+SYNCCLOUD_SKIP_MACHINE_PINNED=all SYNC_TESTS_POOL_WIDTH=3 \
+  scripts/build-slot swift test --package-path Modules/Sync --filter '<the chunk's suites>'
+```
+
+Without `SYNCCLOUD_SKIP_MACHINE_PINNED`, `FilingCardReplayTests` runs too and holds two of the three
+threads for minutes, which delays every park in its chunk but fails nothing.
+
+**Fix.** `parkThreadBudget` is `max(1, cooperativePoolWidth / 4)`: never more than half the pool, so
+1 on a runner and still 2 here. The usleep test declares `.parksAThread`, and the registry scan
+counts `usleep(` as a blocking wait. The pool's width is what the budget and those two `.enabled`
+gates are sized by, so they read `cooperativePoolWidth` rather than `activeProcessorCount`.
+
+Measured here with the pool at three and CI's environment, at load averages of 8–50:
+
+| | Chunk 4 | Chunk 3 | All 8 chunks, `--jobs 2` |
+|---|---|---|---|
+| Before | **2 red of 7**, as on CI | **1 red of 4**, as on CI | — |
+| After | 0 of 8 | 0 of 11 | 0 of 3 |
+| Floor of 2 back, usleep still declared | — | 0 of 6 | 0 of 2 |
+
+The last row is the honest gap: the declaration alone covers chunk 4, and the floor's half was not
+reproduced on its own at that load. It rests on the sampled stall above, two parks and one long test
+on three threads, which the floor of 1 rules out. Dropping `usleep(` from the scan turns
+`everyThreadBlockingWaitInThisTargetIsAccountedFor` red.
+
+A reservation wider than the budget is still admitted alone: on a 3-wide pool a `.parksThreads(2)`
+test leaves one thread, and a long synchronous test can still take that one.
 
 ---
 

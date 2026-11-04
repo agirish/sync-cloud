@@ -186,12 +186,32 @@ public final class ParkGate: @unchecked Sendable {
 
 // MARK: - The park-thread budget
 
+/// The width of the Swift cooperative pool: one thread per core, and it does not grow when one
+/// blocks. Every park below holds one of these threads, and every release needs one.
+///
+/// `SYNC_TESTS_POOL_WIDTH=3` narrows it to a hosted runner's on a wider Mac, by holding the threads
+/// above that for the rest of the run, so a red that needs GitHub's three vCPUs reproduces here
+/// (`docs/flaky-tests.md`, "Every gate parks at once, on the pool their releases need"). The hold
+/// starts at the first park reservation, which every run reaches in its first instant.
+let cooperativePoolWidth: Int = {
+    let cores = ProcessInfo.processInfo.activeProcessorCount
+    guard let width = ProcessInfo.processInfo.environment["SYNC_TESTS_POOL_WIDTH"].flatMap(Int.init),
+          width >= 1, width < cores else { return cores }
+    for _ in width..<cores { Task.detached { holdAPoolThreadForTheRun() } }
+    return width
+}()
+
+private func holdAPoolThreadForTheRun() { DispatchSemaphore(value: 0).wait() }
+
 /// How many REAL THREADS the thread-blocking parks in this target may hold at once, process-wide.
 ///
-/// A quarter of the cooperative pool, whose width is the core count. The point is the other three
-/// quarters: every park is released by async work that needs a pool thread to get there, so the
-/// budget is sized by what has to keep running, not by what is allowed to stop.
-let parkThreadBudget = max(2, ProcessInfo.processInfo.activeProcessorCount / 4)
+/// A quarter of the cooperative pool, and never more than half of it: 2 on a ten-core Mac, 1 on
+/// GitHub's 3-vCPU runners. The point is the rest: every park is released by async work that
+/// needs a pool thread to get there, and any other test may be holding one with a long
+/// synchronous loop, so the budget is sized by what has to keep running, not by what is allowed
+/// to stop. A floor of 2 let the parks hold two of a runner's three threads, and one such loop
+/// took the third (2026-11-03).
+let parkThreadBudget = max(1, cooperativePoolWidth / 4)
 
 /// Admits at most ``parkThreadBudget`` threads' worth of thread-blocking parks at once.
 ///

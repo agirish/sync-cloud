@@ -140,7 +140,7 @@ import Testing
     /// `BulkSyncCancellationAndReservationTests` did every run.
     @MainActor
     @Test(.parksThreads(3),
-          .enabled(if: ProcessInfo.processInfo.activeProcessorCount > 3,
+          .enabled(if: cooperativePoolWidth > 3,
                    "three walks held at once leave a three-core pool nothing to run the rest on"))
     func testStaleRefreshUnwindKeepsNewerSameKeyRefreshDeduped() async throws {
         final class CompletionFlag { var done = false }

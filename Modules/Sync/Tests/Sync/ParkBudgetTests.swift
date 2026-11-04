@@ -236,6 +236,14 @@ import Testing
                 "let expired = !release.wait(until: TurnDeadline(seconds: timeout, turns: turns))",   // ParkGate.park
                 "if !release.wait(until: TurnDeadline(seconds: 10, turns: parkTurnFloor)) {",         // FirstStatGate
                 "if self.wait(timeout: .now() + 0.05) == .success { return true }",   // wait(until:)'s slice
+                // SYNC_TESTS_POOL_WIDTH's hold: a pool thread kept from the run on purpose, so the
+                // pool is as narrow as a hosted runner's. Never reached without that variable.
+                "private func holdAPoolThreadForTheRun() { DispatchSemaphore(value: 0).wait() }",
+            ],
+            // The right side's first cancel check, waiting to be cancelled: it blocks the read's
+            // pool thread, bounded at 10 s, and its test declares `.parksAThread`.
+            "FileContentVerifierTests.swift": [
+                "while !Task.isCancelled && Date() < deadline { usleep(1000) }",
             ],
             "DeepFolderIdentityTests.swift": [
                 "if !release.wait(until: TurnDeadline(seconds: 10, turns: parkTurnFloor)) {",   // FirstAttributesGate
@@ -318,7 +326,7 @@ import Testing
             for raw in text.components(separatedBy: "\n") {
                 let line = raw.trimmingCharacters(in: .whitespaces)
                 guard !line.hasPrefix("//") && !line.hasPrefix("///") else { continue }
-                let blocks = line.contains("Thread.sleep(forTimeInterval:")
+                let blocks = line.contains("Thread.sleep(forTimeInterval:") || line.contains("usleep(")
                     || line.contains("enumeratorDelay = ")
                     || (line.contains(".wait(") && !line.contains("await ") && !line.contains("waitUntil"))
                 if blocks { found[name, default: []].insert(line) }
