@@ -188,7 +188,7 @@ import Testing
     private static let threadBlockingGates = [
         "ParkGate", "FirstStatGate", "FirstOpGate", "FirstAttributesGate",
         "GatedFileManager", "GateFileManager", "DestinationStatGate", "BarrierCancelGate",
-        "GatedWalkFileManager", "GatingFileManager", "SamplerObservedTrash",
+        "GatedWalkFileManager", "GatingFileManager", "SamplerObservedTrash", "LeftStatGate",
     ]
 
     /// **Rot #1: a new gated test that forgets the trait.** It would pass on its own and go on
@@ -240,9 +240,11 @@ import Testing
                 // pool is as narrow as a hosted runner's. Never reached without that variable.
                 "private func holdAPoolThreadForTheRun() { DispatchSemaphore(value: 0).wait() }",
             ],
-            // The right side's first cancel check, waiting to be cancelled: it blocks the read's
-            // pool thread, bounded at 10 s, and its test declares `.parksAThread`.
+            // `LeftStatGate`'s stat, waiting for the right side's first check, and that check,
+            // waiting to be cancelled: each blocks a read's pool thread for milliseconds, until
+            // another pool thread ends it. Bounded at 10 s; its test declares `.parksAThread`.
             "FileContentVerifierTests.swift": [
+                "if p == path, rightIsChecking.wait(timeout: .now() + 10) == .timedOut {",
                 "while !Task.isCancelled && Date() < deadline { usleep(1000) }",
             ],
             "DeepFolderIdentityTests.swift": [

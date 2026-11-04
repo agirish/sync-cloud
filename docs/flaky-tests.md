@@ -1801,6 +1801,13 @@ on three threads, which the floor of 1 rules out. Dropping `usleep(` from the sc
 A reservation wider than the budget is still admitted alone: on a 3-wide pool a `.parksThreads(2)`
 test leaves one thread, and a long synchronous test can still take that one.
 
+**2026-11-03, later: the usleep wait ends at the stop.** `onHashLane` now cancels its detached
+task as well as setting its flag, so `Task.isCancelled` inside the lane is true once the caller is
+stopped. The test's left stat waits (`LeftStatGate`) until the right side is inside its check, so
+the stop always lands mid-wait, and the wait takes milliseconds instead of 10 s. It still declares
+`.parksAThread`: each of its two waits needs another pool thread to end it. Removing the stop, or
+either of `onHashLane`'s cancels, turns it red after its 10 s bound.
+
 ---
 
 ### 11. Five palette tests the fixture dismissed out from under itself — FIXED

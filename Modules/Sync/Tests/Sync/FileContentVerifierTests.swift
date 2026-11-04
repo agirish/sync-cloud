@@ -123,36 +123,74 @@ import CryptoKit
     }
 
     /// The first side that cannot be hashed stops the other: the answer is nil either way. The
-    /// left is missing and fails at once; the right's first check waits — bounded — to be
-    /// cancelled. Without the stop it waits out its bound and the file is read whole and cached.
+    /// left is missing, and its stat waits until the right is inside its first check, which then
+    /// waits — bounded — to be cancelled. So the stop always lands mid-wait. Without the stop the
+    /// check waits out its bound and the file is read whole and cached.
     ///
-    /// **In practice it always waits out the 10 s.** The check runs on the hash lane's detached
-    /// task, whose `Task.isCancelled` stays false: the stop reaches the read as `callerCancelled`,
-    /// which this closure cannot see. So the wait holds a pool thread for its whole bound, and it is
-    /// a park. Undeclared, it and two other parks held all three of a hosted runner's pool threads,
-    /// and the other two waited out their bounds too (2026-11-03).
+    /// **The wait ends at the stop, not its bound.** The check runs on the hash lane's detached
+    /// task, which `onHashLane` cancels along with its flag. Before it did, `Task.isCancelled` here
+    /// stayed false and every run that reached the check waited the whole 10 s on a pool thread;
+    /// with two other parks it held all three of a hosted runner's (2026-11-03). Now each of the two
+    /// waits takes milliseconds, but each still needs another pool thread to end it, so it reserves.
     @Test(.parksAThread) func aPairWithAnUnhashableSideStopsReadingTheOther() async throws {
         let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
+        let left = dir.appendingPathComponent("missing").path
         let right = dir.appendingPathComponent("long.bin")
         try sparseFile(at: right, size: 5 * 4 * 1024 * 1024, bytes: [0: 1])
         let cache = ContentHashCache()
+        let gate = LeftStatGate(path: left)
 
         let waited = LockedBox(false)
+        let waitedOutItsBound = LockedBox(false)
         let same = await FileContentVerifier.filesHaveSameContent(
-            leftPath: dir.appendingPathComponent("missing").path, rightPath: right.path, cache: cache,
+            leftPath: left, rightPath: right.path, fileManager: gate, cache: cache,
             isCancelled: {
-                // Only the first check waits, so a failing run costs one bound, not one per chunk.
+                // Only the right asks — the left fails at its stat — and only its first check
+                // waits, so a failing run costs one bound, not one per chunk.
                 if !waited.withLock({ let first = !$0; $0 = true; return first }) { return false }
+                gate.rightIsChecking.signal()
                 let deadline = Date().addingTimeInterval(10)
                 while !Task.isCancelled && Date() < deadline { usleep(1000) }
+                if !Task.isCancelled { waitedOutItsBound.withLock { $0 = true } }
                 return false
             })
         #expect(same == nil)
-        // The cache is the witness: unstopped, the right side is read to the end and stored. Not
-        // whether its check saw the cancel — the cancel can land before the right side's first
-        // check, which then never asks; either way it must not have been read whole.
+        #expect(!gate.releasedByTimeout, "the right side never reached its first check")
+        // The stop reached the lane's own task, not only its flag.
+        #expect(!waitedOutItsBound.withLock { $0 })
+        // Unstopped, the right side is read to the end and stored.
         #expect(await cache.count == 0)
+    }
+
+    /// A caller cancelled before it reaches the hash lane cancels the lane's task too, though the
+    /// cancel lands before there is a task to cancel. The pair test above pins a cancel that lands
+    /// mid-read; through `hashOutcome` this one is unobservable, since its flag answers first.
+    @Test func aCallerCancelledBeforeTheHashLaneCancelsItsTaskToo() async {
+        let caller = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await FileContentVerifier.onHashLane { _ in Task.isCancelled }
+        }
+        #expect(await caller.value)
+    }
+
+    /// Holds the stat of `path`, a missing file whose hash fails there, until the right side's
+    /// first check signals — so the left's failure, and the stop it sends, comes after the right
+    /// is waiting for it. Bounded; check `releasedByTimeout`.
+    private final class LeftStatGate: FileManager, @unchecked Sendable {
+        let path: String
+        let rightIsChecking = DispatchSemaphore(value: 0)
+        private let timedOut = LockedBox(false)
+        var releasedByTimeout: Bool { timedOut.withLock { $0 } }
+
+        init(path: String) { self.path = path; super.init() }
+
+        override func attributesOfItem(atPath p: String) throws -> [FileAttributeKey: Any] {
+            if p == path, rightIsChecking.wait(timeout: .now() + 10) == .timedOut {
+                timedOut.withLock { $0 = true }
+            }
+            return try super.attributesOfItem(atPath: p)
+        }
     }
 
     /// `filesHaveSameContent` hands its `isCancelled` to both reads: a stop answers nil, asks the

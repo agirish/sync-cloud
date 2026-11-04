@@ -14373,3 +14373,20 @@ nothing is owed; a downgrade from v7.0 to a line keeps Graphite, which every lin
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Slate offered | CLOSED — doesn't apply |
+
+## The hash lane's own task is cancelled with its caller — main only
+
+2026-11-03, for v7.0. On `main`: `FileContentVerifier.onHashLane` cancels its detached task when
+the caller is cancelled, not only the flag the read asks, so `Task.isCancelled` inside a hash is
+honest. No user-visible change: every check in the read asks the flag first. No maintenance line
+has `onHashLane`, or any forwarded cancel to the hash:
+
+```sh
+for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileContentVerifier.swift 2>/dev/null | grep -c 'func onHashLane')"; done
+# measured 2026-11-03, against origin, before this landed: main 1, every other line 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No hash lane | CLOSED — does not apply |

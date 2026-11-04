@@ -184,23 +184,28 @@ public enum FileContentVerifier {
     /// Runs `body` on the hash lane: a `.utility` detached task, so blocking reads leave the
     /// caller's actor (most callers are the main actor) and run at the lane's priority, not the
     /// caller's. Detached tasks do not inherit cancellation, so it is forwarded by hand, as
-    /// `callerCancelled`, which `body` asks before each read.
+    /// `callerCancelled`, which `body` asks before each read, and by cancelling the detached task,
+    /// so `Task.isCancelled` inside the lane tells the truth too.
     ///
     /// **The handler is in place before the task exists.** Cancelling the caller flips the flag
     /// inside `Task.cancel()` itself, so the read's next check sees it. Spawning first and then
     /// entering `withTaskCancellationHandler` left a window: a cancel landing before the caller
     /// got back to install the handler reached the read only once the caller was scheduled again,
     /// and on a loaded machine the read went on a chunk or more past it (CI run 41398007119).
-    private static func onHashLane<T: Sendable>(
+    /// A cancel that lands before the task is stored finds no task to cancel, so the spawn
+    /// cancels it itself; the flag covers the read's checks in between.
+    static func onHashLane<T: Sendable>(
         _ body: @escaping @Sendable (_ callerCancelled: @escaping @Sendable () -> Bool) async -> T
     ) async -> T {
-        let cancelled = OSAllocatedUnfairLock(initialState: false)
+        let state = OSAllocatedUnfairLock(initialState: (cancelled: false, task: Task<T, Never>?.none))
         return await withTaskCancellationHandler {
-            await Task.detached(priority: .utility) {
-                await body { cancelled.withLock { $0 } }
-            }.value
+            let task = Task.detached(priority: .utility) {
+                await body { state.withLock { $0.cancelled } }
+            }
+            if state.withLock({ $0.task = task; return $0.cancelled }) { task.cancel() }
+            return await task.value
         } onCancel: {
-            cancelled.withLock { $0 = true }
+            state.withLock { $0.cancelled = true; return $0.task }?.cancel()
         }
     }
 
