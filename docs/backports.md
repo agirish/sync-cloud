@@ -14467,3 +14467,15 @@ text", so its button says All Content. Ask Claude exists only on `main`.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Ask Claude holds lookups beyond the screen; found cards become a table (TE323) — main only
+
+2026-11-04, for v7.0. On `main`: `find_by_name` and `list_folder` outside the folder on screen and
+its subfolders send Claude only the count, and the names wait on the found-names card, unless the
+folder is shared without asking or the chat's new "Share names without asking" tick is on. Every
+found card is now a table with Share Details and Customize… (file and detail ticks). Ask Claude
+exists only on `main`.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

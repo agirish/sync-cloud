@@ -64,6 +64,20 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         /// Apple Intelligence's answers go without a card for the rest of this chat (his call on
         /// TE321, the card's tick); page text and whole documents still ask.
         var sharesAnswers = false
+        /// Lookups beyond the folder on screen go without a card for the rest of this chat (the
+        /// lookup card's tick, TE323).
+        var sharesNames = false
+        /// Whether a folder is the one on screen or inside it (his call on TE323): its names are
+        /// there to see, so a lookup in it goes as before. Any other waits on a card.
+        func isOnScreen(_ relative: String) -> Bool {
+            let here = folder.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+            let there = relative.lowercased()
+            return here.isEmpty || there == here || there.hasPrefix(here + "/")
+        }
+        /// Whether a lookup's names go without a card: on screen, shared, or ticked for the chat.
+        func lookupGoes(_ folder: (absolute: String, relative: String, label: String)) -> Bool {
+            !isHidden(folder.absolute) && (isOnScreen(folder.relative) || sharesNames || sharesFreely(folder.absolute))
+        }
         /// The pane's tabs, the one on screen first, and how to switch or open one (TE242).
         var tabs: [Tab] = []
         var switchTab: (_ id: UUID) -> Void = { _ in }
@@ -632,15 +646,46 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         let items = everything.filter { !ctx.isHidden($0.id) }
         let from = max(0, call.int("from") ?? 0)
         let page = items.dropFirst(from).prefix(Self.maxListed)
+        let goes = ctx.lookupGoes(folder)
         var lines = ["folder: \(AskClaudeScreenCard.escape(folder.label)) · \(items.count) items",
-                     "rows: handle|name|kind|size|modified|tags"]
-        lines += page.map { AskClaudeScreenCard.row(for: Self.row($0), handles: &handles) }
+                     "rows: handle|name|kind|size|modified|tags" + (goes ? "" : "|folder")]
+        let header = lines.joined(separator: "\n")
+        let files = goes ? [] : page.map { foundFile($0, ctx) }
+        lines += goes ? page.map { AskClaudeScreenCard.row(for: Self.row($0), handles: &handles) } : files.map(\.row)
         let rest = items.count - from - page.count
         if rest > 0 { lines.append("\(rest) more; call again with from \(from + page.count).") }
         if everything.count > items.count { lines.append("\(everything.count - items.count) more hidden from Claude by them.") }
-        return AskClaudeToolOutcome(result: lines.joined(separator: "\n"),
-                                    step: "Listed \(folder.label) · \(items.count) item\(items.count == 1 ? "" : "s")")
+        let step = "Listed \(folder.label) · \(items.count) item\(items.count == 1 ? "" : "s")"
+        guard goes || page.isEmpty else {
+            // TE323: a folder they aren't looking at says what's in it by its names alone, so they
+            // wait on a card, as a search inside files does (decision IV).
+            let found = AskClaudeFoundNames(words: "", folderLabel: folder.label, names: page.map(\.name), count: items.count,
+                                            rows: lines.joined(separator: "\n"), paths: page.map(\.id), files: files,
+                                            header: header, source: .listing)
+            return AskClaudeToolOutcome(result: Self.heldNames("\(AskClaudeScreenCard.escape(folder.label)) holds \(Self.count(items.count, "item")), on their Mac."),
+                                        step: step, found: found)
+        }
+        return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: step)
     }
+
+    /// A file held on a card (TE320, TE323): its row with its folder, as Share Details sends it,
+    /// but no handle yet. Handles run r1, r2, r3, so one minted now could be guessed and asked
+    /// about before they share; `AskClaudeChat.takeFound` mints it with the share.
+    private func foundFile(_ node: FileNode, _ ctx: Context) -> AskClaudeFoundNames.File {
+        let where_ = Self.relative((node.id as NSString).deletingLastPathComponent, root: ctx.root)
+        let folder = where_.isEmpty ? "(top level)" : where_
+        var scratch = AskClaudeHandles()
+        let minted = AskClaudeScreenCard.row(for: Self.row(node), handles: &scratch)
+        let row = String(minted.drop { $0 != "|" }) + "|" + AskClaudeScreenCard.escape(folder)
+        return .init(name: node.name, folder: folder, modified: node.modificationDate, row: row, path: node.id)
+    }
+
+    /// What Claude is told of names held on a card: how many, and what to do until they share.
+    static func heldNames(_ found: String) -> String {
+        found + " Their names weren’t sent to you: they’re shown the list and can share it. In one short sentence, say what you would do with them if they share it, and stop. If they share it, it arrives as their next message."
+    }
+
+    static func count(_ n: Int, _ noun: String) -> String { n == 1 ? "1 \(noun)" : "\(n) \(noun)s" }
 
     private func findByName(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
         let words = (call.string("words") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
@@ -710,17 +755,29 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
         var lines = ["\(total) match\(total == 1 ? "" : "es") under \(AskClaudeScreenCard.escape(folder.label)), newest period first:",
                      "rows: handle|name|kind|size|modified|tags|folder"]
-        lines += hits.map { node in
+        let header = lines.joined(separator: "\n")
+        let goes = ctx.lookupGoes(folder)
+        let files = goes ? [] : hits.map { foundFile($0, ctx) }
+        lines += goes ? hits.map { node in
             let where_ = Self.relative((node.id as NSString).deletingLastPathComponent, root: ctx.root)
             return AskClaudeScreenCard.row(for: Self.row(node), handles: &handles) + "|" + AskClaudeScreenCard.escape(where_.isEmpty ? "(top level)" : where_)
-        }
+        } : files.map(\.row)
         if total > hits.count { lines.append("\(total - hits.count) more not listed; narrow the words or the folder.") }
         if kept.contains(where: { setAside[$0.id] == true }) {
             lines.append("Rows under an Archive or Backup folder are listed last: they are usually older copies.")
         }
         lines.append("If they asked to find or show something, reveal the best row now, without asking.")
-        return AskClaudeToolOutcome(result: lines.joined(separator: "\n"),
-                                    step: "Found \(total) for “\(label)”")
+        let step = "Found \(total) for “\(label)”"
+        guard goes else {
+            // TE323: names found beyond the folder on screen wait on a card for their click.
+            let found = AskClaudeFoundNames(words: label, folderLabel: folder.label, names: hits.map(\.name), count: total,
+                                            rows: lines.joined(separator: "\n"), paths: hits.map(\.id), files: files, header: header,
+                                            source: .names, fromIndex: searchedIndex, allFiles: !hits.contains(where: \.isDirectory))
+            let who = searchedIndex ? "Spotlight found" : "The folders the pane has opened hold"
+            return AskClaudeToolOutcome(result: Self.heldNames("\(who) \(total) match\(total == 1 ? "" : "es") for “\(label)” under \(AskClaudeScreenCard.escape(folder.label)), on their Mac."),
+                                        step: step, found: found)
+        }
+        return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: step)
     }
 
     private func fileDetails(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: AskClaudeHandles) -> AskClaudeToolOutcome {
@@ -1435,9 +1492,12 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         let readUntil = Date().addingTimeInterval(30)
         for (index, node) in nodes.prefix(Self.maxFound).enumerated() {
             let where_ = Self.relative((node.id as NSString).deletingLastPathComponent, root: ctx.root)
+            guard free else {
+                files.append(foundFile(node, ctx))
+                lines.append(files[files.count - 1].row)
+                continue
+            }
             var line = AskClaudeScreenCard.row(for: Self.row(node), handles: &handles) + "|" + AskClaudeScreenCard.escape(where_.isEmpty ? "(top level)" : where_)
-            files.append(.init(name: node.name, folder: where_.isEmpty ? "(top level)" : where_, modified: node.modificationDate,
-                               row: line, path: node.id))
             // The matching line goes out only with the switch on (his TE239 call), for the first ten.
             // Never a cloud-only file over the download limit: reading it would fetch it.
             let fetches = largeCloudOnly(node, node.id) != nil

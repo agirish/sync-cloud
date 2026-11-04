@@ -145,6 +145,23 @@ public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
     public var unticked: [String]?
     /// Whether what went was the names alone (Share Names Only).
     public var namesOnly: Bool?
+    /// **What found them** (TE323): a search inside files (nil, as every card before), or a
+    /// lookup beyond the folder on screen — a name search or a folder's listing.
+    public let source: Source?
+    /// Whether Spotlight answered a name search; false when the pane's opened folders did.
+    public let fromIndex: Bool?
+    /// Whether every one is a file; a lookup can find folders too, which the card calls items.
+    public let allFiles: Bool?
+    /// Customize is open (his call on TE323): the table gives way to ticks for files and details.
+    public var customizing: Bool?
+    /// The details they left out under Customize, by key (`detailKeys`); names always go.
+    public var omitted: [String]?
+
+    /// The details a file can go with, in the order the card shows and the rows send them.
+    public static let detailKeys = ["folder", "kind", "size", "date", "tags"]
+
+    /// The details Customize sends: every one but those left out.
+    public var chosenDetails: [String] { Self.detailKeys.filter { !(omitted ?? []).contains($0) } }
 
     public struct File: Codable, Equatable, Sendable {
         public let name: String
@@ -162,10 +179,26 @@ public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
             self.row = row
             self.path = path
         }
+
+        /// The row with only the details chosen (TE323): its name, then each detail in `detailKeys`
+        /// order, and no handle. The row's parts are handle|name|kind|size|modified|tags|folder
+        /// (the handle empty until shared), and a part never holds a pipe (`AskClaudeScreenCard.escape`).
+        public func row(with details: [String]) -> String {
+            let parts = row.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+            let at = ["kind": 2, "size": 3, "date": 4, "tags": 5, "folder": 6]
+            let picked = AskClaudeFoundNames.detailKeys.filter(details.contains).map { key in
+                at[key].flatMap { $0 < parts.count ? parts[$0] : nil } ?? ""
+            }
+            return ([parts.count > 1 ? parts[1] : ""] + picked).joined(separator: "|")
+        }
+    }
+
+    public enum Source: String, Codable, Sendable {
+        case names, listing
     }
 
     public init(words: String, folderLabel: String, names: [String], count: Int, rows: String, paths: [String],
-                files: [File]? = nil, header: String? = nil) {
+                files: [File]? = nil, header: String? = nil, source: Source? = nil, fromIndex: Bool? = nil, allFiles: Bool? = nil) {
         self.words = words
         self.folderLabel = folderLabel
         self.names = names
@@ -174,6 +207,31 @@ public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
         self.paths = paths
         self.files = files
         self.header = header
+        self.source = source
+        self.fromIndex = fromIndex
+        self.allFiles = allFiles
+    }
+
+    /// "file" or "item": a lookup that found a folder calls them items, as a listing does.
+    public var noun: String { source == .listing || allFiles == false ? "item" : "file" }
+
+    /// What they are, after their count, for the share and the thread: “whose text mentions
+    /// “x””, “matching “x” under Travel”, “in Medical”.
+    public var subject: String {
+        switch source {
+        case nil: "whose text mentions “\(words)”"
+        case .names: "matching “\(words)” under \(folderLabel)"
+        case .listing: "in \(folderLabel)"
+        }
+    }
+
+    /// The same, short, for the thread's line once shared: “mentioning “x””, “named “x””.
+    public var brief: String {
+        switch source {
+        case nil: "mentioning “\(words)”"
+        case .names: "named “\(words)”"
+        case .listing: "in \(folderLabel)"
+        }
     }
 
     /// The files still ticked: every one listed, less those unticked.

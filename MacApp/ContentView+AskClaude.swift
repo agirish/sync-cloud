@@ -56,7 +56,6 @@ extension ContentView {
                               onSendOffer: { id, part in
                                   let offer = switch part {
                                   case .names: askClaudeChat.takeFound(id)
-                                  case .namesOnly: askClaudeChat.takeFound(id, namesOnly: true)
                                   default: askClaudeChat.takeOffer(id, part)
                                   }
                                   guard let offer else { return }
@@ -729,6 +728,7 @@ extension ContentView {
             readsFiles: AskClaudePrivacy.readsFiles(in: .standard),
             shared: AskClaudePrivacy.sharedFolders(in: .standard),
             sharesAnswers: askClaudeChat.sharesAnswers,
+            sharesNames: askClaudeChat.sharesNames,
             tabs: askClaudeTabs,
             switchTab: { selectTab(id: $0, isLeft: true) },
             addTab: { openInNewTab(absolutePath: $0, isLeft: true) },

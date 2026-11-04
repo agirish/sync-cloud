@@ -54,13 +54,16 @@ import FileExplorer
                        root: String = AskClaudeBrowseToolsTests.root, recorder: Recorder = Recorder(),
                        disk: [String: [FileNode]] = [:], spotlight: [String]? = nil, extra: [FileNode] = [],
                        moveAfter: Duration? = nil, settingsLookup: SettingsLookup? = nil, chatIsOpen: Bool = true,
-                       setSetting: ((String, SettingValue, String?) -> SettingsWriter.Outcome)? = nil) -> AskClaudeBrowseTools {
+                       setSetting: ((String, SettingValue, String?) -> SettingsWriter.Outcome)? = nil,
+                       lookupsGo: Bool = true, shared: [String] = []) -> AskClaudeBrowseTools {
+        // Lookups beyond the folder on screen go, as with the card's tick (TE323): these tests are
+        // about what a lookup finds; `aLookupBeyondTheScreenWaitsOnACard` is about the card.
         var map: [String: FileNode] = [:]
         Self.index(Self.tree + extra, into: &map)
         let scope = root
         if recorder.folder == nil { recorder.folder = folder }
         return AskClaudeBrowseTools(context: {
-            AskClaudeBrowseTools.Context(
+            var ctx = AskClaudeBrowseTools.Context(
                 inBrowse: inBrowse, sourceName: "iCloud Drive", root: root, folder: recorder.folder ?? folder, sort: .name,
                 items: { path in
                     if path == scope { return Self.tree }
@@ -83,6 +86,9 @@ import FileExplorer
                 settingsLookup: settingsLookup,
                 chatIsOpen: chatIsOpen,
                 setSetting: setSetting ?? { _, _, _ in .refused("Settings can’t be changed here.") })
+            ctx.sharesNames = lookupsGo
+            ctx.shared = shared
+            return ctx
         }, listDisk: { disk[$0] }, searchNames: { _, _ in spotlight }, statDisk: { _ in nil },
            openFile: { recorder.opened.append($0); return true })
     }
@@ -933,6 +939,7 @@ import FileExplorer
         #expect(found.files?.count == 2 && found.files?.allSatisfy { $0.folder == "Documents/Taxes" } == true)
         #expect(found.files?.first { $0.name == "Biopsy results.txt" }?.row.contains("Biopsy results.txt") == true)
         #expect(found.header?.hasPrefix("2 files under") == true)
+        #expect(handles.count == 0 && found.files?.allSatisfy { $0.row.hasPrefix("|") } == true)
         #expect(Set(found.paths) == [receipt, biopsy])
         let on = await runner(readsFiles: true).run(search, handles: &handles)
         #expect(on.found == nil && on.result.contains("Biopsy results.txt") && on.result.contains("benign"))
@@ -978,6 +985,52 @@ import FileExplorer
         #expect(ticked.result.contains("The total is $84.10.") && !ticked.result.contains("for the tent"))
         #expect(ticked.passage?.autoShared == .answerForThisChat && ticked.passage?.answerSent == true)
         #expect(ticked.step == "Read Receipt REI 2025.pdf on this Mac · shared its answer")
+    }
+
+    /// **A lookup beyond the folder on screen waits on a card** (his call on TE323): a name search
+    /// or a listing elsewhere sends Claude only how many; the card holds the rows. On screen and
+    /// below it, in a folder shared without asking, or with the chat's tick, the rows go as before.
+    @Test func aLookupBeyondTheScreenWaitsOnACard() async throws {
+        var handles = AskClaudeHandles()
+        let held = tools(lookupsGo: false)
+        let search = call("find_by_name", ["words": .string("receipt 2025"), "folder": .string("Documents")])
+        let elsewhere = await held.run(search, handles: &handles)
+        // Nothing minted: a handle could be guessed and asked about before they share.
+        #expect(handles.count == 0 && elsewhere.found?.files?.allSatisfy { $0.row.hasPrefix("|") } == true)
+        #expect(elsewhere.result.hasPrefix("The folders the pane has opened hold 2 matches for “receipt 2025” under Documents, on their Mac."))
+        #expect(elsewhere.result.contains("Their names weren’t sent to you") && !elsewhere.result.contains("Costco"))
+        let found = try #require(elsewhere.found)
+        #expect(found.source == .names && found.fromIndex == false && found.count == 2 && found.files?.count == 2)
+        #expect(found.rows.contains("Receipt Costco 2025.pdf|PDF document|1 KB|") && found.rows.contains("|Documents/Taxes"))
+        #expect(AskClaudeHeldAnswer.foundTitle(found) == "SyncCloud found 2 files named “receipt 2025” in Documents, among the folders it has opened:")
+        #expect(elsewhere.step == "Found 2 for “receipt 2025”")
+        // On screen, or below it: the rows go.
+        let here = await held.run(call("find_by_name", ["words": .string("receipt 2025")]), handles: &handles)
+        #expect(here.found == nil && here.result.contains("Receipt Costco 2025.pdf"))
+        let mine = await held.run(call("list_folder", ["folder": .string("Documents/Taxes")]), handles: &handles)
+        #expect(mine.found == nil && mine.result.contains("|Receipt Costco 2025.pdf|"))
+        let below = await tools(folder: "Documents", lookupsGo: false)
+            .run(call("list_folder", ["folder": .string("Documents/Taxes")]), handles: &handles)
+        #expect(below.found == nil && below.result.contains("|Receipt Costco 2025.pdf|"))
+        // A listing elsewhere: how many, and the card.
+        let archived = [Self.file("Documents/Archive/2019 Return.pdf")]
+        let archive = await tools(disk: [Self.root + "/Documents/Archive": archived], lookupsGo: false)
+            .run(call("list_folder", ["folder": .string("Documents/Archive")]), handles: &handles)
+        #expect(archive.result.hasPrefix("Documents/Archive holds 1 item, on their Mac.") && !archive.result.contains("2019"))
+        let listing = try #require(archive.found)
+        #expect(listing.source == .listing && listing.noun == "item" && listing.files?.first?.folder == "Documents/Archive")
+        #expect(AskClaudeHeldAnswer.foundTitle(listing) == "Documents/Archive holds 1 item, on this Mac:")
+        #expect(listing.header?.hasSuffix("rows: handle|name|kind|size|modified|tags|folder") == true)
+        // Shared without asking, or the chat's tick: the rows go.
+        let shared = await tools(lookupsGo: false, shared: [Self.root + "/Documents"]).run(search, handles: &handles)
+        #expect(shared.found == nil && shared.result.contains("Receipt Costco 2025.pdf"))
+        let ticked = await tools(lookupsGo: true).run(search, handles: &handles)
+        #expect(ticked.found == nil && ticked.result.contains("Receipt Costco 2025.pdf"))
+        // Spotlight's answer is credited to it.
+        let hit = Self.root + "/Documents/Taxes/Receipt Costco 2025.pdf"
+        let indexed = await tools(spotlight: [hit], lookupsGo: false).run(search, handles: &handles)
+        #expect(indexed.result.hasPrefix("Spotlight found 1 match for “receipt 2025” under Documents, on their Mac."))
+        #expect(indexed.found.map(AskClaudeHeldAnswer.foundTitle) == "Spotlight found 1 file named “receipt 2025” in Documents, on this Mac:")
     }
 
     @Test func movesWaitForTheWindowAndSidesAreCompares() async {
@@ -2166,20 +2219,28 @@ private final class NoTools: AskClaudeToolRunning {
         let card = try #require(chat.items.first { if case .found = $0.kind { true } else { false } })
         guard case .found(let found) = card.kind else { return }
         #expect(AskClaudeHeldAnswer.foundTitle(found) == "Spotlight found 8 files mentioning “diagnosis” in iCloud › Medical, on this Mac:")
-        #expect(AskClaudeHeldAnswer.foundShareButton(ticked: 8, namesOnly: false, sent: false) == "Share 8 Names with File Details")
-        // A file left out goes by neither share (his call on TE320); a tick after the share does nothing.
+        #expect(AskClaudeHeldAnswer.foundFoot(found, ticked: 8)
+                == "Not shared yet. Share Details sends each file’s name, folder, kind, size, date and tags. No file content.")
+        // A file left out under Customize goes by no share (his calls on TE320, TE323); a tick
+        // after the share does nothing.
         let biopsy = "/Users/me/Medical/Biopsy results.pdf"
+        chat.editFound(card.id, .customize(true))
         chat.tickFound(card.id, biopsy)
         guard case .found(let picked)? = chat.items.first(where: { $0.id == card.id })?.kind else { return }
-        #expect(picked.ticked.count == 7 && AskClaudeHeldAnswer.foundShareButton(ticked: 7, namesOnly: true, sent: false) == "Share 7 Names Only")
+        #expect(picked.ticked.count == 7)
+        #expect(AskClaudeHeldAnswer.customShareButton(ticked: 7, details: picked.chosenDetails, noun: picked.noun) == "Share 7 Files with All Details")
         let shared = try #require(chat.takeFound(card.id))
         #expect(shared.question.contains("Here are 7 of the 8 files whose text mentions “diagnosis” (I left the others out)"))
-        #expect(shared.question.contains("r2|Referral.pdf") && !shared.question.contains("Biopsy"))
+        // Each row gets its handle with the share, and only then (TE323).
+        #expect(shared.question.range(of: #"\nr\d+\|Referral\.pdf\|PDF\|"#, options: .regularExpression) != nil && !shared.question.contains("Biopsy"))
         #expect(shared.shown == "Shared 7 files mentioning “diagnosis”")
         #expect(chat.takeFound(card.id)?.question == nil)
         chat.tickFound(card.id, biopsy)
         guard case .found(let after)? = chat.items.first(where: { $0.id == card.id })?.kind else { return }
         #expect(after.ticked.count == 7 && AskClaudeHeldAnswer.foundFoot(after, ticked: 7) == "Claude has the list you shared.")
+        chat.editFound(card.id, .customize(false))
+        guard case .found(let still)? = chat.items.first(where: { $0.id == card.id })?.kind else { return }
+        #expect(still.customizing == true)
         let later = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
                                   readKey: { "k" }, keyChanges: center)
         later.ask("which files mention my diagnosis?", screen: screen, tools: FindsNames()); await waitUntilIdle(later)
@@ -2191,30 +2252,69 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(!later.items.contains { if case .found = $0.kind { true } else { false } })
     }
 
-    /// **Share Names Only sends the ticked names and nothing else about them** (his call on
-    /// TE320), and with every file unticked neither share sends anything.
-    @Test func namesOnlySendsJustTheTickedNames() async throws {
+    /// **Customize sends only the files and details still ticked** (his call on TE323): names
+    /// always go; with every detail unticked, the names alone; with no file ticked, nothing; Share
+    /// Details, after Cancel, every file with every detail.
+    @Test func customizeSendsOnlyTheTickedFilesAndDetails() async throws {
         let d = defaults()
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
-                                 readKey: { "k" }, keyChanges: NotificationCenter())
-        chat.ask("which files mention my diagnosis?", screen: screen, tools: FindsNames()); await waitUntilIdle(chat)
-        let card = try #require(chat.items.first { if case .found = $0.kind { true } else { false } })
-        guard case .found(let found) = card.kind, let files = found.files else { return }
-        chat.tickFound(card.id, files[0].path)
-        let names = try #require(chat.takeFound(card.id, namesOnly: true))
-        #expect(names.question.contains("- Referral.pdf") && !names.question.contains("Biopsy"))
-        #expect(!names.question.contains("Medical/2026") && !names.question.contains("r2|"))
-        #expect(names.shown == "Shared the names of 7 files mentioning “diagnosis”")
-        guard case .found(let sent)? = chat.items.first(where: { $0.id == card.id })?.kind else { return }
-        #expect(AskClaudeHeldAnswer.foundShareButton(ticked: 7, namesOnly: true, sent: true) == "Names Shared" && sent.namesOnly == true)
-        #expect(AskClaudeHeldAnswer.foundFoot(sent, ticked: 7) == "Claude has the names you shared.")
-        // Nothing ticked: nothing to send.
-        let empty = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
-                                  readKey: { "k" }, keyChanges: NotificationCenter())
-        empty.ask("which files mention my diagnosis?", screen: screen, tools: FindsNames()); await waitUntilIdle(empty)
-        let none = try #require(empty.items.first { if case .found = $0.kind { true } else { false } }?.id)
-        for file in files { empty.tickFound(none, file.path) }
-        #expect(empty.takeFound(none)?.question == nil && empty.takeFound(none, namesOnly: true)?.question == nil)
+        func card() async throws -> (AskClaudeChat, UUID, [AskClaudeFoundNames.File]) {
+            let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
+                                     readKey: { "k" }, keyChanges: NotificationCenter())
+            chat.ask("which files mention my diagnosis?", screen: screen, tools: FindsNames()); await waitUntilIdle(chat)
+            let card = try #require(chat.items.first { if case .found = $0.kind { true } else { false } })
+            guard case .found(let found) = card.kind, let files = found.files else { throw CancellationError() }
+            return (chat, card.id, files)
+        }
+        func state(_ chat: AskClaudeChat, _ id: UUID) -> AskClaudeFoundNames? {
+            if case .found(let found)? = chat.items.first(where: { $0.id == id })?.kind { return found }
+            return nil
+        }
+        // Folder and date only.
+        let (chat, id, files) = try await card()
+        chat.editFound(id, .customize(true))
+        chat.tickFound(id, files[0].path)
+        for key in ["kind", "size", "tags"] { chat.editFound(id, .detail(key)) }
+        let some = try #require(state(chat, id))
+        #expect(some.chosenDetails == ["folder", "date"])
+        #expect(AskClaudeHeldAnswer.customShareButton(ticked: 7, details: some.chosenDetails, noun: some.noun) == "Share 7 Files with Folder and Date")
+        #expect(AskClaudeHeldAnswer.customizeFoot(ticked: 7, details: some.chosenDetails)
+                == "Not shared yet. Claude gets 7 names, each with its folder and date. No file content.")
+        let picked = try #require(chat.takeFound(id))
+        #expect(picked.question.contains("Here are 7 of the 8 files whose text mentions “diagnosis” (I left the others out), with only their folder and date, and no handles"))
+        // No handle: through file_details one would tell Claude every detail left out.
+        #expect(picked.question.contains("rows: name|folder|modified\nReferral.pdf|Medical/2026|2026-03-01\n"))
+        #expect(picked.question.range(of: #"\nr\d+\|"#, options: .regularExpression) == nil)
+        #expect(!picked.question.contains("PDF|") && !picked.question.contains("1 KB") && !picked.question.contains("Biopsy"))
+        #expect(picked.shown == "Shared 7 files mentioning “diagnosis”")
+        // Every detail unticked: the names alone.
+        let (bare, bareID, _) = try await card()
+        bare.editFound(bareID, .customize(true))
+        for key in AskClaudeFoundNames.detailKeys { bare.editFound(bareID, .detail(key)) }
+        #expect(AskClaudeHeldAnswer.customShareButton(ticked: 8, details: [], noun: "file") == "Share 8 Names Only")
+        #expect(AskClaudeHeldAnswer.customizeFoot(ticked: 8, details: []) == "Not shared yet. Claude gets 8 names, and nothing else. No file content.")
+        let names = try #require(bare.takeFound(bareID))
+        #expect(names.question.contains("- Referral.pdf") && !names.question.contains("Medical/2026") && !names.question.contains("|"))
+        #expect(names.shown == "Shared the names of 8 files mentioning “diagnosis”")
+        let sent = try #require(state(bare, bareID))
+        #expect(sent.namesOnly == true && AskClaudeHeldAnswer.foundFoot(sent, ticked: 8) == "Claude has the names you shared.")
+        // None: nothing to send; Select All brings them back.
+        let (empty, emptyID, _) = try await card()
+        empty.editFound(emptyID, .customize(true))
+        empty.editFound(emptyID, .all(false))
+        #expect(state(empty, emptyID)?.ticked.isEmpty == true && empty.takeFound(emptyID)?.question == nil)
+        #expect(AskClaudeHeldAnswer.customShareButton(ticked: 0, details: ["folder"], noun: "file") == "Share")
+        empty.editFound(emptyID, .all(true))
+        #expect(state(empty, emptyID)?.ticked.count == 8)
+        // Cancel forgets Customize's ticks: Share Details sends all 8, every detail.
+        empty.editFound(emptyID, .all(false))
+        empty.editFound(emptyID, .detail("tags"))
+        empty.editFound(emptyID, .customize(false))
+        let cancelled = try #require(state(empty, emptyID))
+        #expect(cancelled.customizing == nil && cancelled.unticked == nil && cancelled.omitted == nil)
+        let all = try #require(empty.takeFound(emptyID))
+        #expect(all.question.contains("Here are the 8 files whose text mentions “diagnosis”, as data."))
+        #expect(all.question.range(of: #"rows: handle\|name\|kind\|size\|modified\|tags\|folder\nr\d+\|Biopsy results\.pdf\|PDF\|1 KB\|2026-03-01\|\|Medical/2026"#,
+                                   options: .regularExpression) != nil)
     }
 
     /// **The chat's tick lasts the chat and no longer** (his call on TE321): kept with a saved
@@ -2230,8 +2330,13 @@ private final class NoTools: AskClaudeToolRunning {
         let again = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
                                   readKey: { "k" }, storeURL: store, keyChanges: NotificationCenter())
         #expect(again.sharesAnswers)
+        again.setSharesNames(true)
+        let third = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
+                                  readKey: { "k" }, storeURL: store, keyChanges: NotificationCenter())
+        #expect(third.sharesNames)
         again.newChat()
-        #expect(!again.sharesAnswers)
+        #expect(!again.sharesAnswers && !again.sharesNames)
+        #expect(AskClaudeHeldAnswer.namesTick == "Share names without asking for the rest of this chat")
         #expect(AskClaudeHeldAnswer.answersTick == "Share answers without asking for the rest of this chat")
         #expect(AskClaudeFolderAccess.allCases.map(\.title) == ["Ask Each Time", "Share Without Asking", "Hide from Claude"])
         #expect(AskClaudeFolderAccess.share.caption.hasSuffix("Whole documents still ask"))
@@ -2945,7 +3050,7 @@ private final class FindsNames: AskClaudeToolRunning {
         let names = ["Biopsy results.pdf", "Referral.pdf", "Pathology.pdf", "Notes.txt", "Scan.pdf", "Letter.pdf", "Bill.pdf", "Plan.pdf"]
         let files = names.enumerated().map { index, name in
             AskClaudeFoundNames.File(name: name, folder: "Medical/2026", modified: nil,
-                                     row: "r\(index + 1)|\(name)|PDF|1 KB|2026-03-01||Medical/2026", path: "/Users/me/Medical/" + name)
+                                     row: "|\(name)|PDF|1 KB|2026-03-01||Medical/2026", path: "/Users/me/Medical/" + name)
         }
         return AskClaudeToolOutcome(result: "held", step: "Found 8 with “diagnosis” inside",
                              found: AskClaudeFoundNames(words: "diagnosis", folderLabel: "iCloud › Medical", names: names, count: 8,

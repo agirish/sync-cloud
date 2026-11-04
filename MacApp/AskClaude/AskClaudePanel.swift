@@ -413,6 +413,8 @@ struct AskClaudePanel: View {
                         AskClaudeThreadRow(item: item, accent: accent, accentFill: accentFill, onAccent: onAccent, hue: hue, onOpenSettings: onOpenSettings,
                                            linkTargets: chat.linkTargets, onReveal: onReveal, onSendOffer: onSendOffer, onFoundTick: onFoundTick,
                                            sharesAnswers: chat.sharesAnswers, onSharesAnswers: { chat.setSharesAnswers($0) },
+                                           sharesNames: chat.sharesNames, onSharesNames: { chat.setSharesNames($0) },
+                                           onFoundEdit: { chat.editFound($0, $1) },
                                            onDownloadCard: onDownloadCard,
                                            onFilingCard: onFilingCard,
                                            onPlanCard: onPlanCard, onChoice: onChoice, onRuleCard: onRuleCard,
@@ -896,6 +898,10 @@ private struct AskClaudeThreadRow: View, Equatable {
     /// The chat's "Share answers without asking" tick (TE321), and how a card sets it.
     let sharesAnswers: Bool
     let onSharesAnswers: (Bool) -> Void
+    /// The lookup card's "Share names without asking" tick (TE323), and Customize's changes.
+    var sharesNames = false
+    var onSharesNames: (Bool) -> Void = { _ in }
+    var onFoundEdit: (UUID, AskClaudeChat.FoundEdit) -> Void = { _, _ in }
     let onDownloadCard: (UUID, AskClaudeDownloadAction) -> Void
     let onFilingCard: (AskClaudeFilingAction) -> Void
     let onPlanCard: (UUID, AskClaudePlanAction) -> Void
@@ -927,6 +933,7 @@ private struct AskClaudeThreadRow: View, Equatable {
     /// What the row draws from; the closures never change what it shows.
     static func == (a: Self, b: Self) -> Bool {
         a.item == b.item && a.linkTargets == b.linkTargets && a.isLatestReceipt == b.isLatestReceipt && a.sharesAnswers == b.sharesAnswers
+            && a.sharesNames == b.sharesNames
             && a.isRunning == b.isRunning && a.isGrowing == b.isGrowing && a.accent == b.accent && a.accentFill == b.accentFill && a.onAccent == b.onAccent
             && a.hue == b.hue && a.pdfThumbnails == b.pdfThumbnails && a.turnActions == b.turnActions && a.showsBar == b.showsBar
     }
@@ -1267,57 +1274,132 @@ private struct AskClaudeThreadRow: View, Equatable {
         .accessibilityElement(children: .contain)
     }
 
-    /// **Names a content search found, held for their click** (decision IV, TE320): every file,
-    /// each with a tick and its folder and date (his call: show what goes, and let them pick),
-    /// then Share N Files and Share Names Only. Nothing leaves until a click.
+    /// **Names held for their click**: a search inside files (decision IV, TE320) or a lookup
+    /// beyond the folder on screen (TE323). His call on TE323: a plain table first, Name, Folder
+    /// and Date, then Share Details (every file, every detail) or Customize…, which picks the
+    /// files and the details. Nothing leaves until a click.
     private func foundCard(_ id: UUID, _ found: AskClaudeFoundNames) -> some View {
         let sent = found.sent == true
-        let ticked = found.files == nil ? found.count : found.ticked.count
+        let customizing = found.customizing == true && !sent && found.files != nil
         return VStack(alignment: .leading, spacing: 6) {
             Label(AskClaudeHeldAnswer.foundTitle(found), systemImage: "doc.text.magnifyingglass")
                 .scaledFont(.footnote)
                 .foregroundStyle(.secondary)
                 .lineLimit(3)
-            Group {
-                if let files = found.files {
-                    // Past a dozen the list scrolls in the card rather than pushing the chat down.
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 2) {
-                            ForEach(files, id: \.path) { file in foundRow(id, found, file, sent: sent) }
-                        }
-                    }
-                    .frame(maxHeight: files.count > AskClaudeHeldAnswer.foundShown ? 260 : nil)
-                } else {
-                    // A card saved before ticks: its names, as it showed them.
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(Array(found.names.prefix(6).enumerated()), id: \.offset) { _, name in
-                            Text(name).scaledFont(.callout).lineLimit(1).truncationMode(.middle)
+            if customizing {
+                foundCustomize(id, found)
+            } else {
+                foundTable(found)
+                if !sent {
+                    Text(AskClaudeHeldAnswer.lead).scaledFont(.callout.weight(.medium))
+                    HStack(spacing: 8) {
+                        Button(AskClaudeHeldAnswer.shareDetails) { onSendOffer(id, .names) }
+                            .controlSize(.small)
+                            .disabled(isRunning)
+                        if found.files != nil {
+                            Button(AskClaudeHeldAnswer.customize) { onFoundEdit(id, .customize(true)) }
+                                .controlSize(.small)
                         }
                     }
                 }
+                Text(AskClaudeHeldAnswer.foundFoot(found, ticked: found.ticked.count))
+                    .scaledFont(.footnote)
+                    .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.background.opacity(0.6), in: RoundedRectangle(cornerRadius: Radius.well))
-            if !sent {
-                Text(AskClaudeHeldAnswer.lead).scaledFont(.callout.weight(.medium))
+            if found.source != nil {
+                Toggle(AskClaudeHeldAnswer.namesTick, isOn: Binding(get: { sharesNames }, set: { onSharesNames($0) }))
+                    .toggleStyle(.checkbox)
+                    .scaledFont(.footnote)
             }
-            HStack(spacing: 8) {
-                Button(AskClaudeHeldAnswer.foundShareButton(ticked: ticked, namesOnly: false, sent: sent && found.namesOnly != true)) { onSendOffer(id, .names) }
-                    .controlSize(.small)
-                    .disabled(sent || isRunning || ticked == 0)
-                Button(AskClaudeHeldAnswer.foundShareButton(ticked: ticked, namesOnly: true, sent: sent && found.namesOnly == true)) { onSendOffer(id, .namesOnly) }
-                    .controlSize(.small)
-                    .disabled(sent || isRunning || ticked == 0)
-            }
-            Text(AskClaudeHeldAnswer.foundFoot(found, ticked: ticked))
-                .scaledFont(.footnote)
-                .foregroundStyle(.secondary)
         }
         .padding(10)
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.well))
         .accessibilityElement(children: .contain)
+    }
+
+    /// The files as a table, Name, Folder and Date, no ticks; past a dozen it scrolls in the card.
+    @ViewBuilder
+    private func foundTable(_ found: AskClaudeFoundNames) -> some View {
+        Group {
+            if let files = found.files {
+                ScrollView {
+                    Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
+                        GridRow {
+                            Text("Name")
+                            Text("Folder")
+                            Text("Date")
+                        }
+                        .scaledFont(.footnote.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        ForEach(files, id: \.path) { file in
+                            GridRow {
+                                Text(file.name).scaledFont(.callout).lineLimit(1).truncationMode(.middle)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Text(file.folder).scaledFont(.footnote).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                                Text(AskClaudeHeldAnswer.foundDate(file)).scaledFont(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                        }
+                    }
+                }
+                .frame(maxHeight: files.count > AskClaudeHeldAnswer.foundShown ? 260 : nil)
+            } else {
+                // A card saved before ticks: its names, as it showed them.
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(Array(found.names.prefix(6).enumerated()), id: \.offset) { _, name in
+                        Text(name).scaledFont(.callout).lineLimit(1).truncationMode(.middle)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background.opacity(0.6), in: RoundedRectangle(cornerRadius: Radius.well))
+    }
+
+    /// **Customize what Claude gets** (his call on TE323): the details as ticks (names always go),
+    /// the files as ticks with Select All and None, and a share that names what goes.
+    @ViewBuilder
+    private func foundCustomize(_ id: UUID, _ found: AskClaudeFoundNames) -> some View {
+        let files = found.files ?? []
+        let ticked = found.ticked.count
+        let details = found.chosenDetails
+        Text(AskClaudeHeldAnswer.customizeTitle).scaledFont(.callout.weight(.medium))
+        Text(AskClaudeHeldAnswer.detailsLead).scaledFont(.footnote).foregroundStyle(.secondary)
+        HStack(spacing: 10) {
+            ForEach(AskClaudeFoundNames.detailKeys, id: \.self) { key in
+                Toggle(key.capitalized, isOn: Binding(get: { details.contains(key) }, set: { _ in onFoundEdit(id, .detail(key)) }))
+                    .toggleStyle(.checkbox)
+                    .scaledFont(.footnote)
+            }
+        }
+        HStack(spacing: 4) {
+            Text(found.noun == "item" ? "Items" : "Files").scaledFont(.footnote).foregroundStyle(.secondary)
+            Spacer()
+            Button("Select All") { onFoundEdit(id, .all(true)) }.buttonStyle(.link).scaledFont(.footnote)
+            Text("·").scaledFont(.footnote).foregroundStyle(.secondary)
+            Button("None") { onFoundEdit(id, .all(false)) }.buttonStyle(.link).scaledFont(.footnote)
+        }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(files, id: \.path) { file in foundRow(id, found, file, sent: false) }
+            }
+        }
+        .frame(maxHeight: files.count > AskClaudeHeldAnswer.foundShown ? 260 : nil)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background.opacity(0.6), in: RoundedRectangle(cornerRadius: Radius.well))
+        HStack(spacing: 8) {
+            Button(AskClaudeHeldAnswer.customShareButton(ticked: ticked, details: details, noun: found.noun)) { onSendOffer(id, .names) }
+                .controlSize(.small)
+                .disabled(isRunning || ticked == 0)
+            Button("Cancel") { onFoundEdit(id, .customize(false)) }
+                .controlSize(.small)
+        }
+        Text(AskClaudeHeldAnswer.customizeFoot(ticked: ticked, details: details))
+            .scaledFont(.footnote)
+            .foregroundStyle(.secondary)
     }
 
     /// **Every file one question read, on one card** (his call on TE322): each file's tick, name
@@ -2201,22 +2283,53 @@ enum AskClaudeHeldAnswer {
             ? "All content: \(about)." : "All content: \(about), too long to share at once. Untick some files."
     }
 
-    /// A found-names card's title: who searched, for what, where.
+    /// A found-names card's title: who found them, what, where (his call on TE323: credit
+    /// Spotlight, or SyncCloud when only the folders it has opened were searched).
     static func foundTitle(_ found: AskClaudeFoundNames) -> String {
-        let files = found.count == 1 ? "1 file" : "\(found.count) files"
-        return "Spotlight found \(files) mentioning “\(found.words)” in \(found.folderLabel), on this Mac:"
+        let files = found.count == 1 ? "1 \(found.noun)" : "\(found.count) \(found.noun)s"
+        switch found.source {
+        case nil: return "Spotlight found \(files) mentioning “\(found.words)” in \(found.folderLabel), on this Mac:"
+        case .names:
+            return found.fromIndex == false
+                ? "SyncCloud found \(files) named “\(found.words)” in \(found.folderLabel), among the folders it has opened:"
+                : "Spotlight found \(files) named “\(found.words)” in \(found.folderLabel), on this Mac:"
+        case .listing: return "\(found.folderLabel) holds \(files), on this Mac:"
+        }
+    }
+
+    static let shareDetails = "Share Details"
+    static let customize = "Customize…"
+    static let customizeTitle = "Customize what Claude gets"
+    static let detailsLead = "Details, with each name"
+    /// The lookup card's tick (TE323): lookups go without asking until New Chat.
+    static let namesTick = "Share names without asking for the rest of this chat"
+
+    /// A found file's date in the table: "Sep 2, 2026".
+    static func foundDate(_ file: AskClaudeFoundNames.File) -> String {
+        file.modified.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? ""
+    }
+
+    /// Customize's share, naming what goes (his call on TE323): "Share 18 Files with Folder and
+    /// Date", "Share 19 Files with All Details", "Share 18 Names Only" with every detail unticked.
+    static func customShareButton(ticked: Int, details: [String], noun: String) -> String {
+        guard ticked > 0 else { return "Share" }
+        if details.isEmpty { return ticked == 1 ? "Share 1 Name Only" : "Share \(ticked) Names Only" }
+        let things = ticked == 1 ? "1 \(noun.capitalized)" : "\(ticked) \(noun.capitalized)s"
+        let with = details.count == AskClaudeFoundNames.detailKeys.count ? "All Details"
+            : AskClaudeChat.listed(details.map(\.capitalized))
+        return "Share \(things) with \(with)"
+    }
+
+    /// Customize's footnote: what goes, plainly. "Claude gets 18 names, each with its folder and date."
+    static func customizeFoot(ticked: Int, details: [String]) -> String {
+        guard ticked > 0 else { return "Not shared yet. Nothing is ticked." }
+        let names = ticked == 1 ? "1 name" : "\(ticked) names"
+        let with = details.isEmpty ? ", and nothing else" : ", each with its \(AskClaudeChat.listed(details))"
+        return "Not shared yet. Claude gets \(names)\(with). No file content."
     }
 
     /// Past this many files the card's list scrolls.
     static let foundShown = 12
-
-    /// A share's button, naming what goes and for how many (his call on TE320: "Share 7 Files"
-    /// read as sending the files): "Share 7 Names with File Details", "Share 7 Names Only".
-    static func foundShareButton(ticked: Int, namesOnly: Bool, sent: Bool) -> String {
-        if sent { return namesOnly ? "Names Shared" : "Names with File Details Shared" }
-        let names = ticked == 1 ? "1 Name" : ticked == 0 ? "Names" : "\(ticked) Names"
-        return namesOnly ? "Share \(names) Only" : "Share \(names) with File Details"
-    }
 
     /// A found file's folder and date, as the card shows them beside its name.
     static func foundDetail(_ file: AskClaudeFoundNames.File) -> String {
@@ -2229,7 +2342,7 @@ enum AskClaudeHeldAnswer {
         if found.sent == true {
             return found.namesOnly == true ? "Claude has the names you shared." : "Claude has the list you shared."
         }
-        return "Not shared yet. File details are each file’s folder, kind, size, date and tags. No file content."
+        return "Not shared yet. Share Details sends each \(found.noun)’s name, folder, kind, size, date and tags. No file content."
     }
 
     /// Words to two significant figures past 1,000: a size, not a count.

@@ -72,14 +72,21 @@ Requires **macOS 26**, unchanged from v6.2.
   Answers, Share Content and Share All Content send the ticked files', and the all-content share
   says first how much that is.
 - **Which files mention a word waits too.** Asked to search inside files, Claude gets none of the
-  names Spotlight finds: a card lists them with their folders and dates, you tick the ones to share,
-  and Share Names with File Details or Share Names Only sends them. With Let Claude read files on,
-  they go without asking, with the line that matched.
+  names Spotlight finds: a card lists them as a table, Name, Folder and Date. Share Details sends
+  each file's name, folder, kind, size, date and tags; Customize… picks the files and the details,
+  and its button says what goes, "Share 18 Files with Folder and Date", or "Share 18 Names Only"
+  with every detail off. With Let Claude read files on, they go without asking, with the line that
+  matched.
+- **So do names from folders you aren't looking at.** A name search or a folder's listing beyond the
+  folder on screen and those inside it gives Claude only how many it found; the same card holds
+  the list, crediting Spotlight, or SyncCloud when only the folders it has opened were searched.
+  Share names without asking for the rest of this chat lets later lookups go, until New Chat, as do
+  folders set to Share Without Asking.
 - **Choose what Claude gets, folder by folder.** The shield beside the panel's title sets the folder
-  it sees to Ask Each Time, Share Without Asking (answers, page text and search names go without a
-  card; whole documents still ask) or Hide from Claude. On a card, Share answers without asking for
-  the rest of this chat stops the cards for answers until New Chat, and Ask Again turns it back
-  on.
+  it sees to Ask Each Time, Share Without Asking (answers, page text, search names and lookups go
+  without a card; whole documents still ask) or Hide from Claude. On a card, Share answers without
+  asking for the rest of this chat stops the cards for answers until New Chat, and Ask Again turns
+  it back on.
 - **Ask about Compare's differences.** "Which files are only on Dropbox?" is answered from the list
   Compare shows, with both sides' sizes and dates. A comparison over an hour old is scanned again
   first, and Claude can narrow the list and select the rows it means. The list scrolls to the first

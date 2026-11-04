@@ -42,8 +42,8 @@ looking at and moves you around the app, using your own Anthropic API key. Nothi
 you ask.
 - **Sees a description of the screen, not your files** — names, kinds, sizes, dates and tags. When
   a question needs what's inside a file, it's read on this Mac and a card shows exactly what would
-  go; nothing from the file is sent until you click Share. **Hide from Claude** on any file or folder
-  keeps it out.
+  go; nothing from the file is sent until you click Share. Names from folders you aren't looking at
+  wait on a card too. **Hide from Claude** on any file or folder keeps it out.
 - **Looks things up and moves your view** — finds files in any source, goes to folders, tabs and
   either side of Compare, and answers *"which files are only on Dropbox?"* from Compare's list,
   selecting the rows it means.
