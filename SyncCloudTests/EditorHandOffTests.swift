@@ -135,7 +135,7 @@ import FileExplorer
                 "the delegate did not forward the paths it was handed")
     }
 
-    /// **The preview column's Edit button reaches the same act, from both surfaces that mount it.**
+    /// **The preview column's Edit button reaches the same act, from the one surface that mounts it.**
     ///
     /// The button's own click is not drivable from a session — `ColumnPreviewEditorButtonTests`
     /// proves it is DRAWN and `ColumnPreviewTests` proves WHEN, but what it calls when clicked is
@@ -145,23 +145,18 @@ import FileExplorer
     ///
     /// The path matters as much as the delegate. `onOpenInEditor(item.name)` would compile, draw
     /// identically, and open the wrong thing — or nothing.
-    @Test func bothPreviewMountsWireTheEditButtonToTheHandOff() throws {
-        for file in ["FileTreeView.swift", "PaneColumnsView.swift"] {
-            let source = try Self.source(file)
-            #expect(source.contains("onOpenInEditor: { delegate.handleOpenInEditor($0) }"),
-                    "\(file) mounts the preview without wiring its Edit button to the hand-off")
-        }
+    @Test func thePreviewMountWiresTheEditButtonToTheHandOff() throws {
+        // The one mount, the Info inspector's (TE317 C), forwards rather than deciding: a second
+        // decision about what is editable is the drift the one public predicate exists to prevent.
+        let inspector = try Self.source("InspectorFilePreview.swift")
+        #expect(inspector.contains("onOpenInEditor: onOpenInEditor"),
+                "InspectorFilePreview stopped forwarding the hand-off")
+        #expect(!inspector.contains("EditableText") && !inspector.contains("PairContentKind"),
+                "the inspector's preview has started deciding for itself what the editor opens")
         // …and the button hands over the file's PATH, not its name or its kind.
         let column = try Self.source("ColumnPreviewColumn.swift")
         #expect(column.contains("Button { onOpenInEditor(item.path) }"),
                 "the Edit button no longer hands the editor this column's path")
-        // The sidebar in between forwards rather than deciding: a second decision about what is
-        // editable is the drift the one public predicate exists to prevent.
-        let sidebar = try Self.source("PanePreviewSidebar.swift")
-        #expect(sidebar.contains("onOpenInEditor: onOpenInEditor"),
-                "PanePreviewSidebar stopped forwarding the hand-off")
-        #expect(!sidebar.contains("EditableText") && !sidebar.contains("PairContentKind"),
-                "the sidebar has started deciding for itself what the editor opens")
     }
 
     /// **The two doors the app wires itself: the Info inspector and File ▸ Open in Edit.**
@@ -170,7 +165,7 @@ import FileExplorer
     /// one expression in each that connects the door to the real hand-off was never executed by
     /// any test. Found on review: `open: { _ in }` at the inspector's construction site, or a
     /// menu closure that did nothing, left every suite green while the button or ⌘O did nothing.
-    /// The same class of gap `bothPreviewMountsWireTheEditButtonToTheHandOff` closes for the
+    /// The same class of gap `thePreviewMountWiresTheEditButtonToTheHandOff` closes for the
     /// preview, closed the same way.
     ///
     /// The predicate half matters as much as the action half: `opensInEdit: true` in the menu, or

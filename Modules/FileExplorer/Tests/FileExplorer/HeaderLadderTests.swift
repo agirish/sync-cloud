@@ -684,8 +684,8 @@ struct HeaderLadderTests {
     /// This ladder is monotonically non-INCREASING — and that is a measured fact about it, not a
     /// property of shedding ladders in general.
     ///
-    /// `PaneBarLadder` documents the opposite for the pane bar, where dropping the preview toggle (a
-    /// segment wide) to gain a ⋯ pill (a full pill plus its gap) makes the bar four points *wider*.
+    /// `PaneBarLadder` documents the opposite for the pane bar, where dropping a control narrower
+    /// than the ⋯ pill it gains makes the bar *wider* — the retired Preview toggle did, by four points.
     /// Nothing here can do that: every rung either sheds a run of text or is a no-op, and the widest
     /// thing any rung adds is the 28pt overflow in place of a Verify button that is never narrower
     /// than ~90pt. Recorded so that a rung added later which *does* widen the row shows up here

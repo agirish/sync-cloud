@@ -206,7 +206,7 @@ import EventsTestSupport
     /// `delete` existed must round-trip without gaining it — and without losing anything either,
     /// which is the half a `!contains(.delete)` assertion cannot see.
     @Test func testABarStoredBeforeDeleteRoundTripsUnchanged() {
-        let stored = "flexibleSpace,viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,preview,search"
+        let stored = "flexibleSpace,viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,search"
         let arrangement = PaneBarArrangement(encoded: stored)
         #expect(!arrangement.items.contains(.delete))
         #expect(arrangement.encoded == stored)
@@ -344,10 +344,11 @@ import EventsTestSupport
         let deliberatelyDeclined: Set<PaneBarItem> = [.delete]
         #expect(PaneBarMigration.declinedControls == deliberatelyDeclined,
                 "the set of controls that decline a migration step changed; that is a judgement call about a control's discoverability, not a bookkeeping edit — say why, in both places")
-        // Frozen. These eight shipped before `PaneBarMigration` existed, so "a stored bar without
-        // one" means someone removed it. A control that ships from here on cannot join them.
+        // Frozen. These shipped before `PaneBarMigration` existed, so "a stored bar without one"
+        // means someone removed it. A control that ships from here on cannot join them; Preview,
+        // the eighth, left with the bar's Preview toggle (TE317 C).
         #expect(PaneBarMigration.baselineControls == [.viewMode, .collapse, .backForward, .scan,
-                                                      .newFolder, .sort, .hiddenFiles, .preview],
+                                                      .newFolder, .sort, .hiddenFiles],
                 "PaneBarMigration.baselineControls is a historical record and must not grow")
         // The loop below skips spacers; this is what keeps that skip honest, since a control wrongly
         // reporting `isSpacer` would otherwise be waved through. The shipped bar carries none since
@@ -472,9 +473,9 @@ import EventsTestSupport
         // derivation under test, and comparing it with itself would pass for any filter at all,
         // including one that returned its input.
         let shipped: [PaneBarItem] = [.viewMode, .collapse, .backForward, .scan, .newFolder, .sort,
-                                      .hiddenFiles, .preview, .delete, .typeFilter, .search]
+                                      .hiddenFiles, .delete, .typeFilter, .search]
         #expect(PaneBarArrangement.default.encoded == "viewMode,collapse,backForward,"
-                + "scan,newFolder,sort,hiddenFiles,preview,delete,typeFilter,search",
+                + "scan,newFolder,sort,hiddenFiles,delete,typeFilter,search",
                 "the shipped bar changed; the literal below is what this test is measuring against")
         let withNoRoutes = PaneBarMigration.controlsWithoutARoute(shipping: .default, routed: [])
         let namedInstead = "with no routes declared, every shipped control is stranded — this named "
@@ -695,9 +696,9 @@ import EventsTestSupport
         // this user to put it back, every launch, is advice about a decision rather than a defect.
         #expect(await log.entries.contains {
             $0.message == "[panebar] The stored pane-bar arrangement omits View, Collapse Pane, "
-                + "Back/Forward, New Folder, Hidden Files, Preview, Filter by Type, Search"
+                + "Back/Forward, New Folder, Hidden Files, Filter by Type, Search"
                 + " — put back from Customize Pane Bar…"
-        }, "a launch on a bar missing eight shipped controls wrote nothing about it")
+        }, "a launch on a bar missing seven shipped controls wrote nothing about it")
     }
 
     /// **`apply` writes no report of its own**, which is the whole of the fix for a duplicated one.
@@ -805,8 +806,8 @@ import EventsTestSupport
         // Two of them, which is the case "ship(s) … can never show it" could not write: the hedge
         // read as a parenthesis for one control and as an error for two, in a line someone reads
         // while holding a bug report.
-        #expect(PaneBarMigration.unreachableMessage(for: bar, withoutARoute: [.delete, .preview])
-                == "[panebar] Preview, Delete ship on the default pane bar with no migration step,"
+        #expect(PaneBarMigration.unreachableMessage(for: bar, withoutARoute: [.delete, .newFolder])
+                == "[panebar] New Folder, Delete ship on the default pane bar with no migration step,"
                 + " so this stored arrangement can never show them — see PaneBarMigration")
         // Nothing stranded, nothing said — the state of a correct build.
         #expect(PaneBarMigration.unreachableMessage(for: bar, withoutARoute: []) == nil)

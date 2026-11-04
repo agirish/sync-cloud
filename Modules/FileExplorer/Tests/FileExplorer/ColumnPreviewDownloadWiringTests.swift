@@ -7,10 +7,10 @@ import Testing
 import UniformTypeIdentifiers
 @testable import FileExplorer
 
-/// The preview column's half of a download, mounted through the real pane.
+/// The Info inspector's preview's half of a download, mounted beside the real pane that watches it.
 ///
-/// Everything below the pane was tested and everything above it was tested; the three expressions
-/// joining them were not, and all three survived deletion:
+/// Everything below the pane was tested and everything above it was tested; the expressions joining
+/// them were not, and each survived deletion once:
 ///
 /// - `ColumnPreviewColumn(… paneToken:)` — the argument was optional with a `nil` default, and
 ///   `requestDownload` downgraded nil to "requested, unwatched" behind a debug log. Deleting it
@@ -21,9 +21,12 @@ import UniformTypeIdentifiers
 ///   the column sitting on its pre-download answer for good: no "Downloading…", and no re-probe
 ///   when the content lands. That is what `thePaneWatchIsWhatTellsThePreviewTheFileArrived` fails
 ///   on.
-/// - `PaneColumnsView.paneToken` — a send hardcoded to `.left` routes every preview-started
-///   download to the left pane. `PaneColumnsView` derives it from the same two facts `FileTreeView`
-///   derives its receiving token from, and the derivation is pinned below.
+/// - **The one watch.** The inspector is outside the pane's view tree, so it cannot be handed the
+///   pane's watches the way a row is; it used to run a `PaneDownloadWatch` of its own beside the
+///   pane's — two polls and two memo `forget`s per download. It follows the pane's watch now, from
+///   the request to the pane's `.cloudDownloadWatchEnded`, and the test above mounts the real pair
+///   to prove that hop is live: with the post in `PaneDownloadWatch.begin` deleted, the column never
+///   re-probes.
 ///
 /// **What no test here can reach, and why.** Clicking the column's own Download button. It renders
 /// only for a `.cloudOnly` probe, and `requestDownload` then calls
@@ -52,7 +55,7 @@ import UniformTypeIdentifiers
 ///
 /// Which leaves the token free to be the one this pane really is: `isSingleSource: true` mounts the
 /// single-source rail, so it derives `.singleSource`, and the post below sends from `.singleSource` because
-/// that is what the rail's own preview column would send.
+/// that is what the inspector sends for a file selected in the rail.
 ///
 /// The `.default` the app runs on is no longer exercised end to end from here. Both halves of that
 /// default are pinned directly instead — `CloudDownloadRoutingTests.theDefaultChannelIsTheAppsOwn`
@@ -106,9 +109,10 @@ import UniformTypeIdentifiers
         func probes(of path: String) -> Int { answered.filter { $0 == path }.count }
     }
 
-    /// The whole pane, in Columns mode, exactly as `ContentView` mounts it — so the notification
-    /// subscription, the latch, the hand-off to `PaneColumnsView` and the hand-off from there to the
-    /// preview column are all the app's own code rather than arguments this test supplied.
+    /// The whole pane, in Columns mode, as `ContentView` mounts it, with the Info inspector's preview
+    /// of its selected file beside it — so the notification subscription, the pane's watch, the
+    /// watch's end and the inspector's following it are all the app's own code rather than
+    /// arguments this test supplied.
     private struct Harness: View {
         @ObservedObject var box: Box
         let tree: PaneTree
@@ -120,20 +124,29 @@ import UniformTypeIdentifiers
 
         var body: some View {
             let probe = self.probe
-            return FileTreeView(
-                tree: tree,
-                otherTree: PaneTree(side: .right, version: 1, nodes: []),
-                isLoading: false, currentPath: root,
-                selection: $box.selection, otherSelection: [],
-                isLeft: true, delegate: StubDelegate(),
-                isSingleSource: true,
-                viewMode: .columns,
-                // On, explicitly: this whole suite is about the preview column's download button.
-                previewEnabled: .constant(true),
-                childrenIndex: index, browsePath: $box.browsePath,
-                downloadChannel: channel
-            )
+            return HStack(spacing: 0) {
+                FileTreeView(
+                    tree: tree,
+                    otherTree: PaneTree(side: .right, version: 1, nodes: []),
+                    isLoading: false, currentPath: root,
+                    selection: $box.selection, otherSelection: [],
+                    isLeft: true, delegate: StubDelegate(),
+                    isSingleSource: true,
+                    viewMode: .columns,
+                    childrenIndex: index, browsePath: $box.browsePath,
+                    downloadChannel: channel
+                )
+                .frame(width: 500)
+                if let node = tree.nodes.first {
+                    InspectorFilePreview(node: node, paneToken: .singleSource,
+                                         downloadChannel: channel, onOpenInEditor: { _ in })
+                        .frame(width: 400)
+                }
+            }
             .defaultAppStorage(defaults)
+            // Out of reach, so the only thing that can end the inspector's "Downloading…" inside
+            // this suite's waits is the pane's `.cloudDownloadWatchEnded`.
+            .environment(\.inspectorDownloadDeadline, .seconds(3600))
             .environment(\.columnPreviewProbe, ColumnPreviewProbeReader { path in
                 await MainActor.run {
                     probe.answered.append(path)
@@ -150,8 +163,8 @@ import UniformTypeIdentifiers
         ])
     }
 
-    /// The rail with the one file selected, so the preview column is up and showing it, on a
-    /// download channel of its own.
+    /// The rail with the one file selected and the inspector's preview showing it, on a download
+    /// channel of its own.
     ///
     /// The channel comes back with the window because it is the only way in: a post through
     /// anything else — including the `.default` the app runs on — reaches this pane not at all. See
@@ -161,8 +174,6 @@ import UniformTypeIdentifiers
         let defaults = ScratchDefaults("ColumnPreviewDownloadWiringTests")
         defaults.set(Double(PaneViewMode.defaultColumnWidth),
                      forKey: PaneViewMode.columnWidthDefaultsKey)
-        defaults.set(Double(PaneViewMode.defaultPreviewColumnWidth),
-                     forKey: PaneViewMode.previewColumnWidthDefaultsKey)
         let box = Box()
         box.selection = ["\(root)/movie.mov"]
         let tree = Self.tree(root: root)
@@ -253,23 +264,22 @@ import UniformTypeIdentifiers
         window.layoutIfNeeded()
     }
 
-    // MARK: - The latch reaches the preview column
+    // MARK: - The pane's watch reaches the inspector's preview
 
-    /// A download this pane started is watched by this pane, and the preview column showing that
-    /// file learns when the watch ends.
+    /// A download started for the inspector's file is watched by the pane it was selected in, and
+    /// the inspector's preview learns when that watch ends.
     ///
     /// The file answers `.cloudOnly` until the request goes out and `.quickLook` afterwards — a
-    /// materialization, staged. The column may only notice it by way of the pane's latch: its probe
+    /// materialization, staged. The column may only notice it by way of the pane's watch: its probe
     /// re-runs on `probeGeneration`, and nothing else bumps that. So the Quick Look mount at the end
     /// is the whole chain reporting in — `CloudDownloadRequest.post` → the pane's scoped
-    /// `.onReceive` → `downloads.requests` → `PaneColumnsView(awaitingDownloads:)` →
+    /// `.onReceive` → `PaneDownloadWatch.begin` → the watch concluding →
+    /// `.cloudDownloadWatchEnded` → `InspectorFilePreview.awaiting` →
     /// `ColumnPreviewColumn(isAwaitingDownload:)` → the falling edge → the re-probe.
     ///
-    /// Pin `isAwaitingDownload:` to `false` at `PaneColumnsView.swift`'s preview call site and this
-    /// is the test that goes red — verified, on this channel, failing on the Quick Look mount after
-    /// its full 30 s; the rest of the target stays green, which is how the threading shipped
-    /// unproven. Posting through `.default` instead of this mount's channel fails it the same way,
-    /// which is what says the pane really is listening where this test posts.
+    /// Delete the post in `PaneDownloadWatch.begin` and the column waits out its deadline instead,
+    /// which this harness puts an hour away — so this goes red, with no clock in the verdict. Posting through `.default` instead of this mount's channel fails it the same way, which
+    /// is what says the pane really is listening where this test posts.
     ///
     /// **A REAL file, under a per-test directory, and that is load-bearing.** The pane's watch is
     /// the app's own `CloudDownloadPoll`, whose probe is the production
@@ -291,7 +301,7 @@ import UniformTypeIdentifiers
 
         let probe = ProbeSwitch()
         let (window, host, channel) = mount(root: dir.path, probe: probe)
-        // Torn down rather than merely kept alive: this pane holds a live
+        // Torn down rather than merely kept alive: this pane (and the inspector) holds a live
         // `.cloudDownloadRequested` subscription, and one left listening past its test would go on
         // accepting posts through this channel. Belt and braces now that the channel is per-mount —
         // nothing later posts through this one — but `CloudDownloadWiringTests.teardown` documents
@@ -324,7 +334,7 @@ import UniformTypeIdentifiers
         // that simply never concludes; it fails instead. The file is on disk, so the FIRST probe
         // lands and the budget is one interval rather than all ten.
         #expect(await wait(window, upTo: 30) { quickLookPaths(in: host).contains(path) },
-                "the pane's watch never reached the preview column showing that file")
+                "the pane's watch never reached the inspector's preview of that file")
     }
 
     // MARK: - A watch that ends without an arrival
@@ -352,12 +362,9 @@ import UniformTypeIdentifiers
         let path = "\(Self.root)/stalled.mov"
         let probe = ProbeSwitch()
         let watching = WatchBox()
-        let item = try #require(ColumnPreview.item(
-            selection: [path],
-            deepestRows: PaneRow.project([FileNode(id: path, name: "stalled.mov",
-                                                   isDirectory: false, fileSize: 4_000_000_000,
-                                                   kind: UTType.quickTimeMovie.identifier)],
-                                         side: .left, version: 1)))
+        let item = ColumnPreviewItem(node: FileNode(id: path, name: "stalled.mov",
+                                                    isDirectory: false, fileSize: 4_000_000_000,
+                                                    kind: UTType.quickTimeMovie.identifier))
         let host = NSHostingView(rootView: ColumnHarness(watching: watching, item: item,
                                                          probe: probe))
         host.frame = NSRect(x: 0, y: 0, width: 400, height: 600)
@@ -436,25 +443,62 @@ import UniformTypeIdentifiers
         }
     }
 
-    // MARK: - The token the column sends with
+    // MARK: - One watch
 
-    /// `PaneColumnsView` sends from the pane it IS. Hardcoded to `.left`, every preview-started
-    /// download in the app would be watched by the left pane — the exact defect the pane-scoped
-    /// payload exists to prevent, arriving from the sending side instead of the receiving one.
-    @Test(arguments: [(true, false, PaneToken.left), (false, false, .right), (true, true, .singleSource)])
-    func thePreviewColumnSendsFromItsOwnPane(isLeft: Bool, isSingleSource: Bool,
-                                             expected: PaneToken) {
-        let tree = Self.tree()
-        let view = PaneColumnsView(
-            tree: tree, otherTree: PaneTree(side: .right, version: 1, nodes: []),
-            childrenIndex: PaneChildrenIndex(tree: tree, treeRoot: Self.root), treeRoot: Self.root,
-            browsePath: .constant(PaneBrowsePath()), onNavigate: { _ in },
-            selection: .constant([]), otherSelection: [], isLeft: isLeft,
-            delegate: StubDelegate(), diffIndex: .empty, otherPaneName: "R",
-            isSingleSource: isSingleSource, density: .compact, isActivePane: true,
-            placement: nil, onBarEdgeFlip: nil, onQuickLook: { _ in },
-            onBackgroundDeselect: { _ in })
-        #expect(view.paneToken == expected)
+    /// What the inspector shows as downloading, after each notice. Its own request starts it; the
+    /// end of exactly that request's watch clears it; another pane's request, another file's, and
+    /// the end of a SUPERSEDED request — a repeat Download of the same file — leave it alone.
+    @Test func theInspectorFollowsThePanesWatchByRequest() {
+        let path = "\(Self.root)/movie.mov"
+        func note(_ name: Notification.Name, _ request: CloudDownloadRequest) -> Notification {
+            Notification(name: name, object: request)
+        }
+        func after(_ n: Notification, _ current: CloudDownloadRequest?) -> CloudDownloadRequest? {
+            InspectorFilePreview.awaiting(after: n, current: current, path: path, paneToken: .left)
+        }
+        let first = CloudDownloadRequest(path: path, paneToken: .left)
+        let again = CloudDownloadRequest(path: path, paneToken: .left)
+
+        #expect(after(note(.cloudDownloadRequested, first), nil) == first)
+        #expect(after(note(.cloudDownloadRequested, CloudDownloadRequest(path: path, paneToken: .right)), nil) == nil,
+                "the other pane's request for the same path was followed")
+        #expect(after(note(.cloudDownloadRequested, CloudDownloadRequest(path: "\(Self.root)/other.mov",
+                                                                         paneToken: .left)), nil) == nil,
+                "a request for another file was followed")
+        // A repeat supersedes; the old watch's end must not clear the new one.
+        #expect(after(note(.cloudDownloadRequested, again), first) == again)
+        #expect(after(note(.cloudDownloadWatchEnded, first), again) == again,
+                "a superseded watch's end cleared the newer request")
+        #expect(after(note(.cloudDownloadWatchEnded, again), again) == nil)
+    }
+
+    /// The pane says when its watch ends, on the channel it heard the request on — and only for
+    /// the watch that concluded.
+    @Test func thePanesWatchAnnouncesItsEndOnItsChannel() async {
+        final class Heard: @unchecked Sendable { var ended: [CloudDownloadRequest] = [] }
+        let channel = NotificationCenter()
+        let heard = Heard()
+        let token = channel.addObserver(forName: .cloudDownloadWatchEnded, object: nil, queue: nil) {
+            if let request = $0.object as? CloudDownloadRequest { heard.ended.append(request) }
+        }
+        defer { channel.removeObserver(token) }
+        let watch = PaneDownloadWatch(watch: { request, latch in request.concludes(latch: latch()) })
+        let request = CloudDownloadRequest(path: "\(Self.root)/movie.mov", paneToken: .left)
+        watch.begin(request, announcingOn: channel)
+        for _ in 0..<50 where heard.ended.isEmpty { await Task.yield() }
+        #expect(heard.ended == [request])
+        #expect(watch.requests.isEmpty)
+    }
+
+    /// The inspector runs no watch of its own. A second `PaneDownloadWatch` here is the doubled
+    /// poll and `forget` this view exists without.
+    @Test func theInspectorOwnsNoWatch() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/InspectorFilePreview.swift")
+        let source = try String(contentsOf: url, encoding: .utf8)
+        #expect(!source.contains("PaneDownloadWatch("))
+        #expect(!source.contains("CloudDownloadPoll.watch"))
     }
 
     /// **The column's Download is the row menu's verb, sent from its pane on its pane's channel.**

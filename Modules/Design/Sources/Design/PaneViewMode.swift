@@ -98,9 +98,7 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     /// **The ceiling was 340 until columns could be sized one at a time (2026-09-27).** With one
     /// width for every column, a wide column meant a wide stack, and 340 kept a stack of folders
     /// from pushing its deepest column off the pane. A column sized on its own is usually the one
-    /// listing files with long names, and 340 was not enough for those — 600 is, while still leaving
-    /// the preview its floor beside it in any pane wide enough to hold both
-    /// (`showsPreviewColumn` refuses the preview otherwise).
+    /// listing files with long names, and 340 was not enough for those — 600 is.
     public static let defaultColumnWidth: CGFloat = 210
     public static let minimumColumnWidth: CGFloat = 140
     public static let maximumColumnWidth: CGFloat = 600
@@ -109,8 +107,8 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     ///
     /// **So the deepest column's divider can be grabbed.** Every reveal parks an overflowing stack
     /// with the deepest column's trailing edge on the viewport's, and that edge already carries a
-    /// seam drawn later and so on top of it: the preview's with a file selected, Compare's pane
-    /// splitter or the rail's without one, the inspector's with Info open. Each left the column's
+    /// seam drawn later and so on top of it: Compare's pane splitter or the rail's, and the
+    /// inspector's with Info open. Each left the column's
     /// handle a point or two, or none — so the one handle the column you most often want wider has
     /// could not be reached exactly when the stack was deep enough to need it.
     ///
@@ -225,214 +223,11 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     /// there is no slack to fill. A stack showing one column keeps its own width, and the slack after
     /// it — most of a resting pane — is filled like any other.
     ///
-    /// `paneWidth` here is the width of the stack's VIEWPORT: the pane, minus the preview when one
-    /// is showing, minus `columnStackTrailingGutter`. Neither is part of the scrolling stack, so
-    /// neither competes with this filler for the same points.
+    /// `paneWidth` here is the width of the stack's VIEWPORT: the pane minus
+    /// `columnStackTrailingGutter`, which is not part of the scrolling stack, so it does not compete
+    /// with this filler for the same points.
     public static func trailingFillerWidth(paneWidth: CGFloat, columnWidths: [CGFloat]) -> CGFloat {
         max(0, paneWidth - columnWidths.reduce(0, +))
-    }
-
-    // MARK: - Preview column
-
-    /// Whether a pane shows a Quick Look preview for a selected file, as Finder's column view does.
-    /// On by default; toggled from the pane header's pill (or the same item in its ⋯ menu at narrow
-    /// widths), and from the empty-area context menu of a column or of a tree — the place Finder
-    /// keeps its view options.
-    ///
-    /// One preference across BOTH presentations, deliberately. It answers "do I want to see file
-    /// contents while I work here", which is a question about the surface and not about how the
-    /// surface happens to be listing its files right now; splitting it would mean flipping the pill
-    /// twice to get one outcome, and a mode switch could then take the preview away.
-    ///
-    /// Shared by both comparison panes and the single-source rail (Organize, Storage), like
-    /// `columnWidthDefaultsKey`: across those three this is one reading preference ("do I want to see
-    /// file contents while I compare"), not a per-surface layout choice. Browse is the exception —
-    /// see `browsePreviewColumnDefaultsKey`.
-    public static let previewColumnDefaultsKey = "paneColumnShowsPreview"
-
-    /// Browse's own preview preference, on its own key for the same reason `browseDefaultsKey` exists:
-    /// Browse draws the same pane the rail does, at full window width instead of in a rail beside a
-    /// lens, and the two are not one decision. Compare and the rail are panes read *against* something
-    /// — the other provider, a lens — where a preview costs the columns doing that work half the room;
-    /// Browse is the pane where reading a file IS the task. Turning the preview off to compare must not
-    /// take it away from browsing.
-    ///
-    /// No migration seeds this from `previewColumnDefaultsKey`: Browse starts at the default, on.
-    public static let browsePreviewColumnDefaultsKey = "paneColumnShowsPreviewBrowse"
-
-    public static let previewColumnDefault = true
-
-    /// Which of the two preview keys a surface reads.
-    ///
-    /// One function rather than a condition restated per call site, because there are three writers of
-    /// this preference — the header's pill, a column's empty-area context menu, and ⇧⌘P — and they must
-    /// agree about which surface they are on. `shortcutPreviewColumn` records what a second opinion
-    /// costs: it resolved the *rail's* view mode while the user was looking at Browse, so ⇧⌘P was dead
-    /// in Browse-Columns whenever the rail happened to sit in Tree. Here the app resolves once, in
-    /// `ContentView.resolvedPreviewBinding`, and hands every writer the same binding.
-    public static func previewColumnKey(isBrowse: Bool) -> String {
-        isBrowse ? browsePreviewColumnDefaultsKey : previewColumnDefaultsKey
-    }
-
-    /// Whether a pane's header offers the preview toggle.
-    ///
-    /// **Both modes, now that Tree draws a preview too.** This used to be `mode == .columns`, on the
-    /// honest ground that a switch wired to nothing is worse than no switch: Tree had no preview for
-    /// it to govern. That was a fact about the Tree presentation, not about previewing — a selected
-    /// file is a selected file whichever way the pane lists it, and the preview reads the selection,
-    /// never the stack. `FileTreeView.treePreviewItem` resolves it from the row projection, so the
-    /// switch now governs something on every surface and this returns true for both cases.
-    ///
-    /// Kept as a function rather than deleted at its three call sites. It is the one place that
-    /// answers "may this surface offer the preview at all", and a mode that could not draw one (a
-    /// future gallery, say) would say so here rather than in the header, the ⋯ menu and ⇧⌘P
-    /// separately.
-    ///
-    /// It used to also require the single-source rail, matching a gate in `PaneColumnsView.previewItem`
-    /// that kept the preview off comparison panes. Both are gone: a comparison pane in Columns mode
-    /// shows a preview like any other, so its header must offer the switch for it.
-    ///
-    /// Pane *width* is deliberately not a condition, and this genuinely diverges from
-    /// `PaneColumnsView.previewSupportable`, which hides the column context menu's item once a pane is
-    /// too narrow to hold a preview. The two differ because they govern different scopes. That menu
-    /// item is a view option on one column, so withholding it where this pane can show nothing is
-    /// honest; the header's pill is the surface's setting, and widths change under a splitter drag — a
-    /// pill that vanished mid-drag would take the setting off screen exactly when widening the pane
-    /// again should bring the preview back.
-    ///
-    /// That second reason now carries this alone. It used to rest on the pill writing one preference
-    /// SHARED by both comparison panes and the rail, so a flip in a pane too narrow for a preview "still
-    /// did something everywhere else". Browse has its own key (`browsePreviewColumnDefaultsKey`), and a
-    /// Browse window narrow enough for this is a window with nowhere else for the flip to show — the
-    /// drag argument is what keeps the pill there, not the sharing.
-    ///
-    /// Stated because the divergence looks like an oversight: do not "align" the two without
-    /// deciding which scope you mean.
-    public static func showsPreviewToggle(mode: PaneViewMode) -> Bool {
-        switch mode {
-        case .tree, .columns: return true
-        }
-    }
-
-    /// Narrower than this a preview is not worth the room it costs: the thumbnail stops carrying
-    /// content and the identity lines below it (`kind · size`, the dates) start truncating.
-    public static let minimumPreviewColumnWidth: CGFloat = 220
-    /// The width a fresh preview opens at, before anyone drags it.
-    public static let defaultPreviewColumnWidth: CGFloat = 420
-    /// Past this a preview stops being a pane and starts being the window. The `room` cap in
-    /// `previewPaneWidth` binds first in any pane narrow enough for it to matter.
-    public static let maximumPreviewColumnWidth: CGFloat = 1200
-
-    /// The preview's own width, dragged from the divider on its leading edge and remembered.
-    ///
-    /// Separate from `columnWidthDefaultsKey`, because the two answer different questions: how much
-    /// room the file names need, versus how much the content does.
-    public static let previewColumnWidthDefaultsKey = "paneColumnPreviewWidth"
-
-    /// Clamps a preview width into the legible range.
-    public static func clampPreviewColumnWidth(_ width: CGFloat) -> CGFloat {
-        min(max(width, minimumPreviewColumnWidth), maximumPreviewColumnWidth)
-    }
-
-    /// The width a drag on the preview's divider has reached.
-    ///
-    /// The divider is on the preview's LEADING edge and the preview is pinned to the pane's trailing
-    /// edge, so the translation is *subtracted*: dragging left grows the preview. Same anchor
-    /// discipline as `draggedColumnWidth` — `translation` is cumulative from the drag's start.
-    public static func draggedPreviewColumnWidth(anchor: CGFloat, translation: CGFloat) -> CGFloat {
-        clampPreviewColumnWidth(anchor - translation)
-    }
-
-    /// Whether a pane this wide will show the preview column for a selected file.
-    ///
-    /// The width test is the whole rule: a preview may only ever take slack the list columns are not
-    /// using, so the pane must fit one full column *beside* a minimum preview. Without it, selecting
-    /// a file in a pane 300pt wide would start the stack scrolling horizontally — a resting pane that
-    /// jumps sideways because you clicked a file, which is exactly what Columns' resting-state
-    /// contract is about not doing.
-    ///
-    /// The push-mode test is redundant against today's constants (`minimumColumnWidth` + a minimum
-    /// preview is well past `pushNavigationBelowWidth`) and is stated anyway, so that retuning any
-    /// one of the three can't quietly put a preview into a pane that shows one pushing column.
-    public static func showsPreviewColumn(
-        paneWidth: CGFloat,
-        columnWidth: CGFloat,
-        isEnabled: Bool,
-        hasPreviewTarget: Bool
-    ) -> Bool {
-        guard isEnabled, hasPreviewTarget, !usesPushNavigation(paneWidth: paneWidth) else { return false }
-        return paneWidth >= columnWidth + minimumPreviewColumnWidth
-    }
-
-    // MARK: - Preview beside a tree
-
-    /// The narrowest the outline may be squeezed to by a preview beside it.
-    ///
-    /// The same number, for the same reason, as `PaneLogic.minRailWidth`: below 220 a file row cannot
-    /// show a name. It is stated here rather than read from there because the two are different
-    /// scopes that happen to agree — that one clamps a whole rail inside a window, this one divides
-    /// one pane — and a shared constant would make retuning either silently retune the other.
-    ///
-    /// Not `minimumColumnWidth`. A column's 140 is what an unindented list of one folder's rows needs;
-    /// a tree indents, so the same name in a deep folder starts at 140 with a good deal of it already
-    /// spent, and the pane it is being squeezed by is the whole outline rather than the last column
-    /// of a stack the user can scroll.
-    public static let minimumTreeListWidth: CGFloat = 220
-
-    /// Whether a Tree pane this wide will show the preview for a selected file.
-    ///
-    /// Same shape as `showsPreviewColumn` and the same rule underneath — the preview only ever takes
-    /// slack the list is not using — with the column stack's two conditions dropped, because a tree
-    /// has neither. There is no push navigation to protect (nothing scrolls sideways, so selecting a
-    /// file cannot make the pane jump), and no column width to fit beside the preview: the outline is
-    /// one list that reflows into whatever it is left, down to `minimumTreeListWidth`.
-    public static func showsTreePreview(
-        paneWidth: CGFloat,
-        isEnabled: Bool,
-        hasPreviewTarget: Bool
-    ) -> Bool {
-        guard isEnabled, hasPreviewTarget else { return false }
-        return paneWidth >= minimumTreeListWidth + minimumPreviewColumnWidth
-    }
-
-    /// Width of the preview beside a tree: what it was dragged to, capped so a legible outline
-    /// remains.
-    ///
-    /// Delegates to `previewPaneWidth`, so the preview is one width preference across both modes —
-    /// drag it in Columns and Tree opens at the same size. Only the floor the cap leaves behind
-    /// differs, which is the one thing the two modes genuinely disagree about.
-    public static func treePreviewPaneWidth(paneWidth: CGFloat, preferred: CGFloat) -> CGFloat {
-        previewPaneWidth(paneWidth: paneWidth, columnWidth: minimumTreeListWidth,
-                         preferred: preferred)
-    }
-
-    /// Width of the preview pane: exactly what it was dragged to, capped so one full column still
-    /// fits beside it.
-    ///
-    /// The preview is NOT part of the scrolling column stack — it is pinned to the pane's trailing
-    /// edge, and the columns scroll in what is left. That structure is the whole point, and it is
-    /// what two earlier attempts got wrong:
-    ///
-    /// - With the preview as the last item INSIDE the stack (`38aca86`), widening it extended the
-    ///   stack's content past the pane's right edge: the divider never moved, the visible width never
-    ///   changed, and `QLPreviewView` rescaled into a frame that was mostly off screen — the drag read
-    ///   as an inexplicable zoom.
-    /// - Deriving the width from the columns' slack instead (`924c513`) meant the only way to enlarge
-    ///   the preview was to narrow every column until they all fit the pane — at which point the
-    ///   stack stopped scrolling and the columns became unreadable, while the preview still could not
-    ///   exceed what was left over.
-    ///
-    /// Pinned, both problems go away at once: growing the preview takes width from the SCROLL VIEW,
-    /// so the divider tracks the cursor, the columns keep their own width, and they keep scrolling.
-    ///
-    /// The cap is the pane minus one column — the columns must never be squeezed out of existence by
-    /// the preview describing the file selected in them.
-    public static func previewPaneWidth(
-        paneWidth: CGFloat,
-        columnWidth: CGFloat,
-        preferred: CGFloat
-    ) -> CGFloat {
-        min(clampPreviewColumnWidth(preferred), paneWidth - columnWidth)
     }
 
     /// Whether a click on a column row (or on a pane's empty space) should navigate, or be left

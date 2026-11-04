@@ -9,7 +9,7 @@ import Sync
 extension Notification.Name {
     /// Posted after a cloud-only "Download" request is accepted, carrying a `CloudDownloadRequest`
     /// in `object`. The PANE listens (one subscription, not one per row) and watches the content
-    /// materialize on the requester's behalf: the row context menu, the preview column's Download
+    /// materialize on the requester's behalf: the row context menu, the Info inspector's Download
     /// button and the row showing that file are separate views with no shared state, and without
     /// this the badge lingered until the row was recycled.
     ///
@@ -18,11 +18,20 @@ extension Notification.Name {
     /// was latched by BOTH panes — twin rows polling, and a duplicate `forget` bumping the memo
     /// generation app-wide.
     ///
-    /// There is deliberately no matching "poll concluded" notification. The pane runs the watch
-    /// itself, so it needs no one to tell it the watch is over; the two views that care read the
-    /// pane's watches they are already handed (`FileRowView.awaitingDownloadID`,
-    /// `ColumnPreviewColumn.isAwaitingDownload`).
+    /// The pane runs the watch itself, so it needs no one to tell it the watch is over, and a row
+    /// reads the pane's watches it is already handed (`FileRowView.awaitingDownloadID`).
     static let cloudDownloadRequested = Notification.Name("SyncCloudCloudDownloadRequested")
+
+    /// Posted by the pane when its watch of a requested download ends — the content landed, or the
+    /// attempts ran out — carrying the `CloudDownloadRequest` it watched in `object`, on the channel
+    /// the request came in on.
+    ///
+    /// For the one view that shows a download without being inside the pane: the Info inspector's
+    /// preview (`InspectorFilePreview`), which is outside the pane's view tree and so cannot be
+    /// handed its watches. It used to run a watch of its own instead, beside the pane's — two polls
+    /// and two `CloudOnlyBadgeCache.forget`s per download, the harm the pane-owned watch exists to
+    /// prevent. Not posted for a superseded request: only the watch that concludes says so.
+    static let cloudDownloadWatchEnded = Notification.Name("SyncCloudCloudDownloadWatchEnded")
 }
 
 /// Recursive tree view for one comparison pane (left or right); context menu and actions go through the delegate.
@@ -111,20 +120,6 @@ public struct FileTreeView: View, Equatable {
     /// importantly the single-source rail — is unaffected until it opts in; only the two
     /// comparison panes pass `.columns`.
     public let viewMode: PaneViewMode
-    /// Whether this surface's Columns presentation appends a preview column, handed straight to
-    /// `PaneColumnsView` and written from there and from the header's pill.
-    ///
-    /// A `Binding` rather than an `@AppStorage`, because which stored preference this is depends on the
-    /// surface the host is drawing — Compare and the rail share one, Browse has its own. See
-    /// `PaneViewMode.previewColumnKey(isBrowse:)`. The init parameter defaults to a `.constant`, so a
-    /// caller with no opinion renders exactly the pane it rendered before this existed; see
-    /// `PaneColumnsView.previewEnabled` for why that default is also a hazard worth pinning.
-    public let previewEnabled: Binding<Bool>
-    /// Whether this pane draws the preview itself. False where the host shows it elsewhere — the app
-    /// draws it in the window's Info inspector (TE317 C), so a click never changes the pane's width.
-    /// `previewEnabled` still drives the pane's Show Preview menu items there; it just stops sizing
-    /// the pane.
-    public let drawsPreview: Bool
     /// Path → children for this pane's published tree, used only by the columns presentation.
     /// Built once per publish by the host; see `PaneChildrenIndex`.
     public let childrenIndex: PaneChildrenIndex?
@@ -223,8 +218,9 @@ public struct FileTreeView: View, Equatable {
         if let onQuickLook { onQuickLook(url) } else { quickLookItem = url }
     }
     /// The downloads THIS pane is watching, keyed by path — see `PaneDownloadWatch`. While a path is
-    /// in there, the row showing that file re-resolves its badge and the preview column showing it
-    /// says "Downloading…"; both read it from here rather than watching anything themselves.
+    /// in there, the row showing that file re-resolves its badge, reading it from here rather than
+    /// watching anything itself; the Info inspector's preview hears when it ends
+    /// (`.cloudDownloadWatchEnded`).
     ///
     /// A collection, not a single latch. One latch meant a second download in this pane — a
     /// different file, queued back to back from the row menu — cancelled the first one's watch, and
@@ -244,16 +240,6 @@ public struct FileTreeView: View, Equatable {
     /// Resolves this pane's selection — and the other pane's, for the cross-pane items — once for
     /// every row menu that asks, in whichever presentation is showing. See `PaneSelectionResolver`.
     @State private var selectionResolver = PaneSelectionResolver()
-
-    /// The preview's width, shared with the Columns presentation — one preference, so a preview
-    /// dragged wide in Columns opens that wide in Tree. Only the floor differs, and that lives in
-    /// `PaneViewMode.treePreviewPaneWidth`.
-    @AppStorage(PaneViewMode.previewColumnWidthDefaultsKey) private var storedPreviewWidth: Double =
-        Double(PaneViewMode.defaultPreviewColumnWidth)
-    /// Live drag scratch for the preview's seam, owned here because the outline beside it is laid
-    /// out from the pane width minus this — see `PanePreviewSidebar`, which writes both.
-    @State private var dragPreviewWidth: CGFloat?
-    @State private var dragPreviewAnchor: CGFloat?
 
     /// The folders whose children are showing, in the Tree presentation. Pane state, not model
     /// state: it survives a republish (identity is the node path) and is reset by nothing, exactly
@@ -370,7 +356,7 @@ public struct FileTreeView: View, Equatable {
     /// exists to stop. Named and non-private so `FileTreeViewPaneNameTests` can pin the choice.
     var badgeMemoRoot: String { currentPath }
 
-    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, search: PaneSearchResults? = nil, searchHitIndex: Int = 0, searchRevealNonce: Int = 0, rowReveal: PaneRowReveal? = nil, onRowRevealed: ((PaneRowReveal) -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault), childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onNeedChildren: ((String, Bool) -> Void)? = nil, graftsInFlight: Set<String> = [], sortOption: SortOption = .name, onBackgroundDeselect: ((Int?) -> Void)? = nil, onQuickLook: ((URL) -> Void)? = nil, downloadChannel: NotificationCenter = .default, hostExpanded: Binding<Set<String>>? = nil, typeFilter: PaneTypeFilterDecor? = nil, typeFilterEmptied: PaneTypeFilter? = nil, typeFilterFolderName: String? = nil, onClearTypeFilter: (() -> Void)? = nil, drawsPreview: Bool = true) {
+    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, search: PaneSearchResults? = nil, searchHitIndex: Int = 0, searchRevealNonce: Int = 0, rowReveal: PaneRowReveal? = nil, onRowRevealed: ((PaneRowReveal) -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onNeedChildren: ((String, Bool) -> Void)? = nil, graftsInFlight: Set<String> = [], sortOption: SortOption = .name, onBackgroundDeselect: ((Int?) -> Void)? = nil, onQuickLook: ((URL) -> Void)? = nil, downloadChannel: NotificationCenter = .default, hostExpanded: Binding<Set<String>>? = nil, typeFilter: PaneTypeFilterDecor? = nil, typeFilterEmptied: PaneTypeFilter? = nil, typeFilterFolderName: String? = nil, onClearTypeFilter: (() -> Void)? = nil) {
         self.typeFilter = typeFilter
         self.typeFilterEmptied = typeFilterEmptied
         self.typeFilterFolderName = typeFilterFolderName
@@ -408,8 +394,6 @@ public struct FileTreeView: View, Equatable {
         self.onRowRevealed = onRowRevealed
         self.isActivePane = isActivePane
         self.viewMode = viewMode
-        self.previewEnabled = previewEnabled
-        self.drawsPreview = drawsPreview
         self.childrenIndex = childrenIndex
         self._browsePath = browsePath
         self.onColumnNavigate = onColumnNavigate
@@ -468,13 +452,9 @@ public struct FileTreeView: View, Equatable {
             // The background menus tick the current order; a stale value ticks the wrong one.
             && lhs.sortOption == rhs.sortOption
             && lhs.viewMode == rhs.viewMode
-            // The VALUE, not the binding's identity. `Binding` is not `Equatable` and two bindings onto
-            // the same `@AppStorage` are fresh structs every render, so comparing anything else here
-            // would either never differ (skipping the re-render that shows or hides the preview when the
-            // header's pill is clicked) or always differ.
-            && lhs.previewEnabled.wrappedValue == rhs.previewEnabled.wrappedValue
-            && lhs.drawsPreview == rhs.drawsPreview
-            // **The VALUE, for the reason stated directly above — and this one is load-bearing in a
+            // **The VALUE, not the binding's identity** — `Binding` is not `Equatable`, and two
+            // bindings onto the same state are fresh structs every render, so comparing anything else
+            // here would either never differ or always differ. And this one is load-bearing in a
             // way that is easy to miss.** While the expansion set was this view's own `@State`, a
             // write to it invalidated the view unconditionally and no gate could suppress the
             // redraw. Held by the host it arrives as a binding instead, so leaving it out of this
@@ -883,7 +863,7 @@ public struct FileTreeView: View, Equatable {
                 // latched).
                 .onReceive(downloadChannel.publisher(for: .cloudDownloadRequested)) { note in
                     if let request = CloudDownloadRequest.accepted(from: note, paneToken: paneToken) {
-                        downloads.begin(request)
+                        downloads.begin(request, announcingOn: downloadChannel)
                     }
                 }
                 // A republish is the moment every other fact on a row is refreshed, so it is the
@@ -1015,9 +995,7 @@ public struct FileTreeView: View, Equatable {
                 rowReveal: rowReveal,
                 onRowRevealed: onRowRevealed,
                 downloadChannel: downloadChannel,
-                selectionResolver: selectionResolver,
-                previewEnabled: previewEnabled,
-                drawsPreview: drawsPreview
+                selectionResolver: selectionResolver
             )
             // The reveal, Columns side. Same signal as the Tree branch, so the two presentations
             // walk the same hits in the same order and switching mode mid-search keeps your place.
@@ -1054,83 +1032,13 @@ public struct FileTreeView: View, Equatable {
             // preference. Each column's `ColumnListProbe` writes the placement from its table
             // and re-resolves the edge itself, so a sideways scroll of the stack touches no row.
         } else {
-            treePresentation
+            paneList
                 // The tree's preference REPLACES the row table wholesale; the columns' probes each
                 // write only their own rows. So leaving the tree must clear what it wrote, or a row
                 // the tree last reported — scrolled away since, or no longer listed at all — would
                 // be read as on screen by the columns' first resolves.
                 .onDisappear { placement?.rowBottoms = [:] }
         }
-    }
-
-    /// The tree, and — when a single file is selected — the same preview the columns show, pinned to
-    /// the pane's trailing edge beside it.
-    ///
-    /// **The outline is framed to what is LEFT, never overlaid.** The preview takes its width off the
-    /// list's, so the rows reflow into the narrower pane exactly as they do under a splitter drag;
-    /// nothing scrolls sideways and no row is covered. That is the same structure the column stack
-    /// uses (the preview is outside its scroll view), arrived at for the same reason.
-    ///
-    /// The width is measured here rather than mirrored into `@State`, matching `PaneColumnsView`:
-    /// reading it back from state decided the layout of the first render from a width of 0.
-    @ViewBuilder
-    private var treePresentation: some View {
-        GeometryReader { geo in
-            let paneWidth = geo.size.width
-            let target = treePreviewItem
-            let showsPreview = PaneViewMode.showsTreePreview(
-                paneWidth: paneWidth, isEnabled: previewEnabled.wrappedValue,
-                hasPreviewTarget: target != nil)
-            let previewWidth = showsPreview
-                ? PaneViewMode.treePreviewPaneWidth(paneWidth: paneWidth,
-                                                    preferred: preferredPreviewWidth)
-                : 0
-
-            HStack(spacing: 0) {
-                paneList
-                    .frame(width: paneWidth - previewWidth)
-                if showsPreview, let target {
-                    // `placement` is the action-bar signal, exactly as in the column stack: nil on
-                    // surfaces that have no bar (the single-source rail), so only the surfaces where
-                    // the bar would cover the identity rows hold a band clear for it.
-                    PanePreviewSidebar(
-                        item: target,
-                        width: previewWidth,
-                        actionBarClearance: placement == nil ? 0 : ColumnPreviewColumn.actionBarClearance,
-                        paneToken: paneToken,
-                        isAwaitingDownload: downloads.requests[target.path] != nil,
-                        downloadChannel: downloadChannel,
-                        onOpenInEditor: { delegate.handleOpenInEditor($0) },
-                        dragWidth: $dragPreviewWidth,
-                        dragAnchor: $dragPreviewAnchor,
-                        storedWidth: $storedPreviewWidth)
-                        // The tint wash, which in Columns is applied once around the stack AND its
-                        // preview. Here the list paints its own (see `paneListBody`), so the
-                        // preview needs its own to sit on the same surface rather than on a seam of
-                        // bare window.
-                        .contentSurface(hue: glassHue, tint: surfaceTint)
-                }
-            }
-        }
-    }
-
-    /// The width the preview would like: the live drag while one is in flight, the remembered width
-    /// otherwise.
-    private var preferredPreviewWidth: CGFloat {
-        PaneViewMode.clampPreviewColumnWidth(dragPreviewWidth ?? CGFloat(storedPreviewWidth))
-    }
-
-    /// The file the tree's preview would show, or nil — see `ColumnPreview.item(selection:treeRows:)`.
-    ///
-    /// Resolved per render, and cheap enough to be: with nothing or several things selected it
-    /// returns before touching a row at all, and with one file it walks the path's own directories
-    /// rather than the tree. It is deliberately NOT cached in `@State` — a cache would have to be
-    /// invalidated on both the selection and every republish, and a preview showing the previous
-    /// file for a frame is exactly the stale-state class `ColumnPreviewColumn.ProbeResult` was
-    /// written to make unrepresentable.
-    private var treePreviewItem: ColumnPreviewItem? {
-        guard drawsPreview, previewEnabled.wrappedValue else { return nil }
-        return ColumnPreview.item(selection: selection, treeRows: tree.rows)
     }
 
     /// The pane's List plus its list-level chrome: the empty-area context menu and the pane's own
@@ -1363,23 +1271,6 @@ public struct FileTreeView: View, Equatable {
         SharedFileMenuItems.getInfo(for: currentPath, delegate: delegate)
         Divider()
         SharedFileMenuItems.sortBy(sortOption) { delegate.handleSort($0) }
-        // The pane's view options where Finder keeps its own — the empty-area menu of the very list
-        // the preview takes its room from. The columns menu carries the identical item; both write
-        // the binding the header's pill and ⇧⌘P write, so the three cannot disagree.
-        //
-        // Unconditional here, unlike the column menu's copy, which is withheld once a pane is too
-        // narrow to hold a preview at all. The tree has no equivalent of that width to test against
-        // without measuring, and this menu is built from a context click rather than from layout —
-        // reaching for a geometry read to hide one item would put the pane's width into a code path
-        // that has never needed it.
-        // Only where this pane draws the preview: in the app it is the window's Info inspector,
-        // which the toolbar's Info button and ⌘I open (TE317 C).
-        if drawsPreview {
-            Divider()
-            Toggle(isOn: previewEnabled) {
-                Label("Show Preview", systemImage: "sidebar.right")
-            }
-        }
     }
 }
 
@@ -2185,9 +2076,8 @@ struct FileRowView: View {
     /// took ~38pt from names that were already truncating, and a column of files is exactly where
     /// long names live.
     ///
-    /// **Where the detail still is.** A file's size is on the preview column's identity line
-    /// (`kind — size`, when the pane has room for a preview and it is on) and in the details
-    /// sidebar, and it drives Sort ▸ Size; a folder's date is in the details sidebar's
+    /// **Where the detail still is.** A file's size is in the Info inspector's details, and it
+    /// drives Sort ▸ Size; a folder's date is in the details sidebar's
     /// `Modified:` row. Tree keeps both, which is why this withholds them rather than the pane
     /// dropping `fileSize` or `modificationDate` from what it publishes. `SortOption.size` and
     /// `.dateModified` still sort by keys Columns no longer draws — Finder's column view does the
@@ -2198,7 +2088,7 @@ struct FileRowView: View {
     /// `railDefaultsKey`), so the detail goes from every surface in Columns and stays in every one in
     /// Tree. Nothing below `ContentView` separates Browse from the Organize rail — they are the same
     /// pane at two widths — so a Browse-only rule would have to be resolved up there and threaded
-    /// down as a binding, the shape `previewEnabled` has.
+    /// down, as each surface's view mode is.
     ///
     /// Defaulted true, so the tree panes and every existing test render the row they rendered before.
     var showsSecondaryText: Bool = true

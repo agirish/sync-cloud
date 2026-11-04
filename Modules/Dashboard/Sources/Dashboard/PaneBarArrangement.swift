@@ -20,7 +20,10 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
     case newFolder
     case sort
     case hiddenFiles
-    case preview
+    // `preview` was here: the pane's own preview toggle, retired when the preview moved into the
+    // Info inspector (TE317 C). Its raw value stays out of use. A stored arrangement that still
+    // lists it reads it as an unknown token — off the bar, carried through `encoded` — so a
+    // maintenance-line build sharing these defaults keeps its button.
     case space
     case flexibleSpace
     /// Appended LAST, per the rule above — the raw values are persisted, so an existing bar keeps
@@ -70,7 +73,6 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
         case .newFolder: return "New Folder"
         case .sort: return "Sort"
         case .hiddenFiles: return "Hidden Files"
-        case .preview: return "Preview"
         case .space: return "Space"
         case .flexibleSpace: return "Flexible Space"
         case .search: return "Search"
@@ -100,7 +102,6 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
         case .newFolder: return "New Folder"
         case .sort: return "Sort"
         case .hiddenFiles: return "Hidden"
-        case .preview: return "Preview"
         case .space, .flexibleSpace: return ""
         case .search: return "Search"
         case .delete: return "Delete"
@@ -148,7 +149,6 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
         case .newFolder: return "folder.badge.plus"
         case .sort: return "arrow.up.arrow.down"
         case .hiddenFiles: return "eye.slash"
-        case .preview: return "rectangle.righthalf.inset.filled"
         case .space: return "space"
         case .flexibleSpace: return "arrow.left.and.right"
         case .search: return "magnifyingglass"
@@ -175,7 +175,7 @@ public struct PaneBarArrangement: Equatable, Sendable {
     public private(set) var items: [PaneBarItem]
 
     /// Tokens in the stored string that no case of THIS build's `PaneBarItem` names — a newer
-    /// build's controls, seen after a downgrade. Never drawn, never offered, never counted against
+    /// build's controls, seen after a downgrade, or a retired one (`preview`) an older build wrote. Never drawn, never offered, never counted against
     /// `maxItems`; their whole job is to ride through `encoded` so that the customize sheet's
     /// write-back does not destroy them. Without this, `init(encoded:)`'s downgrade-survival
     /// promise held only until the first edit: `PaneBarCustomizeSheet.commit` writes the re-encoded
@@ -229,7 +229,7 @@ public struct PaneBarArrangement: Equatable, Sendable {
     /// equivalent — Delete's own chord (⌘⌫) is Compare-only, so it is not the cheapest to lose.
     public static let `default` = PaneBarArrangement([
         .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles,
-        .preview, .delete, .typeFilter, .search
+        .delete, .typeFilter, .search
     ])
 
     /// Normalizes on the way in, so no other code has to defend against a malformed list:
@@ -326,7 +326,7 @@ public struct PaneBarArrangement: Equatable, Sendable {
     // where a control you took off is got back from.
 
     /// The arrangement restricted to what this host can actually offer — a header with no view-mode
-    /// binding has no View control to place, and the single-source rail has no Columns mode to preview.
+    /// binding has no View control to place.
     public func resolved(available: [PaneBarItem]) -> [PaneBarItem] {
         items.filter { $0.isSpacer || available.contains($0) }
     }
@@ -460,9 +460,6 @@ public enum PaneBarLayout {
         // One item, two pills — they move and fold together, so they measure together.
         case .backForward:
             return 2 * pill.width + PaneNavMetrics.pairSpacing
-        // Styled as the view switch's selected segment, so it is a segment wide, not a pill wide.
-        case .preview:
-            return pill.width - PaneNavMetrics.segmentInset
         // Search draws the same plain nav pill as its neighbours rather than Design's
         // `ExpandingSearchToggle`, which sizes itself from a bare 13pt glyph. A pill among pills is
         // what the bar looks like, and it keeps this arithmetic one line instead of a second opinion
@@ -476,7 +473,7 @@ public enum PaneBarLayout {
     ///
     /// An item is as wide as **the wider of its pill and its word** — most words are narrower than
     /// the 33pt pill and cost nothing at all ("Sort" is 21pt, "Delete" 32pt); only New Folder,
-    /// Preview, Search, Hidden and the Back/Forward pair are ever the binding half.
+    /// Search, Hidden and the Back/Forward pair are ever the binding half.
     ///
     /// The widest of `titleVariants`, not the current title: see there for why an item whose word
     /// can change reserves room for the longest of them.
@@ -657,10 +654,11 @@ struct PaneBarLadder {
     /// The rung an offer of `width` gets — the first one that fits, mirroring `ViewThatFits`'s own
     /// rule, and the narrowest rung when nothing does.
     ///
-    /// *First*, not *narrowest-that-fits*: the ladder is deliberately not monotonic. Shedding the
-    /// preview toggle (a segment wide) to gain a ⋯ pill (a full pill, plus its gap) makes the bar
-    /// four points **wider**, so that rung can never be chosen — and a search that reordered the
-    /// rungs by width would pick a different bar than the one this replaces.
+    /// *First*, not *narrowest-that-fits*: the ladder is not guaranteed monotonic. Shedding a control
+    /// narrower than the ⋯ pill it brings in (a full pill, plus its gap) makes the bar **wider** —
+    /// the Preview toggle, a segment wide, did exactly that until it was retired — so such a rung
+    /// can never be chosen, and a search that reordered the rungs by width would pick a different
+    /// bar than the one this replaces.
     func rung(fitting width: CGFloat) -> Int {
         for rung in 0...terminal where self.width(forRung: rung) <= width { return rung }
         return terminal
@@ -926,9 +924,11 @@ public enum PaneBarMigration {
     ///
     /// **A frozen historical record, and it must never grow.** A control that ships from now on
     /// takes a migration step or declines one deliberately; parking it here would be claiming a
-    /// route it never had, which is why the test pins these eight by name rather than reading them.
+    /// route it never had, which is why the test pins these by name rather than reading them. It
+    /// can only shrink, when a control is retired from the bar altogether: Preview was the eighth
+    /// (TE317 C), and is no longer a case to list.
     public static let baselineControls: Set<PaneBarItem> = [
-        .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles, .preview
+        .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles
     ]
 
     /// Controls a step in `apply` puts onto a stored bar.

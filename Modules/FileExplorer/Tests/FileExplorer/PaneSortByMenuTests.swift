@@ -46,7 +46,7 @@ import Testing
 
         let columns = try OrganizeScopeCallSiteTests.source("PaneColumnsView.swift")
         let columnsMenu = try OrganizeScopeCallSiteTests.body(
-            of: "private func emptyAreaMenu(directory: String, previewSupported: Bool) -> some View {",
+            of: "private func emptyAreaMenu(directory: String) -> some View {",
             in: columns)
         #expect(columnsMenu.contains("SharedFileMenuItems.sortBy(sortOption) { delegate.handleSort($0) }"),
                 "the columns' background menu has no Sort By")

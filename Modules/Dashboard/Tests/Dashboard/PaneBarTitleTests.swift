@@ -22,7 +22,7 @@ import Design
     /// The items a full Columns pane offers — the same list `PaneHeader.availableItems` builds for
     /// a header with every binding passed.
     private static let available: [PaneBarItem] =
-        [.backForward, .sort, .hiddenFiles, .viewMode, .scan, .newFolder, .preview, .delete, .search]
+        [.backForward, .sort, .hiddenFiles, .viewMode, .scan, .newFolder, .delete, .search]
 
     private static func ladder(_ mode: PaneBarLabelMode, scale: CGFloat = 1) -> PaneBarLadder {
         PaneBarLadder(arrangement: .default, available: available, ceiling: PaneBarIconSize.regular.ceiling,

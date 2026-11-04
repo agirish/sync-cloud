@@ -101,10 +101,6 @@ import Sync
                 rowReveal: box.reveal,
                 onRowRevealed: { box.answer($0) },
                 viewMode: viewMode,
-                // Off, so selecting a file raises no preview: the preview's arrival is itself a
-                // trigger that reveals the deepest column, and with it on, the Columns control
-                // below would pass with no row reveal at all.
-                previewEnabled: .constant(false),
                 childrenIndex: PaneChildrenIndex(tree: tree, treeRoot: PaneRowRevealTests.root),
                 browsePath: $box.browsePath,
                 onColumnNavigate: { box.browsePath = $0 }

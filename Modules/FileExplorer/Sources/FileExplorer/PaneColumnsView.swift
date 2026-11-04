@@ -79,8 +79,7 @@ struct PaneColumnsView: View {
     let onBackgroundDeselect: (Int?) -> Void
     /// The downloads this pane is watching, by path. Owned — and polled — by the hosting
     /// `FileTreeView`, which holds the pane's single (pane-scoped) subscription; read here by the
-    /// row whose file each one names (`FileRowView.awaitingDownloadID`) and by the preview column
-    /// showing that file (`ColumnPreviewColumn.isAwaitingDownload`).
+    /// row whose file each one names (`FileRowView.awaitingDownloadID`).
     ///
     /// A dictionary rather than the `PaneDownloadWatch` object itself: a class reference compares
     /// identical on every render, so SwiftUI could skip this subtree while the watches changed
@@ -108,8 +107,8 @@ struct PaneColumnsView: View {
     /// `FileTreeView`'s `onRowRevealed`, passed straight through.
     var onRowRevealed: ((PaneRowReveal) -> Void)?
 
-    /// The `NotificationCenter` this pane's downloads are announced on, handed straight to the
-    /// preview column so its Download button posts where the pane that owns it is LISTENING.
+    /// The `NotificationCenter` this pane's downloads are announced on, handed straight to each
+    /// row's context menu so its Download posts where the pane that owns it is LISTENING.
     ///
     /// `.default` is the app's, and the app is the only caller that leaves it alone — see
     /// `FileTreeView.downloadChannel`, which is where this comes from. It is threaded rather than
@@ -125,35 +124,6 @@ struct PaneColumnsView: View {
     /// shared by that render's rows, which is all its answers need.
     var selectionResolver = PaneSelectionResolver()
 
-    /// Whether a selected file gets a preview column, as it does in Finder's column view. Read here
-    /// and written from a column's empty-area context menu — the same place Finder keeps its view
-    /// options — while the pane header's pill writes the very same binding.
-    ///
-    /// Threaded rather than read from `UserDefaults` here, because *which* preference this is depends
-    /// on the surface: Compare and the rail share one key, Browse has its own, and only the host can
-    /// see which surface this pane is drawn on. An `@AppStorage` here would be a third opinion about
-    /// that beside the header's and ⇧⌘P's — see `PaneViewMode.previewColumnKey(isBrowse:)`.
-    ///
-    /// The default keeps a pane mounted without one behaving as it always did (preview on, nothing
-    /// persisted), which is what every test that does not care about the preview wants. It is also a
-    /// silent failure if the app ever takes it — a `.constant` binding swallows the context menu's
-    /// write — so that the app passes a real one is pinned separately, by
-    /// `BrowseWorkspaceCallSiteTests.testEveryPreviewWriterGoesThroughTheOneResolver`.
-    var previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault)
-    /// Whether the stack draws the preview beside itself — see `FileTreeView.drawsPreview`. False,
-    /// the preview takes no room here at all, so nothing in the stack moves when it comes or goes.
-    var drawsPreview: Bool = true
-
-    /// This pane's identity for download-notification scoping, handed to the preview column so a
-    /// download started there is watched by the pane it was started from.
-    ///
-    /// Named and non-private for the reason `FileTreeView.paneToken` is: the derivation is one
-    /// expression inside a view body, and a receiver or sender hardcoded to `.left` routes the whole
-    /// app's downloads to one pane while passing everything else in the suite.
-    /// `PaneColumnsPaneTokenTests` pins it. Computed from the same two facts `FileTreeView` computes
-    /// its own from, so the sending and receiving sides cannot drift.
-    var paneToken: PaneToken { PaneToken(isLeft: isLeft, isSingleSource: isSingleSource) }
-
     /// The width every column takes unless it was sized on its own — one value shared by every pane,
     /// so the two sides of a comparison stay symmetric. Clamped on every write — see
     /// `PaneViewMode.clampColumnWidth`.
@@ -167,9 +137,6 @@ struct PaneColumnsView: View {
     /// inverts for the length of a gesture. See `ColumnResizeMode`.
     @AppStorage(ColumnResizeMode.defaultsKey) private var resizeModeRaw: String =
         ColumnResizeMode.default.rawValue
-    /// The preview pane's width, dragged from the divider on its leading edge.
-    @AppStorage(PaneViewMode.previewColumnWidthDefaultsKey) private var storedPreviewWidth: Double =
-        Double(PaneViewMode.defaultPreviewColumnWidth)
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
     /// A column divider drag in flight — held here so the drag does not write defaults per frame.
@@ -178,11 +145,6 @@ struct PaneColumnsView: View {
     /// losing key mid-drag — is reset by SwiftUI rather than left drawing every column at a stale
     /// width with a stale anchor for the next drag to start from.
     @GestureState private var columnDrag: ColumnDrag?
-    /// The same two for the preview's divider, kept apart from the columns' pair: one set of scratch
-    /// state shared by two dividers that resize different things is a drag on one silently
-    /// continuing from the other's anchor.
-    @State private var dragPreviewWidth: CGFloat?
-    @State private var dragPreviewAnchor: CGFloat?
 
     /// How long after a reveal the second attempt is made. Past the 0.18s scroll animation, so a
     /// first attempt that DID land has finished moving and the retry is a no-op — see
@@ -297,44 +259,8 @@ struct PaneColumnsView: View {
         storedOverrides.width(atDepth: depth, base: CGFloat(storedColumnWidth))
     }
 
-    /// The width the preview rules hold a whole column to, beside the preview — the deepest open
-    /// column, because the preview sits beside it and must leave a whole one of THOSE on screen, plus
-    /// the gutter a stack of columns keeps after its last one.
-    ///
-    /// **As the column rests, never mid-drag.** A live divider drag across the threshold would tear
-    /// the preview down and put it back, and reveal the stack under the cursor, every time it crossed.
-    ///
-    /// **A stack showing ONE column is held to its own width, like any other stack.** It used to be
-    /// held to the default column instead, because it spanned whatever the preview left it and its
-    /// own width measured nothing. It keeps its width now, so that rule left it 12pt short of the
-    /// gutter and squeezed any column wider than the default as the preview took its room — a file
-    /// click resizing the column it landed in. A column sized too wide for a preview beside it gets
-    /// no preview, exactly as the deepest column of a deeper stack does.
-    ///
-    /// Push mode needs no case: `showsPreviewColumn` refuses it a preview before reading this.
-    private var previewRuleColumnWidth: CGFloat {
-        committedColumnWidth(atDepth: max(0, directories.count - 1)) + PaneViewMode.columnStackTrailingGutter
-    }
-    private var preferredPreviewWidth: CGFloat {
-        PaneViewMode.clampPreviewColumnWidth(dragPreviewWidth ?? CGFloat(storedPreviewWidth))
-    }
     /// The directories each open column lists, root first.
     private var directories: [String] { browsePath.columnDirectories(treeRoot: treeRoot) }
-
-    /// The file the preview column would show, or `nil` — see `ColumnPreview.item`.
-    ///
-    /// Every Columns surface, comparison panes included. This was the rail's alone at first, on the
-    /// reasoning that a comparison pane is half a window wide and its whole job is to be read against
-    /// the pane beside it, so spending a third of it on a preview would take that room from the
-    /// columns doing the comparing. That is a real cost, but it is the reader's to weigh — and they
-    /// weigh it with the toggle, which is the same one the rail uses. The width rule already refuses
-    /// the trade where it would be ruinous: `showsPreviewColumn` gives a preview no room at all
-    /// unless a full column still fits beside it.
-    private var previewItem: ColumnPreviewItem? {
-        guard drawsPreview, previewEnabled.wrappedValue, let deepest = directories.last else { return nil }
-        return ColumnPreview.item(selection: selection,
-                                  deepestRows: childrenIndex.children(atPath: deepest) ?? [])
-    }
 
     var body: some View {
         // The measured width feeds the layout directly. It used to be mirrored into @State and read
@@ -345,92 +271,14 @@ struct PaneColumnsView: View {
         }
     }
 
-    /// The pane: the scrolling column stack, and — when a file is selected — the preview pinned to
-    /// the trailing edge beside it.
+    /// The pane: the Miller-column stack, scrolling horizontally within the pane's width.
     ///
-    /// The preview sits OUTSIDE the scroll view, which is the whole design. Inside it, the preview
-    /// and the columns had to share one width: enlarging it either ran off the right edge (it was the
-    /// last item, so it grew into the scroll overflow) or, when its width came from the columns'
-    /// slack, forced every column narrow enough that the stack stopped scrolling — the columns became
-    /// unreadable *and* the preview still couldn't exceed the leftovers. Pinned, the two are
-    /// independent: the preview takes width from the SCROLL VIEW, so the columns keep theirs and keep
-    /// scrolling.
+    /// Nothing else shares the pane. The file preview it used to pin beside the stack is the Info
+    /// inspector's now (TE317 C), so a click on a file never takes room from the columns.
     @ViewBuilder
     private func columnStack(paneWidth: CGFloat) -> some View {
-        let previewTarget = previewItem
-        let ruleColumnWidth = previewRuleColumnWidth
-        let showsPreview = PaneViewMode.showsPreviewColumn(
-            paneWidth: paneWidth, columnWidth: ruleColumnWidth,
-            isEnabled: previewEnabled.wrappedValue, hasPreviewTarget: previewTarget != nil)
-        let previewWidth = showsPreview
-            ? PaneViewMode.previewPaneWidth(paneWidth: paneWidth, columnWidth: ruleColumnWidth,
-                                            preferred: preferredPreviewWidth)
-            : 0
-        // What the columns get. Every layout rule below reads THIS, not the pane: the stack's own
-        // geometry is unchanged by the preview's existence, it simply has less room.
-        let stackWidth = paneWidth - previewWidth
-
-        HStack(spacing: 0) {
-            scrollingColumns(stackWidth: stackWidth, paneWidth: paneWidth,
-                             showsPreview: showsPreview, previewPath: previewTarget?.path)
-                .frame(width: stackWidth)
-            if showsPreview, let previewTarget {
-                // The pane's action bar is an overlay across the WHOLE pane, so on a comparison pane
-                // it lands on top of this column — and it is not an edge case: the preview needs
-                // exactly one selected file, which is precisely when the bar is up. Measured in a
-                // 940pt pane, the bar spans x 10…930 of the pane while the preview holds x 438…940,
-                // covering 492 of its 502 points across the bottom band, which is where the identity
-                // rows are. Nor can it be dismissed to read them: the bar's ✕ clears the selection,
-                // and that takes the preview with it.
-                //
-                // `placement` is the signal because its contract is already "nil on surfaces with no
-                // action bar", which is why the single-source rail (where this column shipped first) never had
-                // the problem.
-                //
-                // Deliberately NOT also `isActivePane`, though that would be the more precise reading
-                // of "a bar will actually be drawn here": the bar shows on the active side only, so an
-                // inactive pane holding a single-file selection reserves a band nothing occupies. The
-                // cost of precision is a jump — clicking into that pane would raise the bar and lift
-                // the identity rows a whole band in the same instant. A little dead space on the pane
-                // you are not reading beats geometry that moves under the one you just clicked, which
-                // is the same resting-state rule `showsPreviewColumn` follows when it refuses to let
-                // a file click start the stack scrolling.
-                //
-                // The preview and its seam are `PanePreviewSidebar`, shared with the Tree
-                // presentation: this stack decides how much room the preview gets and hands over
-                // the rest of the pane, which is the only part of the arrangement the two modes
-                // disagree about.
-                PanePreviewSidebar(
-                    item: previewTarget,
-                    width: previewWidth,
-                    actionBarClearance: placement == nil ? 0 : ColumnPreviewColumn.actionBarClearance,
-                    paneToken: paneToken,
-                    isAwaitingDownload: awaitingDownloads[previewTarget.path] != nil,
-                    downloadChannel: downloadChannel,
-                    onOpenInEditor: { delegate.handleOpenInEditor($0) },
-                    dragWidth: $dragPreviewWidth,
-                    dragAnchor: $dragPreviewAnchor,
-                    storedWidth: $storedPreviewWidth)
-            }
-        }
-    }
-
-    /// The Miller-column stack itself, scrolling horizontally within `stackWidth`.
-    ///
-    /// - Parameter showsPreview: whether the preview is taking room from this stack right now. Not
-    ///   used for layout — `stackWidth` already carries that — but as a scroll trigger (its rising
-    ///   edge) and as the gate on the preview-width driver; see the drivers below.
-    /// - Parameter previewPath: the file the preview would show, whether or not it has room to —
-    ///   a scroll trigger only, for a preview that moves to another file while it stays open.
-    @ViewBuilder
-    private func scrollingColumns(stackWidth: CGFloat, paneWidth: CGFloat,
-                                  showsPreview: Bool, previewPath: String?) -> some View {
         // Below two minimum columns there is no room for a second one, so the pane shows a single
         // column that replaces its contents as you drill and `‹` walks back out.
-        //
-        // Resolved from the PANE, not from `stackWidth`: the preview must not flip the pane into a
-        // different navigation mode. Selecting a file would otherwise turn a two-column stack into a
-        // pushing one, and `‹` would start meaning something else than it did a click ago.
         let usesPush = PaneViewMode.usesPushNavigation(paneWidth: paneWidth)
         // Push mode shows only the deepest column; the rest of the stack is still in `browsePath`,
         // which is what lets `‹` walk back out and `›` walk back in.
@@ -447,19 +295,18 @@ struct PaneColumnsView: View {
         // A stack of columns keeps a strip clear after its last one, OUTSIDE the scroll view — see
         // `PaneViewMode.columnStackTrailingGutter` for why it cannot be inside.
         let gutter = spansStack ? 0 : PaneViewMode.columnStackTrailingGutter
-        let viewportWidth = stackWidth - gutter
+        let viewportWidth = paneWidth - gutter
         // Each column as wide as it was sized, but never wider than the viewport. Sizes are shared by
         // every surface and go up to 600pt, and a column wider than the viewport would be revealed
         // by its trailing edge — its icons and the start of every name cut off on the other side.
         let widths = visible.indices.map { offset in
-            spansStack ? stackWidth
+            spansStack ? paneWidth
                 : min(columnWidth(atDepth: offset), viewportWidth)
         }
         let fillerWidth = PaneViewMode.trailingFillerWidth(paneWidth: viewportWidth, columnWidths: widths)
         // The empty area past the columns answers a right-click as the deepest column's own empty
         // area does. At rest that area is most of the pane, and it used to be the lone column's.
         let menuDirectory = visible.last
-        let previewSupported = previewSupportable(paneWidth: paneWidth)
 
         HStack(spacing: 0) {
         ScrollViewReader { proxy in
@@ -467,7 +314,7 @@ struct PaneColumnsView: View {
                 HStack(spacing: 0) {
                     ForEach(Array(visible.enumerated()), id: \.element) { offset, directory in
                         let depth = usesPush ? browsePath.depth : offset
-                        column(directory: directory, depth: depth, previewSupported: previewSupported)
+                        column(directory: directory, depth: depth)
                             .frame(width: widths[offset])
                             .id(directory)
                             .overlay(alignment: .trailing) {
@@ -483,7 +330,7 @@ struct PaneColumnsView: View {
                     }
                     if fillerWidth > 0 {
                         deselectCatcher(width: fillerWidth, place: "past last column",
-                                        menuDirectory: menuDirectory, previewSupported: previewSupported)
+                                        menuDirectory: menuDirectory)
                     }
                 }
                 // Inside the ScrollView, so the ancestor walk resolves the STACK's scroll view
@@ -509,139 +356,59 @@ struct PaneColumnsView: View {
             // would. Without it the rebuilt stack sat at its FIRST column, hiding the one you were in.
             // A remembered offset is put back by `PaneStackScrollMemoryProbe` instead.
             .onAppear { revealWhenNothingToRestore(proxy) }
-            // The second driver: the preview ARRIVING — the rising edge only.
+            // And when the PANE narrows — the window resized smaller, a panel opening beside it, the
+            // comparison split dragged. The clip keeps its origin as it shrinks, so the deepest
+            // column slides off the trailing edge with nothing to bring it back.
             //
-            // The preview is pinned OUTSIDE the scroll view, so it does not scroll into or out of
-            // the content — it takes points off the stack's VIEWPORT while AppKit keeps the clip's
-            // origin exactly where it was. Whatever occupied the points it now covers is simply
-            // hidden, and that is the deepest column: the one holding the very file the preview
-            // was raised to describe.
-            //
-            // Nothing else corrected this, and each near-miss is worth stating so it isn't
-            // re-attempted:
-            //
-            // - The `browsePath` driver above cannot. Clicking a file in the deepest column
-            //   truncates the stack to that column's own depth, which is a no-op, so `browsePath`
-            //   compares equal and the driver never fires. (Not *always* equal: `truncate` also
-            //   clears the forward stack, so the same click after a `‹` does move the value and
-            //   did scroll correctly — which is why this read as intermittent.)
-            // - `PaneColumnsOverscrollReturn` cannot. Narrowing the clip GROWS the legal scroll
-            //   range, so the stale origin stays legal and `legalOrigin` finds nothing to clamp.
-            //
-            // The FALLING edge is deliberately NOT driven — the first application of THE RULE the
-            // three geometry drivers below all follow:
+            // This and the two drivers below all follow one rule:
             //
             //   **Reveal only on the edge that can newly OCCLUDE the deepest column** — the
             //   stack's content growing, or its viewport shrinking. The opposite edge can only
             //   ever un-hide content, so there is nothing for a reveal to correct there, and
             //   firing anyway force-scrolls a stack the user may have deliberately scrolled back.
             //
-            // Closing the preview grows the viewport, so a manually scrolled-back origin is
-            // usually still legal, and the right behavior is to stay exactly where the user put
-            // it — this handler used to reveal unconditionally, which yanked the whole stack to
-            // the deepest column on every preview close and clobbered that scroll-back.
-            //
-            // The one case a close does break is an origin the grown viewport pushed out of
-            // range, i.e. the stack was resting at its far end. That is corrected by the clip
-            // itself: `NSClipView` re-constrains its bounds when its frame grows, so the stack
-            // lands on the nearest legal origin immediately. This comment used to hand the case
-            // to `PaneColumnsOverscrollReturn`'s clamp and describe a 0.14s-quiescence bounce;
-            // that is not what happens here — measured by deleting `legalOrigin`'s clamp, after
-            // which `ColumnPreviewRevealTests`' close test still passes. The watchdog is the
-            // backstop for the clip that does NOT self-correct (a phase-less gesture's leftovers),
-            // and `PaneColumnsOverscrollReturnCycleTests` pins it against exactly this shape.
-            //
-            // Reported as "Tidy works, Compare doesn't". That was pure geometry, not two code
-            // paths — a full-width rail has room to spare after the preview takes its 420pt, so a
-            // shallow stack stays wholly visible; half a window does not. Measured at the same
-            // three-column stack: a 690pt pane narrows to 270 with the deepest column at 420…630
-            // (entirely hidden), a 1400pt rail narrows to 980 and keeps it. Both are pinned in
-            // `ColumnPreviewRevealTests` so the rail cannot regress the day someone drills deeper.
-            .onChange(of: showsPreview) { _, isShowing in
-                guard isShowing else { return }
-                revealDeepestColumn(proxy)
-            }
-            // And when an open preview moves to ANOTHER file: a click on a second file, a rename
-            // that carries the selection to the new name, a reveal of a sibling. `showsPreview`
-            // stays true and `browsePath` is unchanged, so neither driver above fires — and a stack
-            // the user had scrolled back stayed scrolled back, the file the preview now describes
-            // hidden in the column behind it. A file arriving in the preview is the moment its
-            // column should be on screen, scrolled-back or not; that is the trade asked for.
-            .onChange(of: previewPath) { _, path in
-                guard showsPreview, path != nil else { return }
-                revealDeepestColumn(proxy)
-            }
-            // And when the PANE narrows — the window resized smaller, a panel opening beside it, the
-            // comparison split dragged — under THE RULE: a shrinking viewport is an occluding edge,
-            // and the clip keeps its origin as it shrinks, so the deepest column slides off the
-            // trailing edge with nothing to bring it back. Keyed on the pane, not on `stackWidth`,
-            // which the preview's own divider also moves on every frame of a live drag — inside the
-            // wheel and drag handling the preview-width driver below keeps its scroll out of.
-            //
             // A live window resize does fire this on every frame. That is the one per-frame caller,
-            // and it is safe where the divider was not: no wheel gesture is in flight to hold the
-            // stack, so each frame's first attempt simply keeps the column against the shrinking
-            // edge, and each reveal supersedes the last one's retry (`PaneColumnHoldGate.beginReveal`)
-            // — only the final width's retry is left to run.
-            // Widening is the other edge and only un-hides, so it is left alone; and a pane going to
-            // nothing has no column to show.
+            // and it is safe: no wheel gesture is in flight to hold the stack, so each frame's first
+            // attempt simply keeps the column against the shrinking edge, and each reveal supersedes
+            // the last one's retry (`PaneColumnHoldGate.beginReveal`) — only the final width's retry
+            // is left to run. Widening is the other edge and only un-hides, so it is left alone; and
+            // a pane going to nothing has no column to show.
+            //
+            // (Until TE317 C the pane's own preview drove three more: its arrival, its moving to
+            // another file, and its divider settling wider. The preview is the Info inspector's now
+            // and takes nothing from the pane, so none of the three has an edge left to watch.)
             .onChange(of: paneWidth) { previous, current in
                 guard current < previous, current > 0 else { return }
                 revealDeepestColumn(proxy)
             }
-            // And once the preview's own divider settles. Growing the preview walks the seam left
-            // across the deepest column, re-hiding exactly what the driver above reveals.
+            // And once the COLUMN divider settles: widening the columns grows every column in the
+            // stack, pushing the deepest column's trailing edge right, past the pane's edge, while
+            // the clip's origin stays where it was. Keyed on the STORED width, which is what makes
+            // this the drag's end rather than its every frame: a live drag renders from
+            // `columnDrag` and writes the preference only on release. Scrolling per frame would put
+            // a programmatic scroll inside a live gesture — the shape that recursed `enforceHold`
+            // to depth 1839 and killed a shipped build. Before this driver existed, nothing
+            // corrected the occlusion (`legalOrigin` finds nothing to clamp — the origin is still
+            // legal, the content just grew past it).
             //
-            // Keyed on the STORED width, which is what makes this the drag's end rather than its
-            // every frame: a live drag renders from `dragPreviewWidth` and writes the preference
-            // only in `onEnded`. Scrolling per frame would put a programmatic scroll inside a live
-            // gesture — the shape that recursed `enforceHold` to depth 1839 and killed a shipped
-            // build — and would be pointless besides, since mid-drag the seam is under the user's
-            // own cursor and they can see exactly where it is.
+            // Not gated on anything this pane shows. The column width is one shared key, and it
+            // changes the CONTENT geometry of every pane's stack — every pane's deepest column is
+            // pushed past its edge by the same drag — so every pane has a real occlusion to correct,
+            // and firing everywhere is legitimate.
             //
-            // Gated on THIS pane's `showsPreview`, because the stored width is one process-wide
-            // key shared by up to three `PaneColumnsView` instances (both comparison panes and
-            // the single-source rail): ending a drag in one pane fired this handler in every pane, and a
-            // pane whose preview is hidden had its viewport untouched by that drag — revealing
-            // there force-scrolled a stack the user may have deliberately scrolled back.
-            //
-            // And gated on the GROWING edge, per THE RULE above: a drag that NARROWS the preview
-            // hands the stack's viewport points back, which can only un-hide the deepest column,
-            // so there is nothing to correct and a reveal there is the same unasked-for scroll
-            // the falling edge of `showsPreview` was making.
-            .onChange(of: storedPreviewWidth) { previous, current in
-                guard showsPreview, current > previous else { return }
-                revealDeepestColumn(proxy)
-            }
-            // And once the COLUMN divider settles, for the same reason: widening the columns
-            // grows every column in the stack, pushing the deepest column's trailing edge right
-            // — past the preview's seam when one is open, past the pane's own edge when not —
-            // while the clip's origin stays where it was. Same stored-width keying as the
-            // preview divider above (drag end, never per frame), and the same defect class:
-            // before this driver existed, nothing corrected the occlusion (`legalOrigin` finds
-            // nothing to clamp — the origin is still legal, the content just grew past it).
-            //
-            // Deliberately NOT gated on `showsPreview`, unlike the driver above. The column
-            // width is also one shared key, but it changes the CONTENT geometry of every pane's
-            // stack — a preview-less pane's deepest column is pushed past the pane edge by the
-            // same drag — so every pane has a real occlusion to correct, and firing everywhere
-            // is legitimate.
-            //
-            // Gated on the GROWING edge, per THE RULE above. NARROWING the columns shrinks every
+            // Gated on the GROWING edge, per the rule above. NARROWING the columns shrinks every
             // stack's content, which can only reduce occlusion: measured, four 300pt columns in a
             // 690pt pane are 1200pt of content, and a drag down to 260 leaves 1040 — nothing that
             // was visible is hidden by it. Firing anyway yanked a pane the user had scrolled back
-            // to x=0 forward to x=350, from a drag made in the OTHER pane, which is precisely the
-            // asymmetry the `showsPreview` driver above was fixed for.
+            // to x=0 forward to x=350, from a drag made in the OTHER pane.
             //
             // What is deliberately NOT here is an occlusion pre-check ("skip when the deepest
             // column is already fully visible"). The edge guard is the cheap, observable half of
             // that idea; the rest would need the laid-out column frames, which this handler
             // cannot see. The honest residual trade-off it leaves: a pane whose user scrolled
             // back (deepest column occluded by choice) is still brought to its deepest column
-            // when any pane's column divider commits WIDER — the same trade the preview
-            // divider's driver makes, and pinned as a test so it stays a decision rather than a
-            // surprise.
+            // when any pane's column divider commits WIDER — pinned as a test so it stays a
+            // decision rather than a surprise.
             .onChange(of: storedColumnWidth) { previous, current in
                 guard current > previous else { return }
                 revealDeepestColumn(proxy)
@@ -665,7 +432,7 @@ struct PaneColumnsView: View {
         .frame(width: viewportWidth)
         if gutter > 0 {
             deselectCatcher(width: gutter, place: "in the gutter",
-                            menuDirectory: menuDirectory, previewSupported: previewSupported)
+                            menuDirectory: menuDirectory)
         }
         }
     }
@@ -718,14 +485,12 @@ struct PaneColumnsView: View {
         revealDeepestColumn(proxy)
     }
 
-    /// Brings the deepest column back to the trailing edge of whatever room the stack has — the
-    /// seam the preview sits against, or the pane's own edge when there is none.
+    /// Brings the deepest column back to the trailing edge of the stack's viewport.
     ///
     /// Deferred, which every caller needs for the same reason in a different guise: `onChange`
     /// fires while SwiftUI is still applying the update, so the geometry the scroll resolves
     /// against is the OLD one. A drill would target a column the stack has not laid out yet and
-    /// land short, leaving the fresh column half off the edge; a preview would resolve `.trailing`
-    /// against the viewport width it is in the middle of taking 420pt away from.
+    /// land short, leaving the fresh column half off the edge.
     ///
     /// **Issued TWICE, and that is not belt-and-braces.** A too-early scroll does not land short
     /// here — it is silently dropped and never retried. Measured: with the deferral removed
@@ -742,16 +507,16 @@ struct PaneColumnsView: View {
     /// let the 0.25s retry speak for a stack that no longer existed: drill a→b at t=0 (attempts at
     /// t=0 and t=0.25), drill b→c at t=0.10 (t=0.10 and t=0.35), and the t=0.25 retry scrolled to
     /// b's trailing edge. That is not a harmless no-op — b is still a real, non-last column, so
-    /// the stack visibly jerked BACKWARDS a column's width until t=0.35 put it right. Four drivers
-    /// now schedule these, so more paths reach that overlap, not fewer. Reading the binding from
+    /// the stack visibly jerked BACKWARDS a column's width until t=0.35 put it right. Several drivers
+    /// schedule these, so more paths reach that overlap, not fewer. Reading the binding from
     /// the deferred block is the same live read `DeferredColumnNavigation`'s staleness check makes
     /// one screen below, for the same reason: the block carries no memory of what happened after
     /// it was queued, so it must ask.
     ///
-    /// The window it opens is the price: a deliberate scroll made within `revealRetryDelay` of
-    /// opening a preview gets overridden. That is a quarter-second after the click that raised the
-    /// preview, aimed at the column the user just clicked in, so the correction lands where they
-    /// were already looking.
+    /// The window it opens is the price: a deliberate scroll made within `revealRetryDelay` of a
+    /// drill gets overridden. That is a quarter-second after the click that opened the column, aimed
+    /// at the column the user just clicked in, so the correction lands where they were already
+    /// looking.
     ///
     /// The hold deferral below widens that window, and the exact shape is worth stating: when this
     /// pane is held, the window runs until the gesture holding it ends, not until
@@ -760,10 +525,8 @@ struct PaneColumnsView: View {
     /// still anyway. The scroll a late reveal can override is one made by a NEW gesture, in the
     /// moment after the old one released.
     ///
-    /// `anchor: .trailing` always yields a WHOLE column rather than a sliver: `showsPreviewColumn`
-    /// refuses a preview unless the deepest column and the gutter fit beside it, `previewPaneWidth`
-    /// caps the preview at the pane minus the two, and no column is drawn wider than the viewport —
-    /// so the deepest column always fits the viewport it is revealed into.
+    /// `anchor: .trailing` always yields a WHOLE column rather than a sliver: no column is drawn
+    /// wider than the viewport, so the deepest column always fits the viewport it is revealed into.
     ///
     /// The animation is taken from the environment rather than written here so a host that cannot
     /// run one can say so — see `paneColumnRevealAnimation`. Read once, before the closure, so both
@@ -777,7 +540,7 @@ struct PaneColumnsView: View {
     /// A momentum tail routinely outlasts `revealRetryDelay`: flick vertically in a column, then
     /// drill (by keyboard, or by a click that does not kill the coast), and BOTH attempts land
     /// inside the hold and are reverted. The lock then decays and nothing else fires —
-    /// `browsePath` has already moved, the preview and both widths are untouched, and the reverted
+    /// `browsePath` has already moved, the widths are untouched, and the reverted
     /// origin is perfectly legal so the quiescence return has nothing to clamp. The freshly opened
     /// deepest column stayed hidden behind the pane's edge for good.
     ///
@@ -883,18 +646,6 @@ struct PaneColumnsView: View {
         }
     }
 
-    /// Whether this pane is wide enough to hold a preview column at all — the gate on *offering* the
-    /// setting. Distinct from `showsPreviewColumn`, which also asks whether a file is selected and
-    /// whether the setting is on: a menu item that vanished whenever the preview it toggles was not
-    /// currently on screen would be unreachable exactly when you wanted to switch it back on.
-    private func previewSupportable(paneWidth: CGFloat) -> Bool {
-        // Drawn elsewhere (the window's Info inspector), it is not this pane's to offer.
-        guard drawsPreview else { return false }
-        return PaneViewMode.showsPreviewColumn(paneWidth: paneWidth,
-                                        columnWidth: previewRuleColumnWidth,
-                                        isEnabled: true, hasPreviewTarget: true)
-    }
-
     /// Empty space beside the columns, made a deselect target so that clicking there behaves like
     /// clicking below a column's last row: the dead space past the last column when the stack is
     /// narrower than the pane, and the gutter a stack keeps after its last column.
@@ -911,8 +662,7 @@ struct PaneColumnsView: View {
     /// A right-click here opens `menuDirectory`'s empty-area menu — the deepest column's, the folder
     /// the pane is showing. A resting pane is one column and this area, so without it most of the
     /// pane would have no menu at all.
-    private func deselectCatcher(width: CGFloat, place: String, menuDirectory: String?,
-                                 previewSupported: Bool) -> some View {
+    private func deselectCatcher(width: CGFloat, place: String, menuDirectory: String?) -> some View {
         Color.clear
             .frame(width: width)
             .contentShape(Rectangle())
@@ -925,7 +675,7 @@ struct PaneColumnsView: View {
             }
             .contextMenu {
                 if let menuDirectory {
-                    emptyAreaMenu(directory: menuDirectory, previewSupported: previewSupported)
+                    emptyAreaMenu(directory: menuDirectory)
                 }
             }
     }
@@ -1051,7 +801,7 @@ struct PaneColumnsView: View {
     /// A `List` per column rather than a `LazyVStack`, so `onDeleteCommand`, the selection binding
     /// and `PaneListSelectionStyler` keep working instead of being reimplemented three times over.
     @ViewBuilder
-    private func column(directory: String, depth: Int, previewSupported: Bool) -> some View {
+    private func column(directory: String, depth: Int) -> some View {
         let rows = childrenIndex.children(atPath: directory) ?? []
         // The reader wraps the column's own `List`, not the stack — `revealDeepestColumn`'s proxy
         // scrolls the stack HORIZONTALLY to bring a column into view, and cannot scroll a row
@@ -1119,14 +869,14 @@ struct PaneColumnsView: View {
                 .allowsHitTesting(false)
             }
         }
-        .contextMenu { emptyAreaMenu(directory: directory, previewSupported: previewSupported) }
+        .contextMenu { emptyAreaMenu(directory: directory) }
         }
     }
 
     /// The empty-area menu for `directory` — a column's, and the dead space past the columns'
     /// (`deselectCatcher`), which answers for the deepest one.
     @ViewBuilder
-    private func emptyAreaMenu(directory: String, previewSupported: Bool) -> some View {
+    private func emptyAreaMenu(directory: String) -> some View {
         SharedFileMenuItems.refresh(delegate: delegate)
         Divider()
         SharedFileMenuItems.newFolder(at: directory, delegate: delegate)
@@ -1144,11 +894,6 @@ struct PaneColumnsView: View {
         // very columns they restack. Deliberately NOT in `FileContextMenu`: that menu is built
         // per row, so anything in it exists once per visible file.
         Divider()
-        if previewSupported {
-            Toggle(isOn: previewEnabled) {
-                Label("Show Preview", systemImage: "sidebar.right")
-            }
-        }
         Button(action: resetColumnWidths) {
             Label("Reset Column Widths", systemImage: "arrow.left.and.right")
         }
@@ -1663,8 +1408,8 @@ extension EnvironmentValues {
     /// while something is driving frames, and the app's window always is — it is on screen and
     /// key, so the reveal eases across in 0.18s exactly as designed. An OFFSCREEN, never-key
     /// `NSWindow` is not: when the machine throttles CoreAnimation, the animation never advances,
-    /// the clip's `bounds.origin.x` sits at 0 forever, and the deepest column stays behind the
-    /// preview. Two conditions do that throttling, both of them properties of the machine rather
+    /// the clip's `bounds.origin.x` sits at 0 forever, and the deepest column stays off screen.
+    /// Two conditions do that throttling, both of them properties of the machine rather
     /// than of any code:
     ///
     /// - the display being asleep, which is the *normal* state of an unattended self-hosted CI

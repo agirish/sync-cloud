@@ -65,8 +65,7 @@ import FileExplorerTestSupport
     private static func item(_ name: String) throws -> ColumnPreviewItem {
         let path = "\(root)/\(name)"
         let node = FileNode(id: path, name: name, isDirectory: false, fileSize: 120)
-        return try #require(ColumnPreview.item(
-            selection: [path], deepestRows: PaneRow.project([node], side: .left, version: 1)))
+        return ColumnPreviewItem(node: node)
     }
 
     /// Every focus-ring view in a hosted tree — one per `Button` — top to bottom, **in the root's

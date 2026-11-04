@@ -97,7 +97,7 @@ import FileExplorerTestSupport
     /// now, so the old filter counted the empty end of the row.
     @Test func theSweptRowIsFullOfControls() throws {
         let full = try Self.inkedColumns(.default)
-        let stripped = try Self.inkedColumns(PaneBarArrangement([.backForward, .scan, .sort, .hiddenFiles, .preview]))
+        let stripped = try Self.inkedColumns(PaneBarArrangement([.backForward, .scan, .sort, .hiddenFiles]))
         #expect(full > stripped,
                 "the full bar (\(full) inked columns) crosses no more ink than a bar with four controls removed (\(stripped)) — this sweep cannot see controls at all")
         #expect(full >= stripped + 5,

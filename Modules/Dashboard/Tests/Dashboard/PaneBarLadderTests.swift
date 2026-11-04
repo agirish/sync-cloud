@@ -443,8 +443,11 @@ import FileExplorerTestSupport
             guard let first = drawn.first, let trailing = drawn.map(\.maxX).max() else { continue }
             // Both leading edges — with and without the switch's capsule ground.
             let base = [trailing - first.minX, trailing - first.minX + PaneNavMetrics.segmentPadding]
+            // Within one backing pixel at 2x, inclusive: the rings snap to the pixel grid, and since
+            // the Preview toggle left (TE317 C) the titled rung's own fit lands on a half point
+            // (330.5 against the drawn 331).
             #expect(base.contains(where: { span in
-                spans.contains(where: { abs($0 - span) < 0.5 })
+                spans.contains(where: { abs($0 - span) <= 0.5 })
             }), "at \(width)pt the bar spans \(base), no rung of \(spans)")
         }
     }
@@ -520,24 +523,22 @@ import FileExplorerTestSupport
 
     // MARK: - The ladder's own arithmetic
 
-    /// `ViewThatFits` takes the FIRST child that fits, and the ladder is deliberately not monotonic:
-    /// shedding the preview toggle (a segment wide) to gain a ⋯ pill (a full pill plus its gap) makes
-    /// the bar *wider*. A `rung(fitting:)` that sorted by width, or that returned the narrowest rung
-    /// that fits, would pick a different bar than the search it replaces.
-    @Test func theLadderIsNotMonotonicAndIsWalkedInOrder() {
+    /// `ViewThatFits` takes the FIRST child that fits, and the ladder is not guaranteed to narrow at
+    /// every rung: shedding a control no wider than the ⋯ pill it brings in (a full pill plus its
+    /// gap) leaves the bar no narrower. The Preview toggle, a segment wide, made it strictly wider
+    /// until it was retired (TE317 C); a pill-wide control ties. A `rung(fitting:)` that sorted by
+    /// width, or that returned the narrowest rung that fits, would pick a different bar than the
+    /// search it replaces.
+    @Test func theLadderIsWalkedInOrder() {
         let ladder = Self.columnsLadder()
-        // **Expressed relative to `titledRungs`, not as literals.** The non-monotonic pair is the
-        // first `.mini` rung and the one after it — which used to be rungs 1 and 2 and are 2 and 3
-        // once a titled rung sits at the head. Written as literals this test kept running and
-        // stopped being about shedding: it would have compared the titled rung against an untitled
-        // one, where being wider is the whole point rather than the anomaly.
+        // **Expressed relative to `titledRungs`, not as literals**: the first `.mini` rung and the
+        // one after it, which sit after however many titled rungs head the ladder.
         let firstMini = ladder.titledRungs + 1
-        // The rung after the first `.mini` one sheds the preview toggle and gains ⋯ — measurably
-        // wider than the rung that sheds nothing. If this ever stops being true the test has lost
-        // its subject, not found a bug.
-        #expect(ladder.width(forRung: firstMini + 1) > ladder.width(forRung: firstMini))
-        // Offered exactly that rung's width, the walk must still answer it — never the narrower
-        // rung after it that also fits, and never the wider one before it that does not.
+        // The rung after the first `.mini` one sheds a pill-wide control and gains ⋯ — no
+        // narrower than the rung that sheds nothing, which is the case "first" decides.
+        #expect(ladder.width(forRung: firstMini + 1) >= ladder.width(forRung: firstMini))
+        // Offered exactly that rung's width, the walk must still answer it — never a rung after
+        // it that also fits, and never the wider one before it that does not.
         #expect(ladder.rung(fitting: ladder.width(forRung: firstMini)) == firstMini)
         #expect(ladder.rung(fitting: ladder.width(forRung: 0)) == 0)
         // A hair under rung 0 steps to rung 1, not past it.
@@ -559,7 +560,7 @@ import FileExplorerTestSupport
     /// The terminal rung is `maxDepth + 1`, and past it `PaneBarLayout.plan` is idempotent — which is
     /// what makes dropping the old ladder's surplus rungs a no-op rather than a behaviour change.
     @Test func theTerminalRungShedsEverythingSheddable() {
-        let available: [PaneBarItem] = [.backForward, .sort, .hiddenFiles, .viewMode, .scan, .newFolder, .preview]
+        let available: [PaneBarItem] = [.backForward, .sort, .hiddenFiles, .viewMode, .scan, .newFolder]
         let ladder = PaneBarLadder(arrangement: .default, available: available, ceiling: .small)
         let terminal = ladder.plan(forRung: ladder.terminal)
         #expect(terminal == PaneBarLayout.plan(arrangement: .default, available: available, depth: .max))
@@ -579,8 +580,6 @@ import FileExplorerTestSupport
         // One item, two pills.
         #expect(PaneBarLayout.width(of: .backForward, pill: pill, compactsViewMode: false)
                 == 2 * pill.width + 6)
-        // Styled as the switch's selected segment, so a segment wide.
-        #expect(PaneBarLayout.width(of: .preview, pill: pill, compactsViewMode: false) == pill.width - 4)
         // A flexible space must cost the bar's minimum width nothing — that is what lets it pin the
         // bar to the trailing edge without widening it.
         #expect(PaneBarLayout.width(of: .flexibleSpace, pill: pill, compactsViewMode: false) == 0)
@@ -849,7 +848,7 @@ import FileExplorerTestSupport
 
     /// The rungs `ViewThatFits` can actually land on: first-fit takes the earliest child that fits,
     /// so a rung no narrower than one before it is unreachable by construction and no assertion may
-    /// demand it (see `theLadderIsNotMonotonicAndIsWalkedInOrder`).
+    /// demand it (see `theLadderIsWalkedInOrder`).
     private static func reachableRungs(_ ladder: PaneBarLadder) -> [Int] {
         var narrowest = CGFloat.greatestFiniteMagnitude
         var reachable: [Int] = []
@@ -995,6 +994,12 @@ import FileExplorerTestSupport
     ///   widths the chip is truncated to the track available rather than sized by its content. The
     ///   commit that made this change said three; there are three 250pt rows in this table, not two.
     ///
+    /// **Retiring the Preview toggle (TE317 C) took one ring off thirteen rows and moved nothing
+    /// else.** Each row that drew the toggle lost its last bar ring and kept every other ring
+    /// byte-identical; the three 250pt rows, which had already folded it into ⋯, did not change.
+    /// One row stepped: `iCloud @ 1.0, 330` draws its controls at full size now rather than
+    /// `.mini` — the room the toggle took was the difference.
+    ///
     /// One golden row, as data rather than a string to be re-parsed.
     ///
     /// The keys used to be `"columns-icloud|0.9|250"`, split apart and force-unwrapped at read time.
@@ -1026,30 +1031,30 @@ import FileExplorerTestSupport
 
     private static let goldenTable: [(String, CGFloat, CGFloat, String)] = [
         (iCloud, 0.9, 250, "17,469/23x17 43,469/23x17 75,469/27x17 108,469/27x17 141,469/27x17 174,469/27x17 207,469/27x17 93,514/67x15 164,514/50x15"),
-        (iCloud, 0.9, 410, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 219,469/33x20 268,469/33x20 309,469/33x20 353,469/29x20 122,514/67x15 193,514/50x15"),
-        (iCloud, 0.9, 490, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 219,469/33x20 268,469/33x20 309,469/33x20 353,469/29x20 122,514/67x15 193,514/50x15"),
-        (iCloud, 0.9, 710, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 219,469/33x20 268,469/33x20 309,469/33x20 353,469/29x20 122,514/67x15 193,514/50x15"),
+        (iCloud, 0.9, 410, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 219,469/33x20 268,469/33x20 309,469/33x20 122,514/67x15 193,514/50x15"),
+        (iCloud, 0.9, 490, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 219,469/33x20 268,469/33x20 309,469/33x20 122,514/67x15 193,514/50x15"),
+        (iCloud, 0.9, 710, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 219,469/33x20 268,469/33x20 309,469/33x20 122,514/67x15 193,514/50x15"),
         // **The narrowest pane, and the sharpest single number here.** Five controls used to fit
         // a 250pt pane; seven do. The bar is on the same `.mini` rung it always was — nothing got
         // smaller — it simply is not sharing the row with a 180pt provider capsule any more.
         (iCloud, 1.0, 250, "17,467/23x17 43,467/23x17 75,467/27x17 108,467/27x17 141,467/27x17 174,467/27x17 207,467/27x17 91,514/65x17 160,514/54x17"),
-        (iCloud, 1.0, 330, "17,467/23x17 43,467/23x17 75,467/27x17 108,467/27x17 141,467/27x17 174,467/27x17 207,467/27x17 240,467/27x17 273,467/23x17 128,514/73x17 205,514/54x17"),
+        (iCloud, 1.0, 330, "17,467/29x20 49,467/29x20 87,467/33x20 126,467/33x20 165,467/33x20 204,467/33x20 243,467/33x20 282,467/33x20 128,514/73x17 205,514/54x17"),
         // **Where the titled rung now begins.** 410pt, against 570 before: a title is only affordable
         // when the bar has track to spare, and the retired capsule is all the track it needed.
-        (iCloud, 1.0, 410, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 361,467/29x20 128,514/73x17 205,514/54x17"),
-        (iCloud, 1.0, 490, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 361,467/29x20 128,514/73x17 205,514/54x17"),
-        (iCloud, 1.0, 570, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 361,467/29x20 128,514/73x17 205,514/54x17"),
-        (iCloud, 1.0, 710, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 361,467/29x20 128,514/73x17 205,514/54x17"),
+        (iCloud, 1.0, 410, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 128,514/73x17 205,514/54x17"),
+        (iCloud, 1.0, 490, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 128,514/73x17 205,514/54x17"),
+        (iCloud, 1.0, 570, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 128,514/73x17 205,514/54x17"),
+        (iCloud, 1.0, 710, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 128,514/73x17 205,514/54x17"),
         (longName, 1.0, 250, "17,467/23x17 43,467/23x17 75,467/27x17 108,467/27x17 141,467/27x17 174,467/27x17 207,467/27x17 91,514/65x17 160,514/54x17"),
-        (longName, 1.0, 410, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 361,467/29x20 243,514/73x17 320,514/54x17"),
+        (longName, 1.0, 410, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 243,514/73x17 320,514/54x17"),
         // **`longName @ 1.0 490` is the row that says what this bought.** A wide custom source name
-        // used to leave room for five controls here; it leaves room for all nine, because the name
+        // used to leave room for five controls here; it leaves room for all of them, because the name
         // is no longer competing with them for the row — it reads on the breadcrumb below, where a
         // long one truncates inside its own chip instead of pushing the bar off the end.
-        (longName, 1.0, 490, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 361,467/29x20 281,514/73x17 358,514/54x17"),
-        (longName, 1.0, 570, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 361,467/29x20 281,514/73x17 358,514/54x17"),
-        (longName, 1.0, 650, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 361,467/29x20 281,514/73x17 358,514/54x17"),
-        (longName, 1.0, 710, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 361,467/29x20 281,514/73x17 358,514/54x17"),
+        (longName, 1.0, 490, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 281,514/73x17 358,514/54x17"),
+        (longName, 1.0, 570, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 281,514/73x17 358,514/54x17"),
+        (longName, 1.0, 650, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 281,514/73x17 358,514/54x17"),
+        (longName, 1.0, 710, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 281,514/73x17 358,514/54x17"),
     ]
 
 }

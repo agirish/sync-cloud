@@ -6,8 +6,7 @@ import Design
 @testable import Dashboard
 
 /// Chrome glass on the pane bar (RD46 follow-up, 2026-10-03): in Frosted and Clear every pill sits
-/// in a glass capsule, like Finder's toolbar; Back and Forward share one; Preview has one even when
-/// it is off; Solid draws none.
+/// in a glass capsule, like Finder's toolbar; Back and Forward share one; Solid draws none.
 ///
 /// Rendered through the real `PaneHeader` with the probe — glass draws nothing offscreen, so the
 /// probe paints a bar button's glass cyan and the selection lens magenta — and read along the pill
@@ -20,8 +19,8 @@ import Design
     static let frosted = SelectionLensAppearance(level: .frosted, hue: .blue, tint: 0, drawsProbe: true)
     static let solid = SelectionLensAppearance(level: .solid, hue: .blue, tint: 0, drawsProbe: true)
 
-    static func render(_ appearance: SelectionLensAppearance, preview: Bool = false) -> NSBitmapImageRep {
-        SelectionLensViewModeTests.rig(.tree, preview: preview, appearance: appearance).capture()
+    static func render(_ appearance: SelectionLensAppearance) -> NSBitmapImageRep {
+        SelectionLensViewModeTests.rig(.tree, appearance: appearance).capture()
     }
 
     /// The pieces of glass along the pill row, in points: a column counts if any pixel in the
@@ -43,40 +42,18 @@ import Design
     @Test(.machinePinned(.pixelSampling))
     func everyPillSitsInGlassAndBackAndForwardShareOne() throws {
         let runs = Self.pillRow(Self.render(Self.frosted))
-        // Back/Forward, Sort, the View switch, Hidden files, Scan, New Folder and Preview — one
-        // piece each. Fewer is a pill that lost its glass; more is a pair split in two.
-        try #require(runs.count == 7, "\(runs.count) pieces of glass on the bar, want 7: \(runs)")
+        // Back/Forward, Sort, the View switch, Hidden files, Scan and New Folder — one piece each.
+        // Fewer is a pill that lost its glass; more is a pair split in two.
+        try #require(runs.count == 6, "\(runs.count) pieces of glass on the bar, want 6: \(runs)")
         func width(_ run: ClosedRange<CGFloat>) -> CGFloat { run.upperBound - run.lowerBound }
-        // A single pill's glass: the narrowest run short of Preview, which is the last (the View
-        // switch's track and the pair are wider).
-        let pill = try #require(runs.dropLast().map(width).min())
+        // A single pill's glass: the narrowest run (the View switch's track and the pair are wider).
+        let pill = try #require(runs.map(width).min())
         // Back and Forward as ONE capsule: a run exactly two pills and the gap between them wide.
         // Apart, they read as two pill-wide runs, and nothing else on the bar is that width — the
         // View switch's track, the nearest, measured 67pt against the pair's 72.
         let pair = 2 * pill + PaneNavMetrics.pairSpacing
         #expect(runs.contains { abs(width($0) - pair) <= 1.5 },
                 "no \(pair)pt run for Back and Forward together — two capsules, not one: \(runs)")
-        // Preview is the bar's last control, and has glass even while it is off — a pill's width,
-        // like its neighbours', though its own pill gave up the segment inset to its ON fill.
-        let last = try #require(runs.last)
-        #expect(abs(width(last) - pill) <= 1.01, "Preview's glass is \(width(last))pt, not a pill's \(pill): \(runs)")
-    }
-
-    /// **Preview ON keeps its fill, on the glass.** A toggle has no position to say it is on — only
-    /// its fill — and the first glass version traded the fill for a tint that all but vanished at
-    /// Tint 0 and vanished entirely at accent None, so ON and OFF read the same. The fill is
-    /// opaque and sits inside Preview's glass, the segment inset in from it on each side.
-    @Test(.machinePinned(.pixelSampling))
-    func previewOnKeepsItsFillOnTheGlass() throws {
-        let isFill = SelectionLensViewModeTests.isTodaysFill
-        let off = Self.render(Self.frosted)
-        let on = Self.render(Self.frosted, preview: true)
-        let glass = try #require(Self.pillRow(off).last, "no glass on the bar")
-        #expect(Pixel.box(off, width: Self.size.width, isFill) == nil, "Preview OFF drew a fill")
-        let fill = try #require(Pixel.box(on, width: Self.size.width, isFill), "Preview ON drew no fill under glass")
-        let inset = PaneNavMetrics.segmentInset / 2
-        #expect(abs(fill.minX - (glass.lowerBound + inset)) <= 1.5 && abs(fill.maxX - (glass.upperBound - inset)) <= 1.5,
-                "the accent fill \(fill) is not inset \(inset)pt inside Preview's glass \(glass)")
     }
 
     /// **Hover is painted on the glass.** A glass pill has no resting grey — the glass is its

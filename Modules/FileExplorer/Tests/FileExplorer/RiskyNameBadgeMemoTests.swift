@@ -238,10 +238,7 @@ import Sync
                 isActivePane: true,
                 placement: nil,
                 onBarEdgeFlip: nil,
-                onQuickLook: { _ in }, onBackgroundDeselect: { _ in },
-                // Off, and passed as the binding the pane takes: it is not what is being measured
-                // here and it would open on every file selection below.
-                previewEnabled: .constant(false)
+                onQuickLook: { _ in }, onBackgroundDeselect: { _ in }
             )
         }
     }

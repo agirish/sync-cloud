@@ -350,7 +350,7 @@ struct ContentView: View {
     /// keeps a one-tab strip (and therefore a permanent ＋) on screen at the cost of a row that
     /// restates the folder name the header already shows.
     ///
-    /// App-wide rather than per pane, matching the other reading preferences (`paneColumnShowsPreview`):
+    /// App-wide rather than per pane, like the column width every pane shares:
     /// "do I want a tab bar" is a question about the app, not about one of three surfaces that all
     /// draw the same pane.
     @AppStorage("browseTabBarVisible") var tabBarVisible: Bool = false
@@ -4285,8 +4285,6 @@ struct ContentView: View {
                 showHiddenFiles: $syncManager.showHiddenFiles,
                 // The rail and Browse get the switch too, each bound to its own key.
                 viewMode: resolvedViewModeBinding(isLeft: isLeft),
-                // The preview is the window's Info inspector now, opened from the toolbar and ⌘I.
-                offersPreview: false,
                 // Targets the pane's current folder, which in Columns is the deepest open column.
                 // One resolution shared with ⇧⌘N — see `beginNewFolder(isLeft:)`.
                 onNewFolder: { beginNewFolder(isLeft: isLeft) },
@@ -5233,9 +5231,7 @@ struct ContentView: View {
             typeFilter: typeFilterDecor(isLeft: pane.isLeft),
             typeFilterEmptied: typeFilterEmptied(isLeft: pane.isLeft),
             typeFilterFolderName: typeFilterFolderName(isLeft: pane.isLeft),
-            onClearTypeFilter: { typeFilterBinding(isLeft: pane.isLeft).wrappedValue = nil },
-            // The preview is the Info inspector's now (TE317 C), so a click never resizes the pane.
-            drawsPreview: false
+            onClearTypeFilter: { typeFilterBinding(isLeft: pane.isLeft).wrappedValue = nil }
         )
         // The whole point of `FileTreeView: Equatable`. Without this the conformance is inert —
         // SwiftUI only consults a view's `==` through `EquatableView` — and this view is built

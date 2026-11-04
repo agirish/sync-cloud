@@ -6,7 +6,7 @@ import SwiftUI
 import Sync
 import UniformTypeIdentifiers
 
-/// The file a pane's preview is showing, reduced to scalars.
+/// The file the preview is showing, reduced to scalars.
 ///
 /// Deliberately not a `PaneRow`/`FileNode`: a view that stores a node keeps that node's subtree
 /// reachable from the view graph (the reason `FileRowInfo` exists at all), and a preview needs none
@@ -28,10 +28,8 @@ struct ColumnPreviewItem: Equatable {
     /// drawn by the renderer this whole change is about replacing.
     let contentType: UTType?
 
-    init(row: PaneRow) { self.init(node: row.node) }
-
-    /// From the node alone, for a host outside the pane — the Info inspector has a `FileNode` from
-    /// the manager's path index, never a projected row.
+    /// From the node — the Info inspector has a `FileNode` from the manager's path index, never a
+    /// pane's projected row.
     init(node: FileNode) {
         self.path = node.id
         self.name = node.name
@@ -66,60 +64,6 @@ struct ColumnPreviewItem: Equatable {
         guard let uti, let type = UTType(uti), let description = type.localizedDescription
         else { return nil }
         return description
-    }
-}
-
-/// Which file a preview should show, given a pane's selection.
-///
-/// Pure and separate from the view because the answer is a rule, not a rendering: exactly one file,
-/// found where that presentation keeps its selection.
-///
-/// The "exactly one" half is shared by both modes and is the load-bearing one — a preview names one
-/// file, and a ⌘-click multi-selection has no single subject, so previewing the "first" of it would
-/// describe a file the user did not point at. Only *where to look* differs, which is what the two
-/// entry points below are.
-enum ColumnPreview {
-    /// Columns: the selection lives in the deepest open column by construction — clicking a file
-    /// truncates the stack to its own column (`PaneColumnsView.navigation(for:depth:)`), so a
-    /// selection resolved anywhere shallower is a stale one the pane has already navigated past.
-    static func item(selection: Set<String>, deepestRows: [PaneRow]) -> ColumnPreviewItem? {
-        resolve(selection: selection) { path in deepestRows.first { $0.id == path } }
-    }
-
-    /// Tree: the selection can be at any depth of the outline, so the path is walked down the row
-    /// projection rather than looked for in one list.
-    ///
-    /// `treeRows` is the pane's whole projection (`PaneTree.rows`), and the walk is why this takes it
-    /// rather than a flattened list: `descend` follows the path's own components, so it touches one
-    /// directory's siblings per level instead of the ~40,000 rows a pane routinely holds. A linear
-    /// scan here would run on every render of a pane with a file selected, which is the shape
-    /// `PaneTree` exists to keep out of the view graph.
-    static func item(selection: Set<String>, treeRows: [PaneRow]) -> ColumnPreviewItem? {
-        resolve(selection: selection) { path in descend(to: path, in: treeRows) }
-    }
-
-    /// The shared half: exactly one selected path, resolved to a row, and that row a file.
-    private static func resolve(selection: Set<String>,
-                                row: (String) -> PaneRow?) -> ColumnPreviewItem? {
-        guard selection.count == 1, let path = selection.first,
-              let row = row(path), !row.node.isDirectory
-        else { return nil }
-        return ColumnPreviewItem(row: row)
-    }
-
-    /// Finds the row for an absolute path by walking the projection, entering only the one directory
-    /// on the way to it.
-    ///
-    /// The containment test is `id + "/"`, never a bare `hasPrefix`: `/a/b` is a prefix of `/a/bc`
-    /// as a string but not as a path, and descending into the wrong sibling ends the walk at nothing.
-    static func descend(to path: String, in rows: [PaneRow]) -> PaneRow? {
-        for row in rows {
-            if row.id == path { return row }
-            guard row.info.isDirectory, let children = row.children,
-                  path.hasPrefix(row.id + "/") else { continue }
-            return descend(to: path, in: children)
-        }
-        return nil
     }
 }
 
@@ -211,9 +155,9 @@ struct ColumnPreviewProbe: Equatable, Sendable {
 /// no mounted coverage at all.
 ///
 /// Carried in the ENVIRONMENT rather than as an argument, because the wiring under test runs
-/// through views the test cannot pass arguments to: `FileTreeView` owns the pane's watch,
-/// `PaneColumnsView` hands it to this column, and a test has to mount the real pair to prove those
-/// two hops are live. An environment value reaches through both without either having to know.
+/// through a view the test cannot pass arguments to: `InspectorFilePreview` builds this column, and
+/// a test has to mount the real view beside the pane that watches its download to prove the hop
+/// from that watch is live. An environment value reaches through without either having to know.
 struct ColumnPreviewProbeReader: Sendable {
     let read: @Sendable (String) async -> ColumnPreviewProbe
 
@@ -253,13 +197,13 @@ struct ColumnPreviewColumn: View {
     /// downgraded the nil to "requested, unwatched" behind a debug log — so DELETING the argument at
     /// the one call site compiled, left the whole suite green, and cost every preview-started
     /// download its watch: no "Downloading…" caption, no badge clearing when the content landed.
-    /// Nothing legitimately needs nil (the sole production caller is `PaneColumnsView`, which always
-    /// knows its side), so the silent path is gone and the omission is a compile error instead.
+    /// Nothing legitimately needs nil (the sole production caller is `InspectorFilePreview`, which
+    /// always knows the pane), so the silent path is gone and the omission is a compile error instead.
     let paneToken: PaneToken
-    /// Whether the pane is watching a download of the file this column is showing. Handed down by
-    /// `PaneColumnsView` from the pane's `PaneDownloadWatch`: this column shows "Downloading…" while
-    /// it is true, and re-probes when it goes false — the pane's watch concluding is what tells a
-    /// materialized file it may be previewed.
+    /// Whether the pane is watching a download of the file this column is showing, as
+    /// `InspectorFilePreview` follows the pane's `PaneDownloadWatch`: this column shows
+    /// "Downloading…" while it is true, and re-probes when it goes false — the pane's watch
+    /// concluding is what tells a materialized file it may be previewed.
     ///
     /// Read rather than run. This column used to keep its own `Task`, its own poll (twenty probes
     /// at 1.5 s) and its own `CloudOnlyBadgeCache.forget` for a download the pane's row was already
@@ -273,7 +217,7 @@ struct ColumnPreviewColumn: View {
     let isAwaitingDownload: Bool
 
     /// Where this column ANNOUNCES a download, and it must be the same channel the pane that will
-    /// watch it is listening on — see `PaneColumnsView.downloadChannel`, which supplies it.
+    /// watch it is listening on — see `FileTreeView.downloadChannel`.
     ///
     /// Defaulted, unlike the two properties above, because `.default` is a correct answer rather
     /// than a silently broken one: it is the channel the app runs on, and the only callers that

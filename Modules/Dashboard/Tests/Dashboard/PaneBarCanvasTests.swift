@@ -106,7 +106,7 @@ import FileExplorerTestSupport
         // bar to be somewhere in: the same controls, in the same order, land ~300pt further left once
         // the flexible space is gone, and the row's whole trailing half is empty.
         let controls: [PaneBarItem] =
-            [.viewMode, .backForward, .scan, .newFolder, .sort, .hiddenFiles, .preview]
+            [.viewMode, .backForward, .scan, .newFolder, .sort, .hiddenFiles]
         let roomy: CGFloat = 800
         let packed = Self.barFrames(PaneBarArrangement(controls), width: roomy)
         let pinned = Self.barFrames(PaneBarArrangement([.flexibleSpace] + controls), width: roomy)
@@ -138,7 +138,7 @@ import FileExplorerTestSupport
         // Moving the bar left must not quietly drop anything: same arrangement, same control count,
         // different place.
         let arrangement: [PaneBarItem] =
-            [.viewMode, .backForward, .scan, .newFolder, .sort, .hiddenFiles, .preview]
+            [.viewMode, .backForward, .scan, .newFolder, .sort, .hiddenFiles]
         #expect(Self.barFrames(PaneBarArrangement(arrangement)).count
                 == Self.barFrames(PaneBarArrangement([.flexibleSpace] + arrangement)).count)
     }
@@ -155,9 +155,9 @@ import FileExplorerTestSupport
         let full = Self.barFrames(.default).count
         let trimmed = Self.barFrames(
             PaneBarArrangement([.flexibleSpace, .viewMode, .backForward, .scan]))
-        // Four controls gone (New Folder, Sort, Hidden Files, Preview) and nothing gained.
-        #expect(trimmed.count == full - 4,
-                "removing four controls should net four fewer pills, got \(trimmed.count) vs \(full) — a ⋯ came back")
+        // Three controls gone (New Folder, Sort, Hidden Files) and nothing gained.
+        #expect(trimmed.count == full - 3,
+                "removing three controls should net three fewer pills, got \(trimmed.count) vs \(full) — a ⋯ came back")
     }
 
     // MARK: Icon size

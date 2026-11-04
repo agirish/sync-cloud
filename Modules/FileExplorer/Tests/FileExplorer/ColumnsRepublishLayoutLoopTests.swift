@@ -21,10 +21,9 @@ import Sync
 /// and the log named the trigger — twice, identically: "switched right provider to iCloud" →
 /// "reset navigation to root" → the pane's tree is dropped and replaced by a shallow 19-node one.
 ///
-/// The earlier fixtures missed it by running the pane in TREE mode at COMFORTABLE density with the
-/// default preview width. This one uses the configuration the crashes were actually taken under,
-/// including the fractional stored preview width, which is what a real resized preview leaves
-/// behind.
+/// The earlier fixtures missed it by running the pane in TREE mode at COMFORTABLE density. This one
+/// uses the configuration the crashes were actually taken under, less the pane's own preview
+/// column, which the app no longer draws (TE317 C: the preview is the Info inspector's).
 @MainActor
 @Suite struct ColumnsRepublishLayoutLoopTests {
 
@@ -48,7 +47,6 @@ import Sync
     }
 
     /// The user's stored values, verbatim, from `com.abhishekgirish.SyncCloud`.
-    private static let realPreviewWidth: CGFloat = 502.35546875
     private static let realColumnWidth: CGFloat = 210
 
     final class Box: ObservableObject {
@@ -58,8 +56,7 @@ import Sync
         init(tree: PaneTree) { self.tree = tree }
     }
 
-    /// A real on-disk root: the preview column reads the filesystem, so synthetic paths give it
-    /// nothing to lay out and the column it would add never appears.
+    /// A real on-disk root, as the crashes were taken over.
     final class Fixture {
         let root: String
         init(files: Int) {
@@ -97,10 +94,7 @@ import Sync
                 delegate: StubDelegate(), diffIndex: .empty, otherPaneName: "R",
                 isSingleSource: false, density: .compact, isActivePane: true,
                 placement: nil, onBarEdgeFlip: nil, onQuickLook: { _ in },
-                onBackgroundDeselect: { _ in },
-                // On, explicitly — the loop this suite watches for is the preview's. The pane takes
-                // it as a binding now, so the mount states it rather than writing a defaults key.
-                previewEnabled: .constant(true)
+                onBackgroundDeselect: { _ in }
             )
             .defaultAppStorage(defaults)
         }
@@ -109,7 +103,6 @@ import Sync
     private func mount(_ box: Box, root: String, width: CGFloat) -> NSWindow {
         let defaults = ScratchDefaults("ColumnsRepublishLayoutLoopTests")
         defaults.set(Double(Self.realColumnWidth), forKey: PaneViewMode.columnWidthDefaultsKey)
-        defaults.set(Double(Self.realPreviewWidth), forKey: PaneViewMode.previewColumnWidthDefaultsKey)
         let host = NSHostingView(rootView: Harness(box: box, root: root, defaults: defaults))
         host.frame = NSRect(x: 0, y: 0, width: width, height: 700)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
@@ -184,7 +177,7 @@ import Sync
     }
 
     /// The same republish while the pane's width moves, which is what a real provider switch does to
-    /// a Columns pane: the column stack re-fits and the preview column's share changes with it.
+    /// a Columns pane: the column stack re-fits.
     @Test func testRepublishWhileTheColumnStackRefitsSettles() {
         let fixture = Fixture(files: 40)
         let box = Box(tree: fixture.tree(files: 40, version: 1))

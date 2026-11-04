@@ -70,19 +70,8 @@ import Foundation
         #expect(sidebar.contains(".selectionLensTracksVisibleRegion(visibleRows)"))
     }
 
-    @Test func thePreviewToggleWearsGlassOnTheButtonAndKeepsItsFill() throws {
+    @Test func everyNavPillWearsGlassOnItsButton() throws {
         let views = try Self.source("DashboardViews.swift")
-        let style = try #require(views.range(of: ".buttonStyle(.hoverAffordance(previewEnabled.wrappedValue ? .filled : .segment"))
-        let after = views[style.upperBound...].drop { $0 != "\n" }.dropFirst()
-            .split(separator: "\n", omittingEmptySubsequences: true)
-            .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-        // On the button, right after its style: `.filled` flattens its label, and glass inside one
-        // renders nothing. Untinted — ON is said by the fill, not by the glass.
-        #expect(after?.trimmingCharacters(in: .whitespaces)
-                    == ".chromeGlassGround(.capsule, horizontalOutset: PaneNavMetrics.segmentInset / 2, verticalOutset: 0)",
-                "the line after Preview's style is \(String(describing: after))")
-        #expect(views.contains(".background(previewEnabled.wrappedValue ? AnyShapeStyle(glassHue.accentFillColor)"),
-                "Preview's ON fill is gone — under glass ON and OFF read the same")
         #expect(Self.count(".paneNavGlass()", in: views) == 12, "every nav pill's button")
     }
 }

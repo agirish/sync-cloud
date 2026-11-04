@@ -31,9 +31,10 @@ import SwiftUI
 /// `ViewThatFits`'s own rule, and reproducing it is the whole point.
 ///
 /// Worth being precise about how this differs from the pane bar, since the shape of the fix is
-/// borrowed from it. `PaneBarLadder` records that its ladder is deliberately **not** monotonic —
-/// shedding the preview toggle to gain a ⋯ pill makes that bar four points *wider*, so the rung can
-/// never be chosen and sorting by width would pick a different bar. This ladder has no such
+/// borrowed from it. `PaneBarLadder` records that its ladder is not guaranteed monotonic —
+/// shedding a control narrower than the ⋯ pill it brings in makes that bar *wider* (the retired
+/// Preview toggle did, by four points), so such a rung can never be chosen and sorting by width
+/// would pick a different bar. This ladder has no such
 /// inversion: measured across every fixture in `HeaderLadderTests.theLadderNeverWidensAsItSheds`, it
 /// is monotonically non-increasing, because every rung here either sheds a run of text or does
 /// nothing. What it does have is **ties** — a rung whose concession does not apply (no reverse button

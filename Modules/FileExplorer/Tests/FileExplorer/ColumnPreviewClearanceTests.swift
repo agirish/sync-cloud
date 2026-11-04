@@ -24,11 +24,8 @@ import UniformTypeIdentifiers
     /// where the IDENTITY rows land, and a real Quick Look mount would put an unpredictable
     /// extension-drawn image in the frame above them.
     private static let item = ColumnPreviewItem(
-        row: PaneRow(side: .left, version: 1,
-                     node: FileNode(id: "/tmp/ColumnPreviewClearance/note.txt", name: "note.txt",
-                                    isDirectory: false, fileSize: 5,
-                                    kind: UTType.plainText.identifier),
-                     children: nil))
+        node: FileNode(id: "/tmp/ColumnPreviewClearance/note.txt", name: "note.txt",
+                       isDirectory: false, fileSize: 5, kind: UTType.plainText.identifier))
 
     /// The padding ContentView puts around the bar inside the overlay (`.padding(10)`).
     static let overlayPadding: CGFloat = 10
@@ -180,8 +177,8 @@ import UniformTypeIdentifiers
 enum PaintedInk {
 
     /// The y of the lowest row holding ink, in points from the top, optionally restricted to a band of
-    /// columns. Shared by `ColumnPreviewClearanceTests` and `ColumnPreviewLayoutTests`, which ask the
-    /// same question of the preview column alone and of a whole mounted pane.
+    /// columns. Shared so another suite asking the same question of a different surface uses the
+    /// same measurement.
     ///
     /// `nil` means nothing was painted — NOT a position. An earlier version returned 0 for that and
     /// told callers to treat 0 as failure, which is a claim the return type could not keep: ink

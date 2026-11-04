@@ -81,11 +81,8 @@ import UniformTypeIdentifiers
     }
 
     private func item(_ path: String, uti: String?) -> ColumnPreviewItem {
-        ColumnPreviewItem(row: PaneRow(
-            side: .left, version: 1,
-            node: FileNode(id: path, name: (path as NSString).lastPathComponent,
-                           isDirectory: false, fileSize: 1, kind: uti),
-            children: nil))
+        ColumnPreviewItem(node: FileNode(id: path, name: (path as NSString).lastPathComponent,
+                                         isDirectory: false, fileSize: 1, kind: uti))
     }
 
     /// Mounts the preview column itself, so what is measured is the pane's own choice of renderer

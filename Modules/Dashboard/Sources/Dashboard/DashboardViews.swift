@@ -71,20 +71,6 @@ public struct PaneHeader: View {
     /// This pane's presentation. `nil` hides the switch entirely — the single-source rail has no Columns
     /// mode, so it gets no control for one.
     public var viewMode: Binding<PaneViewMode>?
-    /// The preview toggle's state — the pill, and its twin in the ⋯ menu.
-    ///
-    /// It used to be read here as `@AppStorage`, on the grounds that it was one shared preference with
-    /// one key that a binding would make every call site restate. There are two keys now (Browse keeps
-    /// its own; see `PaneViewMode.previewColumnKey(isBrowse:)`), and this header is drawn on every
-    /// surface, so reading a key here would mean this header deciding for itself which surface it is on
-    /// — the mistake `shortcutPreviewColumn` documents. The host resolves it once and hands the same
-    /// binding to the pill, the column context menu and ⇧⌘P.
-    public var previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault)
-    /// Whether the bar offers the Preview button at all. False in the app, where the preview is the
-    /// window's Info inspector (TE317 C): a button on each pane for one window-wide panel would put
-    /// two in Compare, beside the toolbar's Info button and ⌘I that already open it. A stored
-    /// arrangement keeps the item; it is simply not offered, so turning this back on restores it.
-    public var offersPreview: Bool = true
     /// Creates a folder in the pane's current folder — in Columns that is the deepest open column,
     /// which is the one genuinely unambiguous answer the tree view could never give. `nil` hides it.
     public let onNewFolder: (() -> Void)?
@@ -198,8 +184,6 @@ public struct PaneHeader: View {
         onCancelScan: (() -> Void)? = nil,
         showHiddenFiles: Binding<Bool>,
         viewMode: Binding<PaneViewMode>? = nil,
-        previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault),
-        offersPreview: Bool = true,
         onNewFolder: (() -> Void)? = nil,
         onDelete: (() -> Void)? = nil,
         selectionCount: Int = 0,
@@ -237,8 +221,6 @@ public struct PaneHeader: View {
         self.onCancelScan = onCancelScan
         self._showHiddenFiles = showHiddenFiles
         self.viewMode = viewMode
-        self.previewEnabled = previewEnabled
-        self.offersPreview = offersPreview
         self.onNewFolder = onNewFolder
         self.onDelete = onDelete
         self.selectionCount = selectionCount
@@ -598,7 +580,7 @@ public struct PaneHeader: View {
     }
 
     /// Which items this particular header can offer at all. A header with no view-mode binding has
-    /// no View control to place; the single-source rail has no Columns mode, so no preview to toggle.
+    /// no View control to place.
     ///
     /// Internal rather than private so `PaneBarLadderTests` can build its ladder from the same list
     /// the view does. Restated by hand, a test keeps passing against a ladder the header stopped
@@ -609,7 +591,6 @@ public struct PaneHeader: View {
         if onCollapse != nil { available.append(.collapse) }
         if onRefresh != nil { available.append(.scan) }
         if onNewFolder != nil { available.append(.newFolder) }
-        if showsPreviewToggle { available.append(.preview) }
         // Same gate, same reason as search below: a header with no delete handler has nothing to
         // trash, so it offers no trash — and so builds precisely the bar it built before this
         // control existed. That is what keeps `PaneHeaderHeightTests` and the 250pt snapshots
@@ -908,11 +889,6 @@ public struct PaneHeader: View {
             // `ContentView+SplitLayout`'s link toggle already uses.
             .accessibilityLabel("Hidden files")
             .accessibilityValue(showHiddenFiles ? "Shown" : "Hidden")
-
-        case .preview:
-            if showsPreviewToggle {
-                previewTogglePill(controlSize: controlSize)
-            }
 
         case .delete:
             if let onDelete {
@@ -1238,7 +1214,7 @@ public struct PaneHeader: View {
             }
         }
         // **Horizontal only.** The ground stays — it is what makes two segments read as one
-        // control, and Preview borrows its selected-segment fill — but its vertical padding made
+        // control — but its vertical padding made
         // this the one control on the bar taller than a pill (26pt against 20). Nothing showed it
         // while the 34pt provider capsule set the row height; a title hangs on a baseline below its
         // control, so it put "View" 6pt under every other word and took the row to 40pt against a
@@ -1350,12 +1326,6 @@ public struct PaneHeader: View {
             Toggle(isOn: $showHiddenFiles) {
                 Label("Show Hidden Files", systemImage: showHiddenFiles ? "eye" : "eye.slash")
             }
-        case .preview:
-            if showsPreviewToggle {
-                Toggle(isOn: previewEnabled) {
-                    Label("Show Preview", systemImage: previewSymbol)
-                }
-            }
         case .search:
             // Reached only when the magnifier is ON the bar and this rung folded it — ⋯ no longer
             // stands in for a bar that never carried it (`PaneBarMigration` puts it there instead).
@@ -1411,56 +1381,6 @@ public struct PaneHeader: View {
         let subject = selectionCount == 1 ? "the selected item" : "\(selectionCount) selected items"
         return "Move \(subject) in this pane to the Trash — always asks first, "
             + "even with confirmations turned off"
-    }
-
-    /// Whether this header offers the preview toggle at all.
-    ///
-    /// A header with no view-mode switch (`viewMode == nil`) is on a surface that draws no pane
-    /// presentation at all, so there is nothing to preview and nothing to offer. Where there IS one,
-    /// both modes now answer yes — Tree draws the same preview Columns does — and the decision stays
-    /// in `PaneViewMode.showsPreviewToggle` rather than being restated here.
-    private var showsPreviewToggle: Bool {
-        guard offersPreview, let viewMode else { return false }
-        return PaneViewMode.showsPreviewToggle(mode: viewMode.wrappedValue)
-    }
-
-    private var previewSymbol: String { "rectangle.righthalf.inset.filled" }
-
-    /// The preview toggle: one pill that wears the accent while the preview is showing.
-    ///
-    /// Styled as the view switch's SELECTED segment rather than as a plain nav button, because that
-    /// is this header's existing vocabulary for "this view option is on" — and unlike the
-    /// hidden-files eye there is no honest second glyph for "no preview" to swap to. `HoverAffordanceStyle`
-    /// stays the one hover path; only the resting fill differs by state.
-    private func previewTogglePill(controlSize: ControlSize) -> some View {
-        let pill = PaneNavMetrics.pill(controlSize)
-        return Button {
-            previewEnabled.wrappedValue.toggle()
-        } label: {
-            Image(systemName: previewSymbol)
-                .scaledFont(PaneNavMetrics.glyphFont(controlSize))
-                .foregroundStyle(previewEnabled.wrappedValue
-                                 ? AnyShapeStyle(glassHue.onAccentLabelColor)
-                                 : AnyShapeStyle(Color.primary.opacity(0.75)))
-                .frame(width: pill.width - PaneNavMetrics.segmentInset, height: pill.height)
-                .background(previewEnabled.wrappedValue ? AnyShapeStyle(glassHue.accentFillColor) : AnyShapeStyle(Color.clear),
-                            in: Capsule())
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.hoverAffordance(previewEnabled.wrappedValue ? .filled : .segment, tint: glassHue.accentFillColor))
-        // Frosted and Clear: a glass capsule like every bar button (`ChromeGlass`), under the pill.
-        // The ON fill stays exactly as it is, opaque, on top: a toggle has no position to say it is
-        // on, only its fill, and a tint on the Tint slider's curve all but vanished at Tint 0 and
-        // vanished entirely at accent None — ON and OFF read the same. On the button, not the
-        // label: `.filled` flattens its label, and glass inside one renders nothing. Grown by the
-        // segment inset the pill gave up, so the capsule is a pill's width like its neighbours'
-        // and the ON fill sits inside it the way a chosen segment sits in its track.
-        .chromeGlassGround(.capsule, horizontalOutset: PaneNavMetrics.segmentInset / 2, verticalOutset: 0)
-        .accessibilityAddTraits(previewEnabled.wrappedValue ? [.isButton, .isSelected] : .isButton)
-        .accessibilityLabel("Preview pane")
-        .help(previewEnabled.wrappedValue
-              ? "The preview pane is showing — click to hide it"
-              : "Show a preview of the selected file")
     }
 
     /// Right-clicking the bar itself, which is where anyone who has customized Finder's toolbar will
@@ -1531,7 +1451,7 @@ enum PaneNavMetrics {
         controlSize == .mini ? CGSize(width: 27, height: 17) : CGSize(width: 33, height: 20)
     }
 
-    /// How far a *segment* — a view-switch half, the preview toggle — is drawn inside the plain
+    /// How far a *segment* — a view-switch half — is drawn inside the plain
     /// pill's width, so that a two-segment control reads as one control rather than two pills.
     static let segmentInset: CGFloat = 4
     /// The hairline between the view switch's two segments.

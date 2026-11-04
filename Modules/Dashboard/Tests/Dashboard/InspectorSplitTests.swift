@@ -36,24 +36,4 @@ import Design
         #expect(Split.dragged(anchor: 0.7, translation: 0, room: 0) == 0.7,
                 "a split with no room moved — it has nothing to measure a drag against")
     }
-
-    /// The pane bar's Preview button is not offered where the host says so, as in the app, where
-    /// the preview is the window's Info inspector; offered by default, so every other header is the
-    /// bar it was.
-    @MainActor
-    @Test func testAHeaderThatOffersNoPreviewHasNoPreviewButton() {
-        func header(offersPreview: Bool) -> PaneHeader {
-            PaneHeader(
-                title: "Left",
-                provider: CloudProvider(id: "icloud", displayName: "iCloud Drive", imageName: "icloud-logo",
-                                        rootPath: "/Users/test/iCloud", type: .iCloud),
-                rootPath: "/Users/test/iCloud", relativePath: "Documents",
-                canGoBack: true, canGoForward: false, onBack: {}, onForward: {},
-                onNavigate: { _ in }, onNavigateBoth: { _ in }, sortOption: .constant(.name),
-                onRefresh: {}, isRefreshing: false, showHiddenFiles: .constant(false),
-                viewMode: .constant(.columns), offersPreview: offersPreview)
-        }
-        #expect(header(offersPreview: true).availableItems.contains(.preview))
-        #expect(!header(offersPreview: false).availableItems.contains(.preview))
-    }
 }

@@ -9,16 +9,14 @@ import Design
 /// lands exactly where Solid draws today's fill.
 ///
 /// Rendered with the lens probe (glass draws nothing offscreen — see `SelectionLensTests` in
-/// Design) and compared, pixel box for pixel box, with the Solid render's accent fill. Preview is
-/// off in the fixture because the Preview pill borrows the same fill when it is on, and would be
-/// counted as part of the marker.
+/// Design) and compared, pixel box for pixel box, with the Solid render's accent fill.
 @MainActor
 @Suite(.serialized) struct SelectionLensViewModeTests {
 
     static let probe = SelectionLensAppearance(level: .frosted, hue: .blue, tint: 0, drawsProbe: true)
     static let size = CGSize(width: 660, height: 92)
 
-    static func header(_ mode: PaneViewMode, preview: Bool = false) -> some View {
+    static func header(_ mode: PaneViewMode) -> some View {
         let defaults = ScratchDefaults("SelectionLensViewModeTests-header")
         defaults.set(LiquidGlassHue.blue.rawValue, forKey: LiquidGlass.hueKey)
         return PaneHeader(
@@ -29,14 +27,14 @@ import Design
             canGoBack: true, canGoForward: false, onBack: {}, onForward: {},
             onNavigate: { _ in }, onNavigateBoth: { _ in }, sortOption: .constant(.name),
             onRefresh: {}, isRefreshing: false, showHiddenFiles: .constant(false),
-            viewMode: .constant(mode), previewEnabled: .constant(preview), onNewFolder: {})
+            viewMode: .constant(mode), onNewFolder: {})
         .defaultAppStorage(defaults)
     }
 
     /// The pane bar on white, pinned to the light scheme and an active window.
-    static func rig(_ mode: PaneViewMode, preview: Bool = false,
+    static func rig(_ mode: PaneViewMode,
                     appearance: SelectionLensAppearance) -> ProbeRig<AnyView> {
-        ProbeRig(AnyView(header(mode, preview: preview)
+        ProbeRig(AnyView(header(mode)
             .environment(\.selectionLensAppearance, appearance)
             .environment(\.colorScheme, .light)
             .environment(\.controlActiveState, .active)

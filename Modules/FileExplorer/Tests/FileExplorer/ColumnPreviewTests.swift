@@ -4,14 +4,13 @@ import Sync
 import UniformTypeIdentifiers
 @testable import FileExplorer
 
-/// The two rules behind the Columns preview column: *which* file it shows, and *whether* that file
-/// may be handed to Quick Look at all.
+/// The rules behind the file preview (the Info inspector's, since TE317 C): what it says about a
+/// file, and *whether* that file may be handed to Quick Look at all.
 ///
-/// Both are pure on purpose. The rendering is a `QLPreviewView` and can only be judged by eye, but
-/// the policy — one file, the deepest column, never a cloud-only placeholder — is exactly the part
-/// that would fail silently: previewing the wrong file still *looks* like a working preview, and
-/// previewing a dataless placeholder looks like one too, right up until the provider has downloaded
-/// four gigabytes nobody asked for.
+/// Pure on purpose. The rendering is a `QLPreviewView` and can only be judged by eye, but the
+/// policy — never a cloud-only placeholder — is exactly the part that would fail silently:
+/// previewing a dataless placeholder looks like a working preview, right up until the provider has
+/// downloaded four gigabytes nobody asked for.
 @Suite struct ColumnPreviewTests {
 
     private static let dir = "/Users/x/Library/Mobile Documents/com~apple~CloudDocs/Documents/TODO"
@@ -27,49 +26,23 @@ import UniformTypeIdentifiers
         return PaneRow.project(nodes, side: .left, version: 1)
     }
 
-    // MARK: - Which file
+    /// The item for one of `rows()`'s files.
+    private static func item(_ name: String) throws -> ColumnPreviewItem {
+        ColumnPreviewItem(node: try #require(rows().first { $0.id == "\(dir)/\(name)" }?.node))
+    }
 
-    @Test func testASelectedFileIsThePreviewTarget() throws {
-        let item = try #require(ColumnPreview.item(selection: ["\(Self.dir)/scan.pdf"],
-                                                  deepestRows: Self.rows()))
+    // MARK: - What it says
+
+    /// The node's scalars come across intact — a preview whose caption says nothing is most of the
+    /// feature missing.
+    @Test func testAnItemCarriesTheFilesScalars() throws {
+        let node = try #require(Self.rows().first { $0.id == "\(Self.dir)/scan.pdf" }?.node)
+        let item = ColumnPreviewItem(node: node)
         #expect(item.path == "\(Self.dir)/scan.pdf")
         #expect(item.name == "scan.pdf")
-        // The scalars the identity block renders come across intact — a preview whose caption says
-        // nothing is most of the feature missing.
         #expect(item.kind == UTType.pdf.localizedDescription)
         #expect(item.fileSize == 37_000)
         #expect(item.modified == Date(timeIntervalSince1970: 1_700_000_000))
-    }
-
-    /// A folder click opens that folder's own column; a preview beside it would be a second answer
-    /// to the same click.
-    @Test func testAFolderIsNeverPreviewed() {
-        #expect(ColumnPreview.item(selection: ["\(Self.dir)/School"], deepestRows: Self.rows()) == nil)
-    }
-
-    /// A ⌘-click multi-selection has no single subject. Previewing the first of it would describe a
-    /// file the user never pointed at — and `Set` has no first, so *which* one it described would
-    /// vary between renders of the same selection.
-    @Test func testAMultiSelectionHasNoPreviewTarget() {
-        let selection: Set<String> = ["\(Self.dir)/scan.pdf", "\(Self.dir)/notes.txt"]
-        #expect(ColumnPreview.item(selection: selection, deepestRows: Self.rows()) == nil)
-    }
-
-    @Test func testAnEmptySelectionHasNoPreviewTarget() {
-        #expect(ColumnPreview.item(selection: [], deepestRows: Self.rows()) == nil)
-    }
-
-    /// A selection the deepest column doesn't hold is a stale one: clicking a file truncates the
-    /// stack to that file's own column, so anything else has already been navigated past. Resolving
-    /// it anyway is how a pane ends up previewing a file two columns to the left of the one you are
-    /// looking at.
-    @Test func testASelectionOutsideTheDeepestColumnIsNotPreviewed() {
-        #expect(ColumnPreview.item(selection: ["\(Self.dir)/School/report.pdf"],
-                                   deepestRows: Self.rows()) == nil)
-    }
-
-    @Test func testAnEmptyColumnHasNothingToPreview() {
-        #expect(ColumnPreview.item(selection: ["\(Self.dir)/scan.pdf"], deepestRows: []) == nil)
     }
 
     /// `FileNode.kind` holds a raw UTI, because that is what the Kind sort and the `kind:` search
@@ -210,8 +183,7 @@ import UniformTypeIdentifiers
     /// column knows nothing about the file's bytes yet, so it offers nothing, text name or not.
     @MainActor
     @Test func anUnprobedColumnOffersNoEditorEither() throws {
-        let item = try #require(ColumnPreview.item(selection: ["\(Self.dir)/notes.txt"],
-                                                   deepestRows: Self.rows()))
+        let item = try Self.item("notes.txt")
         let column = ColumnPreviewColumn(item: item, paneToken: .left, isAwaitingDownload: false,
                                          onOpenInEditor: { _ in })
         #expect(!column.offersEditor)
@@ -222,8 +194,7 @@ import UniformTypeIdentifiers
     /// forward to a constant and this fails.
     @MainActor
     @Test func anUnprobedColumnOffersNothing() throws {
-        let item = try #require(ColumnPreview.item(selection: ["\(Self.dir)/scan.pdf"],
-                                                   deepestRows: Self.rows()))
+        let item = try Self.item("scan.pdf")
         let column = ColumnPreviewColumn(item: item, paneToken: .left, isAwaitingDownload: true,
                                          onOpenInEditor: { _ in })
 

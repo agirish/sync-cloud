@@ -67,6 +67,10 @@ final class PaneDownloadWatch: ObservableObject {
 
     /// Starts watching `request`, superseding any watch this pane already had for the same path.
     ///
+    /// - Parameter channel: where to say the watch has ended (`.cloudDownloadWatchEnded`), for a view
+    ///   that shows the download without watching it — the Info inspector's preview. `nil` says
+    ///   nothing, for an owner nobody else follows (Compare Copies).
+    ///
     /// **The `forget` happens here, synchronously, before anything is published or scheduled.** It
     /// used to be the first line of the watch task, which made "exactly one forget per download"
     /// — the property the single-owner design exists for — depend on the main actor draining
@@ -75,7 +79,7 @@ final class PaneDownloadWatch: ObservableObject {
     /// publishes `requests`, which re-keys the badge task of the row showing that file, and a row
     /// that re-read the memo before the task's first line ran got the pre-download "cloud-only"
     /// answer straight back out of cache.
-    func begin(_ request: CloudDownloadRequest) {
+    func begin(_ request: CloudDownloadRequest, announcingOn channel: NotificationCenter? = nil) {
         tasks[request.path]?.cancel()
         // On the way in, not the way out: the answer the memo holds is the pre-download one, and a
         // row recycling mid-download would otherwise read "cloud-only" back out of cache and undo
@@ -90,6 +94,7 @@ final class PaneDownloadWatch: ObservableObject {
             guard concludes else { return }
             requests[request.path] = nil
             tasks[request.path] = nil
+            channel?.post(name: .cloudDownloadWatchEnded, object: request)
         }
     }
 

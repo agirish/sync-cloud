@@ -152,33 +152,13 @@ import FileExplorer
             named: "narrow-250-columns")
     }
 
-    /// The roomy rung: everything inline, including the two-segment switch with Columns selected and
-    /// the preview pill wearing the accent.
+    /// The roomy rung: everything inline, including the two-segment switch with Columns selected.
     @Test func paneHeaderWideWithColumnsControls() {
         assertViewSnapshot(
             of: Self.header(providerName: "iCloud Drive",
                             viewMode: .constant(PaneViewMode.columns), onNewFolder: {}),
             size: CGSize(width: 660, height: 92),
             named: "wide-660-columns")
-    }
-
-    /// The preview pill's other resting state, as an image to look at.
-    ///
-    /// **It does not pin that state, and this used to claim it did.** The claim was that two images
-    /// at the same width with only the setting differing are what make the pill's fill visible to a
-    /// test at all. Measured, by rendering the pill from a stale `@AppStorage` while the setting said
-    /// off: both references still matched. The pill is ~0.9% of a 660×92 header and
-    /// `assertViewSnapshot` runs at `precision: 0.99`, so a control this small fits inside the
-    /// tolerance — and this suite is `.machinePinned(.referenceImages)`, so it does not run on CI
-    /// either. `PaneHeaderPreviewPillTests` is what actually holds the pill to its state; this image
-    /// is here to be looked at.
-    @Test func paneHeaderWideWithPreviewOff() {
-        assertViewSnapshot(
-            of: Self.header(providerName: "iCloud Drive",
-                            viewMode: .constant(PaneViewMode.columns), onNewFolder: {},
-                            previewEnabled: false),
-            size: CGSize(width: 660, height: 92),
-            named: "wide-660-columns-preview-off")
     }
 
     // MARK: Customize sheet
@@ -214,7 +194,7 @@ import FileExplorer
         defaults.set(PaneBarIconSize.regular.rawValue, forKey: PaneBar.iconSizeKey)
         assertViewSnapshot(
             of: PaneBarCustomizeSheet(
-                availableHere: [.viewMode, .backForward, .scan, .newFolder, .sort, .hiddenFiles, .preview])
+                availableHere: [.viewMode, .backForward, .scan, .newFolder, .sort, .hiddenFiles])
                 .defaultAppStorage(defaults),
             size: CGSize(width: 600, height: 545),
             named: "customize-sheet",
@@ -233,7 +213,7 @@ import FileExplorer
         defaults.set(PaneBarIconSize.regular.rawValue, forKey: PaneBar.iconSizeKey)
         assertViewSnapshot(
             of: PaneBarCustomizeSheet(
-                availableHere: [.viewMode, .backForward, .scan, .newFolder, .sort, .hiddenFiles, .preview],
+                availableHere: [.viewMode, .backForward, .scan, .newFolder, .sort, .hiddenFiles],
                 showingRemoveTarget: true)
                 .defaultAppStorage(defaults),
             size: CGSize(width: 600, height: 545),
@@ -241,16 +221,10 @@ import FileExplorer
             precision: 0.999, perceptualPrecision: 0.98)
     }
 
-    /// - Parameter previewEnabled: the preview toggle's state, passed straight in as the binding the
-    ///   header now takes. It used to be pinned through the injected defaults domain, because the
-    ///   header read the preference itself — left alone, these images rendered from whatever the test
-    ///   host's standard domain happened to hold, a reference PNG that was a coin flip on the next
-    ///   machine. The header takes no view on which key it is showing any more, so the value comes
-    ///   straight down; the injected domain still pins the glass hue, tint and level it does read.
+    /// The injected defaults domain pins the glass hue, tint and level the header reads.
     private static func header(providerName: String,
                                viewMode: Binding<PaneViewMode>? = nil,
-                               onNewFolder: (() -> Void)? = nil,
-                               previewEnabled: Bool = true) -> some View {
+                               onNewFolder: (() -> Void)? = nil) -> some View {
         let defaults = ScratchDefaults("DashboardSnapshotTests-header")
         return PaneHeader(
             title: "Left",
@@ -271,7 +245,6 @@ import FileExplorer
             isRefreshing: false,
             showHiddenFiles: .constant(false),
             viewMode: viewMode,
-            previewEnabled: .constant(previewEnabled),
             onNewFolder: onNewFolder)
         .defaultAppStorage(defaults)
     }

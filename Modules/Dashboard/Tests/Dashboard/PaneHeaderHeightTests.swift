@@ -61,31 +61,20 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
         #expect(bottomEdge == 83.5)
     }
 
-    /// The preview toggle is an EIGHTH control in a cluster that was already at the edge of what a
-    /// 250pt pane holds — the rung ladder exists because 159pt of controls sit in a 222pt box. It
-    /// must therefore cost the header no height at any width: `ViewThatFits` should fold it into ⋯
-    /// rather than let the row grow.
+    /// A full Columns bar sits in a cluster at the edge of what a 250pt pane holds — the rung
+    /// ladder exists because the controls barely fit the box. It must therefore cost the header no
+    /// height at any width: the ladder should fold controls into ⋯ rather than let the row grow.
     @Test(arguments: [CGFloat(560), CGFloat(400), CGFloat(250)])
-    func previewToggleCostsNoHeight(width: CGFloat) {
+    func aFullBarCostsNoHeight(width: CGFloat) {
         #expect(laidOutHeight(Self.paneHeader(), width: width) == LiquidGlass.headerHeight)
     }
 
-    /// And it genuinely renders — in BOTH modes, which is the change Tree's preview made here.
-    ///
-    /// This used to read `columns == tree + 1`, on the ground that Tree had no preview for a toggle
-    /// to govern. It has one now, so the two headers draw the same controls and the assertion is
-    /// their agreement. The second half is what keeps that from being vacuous: a header with no
-    /// view-mode switch at all draws strictly fewer, so "equal" is two headers that both have the
-    /// pill rather than two that both lost it.
-    ///
-    /// Mode is no longer any part of the gate. The header used to take an `isSingleSource` and
-    /// withhold the toggle from comparison panes, which is why there was a third test here asserting
-    /// a comparison header drew one control fewer. That input is gone rather than merely ignored — a
-    /// comparison header and the rail's are the same value now — and the surface-independence is
-    /// carried by the type having no surface to be told about. What a comparison pane does with the
-    /// setting is asserted where it is observable:
-    /// `ColumnPreviewLayoutTests.testAComparisonPaneGetsThePreviewToo`.
-    @Test func bothModesDrawThePreviewToggle() {
+    /// Both modes draw the same controls: nothing on the bar is offered to one presentation and not
+    /// the other. The second half is what keeps that from being vacuous — a header with no
+    /// view-mode switch at all draws strictly fewer, so "equal" is two headers that both drew the
+    /// switch rather than two that both lost it. (The Preview toggle was the last control that
+    /// could have differed by mode; it is the Info inspector's now, TE317 C.)
+    @Test func bothModesDrawTheSameControls() {
         let columns = Self.buttonCount(Self.paneHeader(mode: .columns), width: 560)
         let tree = Self.buttonCount(Self.paneHeader(mode: .tree), width: 560)
         let noSwitch = Self.buttonCount(Self.paneHeaderWithoutViewMode(), width: 560)
@@ -115,7 +104,7 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
         return FocusRings.count(in: host)
     }
 
-    /// A pane header carrying the view-mode switch — the only kind that can offer the preview toggle.
+    /// A pane header carrying the view-mode switch.
     private static func paneHeader(mode: PaneViewMode = .columns) -> PaneHeader {
         PaneHeader(
             title: "Left",
@@ -128,9 +117,9 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
             viewMode: .constant(mode), onNewFolder: {})
     }
 
-    /// The same header with no view-mode switch — a surface that draws no pane presentation, and so
-    /// offers neither the switch nor the preview toggle. Identical in every other argument, so the
-    /// difference in control count is those two and nothing else.
+    /// The same header with no view-mode switch — a surface that draws no pane presentation.
+    /// Identical in every other argument, so the difference in control count is the switch and
+    /// nothing else.
     private static func paneHeaderWithoutViewMode() -> PaneHeader {
         PaneHeader(
             title: "Left",

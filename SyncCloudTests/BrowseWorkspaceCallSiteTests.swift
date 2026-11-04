@@ -269,16 +269,15 @@ import FileExplorer
 
     /// **The preview is the Info inspector's alone** (TE317 C, TE318). It used to sit beside each
     /// pane's list, so every click between a file and a folder resized the pane and moved its
-    /// columns. Now no pane draws one, no pane bar offers a button for it, View ▸ File Preview and
-    /// ⇧⌘P are gone, and the inspector draws it at the height last dragged to. Each half is a
-    /// surface that would quietly bring the old behaviour back on its own.
+    /// columns. Now no pane can draw one and the pane bar has no button for it — both are gone from
+    /// the modules, so neither can come back from here — View ▸ File Preview and ⇧⌘P are gone, and
+    /// the inspector draws it at the height last dragged to. What is left for the app to get wrong
+    /// is pinned here.
     @Test func testThePreviewIsTheInfoInspectorsAlone() throws {
         let macApp = Self.codeOnly(try macAppSources())
         let content = Self.codeOnly(try Self.source("ContentView.swift"))
-        #expect(content.contains("drawsPreview: false"),
-                "a pane draws its own preview again — every file click resizes it")
-        #expect(content.contains("offersPreview: false"),
-                "the pane bar offers a Preview button again, one per pane for a window-wide panel")
+        #expect(content.contains("AnyView(InspectorFilePreview("),
+                "the inspector no longer draws the preview")
         #expect(content.contains("previewFraction: $inspectorPreviewFraction"),
                 "the inspector no longer draws the preview at the remembered height")
         #expect(!macApp.contains("TogglePreviewColumnCommand"), "View ▸ File Preview is back")

@@ -86,12 +86,9 @@ import UniformTypeIdentifiers
     }
 
     private static func item(path: String) -> ColumnPreviewItem {
-        ColumnPreviewItem(
-            row: PaneRow(side: .left, version: 1,
-                         node: FileNode(id: path, name: (path as NSString).lastPathComponent,
-                                        isDirectory: false, fileSize: 5,
-                                        kind: UTType.plainText.identifier),
-                         children: nil))
+        ColumnPreviewItem(node: FileNode(id: path, name: (path as NSString).lastPathComponent,
+                                         isDirectory: false, fileSize: 5,
+                                         kind: UTType.plainText.identifier))
     }
 
     /// Every path ever ASSIGNED to one `QLPreviewView`'s `previewItem`, including values overwritten

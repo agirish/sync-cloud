@@ -11,7 +11,7 @@ import Testing
 
     /// Every item a Compare pane in Columns mode can offer.
     private static let allAvailable: [PaneBarItem] =
-        [.viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles, .preview,
+        [.viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles,
          .search, .delete, .typeFilter]
 
     // MARK: Persistence
@@ -33,10 +33,25 @@ import Testing
         //
         // **Filter by Type** (RD70) is the third: just before Search, so Search keeps the trailing
         // end it has always had and is still the first thing the ladder gives up.
+        //
+        // **Preview leaving** is the fourth: the preview is the Info inspector's (TE317 C), so the
+        // pane bar has no toggle for it.
         #expect(PaneBarArrangement.default.items == [
             .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles,
-            .preview, .delete, .typeFilter, .search
+            .delete, .typeFilter, .search
         ])
+    }
+
+    /// A bar stored while the Preview toggle shipped still lists `preview`. It reads as every other
+    /// control the bar had, without that one — and the token rides through `encoded`, so the sheet's
+    /// write-back does not take it from a maintenance-line build reading the same defaults.
+    @Test func testAStoredRetiredPreviewIsCarriedButNotDrawn() {
+        let stored = PaneBarArrangement(encoded: "viewMode,backForward,scan,preview,sort")
+        #expect(stored.items == [.viewMode, .backForward, .scan, .sort])
+        #expect(stored.encoded == "viewMode,backForward,scan,sort,preview")
+        let plan = PaneBarLayout.plan(arrangement: stored, available: Self.allAvailable, depth: 0)
+        #expect(plan.visible == [.viewMode, .backForward, .scan, .sort])
+        #expect(plan.overflow.isEmpty)
     }
 
     @Test func testEncodingRoundTrips() {
@@ -186,7 +201,7 @@ import Testing
     @Test func testTheDeepestRungIsTodaysNarrowBar() {
         // What a 250pt comparison pane shows: the view switch as one pill, back, forward, scan, and
         // ⋯. If this set grows, the bar's minimum width grows with it and the 250pt snapshots move.
-        let comparisonPane: [PaneBarItem] = [.viewMode, .backForward, .scan, .newFolder, .sort, .hiddenFiles, .preview]
+        let comparisonPane: [PaneBarItem] = [.viewMode, .backForward, .scan, .newFolder, .sort, .hiddenFiles]
         let plan = PaneBarLayout.plan(arrangement: .default, available: comparisonPane, depth: .max)
         #expect(plan.visible == [.viewMode, .backForward, .scan])
         #expect(plan.compactsViewMode)
@@ -206,12 +221,9 @@ import Testing
     // MARK: What the host cannot offer, and what it doesn't know about yet
 
     @Test func testItemsTheHostCannotOfferAreNotDrawnAndNotInTheMenu() {
-        // The single-source rail has no Columns mode, so no preview to toggle; a comparison pane doesn't
-        // collapse individually. Neither should leave a dead entry in ⋯.
+        // A comparison pane doesn't collapse individually, so it should leave no dead entry in ⋯.
         let railish: [PaneBarItem] = [.viewMode, .backForward, .scan, .newFolder, .sort, .hiddenFiles]
         let plan = PaneBarLayout.plan(arrangement: .default, available: railish, depth: 0)
-        #expect(!plan.visible.contains(.preview))
-        #expect(!plan.overflow.contains(.preview))
         #expect(!plan.visible.contains(.collapse))
         #expect(!plan.overflow.contains(.collapse))
     }
@@ -237,15 +249,15 @@ import Testing
     /// The other half of the same rule, and the one with a cost worth restating: a control that
     /// ships in a later release is absent from every stored arrangement, and no longer lands in ⋯ as
     /// a consolation. `PaneBarMigration` is what puts it on the bar — this test is what fails if
-    /// anyone assumes the old fallback is still there. `preview` stands in for "the next one we
-    /// add", as an arrangement saved before it existed.
+    /// anyone assumes the old fallback is still there. `delete` stands in for "the next one we
+    /// add" — it declines a migration step — as an arrangement saved before it existed.
     @Test func testAControlAddedInALaterReleaseLandsNowhereWithoutAMigration() {
-        let savedBeforePreviewExisted = PaneBarArrangement(
+        let savedBeforeDeleteExisted = PaneBarArrangement(
             encoded: "flexibleSpace,viewMode,backForward,scan,sort,hiddenFiles")
-        let plan = PaneBarLayout.plan(arrangement: savedBeforePreviewExisted,
+        let plan = PaneBarLayout.plan(arrangement: savedBeforeDeleteExisted,
                                       available: Self.allAvailable, depth: 0)
-        #expect(!plan.visible.contains(.preview), "a new control rearranged a bar the user had chosen")
-        #expect(!plan.overflow.contains(.preview),
+        #expect(!plan.visible.contains(.delete), "a new control rearranged a bar the user had chosen")
+        #expect(!plan.overflow.contains(.delete),
                 "a new control still falls back into ⋯ — the fallback that hid Search is back")
     }
 
@@ -253,9 +265,9 @@ import Testing
     /// right to left, so what comes back reads the way the bar did.
     @Test func testTheOverflowListsFoldedControlsInBarOrder() {
         let arrangement = PaneBarArrangement([.flexibleSpace, .viewMode, .backForward, .scan,
-                                              .sort, .hiddenFiles, .preview])
+                                              .sort, .hiddenFiles, .newFolder])
         let plan = PaneBarLayout.plan(arrangement: arrangement, available: Self.allAvailable, depth: 2)
-        #expect(plan.overflow == [.hiddenFiles, .preview],
+        #expect(plan.overflow == [.hiddenFiles, .newFolder],
                 "⋯ listed \(plan.overflow) — the two right-most sheddable controls, in bar order")
     }
 

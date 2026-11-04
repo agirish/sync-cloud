@@ -20,7 +20,7 @@ struct PaneBarCustomizeSheet: View {
     ///
     /// The arrangement is shared by both Compare panes and the single-source rail, so it necessarily contains
     /// items a given pane has no use for — Collapse Pane is in the *default* arrangement and only the
-    /// single-source rail ever draws it, and Preview only exists in Columns view. Without this the sheet showed
+    /// single-source rail ever draws it. Without this the sheet showed
     /// a Collapse Pane pill on the track of a Compare pane whose bar does not have one, which reads as
     /// a bug in the sheet. Those items are still fully editable here; they are just marked as not
     /// applying to the pane in front of you.
@@ -93,7 +93,7 @@ struct PaneBarCustomizeSheet: View {
     /// checks this against `PaneBarItem.allCases` so the next one cannot be forgotten quietly — it
     /// is what caught Delete's tile missing here.
     static let palette: [PaneBarItem] = [
-        .viewMode, .backForward, .newFolder, .sort, .hiddenFiles, .preview, .typeFilter, .search, .delete,
+        .viewMode, .backForward, .newFolder, .sort, .hiddenFiles, .typeFilter, .search, .delete,
         .collapse, .scan, .space, .flexibleSpace
     ]
 

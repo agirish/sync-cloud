@@ -76,7 +76,6 @@ import Sync
 
     /// The user's stored values, verbatim, from `com.abhishekgirish.SyncCloud` — the configuration
     /// every crash was taken under.
-    private static let realPreviewWidth: CGFloat = 502.35546875
     private static let realColumnWidth: CGFloat = 210
 
     final class Box: ObservableObject {
@@ -125,11 +124,7 @@ import Sync
                 delegate: StubDelegate(), diffIndex: .empty, otherPaneName: "R",
                 isSingleSource: false, density: .compact, isActivePane: true,
                 placement: nil, onBarEdgeFlip: nil, onQuickLook: { _ in },
-                onBackgroundDeselect: { _ in },
-                // On, explicitly: these passes are counted with a preview column in the pane. It is
-                // the pane's binding now rather than a key in `defaults`, so a mount that needs the
-                // preview says so at the mount instead of relying on the parameter's default.
-                previewEnabled: .constant(true)
+                onBackgroundDeselect: { _ in }
             )
             .defaultAppStorage(defaults)
         }
@@ -138,7 +133,6 @@ import Sync
     private func mount(_ box: Box, root: String, width: CGFloat) -> PassCountingWindow {
         let defaults = ScratchDefaults("ColumnsDisplayCycleTests")
         defaults.set(Double(Self.realColumnWidth), forKey: PaneViewMode.columnWidthDefaultsKey)
-        defaults.set(Double(Self.realPreviewWidth), forKey: PaneViewMode.previewColumnWidthDefaultsKey)
         let host = NSHostingView(rootView: Harness(box: box, root: root, defaults: defaults))
         host.frame = NSRect(x: 0, y: 0, width: width, height: 700)
         let window = PassCountingWindow(contentRect: host.frame, styleMask: [.titled],
@@ -182,14 +176,11 @@ import Sync
     }
 
     /// Spins the runloop until `condition` holds. Same discipline as `pumpUntilQuiet` — bounded by
-    /// TURNS, failure on expiry, call site named — and needed for the same reason the preview column
-    /// exposed: quiescence is not arrival. The preview resolves behind an async probe, so a wait for
-    /// "layout stopped moving" returns before it appears, and the arm then measures a pane that has
-    /// no preview column in it while claiming it does.
+    /// TURNS, failure on expiry, call site named — and needed because quiescence is not arrival:
+    /// what resolves behind an async step is not there yet when "layout stopped moving" returns.
     /// **Each turn sleeps for real, and that is the point.** `CFRunLoopRunInMode` returns the
     /// instant the loop has nothing to do, so a turn-counted spin can burn its whole budget in
-    /// microseconds — which is exactly how the preview column went missing here: what it waits on is
-    /// a TIMED settle, and no number of instant turns advances a clock. `LayoutPumpWait` sleeps 8ms
+    /// microseconds, and no number of instant turns advances a clock a TIMED settle waits on. `LayoutPumpWait` sleeps 8ms
     /// a pass for the same reason. Turns still bound it, so a congested machine gets more wall clock
     /// rather than less (see `LayoutPumpWait.pumpFloor`), and expiry is still a failure.
     /// One runloop turn. A separate non-async function because `CFRunLoopRunInMode` is unavailable
@@ -214,18 +205,6 @@ import Sync
 
     private func viewCount(_ v: NSView) -> Int {
         1 + v.subviews.reduce(0) { $0 + viewCount($1) }
-    }
-
-    /// The preview columns AppKit actually laid out. `QLPreviewView` is what `ColumnPreviewColumn`
-    /// puts on screen, and is how `ColumnPreviewLayoutTests` detects the same thing.
-    private func previewColumns(_ view: NSView) -> Int {
-        var found = 0
-        func walk(_ v: NSView) {
-            if v is QLPreviewView { found += 1 }
-            for sub in v.subviews { walk(sub) }
-        }
-        walk(view)
-        return found
     }
 
     private func tableRowCounts(_ view: NSView) -> [Int] {
@@ -367,7 +346,6 @@ import Sync
                                badgeCounter: Counter? = nil) -> PassCountingWindow {
         let defaults = ScratchDefaults("ColumnsDisplayCycleTests-two")
         defaults.set(Double(Self.realColumnWidth), forKey: PaneViewMode.columnWidthDefaultsKey)
-        defaults.set(Double(Self.realPreviewWidth), forKey: PaneViewMode.previewColumnWidthDefaultsKey)
         let host = NSHostingView(rootView: TwoPaneHarness(left: left, right: right, defaults: defaults, badges: badges,
                                                           badgeCounter: badgeCounter))
         host.frame = NSRect(x: 0, y: 0, width: width, height: 800)
@@ -388,8 +366,8 @@ import Sync
         window.orderFront(nil)
     }
 
-    /// The real thing: both panes in Columns, drilled one level, a file selected so the preview
-    /// column is up — then the right pane's provider switch, which is `retargetPane(isLeft: false)`:
+    /// The real thing: both panes in Columns, drilled one level, a file selected — then the right
+    /// pane's provider switch, which is `retargetPane(isLeft: false)`:
     /// drop THAT pane's tree, clear its browse path, paint the new root. The left pane is not
     /// touched, which is why only `right` is mutated below.
     @Test func testTwoPaneProviderSwitchStaysInsideTheDisplayCycleBudget() async {
@@ -431,19 +409,20 @@ import Sync
                                    badgeCounter: badgeCounter)
         pumpUntilQuiet(window)
 
-        // Drill both panes one level and select a file, so each pane is a two-column stack with the
-        // preview column up — the configuration every crash report was taken in.
+        // Drill both panes one level and select a file, so each pane is a two-column stack with a
+        // live selection. Every crash report was taken with the pane's own preview column up too;
+        // that column is the Info inspector's now (TE317 C), so the app's panes have none.
         for box in [left, right] {
             box.browsePath = PaneBrowsePath(components: [DeepFixture.folder(0)])
             box.selection = ["\(box.root)/\(DeepFixture.folder(0))/\(Fixture.name(0))"]
         }
-        await pumpUntil(window, "both panes' preview columns appeared") {
-            self.previewColumns(window.contentView!) == 2
+        await pumpUntil(window, "both panes drilled to two columns") {
+            self.tableRowCounts(window.contentView!).count >= 4
         }
         pumpUntilQuiet(window)
 
         // **The arm is in the configuration it claims to be in.** Passing `placement`, a selection
-        // and a browse path is not the same as a pane that drilled and put a preview up, and a
+        // and a browse path is not the same as a pane that drilled, and a
         // fixture that quietly rendered neither would report the same 7 passes while measuring a
         // plainer pane. This is the lesson `b4550396` had to land separately: `onBarEdgeFlip` is
         // wired here exactly as `ContentView` wires it and fires ZERO times, so "the edge flip is
@@ -452,8 +431,6 @@ import Sync
         let tables = tableRowCounts(window.contentView!)
         #expect(tables.count >= 4,
                 "both panes were meant to be drilled to a two-column stack; tables: \(tables)")
-        #expect(previewColumns(window.contentView!) == 2,
-                "the preview column never appeared, so this arm measured a pane without one")
 
         // The provider switch: `retargetPane(isLeft: false)` — the right pane only.
         right.tree = PaneTree(side: .right, version: 2, nodes: [])
