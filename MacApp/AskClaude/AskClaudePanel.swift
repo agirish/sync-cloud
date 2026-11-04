@@ -1678,11 +1678,11 @@ private struct AskClaudeThreadRow: View, Equatable {
 
 }
 
-/// A turn's actions for VoiceOver (TE296), one named action each. On 2026-11-03 at 18:05 the app
-/// crashed as an assistive app read the panel's labels with a question queued: SwiftUI's label
-/// lookup went round in a loop until the stack ran out. The two pieces new that day were
-/// `accessibilityActions { … }` holding buttons and a label on the Next line's container, so both
-/// are gone; which one it was isn't known.
+/// A turn's actions for VoiceOver (TE296), one named action each, in place of
+/// `accessibilityActions { … }` holding buttons. That swap was made against a crash (an assistive
+/// app reading the panel while a question runs sends SwiftUI's label lookup round in a loop until the
+/// stack runs out), but it isn't the cause: the crash comes in builds from before TE296 as well, and
+/// is still open.
 private struct AskClaudeTurnVoiceOverActions: ViewModifier {
     let actions: [AskClaudeTurnAction]
     let title: (AskClaudeTurnAction) -> String
