@@ -84,10 +84,9 @@ import Foundation
                 "a PDF is offered Export, or handed a name to export")
     }
 
-    /// **⇧⌘P is still the preview column.** ⌘P was taken on the strength of the shifted form being
-    /// somebody else's; if these two ever collide the reader loses one of them silently.
-    @Test func thePreviewColumnKeepsTheShiftedForm() {
-        #expect(AppChord.previewColumn.display == "⇧⌘P")
+    /// **⌘P is Print.** It was taken on the strength of ⇧⌘P being the preview column's; that chord
+    /// went with View ▸ File Preview (TE318), and Print keeps the plain form.
+    @Test func printKeepsThePlainForm() {
         #expect(AppChord.printDocument.display == "⌘P")
     }
 

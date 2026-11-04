@@ -14390,3 +14390,15 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No hash lane | CLOSED — does not apply |
+
+## The preview moved into the Info inspector (TE317 C, TE318) — main only
+
+The file pane no longer draws a preview beside its list; the Info inspector draws it, over the
+details, at a height the user drags and that is kept across launches. The pane bar's Preview button,
+the panes' Show Preview items and View ▸ File Preview (⇧⌘P) went with it. Every maintenance line
+keeps the in-pane preview and its toggles, so a click between a file and a folder still resizes the
+pane there. A redesign, not a fix.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The in-pane preview | RECORDED — not owed |

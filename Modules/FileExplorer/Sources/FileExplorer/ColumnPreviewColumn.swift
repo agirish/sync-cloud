@@ -28,13 +28,17 @@ struct ColumnPreviewItem: Equatable {
     /// drawn by the renderer this whole change is about replacing.
     let contentType: UTType?
 
-    init(row: PaneRow) {
-        self.path = row.node.id
-        self.name = row.node.name
-        self.kind = Self.describe(uti: row.node.kind)
-        self.fileSize = row.node.fileSize
-        self.modified = row.node.modificationDate
-        self.contentType = Self.type(uti: row.node.kind, path: row.node.id)
+    init(row: PaneRow) { self.init(node: row.node) }
+
+    /// From the node alone, for a host outside the pane — the Info inspector has a `FileNode` from
+    /// the manager's path index, never a projected row.
+    init(node: FileNode) {
+        self.path = node.id
+        self.name = node.name
+        self.kind = Self.describe(uti: node.kind)
+        self.fileSize = node.fileSize
+        self.modified = node.modificationDate
+        self.contentType = Self.type(uti: node.kind, path: node.id)
     }
 
     /// The file's type, from the walk's identifier or, failing that, its extension.
@@ -291,6 +295,10 @@ struct ColumnPreviewColumn: View {
     /// button on screen that does nothing when clicked.
     let onOpenInEditor: (String) -> Void
 
+    /// Whether the name, kind, dates and Edit button sit under the preview. Off in the Info
+    /// inspector, whose own details already list them (`InspectorFilePreview`).
+    var showsIdentity = true
+
     /// The height the bar's band actually needs: its own height plus the padding the overlay adds
     /// around it. Only the BOTTOM edge is reserved. The bar flips to the top when the selected row is
     /// near its column's bottom, and there it covers the Quick Look area instead — an image that
@@ -376,8 +384,10 @@ struct ColumnPreviewColumn: View {
         VStack(spacing: 14) {
             preview
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            identity
-                .padding(.bottom, actionBarClearance)
+            if showsIdentity {
+                identity
+                    .padding(.bottom, actionBarClearance)
+            }
         }
         .padding(16)
         // The content fills the column rather than capping at a "readable" width. The column's width

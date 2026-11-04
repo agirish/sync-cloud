@@ -789,10 +789,6 @@ private struct PaneTypeFilterKey: FocusedValueKey {
     typealias Value = PaneTypeFilterControl
 }
 
-private struct PreviewColumnKey: FocusedValueKey {
-    typealias Value = Binding<Bool>
-}
-
 private struct InfoInspectorKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
@@ -1099,13 +1095,6 @@ extension FocusedValues {
         set { self[PaneTypeFilterKey.self] = newValue }
     }
 
-    /// The Columns preview column — one preference shared by every pane. `nil` while the focused
-    /// pane's view mode has no preview to toggle, matching the pill's own withholding.
-    var previewColumn: Binding<Bool>? {
-        get { self[PreviewColumnKey.self] }
-        set { self[PreviewColumnKey.self] = newValue }
-    }
-
     /// The Info inspector, animated exactly as the toolbar button animates it.
     var infoInspector: Binding<Bool>? {
         get { self[InfoInspectorKey.self] }
@@ -1321,7 +1310,6 @@ struct ShortcutValuePublisher: ViewModifier {
     let hiddenFiles: Binding<Bool>
     /// The focused pane's type filter, or nil with no pane on screen.
     let typeFilter: PaneTypeFilterControl?
-    let previewColumn: Binding<Bool>?
     let inspector: Binding<Bool>
     let differencesList: Binding<Bool>?
     let delete: (() -> Void)?
@@ -1445,7 +1433,6 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveDocumentPrint: DocumentPrintActions? { suspended ? nil : documentPrint }
     var effectiveHiddenFiles: Binding<Bool>? { suspended ? nil : hiddenFiles }
     var effectiveTypeFilter: PaneTypeFilterControl? { suspended ? nil : typeFilter }
-    var effectivePreviewColumn: Binding<Bool>? { suspended ? nil : previewColumn }
     var effectiveInspector: Binding<Bool>? { suspended ? nil : inspector }
     var effectiveDifferencesList: Binding<Bool>? { suspended ? nil : differencesList }
     var effectiveDelete: (() -> Void)? { suspended || writesLocked ? nil : delete }
@@ -1509,7 +1496,6 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.documentPrint, effectiveDocumentPrint)    // ⌘P, Export as PDF…
             .focusedSceneValue(\.showHiddenFiles, effectiveHiddenFiles)      // ⇧⌘.
             .focusedSceneValue(\.paneTypeFilter, effectiveTypeFilter)       // View ▸ Filter by Type
-            .focusedSceneValue(\.previewColumn, effectivePreviewColumn)      // ⇧⌘P
             .focusedSceneValue(\.infoInspector, effectiveInspector)          // ⌘I
             .focusedSceneValue(\.differencesListVisible, effectiveDifferencesList)  // ⌘D
             .focusedSceneValue(\.deleteSelection, effectiveDelete)           // ⌘⌫
@@ -1559,7 +1545,6 @@ extension ContentView {
             documentPrint: shortcutDocumentPrint,
             hiddenFiles: $syncManager.showHiddenFiles,
             typeFilter: panesHiddenForCurrentTab ? nil : typeFilterControl(isLeft: shortcutTabTargetIsLeft),
-            previewColumn: shortcutPreviewColumn,
             inspector: shortcutInfoInspector,
             differencesList: shortcutDifferencesList,
             delete: shortcutDeleteSelection,
@@ -2136,28 +2121,6 @@ extension ContentView {
         guard contentLayout.drawsAPaneList else { return nil }
         let isLeft = shortcutTargetIsLeft
         return { beginNewFolder(isLeft: isLeft) }
-    }
-
-    var shortcutPreviewColumn: Binding<Bool>? {
-        // Through the resolver, like every other reader of "which presentation is on screen".
-        // Spelled out here as its own ternary, this was the third surface and the one that got
-        // missed: in Browse it asked the RAIL's mode, so ⇧⌘P offered the preview column according
-        // to a stack the user was not looking at — dead in Browse-Columns whenever the rail was in
-        // Tree, and live in Browse-Tree whenever the rail was in Columns.
-        // Same gate as ⇧⌘N, and it was missing for the same reason: with its source pane collapsed
-        // the Editor has nothing to put a preview beside, but it fell through to the RAIL's stored
-        // mode — so ⇧⌘P was live there whenever the rail happened to be in Columns, toggling a key
-        // nothing on screen read. Expanded, the pane is real and so is the preview.
-        //
-        // The mode check below is what it always was, but it no longer selects between the two
-        // presentations: both draw a preview now, so it stands as the one place a future mode that
-        // cannot would say so.
-        guard contentLayout.drawsAPaneList else { return nil }
-        let mode = resolvedViewModeBinding(isLeft: shortcutTargetIsLeft)
-        guard PaneViewMode.showsPreviewToggle(mode: mode.wrappedValue) else { return nil }
-        // Resolved the same way, for the same reason: Browse keeps its own preview preference, so a
-        // chord hardwired to the shared key would turn Compare's preview off from a Browse window.
-        return resolvedPreviewBinding
     }
 
     /// The same 0.15s ease the toolbar button wraps its toggle in — a menu item skipping the
@@ -2993,24 +2956,6 @@ struct ToggleHiddenFilesCommand: View {
     }
 
     static let filterTitle = "Filter by Type"
-}
-
-/// View ▸ File Preview, ⇧⌘P — the preview beside a file pane's list.
-///
-/// **"File Preview", not "Preview"** (TE170): in Edit, with the file pane open and a Markdown file
-/// showing, Text ▸ Preview (⌃⌘2) is live too, and two items named Preview did two different things.
-/// The keyboard reference already called this one "the file preview". The pane bar's Preview
-/// button keeps its name: beside the list it is the only preview.
-struct TogglePreviewColumnCommand: View {
-    static let title = "File Preview"
-
-    @FocusedValue(\.previewColumn) private var previewColumn
-
-    var body: some View {
-        Toggle(Self.title, isOn: previewColumn ?? .constant(false))
-            .keyboardShortcut(AppChord.previewColumn.key, modifiers: AppChord.previewColumn.modifiers)
-            .disabled(previewColumn == nil)
-    }
 }
 
 /// View ▸ Info Inspector, ⌘I — **and, when the key fired it, Markup ▸ Italic's chord.**

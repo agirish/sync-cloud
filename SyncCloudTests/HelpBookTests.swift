@@ -283,9 +283,10 @@ import Testing
         let topic = try #require(HelpBook.topic(id: "editor-workspace"))
         let text = Self.copy(of: topic).joined(separator: " ")
         let doors = [
-            "nine ways to bring a file here",
+            "eight ways to bring a file here",
             "right-click a text file and choose Open in Edit",     // a file pane's row menu
-            "the Edit button by its name",                          // the preview
+            // The preview's own Edit button went with the in-pane preview (TE318): the Info
+            // inspector's Open in Edit, the next door, is where that click is now.
             "Info inspector",                                       // ⌘I
             "File ▸ Open in Edit — ⌘O",                             // the menu and its chord
             "Compare’s list of differences offers Open in Edit",   // TE31, per side
@@ -307,9 +308,9 @@ import Testing
             #expect(said, "Edit's article no longer says “\(phrase)”")
         }
         let everyWord = HelpBook.allTopics.flatMap(Self.copy(of:)).joined(separator: " ")
-        for stale in ["four", "five", "six", "seven", "eight"].map({ "\($0) ways to bring" }) {
+        for stale in ["four", "five", "six", "seven", "nine"].map({ "\($0) ways to bring" }) {
             let said = everyWord.contains(stale)
-            #expect(!said, "an article still says “\(stale)” — there are nine")
+            #expect(!said, "an article still says “\(stale)” — there are eight")
         }
         // Not since Compare's list of differences stopped moving the pane.
         #expect(!text.contains("all do the same thing"),

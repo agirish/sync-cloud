@@ -236,7 +236,7 @@ extension ContentView {
         return .handled
     }
 
-    /// What ⌘F opens — and, through `shortcutTargetIsLeft`, what ⌘[, ⌘], ⇧⌘N and ⇧⌘P act on. The
+    /// What ⌘F opens — and, through `shortcutTargetIsLeft`, what ⌘[, ⌘] and ⇧⌘N act on. The
     /// rule itself is `PaneLogic.focusedPaneIsLeft`, where it can be tested; this only supplies
     /// the three live facts.
     var paneSearchTargetIsLeft: Bool {

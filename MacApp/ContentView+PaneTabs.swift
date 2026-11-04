@@ -351,7 +351,7 @@ extension ContentView {
     /// `focusedPaneSide` answers "which pane am I working in", and until now only ⌃⇥ and a row
     /// selection said so — a strip click, the ＋, the header card's New Tab and the pane background
     /// menu all left it pointing at the other pane. In Compare that aims ⌘W, ⌘T, ⇧⌘] (and ⌘F, ⌘[,
-    /// ⌘], ⇧⌘N, ⇧⌘P) at the pane the user is not looking at, and one of those is destructive:
+    /// ⌘], ⇧⌘N) at the pane the user is not looking at, and one of those is destructive:
     /// open a second tab on the RIGHT pane while the ring is on a one-tab LEFT pane, press ⌘W, and
     /// `closeTab`'s last-tab branch closes the WINDOW.
     ///

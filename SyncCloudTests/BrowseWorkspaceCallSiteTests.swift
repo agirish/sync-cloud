@@ -265,77 +265,26 @@ import FileExplorer
                 "Browse has no key of its own — flipping it to Tree restacks the Organize rail")
     }
 
-    /// The reader outside `ContentView.swift`: ⇧⌘P asks which presentation is on screen, and has
-    /// to ask the same member everything else asks.
-    @Test func testThePreviewChordAsksTheSameResolver() throws {
-        let shortcuts = try Self.source("ShortcutCommands.swift")
-        #expect(shortcuts.contains("resolvedViewModeBinding(isLeft: shortcutTargetIsLeft)"))
-        #expect(!shortcuts.contains("railViewModeBinding"),
-                "⇧⌘P reaches for the rail's mode directly again — in Browse it would offer the preview column according to a stack the user is not looking at")
-    }
+    // MARK: The preview
 
-    // MARK: The preview key
-
-    /// **Browse's preview is its own.** Turning the preview off to compare two providers used to turn
-    /// it off in Browse as well: one key, `paneColumnShowsPreview`, read straight from `@AppStorage`
-    /// by the pane, by the header's pill and by ⇧⌘P.
-    ///
-    /// Which of the two keys is in play is a question only this view can answer, so the split lives
-    /// or dies on all three writers going through the one resolver. The three `@AppStorage`
-    /// declarations are gone, and their absence is asserted: "the resolver exists" stays true if one
-    /// of them is left behind, and the one left behind is the surface that keeps the old bug.
-    ///
-    /// The keys' own distinctness is `PaneViewModeTests.testBrowseStoresItsPreviewApartFromEverySurface`
-    /// — this is about the wiring, which is what no other suite can see.
-    @Test func testEveryPreviewWriterGoesThroughTheOneResolver() throws {
-        let macApp = try macAppSources()
-        let body = try Self.body(of: "var resolvedPreviewBinding: Binding<Bool> {", in: macApp)
-        #expect(body.contains("selectedWorkspace == .browse"),
-                "the preview resolver does not ask which workspace is on screen — Browse gets Compare's key")
-        #expect(body.contains("$browsePreviewColumnEnabled"))
-        #expect(body.contains("$previewColumnEnabled"))
-
-        // The three writers, each on the resolved answer: the pane, the header's pill, and ⇧⌘P.
-        #expect(macApp.contains("previewEnabled: resolvedPreviewBinding"),
-                "a surface takes the preview binding some other way")
-        let chord = try Self.body(of: "var shortcutPreviewColumn: Binding<Bool>? {", in: macApp)
-        #expect(chord.contains("return resolvedPreviewBinding"),
-                "⇧⌘P flips a key it picked for itself — in Browse it would turn Compare's preview off")
-
-        // **Every surface that draws a pane takes it — counted against the surfaces themselves rather
-        // than against a fixed number.** Both `previewEnabled:` parameters default to a `.constant`,
-        // which a header or a pane accepts in silence: the pill still draws, the column menu's Toggle
-        // still appears, and neither writes anything. A hardcoded `== 2` would have to be re-tuned by
-        // whoever adds a third surface — the same person who would be re-tuning it *instead* of wiring
-        // theirs up. Tied to the construction count, adding a surface without the binding is what fails.
-        let content = try Self.source("ContentView.swift")
-        let code = Self.codeOnly(content)
-        let surfaces = (code.components(separatedBy: "PaneHeader(").count - 1)
-            + (code.components(separatedBy: "FileTreeView(").count - 1)
-        let wired = code.components(separatedBy: "previewEnabled: resolvedPreviewBinding").count - 1
-        #expect(surfaces > 0, "no pane surface found in ContentView.swift — this count is vacuous")
-        #expect(wired == surfaces,
-                "ContentView.swift builds \(surfaces) pane surface(s) but hands the resolved preview binding to \(wired) of them — the one missing it takes the parameter's `.constant` default, so its pill and its column menu toggle nothing, silently")
-
-        // No view in MacApp/ may hold an opinion of its own: an `@AppStorage` on the shared key
-        // resolves nothing and answers for every surface, Browse included.
-        #expect(!macApp.contains("@AppStorage(PaneViewMode.previewColumnDefaultsKey)"),
-                "a MacApp view reads the shared preview key directly again")
-        // Both properties are declared through the one function, which is what makes
-        // `testBrowseStoresItsPreviewApartFromEverySurface` load-bearing rather than a fact about two
-        // string literals: were those arms ever to return the same key, these two would silently
-        // become one stored value again.
-        #expect(content.contains("@AppStorage(PaneViewMode.previewColumnKey(isBrowse: false))"))
-        #expect(content.contains("@AppStorage(PaneViewMode.previewColumnKey(isBrowse: true))"))
-
-        // The same regression inside the packages needs no scan here, and deliberately gets none —
-        // both views are caught on pixels, in their own packages, and both were verified by putting
-        // the `@AppStorage` back and watching them fail:
-        // `ColumnPreviewLayoutTests.testFlippingTheSettingRelaysAMountedPane` flips the pane's
-        // binding under a mounted pane and reads the columns' widths back, and
-        // `PaneHeaderPreviewPillTests` counts the pixels the pill moves between the two states.
-        // (NOT `DashboardSnapshotTests.paneHeaderWideWithPreviewOff`, which measurably does not
-        // catch it — see that suite.)
+    /// **The preview is the Info inspector's alone** (TE317 C, TE318). It used to sit beside each
+    /// pane's list, so every click between a file and a folder resized the pane and moved its
+    /// columns. Now no pane draws one, no pane bar offers a button for it, View ▸ File Preview and
+    /// ⇧⌘P are gone, and the inspector draws it at the height last dragged to. Each half is a
+    /// surface that would quietly bring the old behaviour back on its own.
+    @Test func testThePreviewIsTheInfoInspectorsAlone() throws {
+        let macApp = Self.codeOnly(try macAppSources())
+        let content = Self.codeOnly(try Self.source("ContentView.swift"))
+        #expect(content.contains("drawsPreview: false"),
+                "a pane draws its own preview again — every file click resizes it")
+        #expect(content.contains("offersPreview: false"),
+                "the pane bar offers a Preview button again, one per pane for a window-wide panel")
+        #expect(content.contains("previewFraction: $inspectorPreviewFraction"),
+                "the inspector no longer draws the preview at the remembered height")
+        #expect(!macApp.contains("TogglePreviewColumnCommand"), "View ▸ File Preview is back")
+        // No preference for an in-pane preview is read anywhere in the app any more.
+        #expect(!macApp.contains("@AppStorage(PaneViewMode.previewColumnKey"))
+        #expect(!macApp.contains("@AppStorage(PaneViewMode.previewColumnDefaultsKey)"))
     }
 
     // MARK: Sort By ticks the panes' order

@@ -38,7 +38,6 @@ import Foundation
         #expect(AppChord.printDocument.display == "⌘P")
         #expect(AppChord.openInEditor.display == "⌘O")
         #expect(AppChord.hiddenFiles.display == "⇧⌘.")
-        #expect(AppChord.previewColumn.display == "⇧⌘P")
         #expect(AppChord.deleteSelection.display == "⌘⌫")
         #expect(AppChord.switchPaneFocus.display == "⌃⇥")
         // The four directional transfers. The arrows are function-key code points, so these pin a

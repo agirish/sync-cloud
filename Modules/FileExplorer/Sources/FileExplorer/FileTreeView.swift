@@ -120,6 +120,11 @@ public struct FileTreeView: View, Equatable {
     /// caller with no opinion renders exactly the pane it rendered before this existed; see
     /// `PaneColumnsView.previewEnabled` for why that default is also a hazard worth pinning.
     public let previewEnabled: Binding<Bool>
+    /// Whether this pane draws the preview itself. False where the host shows it elsewhere — the app
+    /// draws it in the window's Info inspector (TE317 C), so a click never changes the pane's width.
+    /// `previewEnabled` still drives the pane's Show Preview menu items there; it just stops sizing
+    /// the pane.
+    public let drawsPreview: Bool
     /// Path → children for this pane's published tree, used only by the columns presentation.
     /// Built once per publish by the host; see `PaneChildrenIndex`.
     public let childrenIndex: PaneChildrenIndex?
@@ -365,7 +370,7 @@ public struct FileTreeView: View, Equatable {
     /// exists to stop. Named and non-private so `FileTreeViewPaneNameTests` can pin the choice.
     var badgeMemoRoot: String { currentPath }
 
-    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, search: PaneSearchResults? = nil, searchHitIndex: Int = 0, searchRevealNonce: Int = 0, rowReveal: PaneRowReveal? = nil, onRowRevealed: ((PaneRowReveal) -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault), childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onNeedChildren: ((String, Bool) -> Void)? = nil, graftsInFlight: Set<String> = [], sortOption: SortOption = .name, onBackgroundDeselect: ((Int?) -> Void)? = nil, onQuickLook: ((URL) -> Void)? = nil, downloadChannel: NotificationCenter = .default, hostExpanded: Binding<Set<String>>? = nil, typeFilter: PaneTypeFilterDecor? = nil, typeFilterEmptied: PaneTypeFilter? = nil, typeFilterFolderName: String? = nil, onClearTypeFilter: (() -> Void)? = nil) {
+    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, search: PaneSearchResults? = nil, searchHitIndex: Int = 0, searchRevealNonce: Int = 0, rowReveal: PaneRowReveal? = nil, onRowRevealed: ((PaneRowReveal) -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault), childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onNeedChildren: ((String, Bool) -> Void)? = nil, graftsInFlight: Set<String> = [], sortOption: SortOption = .name, onBackgroundDeselect: ((Int?) -> Void)? = nil, onQuickLook: ((URL) -> Void)? = nil, downloadChannel: NotificationCenter = .default, hostExpanded: Binding<Set<String>>? = nil, typeFilter: PaneTypeFilterDecor? = nil, typeFilterEmptied: PaneTypeFilter? = nil, typeFilterFolderName: String? = nil, onClearTypeFilter: (() -> Void)? = nil, drawsPreview: Bool = true) {
         self.typeFilter = typeFilter
         self.typeFilterEmptied = typeFilterEmptied
         self.typeFilterFolderName = typeFilterFolderName
@@ -404,6 +409,7 @@ public struct FileTreeView: View, Equatable {
         self.isActivePane = isActivePane
         self.viewMode = viewMode
         self.previewEnabled = previewEnabled
+        self.drawsPreview = drawsPreview
         self.childrenIndex = childrenIndex
         self._browsePath = browsePath
         self.onColumnNavigate = onColumnNavigate
@@ -467,6 +473,7 @@ public struct FileTreeView: View, Equatable {
             // would either never differ (skipping the re-render that shows or hides the preview when the
             // header's pill is clicked) or always differ.
             && lhs.previewEnabled.wrappedValue == rhs.previewEnabled.wrappedValue
+            && lhs.drawsPreview == rhs.drawsPreview
             // **The VALUE, for the reason stated directly above — and this one is load-bearing in a
             // way that is easy to miss.** While the expansion set was this view's own `@State`, a
             // write to it invalidated the view unconditionally and no gate could suppress the
@@ -1009,7 +1016,8 @@ public struct FileTreeView: View, Equatable {
                 onRowRevealed: onRowRevealed,
                 downloadChannel: downloadChannel,
                 selectionResolver: selectionResolver,
-                previewEnabled: previewEnabled
+                previewEnabled: previewEnabled,
+                drawsPreview: drawsPreview
             )
             // The reveal, Columns side. Same signal as the Tree branch, so the two presentations
             // walk the same hits in the same order and switching mode mid-search keeps your place.
@@ -1121,7 +1129,7 @@ public struct FileTreeView: View, Equatable {
     /// file for a frame is exactly the stale-state class `ColumnPreviewColumn.ProbeResult` was
     /// written to make unrepresentable.
     private var treePreviewItem: ColumnPreviewItem? {
-        guard previewEnabled.wrappedValue else { return nil }
+        guard drawsPreview, previewEnabled.wrappedValue else { return nil }
         return ColumnPreview.item(selection: selection, treeRows: tree.rows)
     }
 
@@ -1364,9 +1372,13 @@ public struct FileTreeView: View, Equatable {
         // without measuring, and this menu is built from a context click rather than from layout —
         // reaching for a geometry read to hide one item would put the pane's width into a code path
         // that has never needed it.
-        Divider()
-        Toggle(isOn: previewEnabled) {
-            Label("Show Preview", systemImage: "sidebar.right")
+        // Only where this pane draws the preview: in the app it is the window's Info inspector,
+        // which the toolbar's Info button and ⌘I open (TE317 C).
+        if drawsPreview {
+            Divider()
+            Toggle(isOn: previewEnabled) {
+                Label("Show Preview", systemImage: "sidebar.right")
+            }
         }
     }
 }

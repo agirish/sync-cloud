@@ -118,6 +118,9 @@ import Sync
         /// The deferred reveal's hold budget, or `nil` for the shipped one. Only the exhaustion
         /// test shortens it — see `paneColumnRevealHoldChecks`.
         var holdChecks: Int? = nil
+        /// Whether the pane draws its own preview — false where the app shows it in the Info
+        /// inspector (TE317 C).
+        var drawsPreview = true
 
         var body: some View {
             PaneColumnsView(
@@ -128,7 +131,8 @@ import Sync
                 delegate: StubDelegate(), diffIndex: .empty, otherPaneName: "R",
                 isSingleSource: false, density: .compact, isActivePane: true,
                 placement: nil, onBarEdgeFlip: nil, onQuickLook: { _ in },
-                onBackgroundDeselect: { _ in }
+                onBackgroundDeselect: { _ in },
+                drawsPreview: drawsPreview
             )
             // The preview toggle and the column width are both `@AppStorage`, and a value left in
             // the test process's standard domain by another suite would decide this test's
@@ -306,14 +310,15 @@ import Sync
     /// - Parameter openTo: how far down to open, when that must be shallower than the tree is
     ///   deep — a test that drills further has to leave itself somewhere to drill to.
     private func mount(paneWidth: CGFloat, depth: Int, openTo: Int? = nil,
-                       holdChecks: Int? = nil) async throws -> Mounted {
+                       holdChecks: Int? = nil, drawsPreview: Bool = true) async throws -> Mounted {
         let opened = openTo ?? depth
         let box = Box()
         let defaults = ScratchDefaults("column-preview-reveal")
         let tree = Self.tree(depth: depth)
         let index = PaneChildrenIndex(tree: tree, treeRoot: Self.root)
         let host = NSHostingView(rootView: Harness(box: box, tree: tree, index: index,
-                                                   defaults: defaults, holdChecks: holdChecks))
+                                                   defaults: defaults, holdChecks: holdChecks,
+                                                   drawsPreview: drawsPreview))
         host.frame = NSRect(x: 0, y: 0, width: paneWidth, height: 520)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -1632,5 +1637,24 @@ import Sync
         mounted.window.setContentSize(NSSize(width: 760, height: 520))
         await wait(mounted.window, upTo: 25) { clip.bounds.origin.x > 0 }
         #expect(clip.bounds.origin.x > 0, "narrowing stopped revealing — the absence above is vacuous")
+    }
+
+    /// TE317 C: a pane whose preview is drawn in the window's Info inspector takes none of its own,
+    /// so selecting a file changes neither the stack's viewport nor where it is scrolled. The
+    /// stack's width is the whole of what used to move the column under the pointer.
+    @Test func testAPaneThatDrawsNoPreviewHoldsStillWhenAFileIsSelected() async throws {
+        let mounted = try await mount(paneWidth: 690, depth: 3, drawsPreview: false)
+        defer { _ = mounted.window }
+        let clip = mounted.stack.contentView
+        let width = clip.bounds.width
+        let content = mounted.stack.documentView?.frame.width ?? 0
+        try #require(content > width, "the stack fits its viewport — a movement would be invisible")
+        let origin = clip.bounds.origin.x
+
+        mounted.box.selection = [Self.previewTarget(depth: mounted.depth)]
+        #expect(await maxOriginDrift(mounted, from: origin) == 0,
+                "selecting a file moved a stack that draws no preview")
+        #expect(clip.bounds.width == width,
+                "selecting a file resized a stack that draws no preview (\(width) → \(clip.bounds.width)pt)")
     }
 }

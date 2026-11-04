@@ -160,7 +160,7 @@ enum PaneLogic {
     }
 
     /// **Which pane the user is working in — the single answer, for every surface that has to pick
-    /// one.** The pane-scoped chords (⌘F, ⌘[, ⌘], ⇧⌘N, ⇧⌘P), the file-action bar, the lens scans
+    /// one.** The pane-scoped chords (⌘F, ⌘[, ⌘], ⇧⌘N), the file-action bar, the lens scans
     /// and the folder sidebar all route through here, so "the focused pane" cannot come to mean two
     /// different panes to two features.
     ///
@@ -578,6 +578,14 @@ enum PaneLogic {
     /// enforce exclusivity via `reconciledSelections`, clearing the other pane one runloop
     /// tick after a pick lands, so a both-non-empty state can exist for at most a single
     /// frame — this left-wins tiebreak keeps that frame pointing at a real pane.
+    /// Which pane's selection the Info inspector describes (TE317·5): the pane the user is working
+    /// in, or the other one when that holds nothing. Outside Compare there is only the left pane.
+    static func inspectorFollowsLeft(isCompare: Bool, focusedIsLeft: Bool,
+                                     leftHasSelection: Bool, rightHasSelection: Bool) -> Bool {
+        guard isCompare else { return true }
+        return focusedIsLeft ? (leftHasSelection || !rightHasSelection) : !rightHasSelection
+    }
+
     static func activePane(leftSelection: Set<String>, rightSelection: Set<String>) -> ActivePane? {
         if !leftSelection.isEmpty { return .left }
         if !rightSelection.isEmpty { return .right }

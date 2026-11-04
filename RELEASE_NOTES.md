@@ -289,6 +289,15 @@ Requires **macOS 26**, unchanged from v6.2.
 
 ### Around the app
 
+- **The preview moved into the Info inspector.** Select a file and its preview fills the top of the
+  Info inspector (⌘I, or Info in the toolbar), with the file's name, kind and size once under it,
+  a row of buttons for Open in Edit, Quick Look, Reveal in Finder and Copy Path, then its details.
+  The file pane no longer makes room for a preview, so clicking a file or a folder doesn't move the
+  columns. Drag the bar under the preview to resize it; SyncCloud remembers it across launches. In
+  Compare the inspector follows the pane you're working in. The pane bar's Preview button and
+  View ▸ File Preview (⇧⌘P) are gone.
+- **A narrower window keeps your column in view.** Making the window or a pane narrower in Columns
+  scrolls the last column back on screen instead of sliding it off the edge.
 - **Combine and Split PDFs.** Select several PDFs and right-click for PDF Tools ▸ Combine 3 Files…:
   one new PDF of them, in the order you set, saved where the first one is. Right-click one PDF for
   Split…: type the pages new files start at, like 4, 9, and each part is saved next to it, named for

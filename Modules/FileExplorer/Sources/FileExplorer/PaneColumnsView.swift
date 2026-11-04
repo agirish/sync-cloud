@@ -140,6 +140,9 @@ struct PaneColumnsView: View {
     /// write — so that the app passes a real one is pinned separately, by
     /// `BrowseWorkspaceCallSiteTests.testEveryPreviewWriterGoesThroughTheOneResolver`.
     var previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault)
+    /// Whether the stack draws the preview beside itself — see `FileTreeView.drawsPreview`. False,
+    /// the preview takes no room here at all, so nothing in the stack moves when it comes or goes.
+    var drawsPreview: Bool = true
 
     /// This pane's identity for download-notification scoping, handed to the preview column so a
     /// download started there is watched by the pane it was started from.
@@ -328,7 +331,7 @@ struct PaneColumnsView: View {
     /// the trade where it would be ruinous: `showsPreviewColumn` gives a preview no room at all
     /// unless a full column still fits beside it.
     private var previewItem: ColumnPreviewItem? {
-        guard previewEnabled.wrappedValue, let deepest = directories.last else { return nil }
+        guard drawsPreview, previewEnabled.wrappedValue, let deepest = directories.last else { return nil }
         return ColumnPreview.item(selection: selection,
                                   deepestRows: childrenIndex.children(atPath: deepest) ?? [])
     }
@@ -885,7 +888,9 @@ struct PaneColumnsView: View {
     /// whether the setting is on: a menu item that vanished whenever the preview it toggles was not
     /// currently on screen would be unreachable exactly when you wanted to switch it back on.
     private func previewSupportable(paneWidth: CGFloat) -> Bool {
-        PaneViewMode.showsPreviewColumn(paneWidth: paneWidth,
+        // Drawn elsewhere (the window's Info inspector), it is not this pane's to offer.
+        guard drawsPreview else { return false }
+        return PaneViewMode.showsPreviewColumn(paneWidth: paneWidth,
                                         columnWidth: previewRuleColumnWidth,
                                         isEnabled: true, hasPreviewTarget: true)
     }

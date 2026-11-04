@@ -877,7 +877,6 @@ struct SyncCloudApp: App {
                 // Tab Bar and Status Bar, as one child — this builder is at its ten. See the type.
                 PaneChromeCommands()            // ⇧⌘T, and Status Bar with no chord
                 ToggleHiddenFilesCommand()      // ⇧⌘.
-                TogglePreviewColumnCommand()    // ⇧⌘P
                 // With Ask Claude after it, as one child — this builder is at its ten. See the type.
                 InspectorAndAskClaudeCommands() // ⌘I (and Italic in Edit's document), ⌘J
                 ToggleDifferencesListCommand()  // ⌘D
@@ -888,7 +887,7 @@ struct SyncCloudApp: App {
             }
             // Go ▸ per-pane history, Finder's own menu for Finder's own chords — plus the chord
             // that decides which pane "per-pane" means. `SwitchPaneFocusCommand` sits with them
-            // because it is what the other two (and ⌘F, ⇧⌘N, ⇧⌘P) are aimed by, and its title
+            // because it is what the other two (and ⌘F, ⇧⌘N) are aimed by, and its title
             // naming the destination pane is the only at-rest answer to "which pane is focused".
             CommandMenu("Go") {
                 // First, and on its own: it is the only item here that can reach a destination

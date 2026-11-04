@@ -43,6 +43,22 @@ public struct DetailsSidebar: View {
     /// and keeps asking the question it was written to ask. The default is a correct answer rather
     /// than a silently broken one: the inspector then draws exactly the row it always drew.
     public let editorHandOff: EditorHandOff?
+    /// The Info inspector's layout (TE318 B) when non-nil: a picture on top, the bar that resizes
+    /// it, then the name, the actions and the details in groups. The binding is the picture's share
+    /// of the height, which the host persists. nil keeps the card layout.
+    public let previewFraction: Binding<Double>?
+    /// The host's preview of the selected file, drawn as the picture. nil for anything the host does
+    /// not preview — a folder, several items — which then shows its icon in the same frame.
+    public let preview: AnyView?
+    /// Whether the right pane's selection comes first. The host's answer to "which pane is the user
+    /// working in" (TE317·5): left-first alone described the left pane right after a click in the
+    /// right one whenever the left pane still held a selection. A right pane with nothing selected
+    /// falls through to the left, as before.
+    public let followsRight: Bool
+
+    /// The picture's share of the inspector's height until the user drags it: most of it, since the
+    /// page is what the panel is opened to read.
+    public static let defaultPreviewFraction: Double = 0.7
 
     @State private var computedDirectorySizeKey: DirectorySizeTaskID? = nil
     @State private var computedDirectorySize: String? = nil
@@ -78,11 +94,12 @@ public struct DetailsSidebar: View {
     nonisolated private static let dateFormatter = ZoneRefreshedFormatter.localized(date: .medium,
                                                                                     time: .medium)
     
-    public init(syncManager: FileSyncManager, leftPath: String, rightPath: String, compact: Bool = false, overridePath: String? = nil, singleSource: Bool = false, cloudCoverage: FileLocation.Coverage? = nil, editorHandOff: EditorHandOff? = nil) {
+    public init(syncManager: FileSyncManager, leftPath: String, rightPath: String, compact: Bool = false, overridePath: String? = nil, singleSource: Bool = false, cloudCoverage: FileLocation.Coverage? = nil, editorHandOff: EditorHandOff? = nil, previewFraction: Binding<Double>? = nil, preview: AnyView? = nil, followsRight: Bool = false) {
         self.init(syncManager: syncManager, leftPath: leftPath, rightPath: rightPath,
                   compact: compact, overridePath: overridePath, singleSource: singleSource,
                   cloudCoverage: cloudCoverage, editorHandOff: editorHandOff,
-                  cache: DetailsMetadataCache())
+                  cache: DetailsMetadataCache(), previewFraction: previewFraction, preview: preview,
+                  followsRight: followsRight)
     }
 
     /// Test seam: hands in the metadata cache instead of letting `@State` mint one, so a test can
@@ -91,7 +108,8 @@ public struct DetailsSidebar: View {
     /// public one.
     init(syncManager: FileSyncManager, leftPath: String, rightPath: String, compact: Bool,
          overridePath: String?, singleSource: Bool, cloudCoverage: FileLocation.Coverage? = nil,
-         editorHandOff: EditorHandOff? = nil, cache: DetailsMetadataCache) {
+         editorHandOff: EditorHandOff? = nil, cache: DetailsMetadataCache,
+         previewFraction: Binding<Double>? = nil, preview: AnyView? = nil, followsRight: Bool = false) {
         self.syncManager = syncManager
         self.leftPath = leftPath
         self.rightPath = rightPath
@@ -100,6 +118,9 @@ public struct DetailsSidebar: View {
         self.singleSource = singleSource
         self.cloudCoverage = cloudCoverage
         self.editorHandOff = editorHandOff
+        self.previewFraction = previewFraction
+        self.preview = preview
+        self.followsRight = followsRight
         _cache = State(initialValue: cache)
     }
     
@@ -143,6 +164,7 @@ public struct DetailsSidebar: View {
         // A "Get Info" target wins over the pane selection (a differences-table row has no pane
         // selection of its own).
         if let overridePath, !overridePath.isEmpty { return overridePath }
+        if followsRight, let right = rightSelectionPaths.min() { return right }
         // Was a hand-written copy of the left-first `min()` rule, under a comment claiming it
         // matched `PaneLogic.primarySelectionPath` — it re-derived it instead, which is how the
         // inspector and Space came to disagree about which file was current. Both now call this.
@@ -170,6 +192,7 @@ public struct DetailsSidebar: View {
     /// `activePath`'s own order, override first and the shared resolver second.
     internal var isShowingFocusedFolderFallback: Bool {
         if let overridePath, !overridePath.isEmpty { return false }
+        if followsRight, !rightSelectionPaths.isEmpty { return false }
         return CurrentSelection.primaryPanePath(
             left: syncManager.selectedLeftPaths,
             right: syncManager.selectedRightPaths,
@@ -185,6 +208,11 @@ public struct DetailsSidebar: View {
     /// read from `body`, and the walk costs 8–11ms per render whenever the selection sits deep in
     /// the tree or holds a path a rescan has removed. See `DetailsSelectionSummary.make(selectedPaths:resolving:)`.
     internal var selectionSummary: DetailsSelectionSummary? {
+        if followsRight, !rightSelectionPaths.isEmpty {
+            return DetailsSelectionSummary.make(selectedPaths: rightSelectionPaths) {
+                syncManager.rightNodes(for: $0)
+            }
+        }
         if !syncManager.selectedLeftPaths.isEmpty {
             return DetailsSelectionSummary.make(selectedPaths: syncManager.selectedLeftPaths) {
                 syncManager.leftNodes(for: $0)
@@ -433,7 +461,12 @@ public struct DetailsSidebar: View {
         let layout = compact
             ? AnyLayout(VStackLayout(alignment: .center, spacing: 12))
             : AnyLayout(HStackLayout(alignment: .top))
-        return ScrollView(.vertical, showsIndicators: true) {
+        return Group {
+        if let previewFraction {
+            inspectorLayout(summary: summary, data: data, icon: icon, isStale: isStale,
+                            key: shown?.key ?? sizeKey, fraction: previewFraction)
+        } else {
+        ScrollView(.vertical, showsIndicators: true) {
             VStack(spacing: 0) {
                 layout {
                     if let summary {
@@ -548,6 +581,8 @@ public struct DetailsSidebar: View {
                 }
             }
             .padding(20)
+        }
+        }
         }
         .frame(minHeight: 0)
         // Allow the sidebar to shrink slightly but wrap text elements to avoid clipping
@@ -794,6 +829,157 @@ public struct DetailsSidebar: View {
     /// focused-folder selections too and `kind` is a localized UTI description that cannot be
     /// asked; and the host answers PER PATH rather than once, because the closure is fixed when
     /// this view is built and the selection is not.
+    // MARK: The Info inspector's layout (TE318 B)
+
+    /// Picture, bar, then name, actions and grouped details. The file is named once, under its
+    /// picture — the card's own 80pt icon and title are the preview's job here — and Kind and Size
+    /// move up into the line under the name, where Finder's preview pane keeps them.
+    @ViewBuilder
+    private func inspectorLayout(summary: DetailsSelectionSummary?, data: FileMetadata?, icon: NSImage?,
+                                 isStale: Bool, key: DirectorySizeTaskID,
+                                 fraction: Binding<Double>) -> some View {
+        if summary == nil, data == nil {
+            EmptyStateView(
+                icon: "info.circle",
+                title: "No item selected",
+                message: "Select a file or folder to see its details here.",
+                layout: .compact
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            InspectorSplit(fraction: fraction, defaultFraction: Self.defaultPreviewFraction) {
+                inspectorPicture(summary: summary, icon: icon)
+            } lower: {
+                ScrollView(.vertical, showsIndicators: true) {
+                    VStack(spacing: 14) {
+                        inspectorCaption(summary: summary, data: data, key: key)
+                        // Hidden while the card is a beat behind the selection, as the card's own
+                        // row is: an action must act on the item the name above it says.
+                        if summary == nil, let data, !isStale {
+                            inspectorActions(for: data)
+                        }
+                        if summary == nil, let data {
+                            Divider()
+                            inspectorGroups(for: data, key: key)
+                        }
+                    }
+                    .padding(16)
+                }
+            }
+        }
+    }
+
+    /// The host's preview for one file; otherwise the item's icon, in the same frame, so going from a
+    /// file to a folder moves nothing below it (TE318·m6).
+    @ViewBuilder
+    private func inspectorPicture(summary: DetailsSelectionSummary?, icon: NSImage?) -> some View {
+        Group {
+            if summary == nil, let preview {
+                preview
+            } else if summary != nil {
+                Image(systemName: "square.fill.on.square.fill")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 72, height: 72)
+                    .foregroundStyle(.secondary)
+            } else if let icon {
+                Image(nsImage: icon)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: 128, maxHeight: 128)
+                    .padding(16)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func inspectorCaption(summary: DetailsSelectionSummary?, data: FileMetadata?,
+                                  key: DirectorySizeTaskID) -> some View {
+        let title = summary?.title ?? data?.name ?? ""
+        let subtitle: String = {
+            if let summary { return "\(summary.kindDescription) · \(summary.sizeDescription)" }
+            guard let data else { return "" }
+            let facts = "\(data.kind) · \(displaySize(for: data, key: key))"
+            return isShowingFocusedFolderFallback ? "Focused folder · " + facts : facts
+        }()
+        return VStack(spacing: 3) {
+            Text(title)
+                .scaledFont(.headline)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+            Text(subtitle)
+                .scaledFont(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// The card's four verbs as one row of icons, always directly under the name (TE318·m3) — in the
+    /// card they sat at the foot of the facts and moved with however many there were.
+    private func inspectorActions(for data: FileMetadata) -> some View {
+        HStack(spacing: 8) {
+            if let handOff = editorHandOff, Self.offersEditor(handOff: handOff, data: data) {
+                inspectorAction("Open in Edit", symbol: "square.and.pencil",
+                                help: "Open this file in Edit, SyncCloud’s own editor") {
+                    handOff.open(data.path)
+                }
+            }
+            inspectorAction("Quick Look", symbol: "doc.viewfinder", help: "Quick Look") {
+                quickLookItem = URL(fileURLWithPath: data.path)
+            }
+            inspectorAction("Reveal in Finder", symbol: RevealGlyph.inFinder, help: "Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: data.path)])
+            }
+            inspectorAction("Copy Path", symbol: "doc.on.clipboard", help: "Copy Path") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(data.path, forType: .string)
+            }
+        }
+        .chromeButtonStyle(glassLevel)
+        .controlSize(.small)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func inspectorAction(_ title: String, symbol: String, help: String,
+                                 action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .labelStyle(.iconOnly)
+        }
+        .chromeHover()
+        .help(help)
+        .accessibilityLabel(title)
+    }
+
+    /// The remaining facts in three short groups instead of one long list (TE318·m5).
+    private func inspectorGroups(for data: FileMetadata, key: DirectorySizeTaskID) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            inspectorGroup("Location", lines: [.fact("Where:", data.path)]
+                                              + whereItLivesLines(for: data, key: key))
+            Divider()
+            inspectorGroup("Dates", lines: [.fact("Created:", data.creationDate),
+                                            .fact("Modified:", data.modificationDate)])
+            Divider()
+            inspectorGroup("Access", lines: [.fact("Permissions:", data.permissions)])
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func inspectorGroup(_ title: String, lines: [DetailsMetadataLine]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title.uppercased())
+                .scaledFont(.caption)
+                .fontWeight(.semibold)
+                .tracking(0.4)
+                .foregroundStyle(.secondary)
+            DetailsMetadataGrid(lines: lines)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     static func offersEditor(handOff: EditorHandOff?, data: FileMetadata) -> Bool {
         guard let handOff, !data.isDirectory else { return false }
         return handOff.isOffered(data.path)

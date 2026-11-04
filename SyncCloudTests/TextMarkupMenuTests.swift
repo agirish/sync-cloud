@@ -40,9 +40,9 @@ import Testing
                 "the bar reads \(bar)")
     }
 
-    /// **One item in the menu bar is called Preview** (TE170): View's file preview became File
-    /// Preview, so Text ▸ Preview (⌃⌘2) is the only one. Read off the menus AppKit built, and
-    /// against Help, which names the View item.
+    /// **One item in the menu bar is called Preview** (TE170): Text ▸ Preview (⌃⌘2). View's file
+    /// preview was File Preview until it moved into the Info inspector (TE318) and left the menu
+    /// altogether, so no item and no Help sentence may name it.
     @Test func onlyTheTextMenuHasAPreview() throws {
         func previews(_ menu: NSMenu) -> [String] {
             menu.items.flatMap { item in
@@ -51,11 +51,13 @@ import Testing
         }
         let bar = try #require(NSApp.mainMenu)
         #expect(previews(bar) == ["Text"], "Preview items: \(previews(bar))")
-        let file = try Self.item(TogglePreviewColumnCommand.title, in: "View")
-        #expect(file.title == "File Preview" && file.keyEquivalent.lowercased() == "p")
+        let view = try #require(bar.items.first { $0.title == "View" }?.submenu)
+        #expect(!view.items.contains { $0.title == "File Preview" }, "View ▸ File Preview is back")
         let browse = try #require(HelpBook.topic(id: "browse-workspace"))
-        let named = browse.article.blocks.contains { $0.searchableText.contains("View ▸ File Preview (⇧⌘P)") }
-        #expect(named, "Help does not name View ▸ File Preview")
+        #expect(!browse.article.blocks.contains { $0.searchableText.contains("File Preview") },
+                "Help still names View ▸ File Preview")
+        #expect(browse.article.blocks.contains { $0.searchableText.contains("Info inspector") },
+                "Help does not say where the preview went — the absence above is vacuous")
     }
 
     /// The Text menu, in the roadmap's order: the modes and Expand (TE48), the find bar's pair, the

@@ -206,7 +206,6 @@ public extension AppChord {
     static let rescan = AppChord("r", .command)
     static let newFolder = AppChord("n", [.shift, .command])
     static let hiddenFiles = AppChord(".", [.shift, .command])
-    static let previewColumn = AppChord("p", [.shift, .command])
     static let deleteSelection = AppChord(.delete, .command)
     /// ⌘↓ — open the selected folder into a new column, and ⌘↑ — close the rightmost one.
     ///
@@ -419,7 +418,7 @@ public extension AppChord {
         selectAll, cut, copy, paste,
         findInPane, paneBack, paneForward, rescan, newFolder,
         saveDocument, newTextFile, printDocument, openInEditor,
-        folderSidebar, hiddenFiles, previewColumn,
+        folderSidebar, hiddenFiles,
         deleteSelection, switchPaneFocus,
         openSelectedFolder, enclosingFolder,
         newTab, closeTab, nextTab, previousTab, previousTabControl, tabBar,

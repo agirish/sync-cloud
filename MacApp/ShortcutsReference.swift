@@ -139,7 +139,7 @@ enum ShortcutsReference {
             // there are two panes, and in Browse it steps tabs instead. The Tabs group below states
             // the split from the other side; leaving this row unqualified made one of the two wrong
             // wherever the reader happened to be.
-            Item(keys: "⌃ ⇥", action: "In Compare, focus the other pane — aims ⌘F, ⌘[ / ⌘], ⇧⌘N and ⇧⌘P"),
+            Item(keys: "⌃ ⇥", action: "In Compare, focus the other pane — aims ⌘F, ⌘[ / ⌘] and ⇧⌘N"),
             // Routed by where the caret is (`FindInPaneCommand`), so the row has to say so — this
             // is the only place a reader is told the chord has two destinations.
             Item(keys: "⌘ F", action: "Find a file or folder in this pane — in Edit, in the document"),
@@ -394,7 +394,7 @@ struct ShortcutsReferenceView: View {
     /// scrolled, and the longest key strings wrapped in a keys column that stayed 165pt while its
     /// type grew. `theReferenceFitsItsWindowAtEveryTextSize` holds every selectable stop to the
     /// same fit and the same 60pt ceiling on empty space this number was held to.
-    static let windowSize = CGSize(width: 1240, height: 762)
+    static let windowSize = CGSize(width: 1240, height: 760)
 
     /// The keys column at the default text size.
     static let keysColumnWidth: CGFloat = 165
@@ -426,7 +426,11 @@ struct ShortcutsReferenceView: View {
     /// 240 left Largest 8pt (819pt of rows in 827). 250 leaves it 13pt, and 120% — the stop
     /// nearest the 60pt ceiling, 738pt of rows — 59pt, so this cannot rise much further without
     /// re-measuring.
-    static let heightPerGrowth: CGFloat = 250
+    ///
+    /// **258, with the default window 760**, on 2026-11-03: the ⌃⇥ row lost ⇧⌘P with View ▸ File
+    /// Preview and stopped wrapping at 90%, which left 90% 62pt under its last row. The base came
+    /// down 2pt for 90% and the growth went up to give the large stops those points back.
+    static let heightPerGrowth: CGFloat = 258
 
     static func keysColumnWidth(scale: CGFloat) -> CGFloat {
         (keysColumnWidth * growth(scale: scale)).rounded()

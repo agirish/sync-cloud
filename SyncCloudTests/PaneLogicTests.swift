@@ -423,6 +423,35 @@ import Sync
         #expect(isClose(PaneLogic.verticalDragFraction(locationY: 600, panesHeight: 800), 0.25))
     }
 
+    // inspectorFollowsLeft (TE317·5)
+
+    /// In Compare the inspector follows the pane the user is working in, even when the other pane
+    /// also holds a selection — the left-first rule described the left pane after a click on the right.
+    @Test func testTheInspectorFollowsTheFocusedPaneInCompare() {
+        #expect(!PaneLogic.inspectorFollowsLeft(isCompare: true, focusedIsLeft: false,
+                                                leftHasSelection: true, rightHasSelection: true))
+        #expect(PaneLogic.inspectorFollowsLeft(isCompare: true, focusedIsLeft: true,
+                                               leftHasSelection: true, rightHasSelection: true))
+    }
+
+    /// A focused pane with nothing selected hands over to the other pane's selection rather than
+    /// describing nothing; with nothing selected anywhere, the left pane, as before.
+    @Test func testAnEmptyFocusedPaneFallsThroughToTheOther() {
+        #expect(PaneLogic.inspectorFollowsLeft(isCompare: true, focusedIsLeft: false,
+                                               leftHasSelection: true, rightHasSelection: false))
+        #expect(!PaneLogic.inspectorFollowsLeft(isCompare: true, focusedIsLeft: true,
+                                                leftHasSelection: false, rightHasSelection: true))
+        #expect(PaneLogic.inspectorFollowsLeft(isCompare: true, focusedIsLeft: false,
+                                               leftHasSelection: false, rightHasSelection: false))
+    }
+
+    /// Outside Compare there is one pane, and it is the left one, whatever a stale right
+    /// selection says.
+    @Test func testOutsideCompareTheInspectorFollowsTheLeftPane() {
+        #expect(PaneLogic.inspectorFollowsLeft(isCompare: false, focusedIsLeft: false,
+                                               leftHasSelection: false, rightHasSelection: true))
+    }
+
     // inspectorDragWidth
 
     @Test func testInspectorDragLeftWidensRightNarrows() {

@@ -80,6 +80,11 @@ public struct PaneHeader: View {
     /// — the mistake `shortcutPreviewColumn` documents. The host resolves it once and hands the same
     /// binding to the pill, the column context menu and ⇧⌘P.
     public var previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault)
+    /// Whether the bar offers the Preview button at all. False in the app, where the preview is the
+    /// window's Info inspector (TE317 C): a button on each pane for one window-wide panel would put
+    /// two in Compare, beside the toolbar's Info button and ⌘I that already open it. A stored
+    /// arrangement keeps the item; it is simply not offered, so turning this back on restores it.
+    public var offersPreview: Bool = true
     /// Creates a folder in the pane's current folder — in Columns that is the deepest open column,
     /// which is the one genuinely unambiguous answer the tree view could never give. `nil` hides it.
     public let onNewFolder: (() -> Void)?
@@ -194,6 +199,7 @@ public struct PaneHeader: View {
         showHiddenFiles: Binding<Bool>,
         viewMode: Binding<PaneViewMode>? = nil,
         previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault),
+        offersPreview: Bool = true,
         onNewFolder: (() -> Void)? = nil,
         onDelete: (() -> Void)? = nil,
         selectionCount: Int = 0,
@@ -232,6 +238,7 @@ public struct PaneHeader: View {
         self._showHiddenFiles = showHiddenFiles
         self.viewMode = viewMode
         self.previewEnabled = previewEnabled
+        self.offersPreview = offersPreview
         self.onNewFolder = onNewFolder
         self.onDelete = onDelete
         self.selectionCount = selectionCount
@@ -1413,7 +1420,7 @@ public struct PaneHeader: View {
     /// both modes now answer yes — Tree draws the same preview Columns does — and the decision stays
     /// in `PaneViewMode.showsPreviewToggle` rather than being restated here.
     private var showsPreviewToggle: Bool {
-        guard let viewMode else { return false }
+        guard offersPreview, let viewMode else { return false }
         return PaneViewMode.showsPreviewToggle(mode: viewMode.wrappedValue)
     }
 
@@ -1449,13 +1456,11 @@ public struct PaneHeader: View {
         // segment inset the pill gave up, so the capsule is a pill's width like its neighbours'
         // and the ON fill sits inside it the way a chosen segment sits in its track.
         .chromeGlassGround(.capsule, horizontalOutset: PaneNavMetrics.segmentInset / 2, verticalOutset: 0)
-        .shortcutKeycap(AppChord.previewColumn.display)
         .accessibilityAddTraits(previewEnabled.wrappedValue ? [.isButton, .isSelected] : .isButton)
         .accessibilityLabel("Preview pane")
-        .help(ShortcutHint.tooltip(previewEnabled.wrappedValue
-                                   ? "The preview pane is showing — click to hide it"
-                                   : "Show a preview of the selected file",
-                                   AppChord.previewColumn.display))
+        .help(previewEnabled.wrappedValue
+              ? "The preview pane is showing — click to hide it"
+              : "Show a preview of the selected file")
     }
 
     /// Right-clicking the bar itself, which is where anyone who has customized Finder's toolbar will

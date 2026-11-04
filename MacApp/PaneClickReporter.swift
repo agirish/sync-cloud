@@ -3,7 +3,7 @@ import AppKit
 
 /// **Reports that a click landed anywhere in a pane, without taking the click.**
 ///
-/// `focusedPaneSide` is what every pane-scoped surface reads — ⌘F, ⌘[, ⌘], ⇧⌘N, ⇧⌘P, the file
+/// `focusedPaneSide` is what every pane-scoped surface reads — ⌘F, ⌘[, ⌘], ⇧⌘N, the file
 /// action bar, the lens scans and the folder sidebar — and until now it moved on only three things:
 /// ⌃⇥, a row selection, and the tab verbs. Everything else a person does inside a pane left it
 /// pointing at the other one: clicking the empty space under the last row, the header card's

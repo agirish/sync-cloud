@@ -748,24 +748,19 @@ struct ContentView: View {
     /// Persisted so it stays open/closed across launches. Internal, not private: its toggle sits in
     /// the window toolbar now (ContentView+Toolbar.swift).
     @AppStorage("showCompareInspector") var showInspector: Bool = false
-    /// The Columns preview column, as Compare and the single-source rail (Organize, Storage) share it.
-    /// Declared here rather than in the views that draw it because there are two of these keys now and
-    /// only this view knows which surface is on screen — every writer (the header's pill, a column's
-    /// empty-area context menu, ⇧⌘P) goes through `resolvedPreviewBinding`.
-    @AppStorage(PaneViewMode.previewColumnKey(isBrowse: false)) var previewColumnEnabled: Bool =
-        PaneViewMode.previewColumnDefault
-    /// Browse's own preview preference, on its own key so turning the preview off to compare two
-    /// providers does not take it away from browsing. Nothing seeds it from the shared key: Browse
-    /// starts at the default, on. See `PaneViewMode.browsePreviewColumnDefaultsKey`.
-    @AppStorage(PaneViewMode.previewColumnKey(isBrowse: true)) var browsePreviewColumnEnabled: Bool =
-        PaneViewMode.previewColumnDefault
+    /// No preview preference is read here any more (TE317 C, TE318): the preview is part of the Info
+    /// inspector, which `showInspector` opens, and no pane draws one of its own.
     /// The Info inspector's persisted width, resizable by dragging its leading edge. Defaults to the
     /// former fixed 270pt. Clamped to `PaneLogic.inspector{Min,Max}Width` whenever it's written.
-    @AppStorage("compareInspectorWidth") private var inspectorWidth: Double = 270
+    @AppStorage("compareInspectorWidth") private var inspectorWidth: Double = 360
     /// The live width during a resize drag; `nil` when idle. Mirrors the pane splits' pattern —
     /// the layout reads `inspectorDragWidth ?? inspectorWidth`, and the drag commits to
     /// `inspectorWidth` only on release, so `inspectorWidth` stays the stable drag-start base.
     @State private var inspectorDragWidth: Double? = nil
+    /// The preview's share of the Info inspector's height (TE318 B): set by dragging the bar under
+    /// it, kept across launches, and most of the panel until the user says otherwise.
+    @AppStorage("infoInspectorPreviewFraction") private var inspectorPreviewFraction: Double =
+        DetailsSidebar.defaultPreviewFraction
     /// Per-pane action-bar placement scratch space. `FileTreeView` fills each with live row/viewport
     /// geometry; `paneColumn` reads the resolved edge straight from `body`, so the bar's edge is
     /// known synchronously the instant the selection changes — no gate, no show-then-flip.
@@ -1147,21 +1142,6 @@ struct ContentView: View {
     func resolvedViewModeBinding(isLeft: Bool) -> Binding<PaneViewMode> {
         if selectedWorkspace == .browse { return browseViewModeBinding }
         return layoutMode == .singleSource ? railViewModeBinding : paneViewModeBinding(isLeft: isLeft)
-    }
-
-    /// Which stored preview preference the surface on screen is reading and writing.
-    ///
-    /// Shaped like `resolvedViewModeBinding(isLeft:)` and for the same one-member reason, with one
-    /// difference: it takes no side. The two comparison panes are read against each other, so they share
-    /// this answer exactly as they share `columnWidthDefaultsKey` — only Browse stands apart, and the
-    /// rail falls through to the shared key with Compare because Organize and Storage are lens surfaces
-    /// where a preview costs the columns doing the work half the room.
-    ///
-    /// Every writer resolves through here. Three views can flip this — the header's pill, a column's
-    /// empty-area context menu, and ⇧⌘P — and `shortcutPreviewColumn` is the standing record of what a
-    /// second, independent answer to "which surface am I on" costs.
-    var resolvedPreviewBinding: Binding<Bool> {
-        selectedWorkspace == .browse ? $browsePreviewColumnEnabled : $previewColumnEnabled
     }
 
     /// Everything the tree diff indices are derived from, as one Equatable value
@@ -4305,8 +4285,8 @@ struct ContentView: View {
                 showHiddenFiles: $syncManager.showHiddenFiles,
                 // The rail and Browse get the switch too, each bound to its own key.
                 viewMode: resolvedViewModeBinding(isLeft: isLeft),
-                // The pill, on the same resolved answer the pane and ⇧⌘P use.
-                previewEnabled: resolvedPreviewBinding,
+                // The preview is the window's Info inspector now, opened from the toolbar and ⌘I.
+                offersPreview: false,
                 // Targets the pane's current folder, which in Columns is the deepest open column.
                 // One resolution shared with ⇧⌘N — see `beginNewFolder(isLeft:)`.
                 onNewFolder: { beginNewFolder(isLeft: isLeft) },
@@ -4549,18 +4529,69 @@ struct ContentView: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 12)
             Divider()
+            // Which pane the inspector is describing, in Compare, where it follows the pane you
+            // are working in (TE318·m4). A Get Info target names no pane, so it gets no line.
+            if layoutMode == .compare, infoPath == nil {
+                Text(inspectorFollowsLeft ? "Left pane · \(paneNames.left)" : "Right pane · \(paneNames.right)")
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16).padding(.vertical, 6)
+                Divider()
+            }
             DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath, compact: true, overridePath: infoPath, singleSource: layoutMode == .singleSource, cloudCoverage: settings.cloudCoverage,
                            // The app answers what the editor opens, because the app is where every
                            // other door asks it: `EditableText.opensInEdit` is the row menu's own
                            // gate, so the inspector cannot come to disagree with the menu about a file.
                            editorHandOff: EditorHandOff(isOffered: { EditableText.opensInEdit(path: $0) },
-                                                       open: { handOffToEditor($0) }))
+                                                       open: { handOffToEditor($0) }),
+                           // The picture over the details, at the height last dragged to (TE318 B).
+                           previewFraction: $inspectorPreviewFraction,
+                           preview: inspectorPreviewTarget.map { target in
+                               AnyView(InspectorFilePreview(
+                                   node: target.node,
+                                   paneToken: PaneToken(isLeft: target.isLeft,
+                                                        isSingleSource: layoutMode == .singleSource),
+                                   onOpenInEditor: { handOffToEditor($0) }))
+                           },
+                           // The pane you are working in, the same answer the preview reads.
+                           followsRight: !inspectorFollowsLeft)
         }
         .frame(width: inspectorDragWidth ?? inspectorWidth)
         // A card like every other surface, not a docked `.bar` panel: the opaque bar fill was a
         // solid band down a window Clear asks to see through, and its zero inset broke the gap
         // model (2.5pt to the pane card, flush to the window edge the root padding then floated).
         .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+    }
+
+    /// Whether the inspector describes the LEFT pane's selection: the pane the user is working in
+    /// (`focusedPane`), or the other one when that holds nothing. `DetailsSidebar` on its own reads
+    /// the left pane first, so in Compare a click in the right pane was described only once the left
+    /// pane's selection was empty — wrong the moment the inspector carries the preview (TE317·5).
+    private var inspectorFollowsLeft: Bool {
+        PaneLogic.inspectorFollowsLeft(isCompare: layoutMode == .compare,
+                                       focusedIsLeft: focusedPane == .left,
+                                       leftHasSelection: !syncManager.selectedLeftPaths.isEmpty,
+                                       rightHasSelection: !syncManager.selectedRightPaths.isEmpty)
+    }
+
+    /// The one file the inspector previews, and which pane's tree it was found in — nil for a
+    /// folder, several items, or nothing selected.
+    private var inspectorPreviewTarget: (node: FileNode, isLeft: Bool)? {
+        if let infoPath {
+            // A Get Info target names no pane; it is in whichever tree holds it.
+            if let node = syncManager.leftNodes(for: [infoPath]).first { return node.isDirectory ? nil : (node, true) }
+            if let node = syncManager.rightNodes(for: [infoPath]).first { return node.isDirectory ? nil : (node, false) }
+            return nil
+        }
+        let isLeft = inspectorFollowsLeft
+        let paths = isLeft ? syncManager.selectedLeftPaths : syncManager.selectedRightPaths
+        guard paths.count == 1 else { return nil }
+        let node = (isLeft ? syncManager.leftNodes(for: paths) : syncManager.rightNodes(for: paths)).first
+        guard let node, !node.isDirectory else { return nil }
+        return (node, isLeft)
     }
 
     /// The draggable seam between the panes and the Info inspector: a 1pt strip in the HStack flow
@@ -5175,9 +5206,6 @@ struct ContentView: View {
             // The tab strip above takes it too, from the same helper.
             isActivePane: paneWearsActiveAccent(isLeft: pane.isLeft),
             viewMode: pane.viewMode,
-            // The same resolved answer the header's pill writes, so the pane and the pill can never be
-            // looking at different keys — and so Browse's preview survives being turned off in Compare.
-            previewEnabled: resolvedPreviewBinding,
             childrenIndex: pane.childrenIndex,
             browsePath: pane.isLeft ? $syncManager.leftBrowsePath : $syncManager.rightBrowsePath,
             onColumnNavigate: { applyColumnNavigation($0, isLeft: pane.isLeft) },
@@ -5205,7 +5233,9 @@ struct ContentView: View {
             typeFilter: typeFilterDecor(isLeft: pane.isLeft),
             typeFilterEmptied: typeFilterEmptied(isLeft: pane.isLeft),
             typeFilterFolderName: typeFilterFolderName(isLeft: pane.isLeft),
-            onClearTypeFilter: { typeFilterBinding(isLeft: pane.isLeft).wrappedValue = nil }
+            onClearTypeFilter: { typeFilterBinding(isLeft: pane.isLeft).wrappedValue = nil },
+            // The preview is the Info inspector's now (TE317 C), so a click never resizes the pane.
+            drawsPreview: false
         )
         // The whole point of `FileTreeView: Equatable`. Without this the conformance is inert —
         // SwiftUI only consults a view's `==` through `EquatableView` — and this view is built
